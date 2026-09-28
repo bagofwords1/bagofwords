@@ -37,27 +37,37 @@ class RecordValidationError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def _is_owner_written(spec: CollectionSpec) -> bool:
-    return spec.scope == "shared" and spec.create == "owner"
+def is_publicly_readable(spec: CollectionSpec) -> bool:
+    """Published to public-link visitors: an explicit ``public_read`` on a
+    shared collection only the owner writes. Who may write never decides it."""
+    return spec.scope == "shared" and spec.create == "owner" and spec.public_read
 
 
 def can_read(spec: CollectionSpec, principal: Principal) -> bool:
     if principal in ("owner", "member"):
         return True
-    # Outsiders and anonymous visitors see only what the owner wrote and published.
-    return _is_owner_written(spec)
+    # Outsiders and anonymous visitors read only what the owner published.
+    return is_publicly_readable(spec)
 
 
-def visible_author_filter(spec: CollectionSpec, principal: Principal, *, user_id: Optional[str]) -> Optional[str]:
+def visible_author_filter(
+    spec: CollectionSpec, principal: Principal, *, user_id: Optional[str], owner_id: Optional[str],
+) -> Optional[str]:
     """Author id the list must be restricted to, or None for all records.
 
-    Raises ValueError for a per_user collection without a user id: a private
-    collection is never listed unfiltered.
+    per_user: the caller's own rows. Outsiders and anonymous visitors: only
+    the report owner's rows, so rows other users wrote (for example under an
+    earlier declaration) are never published. Raises ValueError when the id
+    to filter by is missing: such a list is never returned unfiltered.
     """
     if spec.scope == "per_user":
         if user_id is None:
             raise ValueError("per_user collections need a user id to filter by")
         return user_id
+    if principal in ("outsider", "anonymous"):
+        if owner_id is None:
+            raise ValueError("public reads need the report owner's id to filter by")
+        return owner_id
     return None
 
 
@@ -110,11 +120,16 @@ def _check_value(spec: CollectionSpec, name: str, value: Any) -> None:
 
 
 def _check_record(spec: CollectionSpec, record: Dict[str, Any]) -> None:
-    """Required fields and size limits on the full record to be stored."""
+    """Required fields, and size limits on the record to be stored and on
+    what reads return for it (declared fields plus defaults)."""
     for name, field in spec.fields.items():
         if field.required and not field.has_default and record.get(name) is None:
             raise RecordValidationError("validation", "required", name)
+    _check_sizes(spec, record)
+    _check_sizes(spec, project_record_data(spec, record))
 
+
+def _check_sizes(spec: CollectionSpec, record: Dict[str, Any]) -> None:
     non_json: Dict[str, Any] = {}
     for name, value in record.items():
         field = spec.fields.get(name)

@@ -49,6 +49,22 @@ def test_declaration_has_the_three_demo_collections_with_their_rules(seed):
     assert cols["selections"].fields["genre"].has_default and cols["selections"].fields["genre"].default is None
     assert (cols["highlights"].scope, cols["highlights"].create, cols["highlights"].modify) == ("shared", "owner", "owner")
     assert cols["notes"].fields["country"].required and cols["notes"].fields["text"].required
+    # Only the owner's highlights are published through the public link.
+    assert cols["highlights"].public_read is True
+    assert cols["notes"].public_read is False and cols["selections"].public_read is False
+
+
+def test_existing_demo_with_another_declaration_needs_force_new(seed):
+    import copy
+
+    older = copy.deepcopy(seed.STORAGE)
+    del older["collections"]["highlights"]["public_read"]
+    assert seed.demo_action(None, force_new=False) == "create"
+    assert seed.demo_action({"content": {"storage": copy.deepcopy(seed.STORAGE)}}, force_new=False) == "reuse"
+    # Never mutate an installed demo silently: a different declaration stops the run.
+    assert seed.demo_action({"content": {"storage": older}}, force_new=False) == "declaration_differs"
+    assert seed.demo_action({"content": {}}, force_new=False) == "declaration_differs"
+    assert seed.demo_action({"content": {"storage": older}}, force_new=True) == "create"
 
 
 def test_fixture_passes_the_use_collection_gate(seed, code):

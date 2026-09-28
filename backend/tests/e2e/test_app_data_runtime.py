@@ -736,6 +736,213 @@ async def test_conflict_error_survives_a_reused_in_flight_list(tmp_path):
             await s.browser.close()
 
 
+# ── A list started before a write must not undo that write ───────────────────
+
+
+@requires_browser
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "initial,write,write_reply,after_write,stale_items,fresh_items",
+    [
+        ([], "window.__notes.add({ text: 'saved' })", _record("n2", "saved"),
+         ["saved"], [], [_record("n2", "saved")]),
+        ([_record("n1", "before", 1)], "window.__notes.update('n1', { text: 'after' })",
+         _record("n1", "after", 2), ["after"], [_record("n1", "before", 1)], [_record("n1", "after", 2)]),
+        ([_record("n1", "doomed", 1), _record("n3", "other", 1)], "window.__notes.remove('n1')",
+         {"id": "n1", "deleted": True}, ["other"],
+         [_record("n1", "doomed", 1), _record("n3", "other", 1)], [_record("n3", "other", 1)]),
+    ],
+    ids=["add", "update", "remove"],
+)
+async def test_list_started_before_a_confirmed_write_does_not_overwrite_it(
+    tmp_path, initial, write, write_reply, after_write, stale_items, fresh_items
+):
+    """External review #4: refresh -> write succeeds -> the older list answer
+    arrives. The confirmed write must stay visible; the store re-reads."""
+    from playwright.async_api import async_playwright
+
+    async def notes(child):
+        return await child.eval_on_selector_all("li.note", "els => els.map(e => e.textContent)")
+
+    async with async_playwright() as p:
+        s = await _open_loaded(p, tmp_path, initial)
+        try:
+            child = s.child
+            await child.evaluate(
+                "() => { window.__refreshed = false; window.__notes.refresh().then(() => { window.__refreshed = true; }); }"
+            )
+            reqs = await _wait_requests(s.page, 2)
+            assert reqs[1]["op"] == "list"
+
+            await child.evaluate(f"() => {{ {write}; }}")
+            reqs = await _wait_requests(s.page, 3)
+            assert reqs[2]["op"] in ("create", "update", "delete")
+            await _reply(s.page, {"rid": reqs[2]["rid"], "ok": True, "record": write_reply})
+            await child.wait_for_function(
+                "want => JSON.stringify([...document.querySelectorAll('li.note')].map(e => e.textContent)) === want",
+                arg=json.dumps(after_write), timeout=5_000,
+            )
+
+            # The list that was in flight before the write answers with old rows.
+            await _reply(s.page, {"rid": reqs[1]["rid"], "ok": True, "items": stale_items})
+            await s.page.wait_for_timeout(300)
+            assert await notes(child) == after_write, "a stale list must not undo a confirmed write"
+
+            reqs = await _wait_requests(s.page, 4, timeout=5_000)
+            assert reqs[3]["op"] == "list", "the stale list must be re-read"
+            assert await child.evaluate("() => window.__refreshed") is False, \
+                "refresh() must settle with the fresh list, not the stale one"
+            await _reply(s.page, {"rid": reqs[3]["rid"], "ok": True, "items": fresh_items})
+            await child.wait_for_function("() => window.__refreshed === true", timeout=5_000)
+            assert await notes(child) == after_write
+            assert await _text(child, "#error") == "none"
+            assert await _text(child, "#loading") == "no"
+            assert s.page_errors == []
+        finally:
+            await s.browser.close()
+
+
+@requires_browser
+@pytest.mark.asyncio
+async def test_list_answer_containing_an_in_flight_create_is_not_duplicated(tmp_path):
+    """A list that already includes a record whose create is still in flight
+    must not show it twice once the create answers."""
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        s = await _open_loaded(p, tmp_path, [])
+        try:
+            child = s.child
+            await child.evaluate("() => { window.__notes.add({ text: 'saved' }); }")
+            reqs = await _wait_requests(s.page, 2)
+            await child.evaluate("() => { window.__notes.refresh(); }")
+            reqs = await _wait_requests(s.page, 3)
+            assert [r["op"] for r in reqs] == ["list", "create", "list"]
+            await _reply(s.page, {"rid": reqs[2]["rid"], "ok": True, "items": [_record("n2", "saved")]})
+            await _wait_text(child, "#count", "1")
+            await _reply(s.page, {"rid": reqs[1]["rid"], "ok": True, "record": _record("n2", "saved")})
+            await s.page.wait_for_timeout(300)
+            assert await _text(child, "#count") == "1"
+            assert s.page_errors == []
+        finally:
+            await s.browser.close()
+
+
+# ── Collection names and rids that collide with Object.prototype ─────────────
+
+PROTO_NAMES = ["constructor", "toString", "hasownproperty", "valueOf"]
+
+PROTO_APP = """<script type="text/babel">
+function Coll({ name }) {
+  const c = useCollection(name);
+  window.__cols = window.__cols || {};
+  window.__cols[name] = c;
+  return <div className="coll" data-name={name} data-loading={String(c.loading)}
+              data-error={c.error ? c.error.code : 'none'}>{c.items.length}</div>;
+}
+function App() {
+  return <main>{%s.map(n => <Coll key={n} name={n} />)}</main>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>""" % json.dumps(PROTO_NAMES)
+
+
+async def _no_crash(s, waiting):
+    """Await a wait; on timeout, report the page error that caused it."""
+    from playwright.async_api import TimeoutError as PlaywrightTimeout
+
+    try:
+        return await waiting
+    except PlaywrightTimeout:
+        assert s.page_errors == [], s.page_errors
+        raise
+
+
+async def _coll_counts(frame):
+    return await frame.evaluate(
+        "() => Object.fromEntries([...document.querySelectorAll('.coll')].map(e => [e.dataset.name, e.textContent]))"
+    )
+
+
+@requires_browser
+@pytest.mark.asyncio
+async def test_prototype_named_collections_work_in_the_memory_host(tmp_path):
+    """External review #5: `constructor` is a valid collection name."""
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        s = await _open_top_level(p, tmp_path, _artifact_page(PROTO_APP))
+        try:
+            f = s.page.main_frame
+            await _no_crash(s, f.wait_for_function(
+                "n => document.querySelectorAll('.coll[data-loading=\"false\"]').length === n",
+                arg=len(PROTO_NAMES), timeout=10_000,
+            ))
+            for name in PROTO_NAMES:
+                out = await f.evaluate(
+                    "n => window.__cols[n].add({ text: n }).then(r => r.data.text, e => 'rejected:' + e.message)",
+                    name,
+                )
+                assert out == name
+            await f.wait_for_function(
+                "() => [...document.querySelectorAll('.coll')].every(e => e.textContent === '1')", timeout=5_000
+            )
+            assert await _coll_counts(f) == {n: "1" for n in PROTO_NAMES}
+            assert s.page_errors == [], s.page_errors
+        finally:
+            await s.browser.close()
+
+
+@requires_browser
+@pytest.mark.asyncio
+async def test_prototype_named_collections_and_rids_over_the_bridge(tmp_path):
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        s = await _open_in_stub_parent(p, tmp_path, _artifact_page(PROTO_APP, boundary=True))
+        try:
+            child = s.child
+            await _no_crash(s, child.wait_for_selector(".coll", timeout=10_000))
+            reqs = await _wait_requests(s.page, len(PROTO_NAMES))
+            assert sorted(r["collection"] for r in reqs) == sorted(PROTO_NAMES)
+            for r in reqs:
+                await _reply(s.page, {"rid": r["rid"], "ok": True, "items": [_record("id-" + r["collection"], "x")]})
+            await child.wait_for_function(
+                "() => [...document.querySelectorAll('.coll')].every(e => e.textContent === '1')", timeout=5_000
+            )
+            await s.page.wait_for_timeout(300)
+            msgs = await s.page.evaluate("window.__msgs")
+            assert not [m for m in msgs if m.get("type") == "ARTIFACT_ERROR"], msgs
+            assert s.page_errors == [], s.page_errors
+        finally:
+            await s.browser.close()
+
+
+@requires_browser
+@pytest.mark.asyncio
+async def test_result_with_a_prototype_key_rid_is_ignored(tmp_path):
+    """A parent answering with rid `__proto__`, `hasOwnProperty`, ... matches
+    no pending request: nothing throws and the real answer still lands."""
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        s = await _open_in_stub_parent(p, tmp_path, _artifact_page(NOTES_APP, boundary=True))
+        try:
+            reqs = await _wait_requests(s.page, 1)
+            for rid in ["hasOwnProperty", "__proto__", "__defineGetter__", "constructor", "toString"]:
+                await _reply(s.page, {"rid": rid, "ok": True, "items": [_record("forged", "forged")]})
+            await s.page.wait_for_timeout(300)
+            child = s.child
+            assert s.page_errors == [], s.page_errors
+            msgs = await s.page.evaluate("window.__msgs")
+            assert not [m for m in msgs if m.get("type") == "ARTIFACT_ERROR"], msgs
+            assert await _text(child, "#count") == "0"
+            await _reply(s.page, {"rid": reqs[0]["rid"], "ok": True, "items": [_record("n1", "real")]})
+            await _wait_text(child, "li.note", "real")
+        finally:
+            await s.browser.close()
+
+
 # ── Hosts without a server ─────────────────────────────────────────────────────
 
 

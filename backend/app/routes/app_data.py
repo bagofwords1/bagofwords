@@ -2,7 +2,7 @@
 
 `{artifact_id}` is the PARENT artifact id (`ArtifactSchema.artifact_id`),
 never a version id. Authentication is optional: anonymous visitors of a public
-artifact may read owner-written collections. The organization comes from the
+artifact may read the owner's records of `public_read` collections. The organization comes from the
 artifact, never from `X-Organization-Id`, and every access decision is made in
 `app_data_service` (Layer 1 report visibility, then the collection rules).
 """

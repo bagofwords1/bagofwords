@@ -82,7 +82,11 @@ def test_example_rules_match_their_purpose():
     assert all(c["scope"] == "per_user" for c in ex["remembered_form"].values())
     blog = ex["blog"]
     assert (blog["posts"]["scope"], blog["posts"]["create"]) == ("shared", "owner")
+    # Posts are published to public-link readers; comments are not.
+    assert blog["posts"].get("public_read") is True
     assert (blog["comments"]["create"], blog["comments"]["modify"]) == ("members", "author")
+    assert "public_read" not in blog["comments"]
+    assert "public_read" not in ex["notes"]["notes"]
 
 
 def test_contract_names_the_vocabulary():
@@ -93,9 +97,20 @@ def test_contract_names_the_vocabulary():
         assert f"`{field_type}`" in contract, field_type
     for rule in ("shared", "per_user", "members", "owner", "author"):
         assert rule in contract, rule
-    for kind in ("collection_removed", "field_removed", "field_type_changed",
-                 "scope_changed", "create_changed", "field_made_required", "collection_readded"):
+    for kind in ("collection_removed", "field_removed", "field_type_changed", "field_readded",
+                 "access_changed", "field_made_required", "collection_readded"):
         assert kind in contract, kind
+    for retired in ("scope_changed", "create_changed"):
+        assert retired not in contract, retired
+
+
+def test_contract_explains_public_read_and_its_restriction():
+    contract = _contract()
+    assert '"public_read": true' in contract
+    assert 'public_read is allowed only with scope "shared" and create "owner"' in contract
+    assert "only the owner's records" in contract
+    # Changing who may add never publishes anything.
+    assert "Changing create never changes who can read" in contract
 
 
 def test_contract_lists_every_change_kind_the_gate_reports():
@@ -134,6 +149,7 @@ def test_storage_field_descriptions():
     assert "keep" in edit and "replaces" in edit
     for desc in (create, edit):
         assert "approv" in desc
+        assert "public_read" in desc
 
 
 @pytest.mark.parametrize("index", [0, 1, 2])
@@ -159,7 +175,7 @@ def _phrase_rows():
     ("everyone can add, each edits their own", 'shared, create "members", modify "author"'),
     ("everyone can add, only the owner moderates", 'shared, create "members", modify "owner"'),
     ("remember my choice", "per_user"),
-    ("publish to viewers without accounts", 'create "owner"'),
+    ("publish to viewers without an account", 'shared, create "owner", modify "owner", public_read true'),
 ])
 def test_contract_maps_request_phrases_to_rules(phrase, rules):
     matches = [r for p, r in _phrase_rows().items() if phrase in p]

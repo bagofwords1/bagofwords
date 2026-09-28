@@ -54,8 +54,11 @@ Two layers, and the second can only narrow the first:
    `modify: author|owner`; `scope: per_user` means each user sees and changes only their own rows.
 
 Principals: owner, member (org member or share recipient), outsider (signed in but neither),
-anonymous. Anonymous and outsider access is derived, not declared: they may read a collection
-only when it is `shared` with `create=owner` (owner-published content), and they never write.
+anonymous. Public reads are declared, never derived from write rules: a collection with
+`public_read: true` (allowed only with `scope: shared` and `create: owner`, default false) is
+readable by anonymous visitors and outsiders of a public artifact, who then see only the report
+owner's records of it (filtered in SQL on `user_id`). Changing `create` never changes reads.
+They never write.
 
 ## Save round trip over the host bridge
 
@@ -95,10 +98,18 @@ Rows are never rewritten. Reads apply the current declaration: missing fields ge
 declared default, removed fields are hidden (and come back on revert), changed types are
 returned as stored. A new required field in an existing collection must have a default.
 
-Destructive changes need the user's approval: `collection_removed`, `field_removed`,
-`field_type_changed`, `scope_changed`, `create_changed`, `field_made_required` (without default)
-and `collection_readded` (live orphaned rows would become visible again). They are detected
-against the effective declaration, even for empty collections (impact 0 is shown).
+Changes that alter who can read or change records need the user's approval. Access is compared,
+not syntax: for every kept collection and every principal class (owner, member, outsider,
+anonymous) the tool evaluates the enforcing rule functions (`can_read` with the list filter,
+`can_create`, `can_modify` on an own and another user's record) on the old and the new
+declaration; any difference is an `access_changed` (principal, capability, before, after), and
+the card states the outcome ("Anyone with the public link will be able to read 2 existing
+record(s) written by the owner"). Data-level changes are detected separately because stored
+values survive removal: `collection_removed`, `collection_readded` (live orphaned rows),
+`field_removed`, `field_readded` (a removed field declared again, any type), `field_type_changed`
+and `field_made_required` (without default). They are detected against the effective declaration,
+even for empty collections (impact 0 is shown). Field defaults are held to the value size limits,
+and writes check the record as reads return it (stored values plus defaults).
 `create_artifact` / `edit_artifact` pause with a durable builtin confirmation
 (`stream_user_confirmation`; only the run's user can answer; card `StorageChangeApproval.vue`).
 Deny, timeout, a non-interactive run or too little tool budget left fail closed: nothing is
@@ -131,8 +142,14 @@ Omitting `storage` carries the declaration forward; `{"collections": {}}` remove
 
 - The 10,000-record cap is soft under concurrent creates (count then insert, no lock).
 - No list pagination; a list returns every visible live record.
-- Owner-only `PATCH` of artifact content (replace) and duplicating an older version can change
-  the declaration without the confirmation step (the declaration is still validated).
+- Owner-only `PATCH` of artifact content (replace), duplicating an older version, and deleting
+  the latest version (which rolls the effective declaration back) can change the declaration
+  without the confirmation step (the declaration is still validated). Field history only reads
+  live versions, so a field whose declaring version was deleted is not flagged when re-added.
+  Follow-up: enforce policy transitions in one place (the version-minting and deletion service)
+  and bind approval to the version being replaced, re-checked at commit time.
+- A default added later is not re-checked against existing records, so a read can exceed the
+  record size limit by up to the size of the new defaults.
 - The runtime cannot tell the viewer whether they are the report owner.
 - The `useCollection` reference gate uses a small lexer that does not model regex literals; the
   server still enforces the declaration, so a missed reference only fails at runtime.

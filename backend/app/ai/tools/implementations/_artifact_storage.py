@@ -13,9 +13,12 @@ can act on:
   decidable. Comments and string literals are ignored; aliases, optional
   calls, bracket access and destructuring are rejected.
 - ``storage_changes`` / ``describe_storage_changes``: declaration changes that
-  can hide or expose stored records (spec 12 plus scope / create-rule changes,
-  fields made required, and collections re-declared over orphaned rows), with
-  the record impact.
+  change who can read or change stored records, with the record impact.
+  Access is compared by evaluating the SAME rule functions that enforce it
+  (``app_data_rules``) on the old and the new declaration for every principal
+  class; any difference is a change. Data-level changes (removed or re-added
+  collections and fields, type changes, fields made required) are detected
+  separately because stored values survive removal (spec 12, revised).
 
 The impure parts are at the end: ``destructive_storage_changes`` (reads the
 effective declaration and, only when storage is involved and something may
@@ -31,6 +34,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.ai.runner.policies import TimeoutPolicy
 from app.schemas.app_storage import CollectionSpec, FieldSpec, StorageDeclaration, parse_storage_declaration
+from app.services.app_data_rules import can_create, can_modify, can_read, visible_author_filter
 
 USE_COLLECTION_RE = re.compile(r"\buseCollection\s*\(")
 # Any reference to the identifier (not part of a longer identifier).
@@ -237,6 +241,7 @@ def write_handling_note(code: str) -> str:
 
 _CREATE_WORDS = {"members": "members", "owner": "owner only"}
 _MODIFY_WORDS = {"author": "each author their own (owner: any)", "owner": "owner only"}
+_PUBLIC_WORDS = {True: "owner's records visible", False: "not visible"}
 
 
 def describe_storage_rules(declaration: Optional[StorageDeclaration]) -> str:
@@ -249,7 +254,8 @@ def describe_storage_rules(declaration: Optional[StorageDeclaration]) -> str:
             parts.append(f"{name} — private per viewer.")
         else:
             parts.append(
-                f"{name} — shared; add: {_CREATE_WORDS[spec.create]}; edit/delete: {_MODIFY_WORDS[spec.modify]}."
+                f"{name} — shared; add: {_CREATE_WORDS[spec.create]}; edit/delete: {_MODIFY_WORDS[spec.modify]}; "
+                f"public link: {_PUBLIC_WORDS[spec.public_read]}."
             )
     return "Storage: " + " ".join(parts)
 
@@ -307,19 +313,91 @@ def storage_declaration_errors(new_raw: Any, previous: Optional[StorageDeclarati
 class StorageChange(BaseModel):
     kind: Literal[
         "collection_removed",
-        "field_removed",
-        "field_type_changed",
-        "scope_changed",
-        "create_changed",
-        "field_made_required",
         "collection_readded",
+        "field_removed",
+        "field_readded",
+        "field_type_changed",
+        "field_made_required",
+        "access_changed",
     ]
     collection: str
     field: Optional[str] = None
+    # access_changed only: who ("owner", "member", "public" = outsiders and
+    # anonymous visitors alike, or "outsider"/"anonymous" when they differ)
+    # and what ("read": none|own|owner|all; the others: yes|no).
+    principal: Optional[str] = None
+    capability: Optional[str] = None
     before: Optional[str] = None
     after: Optional[str] = None
     records: int
     users: int
+
+
+# ---------------------------------------------------------------------------
+# Effective access, evaluated with the enforcing rule functions
+# ---------------------------------------------------------------------------
+
+_PRINCIPALS = ("owner", "member", "outsider", "anonymous")
+_CAPABILITIES = ("read", "create", "modify_own", "modify_others")
+# Stand-in ids: only equality between them matters to the rules.
+_OWNER_ID = "report-owner"
+_SAMPLE_ID = {"owner": _OWNER_ID, "member": "a-member", "outsider": "an-outsider", "anonymous": None}
+_OTHER_ID = "someone-else"
+
+
+def _read_level(spec: CollectionSpec, principal: str) -> str:
+    """Whose records ``principal`` reads: none, own, owner (the report owner's) or all."""
+    if not can_read(spec, principal):
+        return "none"
+    user_id = _SAMPLE_ID[principal]
+    try:
+        author = visible_author_filter(spec, principal, user_id=user_id, owner_id=_OWNER_ID)
+    except ValueError:
+        return "none"
+    if author is None:
+        return "all"
+    return "own" if author == user_id else "owner"
+
+
+def _access(spec: CollectionSpec, principal: str) -> Dict[str, str]:
+    user_id = _SAMPLE_ID[principal]
+
+    def yes(allowed: bool) -> str:
+        return "yes" if allowed else "no"
+
+    return {
+        "read": _read_level(spec, principal),
+        "create": yes(can_create(spec, principal)),
+        "modify_own": yes(can_modify(spec, principal, user_id=user_id, record_user_id=user_id or _OTHER_ID)),
+        "modify_others": yes(can_modify(spec, principal, user_id=user_id, record_user_id=_OTHER_ID)),
+    }
+
+
+def _access_changes(name: str, old: CollectionSpec, new: CollectionSpec, stats: Dict[str, int]) -> List[StorageChange]:
+    """Every (principal, capability) whose answer differs between ``old`` and
+    ``new``. Outsiders and anonymous visitors (both reach an artifact through
+    its public link) are reported together as "public" when they change alike."""
+    before = {p: _access(old, p) for p in _PRINCIPALS}
+    after = {p: _access(new, p) for p in _PRINCIPALS}
+    impact = {"records": stats["records"], "users": stats["users"]}
+    owner_rows = stats["owner_records"]
+    changes: List[StorageChange] = []
+    for group in (("owner",), ("member",), ("outsider", "anonymous")):
+        for capability in _CAPABILITIES:
+            diffs = [(p, before[p][capability], after[p][capability]) for p in group
+                     if before[p][capability] != after[p][capability]]
+            if len(group) == 2 and len(diffs) == 2 and diffs[0][1:] == diffs[1][1:]:
+                diffs = [("public", *diffs[0][1:])]
+            for principal, was, becomes in diffs:
+                rows = impact
+                if capability == "read" and "owner" in (was, becomes) and principal != "owner":
+                    # Public-link readers see the owner's records only.
+                    rows = {"records": owner_rows, "users": 1 if owner_rows else 0}
+                changes.append(StorageChange(
+                    kind="access_changed", collection=name, principal=principal, capability=capability,
+                    before=was, after=becomes, **rows,
+                ))
+    return changes
 
 
 def _forces_presence(field: FieldSpec) -> bool:
@@ -327,22 +405,21 @@ def _forces_presence(field: FieldSpec) -> bool:
 
 
 def _rules(spec: CollectionSpec) -> str:
-    """Who sees / adds, e.g. 'per_user' or 'shared/owner'."""
-    return spec.scope if spec.scope != "shared" else f"shared/{spec.create}"
+    """Who sees / adds, e.g. 'per_user', 'shared/members' or 'shared/owner/public'."""
+    if spec.scope != "shared":
+        return spec.scope
+    return f"shared/{spec.create}" + ("/public" if spec.public_read else "")
 
 
 def _collection_changes(
     name: str,
     old: CollectionSpec,
     new: CollectionSpec,
-    impact: Dict[str, int],
+    stats: Dict[str, int],
     field_history: Dict[str, str],
 ) -> List[StorageChange]:
-    changes: List[StorageChange] = []
-    if old.scope != new.scope:
-        changes.append(StorageChange(kind="scope_changed", collection=name, before=old.scope, after=new.scope, **impact))
-    elif old.scope == "shared" and old.create != new.create:
-        changes.append(StorageChange(kind="create_changed", collection=name, before=old.create, after=new.create, **impact))
+    impact = {"records": stats["records"], "users": stats["users"]}
+    changes: List[StorageChange] = _access_changes(name, old, new, stats)
     for fname, old_field in old.fields.items():
         new_field = new.fields.get(fname)
         if new_field is None:
@@ -356,12 +433,12 @@ def _collection_changes(
         if _forces_presence(new_field) and not _forces_presence(old_field):
             changes.append(StorageChange(kind="field_made_required", collection=name, field=fname, **impact))
     for fname, new_field in new.fields.items():
-        # A field removed earlier keeps its stored values; re-adding it with
-        # another type reads them as that type.
+        # A field removed earlier keeps its stored values; re-adding it (any
+        # type) returns them again.
         earlier = field_history.get(fname)
-        if fname not in old.fields and earlier is not None and earlier != new_field.type:
+        if fname not in old.fields and earlier is not None:
             changes.append(StorageChange(
-                kind="field_type_changed", collection=name, field=fname,
+                kind="field_readded", collection=name, field=fname,
                 before=earlier, after=new_field.type, **impact,
             ))
     return changes
@@ -369,7 +446,7 @@ def _collection_changes(
 
 def _impact(stats: Dict[str, Dict[str, int]], name: str) -> Dict[str, int]:
     entry = stats.get(name) or {}
-    return {"records": int(entry.get("records") or 0), "users": int(entry.get("users") or 0)}
+    return {key: int(entry.get(key) or 0) for key in ("records", "users", "owner_records")}
 
 
 def storage_changes(
@@ -378,42 +455,80 @@ def storage_changes(
     stats: Dict[str, Dict[str, int]],
     field_history: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> List[StorageChange]:
-    """Every declaration change that can hide or expose stored records.
+    """Every declaration change that changes who can read or change stored records.
 
-    Reported regardless of record count (spec 12); ``records``/``users`` come
-    from ``stats`` (0 when a collection has no live records). ``new`` None
-    means no storage at all, i.e. every previous collection is removed.
-    A collection declared in ``new`` but not in ``previous`` (or with no
-    previous declaration) is a change only when ``stats`` shows live rows
-    under its name: records kept from an earlier declaration would reappear
-    under the new rules. ``field_history`` maps collection -> field -> the
-    type an earlier version declared, for fields re-added to a collection.
+    Reported regardless of record count (spec 12). ``stats`` maps collection
+    -> ``records``/``users`` (live rows and distinct authors) and
+    ``owner_records`` (live rows written by the report owner); missing
+    entries count 0. For collections in both declarations, the access of
+    every principal class is compared (``access_changed``); fields removed,
+    re-added (``field_history``: collection -> field -> the type an earlier
+    version declared), retyped or made required are data-level changes.
+    ``new`` None means no storage at all, i.e. every previous collection is
+    removed. A collection declared in ``new`` but not in ``previous`` is a
+    change only when ``stats`` shows live rows under its name: records kept
+    from an earlier declaration would reappear under the new rules.
     """
     old_collections = previous.collections if previous is not None else {}
     new_collections = new.collections if new is not None else {}
     history = field_history or {}
     changes: List[StorageChange] = []
     for name, old_spec in old_collections.items():
-        impact = _impact(stats, name)
+        entry = _impact(stats, name)
         new_spec = new_collections.get(name)
         if new_spec is None:
-            changes.append(StorageChange(kind="collection_removed", collection=name, **impact))
+            changes.append(StorageChange(
+                kind="collection_removed", collection=name, records=entry["records"], users=entry["users"],
+            ))
         else:
-            changes.extend(_collection_changes(name, old_spec, new_spec, impact, history.get(name) or {}))
+            changes.extend(_collection_changes(name, old_spec, new_spec, entry, history.get(name) or {}))
     for name, new_spec in new_collections.items():
         if name in old_collections:
             continue
-        impact = _impact(stats, name)
-        if impact["records"] > 0:
+        entry = _impact(stats, name)
+        if entry["records"] > 0:
             changes.append(StorageChange(
-                kind="collection_readded", collection=name, before="orphaned records", after=_rules(new_spec), **impact,
+                kind="collection_readded", collection=name, before="orphaned records", after=_rules(new_spec),
+                records=entry["records"], users=entry["users"],
             ))
     return changes
 
 
+# Outcome sentences per (principal, capability, after) of an access change.
+_ACCESS_OUTCOMES = {
+    ("owner", "read", "all"): "You (the owner) will see every record in '{c}', including other users' records",
+    ("owner", "read", "own"): "You (the owner) will see only your own records in '{c}'; other users' records will be hidden",
+    ("owner", "modify_others", "yes"): "You (the owner) will be able to edit or delete other users' records in '{c}'",
+    ("owner", "modify_others", "no"): "You (the owner) will no longer be able to edit or delete other users' records in '{c}'",
+    ("member", "read", "all"): "Members will see every record in '{c}', including other users' records",
+    ("member", "read", "own"): "Members will see only their own records in '{c}'; other users' records will be hidden",
+    ("member", "create", "yes"): "Members will be able to add records to '{c}'",
+    ("member", "create", "no"): "Members will no longer be able to add records to '{c}'",
+    ("member", "modify_own", "yes"): "Members will be able to edit or delete their own existing records in '{c}'",
+    ("member", "modify_own", "no"): "Members will no longer be able to edit or delete their own records in '{c}'",
+    ("member", "modify_others", "yes"): "Members will be able to edit or delete other users' records in '{c}'",
+    ("member", "modify_others", "no"): "Members will no longer be able to edit or delete other users' records in '{c}'",
+    ("public", "read", "owner"): (
+        "Anyone with the public link will be able to read {n} existing record(s) written by the owner in '{c}' "
+        "(when the artifact is public)"
+    ),
+    ("public", "read", "none"): "Visitors with the public link will no longer be able to read '{c}'",
+}
+
+
 def _describe(change: StorageChange) -> str:
     c, f = change.collection, change.field
-    if change.kind == "collection_removed":
+    impact = f": affects {change.records} record(s) from {change.users} user(s)"
+    if change.kind == "access_changed":
+        outcome = _ACCESS_OUTCOMES.get((change.principal, change.capability, change.after))
+        if outcome is None:
+            what = (f"Change what {change.principal} can do in '{c}': "
+                    f"{change.capability} from {change.before} to {change.after}")
+        elif "{n}" in outcome:
+            return "- " + outcome.format(c=c, n=change.records)
+        else:
+            what = outcome.format(c=c)
+    elif change.kind == "collection_removed":
         what = f"Remove collection '{c}'"
     elif change.kind == "collection_readded":
         what = (
@@ -422,15 +537,15 @@ def _describe(change: StorageChange) -> str:
         )
     elif change.kind == "field_removed":
         what = f"Remove field '{f}' from '{c}' (stored values are kept but no longer shown)"
+    elif change.kind == "field_readded":
+        what = f"Re-add field '{f}' to '{c}' as {change.after}: values stored before it was removed become visible again"
+        if change.before != change.after:
+            what += f" (they were stored as {change.before})"
     elif change.kind == "field_type_changed":
         what = f"Change field '{f}' in '{c}' from {change.before} to {change.after}"
-    elif change.kind == "scope_changed":
-        what = f"Change who sees '{c}' from {change.before} to {change.after}"
-    elif change.kind == "create_changed":
-        what = f"Change who can add to '{c}' from {change.before} to {change.after}"
     else:
         what = f"Make field '{f}' in '{c}' required without a default (older records without it can no longer be updated)"
-    return f"- {what}: affects {change.records} record(s) from {change.users} user(s)"
+    return f"- {what}{impact}"
 
 
 def describe_storage_changes(changes: List[StorageChange]) -> str:
@@ -532,9 +647,10 @@ async def destructive_storage_changes(db, artifact_id: str, new_raw: Any) -> Lis
     """Changes from the artifact's effective declaration to ``new_raw``.
 
     Raises ValidationError when ``new_raw`` does not parse. Record counts
-    (app_records) are read only when storage is involved on either side and
-    a change or a newly declared collection needs them (RD12); earlier
-    versions' declarations only when a field is added to a kept collection.
+    (app_records, including rows written by the report owner) are read only
+    when storage is involved on either side and a change or a newly declared
+    collection needs them (RD12); earlier versions' declarations only when a
+    field is added to a kept collection.
     """
     from app.services.app_data_service import app_data_service
 
@@ -554,13 +670,19 @@ async def destructive_storage_changes(db, artifact_id: str, new_raw: Any) -> Lis
     if not added and not storage_changes(previous, new, {}, history):
         return []
     stats = await app_data_service.collection_stats(db, str(artifact_id))
+    for name, owner_records in (await app_data_service.owner_record_counts(db, str(artifact_id))).items():
+        stats.setdefault(name, {"records": 0, "users": 0})["owner_records"] = owner_records
     return storage_changes(previous, new, stats, history)
 
 
 def _change_names(changes: List[StorageChange]) -> str:
-    return ", ".join(
-        f"{c.kind} '{c.collection}" + (f".{c.field}'" if c.field else "'") for c in changes
-    )
+    def name(c: StorageChange) -> str:
+        text = f"{c.kind} '{c.collection}" + (f".{c.field}'" if c.field else "'")
+        if c.kind == "access_changed":
+            text += f" ({c.principal} {c.capability}: {c.before} -> {c.after})"
+        return text
+
+    return ", ".join(name(c) for c in changes)
 
 
 async def non_interactive_storage_guard(db, artifact, new_storage: Any) -> Optional[str]:
@@ -580,8 +702,8 @@ async def non_interactive_storage_guard(db, artifact, new_storage: Any) -> Optio
         return None
     return (
         f"Editing this version would change the artifact's storage declaration ({_change_names(changes)}), "
-        "which can hide or expose stored records, and this path cannot ask the user to approve it. Nothing was "
-        "applied. Edit the latest version through an interactive run instead.\n"
+        "which changes who can read or change stored records, and this path cannot ask the user to approve it. "
+        "Nothing was applied. Edit the latest version through an interactive run instead.\n"
         + describe_storage_changes(changes)
     )
 
@@ -657,6 +779,7 @@ def storage_confirmation_failure(reason: Optional[str], changes: List[StorageCha
         "stopped": "Do not retry unless the user asks again.",
     }.get(reason or "", "")
     return (
-        f"{why} the storage change(s) below, which can hide or expose stored records; nothing was applied. "
+        f"{why} the storage change(s) below, which change who can read or change stored records; "
+        "nothing was applied. "
         f"{advice}\n{describe_storage_changes(changes)}"
     ).strip()

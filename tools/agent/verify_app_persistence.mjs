@@ -28,7 +28,7 @@
 // (forbidden in-page, dashboard intact), adds their own · c owner edits the
 // second user's note · d per-user genre selections stay private across reloads ·
 // e records survive an owner rerun and a new version · f anonymous sees
-// highlights only and cannot write · g concurrent edit → conflict then the
+// highlights only (public_read: the owner's records only) and cannot write · g concurrent edit → conflict then the
 // refreshed value · h tampered `mine` is refused by the server · i the original
 // source artifact still renders (and its content is unchanged) · j an
 // undeclared collection answers collection_not_declared.
@@ -357,7 +357,7 @@ try {
     };
   });
 
-  await check('f', 'anonymous (public link) sees highlights, not notes/selections; writes refused', async () => {
+  await check('f', 'anonymous (public link) sees the owner highlights only, not notes/selections; writes refused', async () => {
     await setVisibility('public');
     try {
       const anonPage = await anonCtx.newPage();
@@ -383,15 +383,21 @@ try {
       });
       const apiRead = await listRecords(artifactId, 'notes', null);
       const apiHighlights = await listRecords(artifactId, 'highlights', null);
+      // public_read publishes only records the report owner wrote.
+      const ownerHighlights = (await listRecords(artifactId, 'highlights', ownerToken)).json?.items || [];
+      const ownerId = ownerHighlights.find(i => i.mine)?.user?.id;
+      const anonItems = apiHighlights.json?.items || [];
+      const ownerOnly = !!ownerId && anonItems.length >= 1 && anonItems.every(i => i.user?.id === ownerId);
       const apiWrite = await api('POST', `/api/artifacts/${artifactId}/data/highlights`, { body: { data: { text: 'anon' } } });
       const s = await shot(anonPage, 'f_anonymous_public');
       const readDenied = ['unauthenticated', 'forbidden'].includes(notesCode);
       return {
         ok: highlights >= 1 && notesShown === 0 && readDenied && forms === 0 && inPage.highlight_add === 'unauthenticated'
           && inPage.note_add === 'unauthenticated' && inPage.selections_items === 0 && [401, 403].includes(apiRead.status)
-          && apiHighlights.status === 200 && apiWrite.status === 401,
+          && apiHighlights.status === 200 && ownerOnly && apiWrite.status === 401,
         detail: { highlights, notes_shown: notesShown, notes_error: notesCode, write_forms: forms, in_page: inPage,
                   api_notes_status: apiRead.status, api_highlights_status: apiHighlights.status, api_write_status: apiWrite.status,
+                  api_highlights_owner_only: ownerOnly, api_highlights_count: anonItems.length,
                   refused_writes_screenshot: s },
         screenshot: view,
       };

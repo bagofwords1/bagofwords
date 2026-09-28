@@ -5,12 +5,13 @@ An artifact that stores data declares its collections in
 The declaration is strict on purpose (unknown keys rejected, sharing rules
 explicit) because it decides who may read and write user data.
 """
+import json
 import math
 import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 FieldType = Literal["string", "number", "boolean", "date", "json"]
 Scope = Literal["shared", "per_user"]
@@ -43,6 +44,15 @@ def is_iso_date(value: Any) -> bool:
         except ValueError:
             continue
     return False
+
+
+def compact_json_bytes(value: Any) -> int:
+    """UTF-8 size of ``value`` as compact JSON (the unit of every size limit).
+
+    Raises TypeError/ValueError for values JSON cannot represent.
+    """
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    return len(text.encode("utf-8"))
 
 
 def value_matches_type(field_type: str, value: Any) -> bool:
@@ -86,6 +96,16 @@ class FieldSpec(BaseModel):
                 raise ValueError(f"default does not match field type {self.type!r}")
             if self.max_length is not None and len(self.default) > self.max_length:
                 raise ValueError("default is longer than max_length")
+        if self.has_default:
+            # A default is returned with every record lacking the field, so it
+            # is held to the limits of a stored value.
+            limit = MAX_JSON_FIELD_BYTES if self.type == "json" else MAX_RECORD_BYTES
+            try:
+                size = compact_json_bytes(self.default)
+            except (TypeError, ValueError):
+                raise ValueError("default is not a JSON value")
+            if size > limit:
+                raise ValueError(f"default is larger than {limit} bytes")
         return self
 
 
@@ -96,6 +116,10 @@ class CollectionSpec(BaseModel):
     # Only for shared collections; per_user ones are implicitly "self".
     create: Optional[CreateRule] = None
     modify: Optional[ModifyRule] = None
+    # Anonymous visitors and signed-in outsiders of a public artifact read the
+    # owner's records of this collection. A publication decision of its own,
+    # never derived from who may write.
+    public_read: StrictBool = False
     fields: Dict[str, FieldSpec] = Field(..., min_length=1, max_length=MAX_FIELDS_PER_COLLECTION)
 
     @model_validator(mode="before")
@@ -120,6 +144,21 @@ class CollectionSpec(BaseModel):
     def _check_shared_rules(self) -> "CollectionSpec":
         if self.scope == "shared" and (self.create is None or self.modify is None):
             raise ValueError("shared collections must set both 'create' and 'modify'")
+        if self.public_read and not (self.scope == "shared" and self.create == "owner"):
+            raise ValueError(
+                "public_read is only allowed for shared collections with create 'owner' "
+                "(public link visitors read only records the owner wrote)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_default_sizes(self) -> "CollectionSpec":
+        # The projection of a record with no stored values: its defaults alone
+        # must fit the record limits, or every read would exceed them.
+        defaults = {name: f.default for name, f in self.fields.items() if f.has_default}
+        non_json = {name: v for name, v in defaults.items() if self.fields[name].type != "json"}
+        if compact_json_bytes(non_json) > MAX_RECORD_BYTES or compact_json_bytes(defaults) > MAX_RECORD_TOTAL_BYTES:
+            raise ValueError("field defaults together exceed the record size limit")
         return self
 
 

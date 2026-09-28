@@ -664,7 +664,7 @@ def test_create_success_echoes_rules_and_notes_unhandled_writes(page):
     })
     assert result["output"].get("success", True) is not False, result["observation"]
     summary = result["observation"]["summary"]
-    assert ("Storage: comments — shared; add: owner only; edit/delete: owner only. "
+    assert ("Storage: comments — shared; add: owner only; edit/delete: owner only; public link: not visible. "
             "prefs — private per viewer.") in summary
     assert "Check these rules against the user's words" in summary
     assert "NOTE:" in summary and "catch" in summary
@@ -707,6 +707,32 @@ def test_edit_success_echoes_rules_and_notes_unhandled_writes(page):
         _st.confirm_storage_changes = original
     assert result["output"]["success"] is True, result["observation"]
     summary = result["observation"]["summary"]
-    assert "Storage: comments — shared; add: members; edit/delete: owner only. prefs — private per viewer." in summary
+    assert ("Storage: comments — shared; add: members; edit/delete: owner only; public link: not visible. "
+            "prefs — private per viewer.") in summary
     assert "Check these rules against the user's words" in summary
     assert "NOTE:" in summary and "catch" in summary
+
+
+def test_create_echoes_public_link_visibility(page):
+    published = {**COMMENTS_OWNER, "public_read": True}
+    result = _create(page.report_id, {
+        "code": _writing_code(page.viz_id, handled=True), "visualization_ids": [page.viz_id],
+        "storage": {"collections": {"comments": published, "prefs": PREFS}},
+    })
+    assert result["output"].get("success", True) is not False, result["observation"]
+    assert "comments — shared; add: owner only; edit/delete: owner only; public link: owner's records visible." in (
+        result["observation"]["summary"])
+    assert _run(_content(result["output"]["artifact_id"]))["storage"]["collections"]["comments"]["public_read"] is True
+
+
+def test_public_read_on_a_members_collection_is_rejected_by_the_gate(page):
+    bad = {"scope": "shared", "create": "members", "modify": "author", "public_read": True,
+           "fields": {"text": {"type": "string", "required": True}}}
+    result = _create(page.report_id, {
+        "code": _writing_code(page.viz_id, handled=True), "visualization_ids": [page.viz_id],
+        "storage": {"collections": {"comments": bad, "prefs": PREFS}},
+    })
+    assert result["output"]["success"] is False
+    message = result["observation"]["error"]["message"]
+    assert message.startswith("[storage]") and "public_read" in message and "owner" in message
+    assert _run(_version_count(page.report_id)) == 0

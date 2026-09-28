@@ -8,14 +8,15 @@ Wiring proof for the two access layers of the app-data endpoints
     can only narrow it (PP1).
   * Anonymous callers never write (PP2): every write is 401 and no row
     changes, whatever the visibility.
-  * Signed-in outsiders and anonymous visitors read only owner-written shared
-    collections (PP3, RD1); an org admin who does not own the report has no
-    special rights (RD2).
+  * Signed-in outsiders and anonymous visitors read only collections the
+    owner published with `public_read`, and only the owner's rows of them,
+    even when other users' rows exist (PP3, RD1, spec 7 revised); an org
+    admin who does not own the report has no special rights (RD2).
   * per_user collections are private to their author: lists never contain
     another user's rows and another user's record is 404 (PP4).
   * The stored author is always the session user (PP5).
 
-One test per visibility. Each seeds ONE artifact carrying all four
+One test per visibility. Each seeds ONE artifact carrying all five
 collection kinds, then loops every principal over list/create/update/delete.
 The exhaustive visibility x rule x principal space is proven by the pure
 tests in tests/unit/test_app_data_rules.py; this file proves the routes and
@@ -44,9 +45,13 @@ STORAGE = {
         # shared, members create, only the owner modifies
         "votes": {"scope": "shared", "create": "members", "modify": "owner",
                   "fields": {"text": {"type": "string"}}},
-        # shared, only the owner writes (published to every viewer)
-        "news": {"scope": "shared", "create": "owner", "modify": "owner",
+        # shared, only the owner writes, published through the public link
+        "news": {"scope": "shared", "create": "owner", "modify": "owner", "public_read": True,
                  "fields": {"text": {"type": "string"}}},
+        # shared, only the owner writes, NOT published: create "owner" alone
+        # never opens reads to outsiders or anonymous visitors
+        "board": {"scope": "shared", "create": "owner", "modify": "owner",
+                  "fields": {"text": {"type": "string"}}},
         # private to each user
         "prefs": {"scope": "per_user", "fields": {"text": {"type": "string"}}},
     }
@@ -75,6 +80,7 @@ RULES = {
     "notes": {"owner": (T, T, T, T), "member": (T, T, T, F), "outsider": (F, F, F, F), "anonymous": (F, F, F, F)},
     "votes": {"owner": (T, T, T, T), "member": (T, T, F, F), "outsider": (F, F, F, F), "anonymous": (F, F, F, F)},
     "news": {"owner": (T, T, T, T), "member": (T, F, F, F), "outsider": (T, F, F, F), "anonymous": (T, F, F, F)},
+    "board": {"owner": (T, T, T, T), "member": (T, F, F, F), "outsider": (F, F, F, F), "anonymous": (F, F, F, F)},
     # per_user: others' records are never visible (404 on write, see expected()).
     "prefs": {"owner": (T, T, T, F), "member": (T, T, T, F), "outsider": (F, F, F, F), "anonymous": (F, F, F, F)},
 }
@@ -133,6 +139,23 @@ def _live_count(artifact_id, collection):
                     AppRecord.deleted_at.is_(None),
                 )
             )).scalar_one()
+    return asyncio.run(_q())
+
+
+def _insert_row(artifact_id, collection, user_id, data):
+    """Direct write of a row the current rules would not let its author create."""
+    from app.models.artifact import Artifact
+    from app.models.report import Report
+
+    async def _q():
+        async with async_session_maker() as db:
+            artifact = await db.get(Artifact, artifact_id)
+            report = await db.get(Report, artifact.report_id)
+            row = AppRecord(organization_id=report.organization_id, report_id=report.id, artifact_id=artifact_id,
+                            collection=collection, user_id=user_id, version=1, data=data)
+            db.add(row)
+            await db.commit()
+            return str(row.id)
     return asyncio.run(_q())
 
 
@@ -210,10 +233,13 @@ def _seed(test_client, bootstrap_admin, invite_user_to_org, create_report, visib
         r = api.create(coll, {"text": f"owner {coll}"}, owner["token"])
         assert r.status_code == 201, r.text
         seeds["owner"][coll] = r.json()["id"]
-        if coll != "news":  # members cannot write owner-only collections
+        if coll not in ("news", "board"):  # members cannot write owner-only collections
             r = api.create(coll, {"text": f"member {coll}"}, recipient["token"])
             assert r.status_code == 201, r.text
             seeds["recipient"][coll] = r.json()["id"]
+    # A member-written row in the published collection, as left by an earlier
+    # declaration where members could add (the API cannot write it now).
+    seeds["recipient"]["news"] = _insert_row(artifact_id, "news", recipient["user_id"], {"text": "member news"})
     if visibility != "shared":
         _set_visibility(test_client, report["id"], owner, visibility)
 
@@ -248,10 +274,13 @@ def _run_matrix(visibility, test_client, bootstrap_admin, invite_user_to_org, cr
                     assert all(i["mine"] and i["user"]["id"] == user_id for i in items), (ctx, items)
                     assert seeds[other_author][coll] not in ids, ctx
                 else:
-                    # PP3 for outsiders/anonymous: every row of an owner-written collection.
                     assert seeds["owner"][coll] in ids, ctx
+                    public_reader = CLASS[principal] in ("outsider", "anonymous")
                     if coll in seeds["recipient"]:
-                        assert seeds["recipient"][coll] in ids, ctx
+                        # PP3: public-link readers never see another author's row.
+                        assert (seeds["recipient"][coll] in ids) is (not public_reader), ctx
+                    if public_reader:
+                        assert all(i["user"]["id"] == people["owner"]["user_id"] for i in items), (ctx, items)
                     for item in items:
                         assert item["mine"] == (user_id is not None and item["user"]["id"] == user_id), (ctx, item)
 

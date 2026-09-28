@@ -28,11 +28,12 @@ Flags:
     --source-artifact-title  exact title of the artifact whose visualizations are reused
     --check-binding          only prove the binding (read-only), then exit
     --dry-run                resolve everything, print the plan, write nothing
-    --force-new              create a new demo artifact even if one exists
+    --force-new              create a new demo artifact even if one exists (required when the
+                             existing demo declares different storage; it is never mutated)
     --note-country           country of the seeded notes (default USA)
 
 Exit codes: 0 ok, 2 usage/credentials, 3 binding check failed, 4 not found,
-5 API error. Prints a JSON summary on success (never credentials or tokens).
+5 API error, 6 the existing demo declares different storage (rerun with --force-new). Prints a JSON summary on success (never credentials or tokens).
 """
 import argparse
 import json
@@ -68,6 +69,8 @@ STORAGE = {
             "scope": "shared",
             "create": "owner",
             "modify": "owner",
+            # Published: public-link visitors read the owner's highlights.
+            "public_read": True,
             "fields": {
                 "text": {"type": "string", "required": True, "max_length": 280},
             },
@@ -156,6 +159,18 @@ def find_report(client: httpx.Client, token: str, title: str) -> Tuple[str, dict
     raise DemoError(4, f"no report titled {title!r} is visible to the owner")
 
 
+def demo_action(existing: Optional[dict], force_new: bool) -> str:
+    """'create', 'reuse', or 'declaration_differs' for the latest demo artifact
+    (a full artifact with ``content``). An installed demo whose storage
+    differs from STORAGE is never changed in place: the caller stops and asks
+    for --force-new."""
+    if existing is None or force_new:
+        return "create"
+    if (existing.get("content") or {}).get("storage") != STORAGE:
+        return "declaration_differs"
+    return "reuse"
+
+
 def latest_by_title(artifacts: list, title: str) -> Optional[dict]:
     same = [a for a in artifacts if a.get("title") == title and a.get("status", "completed") == "completed"]
     if not same:
@@ -216,21 +231,33 @@ def main(argv: Optional[list] = None) -> int:
         revenue_id, customers_id = pick_visualizations(vizzes)
         code = render_code(FIXTURE.read_text(encoding="utf-8"), revenue_id, customers_id)
 
-        existing = None if args.force_new else latest_by_title(artifacts, DEMO_TITLE)
+        latest = None if args.force_new else latest_by_title(artifacts, DEMO_TITLE)
+        existing = (
+            _check(client.get(f"/api/artifacts/{latest['id']}", headers=h), "get demo artifact") if latest else None
+        )
+        action = demo_action(existing, args.force_new)
+        if action == "declaration_differs":
+            print(
+                f"the existing demo artifact {existing.get('artifact_id')} declares different storage than this "
+                "script (for example highlights.public_read); it is left unchanged. Rerun with --force-new to "
+                "install a new demo artifact.",
+                file=sys.stderr,
+            )
+            return 6
         plan = {
             "report_id": report_id,
             "source_artifact": {"version_id": source["id"], "artifact_id": source.get("artifact_id")},
             "visualizations": vizzes,
             "revenue_viz_id": revenue_id,
             "customers_viz_id": customers_id,
-            "action": "reuse" if existing else "create",
+            "action": action,
         }
         if args.dry_run:
             print(json.dumps({"dry_run": True, **plan}, indent=2))
             return 0
 
-        if existing:
-            demo = _check(client.get(f"/api/artifacts/{existing['id']}", headers=h), "get demo artifact")
+        if action == "reuse":
+            demo = existing
         else:
             demo = _check(
                 client.post(
@@ -277,7 +304,7 @@ def main(argv: Optional[list] = None) -> int:
 
         print(json.dumps({
             **plan,
-            "action": "reused" if existing else "created",
+            "action": "reused" if action == "reuse" else "created",
             "artifact_id": artifact_id,
             "version_id": demo["id"],
             "seeded": seeded,

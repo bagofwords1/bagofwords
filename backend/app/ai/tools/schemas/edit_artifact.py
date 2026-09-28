@@ -33,8 +33,8 @@ class EditArtifactInput(BaseModel):
     storage: Optional[Dict[str, Any]] = Field(default=None, description=(
         "Replacement record-storage declaration ({\"collections\": {...}}, see STORAGE AUTHORING). Omit to keep "
         "the current one unchanged; when given it replaces the whole declaration, so repeat every collection you "
-        "keep. May be sent with empty `edits` (storage-only edit). Changes that can hide or expose stored records "
-        "need the user's approval; if not approved nothing is applied."
+        "keep. May be sent with empty `edits` (storage-only edit). Changes of who can read or change stored records "
+        "(including public_read) need the user's approval; if not approved nothing is applied."
     ))
 
     @model_validator(mode="before")

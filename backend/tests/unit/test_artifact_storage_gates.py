@@ -2,7 +2,7 @@
 
 The tools are mechanical: an invalid declaration or a `useCollection` call
 the declaration does not back must be rejected before anything persists, and
-every declaration change that can hide or expose records must be detected
+every declaration change that changes who can read or change records must be detected
 (the confirmation flow consumes the detected changes).
 """
 import pytest
@@ -185,15 +185,80 @@ def test_field_removed_and_type_changed():
     assert all((c.records, c.users) == (4, 2) for c in changes)
 
 
-def test_scope_change_is_detected():
+def _access(changes):
+    return [(c.kind, c.collection, c.principal, c.capability, c.before, c.after) for c in changes]
+
+
+def test_scope_change_is_detected_as_access_changes():
+    # per_user -> shared: every private row becomes visible to the owner and members.
     shared_prefs = {"scope": "shared", "create": "members", "modify": "author", "fields": PREFS["fields"]}
-    changes = storage_changes(_decl({"prefs": PREFS}), _decl({"prefs": shared_prefs}), {})
-    assert [(c.kind, c.before, c.after) for c in changes] == [("scope_changed", "per_user", "shared")]
+    changes = storage_changes(_decl({"prefs": PREFS}), _decl({"prefs": shared_prefs}), {"prefs": {"records": 6, "users": 3}})
+    assert _access(changes) == [
+        ("access_changed", "prefs", "owner", "read", "own", "all"),
+        ("access_changed", "prefs", "owner", "modify_others", "no", "yes"),
+        ("access_changed", "prefs", "member", "read", "own", "all"),
+    ]
+    assert all((c.records, c.users) == (6, 3) for c in changes)
 
 
-def test_create_rule_change_is_detected():
+def test_create_rule_change_is_detected_as_access_changes_and_never_publishes():
+    # Codex #1: members -> owner removes member writes; public reads are untouched.
     changes = storage_changes(_decl({"notes": NOTES}), _decl({"notes": {**NOTES, "create": "owner"}}), {})
-    assert [(c.kind, c.before, c.after) for c in changes] == [("create_changed", "members", "owner")]
+    assert _access(changes) == [
+        ("access_changed", "notes", "member", "create", "yes", "no"),
+        ("access_changed", "notes", "member", "modify_own", "yes", "no"),
+    ]
+    assert not any(c.principal in ("public", "outsider", "anonymous") for c in changes)
+
+
+def test_regression_modify_owner_to_author_asks():
+    # Codex #2: `modify` changes were not detected at all.
+    moderated = {**NOTES, "modify": "owner"}
+    changes = storage_changes(_decl({"notes": moderated}), _decl({"notes": NOTES}), {"notes": {"records": 4, "users": 2}})
+    assert _access(changes) == [("access_changed", "notes", "member", "modify_own", "no", "yes")]
+    assert (changes[0].records, changes[0].users) == (4, 2)
+    back = storage_changes(_decl({"notes": NOTES}), _decl({"notes": moderated}), {})
+    assert _access(back) == [("access_changed", "notes", "member", "modify_own", "yes", "no")]
+
+
+OWNER_POSTS = {"scope": "shared", "create": "owner", "modify": "owner", "fields": {"text": {"type": "string"}}}
+
+
+def test_turning_public_read_on_is_an_access_change_counting_owner_rows_only():
+    changes = storage_changes(
+        _decl({"posts": OWNER_POSTS}), _decl({"posts": {**OWNER_POSTS, "public_read": True}}),
+        {"posts": {"records": 5, "users": 3, "owner_records": 2}},
+    )
+    assert _access(changes) == [("access_changed", "posts", "public", "read", "none", "owner")]
+    assert (changes[0].records, changes[0].users) == (2, 1)
+
+
+def test_turning_public_read_off_is_an_access_change():
+    changes = storage_changes(
+        _decl({"posts": {**OWNER_POSTS, "public_read": True}}), _decl({"posts": OWNER_POSTS}),
+        {"posts": {"records": 2, "users": 1, "owner_records": 2}},
+    )
+    assert _access(changes) == [("access_changed", "posts", "public", "read", "owner", "none")]
+
+
+def test_modify_change_with_identical_effective_access_needs_no_approval():
+    # In an owner-created collection members never modify, so owner -> author
+    # changes nobody's access: nothing to approve.
+    changes = storage_changes(_decl({"posts": OWNER_POSTS}), _decl({"posts": {**OWNER_POSTS, "modify": "author"}}), {})
+    assert changes == []
+
+
+def test_members_to_owner_with_public_read_lists_every_access_difference():
+    changes = storage_changes(
+        _decl({"notes": NOTES}), _decl({"notes": {**NOTES, "create": "owner", "modify": "owner", "public_read": True}}),
+        {"notes": {"records": 7, "users": 3, "owner_records": 1}},
+    )
+    assert _access(changes) == [
+        ("access_changed", "notes", "member", "create", "yes", "no"),
+        ("access_changed", "notes", "member", "modify_own", "yes", "no"),
+        ("access_changed", "notes", "public", "read", "none", "owner"),
+    ]
+    assert [(c.records, c.users) for c in changes] == [(7, 3), (7, 3), (1, 1)]
 
 
 def test_optional_field_made_required_without_default_is_detected():
@@ -282,9 +347,9 @@ def test_adding_a_collection_without_rows_is_not_a_change():
     assert storage_changes(_decl({"prefs": PREFS}), _decl({"prefs": PREFS, "notes": NOTES}), {}) == []
 
 
-def test_readding_a_field_with_a_different_type_is_a_type_change():
+def test_readding_a_field_with_a_different_type_is_a_field_readded():
     # text was a json field in an earlier version, removed (values kept),
-    # and is now re-added as a string: stored values keep their old type.
+    # and is now re-added as a string: stored values come back, in their old type.
     changes = storage_changes(
         _decl({"notes": {**NOTES, "fields": {"country": NOTES["fields"]["country"]}}}),
         _decl({"notes": NOTES}),
@@ -292,16 +357,57 @@ def test_readding_a_field_with_a_different_type_is_a_type_change():
         {"notes": {"text": "json"}},
     )
     assert [(c.kind, c.field, c.before, c.after, c.records) for c in changes] == [
-        ("field_type_changed", "text", "json", "string", 5),
+        ("field_readded", "text", "json", "string", 5),
     ]
 
 
-def test_readding_a_field_with_the_same_type_is_not_a_change():
+def test_regression_readding_a_field_with_the_same_type_asks():
+    # Codex #3: the removed field's stored values are returned again.
     changes = storage_changes(
         _decl({"notes": {**NOTES, "fields": {"country": NOTES["fields"]["country"]}}}),
         _decl({"notes": NOTES}), {"notes": {"records": 5, "users": 2}}, {"notes": {"text": "string"}},
     )
+    assert [(c.kind, c.field, c.before, c.after, c.records, c.users) for c in changes] == [
+        ("field_readded", "text", "string", "string", 5, 2),
+    ]
+
+
+def test_a_brand_new_field_is_not_a_readded_field():
+    changes = storage_changes(
+        _decl({"notes": {**NOTES, "fields": {"country": NOTES["fields"]["country"]}}}),
+        _decl({"notes": NOTES}), {"notes": {"records": 5, "users": 2}}, {"notes": {"country": "string"}},
+    )
     assert changes == []
+
+
+def test_describe_states_outcomes():
+    changes = [
+        StorageChange(kind="access_changed", collection="posts", principal="public", capability="read",
+                      before="none", after="owner", records=2, users=1),
+        StorageChange(kind="access_changed", collection="notes", principal="member", capability="modify_own",
+                      before="no", after="yes", records=4, users=2),
+        StorageChange(kind="access_changed", collection="notes", principal="member", capability="create",
+                      before="yes", after="no", records=4, users=2),
+        StorageChange(kind="field_readded", collection="notes", field="text", before="string", after="string",
+                      records=5, users=2),
+    ]
+    assert describe_storage_changes(changes).splitlines() == [
+        "- Anyone with the public link will be able to read 2 existing record(s) written by the owner in 'posts' "
+        "(when the artifact is public)",
+        "- Members will be able to edit or delete their own existing records in 'notes': affects 4 record(s) "
+        "from 2 user(s)",
+        "- Members will no longer be able to add records to 'notes': affects 4 record(s) from 2 user(s)",
+        "- Re-add field 'text' to 'notes' as string: values stored before it was removed become visible again: "
+        "affects 5 record(s) from 2 user(s)",
+    ]
+
+
+def test_describe_unmapped_access_change_still_names_it():
+    change = StorageChange(kind="access_changed", collection="notes", principal="anonymous", capability="create",
+                           before="no", after="yes", records=0, users=0)
+    assert describe_storage_changes([change]) == (
+        "- Change what anonymous can do in 'notes': create from no to yes: affects 0 record(s) from 0 user(s)"
+    )
 
 
 def test_describe_readded_collection():
@@ -473,10 +579,30 @@ def test_describe_storage_rules_in_plain_words():
         "prefs": PREFS,
     })
     assert describe_storage_rules(decl) == (
-        "Storage: comments — shared; add: owner only; edit/delete: owner only. "
-        "notes — shared; add: members; edit/delete: each author their own (owner: any). "
+        "Storage: comments — shared; add: owner only; edit/delete: owner only; public link: not visible. "
+        "notes — shared; add: members; edit/delete: each author their own (owner: any); public link: not visible. "
         "prefs — private per viewer."
     )
+
+
+def test_describe_storage_rules_names_public_link_visibility():
+    from app.ai.tools.implementations._artifact_storage import describe_storage_rules
+
+    decl = _decl({"posts": {**OWNER_POSTS, "public_read": True}})
+    assert describe_storage_rules(decl) == (
+        "Storage: posts — shared; add: owner only; edit/delete: owner only; public link: owner's records visible."
+    )
+
+
+def test_readded_collection_names_public_read_in_its_rules():
+    changes = storage_changes(None, _decl({"posts": {**OWNER_POSTS, "public_read": True}}),
+                              {"posts": {"records": 2, "users": 2, "owner_records": 1}})
+    assert [(c.kind, c.after) for c in changes] == [("collection_readded", "shared/owner/public")]
+
+
+def test_unchanged_access_with_counts_is_not_a_change():
+    decl = _decl({"posts": {**OWNER_POSTS, "public_read": True}, "notes": NOTES, "prefs": PREFS})
+    assert storage_changes(decl, decl, {"posts": {"records": 2, "users": 1, "owner_records": 2}}) == []
 
 
 def test_describe_storage_rules_empty_without_collections():

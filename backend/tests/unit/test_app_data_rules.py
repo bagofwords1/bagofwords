@@ -39,10 +39,11 @@ PRINCIPAL_USER_ID = {
 }
 
 
-def _shared(create: str, modify: str) -> CollectionSpec:
-    return CollectionSpec.model_validate(
-        {"scope": "shared", "create": create, "modify": modify, "fields": {"text": {"type": "string"}}}
-    )
+def _shared(create: str, modify: str, public_read: bool = False) -> CollectionSpec:
+    raw = {"scope": "shared", "create": create, "modify": modify, "fields": {"text": {"type": "string"}}}
+    if public_read:
+        raw["public_read"] = True
+    return CollectionSpec.model_validate(raw)
 
 
 def _per_user() -> CollectionSpec:
@@ -54,6 +55,8 @@ KINDS = {
     "shared_members_owner": _shared("members", "owner"),
     "shared_owner_owner": _shared("owner", "owner"),
     "shared_owner_author": _shared("owner", "author"),
+    "shared_owner_owner_public": _shared("owner", "owner", public_read=True),
+    "shared_owner_author_public": _shared("owner", "author", public_read=True),
     "per_user": _per_user(),
 }
 
@@ -69,14 +72,23 @@ DECISION_TABLE = {
     ("shared_members_owner", "member"): (True, True, False, False),
     ("shared_members_owner", "outsider"): NONE,
     ("shared_members_owner", "anonymous"): NONE,
+    # create "owner" alone never publishes (Codex #1): public_read decides.
     ("shared_owner_owner", "owner"): (True, True, True, True),
     ("shared_owner_owner", "member"): (True, False, False, False),
-    ("shared_owner_owner", "outsider"): (True, False, False, False),
-    ("shared_owner_owner", "anonymous"): (True, False, False, False),
+    ("shared_owner_owner", "outsider"): NONE,
+    ("shared_owner_owner", "anonymous"): NONE,
     ("shared_owner_author", "owner"): (True, True, True, True),
     ("shared_owner_author", "member"): (True, False, False, False),
-    ("shared_owner_author", "outsider"): (True, False, False, False),
-    ("shared_owner_author", "anonymous"): (True, False, False, False),
+    ("shared_owner_author", "outsider"): NONE,
+    ("shared_owner_author", "anonymous"): NONE,
+    ("shared_owner_owner_public", "owner"): (True, True, True, True),
+    ("shared_owner_owner_public", "member"): (True, False, False, False),
+    ("shared_owner_owner_public", "outsider"): (True, False, False, False),
+    ("shared_owner_owner_public", "anonymous"): (True, False, False, False),
+    ("shared_owner_author_public", "owner"): (True, True, True, True),
+    ("shared_owner_author_public", "member"): (True, False, False, False),
+    ("shared_owner_author_public", "outsider"): (True, False, False, False),
+    ("shared_owner_author_public", "anonymous"): (True, False, False, False),
     ("per_user", "owner"): (True, True, True, False),
     ("per_user", "member"): (True, True, True, False),
     ("per_user", "outsider"): NONE,
@@ -113,16 +125,47 @@ class TestDecisionTable:
         if kind == "per_user" and user_id is None:
             # Fail closed: a private collection is never listed without an author.
             with pytest.raises(ValueError):
-                visible_author_filter(KINDS[kind], principal, user_id=user_id)
+                visible_author_filter(KINDS[kind], principal, user_id=user_id, owner_id=OWNER_ID)
             return
-        expected = user_id if kind == "per_user" else None
-        assert visible_author_filter(KINDS[kind], principal, user_id=user_id) == expected
+        expected = AUTHOR_FILTER[(kind, principal)]
+        assert visible_author_filter(KINDS[kind], principal, user_id=user_id, owner_id=OWNER_ID) == expected
+
+
+# Whose rows a list returns (None = every row), written out per kind/principal:
+# per_user -> the caller's own; outsiders and anonymous -> only the report
+# owner's rows, whatever the collection held before (Codex #1).
+AUTHOR_FILTER = {
+    **{(k, "owner"): None for k in KINDS if k != "per_user"},
+    **{(k, "member"): None for k in KINDS if k != "per_user"},
+    **{(k, "outsider"): OWNER_ID for k in KINDS if k != "per_user"},
+    **{(k, "anonymous"): OWNER_ID for k in KINDS if k != "per_user"},
+    ("per_user", "owner"): OWNER_ID,
+    ("per_user", "member"): MEMBER_ID,
+    ("per_user", "outsider"): OUTSIDER_ID,
+}
 
 
 @pytest.mark.parametrize("principal", sorted(PRINCIPAL_USER_ID))
 def test_per_user_author_filter_without_user_id_fails_closed(principal):
     with pytest.raises(ValueError):
-        visible_author_filter(KINDS["per_user"], principal, user_id=None)
+        visible_author_filter(KINDS["per_user"], principal, user_id=None, owner_id=OWNER_ID)
+
+
+@pytest.mark.parametrize("principal", ["outsider", "anonymous"])
+def test_public_author_filter_without_owner_id_fails_closed(principal):
+    with pytest.raises(ValueError):
+        visible_author_filter(KINDS["shared_owner_owner_public"], principal,
+                              user_id=PRINCIPAL_USER_ID[principal], owner_id=None)
+
+
+def test_regression_create_members_to_owner_does_not_publish():
+    # Codex #1: switching who may add must never change who may read.
+    before = _shared("members", "author")
+    after = _shared("owner", "author")
+    for principal in ("outsider", "anonymous"):
+        assert can_read(before, principal) is False
+        assert can_read(after, principal) is False
+    assert can_read(_shared("owner", "author", public_read=True), "anonymous") is True
 
 
 @pytest.mark.parametrize("kind", sorted(KINDS))
@@ -132,12 +175,13 @@ def test_anonymous_never_writes(kind):
     assert can_modify(spec, "anonymous", user_id=None, record_user_id=OTHER_ID) is False
 
 
+PUBLIC_KINDS = {"shared_owner_owner_public", "shared_owner_author_public"}
+
+
 @pytest.mark.parametrize("kind", sorted(KINDS))
-def test_outsider_or_anonymous_reads_only_owner_written_shared(kind):
-    spec = KINDS[kind]
-    owner_written_shared = spec.scope == "shared" and spec.create == "owner"
+def test_outsider_or_anonymous_read_only_public_read_collections(kind):
     for principal in ("outsider", "anonymous"):
-        assert can_read(spec, principal) is owner_written_shared
+        assert can_read(KINDS[kind], principal) is (kind in PUBLIC_KINDS)
 
 
 # --------------------------------------------------------------------------
@@ -329,6 +373,17 @@ class TestSizeLimits:
         half = "x" * (MAX_RECORD_TOTAL_BYTES // 2)
         data = {"blob": half, "blob2": half}
         _assert_rejected(validate_new_record, _big_spec(), data, code="too_large")
+
+    def test_limit_applies_to_the_projected_record_with_defaults(self):
+        # Codex #6: what a read returns (stored values + defaults for missing
+        # fields) must fit the record limit too.
+        spec = CollectionSpec.model_validate({"scope": "per_user", "fields": {
+            "text": {"type": "string"},
+            "note": {"type": "string", "default": "d" * 40_000},
+        }})
+        _assert_rejected(validate_new_record, spec, {"text": "x" * 30_000}, code="too_large")
+        assert validate_new_record(spec, {"text": "x" * 30_000, "note": ""}) == {"text": "x" * 30_000, "note": ""}
+        _assert_rejected(validate_record_patch, spec, {"text": "short"}, {"text": "x" * 30_000}, code="too_large")
 
     def test_patch_limit_applies_to_merged_record(self):
         stored = {"text": "x" * 40_000}

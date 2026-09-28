@@ -286,6 +286,92 @@ class TestFieldSpec:
             FieldSpec.model_validate({"type": "string", "max_length": 3, "default": "abcd"})
 
 
+class TestPublicRead:
+    """Reading through a public link is its own decision (spec 7, revised):
+    ``public_read`` is allowed only on shared collections the owner alone writes."""
+
+    def test_defaults_to_false_and_stays_out_of_the_stored_shape(self):
+        spec = CollectionSpec.model_validate(_collection(create="owner", modify="owner"))
+        assert spec.public_read is False
+        assert "public_read" not in spec.model_dump(mode="json", exclude_unset=True)
+
+    def test_stored_declaration_without_it_parses_as_not_public(self):
+        decl = parse_storage_declaration(_spec_example())
+        assert all(c.public_read is False for c in decl.collections.values())
+
+    @pytest.mark.parametrize("modify", ["owner", "author"])
+    def test_allowed_on_shared_owner_created(self, modify):
+        spec = CollectionSpec.model_validate(_collection(create="owner", modify=modify, public_read=True))
+        assert spec.public_read is True
+        assert spec.model_dump(mode="json", exclude_unset=True)["public_read"] is True
+
+    def test_rejected_on_shared_members_created(self):
+        with pytest.raises(ValidationError) as exc_info:
+            CollectionSpec.model_validate(_collection(create="members", public_read=True))
+        assert "public_read" in str(exc_info.value) and "owner" in str(exc_info.value)
+
+    def test_rejected_on_per_user(self):
+        # per_user drops create/modify, but never public_read.
+        with pytest.raises(ValidationError) as exc_info:
+            CollectionSpec.model_validate({"scope": "per_user", "public_read": True, "fields": {"a": {"type": "string"}}})
+        assert "public_read" in str(exc_info.value)
+
+    def test_explicit_false_is_accepted_everywhere(self):
+        assert CollectionSpec.model_validate(_collection(public_read=False)).public_read is False
+        spec = CollectionSpec.model_validate({"scope": "per_user", "public_read": False, "fields": {"a": {"type": "string"}}})
+        assert spec.public_read is False
+
+    def test_must_be_a_boolean(self):
+        with pytest.raises(ValidationError):
+            CollectionSpec.model_validate(_collection(create="owner", modify="owner", public_read="yes"))
+
+
+class TestDefaultSizes:
+    """Codex #6: a default is returned with every record that lacks the field,
+    so it is held to the same byte limits as stored values."""
+
+    def test_json_default_over_the_json_field_limit_rejected(self):
+        # ~300 KB: one default alone would push every record over the limit.
+        with pytest.raises(ValidationError) as exc_info:
+            FieldSpec.model_validate({"type": "json", "default": {"blob": "x" * 300_000}})
+        assert "default" in str(exc_info.value)
+
+    def test_json_default_at_the_json_field_limit_accepted(self):
+        # '"' + value + '"' is the compact JSON of a string.
+        value = "x" * (MAX_JSON_FIELD_BYTES - 2)
+        assert FieldSpec.model_validate({"type": "json", "default": value}).default == value
+
+    def test_string_default_over_the_record_limit_rejected(self):
+        with pytest.raises(ValidationError):
+            FieldSpec.model_validate({"type": "string", "default": "x" * MAX_RECORD_BYTES})
+
+    def test_non_json_defaults_together_over_the_record_limit_rejected(self):
+        half = "x" * (MAX_RECORD_BYTES // 2)
+        fields = {"a": {"type": "string", "default": half}, "b": {"type": "string", "default": half}}
+        FieldSpec.model_validate(fields["a"])  # each alone is fine
+        with pytest.raises(ValidationError) as exc_info:
+            CollectionSpec.model_validate({"scope": "per_user", "fields": fields})
+        assert "default" in str(exc_info.value)
+
+    def test_json_defaults_together_over_the_total_limit_rejected(self):
+        big = "x" * (MAX_JSON_FIELD_BYTES - 100)
+        fields = {"a": {"type": "json", "default": big}, "b": {"type": "json", "default": big}}
+        with pytest.raises(ValidationError):
+            CollectionSpec.model_validate({"scope": "per_user", "fields": fields})
+
+    def test_300kb_default_rejected_through_parse(self):
+        raw = {"collections": {"slides": {"scope": "shared", "create": "owner", "modify": "owner",
+                                          "fields": {"snapshot": {"type": "json", "default": ["x" * 300_000]}}}}}
+        with pytest.raises(ValidationError):
+            parse_storage_declaration(raw)
+
+    def test_small_defaults_accepted(self):
+        spec = CollectionSpec.model_validate({"scope": "per_user", "fields": {
+            "tags": {"type": "json", "default": []}, "level": {"type": "string", "default": "low"},
+        }})
+        assert spec.fields["tags"].default == []
+
+
 class TestDtos:
     def test_update_and_delete_require_positive_version(self):
         assert AppRecordUpdate.model_validate({"data": {}, "version": 1}).version == 1

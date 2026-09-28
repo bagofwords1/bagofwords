@@ -23,40 +23,44 @@ STORAGE AUTHORING (mode='page') — apps that save records via useCollection
 Only when the user wants the app to remember or collect input. Declare every collection the code uses in `storage`.
 `storage` is a separate top-level argument of create_artifact/edit_artifact (a JSON object), never inside `prompt`:
   {"collections": {"<name>": {"scope": "shared"|"per_user", "create": "members"|"owner", "modify": "author"|"owner",
-                              "fields": {"<field>": {"type": "...", "required": false, "default": <value>, "max_length": N}}}}}
+                              "public_read": false, "fields": {"<field>": {"type": "...", "required": false, "default": <value>, "max_length": N}}}}}
 - Names: collection ^[a-z][a-z0-9_]{0,63}$ (max 20), field ^[A-Za-z_][A-Za-z0-9_]{0,63}$ (1-50 per collection); unknown keys are rejected.
 - Field types: `string` (the only type with max_length), `number` (finite), `boolean`, `date` (ISO 8601 date or datetime
   string, e.g. "2026-09-27"), `json` (any JSON value). Writes may only use declared fields; null clears an optional field.
 - required: writes may omit it only when it has a default, and null is never accepted; "required": true with "default": null is rejected.
   A default must match the type and is applied at READ time (stored records are not rewritten).
-- Limits: 64 KB per record (json fields up to 256 KB each, 256 KB total); 10,000 records per collection.
+- Limits: 64 KB per record (json fields up to 256 KB each, 256 KB total); 10,000 records per collection. Defaults count
+  toward the same limits (a record is checked as returned, with defaults filled in).
 RULES (the artifact's normal visibility/sharing always applies first):
 - "per_user": every signed-in user reads and writes only their OWN records. Preferences, drafts. per_user: omit create/modify.
 - "shared": everyone who can use the app reads all records; "create" and "modify" are REQUIRED.
   create "members" = org members and share recipients add records; "owner" = only the report owner adds.
   modify "author" = authors edit/delete their own records; "owner" = only the owner. The owner may edit any shared record.
   Members never edit or delete in a create "owner" collection, not even rows they wrote earlier.
-- Anonymous viewers and signed-in outsiders (e.g. public-link visitors) READ only shared collections with create "owner" and
-  never write; other collections answer them `unauthenticated`/`forbidden` — render that error and keep the rest of the page.
+- "public_read": true publishes a collection to anonymous viewers and signed-in outsiders of a PUBLIC artifact (public-link
+  visitors): they read only the owner's records of it and never write. Default false;
+  public_read is allowed only with scope "shared" and create "owner". Other collections answer them
+  `unauthenticated`/`forbidden` — render that error and keep the rest of the page. Changing create never changes who can read.
 - The code cannot tell who the owner is: show owner-only forms to signed-in viewers and let `forbidden` explain a refusal.
 PICK THE RULES FROM THE USER'S WORDS (the tool echoes the rules it saved; compare them with the request):
 - "only I / the owner add(s) …, others read" → shared, create "owner", modify "owner"
 - "everyone can add, each edits their own" → shared, create "members", modify "author"
 - "everyone can add, only the owner moderates" → shared, create "members", modify "owner"
 - "remember my choice" / "per viewer" / "my selection" → per_user
-- "publish to viewers without accounts" → only shared collections with create "owner" are visible anonymously
+- "publish to viewers without an account" / "public page" → shared, create "owner", modify "owner", public_read true
 ALWAYS handle write rejections: every add/update/remove gets `.catch(() => {})` or try/await/catch, and `error` is rendered.
 Never use <form onSubmit> for writes — the sandbox blocks form submission; use a button onClick and an Enter-key handler on inputs.
 GATES (nothing persists when one fails; the error says what to fix):
 - Call useCollection("<name>") directly with a string literal naming a declared collection (no variables, template
   interpolation, aliases, `?.` calls or window["useCollection"]). Mentions in comments and strings are ignored.
 - A field added to an EXISTING collection must be optional or have a default (existing records do not have it).
-- Changes that can hide or expose stored records ask the user to approve (records/users affected are shown): collection_removed,
-  field_removed, field_type_changed (also a removed field re-added with another type), scope_changed, create_changed,
-  field_made_required, collection_readded (a collection declared again while records from an earlier declaration remain).
-  Adding new collections or optional fields and changing "modify" need no approval. Declined, unanswered, stopped or
-  non-interactive runs apply NOTHING (error type storage_change_not_confirmed): keep the existing declaration unless the user
-  explicitly asked for that change.
+- Changes that alter who can read or change stored records ask the user to approve (the outcome and records/users affected are
+  shown): access_changed (any change of scope/create/modify/public_read that changes what the owner, members or public-link
+  visitors may read, add, edit or delete), collection_removed, field_removed, field_readded (a removed field declared again,
+  any type: its stored values come back), field_type_changed, field_made_required, collection_readded (a collection declared
+  again while records from an earlier declaration remain). Adding new collections or optional fields needs no approval.
+  Declined, unanswered, stopped or non-interactive runs apply NOTHING (error type storage_change_not_confirmed): keep the
+  existing declaration unless the user explicitly asked for that change.
 EDITS AND REBUILDS (records belong to the artifact, not the report):
 - edit_artifact: omit `storage` to keep the declaration; when given it REPLACES the whole declaration (repeat every collection
   you keep). A storage-only edit (edits: [] plus storage) is allowed.
@@ -97,8 +101,8 @@ function Prefs() {
       {['All', 'EMEA', 'APAC'].map(r => <option key={r}>{r}</option>)}</select></div>);
 }
 
-EXAMPLE blog — posts shared by the owner; comments shared, members add, authors edit their own
-storage = {"collections": {"posts": {"scope": "shared", "create": "owner", "modify": "owner", "fields": {"title": {"type": "string", "required": true, "max_length": 200}, "published": {"type": "date"}}}, "comments": {"scope": "shared", "create": "members", "modify": "author", "fields": {"post_id": {"type": "string", "required": true}, "text": {"type": "string", "required": true, "max_length": 1000}}}}}
+EXAMPLE blog — posts by the owner, also readable through the public link; comments shared, members add, authors edit their own
+storage = {"collections": {"posts": {"scope": "shared", "create": "owner", "modify": "owner", "public_read": true, "fields": {"title": {"type": "string", "required": true, "max_length": 200}, "published": {"type": "date"}}}, "comments": {"scope": "shared", "create": "members", "modify": "author", "fields": {"post_id": {"type": "string", "required": true}, "text": {"type": "string", "required": true, "max_length": 1000}}}}}
 function Blog() {
   const u = useCurrentUser();
   const posts = useCollection("posts");

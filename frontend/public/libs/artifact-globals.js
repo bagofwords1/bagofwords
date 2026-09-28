@@ -838,8 +838,10 @@
 
   function _appDataClone(v) { return v == null ? v : JSON.parse(JSON.stringify(v)); }
 
+  // Keyed by collection name or rid: no prototype, so names like
+  // `constructor` or a rid of `__proto__` never hit Object.prototype.
   var _memoryAppData = (function() {
-    var collections = {};
+    var collections = Object.create(null);
     var seq = 0;
     function fail(rid, code, message) { return { rid: rid, ok: false, error: { code: code, message: message } }; }
     function find(rows, id) { for (var i = 0; i < rows.length; i++) { if (rows[i].id === id) return i; } return -1; }
@@ -878,7 +880,7 @@
     };
   })();
 
-  var _appDataPending = {};
+  var _appDataPending = Object.create(null);
   var _appDataSeq = 0;
 
   window.addEventListener('message', function(e) {
@@ -944,7 +946,7 @@
   function _isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
 
   window.__appDataStore = (function() {
-    var states = {};
+    var states = Object.create(null);
 
     function notify(s) { for (var i = 0; i < s.listeners.length; i++) { try { s.listeners[i](); } catch (e) {} } }
     function errorOf(res) {
@@ -960,8 +962,10 @@
       // loaded: a list succeeded; listFailed: the latest list failed (items are
       // not the collection, retried on the next successful write or remount);
       // keepError: some caller of the in-flight list wants the error kept.
+      // gen: bumped by every applied write; a list answer started under an
+      // older gen predates that write and is re-read instead of applied.
       var s = { name: name, items: [], loading: false, error: null, loaded: false, listFailed: false,
-                keepError: false, listing: null, writes: 0, listeners: [] };
+                keepError: false, listing: null, writes: 0, gen: 0, listeners: [] };
       function sync() {
         s.loading = s.writes > 0 || (!s.loaded && (!!s.listing || !s.listFailed));
         notify(s);
@@ -974,9 +978,12 @@
       function list(keepError) {
         if (keepError) s.keepError = true;
         if (s.listing) return s.listing;
+        var gen = s.gen;
         s.listing = _appDataSend({ op: 'list', collection: name }).then(function(res) {
-          var keep = s.keepError;
           s.listing = null;
+          // Stale: keepError stays set for the re-read, which settles this promise.
+          if (res.ok && s.gen !== gen) return list(false);
+          var keep = s.keepError;
           s.keepError = false;
           if (res.ok && !Array.isArray(res.items)) res = MALFORMED;
           if (!res.ok) { s.listFailed = true; throw failed(res); }
@@ -1009,6 +1016,7 @@
           if (res.ok && needsRecord && !_isObj(res.record)) res = MALFORMED;
           if (!res.ok) throw failed(res);
           var out = apply(res);
+          s.gen += 1;
           if (s.listFailed) list(false).catch(function() {});
           else s.error = null;
           sync();
@@ -1027,7 +1035,11 @@
       s.refresh = function() { return list(false); };
       s.add = function(data) {
         return write({ op: 'create', collection: name, data: data == null ? {} : data }, function(res) {
-          s.items = s.items.concat([res.record]);
+          // A list answered while the create was in flight may already hold it.
+          var i = indexOf(s, res.record.id);
+          var next = s.items.slice();
+          if (i >= 0) next[i] = res.record; else next.push(res.record);
+          s.items = next;
           return res.record;
         }, true);
       };

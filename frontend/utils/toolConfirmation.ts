@@ -35,16 +35,52 @@ const CHANGE_KEYS: Record<string, string> = {
   collection_removed: 'tools.storageChange.collectionRemoved',
   collection_readded: 'tools.storageChange.collectionReadded',
   field_removed: 'tools.storageChange.fieldRemoved',
+  field_readded: 'tools.storageChange.fieldReadded',
   field_type_changed: 'tools.storageChange.fieldTypeChanged',
-  scope_changed: 'tools.storageChange.scopeChanged',
-  create_changed: 'tools.storageChange.createChanged',
   field_made_required: 'tools.storageChange.fieldMadeRequired',
 }
 
+// access_changed: one outcome sentence per `principal.capability.after`
+// (backend _artifact_storage._ACCESS_OUTCOMES). Anything else still renders,
+// through the generic accessChanged line: an approval never hides a change.
+const ACCESS_KEYS: Record<string, string> = {
+  'public.read.owner': 'tools.storageChange.access.publicCanRead',
+  'public.read.none': 'tools.storageChange.access.publicCannotRead',
+  'member.create.yes': 'tools.storageChange.access.membersCanAdd',
+  'member.create.no': 'tools.storageChange.access.membersCannotAdd',
+  'member.modify_own.yes': 'tools.storageChange.access.membersCanEditOwn',
+  'member.modify_own.no': 'tools.storageChange.access.membersCannotEditOwn',
+  'member.modify_others.yes': 'tools.storageChange.access.membersCanEditOthers',
+  'member.modify_others.no': 'tools.storageChange.access.membersCannotEditOthers',
+  'member.read.all': 'tools.storageChange.access.membersSeeAll',
+  'member.read.own': 'tools.storageChange.access.membersSeeOwn',
+  'owner.read.all': 'tools.storageChange.access.ownerSeesAll',
+  'owner.read.own': 'tools.storageChange.access.ownerSeesOwn',
+  'owner.modify_others.yes': 'tools.storageChange.access.ownerCanEditOthers',
+  'owner.modify_others.no': 'tools.storageChange.access.ownerCannotEditOthers',
+}
+const ACCESS_FALLBACK_KEY = 'tools.storageChange.accessChanged'
+
 export interface StorageChangeItem {
   key: string
-  params: { collection: string; field: string; before: string; after: string }
+  params: {
+    collection: string
+    field: string
+    before: string
+    after: string
+    principal: string
+    capability: string
+    records: number
+    users: number
+  }
   impact: { records: number; users: number }
+}
+
+function changeKey(change: Record<string, any>): string | undefined {
+  if (change.kind === 'access_changed') {
+    return ACCESS_KEYS[`${change.principal}.${change.capability}.${change.after}`] ?? ACCESS_FALLBACK_KEY
+  }
+  return CHANGE_KEYS[String(change.kind)]
 }
 
 // One i18n key + named params per change; unknown kinds are skipped.
@@ -54,8 +90,9 @@ export function storageChangeItems(confirmation: unknown): StorageChangeItem[] {
   const items: StorageChangeItem[] = []
   for (const raw of changes) {
     const change = asObject(raw)
-    const key = change ? CHANGE_KEYS[String(change.kind)] : undefined
+    const key = change ? changeKey(change) : undefined
     if (!change || !key) continue
+    const impact = { records: Number(change.records) || 0, users: Number(change.users) || 0 }
     items.push({
       key,
       params: {
@@ -63,8 +100,11 @@ export function storageChangeItems(confirmation: unknown): StorageChangeItem[] {
         field: String(change.field ?? ''),
         before: String(change.before ?? ''),
         after: String(change.after ?? ''),
+        principal: String(change.principal ?? ''),
+        capability: String(change.capability ?? ''),
+        ...impact,
       },
-      impact: { records: Number(change.records) || 0, users: Number(change.users) || 0 },
+      impact,
     })
   }
   return items

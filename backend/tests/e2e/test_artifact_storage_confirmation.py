@@ -170,7 +170,7 @@ def test_removing_a_collection_with_records_asks_and_approve_persists(page):
     assert conf["tool_name"] == "edit_artifact"
     assert conf["confirmation_id"] and conf["timeout_seconds"] > 0
     assert conf["storage_changes"] == [{
-        "kind": "collection_removed", "collection": "notes", "field": None,
+        "kind": "collection_removed", "collection": "notes", "field": None, "principal": None, "capability": None,
         "before": None, "after": None, "records": 3, "users": 2,
     }]
     assert "affects 3 record(s) from 2 user(s)" in conf["summary"]
@@ -268,22 +268,43 @@ def _variant(kind):
     if kind == "field_type_changed":
         notes["fields"]["text"] = {"type": "json"}
         return NOTES_DECL, base
-    if kind == "create_changed":
-        # members -> owner on a shared collection: member-written rows become
-        # readable by anonymous visitors of a public artifact (W2 security note).
+    if kind == "create_members_to_owner":
         notes["create"] = "owner"
         return NOTES_DECL, base
-    if kind == "scope_changed":
+    if kind == "per_user_to_shared":
         # per_user -> shared: every user's private rows become visible to all.
         private = {"collections": {"notes": {"scope": "per_user", "fields": notes["fields"]}}}
         return private, base
+    if kind == "modify_owner_to_author":
+        # Codex #2: members gain edit/delete of their existing rows.
+        moderated = copy.deepcopy(NOTES_DECL)
+        moderated["collections"]["notes"]["modify"] = "owner"
+        return moderated, base
     if kind == "field_made_required":
         notes["fields"]["text"]["required"] = True
         return NOTES_DECL, base
     raise AssertionError(kind)
 
 
-@pytest.mark.parametrize("kind", ["field_removed", "field_type_changed", "create_changed", "scope_changed", "field_made_required"])
+# (kind, principal, capability, before, after) the spec's rule tables promise.
+EXPECTED_CHANGES = {
+    "field_removed": [("field_removed", None, None, "string", None)],
+    "field_type_changed": [("field_type_changed", None, None, "string", "json")],
+    "field_made_required": [("field_made_required", None, None, None, None)],
+    "create_members_to_owner": [
+        ("access_changed", "member", "create", "yes", "no"),
+        ("access_changed", "member", "modify_own", "yes", "no"),
+    ],
+    "per_user_to_shared": [
+        ("access_changed", "owner", "read", "own", "all"),
+        ("access_changed", "owner", "modify_others", "no", "yes"),
+        ("access_changed", "member", "read", "own", "all"),
+    ],
+    "modify_owner_to_author": [("access_changed", "member", "modify_own", "no", "yes")],
+}
+
+
+@pytest.mark.parametrize("kind", sorted(EXPECTED_CHANGES))
 def test_each_detected_change_asks_even_on_an_empty_collection(page, kind):
     before_decl, after_decl = _variant(kind)
     v1 = _create_notes(page, storage=before_decl)
@@ -292,8 +313,10 @@ def test_each_detected_change_asks_even_on_an_empty_collection(page, kind):
     end, confirmations = _edit(page.report_id, {"artifact_id": v1, "storage": after_decl}, answer=False)
 
     assert len(confirmations) == 1, f"{kind} must ask (RD4 / spec 12)"
-    assert [c["kind"] for c in confirmations[0]["storage_changes"]] == [kind]
-    assert confirmations[0]["storage_changes"][0]["records"] == 0
+    got = [(c["kind"], c["principal"], c["capability"], c["before"], c["after"])
+           for c in confirmations[0]["storage_changes"]]
+    assert got == EXPECTED_CHANGES[kind]
+    assert all(c["records"] == 0 for c in confirmations[0]["storage_changes"])
     assert end["output"]["success"] is False
     assert _run(_version_count(page.report_id)) == before
 
@@ -468,7 +491,7 @@ def test_readding_a_removed_collection_with_orphaned_rows_asks(page):
 
     assert len(confirmations) == 1, "re-adding a collection with orphaned rows must ask"
     assert confirmations[0]["storage_changes"] == [{
-        "kind": "collection_readded", "collection": "notes", "field": None,
+        "kind": "collection_readded", "collection": "notes", "field": None, "principal": None, "capability": None,
         "before": "orphaned records", "after": "shared/owner", "records": 3, "users": 2,
     }]
     assert end["output"].get("success") is False
@@ -714,3 +737,129 @@ def test_runner_deadline_in_the_runtime_context_caps_the_wait(page):
     assert confirmations == []
     assert end["observation"]["error"]["reason"] == "insufficient_time"
     assert _run(_version_count(page.report_id)) == before
+
+
+# ---------------------------------------------------------------------------
+# W6-A: public reads are an explicit decision; access diff; re-added fields
+# ---------------------------------------------------------------------------
+
+async def _make_public(report_id: str):
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        report.artifact_visibility = "public"
+        await db.commit()
+
+
+async def _anonymous_list(parent_id: str, collection: str):
+    """(status, author ids) of an anonymous list call through the service."""
+    from app.errors import AppError
+    from app.services.app_data_service import app_data_service
+
+    async with async_session_maker() as db:
+        try:
+            listed = await app_data_service.list_records(db, artifact_id=parent_id, collection=collection, user=None)
+        except AppError as exc:
+            return exc.status_code, None
+        return 200, sorted(item.user.id for item in listed.items)
+
+
+def test_regression_create_members_to_owner_on_a_public_artifact_does_not_publish(page):
+    # Codex #1: switching who may add used to publish every member-written row.
+    v1 = _create_notes(page)
+    owner_id, other_id = _run(_owner_and_other(page.report_id))
+    _run(_seed_records(v1, "notes", [owner_id, other_id]))
+    _run(_make_public(page.report_id))
+    parent = _run(_parent_id(v1))
+    assert _run(_anonymous_list(parent, "notes"))[0] == 401
+
+    storage = copy.deepcopy(NOTES_DECL)
+    storage["collections"]["notes"]["create"] = "owner"
+    end, confirmations = _edit(page.report_id, {"artifact_id": v1, "storage": storage}, answer=True)
+
+    assert end["output"]["success"] is True, end["observation"]
+    changes = confirmations[0]["storage_changes"]
+    assert not any(c["principal"] in ("public", "outsider", "anonymous") for c in changes)
+    assert _run(_anonymous_list(parent, "notes"))[0] == 401, "create owner alone never publishes"
+
+
+def test_public_read_on_with_member_rows_asks_and_publishes_owner_rows_only(page):
+    v1 = _create_notes(page)
+    owner_id, other_id = _run(_owner_and_other(page.report_id))
+    _run(_seed_records(v1, "notes", [owner_id, owner_id, other_id]))
+    _run(_make_public(page.report_id))
+    parent = _run(_parent_id(v1))
+
+    storage = copy.deepcopy(NOTES_DECL)
+    storage["collections"]["notes"].update(create="owner", modify="owner", public_read=True)
+    end, confirmations = _edit(page.report_id, {"artifact_id": v1, "storage": storage}, answer=True)
+
+    assert len(confirmations) == 1, "publishing records must ask first"
+    public = [c for c in confirmations[0]["storage_changes"] if c["principal"] == "public"]
+    assert public == [{
+        "kind": "access_changed", "collection": "notes", "field": None, "principal": "public", "capability": "read",
+        "before": "none", "after": "owner", "records": 2, "users": 1,
+    }]
+    assert ("Anyone with the public link will be able to read 2 existing record(s) written by the owner in 'notes'"
+            in confirmations[0]["summary"])
+    assert end["output"]["success"] is True, end["observation"]
+    assert _run(_effective_storage(parent))["collections"]["notes"]["public_read"] is True
+    # The member-written row stays private: anonymous readers get the owner's rows only.
+    assert _run(_anonymous_list(parent, "notes")) == (200, [owner_id, owner_id])
+
+
+def test_declined_public_read_publishes_nothing(page):
+    v1 = _create_notes(page)
+    owner_id, _ = _run(_owner_and_other(page.report_id))
+    _run(_seed_records(v1, "notes", [owner_id]))
+    _run(_make_public(page.report_id))
+    parent = _run(_parent_id(v1))
+    owner_notes = copy.deepcopy(NOTES_DECL)
+    owner_notes["collections"]["notes"].update(create="owner", modify="owner")
+    end, _ = _edit(page.report_id, {"artifact_id": v1, "storage": owner_notes}, answer=True)
+    v2 = end["output"]["artifact_id"]
+
+    published = copy.deepcopy(owner_notes)
+    published["collections"]["notes"]["public_read"] = True
+    end, confirmations = _edit(page.report_id, {"artifact_id": v2, "storage": published}, answer=False)
+
+    assert [(c["kind"], c["principal"], c["after"], c["records"]) for c in confirmations[0]["storage_changes"]] == [
+        ("access_changed", "public", "owner", 1),
+    ]
+    assert end["output"]["success"] is False
+    assert _run(_anonymous_list(parent, "notes"))[0] == 401
+
+
+def test_regression_readding_a_removed_field_with_the_same_type_asks(page):
+    # Codex #3: re-adding `text` (same type) would return the values kept
+    # since it was removed.
+    v1 = _create_notes(page)
+    owner_id, _ = _run(_owner_and_other(page.report_id))
+    _run(_seed_records(v1, "notes", [owner_id]))
+    without_text = copy.deepcopy(NOTES_DECL)
+    del without_text["collections"]["notes"]["fields"]["text"]
+    end, _ = _edit(page.report_id, {"artifact_id": v1, "storage": without_text}, answer=True)
+    v2 = end["output"]["artifact_id"]
+    before = _run(_version_count(page.report_id))
+
+    end, confirmations = _edit(page.report_id, {"artifact_id": v2, "storage": NOTES_DECL}, answer=False)
+
+    assert len(confirmations) == 1
+    assert [(c["kind"], c["field"], c["before"], c["after"], c["records"])
+            for c in confirmations[0]["storage_changes"]] == [("field_readded", "text", "string", "string", 1)]
+    assert end["output"]["success"] is False
+    assert _run(_version_count(page.report_id)) == before
+
+
+def test_regression_a_300kb_default_is_rejected_before_anything_persists(page):
+    # Codex #6: one default would make every record exceed the limits.
+    storage = copy.deepcopy(NOTES_DECL)
+    storage["collections"]["notes"]["fields"]["snapshot"] = {"type": "json", "default": {"blob": "x" * 300_000}}
+    result = _create(page.report_id, {
+        "title": "Big", "code": _page_code(page.viz_id, "notes"), "visualization_ids": [page.viz_id],
+        "storage": storage,
+    })
+
+    assert result["output"]["success"] is False
+    assert result["observation"]["error"]["type"] == "storage_errors"
+    assert "default" in result["observation"]["error"]["message"]
+    assert _run(_version_count(page.report_id)) == 0

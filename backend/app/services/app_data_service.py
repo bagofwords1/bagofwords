@@ -325,7 +325,8 @@ class AppDataService:
         if ctx.spec.scope == "per_user" and user_id is None:
             # Never list a private collection without an author filter.
             raise _denied(ctx.principal)
-        author = visible_author_filter(ctx.spec, ctx.principal, user_id=user_id)
+        # Outsiders and anonymous visitors: the report owner's rows only, in SQL.
+        author = visible_author_filter(ctx.spec, ctx.principal, user_id=user_id, owner_id=str(ctx.report.user_id))
 
         stmt = select(AppRecord).where(
             AppRecord.artifact_id == str(ctx.artifact.id),
@@ -432,6 +433,21 @@ class AppDataService:
             .group_by(AppRecord.collection)
         )
         return {collection: {"records": records, "users": users} for collection, records, users in rows.all()}
+
+    async def owner_record_counts(self, db: AsyncSession, artifact_id: str) -> Dict[str, int]:
+        """Live records written by the report owner, per collection (what a
+        public-link reader of a public_read collection would see)."""
+        rows = await db.execute(
+            select(AppRecord.collection, func.count(AppRecord.id))
+            .join(Report, Report.id == AppRecord.report_id)
+            .where(
+                AppRecord.artifact_id == str(artifact_id),
+                AppRecord.deleted_at.is_(None),
+                AppRecord.user_id == Report.user_id,
+            )
+            .group_by(AppRecord.collection)
+        )
+        return {collection: count for collection, count in rows.all()}
 
 
 app_data_service = AppDataService()

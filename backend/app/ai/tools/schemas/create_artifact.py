@@ -69,12 +69,13 @@ class CreateArtifactInput(BaseModel):
     ))
 
     storage: Optional[Dict[str, Any]] = Field(default=None, description=(
-        "Optional record storage for a page app: {\"collections\": {<name>: {scope, create, modify, fields}}} "
+        "Optional record storage for a page app: {\"collections\": {<name>: {scope, create, modify, public_read, "
+        "fields}}} "
         "(see STORAGE AUTHORING). Required for every useCollection(\"<name>\") call in `code`. Records belong "
         "to the artifact: rebuilding an app that has records MUST pass replaces_artifact_id, otherwise the new "
         "artifact starts with an EMPTY store. On such a rebuild omitting `storage` keeps the current declaration; "
-        "pass {\"collections\": {}} to remove storage. Changes that can hide or expose stored records need the "
-        "user's approval; if not approved nothing is applied."
+        "pass {\"collections\": {}} to remove storage. Changes of who can read or change stored records (including "
+        "public_read) need the user's approval; if not approved nothing is applied."
     ))
 
 

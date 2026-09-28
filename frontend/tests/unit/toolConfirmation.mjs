@@ -61,9 +61,11 @@ assert.equal(isAwaitingApprovalStage(undefined), false)
 
 // --- one localized line per change, with its impact ---------------------------
 
+const P = (over = {}) => ({ collection: 'notes', field: '', before: '', after: '', principal: '', capability: '', records: 0, users: 0, ...over })
+
 assert.deepEqual(storageChangeItems(storage), [{
   key: 'tools.storageChange.collectionRemoved',
-  params: { collection: 'notes', field: '', before: '', after: '' },
+  params: P({ records: 3, users: 2 }),
   impact: { records: 3, users: 2 },
 }])
 
@@ -72,24 +74,66 @@ const everyKind = storageChangeItems({
   storage_changes: [
     { kind: 'field_removed', collection: 'notes', field: 'text', before: 'string', records: 0, users: 0 },
     { kind: 'field_type_changed', collection: 'notes', field: 'text', before: 'string', after: 'json', records: 1, users: 1 },
-    { kind: 'scope_changed', collection: 'notes', before: 'per_user', after: 'shared', records: 0, users: 0 },
-    { kind: 'create_changed', collection: 'notes', before: 'members', after: 'owner', records: 0, users: 0 },
+    { kind: 'field_readded', collection: 'notes', field: 'text', before: 'string', after: 'string', records: 4, users: 2 },
     { kind: 'field_made_required', collection: 'notes', field: 'text', records: 5, users: 2 },
   ],
 })
 assert.deepEqual(everyKind.map((i) => i.key), [
   'tools.storageChange.fieldRemoved',
   'tools.storageChange.fieldTypeChanged',
-  'tools.storageChange.scopeChanged',
-  'tools.storageChange.createChanged',
+  'tools.storageChange.fieldReadded',
   'tools.storageChange.fieldMadeRequired',
 ])
-assert.deepEqual(everyKind[1].params, { collection: 'notes', field: 'text', before: 'string', after: 'json' })
-assert.deepEqual(everyKind[4].impact, { records: 5, users: 2 })
+assert.deepEqual(everyKind[1].params, P({ field: 'text', before: 'string', after: 'json', records: 1, users: 1 }))
+assert.deepEqual(everyKind[3].impact, { records: 5, users: 2 })
+
+// --- access changes: one outcome sentence per (principal, capability, after) ---
+
+const access = (principal, capability, before, after, records = 0, users = 0) =>
+  ({ kind: 'access_changed', collection: 'notes', principal, capability, before, after, records, users })
+const accessKeys = storageChangeItems({
+  storage_changes: [
+    access('public', 'read', 'none', 'owner', 2, 1),
+    access('public', 'read', 'owner', 'none'),
+    access('member', 'create', 'yes', 'no'),
+    access('member', 'create', 'no', 'yes'),
+    access('member', 'modify_own', 'no', 'yes'),
+    access('member', 'modify_own', 'yes', 'no'),
+    access('member', 'modify_others', 'no', 'yes'),
+    access('member', 'modify_others', 'yes', 'no'),
+    access('member', 'read', 'own', 'all'),
+    access('member', 'read', 'all', 'own'),
+    access('owner', 'read', 'own', 'all'),
+    access('owner', 'read', 'all', 'own'),
+    access('owner', 'modify_others', 'no', 'yes'),
+    access('owner', 'modify_others', 'yes', 'no'),
+    // Not in the table (e.g. outsiders and anonymous differ): a generic line, never dropped.
+    access('anonymous', 'create', 'no', 'yes'),
+  ],
+})
+assert.deepEqual(accessKeys.map((i) => i.key), [
+  'tools.storageChange.access.publicCanRead',
+  'tools.storageChange.access.publicCannotRead',
+  'tools.storageChange.access.membersCannotAdd',
+  'tools.storageChange.access.membersCanAdd',
+  'tools.storageChange.access.membersCanEditOwn',
+  'tools.storageChange.access.membersCannotEditOwn',
+  'tools.storageChange.access.membersCanEditOthers',
+  'tools.storageChange.access.membersCannotEditOthers',
+  'tools.storageChange.access.membersSeeAll',
+  'tools.storageChange.access.membersSeeOwn',
+  'tools.storageChange.access.ownerSeesAll',
+  'tools.storageChange.access.ownerSeesOwn',
+  'tools.storageChange.access.ownerCanEditOthers',
+  'tools.storageChange.access.ownerCannotEditOthers',
+  'tools.storageChange.accessChanged',
+])
+assert.deepEqual(accessKeys[0].params, P({ principal: 'public', capability: 'read', before: 'none', after: 'owner', records: 2, users: 1 }))
 
 // Unknown kinds (a newer backend) are skipped rather than rendered as a raw key;
-// malformed payloads yield nothing.
+// malformed payloads yield nothing. Retired kinds are unknown now.
 assert.deepEqual(storageChangeItems({ storage_changes: [{ kind: 'something_new', collection: 'x', records: 0, users: 0 }] }), [])
+assert.deepEqual(storageChangeItems({ storage_changes: [{ kind: 'create_changed', collection: 'x', records: 0, users: 0 }] }), [])
 assert.deepEqual(storageChangeItems({ kind: 'builtin_tool' }), [])
 assert.deepEqual(storageChangeItems(null), [])
 
@@ -98,9 +142,25 @@ assert.deepEqual(storageChangeItems({
   storage_changes: [{ kind: 'collection_readded', collection: 'notes', before: 'orphaned records', after: 'shared/owner', records: 3, users: 2 }],
 }), [{
   key: 'tools.storageChange.collectionReadded',
-  params: { collection: 'notes', field: '', before: 'orphaned records', after: 'shared/owner' },
+  params: P({ before: 'orphaned records', after: 'shared/owner', records: 3, users: 2 }),
   impact: { records: 3, users: 2 },
 }])
+
+// --- every key the card can render exists in every locale catalog -------------
+
+import fs from 'node:fs'
+const LOCALES = ['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it']
+const renderable = [...new Set([...everyKind, ...accessKeys].map((i) => i.key)),
+  'tools.storageChange.collectionRemoved', 'tools.storageChange.collectionReadded', 'tools.storageChange.impact']
+for (const loc of LOCALES) {
+  const catalog = JSON.parse(fs.readFileSync(new URL(`../../../locales/${loc}.json`, import.meta.url), 'utf8'))
+  for (const key of renderable) {
+    const value = key.split('.').reduce((o, k) => (o == null ? undefined : o[k]), catalog)
+    assert.equal(typeof value, 'string', `${loc}: ${key}`)
+  }
+  assert.equal(catalog.tools.storageChange.scopeChanged, undefined, `${loc}: retired scopeChanged`)
+  assert.equal(catalog.tools.storageChange.createChanged, undefined, `${loc}: retired createChanged`)
+}
 
 // --- what the approval card shows after the POST -------------------------------
 //
