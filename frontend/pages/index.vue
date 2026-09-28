@@ -80,7 +80,6 @@
               @openInstructions="showInstructionsModal = true"
           />
       </div>
-      <BriefingCard />
       <div class="w-full mx-auto mt-0 space-x-3 space-y-3" v-if="resolvedDataSources">
         <DataSourceQuestionsHome
             :data_sources="resolvedDataSources"
@@ -171,7 +170,6 @@ import { onMounted, nextTick } from 'vue';
 import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
 import McpModal from '~/components/McpModal.vue';
-import BriefingCard from '~/components/BriefingCard.vue';
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue';
 import ActivityIcon from '~/components/icons/ActivityIcon.vue';
 import McpIcon from '~/components/icons/McpIcon.vue';

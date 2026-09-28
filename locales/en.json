@@ -2832,8 +2832,8 @@
           "description": "Each night, agents review their pending suggestions, feedback and usage and propose one consolidated improvement per agent. What happens to it follows each agent's Self-Learning setting."
         },
         "enable_user_dreaming": {
-          "name": "Overnight preparation for users",
-          "description": "Each night, the agent reflects on each active user's work to keep their memory tidy, note open threads, and prepare follow-ups (e.g. before a meeting). Users can turn it off for themselves."
+          "name": "User overnight learning",
+          "description": "Each night, the agent reviews each active user's day to keep their memory up to date and plan follow-ups (e.g. before a meeting). Follow-ups use the normal check-in limits and each user's check-in opt-out."
         },
         "ai_suggestion_expiry_days": {
           "name": "Expire unreviewed AI suggestions after (days)",
@@ -3692,10 +3692,7 @@
     "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
     "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
     "memory.full": "Memory is full. Delete some entries first.",
-    "memory.not_active": "That entry was already changed or forgotten.",
-    "briefing.item_not_found": "That item is no longer in your briefing.",
-    "habit_offer.not_found": "That offer no longer exists.",
-    "habit_offer.not_pending": "This offer was already answered."
+    "memory.not_active": "That entry was already changed or forgotten."
   },
   "email": {
     "dashboardShare": {
@@ -4921,17 +4918,7 @@
       "checkinsTitle": "Agent follow-ups",
       "checkinsSubtitle": "Let the agent check back on its own after a conversation when something is worth revisiting (for example after a data refresh). It notifies you only when something meaningful changed.",
       "checkinsSaved": "Follow-up preference saved",
-      "checkinsFailed": "Could not save your follow-up preference",
-      "overnightTitle": "Prepare things for me overnight",
-      "overnightSubtitle": "At night the assistant tidies what it remembers about you, notes what you left open, and prepares follow-ups before your events. Only you see the results.",
-      "overnightSaved": "Overnight preparation updated",
-      "overnightFailed": "Could not update overnight preparation",
-      "overnightLogTitle": "What I did overnight",
-      "overnightLogMemory": "{n} memory note | {n} memory notes",
-      "overnightLogThreads": "{n} open thread | {n} open threads",
-      "overnightLogFollowUps": "{n} follow-up planned | {n} follow-ups planned",
-      "overnightLogHabit": "suggested a recurring task",
-      "overnightLogNothing": "Looked things over — nothing to change"
+      "checkinsFailed": "Could not save your follow-up preference"
     },
     "instructions": {
       "title": "Custom Instructions",
@@ -5497,22 +5484,6 @@
     "nightlyTitle": "Learn overnight",
     "nightlyDescription": "Each night, turn repeated corrections, feedback and usage into one consolidated suggestion for this agent. It follows the setting above like any other suggestion.",
     "nightlyOrgOff": "Overnight learning is off for this organization (AI settings)."
-  },
-  "briefing": {
-    "title": "Since you were here",
-    "gotIt": "Got it",
-    "why": "why: {why}",
-    "waitingOn": "waiting on {what}",
-    "notUseful": "Not useful",
-    "checkinQuiet": "Checked again — nothing worth flagging",
-    "eventPrepared": "prepared in {report}",
-    "habit": "You ask for “{intent}” often. Have it ready {when}?",
-    "everyDay": "every day at {time}",
-    "everyWeekday": "every {day} at {time}",
-    "habitYes": "Yes, schedule it",
-    "habitNo": "No thanks",
-    "habitScheduled": "Scheduled — it will be ready for you",
-    "habitFailed": "Could not schedule it"
   },
   "nightlyBuild": {
     "merged": "Merged",

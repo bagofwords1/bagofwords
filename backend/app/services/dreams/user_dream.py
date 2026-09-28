@@ -5,11 +5,12 @@ Gather (code) → one small-model call → validate and apply (code):
 - memory: create / update / forget through MemoryService (source='dream';
   entries the user wrote are never touched; rules, secrets and personal
   details are refused there),
-- open threads: replace the user's open threads (at most 5),
 - follow-ups: at most 2 check-ins through ``CheckinService.plan_from_dream``
-  (the ordinary check-in limits, working window and ownership rules apply),
-- habit: at most one offer, only for a recurring ask code detected, never
-  within the decline cool-off, never duplicating a scheduled task.
+  (the ordinary check-in limits, working window, opt-out and ownership rules
+  apply).
+
+That is all it writes: no new user-facing objects. Results show up where
+memory and check-ins already do.
 
 Inputs are human-initiated turns only: machine turns (check-ins, waits,
 scheduled runs, webhooks, evals) are never read, so a dream never learns from
@@ -19,17 +20,15 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
-from app.models.habit_offer import OFFER_DECLINED, OFFER_OFFERED, HabitOffer, WEEKDAYS
-from app.models.user_open_thread import THREAD_OPEN, UserOpenThread
 from app.services.dreams import common as C
 from app.services.dreams.runtime import DreamResult
 
@@ -38,16 +37,7 @@ logger = logging.getLogger(__name__)
 MAX_SESSIONS = 8
 MAX_MESSAGES_PER_SESSION = 10
 MAX_MEMORY_IN_PROMPT = 80
-MAX_RECURRING = 3
 FIRST_RUN_LOOKBACK_HOURS = 36
-_WORD = re.compile(r"[a-z0-9֐-׿؀-ۿÀ-ɏ]+")
-_NUMBERISH = re.compile(r"^\d+$")
-_STOP = {
-    "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "by", "with", "me", "my", "is",
-    "are", "what", "show", "please", "can", "you", "last", "this", "that", "per", "from", "at", "give",
-    "get", "need", "want", "tell", "how", "much", "many", "our", "we", "i",
-}
-_TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 
 def _text(prompt_json: Any, limit: int = 400) -> str:
@@ -70,72 +60,15 @@ def _fmt(dt: Optional[datetime], tz: str) -> str:
     return l.strftime("%a %Y-%m-%d %H:%M") if l else "unknown"
 
 
-def _stem(w: str) -> str:
-    """Tiny suffix stripper so "weekly"/"week" or "orders"/"order" match."""
-    for suf in ("ly", "ing", "es", "s"):
-        if len(w) > len(suf) + 3 and w.endswith(suf):
-            return w[: -len(suf)]
-    return w
-
-
-def normalize_intent(text: str) -> Tuple[str, ...]:
-    words = [
-        _stem(w) for w in _WORD.findall((text or "").lower())
-        if w not in _STOP and not _NUMBERISH.match(w)
-    ]
-    return tuple(sorted(set(words)))
-
-
-def _jaccard(a: Tuple[str, ...], b: Tuple[str, ...]) -> float:
-    if not a or not b:
-        return 0.0
-    sa, sb = set(a), set(b)
-    return len(sa & sb) / len(sa | sb)
-
-
-def detect_recurring(prompts: List[dict], tz: str, *, min_count: int = C.HABIT_MIN_OCCURRENCES,
-                     threshold: float = 0.6) -> List[dict]:
-    """Group near-identical asks; keep groups seen on >= min_count distinct
-    ISO weeks. ``prompts``: [{text, created_at, report_id}]."""
-    groups: List[dict] = []
-    for p in sorted(prompts, key=lambda x: x["created_at"]):
-        key = normalize_intent(p["text"])
-        if len(key) < 2:
-            continue
-        for g in groups:
-            if _jaccard(g["key"], key) >= threshold:
-                g["items"].append(p)
-                break
-        else:
-            groups.append({"key": key, "items": [p]})
-    out: List[dict] = []
-    for g in groups:
-        weeks = {(_local(i["created_at"], tz).isocalendar()[0], _local(i["created_at"], tz).isocalendar()[1]) for i in g["items"]}
-        if len(weeks) < min_count:
-            continue
-        wd = Counter(WEEKDAYS[_local(i["created_at"], tz).weekday()] for i in g["items"]).most_common(1)[0][0]
-        hr = Counter(_local(i["created_at"], tz).hour for i in g["items"]).most_common(1)[0][0]
-        latest = g["items"][-1]
-        out.append({
-            "sample": latest["text"], "count": len(g["items"]), "weeks": len(weeks),
-            "weekday": wd, "hour": hr, "report_id": latest.get("report_id"), "key_words": list(g["key"]),
-        })
-    out.sort(key=lambda x: (-x["weeks"], -x["count"]))
-    return out[:MAX_RECURRING]
-
-
 @dataclass
 class UserGathered:
     sessions: List[dict] = field(default_factory=list)
     memory: List[dict] = field(default_factory=list)
     upcoming: List[dict] = field(default_factory=list)
     followups: List[dict] = field(default_factory=list)
-    recurring: List[dict] = field(default_factory=list)
     scheduled: List[dict] = field(default_factory=list)
-    open_threads: List[dict] = field(default_factory=list)
     report_keys: Dict[str, str] = field(default_factory=dict)  # key -> report_id
     report_owner: Dict[str, bool] = field(default_factory=dict)
-    report_titles: Dict[str, str] = field(default_factory=dict)
     memory_by_handle: Dict[str, Any] = field(default_factory=dict)
     first_message_by_report: Dict[str, str] = field(default_factory=dict)
 
@@ -201,7 +134,6 @@ async def gather(db, organization_id: str, user_id: str, *, since: datetime, now
                 summary = ""
         owner = str(report.user_id) == str(user_id)
         g.report_owner[key] = owner
-        g.report_titles[key] = report.title or "Untitled"
         messages = [
             {"when": _fmt(created, tz), "text": _text(prompt)}
             for prompt, created in reversed(msgs[:MAX_MESSAGES_PER_SESSION])
@@ -242,28 +174,6 @@ async def gather(db, organization_id: str, user_id: str, *, since: datetime, now
             "outcome": _checkin_outcome(ci),
         })
 
-    # Recurring asks over the lookback window.
-    hist = (
-        await db.execute(
-            select(Completion.prompt, Completion.created_at, Completion.report_id)
-            .join(Report, Report.id == Completion.report_id)
-            .where(Report.organization_id == str(organization_id),
-                   Completion.created_at >= now - timedelta(days=C.HABIT_LOOKBACK_DAYS), *human)
-        )
-    ).all()
-    recurring = detect_recurring(
-        [{"text": _text(p), "created_at": c, "report_id": str(r)} for p, c, r in hist if _text(p)], tz,
-    )
-    for i, r in enumerate(recurring, start=1):
-        rid = r.get("report_id")
-        r["key"] = f"h{i}"
-        r["report_key"] = _key_for(rid) if rid else None
-        if rid and r["report_key"] not in g.report_owner:
-            rep = await db.get(Report, rid)
-            g.report_owner[r["report_key"]] = bool(rep and str(rep.user_id) == str(user_id))
-            g.report_titles[r["report_key"]] = (rep.title if rep else "") or "Untitled"
-        g.recurring.append(r)
-
     sps = (
         await db.execute(
             select(ScheduledPrompt).options(lazyload("*")).where(
@@ -271,19 +181,8 @@ async def gather(db, organization_id: str, user_id: str, *, since: datetime, now
             )
         )
     ).scalars().all()
-    g.scheduled = [{"title": sp.title or _text(sp.prompt, 120), "cron": sp.cron_schedule, "report_id": str(sp.report_id)} for sp in sps]
+    g.scheduled = [{"title": sp.title or _text(sp.prompt, 120), "cron": sp.cron_schedule} for sp in sps]
 
-    threads = (
-        await db.execute(
-            select(UserOpenThread).where(
-                UserOpenThread.organization_id == str(organization_id), UserOpenThread.user_id == str(user_id),
-                UserOpenThread.status == THREAD_OPEN, UserOpenThread.deleted_at.is_(None),
-            )
-        )
-    ).scalars().all()
-    for t in threads:
-        k = next((k for k, v in g.report_keys.items() if v == str(t.report_id)), None)
-        g.open_threads.append({"report_key": k, "text": t.text})
     return g
 
 
@@ -313,12 +212,6 @@ def _parse_local(value: str, tz: str) -> Optional[datetime]:
         return None
     local = local.replace(tzinfo=ZoneInfo(tz))
     return local.astimezone(timezone.utc).replace(tzinfo=None)
-
-
-def _valid_cadence(cadence: str) -> bool:
-    if cadence == "daily":
-        return True
-    return cadence.startswith("weekly:") and cadence.split(":", 1)[1] in WEEKDAYS
 
 
 async def run_user_dream(
@@ -352,7 +245,7 @@ async def run_user_dream(
     g = await gather(db, org_id, user_id, since=since, now=now, tz=tz)
     summary = {
         "sessions": len(g.sessions), "memory": len(g.memory), "upcoming": len(g.upcoming),
-        "followups": len(g.followups), "recurring": len(g.recurring),
+        "followups": len(g.followups),
     }
     if not g.sessions and not g.upcoming:
         return DreamResult(status="skipped", reason="nothing_new", inputs_summary=summary)
@@ -371,7 +264,7 @@ async def run_user_dream(
     prompt = build_prompt(
         user_name=(user.name if user else "") or "", today_local=C.local_now(now, tz).strftime("%a %Y-%m-%d %H:%M"),
         tz_name=tz, sessions=g.sessions, memory=g.memory, upcoming=g.upcoming, followups=g.followups,
-        recurring=g.recurring, scheduled=g.scheduled, open_threads=g.open_threads,
+        scheduled=g.scheduled,
     )
     await db.commit()
     proposal = await (reflect or run_reflection)(model, prompt, run_id=run_id)
@@ -393,12 +286,11 @@ async def run_user_dream(
             .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
-    if not C.user_dreaming_enabled(org_settings) or (membership is not None and not membership.overnight_prep):
+    if not C.user_dreaming_enabled(org_settings):
         return DreamResult(status="cancelled", reason="disabled", inputs_summary=summary, tool_calls=tool_calls)
 
-    applied: Dict[str, Any] = {"memory": [], "open_threads": [], "follow_ups": [], "habit": None, "refused": []}
+    applied: Dict[str, Any] = {"memory": [], "follow_ups": [], "refused": []}
     await _apply_memory(db, org_id, user_id, g, proposal, applied, run_id=run_id, now=now)
-    await _apply_threads(db, org_id, user_id, g, proposal, applied, run_id=run_id)
     if C.checkins_enabled(org_settings) and not (membership and membership.checkins_opt_out):
         for f in proposal.follow_ups[: C.MAX_DREAM_CHECKINS]:
             rid = g.report_keys.get(f.report)
@@ -420,7 +312,6 @@ async def run_user_dream(
             })
     elif proposal.follow_ups:
         applied["refused"].append({"kind": "follow_up", "reason": "checkins_off_or_opted_out"})
-    await _apply_habit(db, org_id, user_id, g, proposal, applied, run_id=run_id, now=now)
     await db.commit()
 
     applied["summary"] = proposal.summary
@@ -469,84 +360,3 @@ async def _apply_memory(db, org_id, user_id, g: UserGathered, proposal, applied,
         except Exception:
             logger.exception("user dream: memory op failed")
             applied["refused"].append({"kind": "memory", "op": op.op, "reason": "error"})
-
-
-async def _apply_threads(db, org_id, user_id, g: UserGathered, proposal, applied, *, run_id) -> None:
-    existing = (
-        await db.execute(
-            select(UserOpenThread).where(
-                UserOpenThread.organization_id == org_id, UserOpenThread.user_id == user_id,
-                UserOpenThread.status == THREAD_OPEN, UserOpenThread.deleted_at.is_(None),
-            )
-        )
-    ).scalars().all()
-    new: List[UserOpenThread] = []
-    for t in proposal.open_threads:
-        rid = g.report_keys.get(t.report)
-        # Like follow-ups: only reports the user owns (a shared report can be
-        # un-shared later; its title must not linger in their briefing).
-        if not rid or not g.report_owner.get(t.report):
-            applied["refused"].append({"kind": "thread", "report": t.report, "reason": "not_owner_or_unknown"})
-            continue
-        new.append(UserOpenThread(
-            organization_id=org_id, user_id=user_id, report_id=rid, text=t.text[:200],
-            unblocked_by=(t.unblocked_by or None), dream_run_id=run_id, status=THREAD_OPEN,
-        ))
-        if len(new) >= C.MAX_OPEN_THREADS:
-            break
-    # Replace the set only when the model looked at sessions (otherwise keep
-    # yesterday's threads rather than silently wiping them).
-    if not g.sessions:
-        return
-    for t in existing:
-        t.deleted_at = C.utcnow()
-        db.add(t)
-    for t in new:
-        db.add(t)
-        applied["open_threads"].append({"report_id": t.report_id, "text": t.text})
-
-
-async def _apply_habit(db, org_id, user_id, g: UserGathered, proposal, applied, *, run_id, now) -> None:
-    h = proposal.habit
-    if h is None:
-        return
-    rec = next((r for r in g.recurring if r["key"] == h.recurring), None)
-    if rec is None:
-        applied["refused"].append({"kind": "habit", "reason": "not_a_detected_recurring_ask"})
-        return
-    rid = rec.get("report_id")
-    if not rid or not g.report_owner.get(rec.get("report_key")):
-        applied["refused"].append({"kind": "habit", "reason": "not_owner_or_no_report"})
-        return
-    if not _valid_cadence(h.cadence) or not _TIME.match(h.time or ""):
-        applied["refused"].append({"kind": "habit", "reason": "bad_cadence_or_time"})
-        return
-    if any(s["report_id"] == rid for s in g.scheduled):
-        applied["refused"].append({"kind": "habit", "reason": "already_scheduled"})
-        return
-    offers = (
-        await db.execute(
-            select(HabitOffer).where(
-                HabitOffer.organization_id == org_id, HabitOffer.user_id == user_id,
-                HabitOffer.deleted_at.is_(None),
-            )
-        )
-    ).scalars().all()
-    if any(o.status == OFFER_OFFERED for o in offers):
-        applied["refused"].append({"kind": "habit", "reason": "offer_pending"})
-        return
-    cooloff = now - timedelta(days=C.HABIT_DECLINE_COOLOFF_DAYS)
-    rkey = set(rec.get("key_words") or [])
-    for o in offers:
-        if o.status == OFFER_DECLINED and o.decided_at and o.decided_at >= cooloff:
-            if o.report_id == rid or _jaccard(tuple(sorted(normalize_intent(o.intent_text))), tuple(sorted(rkey))) >= 0.5:
-                applied["refused"].append({"kind": "habit", "reason": "declined_recently"})
-                return
-    offer = HabitOffer(
-        organization_id=org_id, user_id=user_id, report_id=rid, intent_text=h.intent[:200],
-        cadence=h.cadence, suggested_time=h.time, status=OFFER_OFFERED, dream_run_id=run_id,
-    )
-    db.add(offer)
-    await db.flush()
-    applied["habit"] = {"offer_id": str(offer.id), "intent": offer.intent_text, "cadence": offer.cadence,
-                        "time": offer.suggested_time}

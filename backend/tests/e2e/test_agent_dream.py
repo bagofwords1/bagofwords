@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import and_, select
+from sqlalchemy import select
 
 from app.ai.agents.dreams.agent_prompts import AgentDreamProposal, ProposedArchive, ProposedGroup
 from app.dependencies import async_session_maker

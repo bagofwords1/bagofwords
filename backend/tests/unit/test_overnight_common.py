@@ -1,9 +1,8 @@
 """Unit tests for the overnight-learning pure helpers: settings parsing, the
-night window, promotion gates, recurring-ask detection, output parsing and
-cron derivation. No DB, no model."""
+night window, promotion gates and output parsing. No DB, no model."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -11,8 +10,7 @@ from app.ai.agents.dreams import agent_prompts as AP
 from app.ai.agents.dreams import user_prompts as UP
 from app.services.dreams import common as C
 from app.services.dreams.agent_dream import Draft, group_gate
-from app.services.dreams.briefing import cron_for
-from app.services.dreams.user_dream import _parse_local, _valid_cadence, detect_recurring, normalize_intent
+from app.services.dreams.user_dream import _parse_local
 
 
 class _Cfg:
@@ -99,36 +97,6 @@ def test_group_gate_needs_enough_distinct_users_and_days(users, days, promotable
     assert group_gate(drafts)["promotable"] is promotable
 
 
-# ── recurring asks ─────────────────────────────────────────────────────────
-
-def _asks(text, dates, report="r"):
-    return [{"text": text, "created_at": d, "report_id": report} for d in dates]
-
-
-def test_recurring_needs_distinct_weeks_not_just_repeats():
-    monday = datetime(2026, 9, 7, 7, 0)
-    same_week = [monday + timedelta(hours=h) for h in (0, 1, 2, 3)]
-    assert detect_recurring(_asks("Weekly pipeline by region", same_week), "UTC") == []
-
-    weekly = [monday + timedelta(weeks=w) for w in range(3)]
-    out = detect_recurring(_asks("Weekly pipeline by region", weekly), "UTC")
-    assert len(out) == 1
-    assert out[0]["weeks"] == 3 and out[0]["weekday"] == "mon" and out[0]["hour"] == 7
-
-
-def test_recurring_groups_rephrasings_but_not_different_asks():
-    monday = datetime(2026, 9, 7, 8, 0)
-    asks = (
-        _asks("weekly pipeline by region", [monday])
-        + _asks("pipeline by region this week please", [monday + timedelta(weeks=1)])
-        + _asks("show me the weekly pipeline by region", [monday + timedelta(weeks=2)])
-        + _asks("churn for enterprise customers", [monday + timedelta(weeks=w) for w in (0, 1)])
-    )
-    out = detect_recurring(asks, "UTC")
-    assert [o["count"] for o in out] == [3]
-    assert normalize_intent("Revenue 2026 by region") == normalize_intent("revenue by region 2025")
-
-
 # ── parsing ───────────────────────────────────────────────────────────────
 
 def test_agent_proposal_parses_and_drops_malformed_entries():
@@ -146,19 +114,19 @@ def test_agent_proposal_parses_and_drops_malformed_entries():
     assert AP.parse("not json") is None
 
 
-def test_user_proposal_parses_ops_and_ignores_unknown():
+def test_user_proposal_parses_memory_and_follow_ups_only():
     raw = (
         '{"memory": [{"op": "create", "text": "Board meeting", "event_start": "2026-10-09", "tags": ["board"]},'
         ' {"op": "delete", "handle": "m1"}, {"op": "forget", "handle": "m2"}],'
-        ' "open_threads": [{"report": "r1", "text": "Churn by plan"}, {"report": "r2"}],'
-        ' "follow_ups": [{"report": "r1", "due_local": "2026-10-08T07:45", "note": "Refresh"}],'
-        ' "habit": {"recurring": "h1", "intent": "Pipeline", "cadence": "weekly:mon", "time": "08:30"}}'
+        ' "follow_ups": [{"report": "r1", "due_local": "2026-10-08T07:45", "note": "Refresh"},'
+        ' {"report": "r2", "due_local": "2026-10-08T07:45", "note": ""}],'
+        ' "open_threads": [{"report": "r1", "text": "ignored"}],'
+        ' "habit": {"recurring": "h1", "intent": "ignored", "cadence": "daily", "time": "08:30"}}'
     )
     p = UP.parse(raw)
     assert [m.op for m in p.memory] == ["create", "forget"]
-    assert [t.report for t in p.open_threads] == ["r1"]
-    assert p.follow_ups[0].due_local == "2026-10-08T07:45"
-    assert p.habit.cadence == "weekly:mon"
+    assert [(f.report, f.due_local) for f in p.follow_ups] == [("r1", "2026-10-08T07:45")]
+    assert set(UP.proposal_to_json(p)) == {"memory", "follow_ups", "summary"}
     assert UP.parse("[]") is None
 
 
@@ -169,19 +137,3 @@ def test_parse_local_converts_org_time_to_utc():
     assert _parse_local("2026-10-08T07:45", "Asia/Jerusalem") == datetime(2026, 10, 8, 4, 45)
     assert _parse_local("2026-10-08", "UTC") == datetime(2026, 10, 8, 9, 0)
     assert _parse_local("next thursday", "UTC") is None
-
-
-@pytest.mark.parametrize("cadence,ok", [
-    ("daily", True), ("weekly:mon", True), ("weekly:sun", True), ("weekly:funday", False), ("hourly", False),
-])
-def test_valid_cadence(cadence, ok):
-    assert _valid_cadence(cadence) is ok
-
-
-@pytest.mark.parametrize("cadence,time,cron", [
-    ("weekly:mon", "08:30", "30 8 * * 1"),
-    ("weekly:sun", "07:05", "5 7 * * 0"),
-    ("daily", "09:00", "0 9 * * *"),
-])
-def test_cron_for_offer(cadence, time, cron):
-    assert cron_for(cadence, time) == cron

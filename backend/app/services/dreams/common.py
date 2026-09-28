@@ -21,8 +21,7 @@ MAX_EXPIRY_DAYS = 3650
 
 # ----------------------------------------------------------------- constants
 
-# Org-local hours. User dreams first, agent dreams after, so a user's morning
-# briefing is ready long before anyone logs in.
+# Org-local hours. User dreams first, agent dreams after.
 USER_WINDOW = (1, 3)    # [01:00, 03:00)
 AGENT_WINDOW = (3, 5)   # [03:00, 05:00)
 
@@ -45,11 +44,8 @@ EXPIRED_EVIDENCE_DAYS = 90
 UNUSED_ARCHIVE_DAYS = 60
 
 # User dream limits.
-MAX_OPEN_THREADS = 5
 MAX_DREAM_CHECKINS = 2
-HABIT_MIN_OCCURRENCES = 3
-HABIT_LOOKBACK_DAYS = 28
-HABIT_DECLINE_COOLOFF_DAYS = 60
+# A memory event this close wakes the user dream even without new activity.
 UPCOMING_EVENT_DAYS = 3
 
 
@@ -78,8 +74,8 @@ def agent_dreaming_enabled(org_settings: Any) -> bool:
 
 
 def user_dreaming_enabled(org_settings: Any) -> bool:
-    """The user dream also needs user memory: it tidies memory and every item
-    it produces is anchored to it."""
+    """The user dream also needs user memory: keeping memory up to date is
+    half of what it does, and its prompt is built around it."""
     return _bool(org_settings, SETTING_USER_DREAMING, False) and _bool(
         org_settings, SETTING_USER_MEMORY, True
     )

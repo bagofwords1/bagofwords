@@ -61,11 +61,6 @@ class ErrorCode(str, Enum):
     MEMORY_FULL = "memory.full"
     MEMORY_NOT_ACTIVE = "memory.not_active"
 
-    # Overnight learning (briefing, habit offers, overnight log)
-    BRIEFING_ITEM_NOT_FOUND = "briefing.item_not_found"
-    HABIT_OFFER_NOT_FOUND = "habit_offer.not_found"
-    HABIT_OFFER_NOT_PENDING = "habit_offer.not_pending"
-
     # Conflicts
     RESOURCE_CONFLICT = "resource.conflict"
     DUPLICATE_RESOURCE = "resource.duplicate"

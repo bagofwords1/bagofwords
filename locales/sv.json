@@ -2636,8 +2636,8 @@
           "description": "Varje natt går agenterna igenom sina väntande förslag, feedback och användning och föreslår en samlad förbättring per agent. Vad som händer med den följer varje agents inställning för självlärande."
         },
         "enable_user_dreaming": {
-          "name": "Nattlig förberedelse för användare",
-          "description": "Varje natt går agenten igenom varje aktiv användares arbete för att hålla minnet i ordning, notera öppna trådar och förbereda uppföljningar (t.ex. inför ett möte). Användare kan stänga av det för sig själva."
+          "name": "Nattlig inlärning för användare",
+          "description": "Varje natt går agenten igenom varje aktiv användares dag för att hålla minnet uppdaterat och planera uppföljningar (t.ex. inför ett möte). Uppföljningarna följer de vanliga gränserna och varje användares avstängning av uppföljningar."
         },
         "ai_suggestion_expiry_days": {
           "name": "Låt ogranskade AI-förslag löpa ut efter (dagar)",
@@ -3518,10 +3518,7 @@
     "memory.sensitive": "Minnet kan inte innehålla hemligheter, lösenord eller känsliga personuppgifter.",
     "memory.looks_like_rule": "Det är en regel för hur AI:n ska svara – lägg till den i dina anpassade instruktioner. Minnet sparar fakta om dig.",
     "memory.full": "Minnet är fullt. Radera några poster först.",
-    "memory.not_active": "Den posten har redan ändrats eller glömts.",
-    "briefing.item_not_found": "Posten finns inte längre i din sammanfattning.",
-    "habit_offer.not_found": "Erbjudandet finns inte längre.",
-    "habit_offer.not_pending": "Erbjudandet är redan besvarat."
+    "memory.not_active": "Den posten har redan ändrats eller glömts."
   },
   "email": {
     "dashboardShare": {
@@ -4707,17 +4704,7 @@
       "checkinsTitle": "Agentens uppföljningar",
       "checkinsSubtitle": "Låter agenten återkomma på egen hand efter en konversation när något är värt att titta på igen (till exempel efter en datauppdatering). Den aviserar dig bara när något väsentligt har ändrats.",
       "checkinsSaved": "Uppföljningsinställningen sparades",
-      "checkinsFailed": "Det gick inte att spara din uppföljningsinställning",
-      "overnightTitle": "Förbered saker åt mig under natten",
-      "overnightSubtitle": "På natten städar assistenten det den minns om dig, noterar vad du lämnat öppet och förbereder uppföljningar inför dina händelser. Bara du ser resultaten.",
-      "overnightSaved": "Nattlig förberedelse uppdaterad",
-      "overnightFailed": "Kunde inte uppdatera nattlig förberedelse",
-      "overnightLogTitle": "Vad jag gjorde under natten",
-      "overnightLogMemory": "{n} minnesanteckning | {n} minnesanteckningar",
-      "overnightLogThreads": "{n} öppen tråd | {n} öppna trådar",
-      "overnightLogFollowUps": "{n} uppföljning planerad | {n} uppföljningar planerade",
-      "overnightLogHabit": "föreslog en återkommande uppgift",
-      "overnightLogNothing": "Gick igenom allt – inget att ändra"
+      "checkinsFailed": "Det gick inte att spara din uppföljningsinställning"
     },
     "instructions": {
       "title": "Anpassade instruktioner",
@@ -5418,22 +5405,6 @@
     "nightlyTitle": "Lär dig under natten",
     "nightlyDescription": "Gör varje natt upprepade korrigeringar, feedback och användning till ett samlat förslag för den här agenten. Det följer inställningen ovan som alla andra förslag.",
     "nightlyOrgOff": "Nattlig inlärning är avstängd för den här organisationen (AI-inställningar)."
-  },
-  "briefing": {
-    "title": "Sedan du var här",
-    "gotIt": "Uppfattat",
-    "why": "varför: {why}",
-    "waitingOn": "väntar på {what}",
-    "notUseful": "Inte användbart",
-    "checkinQuiet": "Kontrollerat igen – inget att flagga",
-    "eventPrepared": "förberett i {report}",
-    "habit": "Du ber ofta om ”{intent}”. Ska jag ha det klart {when}?",
-    "everyDay": "varje dag kl. {time}",
-    "everyWeekday": "varje {day} kl. {time}",
-    "habitYes": "Ja, schemalägg",
-    "habitNo": "Nej tack",
-    "habitScheduled": "Schemalagt – det väntar klart på dig",
-    "habitFailed": "Kunde inte schemaläggas"
   },
   "nightlyBuild": {
     "merged": "Sammanslagen",
