@@ -447,6 +447,11 @@
         "title": "⚡ \"{name}\" wurde ausgelöst — {summary}",
         "body": "Die Untersuchung ist abgeschlossen — öffnen Sie die Sitzung für die Ergebnisse."
       }
+    },
+    "checkin": {
+      "badge": "Nachfassen",
+      "openReport": "Bericht öffnen",
+      "assistantFallback": "KI-Analyst"
     }
   },
   "auth": {
@@ -610,7 +615,25 @@
     "modelAutoHint": "Router wählt das beste Modell",
     "autoAgentsHint": "Jeder Agent, auf den Sie Zugriff haben",
     "loadingDataSources": "Datenquellen werden geladen…",
-    "noDataSources": "Keine Datenquellen gefunden"
+    "noDataSources": "Keine Datenquellen gefunden",
+    "effort": {
+      "title": "Aufwand",
+      "default": "Standard",
+      "levels": {
+        "low": "Niedrig",
+        "medium": "Mittel",
+        "high": "Hoch",
+        "max": "Max"
+      },
+      "searchModels": "Modelle suchen…",
+      "noMatches": "Keine passenden Modelle",
+      "otherProvider": "Andere",
+      "anyModel": "Gilt für das ausgeführte Modell",
+      "notSupported": "Dieses Modell hat keine Aufwandseinstellung",
+      "providerDefault": "Standard des Modells",
+      "modelDefault": "Admin-Standard: {level}",
+      "runsAs": "Läuft auf diesem Modell als {level}"
+    }
   },
   "reports": {
     "title": "Berichte",
@@ -934,7 +957,73 @@
     "stepTotal": "Schritt gesamt",
     "firstToken": "Zeit bis zum ersten Token",
     "thinking": "Denken",
-    "tool": "Tool"
+    "tool": "Tool",
+    "machineTurn": "Maschinenzug ({source})",
+    "checkin": {
+      "title": "Agenten-Check-in",
+      "runTurn": "Nachfass-Lauf (Agenten-Check-in)",
+      "noFollowUp": "Kein Nachfassen geplant",
+      "noReason": "Der Planer hat keinen Grund angegeben.",
+      "due": "fällig {when}",
+      "note": "Notiz an sich selbst",
+      "planReason": "Warum nachfassen",
+      "judge": "Richter",
+      "focus": "Fokus",
+      "whyRun": "Warum der Richter dieses Nachfassen ausgeführt hat",
+      "plannerUsage": "Planer",
+      "judgeUsage": "Richter",
+      "status": {
+        "not_proposed": "nicht vorgeschlagen",
+        "rejected": "abgelehnt",
+        "planned": "geplant",
+        "cancelled": "abgebrochen",
+        "skipped": "übersprungen",
+        "running": "läuft",
+        "ran_quiet": "still gelaufen",
+        "sent": "benachrichtigt",
+        "failed": "fehlgeschlagen"
+      },
+      "decision": {
+        "run": "ausführen",
+        "skip": "überspringen"
+      },
+      "reason": {
+        "disabled": "Einstellung aus",
+        "pending_exists_user": "Nutzer hat bereits eines ausstehend",
+        "pending_exists_report": "Bericht hat bereits eines ausstehend",
+        "weekly_cap": "Wochenlimit erreicht",
+        "org_daily_cap": "Tageslimit der Organisation erreicht",
+        "report_deleted": "Bericht gelöscht",
+        "access_lost": "Zugriff verloren",
+        "judge_skip": "vom Richter übersprungen",
+        "run_failed": "Lauf fehlgeschlagen",
+        "invalid_judge_output": "ungültige Richterantwort",
+        "opted_out": "abgemeldet",
+        "fire_error": "Fehler bei der Prüfung",
+        "stale_running": "blieb laufend (Neustart)"
+      },
+      "outcome": {
+        "sent": "Nutzer benachrichtigt",
+        "sentWithSubject": "Nutzer benachrichtigt: {subject}",
+        "ran_quiet": "Still gelaufen — nichts Meldenswertes",
+        "planned": "Wartet auf den Fälligkeitszeitpunkt",
+        "running": "Läuft gerade",
+        "skipped": "Vom Richter übersprungen — nichts ausgeführt",
+        "failed": "Der Nachfass-Lauf ist fehlgeschlagen — nichts gesendet",
+        "rejected": "Nicht geplant: {reason}",
+        "cancelled": "Abgebrochen: {reason}"
+      }
+    },
+    "memory": {
+      "title": "Gedächtnis",
+      "summary": "{injected} von {total} Einträgen eingebunden · {chars} Zeichen",
+      "privateNote": "Das Gedächtnis ist privat – angezeigt werden nur Kennungen und Abschnitte.",
+      "refused": "Abgelehnt",
+      "tier": {
+        "always": "immer",
+        "matched": "Treffer"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1496,10 +1585,11 @@
       "cancelledPlural": "{count} ausstehende Wartevorgänge abgebrochen",
       "nothingPending": "Keine ausstehenden Wartevorgänge"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Gedächtnis wird aktualisiert…",
+      "checking": "Gedächtnis wird durchsucht…",
       "updated": "Gedächtnis aktualisiert",
-      "failed": "Gedächtnis-Aktualisierung fehlgeschlagen"
+      "checked": "Gedächtnis durchsucht"
     },
     "routeModel": {
       "routedTo": "Geroutet an",
@@ -2537,6 +2627,22 @@
           "name": "Agenten-Notizen",
           "description": "Erlaubt dem Agenten, pro Bericht Arbeitsnotizen (einen Notizblock) zu führen, die er beim Antworten schreibt und liest — Pläne, Erkenntnisse und Aufgaben. Notizen werden im Bericht angezeigt, sind aber kein geteiltes Wissen. Ist die Option aus, werden die Notiz-Tools ausgeblendet und Notizen nicht in den Kontext eingefügt."
         },
+        "enable_user_memory": {
+          "name": "Benutzergedächtnis",
+          "description": "Der Agent merkt sich sitzungsübergreifend Fakten zu jedem Benutzer – seine Arbeit, Projekte, Fristen und Termine, was er verfolgt und seine eigenen Kürzel. Regeln dazu, wie geantwortet wird, bleiben in den Anweisungen. Jeder Benutzer kann sein Gedächtnis ansehen, bearbeiten und löschen."
+        },
+        "enable_agent_dreaming": {
+          "name": "Nächtliches Lernen der Agenten",
+          "description": "Jede Nacht prüfen Agenten ihre offenen Vorschläge, Feedback und Nutzung und schlagen pro Agent eine zusammengeführte Verbesserung vor. Was damit passiert, folgt der Selbstlern-Einstellung des jeweiligen Agenten."
+        },
+        "enable_user_dreaming": {
+          "name": "Nächtliches Lernen für Nutzer",
+          "description": "Jede Nacht geht der Agent den Tag jedes aktiven Nutzers durch, hält dessen Gedächtnis aktuell und plant Nachfassaktionen (z. B. vor einem Meeting). Dafür gelten die üblichen Limits und die persönliche Abmeldung vom Nachfassen."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Ungeprüfte KI-Vorschläge verfallen nach (Tagen)",
+          "description": "KI-vorgeschlagene Anweisungen, die nach so vielen Tagen noch offen sind, werden vom nächtlichen Lernen als verfallen (nicht abgelehnt) geschlossen. Verfallene Vorschläge zählen weiter als Beleg, wenn dasselbe Muster wiederkehrt. 0 lässt sie für immer offen."
+        },
         "max_instructions_in_context": {
           "name": "Maximale Anweisungen im Kontext",
           "description": "Maximale Anzahl an Anweisungen, die in den KI-Kontext aufgenommen werden. Anweisungen vom Typ 'Immer' werden zuerst geladen, danach füllen 'intelligente' Anweisungen die verbleibenden Plätze."
@@ -2568,6 +2674,18 @@
         "llm_fallback": {
           "name": "LLM-Fallback",
           "description": "Enterprise. Schlägt das aktive Modell wegen eines Ratenlimits, einer Überlastung beim Anbieter oder eines Netzwerkfehlers fehl, wird die Anfrage für den Rest des Laufs automatisch auf dem nächsten Modell der Fallback-Reihenfolge (auf der LLM-Seite konfiguriert) wiederholt. Die Ersetzung wird im Chat immer offengelegt. Standardmäßig aus; die Aktivierung erfordert eine Enterprise-Lizenz."
+        },
+        "enable_agent_checkins": {
+          "name": "Agenten-Check-ins",
+          "description": "Lässt den Agenten nach einem Gespräch selbstständig nachfassen, wenn sich ein erneuter Blick lohnt (z. B. nach einer Datenaktualisierung). Das Nachfassen läuft als der Nutzer im selben Bericht und benachrichtigt ihn nur, wenn sich etwas Wesentliches geändert hat."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Check-ins pro Nutzer und Woche",
+          "description": "Maximale Anzahl an Nachfass-Läufen, die ein Nutzer in 7 Tagen erhalten kann."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Check-in-Läufe pro Tag",
+          "description": "Obergrenze für Nachfass-Läufe in der gesamten Organisation pro Tag (Kostenlimit)."
         }
       }
     },
@@ -2666,7 +2784,36 @@
       "modelsCount": "{count} Modelle",
       "providerLabel": "Anbieter",
       "providerSettingsTooltip": "Anbietereinstellungen",
-      "save": "Speichern"
+      "save": "Speichern",
+      "reasoning": {
+        "title": "Reasoning",
+        "tooltip": "Wie dieses Modell den vom Nutzer gewählten Aufwand erhält (Niedrig / Mittel / Hoch / Max).",
+        "modes": {
+          "auto": "Automatisch (Modellkatalog)",
+          "like": "Verhält sich wie ein anderes Modell",
+          "generic": "Generisch (reasoning_effort)",
+          "custom": "Nur eigene Anfragefelder",
+          "off": "Aus"
+        },
+        "likeLabel": "Verhält sich wie",
+        "likePlaceholder": "z. B. gpt-6-luna",
+        "defaultLevel": "Standardstufe",
+        "unsupported": "Aufwand gilt für dieses Modell nicht",
+        "savedSettings": "gespeicherte Einstellungen",
+        "rawTitle": "Rohe Anfragefelder pro Stufe (erweitert)",
+        "rawHelp": "JSON, das bei dieser Stufe in die Anfrage an den Anbieter eingefügt wird. Vorhandene Schlüssel werden zusammengeführt, andere unverändert übergeben.",
+        "ranAs": "lief als {level}",
+        "tokens": "Reasoning-Tokens",
+        "saveToTest": "Speichern, um Änderungen zu testen",
+        "testTooltip": "Eine Anfrage mit Tools auf dieser Stufe senden",
+        "test": "Testen",
+        "rawNotObject": "Muss ein JSON-Objekt sein",
+        "rawInvalid": "Ungültiges JSON",
+        "fixRaw": "Zuerst die ungültigen Felder korrigieren",
+        "likeRequired": "Modell angeben, dem es entspricht",
+        "customRequired": "Der benutzerdefinierte Modus braucht Felder für mindestens eine Stufe",
+        "saveFailed": "Reasoning-Einstellungen konnten nicht gespeichert werden"
+      }
     },
     "licensePage": {
       "title": "Lizenz",
@@ -3360,7 +3507,18 @@
       "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
       "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter"
     },
-    "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht."
+    "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht.",
+    "memory.disabled": "Das Benutzergedächtnis ist in dieser Organisation deaktiviert.",
+    "memory.not_found": "Diesen Gedächtniseintrag gibt es nicht.",
+    "memory.text_required": "Schreibe auf, was gemerkt werden soll.",
+    "memory.text_too_long": "Höchstens 280 Zeichen.",
+    "memory.too_many_tags": "Höchstens 4 Tags.",
+    "memory.tags_required": "Füge mindestens ein Tag hinzu.",
+    "memory.invalid_date": "Dieses Datum ist ungültig.",
+    "memory.sensitive": "Das Gedächtnis darf keine Geheimnisse, Passwörter oder sensiblen persönlichen Daten enthalten.",
+    "memory.looks_like_rule": "Das ist eine Regel dafür, wie geantwortet wird – füge sie deinen benutzerdefinierten Anweisungen hinzu. Das Gedächtnis speichert Fakten über dich.",
+    "memory.full": "Das Gedächtnis ist voll. Lösche zuerst einige Einträge.",
+    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen."
   },
   "email": {
     "dashboardShare": {
@@ -4514,6 +4672,7 @@
     "nav": {
       "general": "Allgemein",
       "instructions": "Benutzerdefinierte Anweisungen",
+      "memory": "Gedächtnis",
       "usage": "Nutzung",
       "apiKeys": "API-Schlüssel",
       "appearance": "Darstellung"
@@ -4541,7 +4700,11 @@
       "defaultModelSaved": "Standardmodell aktualisiert",
       "defaultModelFailed": "Standardmodell konnte nicht aktualisiert werden",
       "directorySubtitle": "Berufliche Angaben, synchronisiert vom Identitätsanbieter deiner Organisation. Für die KI als Kontext sichtbar.",
-      "directoryTitle": "Verzeichnisprofil"
+      "directoryTitle": "Verzeichnisprofil",
+      "checkinsTitle": "Nachfassen des Agenten",
+      "checkinsSubtitle": "Lässt den Agenten nach einem Gespräch selbstständig nachsehen, wenn sich ein erneuter Blick lohnt (zum Beispiel nach einer Datenaktualisierung). Er benachrichtigt dich nur, wenn sich etwas Wesentliches geändert hat.",
+      "checkinsSaved": "Nachfass-Einstellung gespeichert",
+      "checkinsFailed": "Deine Nachfass-Einstellung konnte nicht gespeichert werden"
     },
     "instructions": {
       "title": "Benutzerdefinierte Anweisungen",
@@ -4593,8 +4756,36 @@
     },
     "memory": {
       "title": "Gedächtnis",
-      "subtitle": "Was die KI in dieser Organisation über dich gelernt und sich gemerkt hat — deine Vorlieben, deinen Stil und Analysen, die dir gefallen haben. Sie aktualisiert das während deiner Arbeit; du kannst es hier bearbeiten oder löschen.",
-      "placeholder": "Die KI hat noch nichts im Gedächtnis gespeichert. Sobald du ihr deine Vorlieben mitteilst, merkt sie sich diese hier."
+      "subtitle": "Fakten, die sich die KI in dieser Organisation über dich merkt – deine Arbeit, Projekte, Termine, was du verfolgst, deine eigenen Kürzel. Nur du kannst sie sehen.",
+      "vsInstructions": "Wie die KI dir antworten soll (Format, Einheiten, Länge), ist kein Gedächtnis – das sind deine benutzerdefinierten Anweisungen.",
+      "instructionsLink": "Benutzerdefinierte Anweisungen",
+      "count": "{count} von {cap} Einträgen",
+      "forgetAll": "Alles vergessen",
+      "forgetAllTitle": "Alles vergessen?",
+      "forgetAllBody": "Die KI vergisst alle {count} Einträge, die sie sich in dieser Organisation über dich gemerkt hat. Das kann nicht rückgängig gemacht werden.",
+      "forgetAllConfirm": "Alles vergessen",
+      "empty": "Noch nichts gemerkt. Während du arbeitest, speichert die KI hier Fakten – etwa deine Projekte, Fristen oder anstehende Termine.",
+      "add": "Hinzufügen",
+      "past": "Vorbei",
+      "fromReport": "aus {title}",
+      "untitledReport": "einem Bericht",
+      "loadFailed": "Dein Gedächtnis konnte nicht geladen werden",
+      "saveFailed": "Die Änderung konnte nicht gespeichert werden",
+      "saved": "Gedächtnis gespeichert",
+      "forgotten": "Vergessen",
+      "forgotAll": "Alles vergessen",
+      "source": {
+        "user": "Von dir hinzugefügt",
+        "agent": "Von der KI gespeichert",
+        "dream": "Über Nacht notiert"
+      },
+      "form": {
+        "placeholder": "Ein Fakt über dich, z. B. Leite das Q3-Abwanderungsprojekt",
+        "tags": "Tags, durch Kommas getrennt",
+        "dateHint": "Füge ein Datum hinzu, wenn es an eines gebunden ist"
+      },
+      "searchPlaceholder": "Gedächtnis durchsuchen…",
+      "noMatches": "Keine passenden Einträge."
     }
   },
   "commandPalette": {
@@ -4859,7 +5050,15 @@
   },
   "events": {
     "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
-    "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}"
+    "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}",
+    "checkin": {
+      "label": "Nachfassen",
+      "running": "Fasst bei diesem Gespräch nach…",
+      "sent": "Nachfassen — du wurdest benachrichtigt",
+      "sentWithSubject": "Nachfassen — du wurdest benachrichtigt: {subject}",
+      "quiet": "Erneut geprüft: nichts Neues",
+      "failed": "Nachfassen fehlgeschlagen"
+    }
   },
   "chatSummary": {
     "empty": "Noch keine Einträge",
@@ -5201,5 +5400,16 @@
   },
   "quota": {
     "resetsOn": "Zurücksetzung am {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Über Nacht lernen",
+    "nightlyDescription": "Macht jede Nacht aus wiederholten Korrekturen, Feedback und Nutzung einen zusammengeführten Vorschlag für diesen Agenten. Er folgt der Einstellung oben wie jeder andere Vorschlag.",
+    "nightlyOrgOff": "Nächtliches Lernen ist für diese Organisation ausgeschaltet (KI-Einstellungen)."
+  },
+  "nightlyBuild": {
+    "merged": "Zusammengeführt",
+    "expired": "Verfallen",
+    "mergedTip": "In einen Vorschlag des nächtlichen Lernens übernommen. Keine Ablehnung durch Prüfende.",
+    "expiredTip": "Geschlossen, weil er über die Frist der Organisation hinaus ungeprüft blieb. Zählt weiter als Beleg, wenn das Muster wiederkehrt."
   }
 }

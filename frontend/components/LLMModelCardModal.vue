@@ -1,5 +1,5 @@
 <template>
-    <UModal v-model="open" :ui="{ width: 'sm:max-w-md' }">
+    <UModal v-model="open" :ui="{ width: 'sm:max-w-lg' }">
         <div v-if="model" class="p-5" data-testid="model-card">
             <button @click="open = false" class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
@@ -166,6 +166,8 @@
                         />
                     </div>
                 </div>
+                <!-- Reasoning: mode, default level, raw request fields per level -->
+                <LLMModelReasoningSection ref="reasoningRef" :model="model" />
                 <!-- Cost -->
                 <div class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.costEditTooltip')">
@@ -259,6 +261,7 @@ const costOutDraft = ref<number | null>(null);
 const confirmingDelete = ref(false);
 const deleting = ref(false);
 const saving = ref(false);
+const reasoningRef = ref<any>(null);
 
 const deleteBlocked = computed(() => !!props.model && (props.model.is_default || props.model.is_small_default));
 
@@ -316,7 +319,8 @@ const isDirty = computed(() => {
         || norm(contextDraft.value) !== norm(props.model.context_window_tokens)
         || norm(temperatureDraft.value) !== norm(props.model.config?.temperature)
         || norm(costInDraft.value) !== norm(props.model.input_cost_per_million_tokens_usd)
-        || norm(costOutDraft.value) !== norm(props.model.output_cost_per_million_tokens_usd);
+        || norm(costOutDraft.value) !== norm(props.model.output_cost_per_million_tokens_usd)
+        || !!reasoningRef.value?.isDirty;
 });
 
 const fail = (description: string) => toast.add({ title: 'Error', description, color: 'red' });
@@ -442,6 +446,8 @@ const save = async () => {
             });
             if (response.status.value !== 'success') { fail('Could not update pricing'); return; }
         }
+        const reasoningError = await reasoningRef.value?.save?.();
+        if (reasoningError) { fail(reasoningError); return; }
 
         emit('updated');
         toast.add({ title: 'Model updated', color: 'green' });

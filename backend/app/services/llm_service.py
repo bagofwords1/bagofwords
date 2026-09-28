@@ -1304,6 +1304,115 @@ class LLMService:
             "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
         }
 
+    async def set_reasoning(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        update: "ModelReasoningUpdate",
+    ):
+        """Set a model's reasoning settings (``LLMModel.config``).
+
+        Only the fields present in the request change: ``mode`` →
+        ``reasoning_mode``, ``like_model_id`` → ``reasoning_model_id``,
+        ``default_effort`` → ``reasoning_effort`` (the model's default level),
+        ``params`` → ``reasoning_params`` (raw request fields per level).
+        Other config keys (temperature, routing_hint) are preserved.
+        """
+        from app.ai.llm.reasoning import reasoning_info
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        fields = update.model_fields_set
+        if "mode" in fields:
+            if update.mode is None or update.mode == "auto":
+                cfg.pop("reasoning_mode", None)
+                cfg.pop("reasoning_model_id", None)
+            else:
+                cfg["reasoning_mode"] = update.mode
+                if update.mode != "like":
+                    cfg.pop("reasoning_model_id", None)
+        if "like_model_id" in fields:
+            if update.like_model_id:
+                cfg["reasoning_model_id"] = update.like_model_id
+            else:
+                cfg.pop("reasoning_model_id", None)
+        if cfg.get("reasoning_mode") == "like" and not cfg.get("reasoning_model_id"):
+            raise HTTPException(status_code=400, detail="Choose the model this one behaves like")
+        if "default_effort" in fields:
+            if update.default_effort:
+                cfg["reasoning_effort"] = update.default_effort
+            else:
+                cfg.pop("reasoning_effort", None)
+        if "params" in fields:
+            if update.params:
+                cfg["reasoning_params"] = update.params
+            else:
+                cfg.pop("reasoning_params", None)
+        if cfg.get("reasoning_mode") == "custom" and not cfg.get("reasoning_params"):
+            raise HTTPException(status_code=400, detail="Custom mode needs raw request fields for at least one level")
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model reasoning set: id=%s, model_id=%s, mode=%s, default=%s, levels_with_params=%s, org_id=%s",
+            model.id, model.model_id, cfg.get("reasoning_mode", "auto"), cfg.get("reasoning_effort"),
+            sorted((cfg.get("reasoning_params") or {}).keys()), organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.reasoning_updated",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={
+                    "name": model.name, "model_id": model.model_id,
+                    "mode": cfg.get("reasoning_mode", "auto"),
+                    "like_model_id": cfg.get("reasoning_model_id"),
+                    "default_effort": cfg.get("reasoning_effort"),
+                    "levels_with_params": sorted((cfg.get("reasoning_params") or {}).keys()),
+                },
+            )
+        except Exception:
+            pass
+        return {"success": True, "reasoning": reasoning_info(model.model_id, cfg)}
+
+    async def test_reasoning(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        effort: str,
+    ):
+        """Run one agent-shaped request at ``effort`` against the saved model
+        (its current reasoning settings included) and report what came back."""
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+                LLMModel.deleted_at == None,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        llm = LLM(model, usage_session_maker=async_session_maker)
+        return await llm.test_agent_call(effort)
+
     async def set_routing_hint(
         self,
         db: AsyncSession,
@@ -2742,6 +2851,22 @@ class LLMService:
         logger.info("Testing LLM connection with model: model_id=%s, provider_type=%s", selected_model.model_id, provider.provider_type)
         llm = LLM(selected_model, usage_session_maker=async_session_maker)
         result = await llm.test_connection()
+        # A plain text reply is not enough: every agent turn sends function
+        # tools, and some endpoints accept text but reject tools (e.g. GPT-6
+        # on Chat Completions at its default reasoning effort). Check the
+        # agent-shaped request too so the admin finds out here, not mid-chat.
+        if result.get("success"):
+            agent_check = await llm.test_agent_call()
+            result["checks"] = [
+                {"name": "text", "success": True},
+                {"name": "tools", "success": agent_check.get("success", False), "message": agent_check.get("message")},
+            ]
+            if not agent_check.get("success"):
+                result["success"] = False
+                result["message"] = (
+                    f"Connected, but a tool-calling request failed ({agent_check.get('api')}): "
+                    f"{agent_check.get('message')}"
+                )
         if result.get("success"):
             logger.info("LLM connection test passed: provider_type=%s, model_id=%s, org_id=%s", provider.provider_type, selected_model.model_id, organization.id)
         else:

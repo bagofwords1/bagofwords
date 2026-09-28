@@ -1,7 +1,10 @@
 import asyncio
 import json
 
-from app.ai.llm.reasoning import selected_effort, is_openai_reasoning_model, supports_openai_summary
+from app.ai.llm.reasoning import (
+    capability_model, clamp_effort, client_mode, client_reasons, efforts_for_client,
+    merge_raw_params, raw_params_for, selected_effort, supports_openai_summary,
+)
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -367,17 +370,19 @@ class OpenAIResponsesClient(LLMClient):
                 disable_parallel_tools = False
             if tools and disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        capability_model = getattr(self, "reasoning_model_id", None) or model_id
-        if is_openai_reasoning_model(capability_model):
+        if client_reasons(self, model_id):
             reasoning = {}
-            if supports_openai_summary(capability_model):
+            if supports_openai_summary(capability_model(self, model_id)):
                 reasoning["summary"] = "auto"
-            effort = selected_effort(thinking)
-            if effort:
+            requested = selected_effort(thinking)
+            effort = clamp_effort(requested, efforts_for_client(self, model_id))
+            if effort and client_mode(self) != "custom":
                 reasoning["effort"] = effort
             if reasoning:
                 request_kwargs["reasoning"] = reasoning
                 request_kwargs.pop("temperature", None)
+            if requested:
+                merge_raw_params(request_kwargs, raw_params_for(self, requested, effort))
 
         # Track open tool calls: call_id → {name, args_buffer}
         open_calls: dict[str, dict] = {}

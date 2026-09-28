@@ -328,7 +328,8 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Run this suite",
-    "runSuiteFailed": "Failed to run suite"
+    "runSuiteFailed": "Failed to run suite",
+    "lists": "Lists"
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -478,6 +479,11 @@
         "title": "⚡ \"{name}\" fired — {summary}",
         "body": "The investigation completed — open the session for the findings."
       }
+    },
+    "checkin": {
+      "badge": "Follow-up",
+      "openReport": "Open report",
+      "assistantFallback": "AI Analyst"
     }
   },
   "auth": {
@@ -641,7 +647,25 @@
     "modelAutoHint": "Router picks the best model",
     "autoAgentsHint": "Any agent you can access",
     "loadingDataSources": "Loading data sources…",
-    "noDataSources": "No data sources found"
+    "noDataSources": "No data sources found",
+    "effort": {
+      "title": "Effort",
+      "default": "Default",
+      "levels": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "max": "Max"
+      },
+      "searchModels": "Search models…",
+      "noMatches": "No models match",
+      "otherProvider": "Other",
+      "anyModel": "Applies to whichever model runs",
+      "notSupported": "This model has no effort setting",
+      "providerDefault": "Model's own default",
+      "modelDefault": "Admin default: {level}",
+      "runsAs": "Runs as {level} on this model"
+    }
   },
   "exports": {
     "label": "Export",
@@ -974,7 +998,73 @@
     "stepTotal": "Step total",
     "firstToken": "Time to first token",
     "thinking": "Thinking",
-    "tool": "Tool"
+    "tool": "Tool",
+    "machineTurn": "Machine turn ({source})",
+    "checkin": {
+      "title": "Agent check-in",
+      "runTurn": "Follow-up run (agent check-in)",
+      "noFollowUp": "No follow-up planned",
+      "noReason": "The planner gave no reason.",
+      "due": "due {when}",
+      "note": "Note to future self",
+      "planReason": "Why follow up",
+      "judge": "Judge",
+      "focus": "Focus",
+      "whyRun": "Why the judge ran this follow-up",
+      "plannerUsage": "Planner",
+      "judgeUsage": "Judge",
+      "status": {
+        "not_proposed": "not proposed",
+        "rejected": "rejected",
+        "planned": "planned",
+        "cancelled": "cancelled",
+        "skipped": "skipped",
+        "running": "running",
+        "ran_quiet": "ran quietly",
+        "sent": "notified",
+        "failed": "failed"
+      },
+      "decision": {
+        "run": "run",
+        "skip": "skip"
+      },
+      "reason": {
+        "disabled": "setting off",
+        "pending_exists_user": "user already has one pending",
+        "pending_exists_report": "report already has one pending",
+        "weekly_cap": "weekly limit reached",
+        "org_daily_cap": "org daily limit reached",
+        "report_deleted": "report deleted",
+        "access_lost": "access lost",
+        "judge_skip": "judge skipped",
+        "run_failed": "run failed",
+        "invalid_judge_output": "invalid judge output",
+        "opted_out": "opted out",
+        "fire_error": "error during the check",
+        "stale_running": "left running (restart)"
+      },
+      "outcome": {
+        "sent": "Notified the user",
+        "sentWithSubject": "Notified the user: {subject}",
+        "ran_quiet": "Ran quietly — nothing worth notifying",
+        "planned": "Waiting for its due time",
+        "running": "Running now",
+        "skipped": "Skipped by the judge — nothing ran",
+        "failed": "The follow-up run failed — nothing was sent",
+        "rejected": "Not armed: {reason}",
+        "cancelled": "Cancelled: {reason}"
+      }
+    },
+    "memory": {
+      "title": "Memory",
+      "summary": "{injected} of {total} entries injected · {chars} chars",
+      "privateNote": "Memory is private to its owner — only handles and sections are shown.",
+      "refused": "Refused",
+      "tier": {
+        "always": "always",
+        "matched": "matched"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1601,10 +1691,11 @@
       "rewrite": "rewrite",
       "failed": "Edit failed"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Updating memory…",
-      "updated": "Updated memory",
-      "failed": "Memory update failed"
+      "checking": "Checking memory…",
+      "updated": "Memory updated",
+      "checked": "Checked memory"
     },
     "routeModel": {
       "routedTo": "Routed to",
@@ -1635,6 +1726,29 @@
       "pathLabel": "Path:",
       "attachedAsSessionFile": "Attached to this conversation as session file",
       "showPagePreviews": "Show page previews ({n})"
+    },
+    "submitList": {
+      "saving": "Saving to list…",
+      "saved": "Saved to {name}",
+      "added": "{n} added",
+      "updated": "{n} updated",
+      "unchanged": "{n} unchanged",
+      "failed": "Not saved to {name}",
+      "retry": "the agent was asked to fix it",
+      "open": "Open list",
+      "downloadCsv": "Download CSV",
+      "list": "list",
+      "savingTo": "Saving to {name}…",
+      "writing": "{n} record | {n} records",
+      "kept": "{n} edit kept | {n} edits kept",
+      "keptEdit": "A person edited this value, so the agent's value was not applied",
+      "errorsCount": "{n} error | {n} errors",
+      "openRow": "Open row",
+      "action": {
+        "inserted": "added",
+        "updated": "updated",
+        "unchanged": "unchanged"
+      }
     }
   },
   "entityCreate": {
@@ -2709,6 +2823,22 @@
           "name": "Agent Notes",
           "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."
         },
+        "enable_user_memory": {
+          "name": "User memory",
+          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory."
+        },
+        "enable_agent_dreaming": {
+          "name": "Agent overnight learning",
+          "description": "Each night, agents review their pending suggestions, feedback and usage and propose one consolidated improvement per agent. What happens to it follows each agent's Self-Learning setting."
+        },
+        "enable_user_dreaming": {
+          "name": "User overnight learning",
+          "description": "Each night, the agent reviews each active user's day to keep their memory up to date and plan follow-ups (e.g. before a meeting). Follow-ups use the normal check-in limits and each user's check-in opt-out."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Expire unreviewed AI suggestions after (days)",
+          "description": "AI-suggested instructions still pending after this many days are closed as expired (not rejected) by the nightly agent learning. Expired suggestions still count as evidence if the same pattern comes back. 0 keeps them open forever."
+        },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
           "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots."
@@ -2740,6 +2870,18 @@
         "llm_fallback": {
           "name": "LLM fallback",
           "description": "Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable."
+        },
+        "enable_agent_checkins": {
+          "name": "Agent check-ins",
+          "description": "Let the agent follow up on its own after a conversation when something is worth revisiting (e.g. after a data refresh). Follow-ups run as the user in the same report and notify them only when something meaningful changed."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Check-ins per user per week",
+          "description": "Maximum follow-up runs a single user can receive in 7 days."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Check-in runs per day",
+          "description": "Upper bound on follow-up runs across the organization per day (cost cap)."
         }
       }
     },
@@ -2838,7 +2980,36 @@
       "modelsCount": "{count} models",
       "dangerZone": "Danger Zone",
       "modelSettings": "Model Settings",
-      "imageGenDefaultBlocked": "Default models can't be image-generation models. Make another model the default first."
+      "imageGenDefaultBlocked": "Default models can't be image-generation models. Make another model the default first.",
+      "reasoning": {
+        "title": "Reasoning",
+        "tooltip": "How this model receives the effort users pick (Low / Medium / High / Max).",
+        "modes": {
+          "auto": "Automatic (from model catalog)",
+          "like": "Behaves like another model",
+          "generic": "Generic (reasoning_effort)",
+          "custom": "Custom request fields only",
+          "off": "Off"
+        },
+        "likeLabel": "Behaves like",
+        "likePlaceholder": "e.g. gpt-6-luna",
+        "defaultLevel": "Default level",
+        "unsupported": "Effort does not apply to this model",
+        "savedSettings": "saved settings",
+        "rawTitle": "Raw request fields per level (advanced)",
+        "rawHelp": "JSON merged into the provider request when that level is used. Keys already in the request are merged; others are passed through as-is.",
+        "ranAs": "ran as {level}",
+        "tokens": "reasoning tokens",
+        "saveToTest": "Save to test your changes",
+        "testTooltip": "Send one tool-calling request at this level",
+        "test": "Test",
+        "rawNotObject": "Must be a JSON object",
+        "rawInvalid": "Invalid JSON",
+        "fixRaw": "Fix the invalid raw request fields first",
+        "likeRequired": "Enter the model this one behaves like",
+        "customRequired": "Custom mode needs raw fields for at least one level",
+        "saveFailed": "Could not save reasoning settings"
+      }
     },
     "licensePage": {
       "title": "License",
@@ -3510,7 +3681,18 @@
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
     },
-    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted."
+    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
+    "memory.disabled": "User memory is turned off for this organization.",
+    "memory.not_found": "That memory entry doesn't exist.",
+    "memory.text_required": "Write the thing to remember.",
+    "memory.text_too_long": "Keep it to 280 characters.",
+    "memory.too_many_tags": "Use at most 4 tags.",
+    "memory.tags_required": "Add at least one tag.",
+    "memory.invalid_date": "That date isn't valid.",
+    "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
+    "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
+    "memory.full": "Memory is full. Delete some entries first.",
+    "memory.not_active": "That entry was already changed or forgotten."
   },
   "email": {
     "dashboardShare": {
@@ -4703,7 +4885,8 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Instructions & Memory",
+      "instructions": "Custom instructions",
+      "memory": "Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -4731,7 +4914,11 @@
       "defaultModelSubtitle": "The model used by default when you start a new chat. Only models you have access to are listed.",
       "orgDefault": "Organization default",
       "defaultModelSaved": "Default model updated",
-      "defaultModelFailed": "Failed to update default model"
+      "defaultModelFailed": "Failed to update default model",
+      "checkinsTitle": "Agent follow-ups",
+      "checkinsSubtitle": "Let the agent check back on its own after a conversation when something is worth revisiting (for example after a data refresh). It notifies you only when something meaningful changed.",
+      "checkinsSaved": "Follow-up preference saved",
+      "checkinsFailed": "Could not save your follow-up preference"
     },
     "instructions": {
       "title": "Custom Instructions",
@@ -4783,8 +4970,36 @@
     },
     "memory": {
       "title": "Memory",
-      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
-      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
+      "subtitle": "Facts the AI remembers about you in this organization — your work, projects, dates, what you follow, your own shorthand. Only you can see them.",
+      "vsInstructions": "How the AI should answer you (format, units, length) isn't memory — that's your custom instructions.",
+      "instructionsLink": "Custom instructions",
+      "count": "{count} of {cap} entries",
+      "forgetAll": "Forget everything",
+      "forgetAllTitle": "Forget everything?",
+      "forgetAllBody": "The AI will forget all {count} entries it remembers about you in this organization. This can't be undone.",
+      "forgetAllConfirm": "Forget everything",
+      "empty": "Nothing remembered yet. As you work, the AI keeps facts here — like your projects, deadlines or upcoming meetings.",
+      "add": "Add",
+      "past": "Past",
+      "fromReport": "from {title}",
+      "untitledReport": "a report",
+      "loadFailed": "Couldn't load your memory",
+      "saveFailed": "Couldn't save the change",
+      "saved": "Memory saved",
+      "forgotten": "Forgotten",
+      "forgotAll": "Everything forgotten",
+      "source": {
+        "user": "Added by you",
+        "agent": "Saved by the AI",
+        "dream": "Noted overnight"
+      },
+      "form": {
+        "placeholder": "A fact about you, e.g. Leading the Q3 churn project",
+        "tags": "Tags, comma-separated",
+        "dateHint": "Add a date if it's tied to one"
+      },
+      "searchPlaceholder": "Search memory…",
+      "noMatches": "No memories match."
     }
   },
   "agentPage": {
@@ -5047,7 +5262,15 @@
   },
   "events": {
     "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
-    "waitResumed": "Wait elapsed — resuming: {reason}"
+    "waitResumed": "Wait elapsed — resuming: {reason}",
+    "checkin": {
+      "label": "Follow-up",
+      "running": "Following up on this conversation…",
+      "sent": "Follow-up — notified you",
+      "sentWithSubject": "Follow-up — notified you: {subject}",
+      "quiet": "Checked back: nothing new",
+      "failed": "Follow-up failed"
+    }
   },
   "sessionEvents": {
     "run_stopped": "Run was stopped",
@@ -5256,5 +5479,126 @@
   },
   "quota": {
     "resetsOn": "resets {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Learn overnight",
+    "nightlyDescription": "Each night, turn repeated corrections, feedback and usage into one consolidated suggestion for this agent. It follows the setting above like any other suggestion.",
+    "nightlyOrgOff": "Overnight learning is off for this organization (AI settings)."
+  },
+  "nightlyBuild": {
+    "merged": "Merged",
+    "expired": "Expired",
+    "mergedTip": "Folded into a nightly learning suggestion. Not a reviewer's rejection.",
+    "expiredTip": "Closed after staying unreviewed past the org's expiry. Still counts as evidence if the pattern returns."
+  },
+  "lists": {
+    "title": "Lists",
+    "newList": "New list",
+    "empty": "No lists yet",
+    "emptyHint": "A list is a table your agent fills in. Define its fields, then ask the agent to extract them from documents, emails or query results.",
+    "emptyViewer": "This agent has no lists yet.",
+    "fieldsCount": "{n} field | {n} fields",
+    "rowsCount": "{n} row | {n} rows",
+    "loading": "Loading…",
+    "back": "Lists",
+    "exportCsv": "Export CSV",
+    "exportWithEvidence": "Export with sources",
+    "editFields": "Edit fields",
+    "deleteList": "Delete list",
+    "deleteConfirmTitle": "Delete “{name}”?",
+    "deleteConfirmBody": "The list and its rows will be removed, and agents will stop saving to it.",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "create": "Create list",
+    "more": "More actions",
+    "noRows": "No rows yet",
+    "noRowsHint": "Ask the agent in a new report, for example “Extract all contracts into {name}”.",
+    "saveHint": "Agents save here with",
+    "queryHint": "Query as",
+    "updated": "Updated",
+    "editor": {
+      "newTitle": "New list",
+      "editTitle": "Edit list",
+      "name": "Name",
+      "namePlaceholder": "e.g. Contracts",
+      "description": "Description",
+      "descriptionPlaceholder": "What each row represents, and anything the agent should know",
+      "fields": "Fields",
+      "fieldName": "field_name",
+      "fieldDescription": "Describe the value. This is the agent's instruction.",
+      "type": "Type",
+      "required": "Required",
+      "key": "Key",
+      "keyHint": "Rows with the same key are updated instead of added",
+      "enumValues": "Allowed values, comma-separated",
+      "addField": "Add field",
+      "removeField": "Remove field",
+      "requireEvidence": "Require a source quote for extracted values",
+      "nameRule": "Field names use lowercase letters, digits and _",
+      "types": {
+        "string": "Text",
+        "number": "Number",
+        "integer": "Whole number",
+        "boolean": "Yes / No",
+        "date": "Date",
+        "enum": "Choice"
+      },
+      "breakingSaved": "Saved as version {v}. Existing rows are marked outdated until re-extracted.",
+      "saved": "List saved",
+      "created": "List created",
+      "saveFailed": "Couldn't save the list",
+      "allowViewerSubmissions": "Anyone who can use this agent can save rows from chat (otherwise only agent managers)",
+      "keepHumanEdits": "Keep people’s edits: the agent won’t overwrite a value someone changed by hand"
+    },
+    "row": {
+      "status": {
+        "found": "Found",
+        "not_found": "Not found",
+        "ambiguous": "Ambiguous",
+        "inferred": "Inferred"
+      },
+      "source": "Source",
+      "page": "p. {n}",
+      "verified": "Quote found in the source",
+      "unverified": "Quote not matched to the source",
+      "edited": "Edited by a person. The agent won't overwrite it.",
+      "unlock": "Let the agent update",
+      "history": "History",
+      "revert": "Revert",
+      "deleteRow": "Delete row",
+      "saveChanges": "Save changes",
+      "conflict": "This row changed since you opened it, so it was reloaded.",
+      "saved": "Row updated",
+      "deleted": "Row deleted",
+      "stale": "Extracted with an older version of the fields",
+      "openReport": "Open report",
+      "agent": "Agent",
+      "action": {
+        "insert": "added",
+        "update": "updated",
+        "revert": "reverted",
+        "unlock": "unlocked"
+      },
+      "yes": "Yes",
+      "no": "No",
+      "noHistory": "No changes yet"
+    },
+    "toastDeleted": "List deleted",
+    "toastError": "Something went wrong",
+    "loadMore": "Load more",
+    "justNow": "just now",
+    "clearRows": "Clear all rows",
+    "clearConfirmTitle": "Clear all rows from “{name}”?",
+    "clearConfirmBody": "All {n} rows and their history will be deleted. The list’s fields, its save tool and its table stay, so the agent can fill it again.",
+    "clear": "Clear rows",
+    "deleteRowsTitle": "Delete {n} row? | Delete {n} rows?",
+    "deleteRowsBody": "The selected rows and their history will be deleted. This can’t be undone.",
+    "selectedCount": "{n} selected",
+    "clearSelection": "Clear selection",
+    "selectAll": "Select all rows",
+    "selectRow": "Select row",
+    "toastRowsDeleted": "{n} row deleted | {n} rows deleted"
   }
 }

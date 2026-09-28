@@ -27,6 +27,9 @@ class AgentExecution(BaseSchema):
     token_usage_json = Column(JSON, nullable=True, default=dict)
     error_json = Column(JSON, nullable=True)
     config_json = Column(JSON, nullable=True)
+    # Per-turn user-memory metadata for the trace: injected handles/sections/
+    # tiers, rendered size, memory tool refusals. See MemoryContext.trace().
+    memory_context_json = Column(JSON, nullable=True)
 
     # Build
     build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True)

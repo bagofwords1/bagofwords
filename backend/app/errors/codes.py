@@ -48,6 +48,19 @@ class ErrorCode(str, Enum):
     INSTRUCTION_DIRECTORY_NOT_FOUND = "instruction.directory_not_found"
     INTEGRATION_NOT_FOUND = "integration.not_found"
 
+    # User memory
+    MEMORY_DISABLED = "memory.disabled"
+    MEMORY_NOT_FOUND = "memory.not_found"
+    MEMORY_TEXT_REQUIRED = "memory.text_required"
+    MEMORY_TEXT_TOO_LONG = "memory.text_too_long"
+    MEMORY_TOO_MANY_TAGS = "memory.too_many_tags"
+    MEMORY_TAGS_REQUIRED = "memory.tags_required"
+    MEMORY_INVALID_DATE = "memory.invalid_date"
+    MEMORY_SENSITIVE = "memory.sensitive"
+    MEMORY_LOOKS_LIKE_RULE = "memory.looks_like_rule"
+    MEMORY_FULL = "memory.full"
+    MEMORY_NOT_ACTIVE = "memory.not_active"
+
     # Conflicts
     RESOURCE_CONFLICT = "resource.conflict"
     DUPLICATE_RESOURCE = "resource.duplicate"

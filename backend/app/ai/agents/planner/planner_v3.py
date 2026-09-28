@@ -45,6 +45,47 @@ def _extract_streaming_title(buf: str) -> Optional[str]:
         return raw or None
 
 
+class _RecordCounter:
+    """Counts completed objects in the top-level ``records`` array of a
+    streaming ``submit_<list>`` tool input, fed chunk by chunk.
+
+    Brace/string aware and incremental (each chunk is scanned once), so a
+    long extraction costs O(n) overall. Drives the "writing N records" line on
+    the submit card while the model is still generating the arguments.
+    """
+
+    __slots__ = ("stack", "in_str", "esc", "count")
+
+    def __init__(self) -> None:
+        self.stack: list[str] = []
+        self.in_str = False
+        self.esc = False
+        self.count = 0
+
+    def feed(self, chunk: str) -> int:
+        for ch in chunk:
+            if self.in_str:
+                if self.esc:
+                    self.esc = False
+                elif ch == "\\":
+                    self.esc = True
+                elif ch == '"':
+                    self.in_str = False
+                continue
+            if ch == '"':
+                self.in_str = True
+            elif ch in "{[":
+                self.stack.append(ch)
+            elif ch in "}]":
+                if self.stack:
+                    self.stack.pop()
+                # {"records": [ {...}, {...} ]} — an object closing back into
+                # the root-level array is one finished record.
+                if ch == "}" and self.stack == ["{", "["]:
+                    self.count += 1
+        return self.count
+
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm import LLM
@@ -187,6 +228,7 @@ class PlannerV3:
         completed_actions: list[Action] = []
         action_id_index: dict[str, int] = {}  # tool_use_id -> index in completed_actions
         input_buffers: dict[str, str] = {}  # tool_use_id -> accumulated partial input JSON
+        record_counters: dict[str, _RecordCounter] = {}  # tool_use_id -> submit_<list> progress
         stop_reason: Optional[str] = None
         raw_stop_reason: Optional[str] = None
         # Stream forensics: how many events of each type the adapter surfaced.
@@ -270,7 +312,18 @@ class PlannerV3:
                     if evt.id and evt.partial_json:
                         input_buffers[evt.id] = input_buffers.get(evt.id, "") + evt.partial_json
                         idx = action_id_index.get(evt.id)
-                        if idx is not None:
+                        name = completed_actions[idx].name if idx is not None else None
+                        if idx is not None and isinstance(name, str) and name.startswith("submit_"):
+                            counter = record_counters.setdefault(evt.id, _RecordCounter())
+                            before = counter.count
+                            n = counter.feed(evt.partial_json)
+                            if n != before:
+                                completed_actions[idx].arguments["_progress"] = {"records": n}
+                                yield PlannerDecisionEvent(
+                                    type="planner.decision.partial",
+                                    data=self._build_decision(state, completed_actions, stop_reason, is_final=False),
+                                )
+                        elif idx is not None:
                             title = _extract_streaming_title(input_buffers[evt.id])
                             if title and completed_actions[idx].arguments.get("title") != title:
                                 completed_actions[idx].arguments["title"] = title

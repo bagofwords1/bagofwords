@@ -68,6 +68,8 @@ from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
 from app.models.connection_table import ConnectionTable
 from app.models.note import Note
+from app.models.memory_entry import MemoryEntry
+from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.user_connection_tool_preference import UserConnectionToolPreference
@@ -107,6 +109,8 @@ from app.models.project import Project, project_data_source_association, project
 from app.models.agent_automation_run import AgentAutomationRun
 from app.models.review_item import ReviewItem
 from app.models.notification import Notification
+from app.models.agent_checkin import AgentCheckin
+from app.models.dream_run import DreamRun
 from app.models.usage_policy import (
     UsagePolicy,
     UsagePolicyAssignment,

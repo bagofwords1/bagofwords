@@ -237,6 +237,7 @@ class WebhookService:
             task_template=data.task_template,
             mode=data.mode or "chat",
             model_id=data.model_id,
+            reasoning_effort=data.reasoning_effort,
             project_id=project_id,
             is_active=data.is_active,
         )
@@ -831,6 +832,7 @@ class WebhookService:
                     content=agent_prompt,
                     mode=wh.mode or "chat",
                     model_id=wh.model_id,
+                    reasoning_effort=getattr(wh, "reasoning_effort", None),
                 )),
                 current_user=user,
                 organization=organization,

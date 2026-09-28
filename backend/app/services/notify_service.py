@@ -152,6 +152,8 @@ class NotifyService:
         recipient_emails: Optional[List[str]] = None,
         source: str = SOURCE_REPORT_TOOL,
         system_completion: Any = None,
+        notification_type: str = "notify",
+        subject_extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Deliver to all resolved recipients. Returns per-recipient channel results."""
         attachment_specs = attachment_specs or []
@@ -176,7 +178,7 @@ class NotifyService:
                     organization_id=org_id,
                     user_ids=inapp_user_ids,
                     source=source,
-                    type="notify",
+                    type=notification_type,
                     title=subject,
                     body=_snippet(body, body_format),
                     link=link,
@@ -186,6 +188,7 @@ class NotifyService:
                         "attachments": [
                             {"ref_type": a.ref_type, "ref_id": a.ref_id} for a in attachment_specs
                         ],
+                        **(subject_extra or {}),
                     },
                     # actor_user_id is intentionally None so the sender (self) also
                     # receives the in-app copy — notify_users excludes the actor.

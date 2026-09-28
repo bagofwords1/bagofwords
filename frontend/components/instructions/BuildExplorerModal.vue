@@ -120,6 +120,9 @@
                                 </div>
                                 <span v-if="build.is_main" class="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded shrink-0">Active</span>
                                 <span v-else-if="build.status === 'pending_approval'" class="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded shrink-0">Pending</span>
+                                <UTooltip v-else-if="closedByNightly(build)" :text="$t(`nightlyBuild.${closedByNightly(build)}Tip`)">
+                                    <span class="text-[9px] px-1.5 py-0.5 bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded shrink-0">{{ $t(`nightlyBuild.${closedByNightly(build)}`) }}</span>
+                                </UTooltip>
                                 <span v-else-if="build.status === 'rejected'" class="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded shrink-0">Rejected</span>
                             </div>
                             <div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1.5">
@@ -173,6 +176,9 @@
                                         <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full shrink-0">
                                             Pending
                                         </span>
+                                        <UTooltip v-else-if="closedByNightly(selectedBuild)" :text="$t(`nightlyBuild.${closedByNightly(selectedBuild)}Tip`)">
+                                            <span class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded-full shrink-0">{{ $t(`nightlyBuild.${closedByNightly(selectedBuild)}`) }}</span>
+                                        </UTooltip>
                                         <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full shrink-0">
                                             Rejected
                                         </span>
@@ -1019,6 +1025,16 @@ watch(diffData, (next) => {
     selectedInstructionIds.value = picks
     expandedDiffItems.value = new Set()
 }, { immediate: true })
+
+// Nightly learning closes absorbed / stale AI suggestions with a marker — not
+// a reviewer's rejection, so they get their own badge.
+function closedByNightly(build: any): 'merged' | 'expired' | null {
+    if (build?.status !== 'rejected') return null
+    const reason = build.rejection_reason || ''
+    if (reason.startsWith('[merged]')) return 'merged'
+    if (reason.startsWith('[expired]')) return 'expired'
+    return null
+}
 
 // Build is editable if it's in draft or pending_approval status (not yet published)
 const isBuildEditable = computed(() => 

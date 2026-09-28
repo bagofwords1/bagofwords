@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from app.utils.reasoning_effort import normalize_prompt_json_effort
 from typing import Optional, Any, Dict, List, Union
 from datetime import datetime
 from app.schemas.test_expectations import ExpectationsSpec
@@ -71,6 +72,11 @@ class TestCaseCreate(BaseModel):
     expectations_json: ExpectationsSpec
     data_source_ids_json: Optional[List[str]] = None
 
+    @field_validator("prompt_json", mode="after")
+    @classmethod
+    def _validate_prompt_effort(cls, v):
+        return normalize_prompt_json_effort(v)
+
 
 class TestCaseUpdate(BaseModel):
     name: Optional[str] = None
@@ -83,6 +89,10 @@ class TestCaseUpdate(BaseModel):
     # was fixed at creation and could never be reorganized, by anyone.
     suite_id: Optional[str] = None
 
+    @field_validator("prompt_json", mode="after")
+    @classmethod
+    def _validate_prompt_effort(cls, v):
+        return normalize_prompt_json_effort(v)
 
 class TestRunCaseResultBrief(BaseModel):
     """Per-case status embedded in run listings so clients don't need one

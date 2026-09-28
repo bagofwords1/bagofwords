@@ -129,6 +129,19 @@ class SendEmailTool(Tool):
             )
             return
 
+        # Agent check-in runs deliver through ``notify`` only (self-only, one
+        # call, setting-gated, source='checkin'); a direct email would bypass
+        # all of that. The tool is hidden from their catalog; refuse anyway.
+        if getattr(runtime_ctx.get("head_completion"), "trigger_source", None) == "checkin":
+            yield ToolErrorEvent(
+                type="tool.error",
+                payload={
+                    "error": "During a check-in, use the notify tool (leave recipients empty) instead of send_email.",
+                    "code": "CHECKIN_USE_NOTIFY",
+                },
+            )
+            return
+
         # Recipient is always the requesting user — never caller-controllable.
         user = runtime_ctx.get("user")
         recipient = getattr(user, "email", None) if user else None

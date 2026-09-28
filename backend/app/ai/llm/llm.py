@@ -29,6 +29,7 @@ from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
 from app.ai.llm.header_injection import build_provider_headers
+from app.ai.llm.reasoning import needs_responses_for_tools, reasoning_mode, reasoning_params
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from app.settings.logging_config import get_logger
@@ -45,6 +46,19 @@ tracer = get_tracer(__name__)
 # later calls from worker threads (e.g. asyncio.to_thread(llm.inference))
 # can still schedule usage recording via run_coroutine_threadsafe.
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
+
+
+def bind_usage_loop(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    """Remember the app's event loop for usage recording.
+
+    ``LLM.inference`` is sync and usually runs in a worker thread
+    (``asyncio.to_thread``); it schedules its usage write onto ``_MAIN_LOOP``,
+    which is otherwise only captured by an earlier *async* LLM call. Call this
+    from async code before off-loading when the sync call may be the first LLM
+    call in the process (e.g. a scheduler job right after a restart), or its
+    usage record is silently dropped."""
+    global _MAIN_LOOP
+    _MAIN_LOOP = loop or asyncio.get_running_loop()
 
 # Strong references to in-flight usage-record tasks. asyncio only keeps a weak
 # reference to tasks created via loop.create_task(), so a fire-and-forget task
@@ -236,6 +250,17 @@ def _retry_delay(attempt: int) -> float:
     return min(0.5 * (2 ** attempt), 4.0) + random.uniform(0, 0.25)
 
 
+def _provider_error_message(exc: BaseException) -> str:
+    """The provider's own error text when it is embedded in an SDK error
+    ("Error code: 400 - {'error': {'message': "Unknown parameter: 'reasoning'." …"),
+    else the exception text."""
+    text = str(exc)
+    m = re.search(r"""['"]message['"]:\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""", text)
+    if m:
+        return (m.group(1) or m.group(2) or text).strip()
+    return text
+
+
 class LLM:
     def __init__(
         self,
@@ -312,12 +337,13 @@ class LLM:
         custom_headers = build_provider_headers(additional_config) or None
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
-            if base_url and not self.model_id.startswith("gpt-6") and not additional_config.get("use_responses_api"):
+            if base_url and not needs_responses_for_tools(self._capability_model_id()) and not additional_config.get("use_responses_api"):
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
                 self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers)
             else:
-                # Native OpenAI and GPT-6 (including gateways) use Responses;
-                # GPT-6 tool calling is not supported on Chat Completions.
+                # Native OpenAI, GPT-6 and GPT-5.6 (including gateways) use
+                # Responses: their tool calling on Chat Completions only works
+                # with reasoning effort "none" (GPT-6 fails there by default).
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
                     base_url=base_url,
@@ -367,6 +393,16 @@ class LLM:
                 # token-provider hook (Foundry serves the deployment-scoped route
                 # too, so that fallback stays correct there).
                 use_responses_api = bool(additional_config.get("use_responses_api", False))
+                # GPT-6 / GPT-5.6 deployments reject function tools with any
+                # reasoning effort on Chat Completions (GPT-6 even at its
+                # default), so an agent run needs Responses. Key auth only —
+                # the Responses path has no Entra token hook.
+                if (
+                    not use_responses_api
+                    and azure_ad_token_provider is None
+                    and needs_responses_for_tools(self._capability_model_id())
+                ):
+                    use_responses_api = True
                 if use_responses_api and azure_ad_token_provider is not None:
                     logger.warning(
                         "Azure provider uses Entra ID auth; ignoring use_responses_api "
@@ -443,9 +479,14 @@ class LLM:
 
         # Explicit capability identity for opaque deployment/gateway aliases.
         # Never infer API capabilities from an arbitrary deployment name.
+        # Reasoning settings the admin set on the model card travel on the
+        # client so every adapter applies the same mode / raw request fields.
         model_config = getattr(self.model, "config", None) or {}
-        if isinstance(model_config, dict) and isinstance(model_config.get("reasoning_model_id"), str):
+        _mode = reasoning_mode(model_config)
+        if _mode == "like" and isinstance(model_config.get("reasoning_model_id"), str):
             self.client.reasoning_model_id = model_config["reasoning_model_id"]
+        self.client.reasoning_mode = _mode
+        self.client.reasoning_params = reasoning_params(model_config)
 
     def _build_vertex_client(self, additional_config: dict, configured_temperature, custom_headers):
         """Pick the transport for a Vertex model and build its client.
@@ -552,6 +593,14 @@ class LLM:
         else:
             credential = DefaultAzureCredential()
         return get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
+
+    def _capability_model_id(self) -> str:
+        """The model whose API capabilities apply: an admin's "behaves like"
+        model for opaque deployment names, else the model id itself."""
+        cfg = getattr(self.model, "config", None) or {}
+        if isinstance(cfg, dict) and reasoning_mode(cfg) == "like" and isinstance(cfg.get("reasoning_model_id"), str):
+            return cfg["reasoning_model_id"]
+        return self.model_id
 
     @staticmethod
     def _azure_v1_base_url(endpoint_url: str) -> str:
@@ -1218,6 +1267,80 @@ class LLM:
         return {
             "success": True,
             "message": "Successfully connected to LLM",
+        }
+
+    _API_NAMES = {
+        "OpenAi": "Chat Completions",
+        "AzureClient": "Chat Completions",
+        "OpenAIResponsesClient": "Responses",
+        "Anthropic": "Messages",
+        "BedrockClient": "Converse",
+        "Google": "generateContent",
+    }
+
+    def api_name(self) -> str:
+        """The provider API this model's requests go through — raw reasoning
+        fields must use that API's parameter names."""
+        return self._API_NAMES.get(type(self.client).__name__, type(self.client).__name__)
+
+    async def test_agent_call(self, effort: Optional[str] = None) -> dict:
+        """One tiny request shaped like an agent turn: a function tool plus,
+        optionally, a reasoning effort. The plain connection test streams text
+        with no tools, which passes for endpoints that then fail every agent
+        run (e.g. GPT-6 on Chat Completions rejects tools at its default
+        effort). Reports what the effort ran as and whether reasoning came back.
+        """
+        from app.ai.llm.reasoning import (
+            _effort_to_thinking_config, clamp_effort, efforts_for_client, client_mode,
+        )
+        from app.ai.llm.types import Message, ToolSpec, ReasoningDeltaEvent, UsageEvent, TextDeltaEvent, ToolUseCompleteEvent
+
+        efforts = efforts_for_client(self.client, self.model_id)
+        runs_as = clamp_effort(effort, efforts) if effort else None
+        thinking = _effort_to_thinking_config(effort, self._capability_model_id()) if effort else None
+        tool = ToolSpec(
+            name="get_row_count",
+            description="Return the number of rows in a table.",
+            input_schema={"type": "object", "properties": {"table": {"type": "string"}}},
+        )
+        started = time.monotonic()
+        reasoning_chars = 0
+        reasoning_tokens = 0
+        got_output = False
+        try:
+            async for event in self.inference_stream_v2(
+                messages=[Message(role="user", content="Reply with the single word: ok")],
+                tools=[tool],
+                thinking=thinking,
+                should_record=False,
+            ):
+                if isinstance(event, ReasoningDeltaEvent):
+                    reasoning_chars += len(event.text or "")
+                elif isinstance(event, UsageEvent):
+                    reasoning_tokens = max(reasoning_tokens, int(event.reasoning_tokens or 0))
+                elif isinstance(event, (TextDeltaEvent, ToolUseCompleteEvent)):
+                    got_output = True
+        except Exception as e:
+            logger.warning("LLM agent-call test failed: provider=%s, model=%s, effort=%s, error=%s",
+                           self.provider, self.model_id, effort, e)
+            return {
+                "success": False,
+                "message": _provider_error_message(e),
+                "effort": effort,
+                "runs_as": runs_as,
+                "mode": client_mode(self.client),
+                "api": self.api_name(),
+            }
+        return {
+            "success": got_output,
+            "message": "OK" if got_output else "The model returned no output",
+            "effort": effort,
+            "runs_as": runs_as,
+            "mode": client_mode(self.client),
+            "api": self.api_name(),
+            "reasoning_tokens": reasoning_tokens,
+            "reasoning_chars": reasoning_chars,
+            "latency_ms": int((time.monotonic() - started) * 1000),
         }
 
     def _coerce_response(self, response) -> tuple[str, LLMUsage]:

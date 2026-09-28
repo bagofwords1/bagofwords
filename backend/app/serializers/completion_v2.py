@@ -1,5 +1,7 @@
 from typing import Optional, Any, Dict, List
 
+from app.services.memory_privacy import MEMORY_TOOL_NAMES
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import inspect as sa_inspect, select
 
@@ -322,6 +324,22 @@ def _tool_execution_schema_data(tool_execution: ToolExecution) -> Dict[str, Any]
         _code_ok,
         _tool,
     )
+    if _tool in MEMORY_TOOL_NAMES:
+        data = redact_memory_tool_payload(data)
+    return data
+
+
+# User memory is private to its owner. Report/timeline/trace payloads carry
+# only the tool's status line and success flag — never entry text, handles,
+# tags or search results; details live in the owner's profile and the
+# owner-only memory section of the trace.
+
+
+def redact_memory_tool_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    args = data.get("arguments_json") if isinstance(data.get("arguments_json"), dict) else {}
+    result = data.get("result_json") if isinstance(data.get("result_json"), dict) else {}
+    data["arguments_json"] = {"title": args.get("title")} if args.get("title") else {}
+    data["result_json"] = {"success": result.get("success")} if "success" in result else {}
     return data
 
 
@@ -342,6 +360,10 @@ def serialize_block_v2_sync(
     """
     # Map to schemas
     pd_schema = PlanDecisionSchema.from_orm(plan_decision) if plan_decision else None
+    if pd_schema is not None and pd_schema.action_name in MEMORY_TOOL_NAMES and pd_schema.action_args_json:
+        # The decision echoes the tool call's arguments — same privacy rule.
+        _title = pd_schema.action_args_json.get("title") if isinstance(pd_schema.action_args_json, dict) else None
+        pd_schema.action_args_json = {"title": _title} if _title else {}
     te_schema: Optional[ToolExecutionUISchema] = None
     
     if tool_execution:

@@ -447,6 +447,11 @@
         "title": "⚡ \"{name}\" utlöstes — {summary}",
         "body": "Utredningen är klar — öppna sessionen för att se resultaten."
       }
+    },
+    "checkin": {
+      "badge": "Uppföljning",
+      "openReport": "Öppna rapport",
+      "assistantFallback": "AI-analytiker"
     }
   },
   "auth": {
@@ -610,7 +615,25 @@
     "modelAutoHint": "Routern väljer den bästa modellen",
     "autoAgentsHint": "Alla agenter du har tillgång till",
     "loadingDataSources": "Läser in datakällor…",
-    "noDataSources": "Inga datakällor hittades"
+    "noDataSources": "Inga datakällor hittades",
+    "effort": {
+      "title": "Ansträngning",
+      "default": "Standard",
+      "levels": {
+        "low": "Låg",
+        "medium": "Medel",
+        "high": "Hög",
+        "max": "Max"
+      },
+      "searchModels": "Sök modeller…",
+      "noMatches": "Inga modeller matchar",
+      "otherProvider": "Övrigt",
+      "anyModel": "Gäller den modell som körs",
+      "notSupported": "Den här modellen har ingen ansträngningsinställning",
+      "providerDefault": "Modellens standard",
+      "modelDefault": "Administratörens standard: {level}",
+      "runsAs": "Körs som {level} på den här modellen"
+    }
   },
   "reports": {
     "title": "Rapporter",
@@ -934,7 +957,73 @@
     "stepTotal": "Steg totalt",
     "firstToken": "Tid till första token",
     "thinking": "Tänkande",
-    "tool": "Verktyg"
+    "tool": "Verktyg",
+    "machineTurn": "Automatisk tur ({source})",
+    "checkin": {
+      "title": "Agentens uppföljning",
+      "runTurn": "Uppföljningskörning (agentens uppföljning)",
+      "noFollowUp": "Ingen uppföljning planerad",
+      "noReason": "Planeraren angav ingen anledning.",
+      "due": "förfaller {when}",
+      "note": "Anteckning till mig själv",
+      "planReason": "Varför följa upp",
+      "judge": "Domare",
+      "focus": "Fokus",
+      "whyRun": "Varför domaren körde den här uppföljningen",
+      "plannerUsage": "Planerare",
+      "judgeUsage": "Domare",
+      "status": {
+        "not_proposed": "inte föreslagen",
+        "rejected": "avvisad",
+        "planned": "planerad",
+        "cancelled": "avbruten",
+        "skipped": "hoppades över",
+        "running": "körs",
+        "ran_quiet": "kördes tyst",
+        "sent": "aviserad",
+        "failed": "misslyckades"
+      },
+      "decision": {
+        "run": "kör",
+        "skip": "hoppa över"
+      },
+      "reason": {
+        "disabled": "inställningen av",
+        "pending_exists_user": "användaren har redan en väntande",
+        "pending_exists_report": "rapporten har redan en väntande",
+        "weekly_cap": "veckogräns nådd",
+        "org_daily_cap": "organisationens dagsgräns nådd",
+        "report_deleted": "rapporten borttagen",
+        "access_lost": "åtkomst förlorad",
+        "judge_skip": "domaren hoppade över",
+        "run_failed": "körningen misslyckades",
+        "invalid_judge_output": "ogiltigt svar från domaren",
+        "opted_out": "användaren avregistrerad",
+        "fire_error": "fel under kontrollen",
+        "stale_running": "lämnades körande (omstart)"
+      },
+      "outcome": {
+        "sent": "Användaren aviserad",
+        "sentWithSubject": "Användaren aviserad: {subject}",
+        "ran_quiet": "Kördes tyst — inget att meddela",
+        "planned": "Väntar på sin tidpunkt",
+        "running": "Körs nu",
+        "skipped": "Domaren hoppade över — inget kördes",
+        "failed": "Uppföljningskörningen misslyckades — inget skickades",
+        "rejected": "Inte schemalagd: {reason}",
+        "cancelled": "Avbruten: {reason}"
+      }
+    },
+    "memory": {
+      "title": "Minne",
+      "summary": "{injected} av {total} poster inkluderade · {chars} tecken",
+      "privateNote": "Minnet är privat för ägaren – bara id:n och sektioner visas.",
+      "refused": "Nekat",
+      "tier": {
+        "always": "alltid",
+        "matched": "matchad"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chatt",
@@ -1496,10 +1585,11 @@
       "cancelledPlural": "Avbröt {count} väntande väntningar",
       "nothingPending": "Inga väntande väntningar"
     },
-    "updateUserMemory": {
-      "updating": "Uppdaterar minne…",
-      "updated": "Minne uppdaterat",
-      "failed": "Uppdatering av minne misslyckades"
+    "memory": {
+      "updating": "Uppdaterar minnet…",
+      "checking": "Kollar minnet…",
+      "updated": "Minnet uppdaterat",
+      "checked": "Kollade minnet"
     },
     "routeModel": {
       "routedTo": "Routad till",
@@ -2537,6 +2627,22 @@
           "name": "Agentanteckningar",
           "description": "Låter agenten föra arbetsanteckningar per rapport (ett kladdblock) som den skriver och läser medan den svarar — planer, iakttagelser och att göra-punkter. Anteckningarna visas i rapporten men är inte delad kunskap. När det är avstängt döljs anteckningsverktygen och anteckningarna läggs inte in i kontexten."
         },
+        "enable_user_memory": {
+          "name": "Användarminne",
+          "description": "Låt agenten minnas fakta om varje användare mellan sessioner – deras arbete, projekt, deadlines och händelser, vad de följer och deras egna förkortningar. Regler för hur agenten ska svara ligger kvar i instruktionerna. Varje användare kan se, redigera och radera sitt minne."
+        },
+        "enable_agent_dreaming": {
+          "name": "Nattlig inlärning för agenter",
+          "description": "Varje natt går agenterna igenom sina väntande förslag, feedback och användning och föreslår en samlad förbättring per agent. Vad som händer med den följer varje agents inställning för självlärande."
+        },
+        "enable_user_dreaming": {
+          "name": "Nattlig inlärning för användare",
+          "description": "Varje natt går agenten igenom varje aktiv användares dag för att hålla minnet uppdaterat och planera uppföljningar (t.ex. inför ett möte). Uppföljningarna följer de vanliga gränserna och varje användares avstängning av uppföljningar."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Låt ogranskade AI-förslag löpa ut efter (dagar)",
+          "description": "AI-föreslagna instruktioner som fortfarande väntar efter så många dagar stängs som utgångna (inte avvisade) av den nattliga inlärningen. Utgångna förslag räknas fortfarande som belägg om samma mönster återkommer. 0 håller dem öppna för alltid."
+        },
         "max_instructions_in_context": {
           "name": "Maximalt antal instruktioner i kontexten",
           "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”smarta” instruktioner de återstående platserna."
@@ -2568,6 +2674,18 @@
         "llm_fallback": {
           "name": "LLM-reserv",
           "description": "Enterprise. När den aktiva modellen misslyckas på grund av en hastighetsgräns, överbelastning hos leverantören eller ett nätverksfel görs förfrågan automatiskt om på nästa modell i reservordningen (konfigurerad på LLM-sidan) under resten av körningen. Bytet redovisas alltid i chatten. Avstängt som standard; aktivering kräver en enterprise-licens."
+        },
+        "enable_agent_checkins": {
+          "name": "Agentens uppföljningar",
+          "description": "Låter agenten följa upp på egen hand efter en konversation när något är värt att titta på igen (t.ex. efter en datauppdatering). Uppföljningar körs som användaren i samma rapport och aviserar bara när något väsentligt har ändrats."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Uppföljningar per användare och vecka",
+          "description": "Maximalt antal uppföljningar en användare kan få på 7 dagar."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Uppföljningar per dag",
+          "description": "Övre gräns för uppföljningar i hela organisationen per dag (kostnadstak)."
         }
       }
     },
@@ -2666,7 +2784,36 @@
       "modelsCount": "{count} modeller",
       "providerLabel": "Leverantör",
       "providerSettingsTooltip": "Leverantörsinställningar",
-      "save": "Spara"
+      "save": "Spara",
+      "reasoning": {
+        "title": "Resonemang",
+        "tooltip": "Hur modellen tar emot den ansträngning användarna väljer (Låg / Medel / Hög / Max).",
+        "modes": {
+          "auto": "Automatiskt (modellkatalog)",
+          "like": "Beter sig som en annan modell",
+          "generic": "Generisk (reasoning_effort)",
+          "custom": "Endast egna begärandefält",
+          "off": "Av"
+        },
+        "likeLabel": "Beter sig som",
+        "likePlaceholder": "t.ex. gpt-6-luna",
+        "defaultLevel": "Standardnivå",
+        "unsupported": "Ansträngning gäller inte den här modellen",
+        "savedSettings": "sparade inställningar",
+        "rawTitle": "Råa begärandefält per nivå (avancerat)",
+        "rawHelp": "JSON som slås ihop med begäran till leverantören när nivån används. Befintliga nycklar slås ihop; övriga skickas som de är.",
+        "ranAs": "kördes som {level}",
+        "tokens": "resonemangstokens",
+        "saveToTest": "Spara för att testa ändringarna",
+        "testTooltip": "Skicka en begäran med verktyg på den här nivån",
+        "test": "Testa",
+        "rawNotObject": "Måste vara ett JSON-objekt",
+        "rawInvalid": "Ogiltig JSON",
+        "fixRaw": "Rätta de ogiltiga fälten först",
+        "likeRequired": "Ange modellen den beter sig som",
+        "customRequired": "Anpassat läge kräver fält för minst en nivå",
+        "saveFailed": "Det gick inte att spara resonemangsinställningarna"
+      }
     },
     "licensePage": {
       "title": "Licens",
@@ -3360,7 +3507,18 @@
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören"
     },
-    "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort."
+    "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort.",
+    "memory.disabled": "Användarminnet är avstängt i den här organisationen.",
+    "memory.not_found": "Den minnesposten finns inte.",
+    "memory.text_required": "Skriv vad som ska kommas ihåg.",
+    "memory.text_too_long": "Högst 280 tecken.",
+    "memory.too_many_tags": "Högst 4 taggar.",
+    "memory.tags_required": "Lägg till minst en tagg.",
+    "memory.invalid_date": "Datumet är ogiltigt.",
+    "memory.sensitive": "Minnet kan inte innehålla hemligheter, lösenord eller känsliga personuppgifter.",
+    "memory.looks_like_rule": "Det är en regel för hur AI:n ska svara – lägg till den i dina anpassade instruktioner. Minnet sparar fakta om dig.",
+    "memory.full": "Minnet är fullt. Radera några poster först.",
+    "memory.not_active": "Den posten har redan ändrats eller glömts."
   },
   "email": {
     "dashboardShare": {
@@ -4514,6 +4672,7 @@
     "nav": {
       "general": "Allmänt",
       "instructions": "Anpassade instruktioner",
+      "memory": "Minne",
       "usage": "Användning",
       "apiKeys": "API-nycklar",
       "appearance": "Utseende"
@@ -4541,7 +4700,11 @@
       "defaultModelSaved": "Standardmodellen har uppdaterats",
       "defaultModelFailed": "Det gick inte att uppdatera standardmodellen",
       "directorySubtitle": "Jobbinformation synkad från organisationens identitetsleverantör. Synlig för AI:n som kontext.",
-      "directoryTitle": "Katalogprofil"
+      "directoryTitle": "Katalogprofil",
+      "checkinsTitle": "Agentens uppföljningar",
+      "checkinsSubtitle": "Låter agenten återkomma på egen hand efter en konversation när något är värt att titta på igen (till exempel efter en datauppdatering). Den aviserar dig bara när något väsentligt har ändrats.",
+      "checkinsSaved": "Uppföljningsinställningen sparades",
+      "checkinsFailed": "Det gick inte att spara din uppföljningsinställning"
     },
     "instructions": {
       "title": "Anpassade instruktioner",
@@ -4593,8 +4756,36 @@
     },
     "memory": {
       "title": "Minne",
-      "subtitle": "Vad AI:n har lärt sig och kommit ihåg om dig i den här organisationen — dina preferenser, din stil och analyser du gillade. Det uppdateras allt eftersom du arbetar; du kan redigera eller rensa det här.",
-      "placeholder": "AI:n har inte sparat något i minnet ännu. Allt eftersom du berättar dina preferenser kommer den att komma ihåg dem här."
+      "subtitle": "Fakta som AI:n minns om dig i den här organisationen – ditt arbete, dina projekt, datum, vad du följer och dina egna förkortningar. Bara du kan se dem.",
+      "vsInstructions": "Hur AI:n ska svara dig (format, enheter, längd) är inte minne – det är dina anpassade instruktioner.",
+      "instructionsLink": "Anpassade instruktioner",
+      "count": "{count} av {cap} poster",
+      "forgetAll": "Glöm allt",
+      "forgetAllTitle": "Glömma allt?",
+      "forgetAllBody": "AI:n glömmer alla {count} poster den minns om dig i den här organisationen. Det går inte att ångra.",
+      "forgetAllConfirm": "Glöm allt",
+      "empty": "Inget sparat än. Medan du arbetar sparar AI:n fakta här – som dina projekt, deadlines eller kommande möten.",
+      "add": "Lägg till",
+      "past": "Passerat",
+      "fromReport": "från {title}",
+      "untitledReport": "en rapport",
+      "loadFailed": "Kunde inte läsa in ditt minne",
+      "saveFailed": "Kunde inte spara ändringen",
+      "saved": "Minnet sparat",
+      "forgotten": "Glömt",
+      "forgotAll": "Allt glömt",
+      "source": {
+        "user": "Tillagt av dig",
+        "agent": "Sparat av AI:n",
+        "dream": "Noterat under natten"
+      },
+      "form": {
+        "placeholder": "Ett faktum om dig, t.ex. Leder Q3-projektet om kundbortfall",
+        "tags": "Taggar, kommaseparerade",
+        "dateHint": "Lägg till ett datum om det hör till ett"
+      },
+      "searchPlaceholder": "Sök i minnet…",
+      "noMatches": "Inga minnen matchar."
     }
   },
   "commandPalette": {
@@ -4859,7 +5050,15 @@
   },
   "events": {
     "evalRunFinished": "Utvärderingskörningen '{title}' avslutades — {passed}/{total} godkända ({status})",
-    "waitResumed": "Väntan förfluten — återupptar: {reason}"
+    "waitResumed": "Väntan förfluten — återupptar: {reason}",
+    "checkin": {
+      "label": "Uppföljning",
+      "running": "Följer upp den här konversationen…",
+      "sent": "Uppföljning — du har aviserats",
+      "sentWithSubject": "Uppföljning — du har aviserats: {subject}",
+      "quiet": "Kontrollerat igen: inget nytt",
+      "failed": "Uppföljningen misslyckades"
+    }
   },
   "chatSummary": {
     "empty": "Inga objekt ännu",
@@ -5201,5 +5400,16 @@
   },
   "quota": {
     "resetsOn": "återställs {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Lär dig under natten",
+    "nightlyDescription": "Gör varje natt upprepade korrigeringar, feedback och användning till ett samlat förslag för den här agenten. Det följer inställningen ovan som alla andra förslag.",
+    "nightlyOrgOff": "Nattlig inlärning är avstängd för den här organisationen (AI-inställningar)."
+  },
+  "nightlyBuild": {
+    "merged": "Sammanslagen",
+    "expired": "Utgången",
+    "mergedTip": "Uppgick i ett förslag från den nattliga inlärningen. Inte ett avslag från en granskare.",
+    "expiredTip": "Stängd efter att ha legat ogranskad längre än organisationens gräns. Räknas fortfarande som belägg om mönstret återkommer."
   }
 }

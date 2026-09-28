@@ -2,7 +2,7 @@
     <div :class="props.iconOnly ? 'inline-flex' : 'flex items-center gap-2'">
         <!-- Live preview of the current icon (full mode only) -->
         <div v-if="!props.iconOnly" class="w-9 h-9 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
-            <DataSourceIcon :type="props.type" :connector-key="props.connectorKey" :icon="modelToken" class="w-5 h-5" />
+            <DataSourceIcon :type="props.type" :connector-key="props.connectorKey" :icon-token="displayToken" class="w-5 h-5" />
         </div>
 
         <UPopover v-if="!props.disabled" :popper="{ placement: 'bottom-start' }">
@@ -13,7 +13,7 @@
                 :title="hasCustom ? 'Change icon' : 'Set custom icon'"
                 class="group inline-flex items-center justify-center rounded-md p-0.5 -m-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors relative"
             >
-                <DataSourceIcon :type="props.type" :connector-key="props.connectorKey" :icon="modelToken" :class="props.iconClass || 'w-4 h-4'" class="shrink-0" />
+                <DataSourceIcon :type="props.type" :connector-key="props.connectorKey" :icon-token="displayToken" :class="props.iconClass || 'w-4 h-4'" class="shrink-0" />
                 <UIcon name="i-heroicons-pencil" class="w-2.5 h-2.5 text-gray-400 dark:text-gray-500 absolute -bottom-1 -end-1 opacity-0 group-hover:opacity-100 bg-white dark:bg-gray-900 rounded-full" />
             </button>
             <button
@@ -88,7 +88,7 @@
             </template>
         </UPopover>
         <!-- Disabled + icon-only: render the plain icon (no trigger). -->
-        <DataSourceIcon v-else-if="props.iconOnly" :type="props.type" :connector-key="props.connectorKey" :icon="modelToken" :class="props.iconClass || 'w-4 h-4'" class="shrink-0" />
+        <DataSourceIcon v-else-if="props.iconOnly" :type="props.type" :connector-key="props.connectorKey" :icon-token="displayToken" :class="props.iconClass || 'w-4 h-4'" class="shrink-0" />
     </div>
 </template>
 
@@ -102,6 +102,9 @@ const props = defineProps<{
     // Fallback type/connector for the default-icon preview.
     type?: string | null
     connectorKey?: string | null
+    // The backend-resolved `icon_token` (see backend/app/schemas/agent_icon.py),
+    // so the default icon matches every other surface showing this agent.
+    iconToken?: string | null
     // The agent's connections, so the picker can offer their type/brand icons.
     connections?: Array<{ type?: string | null; connector_key?: string | null; name?: string | null }>
     // Compact mode: the icon itself is the clickable trigger (no preview box or
@@ -127,6 +130,8 @@ const PRESET_EMOJIS = [
 ]
 
 const modelToken = computed(() => props.modelValue ?? null)
+// What to render: a just-picked override wins; otherwise the resolved token.
+const displayToken = computed(() => modelToken.value || props.iconToken || null)
 const parsed = computed(() => parseAgentIcon(modelToken.value))
 // "Reset to default" is offered whenever any override is set (emoji or a pinned
 // connection type icon).

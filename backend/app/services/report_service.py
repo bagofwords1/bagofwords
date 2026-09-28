@@ -727,6 +727,7 @@ class ReportService:
             mode=getattr(report, "mode", "chat"),
             # Report-level LLM override (null = user/org default resolves at run time)
             model_id=getattr(report, "model_id", None),
+            reasoning_effort=getattr(report, "reasoning_effort", None),
             # Agent focus (subset of attached agents whose full schema is in context)
             focused_data_source_ids=getattr(report, "focused_data_source_ids", None) or [],
             # Conversation sharing
@@ -919,6 +920,8 @@ class ReportService:
         # it is set below, after the same strict check the update path runs.
         requested_model_id = report_data.model_id
         del report_data.model_id
+        requested_reasoning_effort = report_data.reasoning_effort
+        del report_data.reasoning_effort
 
         # Create the report object
         report = Report(**report_data.dict())
@@ -961,6 +964,7 @@ class ReportService:
                 db, organization, current_user, requested_model_id
             )
             report.model_id = requested_model_id
+        report.reasoning_effort = requested_reasoning_effort
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'
@@ -1127,6 +1131,10 @@ class ReportService:
                     )
                 except Exception:
                     pass
+        # Reasoning level stored beside model_id. None = omitted (unchanged),
+        # "" = clear back to Default.
+        if getattr(report_data, 'reasoning_effort', None) is not None:
+            report.reasoning_effort = report_data.reasoning_effort or None
         # Project membership (move). Sentinel-aware like model_id:
         #   None -> untouched, "" -> back to root, <id> -> move into project
         # (requires view access on the target). The route's owner_only gate
@@ -1732,6 +1740,15 @@ class ReportService:
 
         logger.info(f"Deleted {len(scheduled_prompts)} scheduled prompt(s) for archived report(s): {report_ids}")
 
+    async def _cancel_checkins_for_reports(self, db: AsyncSession, report_ids) -> None:
+        """Archived reports: cancel their pending agent check-ins
+        (cancelled:report_deleted) and remove the checkin:* jobs."""
+        try:
+            from app.services.checkin_service import checkin_service
+            await checkin_service.cancel_for_reports(db, list(report_ids or []))
+        except Exception:
+            logger.warning(f"Failed to cancel check-ins for archived report(s): {report_ids}", exc_info=True)
+
     async def archive_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
@@ -1741,6 +1758,7 @@ class ReportService:
         report.status = 'archived'
         await self._delete_scheduled_prompts_for_reports(db, [str(report.id)])
         await db.commit()
+        await self._cancel_checkins_for_reports(db, [str(report.id)])
         await db.refresh(report)
 
         # Audit log
@@ -2988,6 +3006,7 @@ class ReportService:
         if count:
             await self._delete_scheduled_prompts_for_reports(db, archived_ids)
             await db.commit()
+            await self._cancel_checkins_for_reports(db, archived_ids)
 
             # Audit log
             try:

@@ -12,6 +12,10 @@ from botocore import UNSIGNED
 from botocore.config import Config
 
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.reasoning import (
+    _effort_to_thinking_config, capability_model as _capability_model, clamp_effort,
+    client_mode, efforts_for_client, merge_raw_params, raw_params_for, selected_effort,
+)
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.types import (
     ImageInput,
@@ -460,13 +464,33 @@ class BedrockClient(LLMClient):
             if _cache_on:
                 # The system prompt is the most stable block in the request.
                 request_kwargs["system"].append(_CACHE_POINT)
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
         if thinking:
-            budget = int(thinking.get("budget_tokens") or 5000)
-            request_kwargs["additionalModelRequestFields"] = {
-                "thinking": {"type": "enabled", "budget_tokens": budget}
-            }
+            requested = selected_effort(thinking)
+            effort = clamp_effort(requested, efforts_for_client(self, model_id)) or requested
+            fields: dict = {}
+            if mode != "custom":
+                # Claude 4.6+ on Bedrock takes adaptive thinking with the effort
+                # in output_config BESIDE thinking (inside it is a
+                # ValidationException); Sonnet 5 / Opus 4.7+ reject
+                # type=enabled outright. Older Claude keeps a token budget.
+                mapped = _effort_to_thinking_config(effort, _capability_model(self, model_id)) if effort else None
+                if mapped and mapped.get("type") == "adaptive":
+                    fields = {
+                        "thinking": {"type": "adaptive", "display": "summarized"},
+                        "output_config": {"effort": effort},
+                    }
+                else:
+                    budget = int((mapped or thinking).get("budget_tokens") or 5000)
+                    fields = {"thinking": {"type": "enabled", "budget_tokens": budget}}
+            merge_raw_params(fields, raw_params_for(self, requested, effort), passthrough_key=None)
+            if fields:
+                request_kwargs["additionalModelRequestFields"] = fields
             # maxTokens must exceed the thinking budget or the request fails.
-            if request_kwargs["inferenceConfig"]["maxTokens"] <= budget:
+            budget = int((fields.get("thinking") or {}).get("budget_tokens") or 0)
+            if budget and request_kwargs["inferenceConfig"]["maxTokens"] <= budget:
                 request_kwargs["inferenceConfig"]["maxTokens"] = budget + 4096
         if tools:
             tc = self._translate_tools(tools)

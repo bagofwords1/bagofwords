@@ -63,9 +63,15 @@
                         <div v-for="(turn, i) in turns" :key="turn.completion_id || i"
                              :data-completion-id="turn.completion_id || ''"
                              :class="['rounded-lg px-1.5 py-1.5 transition-colors', turn.completion_id === selectedCompletionId ? 'bg-blue-50/40 ring-1 ring-blue-100' : '']">
+                            <!-- Machine turn (e.g. agent check-in): the prompt is the
+                                 hidden trigger, not something the user typed. -->
+                            <div v-if="turn.trigger_source" class="flex items-center gap-1.5 mb-1.5 text-[11px] text-indigo-600 dark:text-indigo-300" :data-testid="`trace-machine-turn-${turn.trigger_source}`">
+                                <UIcon :name="turn.trigger_source === 'checkin' ? 'i-heroicons-arrow-path-rounded-square' : 'i-heroicons-bolt'" class="w-3.5 h-3.5" />
+                                <span class="font-medium">{{ turn.trigger_source === 'checkin' ? $t('traceModal.checkin.runTurn') : $t('traceModal.machineTurn', { source: turn.trigger_source }) }}</span>
+                            </div>
                             <!-- User bubble -->
                             <div class="flex justify-end mb-2">
-                                <div class="max-w-[88%] rounded-xl px-3 py-2 bg-gray-100 dark:bg-gray-800 text-[13px] text-gray-900 dark:text-gray-100 whitespace-pre-line break-words" dir="auto">{{ turn.user_prompt || '—' }}</div>
+                                <div :class="['max-w-[88%] rounded-xl px-3 py-2 text-[13px] whitespace-pre-line break-words', turn.trigger_source ? 'bg-indigo-50/60 dark:bg-indigo-500/10 text-gray-600 dark:text-gray-300 line-clamp-4' : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100']" dir="auto">{{ turn.user_prompt || '—' }}</div>
                             </div>
                             <!-- Assistant blocks -->
                             <div class="space-y-2">
@@ -101,6 +107,8 @@
                                     <template v-if="turn.total_duration_ms != null"><span>·</span><span>{{ formatDuration(turn.total_duration_ms) }}</span></template>
                                     <template v-if="turn.feedback_status !== 'none'"><span>·</span><span :class="turn.feedback_status === 'positive' ? 'text-green-600' : 'text-red-500'">{{ turn.feedback_status }}</span></template>
                                 </div>
+                                <!-- Agent check-ins this turn planned (or declined) -->
+                                <CheckinTraceCard v-for="c in checkinsForTurn(turn)" :key="c.id" :checkin="c" />
                             </div>
                         </div>
                         <div v-if="!turns.length" class="text-xs text-gray-400 dark:text-gray-500 text-center py-8">No turns yet</div>
@@ -212,6 +220,15 @@
                     </div>
 
                     <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
+                        <!-- Check-in run: why the judge ran it, before the usual trace -->
+                        <div v-if="selectedTurnCheckin" class="mb-4 rounded-lg border border-indigo-100 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5 px-3 py-2.5" data-testid="trace-checkin-judge-panel">
+                            <div class="flex items-center gap-1.5 text-xs font-medium text-gray-800 dark:text-gray-200">
+                                <UIcon name="i-heroicons-scale" class="w-3.5 h-3.5 text-indigo-500" />
+                                {{ $t('traceModal.checkin.whyRun') }}
+                            </div>
+                            <p class="mt-1 text-xs text-gray-700 dark:text-gray-300" dir="auto">{{ selectedTurnCheckin.judge_reason || '—' }}</p>
+                            <p v-if="selectedTurnCheckin.judge_focus" class="mt-1 text-xs text-gray-500 dark:text-gray-400" dir="auto"><span class="font-medium">{{ $t('traceModal.checkin.focus') }}:</span> {{ selectedTurnCheckin.judge_focus }}</p>
+                        </div>
                         <!-- Loading -->
                         <div v-if="isLoading" class="h-full flex items-center justify-center">
                             <div class="text-center">
@@ -266,6 +283,38 @@
                                                     <span class="font-semibold w-7 text-end" :class="row.text">{{ row.score }}/5</span>
                                                 </div>
                                                 <div v-if="row.reasoning" class="text-[11px] text-gray-500 dark:text-gray-400 mt-1 ps-[7.5rem] leading-snug">{{ row.reasoning }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- User memory for this turn: injected entries, memory tool calls,
+                                         refusals. Entry text only when the viewer owns the memory. -->
+                                    <div v-if="selectedTurn?.memory" class="mt-4" data-testid="trace-memory">
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1.5">
+                                            <UIcon name="i-heroicons-bookmark" class="w-3.5 h-3.5" />
+                                            {{ $t('traceModal.memory.title') }}
+                                            <span class="normal-case tracking-normal text-gray-400">· {{ $t('traceModal.memory.summary', { injected: selectedTurn.memory.injected.length, total: selectedTurn.memory.total_entries, chars: selectedTurn.memory.chars }) }}</span>
+                                        </div>
+                                        <p v-if="!selectedTurn.memory.owner_view" class="text-[11px] text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-1">
+                                            <UIcon name="i-heroicons-lock-closed" class="w-3 h-3" />{{ $t('traceModal.memory.privateNote') }}
+                                        </p>
+                                        <div class="space-y-1">
+                                            <div v-for="(m, mi) in selectedTurn.memory.injected" :key="'inj' + mi" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
+                                                <span class="font-mono text-[10px] text-gray-500 shrink-0 mt-px">[{{ m.handle }}]</span>
+                                                <span class="text-[10px] px-1.5 py-0.5 rounded shrink-0" :class="m.tier === 'matched' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'">{{ $t(`traceModal.memory.tier.${m.tier === 'matched' ? 'matched' : 'always'}`) }}</span>
+                                                <UIcon v-if="m.dated" name="i-heroicons-calendar" class="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />
+                                                <span v-if="m.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ m.text }}</span>
+                                            </div>
+                                            <div v-for="(c, ci) in selectedTurn.memory.tool_calls" :key="'call' + ci" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
+                                                <UIcon :name="c.success ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" :class="['w-3.5 h-3.5 shrink-0 mt-px', c.success ? 'text-green-500' : 'text-red-500']" />
+                                                <span class="font-mono text-[10px] text-gray-600 dark:text-gray-400 shrink-0 mt-px">{{ c.tool }}<template v-if="c.action">·{{ c.action }}</template></span>
+                                                <span v-if="c.handle" class="font-mono text-[10px] text-gray-500 shrink-0 mt-px">[{{ c.handle }}]</span>
+                                                <span v-if="c.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ c.text }}</span>
+                                            </div>
+                                            <div v-for="(r, ri) in selectedTurn.memory.refusals" :key="'ref' + ri" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-amber-50 dark:bg-amber-950/40">
+                                                <UIcon name="i-heroicons-no-symbol" class="w-3.5 h-3.5 shrink-0 mt-px text-amber-600" />
+                                                <span class="text-[10px] text-amber-700 dark:text-amber-400 shrink-0 mt-px">{{ $t('traceModal.memory.refused') }} · {{ r.code }}</span>
+                                                <span v-if="r.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ r.text }}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -562,11 +611,14 @@ import CreateInstructionTool from '../tools/CreateInstructionTool.vue'
 import EditInstructionTool from '../tools/EditInstructionTool.vue'
 import SendEmailTool from '../tools/SendEmailTool.vue'
 import CreateNoteTool from '../tools/CreateNoteTool.vue'
+import SubmitListTool from '../tools/SubmitListTool.vue'
 import EditNoteTool from '../tools/EditNoteTool.vue'
 import SearchInstructionsTool from '../tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '../tools/ReadInstructionTool.vue'
 import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
+import CheckinTraceCard from './CheckinTraceCard.vue'
+import type { CheckinTrace } from './CheckinTraceCard.vue'
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
 const { getLoadModeLabel } = useInstructionHelpers()
 const { isJudgeEnabled } = useOrgSettings()
@@ -738,6 +790,8 @@ interface ConversationTurn {
     llm_tokens?: number | null
     llm_cost_usd?: number | null
     created_at?: string | null
+    trigger_source?: string | null
+    checkin_id?: string | null
 }
 
 interface ConversationTraceResponse {
@@ -752,6 +806,7 @@ interface ConversationTraceResponse {
     total_llm_tokens?: number | null
     total_llm_cost_usd?: number | null
     turns: ConversationTurn[]
+    checkins?: CheckinTrace[]
 }
 
 interface Props {
@@ -781,6 +836,15 @@ const selectedItemType = ref<'block'>('block')
 const blocks = computed(() => traceData.value?.completion_blocks || [])
 const turns = computed(() => conversation.value?.turns || [])
 const selectedTurn = computed(() => turns.value.find(t => t.completion_id === selectedCompletionId.value) || null)
+// Agent check-ins: cards hang off the turn that planned them; a check-in run
+// turn links back to its row for the judge's reason.
+const checkins = computed<CheckinTrace[]>(() => conversation.value?.checkins || [])
+const checkinsForTurn = (turn: ConversationTurn) =>
+    checkins.value.filter(c => c.source_completion_id && c.source_completion_id === turn.completion_id)
+const selectedTurnCheckin = computed(() => {
+    const id = selectedTurn.value?.checkin_id
+    return id ? checkins.value.find(c => c.id === id) || null : null
+})
 
 // Per-turn LLM tokens. Preferred source: turn.llm_tokens, aggregated from
 // the quota pipeline's usage_events (covers every LLM call in the run —
@@ -1393,6 +1457,9 @@ const hasAnyCompletionScores = (completion: any) => {
 
 // Tool component helpers (matching index.vue)
 function getToolComponent(toolName: string) {
+    // Native per-list tools (submit_<list>) stream under their own name
+    // before the gateway rewrite to submit_list.
+    if (toolName?.startsWith('submit_')) return SubmitListTool
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
@@ -1408,6 +1475,8 @@ function getToolComponent(toolName: string) {
             return SendEmailTool
         case 'create_note':
             return CreateNoteTool
+        case 'submit_list':
+            return SubmitListTool
         case 'edit_note':
             return EditNoteTool
         case 'search_instructions':

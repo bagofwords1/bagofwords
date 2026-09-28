@@ -447,6 +447,11 @@
         "title": "⚡ « {name} » s'est déclenché — {summary}",
         "body": "L'enquête est terminée — ouvrez la session pour voir les résultats."
       }
+    },
+    "checkin": {
+      "badge": "Suivi",
+      "openReport": "Ouvrir le rapport",
+      "assistantFallback": "Analyste IA"
     }
   },
   "auth": {
@@ -610,7 +615,25 @@
     "modelAutoHint": "Le routeur choisit le meilleur modèle",
     "autoAgentsHint": "Tout agent auquel vous avez accès",
     "loadingDataSources": "Chargement des sources de données…",
-    "noDataSources": "Aucune source de données trouvée"
+    "noDataSources": "Aucune source de données trouvée",
+    "effort": {
+      "title": "Effort",
+      "default": "Par défaut",
+      "levels": {
+        "low": "Faible",
+        "medium": "Moyen",
+        "high": "Élevé",
+        "max": "Max"
+      },
+      "searchModels": "Rechercher des modèles…",
+      "noMatches": "Aucun modèle ne correspond",
+      "otherProvider": "Autre",
+      "anyModel": "S'applique au modèle exécuté",
+      "notSupported": "Ce modèle n'a pas de réglage d'effort",
+      "providerDefault": "Valeur par défaut du modèle",
+      "modelDefault": "Défaut administrateur : {level}",
+      "runsAs": "S'exécute en {level} sur ce modèle"
+    }
   },
   "reports": {
     "title": "Rapports",
@@ -934,7 +957,73 @@
     "stepTotal": "Total de l'étape",
     "firstToken": "Temps jusqu'au premier token",
     "thinking": "Réflexion",
-    "tool": "Outil"
+    "tool": "Outil",
+    "machineTurn": "Tour automatique ({source})",
+    "checkin": {
+      "title": "Suivi de l'agent",
+      "runTurn": "Exécution de suivi (suivi de l'agent)",
+      "noFollowUp": "Aucun suivi prévu",
+      "noReason": "Le planificateur n'a donné aucune raison.",
+      "due": "prévu {when}",
+      "note": "Note pour plus tard",
+      "planReason": "Pourquoi un suivi",
+      "judge": "Juge",
+      "focus": "Objectif",
+      "whyRun": "Pourquoi le juge a lancé ce suivi",
+      "plannerUsage": "Planificateur",
+      "judgeUsage": "Juge",
+      "status": {
+        "not_proposed": "non proposé",
+        "rejected": "rejeté",
+        "planned": "planifié",
+        "cancelled": "annulé",
+        "skipped": "ignoré",
+        "running": "en cours",
+        "ran_quiet": "exécuté sans alerte",
+        "sent": "notifié",
+        "failed": "échoué"
+      },
+      "decision": {
+        "run": "exécuter",
+        "skip": "ignorer"
+      },
+      "reason": {
+        "disabled": "paramètre désactivé",
+        "pending_exists_user": "l'utilisateur en a déjà un en attente",
+        "pending_exists_report": "le rapport en a déjà un en attente",
+        "weekly_cap": "limite hebdomadaire atteinte",
+        "org_daily_cap": "limite quotidienne de l'organisation atteinte",
+        "report_deleted": "rapport supprimé",
+        "access_lost": "accès perdu",
+        "judge_skip": "ignoré par le juge",
+        "run_failed": "échec de l'exécution",
+        "invalid_judge_output": "réponse du juge invalide",
+        "opted_out": "désinscrit",
+        "fire_error": "erreur pendant la vérification",
+        "stale_running": "resté en cours (redémarrage)"
+      },
+      "outcome": {
+        "sent": "Utilisateur notifié",
+        "sentWithSubject": "Utilisateur notifié : {subject}",
+        "ran_quiet": "Exécuté sans alerte — rien à signaler",
+        "planned": "En attente de son échéance",
+        "running": "En cours d'exécution",
+        "skipped": "Ignoré par le juge — rien n'a été exécuté",
+        "failed": "L'exécution du suivi a échoué — rien n'a été envoyé",
+        "rejected": "Non programmé : {reason}",
+        "cancelled": "Annulé : {reason}"
+      }
+    },
+    "memory": {
+      "title": "Mémoire",
+      "summary": "{injected} entrées injectées sur {total} · {chars} caractères",
+      "privateNote": "La mémoire est privée : seuls les identifiants et les sections sont affichés.",
+      "refused": "Refusé",
+      "tier": {
+        "always": "toujours",
+        "matched": "correspondance"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Conversation",
@@ -1496,10 +1585,11 @@
       "cancelledPlural": "{count} attentes en cours annulées",
       "nothingPending": "Aucune attente en cours"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Mise à jour de la mémoire…",
+      "checking": "Consultation de la mémoire…",
       "updated": "Mémoire mise à jour",
-      "failed": "Échec de la mise à jour de la mémoire"
+      "checked": "Mémoire consultée"
     },
     "routeModel": {
       "routedTo": "Acheminé vers",
@@ -2537,6 +2627,22 @@
           "name": "Notes de l'agent",
           "description": "Permet à l'agent de tenir des notes de travail par rapport (un bloc-notes) qu'il écrit et relit pendant qu'il répond : plans, constats et tâches. Les notes sont affichées dans le rapport mais ne constituent pas une connaissance partagée. Lorsque l'option est désactivée, les outils de notes sont masqués et les notes ne sont pas injectées dans le contexte."
         },
+        "enable_user_memory": {
+          "name": "Mémoire utilisateur",
+          "description": "Permet à l'agent de retenir des faits sur chaque utilisateur d'une session à l'autre : son travail, ses projets, ses échéances et événements, ce qu'il suit et ses propres raccourcis. Les règles sur la façon de répondre restent dans les instructions. Chaque utilisateur peut consulter, modifier et supprimer sa mémoire."
+        },
+        "enable_agent_dreaming": {
+          "name": "Apprentissage nocturne des agents",
+          "description": "Chaque nuit, les agents examinent leurs suggestions en attente, les retours et l'usage, et proposent une amélioration consolidée par agent. La suite dépend du réglage d'auto-apprentissage de chaque agent."
+        },
+        "enable_user_dreaming": {
+          "name": "Apprentissage nocturne des utilisateurs",
+          "description": "Chaque nuit, l'agent passe en revue la journée de chaque utilisateur actif pour garder sa mémoire à jour et planifier des suivis (p. ex. avant une réunion). Les suivis respectent les limites habituelles et la désactivation personnelle des suivis."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Faire expirer les suggestions IA non examinées après (jours)",
+          "description": "Les instructions suggérées par l'IA encore en attente après ce nombre de jours sont fermées comme expirées (non rejetées) par l'apprentissage nocturne. Les suggestions expirées comptent toujours comme preuve si le même schéma revient. 0 les laisse ouvertes indéfiniment."
+        },
         "max_instructions_in_context": {
           "name": "Nombre maximal d'instructions dans le contexte",
           "description": "Nombre maximal d'instructions à inclure dans le contexte de l'IA. Les instructions « toujours » sont chargées en premier, puis les instructions « intelligentes » remplissent les emplacements restants."
@@ -2568,6 +2674,18 @@
         "llm_fallback": {
           "name": "Repli LLM",
           "description": "Enterprise. Lorsque le modèle actif échoue en raison d'une limite de débit, d'une surcharge du fournisseur ou d'une erreur réseau, la requête est automatiquement relancée sur le modèle suivant dans l'ordre de repli (configuré sur la page LLM) pour le reste de l'exécution. La substitution est toujours signalée dans le chat. Désactivé par défaut ; l'activation nécessite une licence enterprise."
+        },
+        "enable_agent_checkins": {
+          "name": "Suivis de l'agent",
+          "description": "Permet à l'agent de faire un suivi de lui-même après une conversation lorsqu'il vaut la peine d'y revenir (par ex. après une actualisation des données). Les suivis s'exécutent au nom de l'utilisateur dans le même rapport et ne le notifient que lorsque quelque chose d'important a changé."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Suivis par utilisateur et par semaine",
+          "description": "Nombre maximal de suivis qu'un utilisateur peut recevoir en 7 jours."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Suivis par jour",
+          "description": "Plafond de suivis pour toute l'organisation par jour (limite de coût)."
         }
       }
     },
@@ -2666,7 +2784,36 @@
       "modelsCount": "{count} modèles",
       "providerLabel": "Fournisseur",
       "providerSettingsTooltip": "Paramètres du fournisseur",
-      "save": "Enregistrer"
+      "save": "Enregistrer",
+      "reasoning": {
+        "title": "Raisonnement",
+        "tooltip": "Comment ce modèle reçoit l'effort choisi par les utilisateurs (Faible / Moyen / Élevé / Max).",
+        "modes": {
+          "auto": "Automatique (catalogue de modèles)",
+          "like": "Se comporte comme un autre modèle",
+          "generic": "Générique (reasoning_effort)",
+          "custom": "Champs de requête personnalisés uniquement",
+          "off": "Désactivé"
+        },
+        "likeLabel": "Se comporte comme",
+        "likePlaceholder": "ex. gpt-6-luna",
+        "defaultLevel": "Niveau par défaut",
+        "unsupported": "L'effort ne s'applique pas à ce modèle",
+        "savedSettings": "paramètres enregistrés",
+        "rawTitle": "Champs de requête bruts par niveau (avancé)",
+        "rawHelp": "JSON fusionné dans la requête au fournisseur quand ce niveau est utilisé. Les clés existantes sont fusionnées ; les autres sont transmises telles quelles.",
+        "ranAs": "exécuté en {level}",
+        "tokens": "jetons de raisonnement",
+        "saveToTest": "Enregistrez pour tester vos modifications",
+        "testTooltip": "Envoyer une requête avec outils à ce niveau",
+        "test": "Tester",
+        "rawNotObject": "Doit être un objet JSON",
+        "rawInvalid": "JSON invalide",
+        "fixRaw": "Corrigez d'abord les champs invalides",
+        "likeRequired": "Indiquez le modèle auquel il ressemble",
+        "customRequired": "Le mode personnalisé nécessite des champs pour au moins un niveau",
+        "saveFailed": "Impossible d'enregistrer les paramètres de raisonnement"
+      }
     },
     "licensePage": {
       "title": "Licence",
@@ -3360,7 +3507,18 @@
       "model_id_not_editable": "Seuls les modèles personnalisés sur les fournisseurs Azure, AWS Bedrock ou personnalisés (compatibles OpenAI) peuvent voir leur ID de modèle modifié",
       "model_id_duplicate": "Le modèle « {model_id} » existe déjà chez ce fournisseur"
     },
-    "data_source.in_use": "L'agent « {agent} » est encore utilisé ({reference}) ; il ne peut donc pas être supprimé. Rien n'a été supprimé."
+    "data_source.in_use": "L'agent « {agent} » est encore utilisé ({reference}) ; il ne peut donc pas être supprimé. Rien n'a été supprimé.",
+    "memory.disabled": "La mémoire utilisateur est désactivée dans cette organisation.",
+    "memory.not_found": "Cette entrée de mémoire n'existe pas.",
+    "memory.text_required": "Indiquez ce qu'il faut retenir.",
+    "memory.text_too_long": "280 caractères maximum.",
+    "memory.too_many_tags": "4 tags maximum.",
+    "memory.tags_required": "Ajoutez au moins un tag.",
+    "memory.invalid_date": "Cette date n'est pas valide.",
+    "memory.sensitive": "La mémoire ne peut pas contenir de secrets, de mots de passe ni de données personnelles sensibles.",
+    "memory.looks_like_rule": "C'est une règle sur la façon de répondre : ajoutez-la à vos instructions personnalisées. La mémoire garde des faits vous concernant.",
+    "memory.full": "La mémoire est pleine. Supprimez d'abord des entrées.",
+    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée."
   },
   "email": {
     "dashboardShare": {
@@ -4514,6 +4672,7 @@
     "nav": {
       "general": "Général",
       "instructions": "Instructions personnalisées",
+      "memory": "Mémoire",
       "usage": "Utilisation",
       "apiKeys": "Clés API",
       "appearance": "Apparence"
@@ -4541,7 +4700,11 @@
       "defaultModelSaved": "Modèle par défaut mis à jour",
       "defaultModelFailed": "Échec de la mise à jour du modèle par défaut",
       "directorySubtitle": "Informations professionnelles synchronisées depuis le fournisseur d'identité de votre organisation. Visibles par l'IA comme contexte.",
-      "directoryTitle": "Profil de l'annuaire"
+      "directoryTitle": "Profil de l'annuaire",
+      "checkinsTitle": "Suivis de l'agent",
+      "checkinsSubtitle": "Permet à l'agent de revenir de lui-même après une conversation lorsqu'il vaut la peine d'y revenir (par exemple après une actualisation des données). Il ne vous notifie que lorsque quelque chose d'important a changé.",
+      "checkinsSaved": "Préférence de suivi enregistrée",
+      "checkinsFailed": "Impossible d'enregistrer votre préférence de suivi"
     },
     "instructions": {
       "title": "Instructions personnalisées",
@@ -4593,8 +4756,36 @@
     },
     "memory": {
       "title": "Mémoire",
-      "subtitle": "Ce que l'IA a appris et retenu à votre sujet dans cette organisation — vos préférences, votre style et les analyses que vous avez appréciées. Elle met cela à jour au fil de votre travail ; vous pouvez le modifier ou l'effacer ici.",
-      "placeholder": "L'IA n'a encore rien enregistré en mémoire. À mesure que vous lui indiquez vos préférences, elle les retiendra ici."
+      "subtitle": "Les faits que l'IA retient sur vous dans cette organisation : votre travail, vos projets, vos dates, ce que vous suivez, vos raccourcis. Vous seul pouvez les voir.",
+      "vsInstructions": "La façon dont l'IA doit vous répondre (format, unités, longueur) n'est pas de la mémoire : ce sont vos instructions personnalisées.",
+      "instructionsLink": "Instructions personnalisées",
+      "count": "{count} sur {cap} entrées",
+      "forgetAll": "Tout oublier",
+      "forgetAllTitle": "Tout oublier ?",
+      "forgetAllBody": "L'IA oubliera les {count} entrées qu'elle a retenues sur vous dans cette organisation. Cette action est irréversible.",
+      "forgetAllConfirm": "Tout oublier",
+      "empty": "Rien n'est encore retenu. Au fil de votre travail, l'IA garde ici des faits comme vos projets, vos échéances ou vos prochaines réunions.",
+      "add": "Ajouter",
+      "past": "Passé",
+      "fromReport": "depuis {title}",
+      "untitledReport": "un rapport",
+      "loadFailed": "Impossible de charger votre mémoire",
+      "saveFailed": "Impossible d'enregistrer la modification",
+      "saved": "Mémoire enregistrée",
+      "forgotten": "Oublié",
+      "forgotAll": "Tout a été oublié",
+      "source": {
+        "user": "Ajouté par vous",
+        "agent": "Enregistré par l'IA",
+        "dream": "Noté pendant la nuit"
+      },
+      "form": {
+        "placeholder": "Un fait vous concernant, ex. Pilote le projet d'attrition du T3",
+        "tags": "Tags, séparés par des virgules",
+        "dateHint": "Ajoutez une date si c'est lié à une date"
+      },
+      "searchPlaceholder": "Rechercher dans la mémoire…",
+      "noMatches": "Aucun souvenir ne correspond."
     }
   },
   "commandPalette": {
@@ -4859,7 +5050,15 @@
   },
   "events": {
     "evalRunFinished": "L'exécution d'évaluation '{title}' est terminée — {passed}/{total} réussies ({status})",
-    "waitResumed": "Attente écoulée — reprise : {reason}"
+    "waitResumed": "Attente écoulée — reprise : {reason}",
+    "checkin": {
+      "label": "Suivi",
+      "running": "Suivi de cette conversation…",
+      "sent": "Suivi — vous avez été notifié",
+      "sentWithSubject": "Suivi — vous avez été notifié : {subject}",
+      "quiet": "Revérifié : rien de nouveau",
+      "failed": "Échec du suivi"
+    }
   },
   "chatSummary": {
     "empty": "Aucun élément pour l'instant",
@@ -5201,5 +5400,16 @@
   },
   "quota": {
     "resetsOn": "réinitialisation le {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Apprendre pendant la nuit",
+    "nightlyDescription": "Chaque nuit, transforme les corrections répétées, les retours et l'usage en une seule suggestion consolidée pour cet agent. Elle suit le réglage ci-dessus comme toute autre suggestion.",
+    "nightlyOrgOff": "L'apprentissage nocturne est désactivé pour cette organisation (paramètres IA)."
+  },
+  "nightlyBuild": {
+    "merged": "Fusionnée",
+    "expired": "Expirée",
+    "mergedTip": "Intégrée à une suggestion de l'apprentissage nocturne. Ce n'est pas un rejet d'un relecteur.",
+    "expiredTip": "Fermée après être restée non examinée au-delà du délai de l'organisation. Compte toujours comme preuve si le schéma revient."
   }
 }
