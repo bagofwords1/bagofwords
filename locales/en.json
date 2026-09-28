@@ -478,6 +478,11 @@
         "title": "⚡ \"{name}\" fired — {summary}",
         "body": "The investigation completed — open the session for the findings."
       }
+    },
+    "checkin": {
+      "badge": "Follow-up",
+      "openReport": "Open report",
+      "assistantFallback": "AI Analyst"
     }
   },
   "auth": {
@@ -974,7 +979,73 @@
     "stepTotal": "Step total",
     "firstToken": "Time to first token",
     "thinking": "Thinking",
-    "tool": "Tool"
+    "tool": "Tool",
+    "machineTurn": "Machine turn ({source})",
+    "checkin": {
+      "title": "Agent check-in",
+      "runTurn": "Follow-up run (agent check-in)",
+      "noFollowUp": "No follow-up planned",
+      "noReason": "The planner gave no reason.",
+      "due": "due {when}",
+      "note": "Note to future self",
+      "planReason": "Why follow up",
+      "judge": "Judge",
+      "focus": "Focus",
+      "whyRun": "Why the judge ran this follow-up",
+      "plannerUsage": "Planner",
+      "judgeUsage": "Judge",
+      "status": {
+        "not_proposed": "not proposed",
+        "rejected": "rejected",
+        "planned": "planned",
+        "cancelled": "cancelled",
+        "skipped": "skipped",
+        "running": "running",
+        "ran_quiet": "ran quietly",
+        "sent": "notified",
+        "failed": "failed"
+      },
+      "decision": {
+        "run": "run",
+        "skip": "skip"
+      },
+      "reason": {
+        "disabled": "setting off",
+        "pending_exists_user": "user already has one pending",
+        "pending_exists_report": "report already has one pending",
+        "weekly_cap": "weekly limit reached",
+        "org_daily_cap": "org daily limit reached",
+        "report_deleted": "report deleted",
+        "access_lost": "access lost",
+        "judge_skip": "judge skipped",
+        "run_failed": "run failed",
+        "invalid_judge_output": "invalid judge output",
+        "opted_out": "opted out",
+        "fire_error": "error during the check",
+        "stale_running": "left running (restart)"
+      },
+      "outcome": {
+        "sent": "Notified the user",
+        "sentWithSubject": "Notified the user: {subject}",
+        "ran_quiet": "Ran quietly — nothing worth notifying",
+        "planned": "Waiting for its due time",
+        "running": "Running now",
+        "skipped": "Skipped by the judge — nothing ran",
+        "failed": "The follow-up run failed — nothing was sent",
+        "rejected": "Not armed: {reason}",
+        "cancelled": "Cancelled: {reason}"
+      }
+    },
+    "memory": {
+      "title": "Memory",
+      "summary": "{injected} of {total} entries injected · {chars} chars",
+      "privateNote": "Memory is private to its owner — only handles and sections are shown.",
+      "refused": "Refused",
+      "tier": {
+        "always": "always",
+        "matched": "matched"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1601,10 +1672,11 @@
       "rewrite": "rewrite",
       "failed": "Edit failed"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Updating memory…",
-      "updated": "Updated memory",
-      "failed": "Memory update failed"
+      "checking": "Checking memory…",
+      "updated": "Memory updated",
+      "checked": "Checked memory"
     },
     "routeModel": {
       "routedTo": "Routed to",
@@ -2709,6 +2781,22 @@
           "name": "Agent Notes",
           "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."
         },
+        "enable_user_memory": {
+          "name": "User memory",
+          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory."
+        },
+        "enable_agent_dreaming": {
+          "name": "Agent overnight learning",
+          "description": "Each night, agents review their pending suggestions, feedback and usage and propose one consolidated improvement per agent. What happens to it follows each agent's Self-Learning setting."
+        },
+        "enable_user_dreaming": {
+          "name": "Overnight preparation for users",
+          "description": "Each night, the agent reflects on each active user's work to keep their memory tidy, note open threads, and prepare follow-ups (e.g. before a meeting). Users can turn it off for themselves."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Expire unreviewed AI suggestions after (days)",
+          "description": "AI-suggested instructions still pending after this many days are closed as expired (not rejected) by the nightly agent learning. Expired suggestions still count as evidence if the same pattern comes back. 0 keeps them open forever."
+        },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
           "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots."
@@ -2740,6 +2828,18 @@
         "llm_fallback": {
           "name": "LLM fallback",
           "description": "Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable."
+        },
+        "enable_agent_checkins": {
+          "name": "Agent check-ins",
+          "description": "Let the agent follow up on its own after a conversation when something is worth revisiting (e.g. after a data refresh). Follow-ups run as the user in the same report and notify them only when something meaningful changed."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Check-ins per user per week",
+          "description": "Maximum follow-up runs a single user can receive in 7 days."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Check-in runs per day",
+          "description": "Upper bound on follow-up runs across the organization per day (cost cap)."
         }
       }
     },
@@ -3510,7 +3610,21 @@
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
     },
-    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted."
+    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
+    "memory.disabled": "User memory is turned off for this organization.",
+    "memory.not_found": "That memory entry doesn't exist.",
+    "memory.text_required": "Write the thing to remember.",
+    "memory.text_too_long": "Keep it to 280 characters.",
+    "memory.too_many_tags": "Use at most 4 tags.",
+    "memory.tags_required": "Add at least one tag.",
+    "memory.invalid_date": "That date isn't valid.",
+    "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
+    "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
+    "memory.full": "Memory is full. Delete some entries first.",
+    "memory.not_active": "That entry was already changed or forgotten.",
+    "briefing.item_not_found": "That item is no longer in your briefing.",
+    "habit_offer.not_found": "That offer no longer exists.",
+    "habit_offer.not_pending": "This offer was already answered."
   },
   "email": {
     "dashboardShare": {
@@ -4703,7 +4817,8 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Instructions & Memory",
+      "instructions": "Custom instructions",
+      "memory": "Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -4731,7 +4846,21 @@
       "defaultModelSubtitle": "The model used by default when you start a new chat. Only models you have access to are listed.",
       "orgDefault": "Organization default",
       "defaultModelSaved": "Default model updated",
-      "defaultModelFailed": "Failed to update default model"
+      "defaultModelFailed": "Failed to update default model",
+      "checkinsTitle": "Agent follow-ups",
+      "checkinsSubtitle": "Let the agent check back on its own after a conversation when something is worth revisiting (for example after a data refresh). It notifies you only when something meaningful changed.",
+      "checkinsSaved": "Follow-up preference saved",
+      "checkinsFailed": "Could not save your follow-up preference",
+      "overnightTitle": "Prepare things for me overnight",
+      "overnightSubtitle": "At night the assistant tidies what it remembers about you, notes what you left open, and prepares follow-ups before your events. Only you see the results.",
+      "overnightSaved": "Overnight preparation updated",
+      "overnightFailed": "Could not update overnight preparation",
+      "overnightLogTitle": "What I did overnight",
+      "overnightLogMemory": "{n} memory note | {n} memory notes",
+      "overnightLogThreads": "{n} open thread | {n} open threads",
+      "overnightLogFollowUps": "{n} follow-up planned | {n} follow-ups planned",
+      "overnightLogHabit": "suggested a recurring task",
+      "overnightLogNothing": "Looked things over — nothing to change"
     },
     "instructions": {
       "title": "Custom Instructions",
@@ -4783,8 +4912,36 @@
     },
     "memory": {
       "title": "Memory",
-      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
-      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
+      "subtitle": "Facts the AI remembers about you in this organization — your work, projects, dates, what you follow, your own shorthand. Only you can see them.",
+      "vsInstructions": "How the AI should answer you (format, units, length) isn't memory — that's your custom instructions.",
+      "instructionsLink": "Custom instructions",
+      "count": "{count} of {cap} entries",
+      "forgetAll": "Forget everything",
+      "forgetAllTitle": "Forget everything?",
+      "forgetAllBody": "The AI will forget all {count} entries it remembers about you in this organization. This can't be undone.",
+      "forgetAllConfirm": "Forget everything",
+      "empty": "Nothing remembered yet. As you work, the AI keeps facts here — like your projects, deadlines or upcoming meetings.",
+      "add": "Add",
+      "past": "Past",
+      "fromReport": "from {title}",
+      "untitledReport": "a report",
+      "loadFailed": "Couldn't load your memory",
+      "saveFailed": "Couldn't save the change",
+      "saved": "Memory saved",
+      "forgotten": "Forgotten",
+      "forgotAll": "Everything forgotten",
+      "source": {
+        "user": "Added by you",
+        "agent": "Saved by the AI",
+        "dream": "Noted overnight"
+      },
+      "form": {
+        "placeholder": "A fact about you, e.g. Leading the Q3 churn project",
+        "tags": "Tags, comma-separated",
+        "dateHint": "Add a date if it's tied to one"
+      },
+      "searchPlaceholder": "Search memory…",
+      "noMatches": "No memories match."
     }
   },
   "agentPage": {
@@ -5047,7 +5204,15 @@
   },
   "events": {
     "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
-    "waitResumed": "Wait elapsed — resuming: {reason}"
+    "waitResumed": "Wait elapsed — resuming: {reason}",
+    "checkin": {
+      "label": "Follow-up",
+      "running": "Following up on this conversation…",
+      "sent": "Follow-up — notified you",
+      "sentWithSubject": "Follow-up — notified you: {subject}",
+      "quiet": "Checked back: nothing new",
+      "failed": "Follow-up failed"
+    }
   },
   "sessionEvents": {
     "run_stopped": "Run was stopped",
@@ -5256,5 +5421,32 @@
   },
   "quota": {
     "resetsOn": "resets {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Learn overnight",
+    "nightlyDescription": "Each night, turn repeated corrections, feedback and usage into one consolidated suggestion for this agent. It follows the setting above like any other suggestion.",
+    "nightlyOrgOff": "Overnight learning is off for this organization (AI settings)."
+  },
+  "briefing": {
+    "title": "Since you were here",
+    "gotIt": "Got it",
+    "why": "why: {why}",
+    "waitingOn": "waiting on {what}",
+    "notUseful": "Not useful",
+    "checkinQuiet": "Checked again — nothing worth flagging",
+    "eventPrepared": "prepared in {report}",
+    "habit": "You ask for “{intent}” often. Have it ready {when}?",
+    "everyDay": "every day at {time}",
+    "everyWeekday": "every {day} at {time}",
+    "habitYes": "Yes, schedule it",
+    "habitNo": "No thanks",
+    "habitScheduled": "Scheduled — it will be ready for you",
+    "habitFailed": "Could not schedule it"
+  },
+  "nightlyBuild": {
+    "merged": "Merged",
+    "expired": "Expired",
+    "mergedTip": "Folded into a nightly learning suggestion. Not a reviewer's rejection.",
+    "expiredTip": "Closed after staying unreviewed past the org's expiry. Still counts as evidence if the pattern returns."
   }
 }

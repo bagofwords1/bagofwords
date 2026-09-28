@@ -23,7 +23,12 @@
 
                 <div class="space-y-5">
                     <!-- Regular config features (excluding allow_llm_see_data) -->
-                    <div v-for="(feature, key) in regularConfigFeatures" :key="`config_${key}`" class="flex flex-col md:w-2/3">
+                    <div
+                        v-for="(feature, key) in regularConfigFeatures"
+                        :key="`config_${key}`"
+                        :data-testid="`ai-setting-${key}`"
+                        :class="['flex flex-col md:w-2/3', FEATURE_PARENT[String(key)] ? 'ps-5 border-s-2 border-gray-100 dark:border-gray-800' : '']"
+                    >
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
                                 {{ featureLabel(String(key), feature.name) }}
@@ -265,12 +270,25 @@ const showLlmConfirmModal = ref(false)
 const llmConfirmText = ref('')
 const pendingLlmValue = ref(false)
 
+// Settings that only apply while a parent toggle is on. They are hidden while
+// the parent is off and rendered right after it, indented, when it is on.
+const FEATURE_PARENT: Record<string, string> = {
+    checkins_max_per_user_per_week: 'enable_agent_checkins',
+    checkins_max_runs_per_org_per_day: 'enable_agent_checkins',
+    ai_suggestion_expiry_days: 'enable_agent_dreaming',
+}
+
 // Computed property to exclude allow_llm_see_data from regular features
 const regularConfigFeatures = computed(() => {
     const features: Record<string, Feature> = {}
     for (const key in configFeatures.value) {
-        if (key !== 'allow_llm_see_data') {
-            features[key] = configFeatures.value[key]
+        if (key === 'allow_llm_see_data' || FEATURE_PARENT[key]) continue
+        features[key] = configFeatures.value[key]
+        // Dependents follow their parent, only while the parent is on.
+        for (const child in FEATURE_PARENT) {
+            if (FEATURE_PARENT[child] === key && configFeatures.value[child] && configFeatures.value[key]?.value === true) {
+                features[child] = configFeatures.value[child]
+            }
         }
     }
     return features

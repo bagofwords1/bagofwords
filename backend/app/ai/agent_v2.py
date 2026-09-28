@@ -84,7 +84,8 @@ def capabilities_for_report_files(has_files: bool) -> set:
 # nothing the planner needs next turn (an ack + an id). They render as one-line
 # acks inside a batch aggregate, and a bookkeeping-only step must never evict
 # the previous substantive observation (see _carry_substantive_observation).
-_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "update_user_memory"})
+_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "create_memory", "edit_memory"})
+MEMORY_TOOL_NAMES = frozenset({"create_memory", "edit_memory", "search_memory"})
 
 
 def _observation_failed(observation) -> bool:
@@ -471,6 +472,9 @@ class AgentV2:
         self._fallback_controller = None
         self._fallback_engaged = False
         self.head_completion = head_completion
+        # Scalar copy (see report_id note below): machine-turn source of the
+        # head completion, e.g. 'checkin' for an agent check-in run.
+        self._head_trigger_source = getattr(head_completion, "trigger_source", None) if head_completion is not None else None
         # Stamp the asker's identity for LLM header injection BEFORE the
         # planner below constructs its LLM client — provider header_injection
         # rules resolve at client construction. Membership role/attributes need
@@ -797,6 +801,30 @@ class AgentV2:
         if not self._notes_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('create_note', 'edit_note')]
 
+        # Check-in runs (the agent following up on its own) never create
+        # recurring work or re-arm themselves, and reach the user only through
+        # `notify` (whose check-in guardrails send_email would bypass).
+        if getattr(self, "_head_trigger_source", None) == "checkin":
+            _checkin_hidden = ('create_scheduled_task', 'edit_scheduled_task', 'wait', 'send_email')
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in _checkin_hidden]
+        # User memory (create/edit/search_memory) is gated by the org setting and
+        # only offered on human-initiated turns with a user — never on machine
+        # turns (scheduled runs, webhooks, wait wakes, check-ins, evals), which
+        # still RECEIVE the <memory> block since they run as the user.
+        from app.services.memory_service import is_memory_enabled as _mem_enabled
+        from app.ai.tools.implementations._memory_common import is_machine_turn as _is_machine_turn
+        self._memory_enabled = _mem_enabled(self.organization_settings)
+        self._memory_injected_ids: list[str] = []
+        self._memory_trace: dict = {}
+        _mem_user = getattr(self.head_completion, 'user', None) if self.head_completion else None
+        if (
+            not self._memory_enabled
+            or _mem_user is None
+            or _is_machine_turn(self.head_completion)
+            or getattr(self, "is_eval_run", False)
+        ):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in MEMORY_TOOL_NAMES]
+
         # Shared-artifact viewer chat runs read/query-only: no artifact or
         # dashboard mutations, no comms, no automation, no agent-scope tools
         # (the roster is a server-synced hard scope — see ArtifactChatService).
@@ -980,34 +1008,151 @@ class AgentV2:
 
         ``user_note`` is the per-org admin-managed note on the asker's
         Membership row (same source as the members table UI). ``user_memory``
-        is the agent-curated durable memory on the same row, written by the
-        update_user_memory tool. ``profile_attributes`` is the job info synced
-        from the org's identity provider (Entra ID Graph /me). Returns
-        ``(None, None, None, None)`` for system/non-user runs.
+        is the rendered tiered <memory> body built from the user's memory
+        entries (see MemoryContextBuilder) — None when the org turned user
+        memory off or the user has none. ``profile_attributes`` is the job
+        info synced from the org's identity provider (Entra ID Graph /me).
+        Returns ``(None, None, None, None)`` for system/non-user runs.
         """
         user = getattr(self.head_completion, 'user', None) if self.head_completion else None
         if not user or not self.organization:
             return None, None, None, None
         user_name = getattr(user, 'name', None)
         user_note = None
-        user_memory = None
         profile_attributes = None
         try:
             from app.models.membership import Membership
             result = await self.db.execute(
-                select(Membership.note, Membership.memory, Membership.profile_attributes).where(
+                select(Membership.note, Membership.profile_attributes).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
                 )
             )
             row = result.first()
             if row is not None:
-                user_note, user_memory, profile_attributes = row[0], row[1], row[2]
+                user_note, profile_attributes = row[0], row[1]
         except Exception:
             user_note = None
-            user_memory = None
             profile_attributes = None
+        user_memory = await self._build_memory_block(user)
         return user_name, user_note, user_memory, profile_attributes
+
+    async def _memory_prompt_texts(self) -> list[str]:
+        """Keyword sources for memory matching: this turn's prompt plus the
+        previous few user prompts in the report. Cached per run."""
+        cached = getattr(self, "_memory_prompt_texts_cache", None)
+        if cached is not None:
+            return cached
+        texts: list[str] = []
+        try:
+            head_prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
+            if isinstance(head_prompt, dict) and head_prompt.get("content"):
+                texts.append(str(head_prompt.get("content")))
+            if self.report is not None:
+                from app.models.completion import Completion as _C
+                rows = (await self.db.execute(
+                    select(_C.prompt)
+                    .where(
+                        _C.report_id == str(self.report_id),
+                        _C.role == "user",
+                        _C.id != (str(self.head_completion.id) if self.head_completion else ""),
+                    )
+                    .order_by(_C.turn_index.desc())
+                    .limit(3)
+                )).scalars().all()
+                for p in rows:
+                    if isinstance(p, dict) and p.get("content"):
+                        texts.append(str(p.get("content"))[:2000])
+        except Exception:
+            logger.debug("memory prompt texts failed", exc_info=True)
+        self._memory_prompt_texts_cache = texts
+        return texts
+
+    def _memory_object_tags(self) -> list[str]:
+        """Object tags present in this turn: the report and its agents."""
+        tags: list[str] = []
+        try:
+            if self.report is not None:
+                tags.append(f"report:{self.report_id}")
+            ids = set(str(x) for x in (getattr(self, "loaded_agent_ids", None) or []))
+            for ds in (getattr(self.report, "data_sources", None) or []) if self.report is not None else []:
+                if getattr(ds, "id", None):
+                    ids.add(str(ds.id))
+            for ds_id in sorted(ids):
+                tags.append(f"agent:{ds_id}")
+                tags.append(f"data_source:{ds_id}")
+        except Exception:
+            pass
+        return tags
+
+    async def _build_memory_block(self, user) -> Optional[str]:
+        """Rendered <memory> body for this turn, or None. Gated by the
+        enable_user_memory org setting. Records which entries were injected
+        (search_memory excludes them) and the trace metadata (handles, tiers,
+        size — never text)."""
+        if not getattr(self, "_memory_enabled", True) or user is None or self.organization is None:
+            return None
+        try:
+            from app.ai.context.builders.memory_context_builder import MemoryContextBuilder
+            ctx = await MemoryContextBuilder(self.db, str(self.organization.id), str(user.id)).build(
+                prompt_texts=await self._memory_prompt_texts(),
+                report_title=getattr(self.report, "title", None) if self.report is not None else None,
+                object_tags=self._memory_object_tags(),
+                user_name=getattr(user, "name", None),
+            )
+        except Exception:
+            logger.warning("Failed to build memory context", exc_info=True)
+            return None
+        self._memory_injected_ids[:] = ctx.injected_ids
+        self._memory_trace["injection"] = ctx.trace()
+        return ctx.body or None
+
+    def _memory_hint(self) -> Optional[str]:
+        """One line next to the ask when the user's own message carries a fact
+        about them (→ memory) or a rule for how to answer them (→ apply it in
+        this conversation; rules are never memory). Pure code: the model still
+        decides whether anything is worth keeping."""
+        try:
+            names = {getattr(t, "name", None) for t in (self.planner.tool_catalog or [])}
+            prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
+            message = prompt.get("content", "") if isinstance(prompt, dict) else ""
+            from app.services.memory_rules import fact_signals, rule_signals
+            facts = fact_signals(message) if "create_memory" in names else []
+            rules = rule_signals(message) if "create_memory" in names else []
+        except Exception:
+            return None
+        parts: list[str] = []
+        if facts:
+            parts.append(
+                f"This message may state a fact about the user ({', '.join(facts)}). If it's lasting and "
+                "<memory> doesn't hold it yet, save it with create_memory (one fact per entry; resolve "
+                "relative dates to absolute ISO dates) alongside your other tool calls, without announcing it."
+            )
+        if rules:
+            parts.append(
+                "This message tells you how the user wants answers. Apply it now and for the rest of this "
+                "conversation — if it corrects your last answer, rewrite that answer in the new way from "
+                "data you already have, never just acknowledge. It is a rule, not a fact about the user, "
+                "so never save it to memory."
+            )
+        if not parts:
+            return None
+        return "<memory_hint>" + " ".join(parts) + "</memory_hint>"
+
+    async def _stamp_memory_trace(self) -> None:
+        """Put this run's memory metadata on the agent execution. Set on the
+        run's own execution object so finish_agent_execution commits it in
+        the same transaction — a second session writing that row here would
+        wait on the run's own open transaction (SQLite write lock / Postgres
+        row lock) and stall the turn."""
+        trace = getattr(self, "_memory_trace", None)
+        execution = getattr(self, "current_execution", None)
+        if not trace or execution is None:
+            return
+        try:
+            execution.memory_context_json = dict(trace)
+        except Exception:
+            logger.debug("memory trace stamp failed", exc_info=True)
 
     def _current_focus_key(self) -> tuple:
         """Stable key of (persisted focus, run working set) for change
@@ -1886,7 +2031,7 @@ class AgentV2:
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
-                    user_memory=user_memory,
+                    user_memory=None,  # personal memory never feeds the org-instruction harness
                     user_profile_attributes=user_profile_attributes,
                     notes_enabled=harness_notes_enabled,
                     notes_context=(await build_notes_context(self.db, str(self.report_id)) if harness_notes_enabled and self.report else None),
@@ -2063,6 +2208,8 @@ class AgentV2:
                         "report": self.report,
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
+                        "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
+                        "memory_trace": getattr(self, "_memory_trace", {}),
                         "project_files": await self._get_project_files(),
                         "project_manager": self.project_manager,
                         "model": self.model,
@@ -2646,6 +2793,17 @@ class AgentV2:
         except Exception as e:
             logger.warning(f"Auto compaction skipped: {e}")
 
+    def _checkins_enabled(self) -> bool:
+        """Agent check-ins org setting (lab, off by default). Checked first so a
+        disabled org never spawns the planning task or pays for an LLM call."""
+        if self.mode == "training" or self.is_eval_run:
+            return False
+        try:
+            from app.services.checkin_policy import feature_enabled
+            return feature_enabled(self.organization_settings)
+        except Exception:
+            return False
+
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
@@ -2777,7 +2935,9 @@ class AgentV2:
         if instructions_usage is not None:
             data["instructions_usage"] = instructions_usage
             data.setdefault("static", {})["instructions"] = None
-        return data
+        # Snapshots are readable in the trace by admins; user memory is private.
+        from app.services.memory_privacy import scrub_context_snapshot
+        return scrub_context_snapshot(data)
 
     async def _save_post_tool_snapshots(self, view, tool_execution_ids: list):
         """One post_tool context snapshot for a finished tool batch, back-filled
@@ -4783,6 +4943,7 @@ class AgentV2:
                             user_name=user_name,
                             user_note=user_note,
                             user_memory=user_memory,
+                            memory_hint=self._memory_hint(),
                             user_profile_attributes=user_profile_attributes,
                             # Org setting drives parallel emission end-to-end: cap > 1
                             # relaxes the one-tool-per-turn prompt rule and lifts the
@@ -5991,6 +6152,8 @@ class AgentV2:
                                         "report": self.report,
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
+                                        "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
+                                        "memory_trace": getattr(self, "_memory_trace", {}),
                                         "widget": self.widget,
                                         "step": self.step,
                                         "current_widget": _inv.current_widget,
@@ -6818,6 +6981,26 @@ class AgentV2:
                 except Exception as _harness_exc:
                     logger.warning(f"[agent] knowledge harness dispatch failed: {_harness_exc!r}")
 
+                # Agent check-ins: a separate, silent planning step (not a
+                # harness tool — the harness only runs on its own triggers and
+                # emits visible blocks). Setting off → no task, no LLM call.
+                # Eligibility (human-initiated turn only) and the planner run in
+                # a background task with its own session: no SSE, no blocks.
+                try:
+                    if not completion_errored and self._checkins_enabled():
+                        from app.services.checkin_service import checkin_service as _checkins
+                        from app.core.fire_and_forget import spawn as _spawn
+                        _spawn(_checkins.dispatch_after_turn(
+                            organization_id=str(self.organization.id) if self.organization else None,
+                            user_id=self._asker_user_id,
+                            report_id=self.report_id,
+                            head_completion_id=str(self.head_completion.id) if self.head_completion else None,
+                            system_completion_id=str(self.system_completion_id) if self.system_completion else None,
+                            small_model_id=str(getattr(self.small_model or self.model, "id", "") or "") or None,
+                        ))
+                except Exception as _checkin_exc:
+                    logger.warning(f"[agent] checkin dispatch failed: {_checkin_exc!r}")
+
             # Save final context snapshot (recompute metadata so counts/tokens are up to date)
             view = await self._refresh_warm_traced("final_snapshot")
             await self._update_context_token_metadata(view)
@@ -6883,6 +7066,7 @@ class AgentV2:
                 status = 'error'
             else:
                 status = 'success'
+            await self._stamp_memory_trace()
             await self.project_manager.finish_agent_execution(
                 self.db,
                 agent_execution=self.current_execution,
@@ -6999,6 +7183,7 @@ class AgentV2:
             # Handle errors and finish execution with error status
             if self.current_execution:
                 error_payload = {"message": str(e), "type": type(e).__name__}
+                await self._stamp_memory_trace()
                 await self.project_manager.finish_agent_execution(
                     self.db,
                     agent_execution=self.current_execution,
@@ -7180,6 +7365,7 @@ class AgentV2:
             user_name=user_name,
             user_note=user_note,
             user_memory=user_memory,
+            memory_hint=self._memory_hint(),
             user_profile_attributes=user_profile_attributes,
         )
 

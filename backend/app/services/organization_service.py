@@ -526,6 +526,9 @@ class OrganizationService:
             await self._revoke_departed_member_access(
                 db, organization_id, str(membership.user_id)
             )
+            # Memory is per user per org: removing the membership deletes it.
+            from app.services.memory_service import memory_service
+            await memory_service.delete_for_membership(db, str(organization_id), str(membership.user_id))
         else:
             # Pending invite: clean up any pre-assigned RBAC keyed by this
             # membership. Done explicitly (not via FK cascade) so it holds on

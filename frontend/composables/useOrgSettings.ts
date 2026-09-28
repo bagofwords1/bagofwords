@@ -93,6 +93,13 @@ export const useOrgSettings = () => {
   const isTrainingModeEnabled = computed(() => featureEnabled(getFeature('enable_training_mode')))
   const isFollowUpsEnabled = computed(() => featureEnabled(getFeature('enable_follow_ups')))
   const isCustomQueriesEnabled = computed(() => featureEnabled(getFeature('enable_custom_queries')))
+  const isAgentDreamingEnabled = computed(() => featureEnabled(getFeature('enable_agent_dreaming')))
+  const isUserDreamingEnabled = computed(() => featureEnabled(getFeature('enable_user_dreaming')))
+  // Defaults on: an org whose stored settings predate the flag still has memory.
+  const isUserMemoryEnabled = computed(() => {
+    const f = getFeature('enable_user_memory')
+    return f ? featureEnabled(f) : true
+  })
 
   return {
     settings,
@@ -108,6 +115,9 @@ export const useOrgSettings = () => {
     isTrainingModeEnabled,
     isFollowUpsEnabled,
     isCustomQueriesEnabled,
+    isUserMemoryEnabled,
+    isAgentDreamingEnabled,
+    isUserDreamingEnabled,
     // raw accessor
     getFeature,
   }
