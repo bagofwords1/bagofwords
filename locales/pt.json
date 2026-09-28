@@ -994,6 +994,16 @@
         "failed": "A execução do acompanhamento falhou — nada foi enviado",
         "rejected": "Não agendado: {reason}",
         "cancelled": "Cancelado: {reason}"
+}
+},
+    "memory": {
+      "title": "Memória",
+      "summary": "{injected} de {total} entradas incluídas · {chars} caracteres",
+      "privateNote": "A memória é privada do dono — só identificadores e seções são mostrados.",
+      "refused": "Recusado",
+      "tier": {
+        "always": "sempre",
+        "matched": "correspondência"
       }
     }
   },
@@ -1557,10 +1567,11 @@
       "cancelledPlural": "{count} esperas pendentes canceladas",
       "nothingPending": "Nenhuma espera pendente"
     },
-    "updateUserMemory": {
-      "updating": "Atualizando memória…",
+    "memory": {
+      "updating": "Atualizando a memória…",
+      "checking": "Consultando a memória…",
       "updated": "Memória atualizada",
-      "failed": "Falha ao atualizar a memória"
+      "checked": "Memória consultada"
     },
     "routeModel": {
       "routedTo": "Roteado para",
@@ -2598,6 +2609,10 @@
           "name": "Notas do agente",
           "description": "Permite que o agente mantenha notas de trabalho por relatório (um rascunho) que ele escreve e lê enquanto responde: planos, achados e tarefas. As notas aparecem no relatório, mas não são conhecimento compartilhado. Quando desativado, as ferramentas de notas ficam ocultas e as notas não são inseridas no contexto."
         },
+        "enable_user_memory": {
+          "name": "Memória do usuário",
+          "description": "Permite que o agente lembre fatos sobre cada usuário entre sessões — seu trabalho, projetos, prazos e eventos, o que acompanha e suas próprias abreviações. Regras sobre como responder continuam nas instruções. Cada usuário pode ver, editar e excluir sua memória."
+        },
         "max_instructions_in_context": {
           "name": "Máximo de instruções no contexto",
           "description": "Número máximo de instruções a incluir no contexto da IA. As instruções do tipo 'sempre' são carregadas primeiro e depois as 'inteligentes' preenchem as vagas restantes."
@@ -3433,7 +3448,18 @@
       "model_id_not_editable": "Somente modelos personalizados em provedores Azure, AWS Bedrock ou personalizados (compatíveis com OpenAI) podem ter o ID do modelo editado",
       "model_id_duplicate": "O modelo \"{model_id}\" já existe neste provedor"
     },
-    "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído."
+    "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído.",
+    "memory.disabled": "A memória do usuário está desativada nesta organização.",
+    "memory.not_found": "Essa entrada de memória não existe.",
+    "memory.text_required": "Escreva o que deve ser lembrado.",
+    "memory.text_too_long": "No máximo 280 caracteres.",
+    "memory.too_many_tags": "Use no máximo 4 tags.",
+    "memory.tags_required": "Adicione pelo menos uma tag.",
+    "memory.invalid_date": "Essa data não é válida.",
+    "memory.sensitive": "A memória não pode guardar segredos, senhas ou dados pessoais sensíveis.",
+    "memory.looks_like_rule": "Isso é uma regra de como responder — adicione às suas instruções personalizadas. A memória guarda fatos sobre você.",
+    "memory.full": "A memória está cheia. Exclua algumas entradas primeiro.",
+    "memory.not_active": "Essa entrada já foi alterada ou esquecida."
   },
   "email": {
     "dashboardShare": {
@@ -4587,6 +4613,7 @@
     "nav": {
       "general": "Geral",
       "instructions": "Instruções personalizadas",
+      "memory": "Memória",
       "usage": "Uso",
       "apiKeys": "Chaves de API",
       "appearance": "Aparência"
@@ -4670,8 +4697,35 @@
     },
     "memory": {
       "title": "Memória",
-      "subtitle": "O que a IA aprendeu e memorizou sobre você nesta organização — suas preferências, estilo e análises que você gostou. Ela atualiza isso conforme você trabalha; você pode editar ou limpar aqui.",
-      "placeholder": "A IA ainda não salvou nada na memória. Conforme você informa suas preferências, ela vai lembrá-las aqui."
+      "subtitle": "Fatos que a IA lembra sobre você nesta organização — seu trabalho, projetos, datas, o que você acompanha e suas abreviações. Só você pode ver.",
+      "vsInstructions": "Como a IA deve responder a você (formato, unidades, tamanho) não é memória — são suas instruções personalizadas.",
+      "instructionsLink": "Instruções personalizadas",
+      "count": "{count} de {cap} entradas",
+      "forgetAll": "Esquecer tudo",
+      "forgetAllTitle": "Esquecer tudo?",
+      "forgetAllBody": "A IA vai esquecer todas as {count} entradas que lembra sobre você nesta organização. Não é possível desfazer.",
+      "forgetAllConfirm": "Esquecer tudo",
+      "empty": "Nada guardado ainda. Enquanto você trabalha, a IA guarda aqui fatos como seus projetos, prazos ou reuniões próximas.",
+      "add": "Adicionar",
+      "past": "Passado",
+      "fromReport": "de {title}",
+      "untitledReport": "um relatório",
+      "loadFailed": "Não foi possível carregar sua memória",
+      "saveFailed": "Não foi possível salvar a alteração",
+      "saved": "Memória salva",
+      "forgotten": "Esquecido",
+      "forgotAll": "Tudo esquecido",
+      "source": {
+        "user": "Adicionado por você",
+        "agent": "Salvo pela IA"
+      },
+      "form": {
+        "placeholder": "Um fato sobre você, ex.: Lidero o projeto de churn do 3º trimestre",
+        "tags": "Tags, separadas por vírgula",
+        "dateHint": "Adicione uma data se estiver ligado a uma"
+      },
+      "searchPlaceholder": "Buscar na memória…",
+      "noMatches": "Nenhuma memória corresponde."
     }
   },
   "commandPalette": {

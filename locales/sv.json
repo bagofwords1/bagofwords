@@ -994,6 +994,16 @@
         "failed": "Uppföljningskörningen misslyckades — inget skickades",
         "rejected": "Inte schemalagd: {reason}",
         "cancelled": "Avbruten: {reason}"
+}
+},
+    "memory": {
+      "title": "Minne",
+      "summary": "{injected} av {total} poster inkluderade · {chars} tecken",
+      "privateNote": "Minnet är privat för ägaren – bara id:n och sektioner visas.",
+      "refused": "Nekat",
+      "tier": {
+        "always": "alltid",
+        "matched": "matchad"
       }
     }
   },
@@ -1557,10 +1567,11 @@
       "cancelledPlural": "Avbröt {count} väntande väntningar",
       "nothingPending": "Inga väntande väntningar"
     },
-    "updateUserMemory": {
-      "updating": "Uppdaterar minne…",
-      "updated": "Minne uppdaterat",
-      "failed": "Uppdatering av minne misslyckades"
+    "memory": {
+      "updating": "Uppdaterar minnet…",
+      "checking": "Kollar minnet…",
+      "updated": "Minnet uppdaterat",
+      "checked": "Kollade minnet"
     },
     "routeModel": {
       "routedTo": "Routad till",
@@ -2598,6 +2609,10 @@
           "name": "Agentanteckningar",
           "description": "Låter agenten föra arbetsanteckningar per rapport (ett kladdblock) som den skriver och läser medan den svarar — planer, iakttagelser och att göra-punkter. Anteckningarna visas i rapporten men är inte delad kunskap. När det är avstängt döljs anteckningsverktygen och anteckningarna läggs inte in i kontexten."
         },
+        "enable_user_memory": {
+          "name": "Användarminne",
+          "description": "Låt agenten minnas fakta om varje användare mellan sessioner – deras arbete, projekt, deadlines och händelser, vad de följer och deras egna förkortningar. Regler för hur agenten ska svara ligger kvar i instruktionerna. Varje användare kan se, redigera och radera sitt minne."
+        },
         "max_instructions_in_context": {
           "name": "Maximalt antal instruktioner i kontexten",
           "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”smarta” instruktioner de återstående platserna."
@@ -3433,7 +3448,18 @@
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören"
     },
-    "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort."
+    "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort.",
+    "memory.disabled": "Användarminnet är avstängt i den här organisationen.",
+    "memory.not_found": "Den minnesposten finns inte.",
+    "memory.text_required": "Skriv vad som ska kommas ihåg.",
+    "memory.text_too_long": "Högst 280 tecken.",
+    "memory.too_many_tags": "Högst 4 taggar.",
+    "memory.tags_required": "Lägg till minst en tagg.",
+    "memory.invalid_date": "Datumet är ogiltigt.",
+    "memory.sensitive": "Minnet kan inte innehålla hemligheter, lösenord eller känsliga personuppgifter.",
+    "memory.looks_like_rule": "Det är en regel för hur AI:n ska svara – lägg till den i dina anpassade instruktioner. Minnet sparar fakta om dig.",
+    "memory.full": "Minnet är fullt. Radera några poster först.",
+    "memory.not_active": "Den posten har redan ändrats eller glömts."
   },
   "email": {
     "dashboardShare": {
@@ -4587,6 +4613,7 @@
     "nav": {
       "general": "Allmänt",
       "instructions": "Anpassade instruktioner",
+      "memory": "Minne",
       "usage": "Användning",
       "apiKeys": "API-nycklar",
       "appearance": "Utseende"
@@ -4670,8 +4697,35 @@
     },
     "memory": {
       "title": "Minne",
-      "subtitle": "Vad AI:n har lärt sig och kommit ihåg om dig i den här organisationen — dina preferenser, din stil och analyser du gillade. Det uppdateras allt eftersom du arbetar; du kan redigera eller rensa det här.",
-      "placeholder": "AI:n har inte sparat något i minnet ännu. Allt eftersom du berättar dina preferenser kommer den att komma ihåg dem här."
+      "subtitle": "Fakta som AI:n minns om dig i den här organisationen – ditt arbete, dina projekt, datum, vad du följer och dina egna förkortningar. Bara du kan se dem.",
+      "vsInstructions": "Hur AI:n ska svara dig (format, enheter, längd) är inte minne – det är dina anpassade instruktioner.",
+      "instructionsLink": "Anpassade instruktioner",
+      "count": "{count} av {cap} poster",
+      "forgetAll": "Glöm allt",
+      "forgetAllTitle": "Glömma allt?",
+      "forgetAllBody": "AI:n glömmer alla {count} poster den minns om dig i den här organisationen. Det går inte att ångra.",
+      "forgetAllConfirm": "Glöm allt",
+      "empty": "Inget sparat än. Medan du arbetar sparar AI:n fakta här – som dina projekt, deadlines eller kommande möten.",
+      "add": "Lägg till",
+      "past": "Passerat",
+      "fromReport": "från {title}",
+      "untitledReport": "en rapport",
+      "loadFailed": "Kunde inte läsa in ditt minne",
+      "saveFailed": "Kunde inte spara ändringen",
+      "saved": "Minnet sparat",
+      "forgotten": "Glömt",
+      "forgotAll": "Allt glömt",
+      "source": {
+        "user": "Tillagt av dig",
+        "agent": "Sparat av AI:n"
+      },
+      "form": {
+        "placeholder": "Ett faktum om dig, t.ex. Leder Q3-projektet om kundbortfall",
+        "tags": "Taggar, kommaseparerade",
+        "dateHint": "Lägg till ett datum om det hör till ett"
+      },
+      "searchPlaceholder": "Sök i minnet…",
+      "noMatches": "Inga minnen matchar."
     }
   },
   "commandPalette": {

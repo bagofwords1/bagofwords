@@ -1034,6 +1034,16 @@
         "failed": "The follow-up run failed — nothing was sent",
         "rejected": "Not armed: {reason}",
         "cancelled": "Cancelled: {reason}"
+}
+},
+    "memory": {
+      "title": "Memory",
+      "summary": "{injected} of {total} entries injected · {chars} chars",
+      "privateNote": "Memory is private to its owner — only handles and sections are shown.",
+      "refused": "Refused",
+      "tier": {
+        "always": "always",
+        "matched": "matched"
       }
     }
   },
@@ -1662,10 +1672,11 @@
       "rewrite": "rewrite",
       "failed": "Edit failed"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Updating memory…",
-      "updated": "Updated memory",
-      "failed": "Memory update failed"
+      "checking": "Checking memory…",
+      "updated": "Memory updated",
+      "checked": "Checked memory"
     },
     "routeModel": {
       "routedTo": "Routed to",
@@ -2770,6 +2781,10 @@
           "name": "Agent Notes",
           "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."
         },
+        "enable_user_memory": {
+          "name": "User memory",
+          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory."
+        },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
           "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots."
@@ -3583,7 +3598,18 @@
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
     },
-    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted."
+    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
+    "memory.disabled": "User memory is turned off for this organization.",
+    "memory.not_found": "That memory entry doesn't exist.",
+    "memory.text_required": "Write the thing to remember.",
+    "memory.text_too_long": "Keep it to 280 characters.",
+    "memory.too_many_tags": "Use at most 4 tags.",
+    "memory.tags_required": "Add at least one tag.",
+    "memory.invalid_date": "That date isn't valid.",
+    "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
+    "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
+    "memory.full": "Memory is full. Delete some entries first.",
+    "memory.not_active": "That entry was already changed or forgotten."
   },
   "email": {
     "dashboardShare": {
@@ -4776,7 +4802,8 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Instructions & Memory",
+      "instructions": "Custom instructions",
+      "memory": "Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -4860,8 +4887,35 @@
     },
     "memory": {
       "title": "Memory",
-      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
-      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
+      "subtitle": "Facts the AI remembers about you in this organization — your work, projects, dates, what you follow, your own shorthand. Only you can see them.",
+      "vsInstructions": "How the AI should answer you (format, units, length) isn't memory — that's your custom instructions.",
+      "instructionsLink": "Custom instructions",
+      "count": "{count} of {cap} entries",
+      "forgetAll": "Forget everything",
+      "forgetAllTitle": "Forget everything?",
+      "forgetAllBody": "The AI will forget all {count} entries it remembers about you in this organization. This can't be undone.",
+      "forgetAllConfirm": "Forget everything",
+      "empty": "Nothing remembered yet. As you work, the AI keeps facts here — like your projects, deadlines or upcoming meetings.",
+      "add": "Add",
+      "past": "Past",
+      "fromReport": "from {title}",
+      "untitledReport": "a report",
+      "loadFailed": "Couldn't load your memory",
+      "saveFailed": "Couldn't save the change",
+      "saved": "Memory saved",
+      "forgotten": "Forgotten",
+      "forgotAll": "Everything forgotten",
+      "source": {
+        "user": "Added by you",
+        "agent": "Saved by the AI"
+      },
+      "form": {
+        "placeholder": "A fact about you, e.g. Leading the Q3 churn project",
+        "tags": "Tags, comma-separated",
+        "dateHint": "Add a date if it's tied to one"
+      },
+      "searchPlaceholder": "Search memory…",
+      "noMatches": "No memories match."
     }
   },
   "agentPage": {

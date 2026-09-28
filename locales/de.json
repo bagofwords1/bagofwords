@@ -994,6 +994,16 @@
         "failed": "Der Nachfass-Lauf ist fehlgeschlagen — nichts gesendet",
         "rejected": "Nicht geplant: {reason}",
         "cancelled": "Abgebrochen: {reason}"
+}
+},
+    "memory": {
+      "title": "Gedächtnis",
+      "summary": "{injected} von {total} Einträgen eingebunden · {chars} Zeichen",
+      "privateNote": "Das Gedächtnis ist privat – angezeigt werden nur Kennungen und Abschnitte.",
+      "refused": "Abgelehnt",
+      "tier": {
+        "always": "immer",
+        "matched": "Treffer"
       }
     }
   },
@@ -1557,10 +1567,11 @@
       "cancelledPlural": "{count} ausstehende Wartevorgänge abgebrochen",
       "nothingPending": "Keine ausstehenden Wartevorgänge"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Gedächtnis wird aktualisiert…",
+      "checking": "Gedächtnis wird durchsucht…",
       "updated": "Gedächtnis aktualisiert",
-      "failed": "Gedächtnis-Aktualisierung fehlgeschlagen"
+      "checked": "Gedächtnis durchsucht"
     },
     "routeModel": {
       "routedTo": "Geroutet an",
@@ -2598,6 +2609,10 @@
           "name": "Agenten-Notizen",
           "description": "Erlaubt dem Agenten, pro Bericht Arbeitsnotizen (einen Notizblock) zu führen, die er beim Antworten schreibt und liest — Pläne, Erkenntnisse und Aufgaben. Notizen werden im Bericht angezeigt, sind aber kein geteiltes Wissen. Ist die Option aus, werden die Notiz-Tools ausgeblendet und Notizen nicht in den Kontext eingefügt."
         },
+        "enable_user_memory": {
+          "name": "Benutzergedächtnis",
+          "description": "Der Agent merkt sich sitzungsübergreifend Fakten zu jedem Benutzer – seine Arbeit, Projekte, Fristen und Termine, was er verfolgt und seine eigenen Kürzel. Regeln dazu, wie geantwortet wird, bleiben in den Anweisungen. Jeder Benutzer kann sein Gedächtnis ansehen, bearbeiten und löschen."
+        },
         "max_instructions_in_context": {
           "name": "Maximale Anweisungen im Kontext",
           "description": "Maximale Anzahl an Anweisungen, die in den KI-Kontext aufgenommen werden. Anweisungen vom Typ 'Immer' werden zuerst geladen, danach füllen 'intelligente' Anweisungen die verbleibenden Plätze."
@@ -3433,7 +3448,18 @@
       "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
       "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter"
     },
-    "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht."
+    "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht.",
+    "memory.disabled": "Das Benutzergedächtnis ist in dieser Organisation deaktiviert.",
+    "memory.not_found": "Diesen Gedächtniseintrag gibt es nicht.",
+    "memory.text_required": "Schreibe auf, was gemerkt werden soll.",
+    "memory.text_too_long": "Höchstens 280 Zeichen.",
+    "memory.too_many_tags": "Höchstens 4 Tags.",
+    "memory.tags_required": "Füge mindestens ein Tag hinzu.",
+    "memory.invalid_date": "Dieses Datum ist ungültig.",
+    "memory.sensitive": "Das Gedächtnis darf keine Geheimnisse, Passwörter oder sensiblen persönlichen Daten enthalten.",
+    "memory.looks_like_rule": "Das ist eine Regel dafür, wie geantwortet wird – füge sie deinen benutzerdefinierten Anweisungen hinzu. Das Gedächtnis speichert Fakten über dich.",
+    "memory.full": "Das Gedächtnis ist voll. Lösche zuerst einige Einträge.",
+    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen."
   },
   "email": {
     "dashboardShare": {
@@ -4587,6 +4613,7 @@
     "nav": {
       "general": "Allgemein",
       "instructions": "Benutzerdefinierte Anweisungen",
+      "memory": "Gedächtnis",
       "usage": "Nutzung",
       "apiKeys": "API-Schlüssel",
       "appearance": "Darstellung"
@@ -4670,8 +4697,35 @@
     },
     "memory": {
       "title": "Gedächtnis",
-      "subtitle": "Was die KI in dieser Organisation über dich gelernt und sich gemerkt hat — deine Vorlieben, deinen Stil und Analysen, die dir gefallen haben. Sie aktualisiert das während deiner Arbeit; du kannst es hier bearbeiten oder löschen.",
-      "placeholder": "Die KI hat noch nichts im Gedächtnis gespeichert. Sobald du ihr deine Vorlieben mitteilst, merkt sie sich diese hier."
+      "subtitle": "Fakten, die sich die KI in dieser Organisation über dich merkt – deine Arbeit, Projekte, Termine, was du verfolgst, deine eigenen Kürzel. Nur du kannst sie sehen.",
+      "vsInstructions": "Wie die KI dir antworten soll (Format, Einheiten, Länge), ist kein Gedächtnis – das sind deine benutzerdefinierten Anweisungen.",
+      "instructionsLink": "Benutzerdefinierte Anweisungen",
+      "count": "{count} von {cap} Einträgen",
+      "forgetAll": "Alles vergessen",
+      "forgetAllTitle": "Alles vergessen?",
+      "forgetAllBody": "Die KI vergisst alle {count} Einträge, die sie sich in dieser Organisation über dich gemerkt hat. Das kann nicht rückgängig gemacht werden.",
+      "forgetAllConfirm": "Alles vergessen",
+      "empty": "Noch nichts gemerkt. Während du arbeitest, speichert die KI hier Fakten – etwa deine Projekte, Fristen oder anstehende Termine.",
+      "add": "Hinzufügen",
+      "past": "Vorbei",
+      "fromReport": "aus {title}",
+      "untitledReport": "einem Bericht",
+      "loadFailed": "Dein Gedächtnis konnte nicht geladen werden",
+      "saveFailed": "Die Änderung konnte nicht gespeichert werden",
+      "saved": "Gedächtnis gespeichert",
+      "forgotten": "Vergessen",
+      "forgotAll": "Alles vergessen",
+      "source": {
+        "user": "Von dir hinzugefügt",
+        "agent": "Von der KI gespeichert"
+      },
+      "form": {
+        "placeholder": "Ein Fakt über dich, z. B. Leite das Q3-Abwanderungsprojekt",
+        "tags": "Tags, durch Kommas getrennt",
+        "dateHint": "Füge ein Datum hinzu, wenn es an eines gebunden ist"
+      },
+      "searchPlaceholder": "Gedächtnis durchsuchen…",
+      "noMatches": "Keine passenden Einträge."
     }
   },
   "commandPalette": {

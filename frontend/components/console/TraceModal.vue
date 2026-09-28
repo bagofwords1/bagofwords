@@ -287,6 +287,38 @@
                                         </div>
                                     </div>
 
+                                    <!-- User memory for this turn: injected entries, memory tool calls,
+                                         refusals. Entry text only when the viewer owns the memory. -->
+                                    <div v-if="selectedTurn?.memory" class="mt-4" data-testid="trace-memory">
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1.5">
+                                            <UIcon name="i-heroicons-bookmark" class="w-3.5 h-3.5" />
+                                            {{ $t('traceModal.memory.title') }}
+                                            <span class="normal-case tracking-normal text-gray-400">· {{ $t('traceModal.memory.summary', { injected: selectedTurn.memory.injected.length, total: selectedTurn.memory.total_entries, chars: selectedTurn.memory.chars }) }}</span>
+                                        </div>
+                                        <p v-if="!selectedTurn.memory.owner_view" class="text-[11px] text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-1">
+                                            <UIcon name="i-heroicons-lock-closed" class="w-3 h-3" />{{ $t('traceModal.memory.privateNote') }}
+                                        </p>
+                                        <div class="space-y-1">
+                                            <div v-for="(m, mi) in selectedTurn.memory.injected" :key="'inj' + mi" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
+                                                <span class="font-mono text-[10px] text-gray-500 shrink-0 mt-px">[{{ m.handle }}]</span>
+                                                <span class="text-[10px] px-1.5 py-0.5 rounded shrink-0" :class="m.tier === 'matched' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'">{{ $t(`traceModal.memory.tier.${m.tier === 'matched' ? 'matched' : 'always'}`) }}</span>
+                                                <UIcon v-if="m.dated" name="i-heroicons-calendar" class="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />
+                                                <span v-if="m.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ m.text }}</span>
+                                            </div>
+                                            <div v-for="(c, ci) in selectedTurn.memory.tool_calls" :key="'call' + ci" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
+                                                <UIcon :name="c.success ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" :class="['w-3.5 h-3.5 shrink-0 mt-px', c.success ? 'text-green-500' : 'text-red-500']" />
+                                                <span class="font-mono text-[10px] text-gray-600 dark:text-gray-400 shrink-0 mt-px">{{ c.tool }}<template v-if="c.action">·{{ c.action }}</template></span>
+                                                <span v-if="c.handle" class="font-mono text-[10px] text-gray-500 shrink-0 mt-px">[{{ c.handle }}]</span>
+                                                <span v-if="c.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ c.text }}</span>
+                                            </div>
+                                            <div v-for="(r, ri) in selectedTurn.memory.refusals" :key="'ref' + ri" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-amber-50 dark:bg-amber-950/40">
+                                                <UIcon name="i-heroicons-no-symbol" class="w-3.5 h-3.5 shrink-0 mt-px text-amber-600" />
+                                                <span class="text-[10px] text-amber-700 dark:text-amber-400 shrink-0 mt-px">{{ $t('traceModal.memory.refused') }} · {{ r.code }}</span>
+                                                <span v-if="r.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ r.text }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <!-- Context (schemas / instructions / observations) -->
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
                                         <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.context') }}</div>

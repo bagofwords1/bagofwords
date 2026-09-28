@@ -321,7 +321,7 @@ import RunEvalTool from '~/components/tools/RunEvalTool.vue'
 import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
-import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+import MemoryTool from '~/components/tools/MemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import SendEmailTool from '~/components/tools/SendEmailTool.vue'
@@ -680,8 +680,10 @@ function getToolComponent(toolName: string) {
             return ClarifyTool
         case 'wait':
             return WaitTool
-        case 'update_user_memory':
-            return UpdateUserMemoryTool
+        case 'create_memory':
+        case 'edit_memory':
+        case 'search_memory':
+            return MemoryTool
         case 'create_dashboard':
             return CreateDashboardTool
         case 'send_email':

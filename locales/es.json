@@ -1008,6 +1008,16 @@
         "failed": "El seguimiento falló — no se envió nada",
         "rejected": "No se programó: {reason}",
         "cancelled": "Cancelado: {reason}"
+}
+},
+    "memory": {
+      "title": "Memoria",
+      "summary": "{injected} de {total} entradas incluidas · {chars} caracteres",
+      "privateNote": "La memoria es privada de su dueño: solo se muestran identificadores y secciones.",
+      "refused": "Rechazado",
+      "tier": {
+        "always": "siempre",
+        "matched": "coincidencia"
       }
     }
   },
@@ -1575,10 +1585,11 @@
       "multiHint": "Selecciona todas las opciones que correspondan",
       "submit": "Enviar"
     },
-    "updateUserMemory": {
-      "updating": "Actualizando memoria…",
+    "memory": {
+      "updating": "Actualizando la memoria…",
+      "checking": "Consultando la memoria…",
       "updated": "Memoria actualizada",
-      "failed": "Error al actualizar la memoria"
+      "checked": "Memoria consultada"
     },
     "routeModel": {
       "routedTo": "Enrutado a",
@@ -2690,6 +2701,10 @@
           "name": "Notas del agente",
           "description": "Permite al agente mantener notas de trabajo por informe (un cuaderno) que escribe y lee mientras responde: planes, hallazgos y tareas pendientes. Las notas se muestran en el informe pero no son conocimiento compartido. Cuando está desactivado, las herramientas de notas se ocultan y las notas no se inyectan en el contexto."
         },
+        "enable_user_memory": {
+          "name": "Memoria del usuario",
+          "description": "Permite que el agente recuerde hechos sobre cada usuario entre sesiones: su trabajo, proyectos, plazos y eventos, lo que sigue y sus propias abreviaturas. Las reglas sobre cómo responder siguen en las instrucciones. Cada usuario puede ver, editar y borrar su memoria."
+        },
         "max_instructions_in_context": {
           "name": "Máximo de instrucciones en el contexto",
           "description": "Número máximo de instrucciones que se incluyen en el contexto de la IA. Primero se cargan las instrucciones de tipo 'siempre' y después las 'inteligentes' ocupan los huecos restantes."
@@ -3523,7 +3538,18 @@
       "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
       "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor"
     },
-    "data_source.in_use": "El agente \"{agent}\" todavía está en uso ({reference}), así que no se puede eliminar. No se eliminó nada."
+    "data_source.in_use": "El agente \"{agent}\" todavía está en uso ({reference}), así que no se puede eliminar. No se eliminó nada.",
+    "memory.disabled": "La memoria del usuario está desactivada en esta organización.",
+    "memory.not_found": "Esa entrada de memoria no existe.",
+    "memory.text_required": "Escribe lo que hay que recordar.",
+    "memory.text_too_long": "Máximo 280 caracteres.",
+    "memory.too_many_tags": "Usa como máximo 4 etiquetas.",
+    "memory.tags_required": "Añade al menos una etiqueta.",
+    "memory.invalid_date": "Esa fecha no es válida.",
+    "memory.sensitive": "La memoria no puede guardar secretos, contraseñas ni datos personales sensibles.",
+    "memory.looks_like_rule": "Eso es una regla sobre cómo responder: añádela a tus instrucciones personalizadas. La memoria guarda hechos sobre ti.",
+    "memory.full": "La memoria está llena. Borra algunas entradas primero.",
+    "memory.not_active": "Esa entrada ya se cambió o se olvidó."
   },
   "email": {
     "dashboardShare": {
@@ -4701,6 +4727,7 @@
     "nav": {
       "general": "General",
       "instructions": "Instrucciones personalizadas",
+      "memory": "Memoria",
       "usage": "Uso",
       "apiKeys": "Claves API",
       "appearance": "Apariencia"
@@ -4784,8 +4811,35 @@
     },
     "memory": {
       "title": "Memoria",
-      "subtitle": "Lo que la IA ha aprendido y recordado sobre ti en esta organización: tus preferencias, tu estilo y los análisis que te gustaron. Lo actualiza a medida que trabajas; puedes editarlo o borrarlo aquí.",
-      "placeholder": "La IA aún no ha guardado nada en la memoria. A medida que le indiques tus preferencias, las recordará aquí."
+      "subtitle": "Hechos que la IA recuerda sobre ti en esta organización: tu trabajo, proyectos, fechas, lo que sigues y tus abreviaturas. Solo tú puedes verlos.",
+      "vsInstructions": "Cómo debe responderte la IA (formato, unidades, extensión) no es memoria: son tus instrucciones personalizadas.",
+      "instructionsLink": "Instrucciones personalizadas",
+      "count": "{count} de {cap} entradas",
+      "forgetAll": "Olvidar todo",
+      "forgetAllTitle": "¿Olvidar todo?",
+      "forgetAllBody": "La IA olvidará las {count} entradas que recuerda sobre ti en esta organización. No se puede deshacer.",
+      "forgetAllConfirm": "Olvidar todo",
+      "empty": "Aún no hay nada guardado. Mientras trabajas, la IA guarda aquí hechos como tus proyectos, plazos o próximas reuniones.",
+      "add": "Añadir",
+      "past": "Pasado",
+      "fromReport": "de {title}",
+      "untitledReport": "un informe",
+      "loadFailed": "No se pudo cargar tu memoria",
+      "saveFailed": "No se pudo guardar el cambio",
+      "saved": "Memoria guardada",
+      "forgotten": "Olvidado",
+      "forgotAll": "Todo olvidado",
+      "source": {
+        "user": "Añadido por ti",
+        "agent": "Guardado por la IA"
+      },
+      "form": {
+        "placeholder": "Un hecho sobre ti, p. ej. Lidero el proyecto de pérdida de clientes del T3",
+        "tags": "Etiquetas, separadas por comas",
+        "dateHint": "Añade una fecha si depende de una"
+      },
+      "searchPlaceholder": "Buscar en la memoria…",
+      "noMatches": "Ningún recuerdo coincide."
     }
   },
   "commandPalette": {
