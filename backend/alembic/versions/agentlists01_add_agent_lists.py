@@ -41,6 +41,7 @@ def upgrade() -> None:
         sa.Column("key_field_id", sa.String(length=64), nullable=True),
         sa.Column("require_evidence", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("allow_viewer_submissions", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("keep_human_edits", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
         sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"]),
         sa.ForeignKeyConstraint(["data_source_id"], ["data_sources.id"], ondelete="CASCADE"),

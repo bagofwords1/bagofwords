@@ -5,7 +5,7 @@ Contracts (docs/feedback-loops/agent-lists.md):
   MANAGE (or org admin) is required for every write.
 - A submission is atomic and validated against the full schema; invalid
   records write nothing and return path-qualified errors.
-- Rows upsert on the key field (or row_id); human-edited fields are locked and
+- Rows upsert on the key field (or row_id); with keep_human_edits on, human-edited fields are locked and
   never overwritten by the agent; every change writes one revision.
 - CSV export streams every row, BOM-prefixed, formula-injection safe.
 - bow.<agent>.lists.<list> tables are queryable by list_id for users who can
@@ -136,6 +136,15 @@ def _rows(test_client, world, actor="admin", **params):
 
 def _fid(world, name):
     return next(f["id"] for f in world["list"]["fields"] if f["name"] == name)
+
+
+def _keep_human_edits(test_client, world, on=True):
+    lst = world["list"]  # resend the list's own fields (with ids) so only the option changes
+    body = {"name": lst["name"], "description": lst["description"], "fields": lst["fields"],
+            "key_field": lst["key_field"], "require_evidence": lst["require_evidence"], "keep_human_edits": on}
+    r = test_client.put(_url(world, f"/{world['list']['id']}"), json=body, headers=_h(world["admin"]["token"], world["org_id"]))
+    assert r.status_code == 200 and r.json()["keep_human_edits"] is on, r.text
+    assert [f["id"] for f in r.json()["fields"]] == [f["id"] for f in lst["fields"]]
 
 
 # ── S1: CRUD + RBAC ────────────────────────────────────────────────────────
@@ -419,6 +428,7 @@ def _patch(test_client, world, row, fields, actor="admin", unlock=None, version=
 
 
 def test_human_edit_locks_field_and_agent_cannot_overwrite_it(test_client, world):
+    _keep_human_edits(test_client, world)
     submit(world, [_record(value=120000)])
     row = _rows(test_client, world)["rows"][0]
     r = _patch(test_client, world, row, {"annual_value": "130,000"}, actor="manager")
@@ -744,6 +754,7 @@ def test_shared_artifact_chat_never_writes_to_lists(world):
 # ── Round 2: the chat card's data, the observation, the row deep link ─────
 
 def test_submission_output_details_each_record_but_the_observation_stays_lean(test_client, world):
+    _keep_human_edits(test_client, world)
     first = submit(world, [_record(value=120000)])
     assert first["output"]["rows"][0]["key"] == "Acme Ltd"
     row = _rows(test_client, world)["rows"][0]
@@ -841,3 +852,38 @@ def test_bulk_delete_and_clear_require_manage(test_client, world, actor, code):
     assert _bulk_delete(test_client, world, {"row_ids": [row["id"]]}, actor=actor).status_code == code
     assert _bulk_delete(test_client, world, {"all": True}, actor=actor).status_code == code
     assert _rows(test_client, world)["total"] == (0 if code == 200 else 1)
+
+
+# ── Hand edits are only kept when the list asks for it (default: off) ─────
+
+def test_by_default_the_agent_may_overwrite_a_hand_edit(test_client, world):
+    assert world["list"]["keep_human_edits"] is False
+    submit(world, [_record(value=120000)])
+    row = _rows(test_client, world)["rows"][0]
+    fid = _fid(world, "annual_value")
+    edited = _patch(test_client, world, row, {"annual_value": "130,000"}, actor="manager").json()
+    assert edited["values"][fid]["source"] == "human"
+    assert edited["locked_fields"] == []  # nothing shown as locked
+
+    out = submit(world, [_record(value=999)])
+    assert out["observation"]["locked_fields_skipped"] == [] and out["output"]["updated"] == 1
+    assert not any(f["locked"] for f in out["output"]["records"][0]["fields"].values())
+    after = _rows(test_client, world)["rows"][0]
+    assert after["values"][fid]["value"] == 999
+
+    # the overwritten edit is no longer a person's edit, so turning the option on later
+    # does not resurrect a lock on the agent's value
+    _keep_human_edits(test_client, world)
+    assert _rows(test_client, world)["rows"][0]["locked_fields"] == []
+
+
+def test_turning_keep_human_edits_on_protects_edits_made_while_it_was_off(test_client, world):
+    submit(world, [_record(value=120000)])
+    row = _rows(test_client, world)["rows"][0]
+    _patch(test_client, world, row, {"annual_value": "130,000"}, actor="manager")
+    _keep_human_edits(test_client, world)
+    fid = _fid(world, "annual_value")
+    assert _rows(test_client, world)["rows"][0]["locked_fields"] == [fid]
+    out = submit(world, [_record(value=999)])
+    assert [s["field"] for s in out["observation"]["locked_fields_skipped"]] == ["annual_value"]
+    assert _rows(test_client, world)["rows"][0]["values"][fid]["value"] == 130000

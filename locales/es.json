@@ -5520,7 +5520,8 @@
       "saved": "Lista guardada",
       "created": "Lista creada",
       "saveFailed": "No se pudo guardar la lista",
-      "allowViewerSubmissions": "Cualquiera que pueda usar este agente puede guardar filas desde el chat (si no, solo quienes lo administran)"
+      "allowViewerSubmissions": "Cualquiera que pueda usar este agente puede guardar filas desde el chat (si no, solo quienes lo administran)",
+      "keepHumanEdits": "Conservar las ediciones de las personas: el agente no sobrescribirá un valor cambiado a mano"
     },
     "row": {
       "status": {
