@@ -2863,7 +2863,10 @@ class LLMService:
             ]
             if not agent_check.get("success"):
                 result["success"] = False
-                result["message"] = f"Connected, but a tool-calling request failed: {agent_check.get('message')}"
+                result["message"] = (
+                    f"Connected, but a tool-calling request failed ({agent_check.get('api')}): "
+                    f"{agent_check.get('message')}"
+                )
         if result.get("success"):
             logger.info("LLM connection test passed: provider_type=%s, model_id=%s, org_id=%s", provider.provider_type, selected_model.model_id, organization.id)
         else:

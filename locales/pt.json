@@ -610,7 +610,31 @@
     "modelAutoHint": "O roteador escolhe o melhor modelo",
     "autoAgentsHint": "Qualquer agente a que tenha acesso",
     "loadingDataSources": "Carregando fontes de dados…",
-    "noDataSources": "Nenhuma fonte de dados encontrada"
+    "noDataSources": "Nenhuma fonte de dados encontrada",
+    "effort": {
+      "title": "Esforço",
+      "default": "Padrão",
+      "levels": {
+        "low": "Baixo",
+        "medium": "Médio",
+        "high": "Alto",
+        "max": "Máx."
+      },
+      "short": {
+        "low": "B",
+        "medium": "M",
+        "high": "A",
+        "max": "Máx"
+      },
+      "searchModels": "Pesquisar modelos…",
+      "noMatches": "Nenhum modelo corresponde",
+      "otherProvider": "Outro",
+      "anyModel": "Aplica-se ao modelo que for executado",
+      "notSupported": "Este modelo não tem ajuste de esforço",
+      "providerDefault": "Padrão do modelo",
+      "modelDefault": "Padrão do administrador: {level}",
+      "runsAs": "Executa como {level} neste modelo"
+    }
   },
   "reports": {
     "title": "Relatórios",
@@ -2666,7 +2690,36 @@
       "modelsCount": "{count} modelos",
       "providerLabel": "Provedor",
       "providerSettingsTooltip": "Configurações do provedor",
-      "save": "Salvar"
+      "save": "Salvar",
+      "reasoning": {
+        "title": "Raciocínio",
+        "tooltip": "Como este modelo recebe o esforço escolhido pelos usuários (Baixo / Médio / Alto / Máx.).",
+        "modes": {
+          "auto": "Automático (catálogo de modelos)",
+          "like": "Comporta-se como outro modelo",
+          "generic": "Genérico (reasoning_effort)",
+          "custom": "Apenas campos personalizados",
+          "off": "Desativado"
+        },
+        "likeLabel": "Comporta-se como",
+        "likePlaceholder": "ex.: gpt-6-luna",
+        "defaultLevel": "Nível padrão",
+        "unsupported": "O esforço não se aplica a este modelo",
+        "savedSettings": "configurações salvas",
+        "rawTitle": "Campos de requisição brutos por nível (avançado)",
+        "rawHelp": "JSON mesclado à requisição ao provedor quando esse nível é usado. Chaves existentes são mescladas; as demais são enviadas como estão.",
+        "ranAs": "executou como {level}",
+        "tokens": "tokens de raciocínio",
+        "saveToTest": "Salve para testar suas alterações",
+        "testTooltip": "Enviar uma requisição com ferramentas neste nível",
+        "test": "Testar",
+        "rawNotObject": "Deve ser um objeto JSON",
+        "rawInvalid": "JSON inválido",
+        "fixRaw": "Corrija primeiro os campos inválidos",
+        "likeRequired": "Informe o modelo com o qual ele se parece",
+        "customRequired": "O modo personalizado precisa de campos para pelo menos um nível",
+        "saveFailed": "Não foi possível salvar as configurações de raciocínio"
+      }
     },
     "licensePage": {
       "title": "Licença",

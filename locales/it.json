@@ -610,7 +610,31 @@
     "modelAutoHint": "Il router sceglie il modello migliore",
     "autoAgentsHint": "Qualsiasi agente a cui hai accesso",
     "loadingDataSources": "Caricamento delle origini dati…",
-    "noDataSources": "Nessuna origine dati trovata"
+    "noDataSources": "Nessuna origine dati trovata",
+    "effort": {
+      "title": "Impegno",
+      "default": "Predefinito",
+      "levels": {
+        "low": "Basso",
+        "medium": "Medio",
+        "high": "Alto",
+        "max": "Max"
+      },
+      "short": {
+        "low": "B",
+        "medium": "M",
+        "high": "A",
+        "max": "Max"
+      },
+      "searchModels": "Cerca modelli…",
+      "noMatches": "Nessun modello corrisponde",
+      "otherProvider": "Altro",
+      "anyModel": "Si applica al modello che viene eseguito",
+      "notSupported": "Questo modello non ha un'impostazione di impegno",
+      "providerDefault": "Predefinito del modello",
+      "modelDefault": "Predefinito dall'amministratore: {level}",
+      "runsAs": "Eseguito come {level} su questo modello"
+    }
   },
   "reports": {
     "title": "Report",
@@ -2666,7 +2690,36 @@
       "modelsCount": "{count} modelli",
       "providerLabel": "Provider",
       "providerSettingsTooltip": "Impostazioni del provider",
-      "save": "Salva"
+      "save": "Salva",
+      "reasoning": {
+        "title": "Ragionamento",
+        "tooltip": "Come questo modello riceve l'impegno scelto dagli utenti (Basso / Medio / Alto / Max).",
+        "modes": {
+          "auto": "Automatico (catalogo modelli)",
+          "like": "Si comporta come un altro modello",
+          "generic": "Generico (reasoning_effort)",
+          "custom": "Solo campi di richiesta personalizzati",
+          "off": "Disattivato"
+        },
+        "likeLabel": "Si comporta come",
+        "likePlaceholder": "es. gpt-6-luna",
+        "defaultLevel": "Livello predefinito",
+        "unsupported": "L'impegno non si applica a questo modello",
+        "savedSettings": "impostazioni salvate",
+        "rawTitle": "Campi di richiesta grezzi per livello (avanzato)",
+        "rawHelp": "JSON unito alla richiesta al provider quando si usa quel livello. Le chiavi esistenti vengono unite; le altre sono inoltrate così come sono.",
+        "ranAs": "eseguito come {level}",
+        "tokens": "token di ragionamento",
+        "saveToTest": "Salva per provare le modifiche",
+        "testTooltip": "Invia una richiesta con strumenti a questo livello",
+        "test": "Prova",
+        "rawNotObject": "Deve essere un oggetto JSON",
+        "rawInvalid": "JSON non valido",
+        "fixRaw": "Correggi prima i campi non validi",
+        "likeRequired": "Indica il modello a cui somiglia",
+        "customRequired": "La modalità personalizzata richiede campi per almeno un livello",
+        "saveFailed": "Impossibile salvare le impostazioni di ragionamento"
+      }
     },
     "licensePage": {
       "title": "Licenza",

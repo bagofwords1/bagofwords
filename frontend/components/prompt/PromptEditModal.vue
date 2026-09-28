@@ -133,7 +133,7 @@
 
           <div v-if="showAdvanced" class="flex items-center gap-2">
             <ModeSelector v-model="form.mode" :dataSourceIds="agentIds" />
-            <ModelSelector v-model="form.model_id" />
+            <ModelSelector v-model="form.model_id" v-model:effort="form.reasoning_effort" />
           </div>
         </section>
       </div>
@@ -197,6 +197,7 @@ const form = reactive({
   text: '' as string,
   mode: 'chat' as string,
   model_id: null as string | null,
+  reasoning_effort: null as string | null,
 })
 
 // Audience is a single explicit choice. 'agent' uses an explicit multiselect.
@@ -252,6 +253,7 @@ function seed() {
   form.text = p?.text || ''
   form.mode = p?.mode || 'chat'
   form.model_id = p?.model_id || null
+  form.reasoning_effort = p?.reasoning_effort || null
   mentionGroups.value = (p?.mentions as any[]) || []
   errorMsg.value = ''
 
@@ -307,6 +309,7 @@ async function save() {
       text: form.text,
       mode: form.mode,
       model_id: form.model_id || null,
+      reasoning_effort: form.reasoning_effort || null,
       mentions: mentionGroups.value.length ? mentionGroups.value : null,
       // No parameter schema is sent — params are bare {{name}} placeholders
       // derived from the text at run time. The backend column stays dormant.

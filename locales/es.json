@@ -624,7 +624,31 @@
     "modelAutoHint": "El enrutador elige el mejor modelo",
     "autoAgentsHint": "Cualquier agente al que tengas acceso",
     "loadingDataSources": "Cargando fuentes de datos…",
-    "noDataSources": "No se encontraron fuentes de datos"
+    "noDataSources": "No se encontraron fuentes de datos",
+    "effort": {
+      "title": "Esfuerzo",
+      "default": "Predeterminado",
+      "levels": {
+        "low": "Bajo",
+        "medium": "Medio",
+        "high": "Alto",
+        "max": "Máx."
+      },
+      "short": {
+        "low": "B",
+        "medium": "M",
+        "high": "A",
+        "max": "Máx"
+      },
+      "searchModels": "Buscar modelos…",
+      "noMatches": "Ningún modelo coincide",
+      "otherProvider": "Otro",
+      "anyModel": "Se aplica al modelo que se ejecute",
+      "notSupported": "Este modelo no tiene ajuste de esfuerzo",
+      "providerDefault": "Valor predeterminado del modelo",
+      "modelDefault": "Predeterminado del administrador: {level}",
+      "runsAs": "Se ejecuta como {level} en este modelo"
+    }
   },
   "reports": {
     "title": "Informes",
@@ -2758,7 +2782,36 @@
       "modelsCount": "{count} modelos",
       "providerLabel": "Proveedor",
       "providerSettingsTooltip": "Ajustes del proveedor",
-      "save": "Guardar"
+      "save": "Guardar",
+      "reasoning": {
+        "title": "Razonamiento",
+        "tooltip": "Cómo recibe este modelo el esfuerzo que eligen los usuarios (Bajo / Medio / Alto / Máx.).",
+        "modes": {
+          "auto": "Automático (según el catálogo)",
+          "like": "Se comporta como otro modelo",
+          "generic": "Genérico (reasoning_effort)",
+          "custom": "Solo campos personalizados",
+          "off": "Desactivado"
+        },
+        "likeLabel": "Se comporta como",
+        "likePlaceholder": "p. ej. gpt-6-luna",
+        "defaultLevel": "Nivel predeterminado",
+        "unsupported": "El esfuerzo no se aplica a este modelo",
+        "savedSettings": "configuración guardada",
+        "rawTitle": "Campos de solicitud por nivel (avanzado)",
+        "rawHelp": "JSON que se combina con la solicitud al proveedor cuando se usa ese nivel. Las claves existentes se combinan; las demás se envían tal cual.",
+        "ranAs": "se ejecutó como {level}",
+        "tokens": "tokens de razonamiento",
+        "saveToTest": "Guarda para probar tus cambios",
+        "testTooltip": "Envía una solicitud con herramientas en este nivel",
+        "test": "Probar",
+        "rawNotObject": "Debe ser un objeto JSON",
+        "rawInvalid": "JSON no válido",
+        "fixRaw": "Corrige primero los campos no válidos",
+        "likeRequired": "Indica el modelo al que se parece",
+        "customRequired": "El modo personalizado necesita campos para al menos un nivel",
+        "saveFailed": "No se pudo guardar la configuración de razonamiento"
+      }
     },
     "licensePage": {
       "title": "Licencia",

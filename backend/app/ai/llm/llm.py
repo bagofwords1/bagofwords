@@ -237,6 +237,17 @@ def _retry_delay(attempt: int) -> float:
     return min(0.5 * (2 ** attempt), 4.0) + random.uniform(0, 0.25)
 
 
+def _provider_error_message(exc: BaseException) -> str:
+    """The provider's own error text when it is embedded in an SDK error
+    ("Error code: 400 - {'error': {'message': "Unknown parameter: 'reasoning'." …"),
+    else the exception text."""
+    text = str(exc)
+    m = re.search(r"""['"]message['"]:\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""", text)
+    if m:
+        return (m.group(1) or m.group(2) or text).strip()
+    return text
+
+
 class LLM:
     def __init__(
         self,
@@ -1245,6 +1256,20 @@ class LLM:
             "message": "Successfully connected to LLM",
         }
 
+    _API_NAMES = {
+        "OpenAi": "Chat Completions",
+        "AzureClient": "Chat Completions",
+        "OpenAIResponsesClient": "Responses",
+        "Anthropic": "Messages",
+        "BedrockClient": "Converse",
+        "Google": "generateContent",
+    }
+
+    def api_name(self) -> str:
+        """The provider API this model's requests go through — raw reasoning
+        fields must use that API's parameter names."""
+        return self._API_NAMES.get(type(self.client).__name__, type(self.client).__name__)
+
     async def test_agent_call(self, effort: Optional[str] = None) -> dict:
         """One tiny request shaped like an agent turn: a function tool plus,
         optionally, a reasoning effort. The plain connection test streams text
@@ -1287,10 +1312,11 @@ class LLM:
                            self.provider, self.model_id, effort, e)
             return {
                 "success": False,
-                "message": str(e),
+                "message": _provider_error_message(e),
                 "effort": effort,
                 "runs_as": runs_as,
                 "mode": client_mode(self.client),
+                "api": self.api_name(),
             }
         return {
             "success": got_output,
@@ -1298,6 +1324,7 @@ class LLM:
             "effort": effort,
             "runs_as": runs_as,
             "mode": client_mode(self.client),
+            "api": self.api_name(),
             "reasoning_tokens": reasoning_tokens,
             "reasoning_chars": reasoning_chars,
             "latency_ms": int((time.monotonic() - started) * 1000),

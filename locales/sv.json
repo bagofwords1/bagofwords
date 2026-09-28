@@ -610,7 +610,31 @@
     "modelAutoHint": "Routern väljer den bästa modellen",
     "autoAgentsHint": "Alla agenter du har tillgång till",
     "loadingDataSources": "Läser in datakällor…",
-    "noDataSources": "Inga datakällor hittades"
+    "noDataSources": "Inga datakällor hittades",
+    "effort": {
+      "title": "Ansträngning",
+      "default": "Standard",
+      "levels": {
+        "low": "Låg",
+        "medium": "Medel",
+        "high": "Hög",
+        "max": "Max"
+      },
+      "short": {
+        "low": "L",
+        "medium": "M",
+        "high": "H",
+        "max": "Max"
+      },
+      "searchModels": "Sök modeller…",
+      "noMatches": "Inga modeller matchar",
+      "otherProvider": "Övrigt",
+      "anyModel": "Gäller den modell som körs",
+      "notSupported": "Den här modellen har ingen ansträngningsinställning",
+      "providerDefault": "Modellens standard",
+      "modelDefault": "Administratörens standard: {level}",
+      "runsAs": "Körs som {level} på den här modellen"
+    }
   },
   "reports": {
     "title": "Rapporter",
@@ -2666,7 +2690,36 @@
       "modelsCount": "{count} modeller",
       "providerLabel": "Leverantör",
       "providerSettingsTooltip": "Leverantörsinställningar",
-      "save": "Spara"
+      "save": "Spara",
+      "reasoning": {
+        "title": "Resonemang",
+        "tooltip": "Hur modellen tar emot den ansträngning användarna väljer (Låg / Medel / Hög / Max).",
+        "modes": {
+          "auto": "Automatiskt (modellkatalog)",
+          "like": "Beter sig som en annan modell",
+          "generic": "Generisk (reasoning_effort)",
+          "custom": "Endast egna begärandefält",
+          "off": "Av"
+        },
+        "likeLabel": "Beter sig som",
+        "likePlaceholder": "t.ex. gpt-6-luna",
+        "defaultLevel": "Standardnivå",
+        "unsupported": "Ansträngning gäller inte den här modellen",
+        "savedSettings": "sparade inställningar",
+        "rawTitle": "Råa begärandefält per nivå (avancerat)",
+        "rawHelp": "JSON som slås ihop med begäran till leverantören när nivån används. Befintliga nycklar slås ihop; övriga skickas som de är.",
+        "ranAs": "kördes som {level}",
+        "tokens": "resonemangstokens",
+        "saveToTest": "Spara för att testa ändringarna",
+        "testTooltip": "Skicka en begäran med verktyg på den här nivån",
+        "test": "Testa",
+        "rawNotObject": "Måste vara ett JSON-objekt",
+        "rawInvalid": "Ogiltig JSON",
+        "fixRaw": "Rätta de ogiltiga fälten först",
+        "likeRequired": "Ange modellen den beter sig som",
+        "customRequired": "Anpassat läge kräver fält för minst en nivå",
+        "saveFailed": "Det gick inte att spara resonemangsinställningarna"
+      }
     },
     "licensePage": {
       "title": "Licens",

@@ -610,7 +610,31 @@
     "modelAutoHint": "Router wählt das beste Modell",
     "autoAgentsHint": "Jeder Agent, auf den Sie Zugriff haben",
     "loadingDataSources": "Datenquellen werden geladen…",
-    "noDataSources": "Keine Datenquellen gefunden"
+    "noDataSources": "Keine Datenquellen gefunden",
+    "effort": {
+      "title": "Aufwand",
+      "default": "Standard",
+      "levels": {
+        "low": "Niedrig",
+        "medium": "Mittel",
+        "high": "Hoch",
+        "max": "Max"
+      },
+      "short": {
+        "low": "N",
+        "medium": "M",
+        "high": "H",
+        "max": "Max"
+      },
+      "searchModels": "Modelle suchen…",
+      "noMatches": "Keine passenden Modelle",
+      "otherProvider": "Andere",
+      "anyModel": "Gilt für das ausgeführte Modell",
+      "notSupported": "Dieses Modell hat keine Aufwandseinstellung",
+      "providerDefault": "Standard des Modells",
+      "modelDefault": "Admin-Standard: {level}",
+      "runsAs": "Läuft auf diesem Modell als {level}"
+    }
   },
   "reports": {
     "title": "Berichte",
@@ -2666,7 +2690,36 @@
       "modelsCount": "{count} Modelle",
       "providerLabel": "Anbieter",
       "providerSettingsTooltip": "Anbietereinstellungen",
-      "save": "Speichern"
+      "save": "Speichern",
+      "reasoning": {
+        "title": "Reasoning",
+        "tooltip": "Wie dieses Modell den vom Nutzer gewählten Aufwand erhält (Niedrig / Mittel / Hoch / Max).",
+        "modes": {
+          "auto": "Automatisch (Modellkatalog)",
+          "like": "Verhält sich wie ein anderes Modell",
+          "generic": "Generisch (reasoning_effort)",
+          "custom": "Nur eigene Anfragefelder",
+          "off": "Aus"
+        },
+        "likeLabel": "Verhält sich wie",
+        "likePlaceholder": "z. B. gpt-6-luna",
+        "defaultLevel": "Standardstufe",
+        "unsupported": "Aufwand gilt für dieses Modell nicht",
+        "savedSettings": "gespeicherte Einstellungen",
+        "rawTitle": "Rohe Anfragefelder pro Stufe (erweitert)",
+        "rawHelp": "JSON, das bei dieser Stufe in die Anfrage an den Anbieter eingefügt wird. Vorhandene Schlüssel werden zusammengeführt, andere unverändert übergeben.",
+        "ranAs": "lief als {level}",
+        "tokens": "Reasoning-Tokens",
+        "saveToTest": "Speichern, um Änderungen zu testen",
+        "testTooltip": "Eine Anfrage mit Tools auf dieser Stufe senden",
+        "test": "Testen",
+        "rawNotObject": "Muss ein JSON-Objekt sein",
+        "rawInvalid": "Ungültiges JSON",
+        "fixRaw": "Zuerst die ungültigen Felder korrigieren",
+        "likeRequired": "Modell angeben, dem es entspricht",
+        "customRequired": "Der benutzerdefinierte Modus braucht Felder für mindestens eine Stufe",
+        "saveFailed": "Reasoning-Einstellungen konnten nicht gespeichert werden"
+      }
     },
     "licensePage": {
       "title": "Lizenz",

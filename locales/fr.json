@@ -610,7 +610,31 @@
     "modelAutoHint": "Le routeur choisit le meilleur modèle",
     "autoAgentsHint": "Tout agent auquel vous avez accès",
     "loadingDataSources": "Chargement des sources de données…",
-    "noDataSources": "Aucune source de données trouvée"
+    "noDataSources": "Aucune source de données trouvée",
+    "effort": {
+      "title": "Effort",
+      "default": "Par défaut",
+      "levels": {
+        "low": "Faible",
+        "medium": "Moyen",
+        "high": "Élevé",
+        "max": "Max"
+      },
+      "short": {
+        "low": "F",
+        "medium": "M",
+        "high": "É",
+        "max": "Max"
+      },
+      "searchModels": "Rechercher des modèles…",
+      "noMatches": "Aucun modèle ne correspond",
+      "otherProvider": "Autre",
+      "anyModel": "S'applique au modèle exécuté",
+      "notSupported": "Ce modèle n'a pas de réglage d'effort",
+      "providerDefault": "Valeur par défaut du modèle",
+      "modelDefault": "Défaut administrateur : {level}",
+      "runsAs": "S'exécute en {level} sur ce modèle"
+    }
   },
   "reports": {
     "title": "Rapports",
@@ -2666,7 +2690,36 @@
       "modelsCount": "{count} modèles",
       "providerLabel": "Fournisseur",
       "providerSettingsTooltip": "Paramètres du fournisseur",
-      "save": "Enregistrer"
+      "save": "Enregistrer",
+      "reasoning": {
+        "title": "Raisonnement",
+        "tooltip": "Comment ce modèle reçoit l'effort choisi par les utilisateurs (Faible / Moyen / Élevé / Max).",
+        "modes": {
+          "auto": "Automatique (catalogue de modèles)",
+          "like": "Se comporte comme un autre modèle",
+          "generic": "Générique (reasoning_effort)",
+          "custom": "Champs de requête personnalisés uniquement",
+          "off": "Désactivé"
+        },
+        "likeLabel": "Se comporte comme",
+        "likePlaceholder": "ex. gpt-6-luna",
+        "defaultLevel": "Niveau par défaut",
+        "unsupported": "L'effort ne s'applique pas à ce modèle",
+        "savedSettings": "paramètres enregistrés",
+        "rawTitle": "Champs de requête bruts par niveau (avancé)",
+        "rawHelp": "JSON fusionné dans la requête au fournisseur quand ce niveau est utilisé. Les clés existantes sont fusionnées ; les autres sont transmises telles quelles.",
+        "ranAs": "exécuté en {level}",
+        "tokens": "jetons de raisonnement",
+        "saveToTest": "Enregistrez pour tester vos modifications",
+        "testTooltip": "Envoyer une requête avec outils à ce niveau",
+        "test": "Tester",
+        "rawNotObject": "Doit être un objet JSON",
+        "rawInvalid": "JSON invalide",
+        "fixRaw": "Corrigez d'abord les champs invalides",
+        "likeRequired": "Indiquez le modèle auquel il ressemble",
+        "customRequired": "Le mode personnalisé nécessite des champs pour au moins un niveau",
+        "saveFailed": "Impossible d'enregistrer les paramètres de raisonnement"
+      }
     },
     "licensePage": {
       "title": "Licence",
