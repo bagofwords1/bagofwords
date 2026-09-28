@@ -48,6 +48,7 @@ from app.models.agent_checkin import (
     STATUS_RUNNING,
     STATUS_SENT,
     STATUS_SKIPPED,
+    REASON_ACCESS_LOST,
     REASON_DISABLED,
     REASON_FIRE_ERROR,
     REASON_INVALID_JUDGE_OUTPUT,
@@ -394,6 +395,73 @@ class CheckinService:
                 return row
             logger.info("checkin planned id=%s report=%s due_at=%s", checkin_id, report_id, due_at.isoformat())
             return row
+
+    async def plan_from_dream(
+        self, db, *, organization_id: str, user_id: str, report_id: str, note: str,
+        plan_reason: str, due_at: datetime, dream_run_id: Optional[str] = None,
+        now: Optional[datetime] = None, rng=None, arm: bool = True,
+    ) -> AgentCheckin:
+        """Plan a check-in from the nightly user dream (no source turn).
+
+        The same gates as a turn-planned check-in: the org setting, the user's
+        opt-out, report ownership, the pending / weekly limits, the due clamp
+        and the working window. Returns the row (``planned`` or ``rejected``
+        with a reason); from firing onwards it is an ordinary check-in."""
+        from app.models.report import Report
+
+        now = now or _utcnow()
+        settings_row = await policy.load_org_settings(db, organization_id)
+
+        def _row(**kw) -> AgentCheckin:
+            return AgentCheckin(
+                organization_id=str(organization_id), user_id=str(user_id), report_id=str(report_id),
+                source_completion_id=None, origin="dream", dream_run_id=dream_run_id,
+                note=(note or "")[:4000], plan_reason=(plan_reason or "")[:2000], **kw,
+            )
+
+        denied: Optional[str] = None
+        if not policy.feature_enabled(settings_row):
+            denied = REASON_DISABLED
+        elif await policy.user_opted_out(db, organization_id, user_id):
+            denied = REASON_OPTED_OUT
+        else:
+            report = (
+                await db.execute(select(Report).options(lazyload("*")).where(Report.id == str(report_id)))
+            ).scalar_one_or_none()
+            if (
+                report is None or getattr(report, "deleted_at", None) is not None
+                or str(report.organization_id) != str(organization_id)
+                or str(report.user_id) != str(user_id)
+                or getattr(report, "report_type", "regular") != "regular"
+            ):
+                denied = REASON_ACCESS_LOST
+            else:
+                denied = await policy.check_plan_limits(
+                    db, organization_id=organization_id, user_id=user_id, report_id=report_id,
+                    org_settings=settings_row, now=now,
+                )
+        if denied:
+            row = _row(status=STATUS_REJECTED, status_reason=denied)
+            db.add(row)
+            await db.commit()
+            return row
+
+        tz_name = policy.org_timezone(settings_row)
+        due = policy.shift_into_working_window(policy.clamp_due(now, due_at), tz_name, rng=rng)
+        row = _row(status=STATUS_PLANNED, due_at=due)
+        db.add(row)
+        await db.flush()
+        row.job_id = job_id_for(row.id)
+        await db.commit()
+        if arm:
+            try:
+                self.arm(row)
+            except Exception:
+                logger.exception("checkin %s (dream): arming failed", row.id)
+                row.status = STATUS_FAILED
+                row.status_reason = "arm_failed"
+                await db.commit()
+        return row
 
     async def _planner_context(self, db, *, report, user_id, system, now, tz_name) -> dict:
         from app.models.completion import Completion

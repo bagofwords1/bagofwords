@@ -994,8 +994,8 @@
         "failed": "Der Nachfass-Lauf ist fehlgeschlagen — nichts gesendet",
         "rejected": "Nicht geplant: {reason}",
         "cancelled": "Abgebrochen: {reason}"
-}
-},
+      }
+    },
     "memory": {
       "title": "Gedächtnis",
       "summary": "{injected} von {total} Einträgen eingebunden · {chars} Zeichen",
@@ -2613,6 +2613,18 @@
           "name": "Benutzergedächtnis",
           "description": "Der Agent merkt sich sitzungsübergreifend Fakten zu jedem Benutzer – seine Arbeit, Projekte, Fristen und Termine, was er verfolgt und seine eigenen Kürzel. Regeln dazu, wie geantwortet wird, bleiben in den Anweisungen. Jeder Benutzer kann sein Gedächtnis ansehen, bearbeiten und löschen."
         },
+        "enable_agent_dreaming": {
+          "name": "Nächtliches Lernen der Agenten",
+          "description": "Jede Nacht prüfen Agenten ihre offenen Vorschläge, Feedback und Nutzung und schlagen pro Agent eine zusammengeführte Verbesserung vor. Was damit passiert, folgt der Selbstlern-Einstellung des jeweiligen Agenten."
+        },
+        "enable_user_dreaming": {
+          "name": "Nächtliche Vorbereitung für Nutzer",
+          "description": "Jede Nacht geht der Agent die Arbeit jedes aktiven Nutzers durch, hält dessen Gedächtnis aufgeräumt, notiert offene Punkte und bereitet Nachfassaktionen vor (z. B. vor einem Meeting). Nutzer können es für sich selbst ausschalten."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Ungeprüfte KI-Vorschläge verfallen nach (Tagen)",
+          "description": "KI-vorgeschlagene Anweisungen, die nach so vielen Tagen noch offen sind, werden vom nächtlichen Lernen als verfallen (nicht abgelehnt) geschlossen. Verfallene Vorschläge zählen weiter als Beleg, wenn dasselbe Muster wiederkehrt. 0 lässt sie für immer offen."
+        },
         "max_instructions_in_context": {
           "name": "Maximale Anweisungen im Kontext",
           "description": "Maximale Anzahl an Anweisungen, die in den KI-Kontext aufgenommen werden. Anweisungen vom Typ 'Immer' werden zuerst geladen, danach füllen 'intelligente' Anweisungen die verbleibenden Plätze."
@@ -3459,7 +3471,10 @@
     "memory.sensitive": "Das Gedächtnis darf keine Geheimnisse, Passwörter oder sensiblen persönlichen Daten enthalten.",
     "memory.looks_like_rule": "Das ist eine Regel dafür, wie geantwortet wird – füge sie deinen benutzerdefinierten Anweisungen hinzu. Das Gedächtnis speichert Fakten über dich.",
     "memory.full": "Das Gedächtnis ist voll. Lösche zuerst einige Einträge.",
-    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen."
+    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen.",
+    "briefing.item_not_found": "Dieser Eintrag ist nicht mehr in deiner Übersicht.",
+    "habit_offer.not_found": "Dieses Angebot existiert nicht mehr.",
+    "habit_offer.not_pending": "Dieses Angebot wurde bereits beantwortet."
   },
   "email": {
     "dashboardShare": {
@@ -4645,7 +4660,17 @@
       "checkinsTitle": "Nachfassen des Agenten",
       "checkinsSubtitle": "Lässt den Agenten nach einem Gespräch selbstständig nachsehen, wenn sich ein erneuter Blick lohnt (zum Beispiel nach einer Datenaktualisierung). Er benachrichtigt dich nur, wenn sich etwas Wesentliches geändert hat.",
       "checkinsSaved": "Nachfass-Einstellung gespeichert",
-      "checkinsFailed": "Deine Nachfass-Einstellung konnte nicht gespeichert werden"
+      "checkinsFailed": "Deine Nachfass-Einstellung konnte nicht gespeichert werden",
+      "overnightTitle": "Bereite Dinge über Nacht für mich vor",
+      "overnightSubtitle": "Nachts räumt der Assistent auf, was er über dich weiß, notiert, was du offen gelassen hast, und bereitet Nachfassaktionen vor deinen Terminen vor. Nur du siehst die Ergebnisse.",
+      "overnightSaved": "Nächtliche Vorbereitung aktualisiert",
+      "overnightFailed": "Nächtliche Vorbereitung konnte nicht aktualisiert werden",
+      "overnightLogTitle": "Was ich über Nacht getan habe",
+      "overnightLogMemory": "{n} Gedächtnisnotiz | {n} Gedächtnisnotizen",
+      "overnightLogThreads": "{n} offener Punkt | {n} offene Punkte",
+      "overnightLogFollowUps": "{n} Nachfassen geplant | {n} Nachfassaktionen geplant",
+      "overnightLogHabit": "eine wiederkehrende Aufgabe vorgeschlagen",
+      "overnightLogNothing": "Alles durchgesehen – nichts zu ändern"
     },
     "instructions": {
       "title": "Benutzerdefinierte Anweisungen",
@@ -4717,7 +4742,8 @@
       "forgotAll": "Alles vergessen",
       "source": {
         "user": "Von dir hinzugefügt",
-        "agent": "Von der KI gespeichert"
+        "agent": "Von der KI gespeichert",
+        "dream": "Über Nacht notiert"
       },
       "form": {
         "placeholder": "Ein Fakt über dich, z. B. Leite das Q3-Abwanderungsprojekt",
@@ -5340,5 +5366,31 @@
   },
   "quota": {
     "resetsOn": "Zurücksetzung am {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Über Nacht lernen",
+    "nightlyDescription": "Macht jede Nacht aus wiederholten Korrekturen, Feedback und Nutzung einen zusammengeführten Vorschlag für diesen Agenten. Er folgt der Einstellung oben wie jeder andere Vorschlag.",
+    "nightlyOrgOff": "Nächtliches Lernen ist für diese Organisation ausgeschaltet (KI-Einstellungen)."
+  },
+  "briefing": {
+    "title": "Seit deinem letzten Besuch",
+    "gotIt": "Verstanden",
+    "why": "warum: {why}",
+    "notUseful": "Nicht hilfreich",
+    "checkinQuiet": "Erneut geprüft – nichts Erwähnenswertes",
+    "eventPrepared": "vorbereitet in {report}",
+    "habit": "Du fragst oft nach „{intent}“. Soll ich es {when} bereithalten?",
+    "everyDay": "jeden Tag um {time}",
+    "everyWeekday": "jeden {day} um {time}",
+    "habitYes": "Ja, einplanen",
+    "habitNo": "Nein, danke",
+    "habitScheduled": "Eingeplant – es wird für dich bereitliegen",
+    "habitFailed": "Konnte nicht eingeplant werden"
+  },
+  "nightlyBuild": {
+    "merged": "Zusammengeführt",
+    "expired": "Verfallen",
+    "mergedTip": "In einen Vorschlag des nächtlichen Lernens übernommen. Keine Ablehnung durch Prüfende.",
+    "expiredTip": "Geschlossen, weil er über die Frist der Organisation hinaus ungeprüft blieb. Zählt weiter als Beleg, wenn das Muster wiederkehrt."
   }
 }

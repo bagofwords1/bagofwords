@@ -193,6 +193,32 @@
               </div>
             </div>
 
+            <!-- Overnight preparation: personal switch + what it did (only while the org has it on) -->
+            <div v-if="overnight.available" class="pt-2 border-t border-gray-100 dark:border-gray-800" data-testid="profile-overnight">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('profile.general.overnightTitle') }}</div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.general.overnightSubtitle') }}</p>
+                </div>
+                <UToggle
+                  :model-value="overnight.enabled"
+                  :disabled="savingOvernight"
+                  data-testid="profile-overnight-toggle"
+                  @update:model-value="saveOvernight"
+                />
+              </div>
+              <div v-if="overnightLog.length" class="mt-3" data-testid="profile-overnight-log">
+                <div class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('profile.general.overnightLogTitle') }}</div>
+                <ul class="space-y-1">
+                  <li v-for="r in overnightLog" :key="r.id" class="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400">
+                    <Icon name="heroicons-moon" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-indigo-400" />
+                    <span class="tabular-nums text-gray-400 flex-shrink-0">{{ r.date }}</span>
+                    <span class="min-w-0">{{ overnightLine(r) }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
             <!-- External platforms summary -->
             <div class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-3">
               <div>
@@ -770,6 +796,56 @@ async function saveCheckins(enabled: boolean) {
   }
 }
 
+// --- General: overnight preparation (personal switch + log) ---
+const overnight = ref<{ enabled: boolean; available: boolean }>({ enabled: true, available: false })
+const overnightLog = ref<any[]>([])
+const savingOvernight = ref(false)
+
+async function loadOvernight() {
+  try {
+    const res = await useMyFetch('/users/me/overnight')
+    if (res.status.value === 'success' && res.data.value) overnight.value = res.data.value as any
+    if (!overnight.value.available) return
+    const log = await useMyFetch('/users/me/overnight/log')
+    if (log.status.value === 'success' && log.data.value) {
+      overnightLog.value = ((log.data.value as any).runs || []).filter((r: any) => r.status === 'done').slice(0, 5)
+    }
+  } catch {
+    // non-fatal; the section stays hidden
+  }
+}
+
+function overnightLine(r: any): string {
+  const parts: string[] = []
+  const mem = (r.memory_created || 0) + (r.memory_updated || 0)
+  if (mem) parts.push(t('profile.general.overnightLogMemory', { n: mem }, mem))
+  if (r.open_threads) parts.push(t('profile.general.overnightLogThreads', { n: r.open_threads }, r.open_threads))
+  const planned = (r.follow_ups || []).filter((f: any) => f.status === 'planned').length
+  if (planned) parts.push(t('profile.general.overnightLogFollowUps', { n: planned }, planned))
+  if (r.habit) parts.push(t('profile.general.overnightLogHabit'))
+  return parts.length ? parts.join(' · ') : t('profile.general.overnightLogNothing')
+}
+
+async function saveOvernight(enabled: boolean) {
+  const previous = overnight.value.enabled
+  overnight.value = { ...overnight.value, enabled }
+  savingOvernight.value = true
+  try {
+    const res = await useMyFetch('/users/me/overnight', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+    if (res.status.value !== 'success') throw new Error(t('profile.general.overnightFailed'))
+    toast.add({ title: t('profile.general.overnightSaved'), color: 'green' })
+  } catch (e: any) {
+    overnight.value = { ...overnight.value, enabled: previous }
+    toast.add({ title: e?.message || t('profile.general.overnightFailed'), color: 'red' })
+  } finally {
+    savingOvernight.value = false
+  }
+}
+
 // --- General: external platforms ---
 const externalPlatforms = computed<any[]>(() => (currentUser.value as any)?.external_user_mappings || [])
 
@@ -1195,6 +1271,7 @@ watch(isOpen, (open) => {
     loadOrgLocale()
     loadModels()
     loadCheckins()
+    loadOvernight()
     loadProfileAttributes()
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()

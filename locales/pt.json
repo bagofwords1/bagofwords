@@ -994,8 +994,8 @@
         "failed": "A execução do acompanhamento falhou — nada foi enviado",
         "rejected": "Não agendado: {reason}",
         "cancelled": "Cancelado: {reason}"
-}
-},
+      }
+    },
     "memory": {
       "title": "Memória",
       "summary": "{injected} de {total} entradas incluídas · {chars} caracteres",
@@ -2613,6 +2613,18 @@
           "name": "Memória do usuário",
           "description": "Permite que o agente lembre fatos sobre cada usuário entre sessões — seu trabalho, projetos, prazos e eventos, o que acompanha e suas próprias abreviações. Regras sobre como responder continuam nas instruções. Cada usuário pode ver, editar e excluir sua memória."
         },
+        "enable_agent_dreaming": {
+          "name": "Aprendizado noturno dos agentes",
+          "description": "Toda noite, os agentes revisam suas sugestões pendentes, o feedback e o uso, e propõem uma melhoria consolidada por agente. O que acontece com ela segue a configuração de autoaprendizado de cada agente."
+        },
+        "enable_user_dreaming": {
+          "name": "Preparação noturna para usuários",
+          "description": "Toda noite, o agente revisa o trabalho de cada usuário ativo para manter a memória organizada, anotar assuntos em aberto e preparar acompanhamentos (por exemplo, antes de uma reunião). Cada usuário pode desativá-la para si."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Expirar sugestões de IA não revisadas após (dias)",
+          "description": "Instruções sugeridas pela IA ainda pendentes após esse número de dias são fechadas como expiradas (não rejeitadas) pelo aprendizado noturno. Sugestões expiradas continuam contando como evidência se o mesmo padrão voltar. 0 as mantém abertas para sempre."
+        },
         "max_instructions_in_context": {
           "name": "Máximo de instruções no contexto",
           "description": "Número máximo de instruções a incluir no contexto da IA. As instruções do tipo 'sempre' são carregadas primeiro e depois as 'inteligentes' preenchem as vagas restantes."
@@ -3459,7 +3471,10 @@
     "memory.sensitive": "A memória não pode guardar segredos, senhas ou dados pessoais sensíveis.",
     "memory.looks_like_rule": "Isso é uma regra de como responder — adicione às suas instruções personalizadas. A memória guarda fatos sobre você.",
     "memory.full": "A memória está cheia. Exclua algumas entradas primeiro.",
-    "memory.not_active": "Essa entrada já foi alterada ou esquecida."
+    "memory.not_active": "Essa entrada já foi alterada ou esquecida.",
+    "briefing.item_not_found": "Esse item não está mais no seu resumo.",
+    "habit_offer.not_found": "Essa oferta não existe mais.",
+    "habit_offer.not_pending": "Essa oferta já foi respondida."
   },
   "email": {
     "dashboardShare": {
@@ -4645,7 +4660,17 @@
       "checkinsTitle": "Acompanhamentos do agente",
       "checkinsSubtitle": "Permite que o agente volte por conta própria após uma conversa quando vale a pena revisitar algo (por exemplo, após uma atualização de dados). Ele só notifica você quando algo significativo mudou.",
       "checkinsSaved": "Preferência de acompanhamento salva",
-      "checkinsFailed": "Não foi possível salvar sua preferência de acompanhamento"
+      "checkinsFailed": "Não foi possível salvar sua preferência de acompanhamento",
+      "overnightTitle": "Prepare as coisas para mim durante a noite",
+      "overnightSubtitle": "À noite, o assistente organiza o que lembra sobre você, anota o que ficou em aberto e prepara acompanhamentos antes dos seus eventos. Só você vê os resultados.",
+      "overnightSaved": "Preparação noturna atualizada",
+      "overnightFailed": "Não foi possível atualizar a preparação noturna",
+      "overnightLogTitle": "O que fiz durante a noite",
+      "overnightLogMemory": "{n} nota de memória | {n} notas de memória",
+      "overnightLogThreads": "{n} assunto em aberto | {n} assuntos em aberto",
+      "overnightLogFollowUps": "{n} acompanhamento planejado | {n} acompanhamentos planejados",
+      "overnightLogHabit": "sugeriu uma tarefa recorrente",
+      "overnightLogNothing": "Revisei tudo — nada a mudar"
     },
     "instructions": {
       "title": "Instruções personalizadas",
@@ -4717,7 +4742,8 @@
       "forgotAll": "Tudo esquecido",
       "source": {
         "user": "Adicionado por você",
-        "agent": "Salvo pela IA"
+        "agent": "Salvo pela IA",
+        "dream": "Anotado durante a noite"
       },
       "form": {
         "placeholder": "Um fato sobre você, ex.: Lidero o projeto de churn do 3º trimestre",
@@ -5340,5 +5366,31 @@
   },
   "quota": {
     "resetsOn": "reinicia em {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Aprender durante a noite",
+    "nightlyDescription": "Toda noite, transforma correções repetidas, feedback e uso em uma única sugestão consolidada para este agente. Ela segue a configuração acima como qualquer outra sugestão.",
+    "nightlyOrgOff": "O aprendizado noturno está desativado nesta organização (configurações de IA)."
+  },
+  "briefing": {
+    "title": "Desde a sua última visita",
+    "gotIt": "Entendi",
+    "why": "por quê: {why}",
+    "notUseful": "Não é útil",
+    "checkinQuiet": "Verificado de novo — nada a destacar",
+    "eventPrepared": "preparado em {report}",
+    "habit": "Você pede “{intent}” com frequência. Quer que eu deixe pronto {when}?",
+    "everyDay": "todo dia às {time}",
+    "everyWeekday": "toda {day} às {time}",
+    "habitYes": "Sim, agendar",
+    "habitNo": "Não, obrigado",
+    "habitScheduled": "Agendado — estará pronto para você",
+    "habitFailed": "Não foi possível agendar"
+  },
+  "nightlyBuild": {
+    "merged": "Mesclada",
+    "expired": "Expirada",
+    "mergedTip": "Incorporada a uma sugestão do aprendizado noturno. Não é uma rejeição de um revisor.",
+    "expiredTip": "Fechada após ficar sem revisão além do prazo da organização. Continua contando como evidência se o padrão voltar."
   }
 }

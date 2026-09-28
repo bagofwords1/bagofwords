@@ -277,7 +277,7 @@ class MemoryService:
         commit: bool = True,
     ) -> WriteResult:
         now = now or _utcnow()
-        agent_write = source == "agent"
+        agent_write = source in ("agent", "dream")
         payload = self.clean_payload(
             text=text, tags=tags, aliases=aliases,
             event_start=event_start, event_end=event_end, expires_at=expires_at,
@@ -336,7 +336,7 @@ class MemoryService:
         if entry.status != "active":
             raise MemoryValidationError("memory.not_active", "That memory entry is no longer active.")
         now = now or _utcnow()
-        agent_write = source == "agent"
+        agent_write = source in ("agent", "dream")
 
         def pick(key, current):
             return changes[key] if key in changes and changes[key] is not None else current

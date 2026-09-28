@@ -180,6 +180,7 @@ const TYPE_ICONS: Record<string, string> = {
   // produced it — so it keeps the warning glyph whichever kind it came from.
   automation_failed: 'i-heroicons-exclamation-triangle',
   checkin_followup: 'i-heroicons-arrow-path-rounded-square',
+  nightly_learning: 'i-heroicons-moon',
 }
 const SOURCE_ICONS: Record<string, string> = {
   review: 'i-heroicons-bell-alert',

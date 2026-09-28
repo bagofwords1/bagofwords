@@ -394,6 +394,21 @@ class OrganizationSettingsService:
                     except Exception:
                         logger.warning("Failed to cancel pending check-ins on settings-off", exc_info=True)
 
+                # Overnight learning turned off: cancel queued dream runs for
+                # the org right away (running ones re-check the setting before
+                # every write and stop there).
+                if any(k in update_data['config'] for k in ('enable_agent_dreaming', 'enable_user_dreaming')):
+                    try:
+                        from app.services.dreams import common as dream_common
+                        from app.services.dreams.runtime import dream_runtime
+                        from app.models.dream_run import KIND_AGENT, KIND_USER
+                        if not dream_common.agent_dreaming_enabled(settings):
+                            await dream_runtime.cancel_queued_for_org(db, str(organization.id), KIND_AGENT)
+                        if not dream_common.user_dreaming_enabled(settings):
+                            await dream_runtime.cancel_queued_for_org(db, str(organization.id), KIND_USER)
+                    except Exception:
+                        logger.warning("Failed to cancel queued dream runs on settings-off", exc_info=True)
+
                 # Drop the cached PII redactor so a toggle/rule change takes
                 # effect immediately instead of waiting out the loader TTL.
                 if pii_changed:

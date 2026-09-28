@@ -52,6 +52,12 @@ class AgentCheckin(BaseSchema):
     report_id = Column(String(36), ForeignKey("reports.id"), nullable=False, index=True)
     # The system completion of the turn that planned it (TraceModal anchor).
     source_completion_id = Column(String(36), ForeignKey("completions.id"), nullable=True, index=True)
+    # Who planned it: 'turn' (after a chat turn) or 'dream' (the nightly user
+    # dream). Dream-planned check-ins have no source completion.
+    origin = Column(String(8), nullable=False, default="turn", server_default="turn")
+    dream_run_id = Column(String(36), nullable=True)  # informational link, no FK
+    # The user's verdict on the briefing item for this check-in: useful | not_useful.
+    briefing_feedback = Column(String(12), nullable=True)
 
     note = Column(Text, nullable=True)
     plan_reason = Column(Text, nullable=True)

@@ -994,8 +994,8 @@
         "failed": "L'exécution du suivi a échoué — rien n'a été envoyé",
         "rejected": "Non programmé : {reason}",
         "cancelled": "Annulé : {reason}"
-}
-},
+      }
+    },
     "memory": {
       "title": "Mémoire",
       "summary": "{injected} entrées injectées sur {total} · {chars} caractères",
@@ -2613,6 +2613,18 @@
           "name": "Mémoire utilisateur",
           "description": "Permet à l'agent de retenir des faits sur chaque utilisateur d'une session à l'autre : son travail, ses projets, ses échéances et événements, ce qu'il suit et ses propres raccourcis. Les règles sur la façon de répondre restent dans les instructions. Chaque utilisateur peut consulter, modifier et supprimer sa mémoire."
         },
+        "enable_agent_dreaming": {
+          "name": "Apprentissage nocturne des agents",
+          "description": "Chaque nuit, les agents examinent leurs suggestions en attente, les retours et l'usage, et proposent une amélioration consolidée par agent. La suite dépend du réglage d'auto-apprentissage de chaque agent."
+        },
+        "enable_user_dreaming": {
+          "name": "Préparation nocturne pour les utilisateurs",
+          "description": "Chaque nuit, l'agent passe en revue le travail de chaque utilisateur actif pour garder sa mémoire en ordre, noter les sujets en suspens et préparer des suivis (p. ex. avant une réunion). Chaque utilisateur peut le désactiver pour lui-même."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Faire expirer les suggestions IA non examinées après (jours)",
+          "description": "Les instructions suggérées par l'IA encore en attente après ce nombre de jours sont fermées comme expirées (non rejetées) par l'apprentissage nocturne. Les suggestions expirées comptent toujours comme preuve si le même schéma revient. 0 les laisse ouvertes indéfiniment."
+        },
         "max_instructions_in_context": {
           "name": "Nombre maximal d'instructions dans le contexte",
           "description": "Nombre maximal d'instructions à inclure dans le contexte de l'IA. Les instructions « toujours » sont chargées en premier, puis les instructions « intelligentes » remplissent les emplacements restants."
@@ -3459,7 +3471,10 @@
     "memory.sensitive": "La mémoire ne peut pas contenir de secrets, de mots de passe ni de données personnelles sensibles.",
     "memory.looks_like_rule": "C'est une règle sur la façon de répondre : ajoutez-la à vos instructions personnalisées. La mémoire garde des faits vous concernant.",
     "memory.full": "La mémoire est pleine. Supprimez d'abord des entrées.",
-    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée."
+    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée.",
+    "briefing.item_not_found": "Cet élément n'est plus dans votre récapitulatif.",
+    "habit_offer.not_found": "Cette proposition n'existe plus.",
+    "habit_offer.not_pending": "Vous avez déjà répondu à cette proposition."
   },
   "email": {
     "dashboardShare": {
@@ -4645,7 +4660,17 @@
       "checkinsTitle": "Suivis de l'agent",
       "checkinsSubtitle": "Permet à l'agent de revenir de lui-même après une conversation lorsqu'il vaut la peine d'y revenir (par exemple après une actualisation des données). Il ne vous notifie que lorsque quelque chose d'important a changé.",
       "checkinsSaved": "Préférence de suivi enregistrée",
-      "checkinsFailed": "Impossible d'enregistrer votre préférence de suivi"
+      "checkinsFailed": "Impossible d'enregistrer votre préférence de suivi",
+      "overnightTitle": "Préparer des choses pour moi pendant la nuit",
+      "overnightSubtitle": "La nuit, l'assistant range ce qu'il sait de vous, note ce que vous avez laissé en suspens et prépare des suivis avant vos événements. Vous seul voyez les résultats.",
+      "overnightSaved": "Préparation nocturne mise à jour",
+      "overnightFailed": "Impossible de mettre à jour la préparation nocturne",
+      "overnightLogTitle": "Ce que j'ai fait cette nuit",
+      "overnightLogMemory": "{n} note de mémoire | {n} notes de mémoire",
+      "overnightLogThreads": "{n} sujet en suspens | {n} sujets en suspens",
+      "overnightLogFollowUps": "{n} suivi planifié | {n} suivis planifiés",
+      "overnightLogHabit": "a suggéré une tâche récurrente",
+      "overnightLogNothing": "Tout passé en revue — rien à changer"
     },
     "instructions": {
       "title": "Instructions personnalisées",
@@ -4717,7 +4742,8 @@
       "forgotAll": "Tout a été oublié",
       "source": {
         "user": "Ajouté par vous",
-        "agent": "Enregistré par l'IA"
+        "agent": "Enregistré par l'IA",
+        "dream": "Noté pendant la nuit"
       },
       "form": {
         "placeholder": "Un fait vous concernant, ex. Pilote le projet d'attrition du T3",
@@ -5340,5 +5366,31 @@
   },
   "quota": {
     "resetsOn": "réinitialisation le {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Apprendre pendant la nuit",
+    "nightlyDescription": "Chaque nuit, transforme les corrections répétées, les retours et l'usage en une seule suggestion consolidée pour cet agent. Elle suit le réglage ci-dessus comme toute autre suggestion.",
+    "nightlyOrgOff": "L'apprentissage nocturne est désactivé pour cette organisation (paramètres IA)."
+  },
+  "briefing": {
+    "title": "Depuis votre dernière visite",
+    "gotIt": "Compris",
+    "why": "pourquoi : {why}",
+    "notUseful": "Pas utile",
+    "checkinQuiet": "Vérifié à nouveau — rien à signaler",
+    "eventPrepared": "préparé dans {report}",
+    "habit": "Vous demandez souvent « {intent} ». Le préparer {when} ?",
+    "everyDay": "chaque jour à {time}",
+    "everyWeekday": "chaque {day} à {time}",
+    "habitYes": "Oui, le planifier",
+    "habitNo": "Non merci",
+    "habitScheduled": "Planifié — ce sera prêt pour vous",
+    "habitFailed": "Impossible de planifier"
+  },
+  "nightlyBuild": {
+    "merged": "Fusionnée",
+    "expired": "Expirée",
+    "mergedTip": "Intégrée à une suggestion de l'apprentissage nocturne. Ce n'est pas un rejet d'un relecteur.",
+    "expiredTip": "Fermée après être restée non examinée au-delà du délai de l'organisation. Compte toujours comme preuve si le schéma revient."
   }
 }

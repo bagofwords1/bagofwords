@@ -92,7 +92,7 @@
                 ><bdi dir="ltr">#{{ tg }}</bdi></button>
                 <!-- Where it came from: only on hover, to keep the list quiet. -->
                 <span class="hidden group-hover:inline-flex items-center gap-1 text-[11px] text-gray-400 min-w-0" data-testid="memory-entry-source">
-                  <UIcon :name="e.source === 'user' ? 'i-heroicons-user' : 'i-heroicons-sparkles'" class="w-3 h-3 shrink-0" />
+                  <UIcon :name="e.source === 'user' ? 'i-heroicons-user' : e.source === 'dream' ? 'i-heroicons-moon' : 'i-heroicons-sparkles'" class="w-3 h-3 shrink-0" />
                   <NuxtLink
                     v-if="e.evidence?.report_link"
                     :to="e.evidence.report_link"
@@ -193,7 +193,7 @@ function displayTags(e: MemoryEntry): string[] {
 }
 
 function sourceLabel(source: string) {
-  return t(`profile.memory.source.${source === 'user' ? 'user' : 'agent'}`)
+  return t(`profile.memory.source.${source === 'user' ? 'user' : source === 'dream' ? 'dream' : 'agent'}`)
 }
 
 function fmtDay(iso: string) {

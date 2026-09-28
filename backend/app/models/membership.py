@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON, Boolean, false
+from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON, Boolean, false, true
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
@@ -39,6 +39,14 @@ class Membership(BaseSchema):
     # org. Only meaningful while the org's enable_agent_checkins setting is on;
     # respected at plan time (no planner call) and at fire time.
     checkins_opt_out = Column(Boolean, nullable=False, default=False, server_default=false())
+    # "Prepare things for me overnight": the per-user switch for the nightly
+    # user dream (memory tidying, open threads, planned check-ins, habit
+    # offers). Only meaningful while the org's enable_user_dreaming is on.
+    overnight_prep = Column(Boolean, nullable=False, default=True, server_default=true())
+    # Watermark: human-initiated activity up to here has been reflected on.
+    user_dreamed_at = Column(DateTime, nullable=True)
+    # The session-start briefing shows items newer than this.
+    briefing_seen_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="memberships")
     organization = relationship("Organization", back_populates="memberships")

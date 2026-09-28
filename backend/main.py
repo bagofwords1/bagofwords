@@ -71,6 +71,7 @@ from app.routes import (
     text_widget,
     user_profile,
     user_memory,
+    overnight,
     llm,
     git,
     organization_settings,
@@ -196,6 +197,7 @@ current_user = fastapi_users.current_user(active=True)
 
 app.include_router(user_profile.router, prefix="/api")
 app.include_router(user_memory.router, prefix="/api")
+app.include_router(overnight.router, prefix="/api")
 
 # Determine auth mode
 auth_mode = getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'
@@ -505,6 +507,26 @@ async def startup_event():
             logger.info("Scheduled job: checkin_stale_sweep every 1 hour")
         except Exception as e:
             logger.error(f"Failed to schedule check-in stale sweep: {e}")
+
+    # Overnight learning: hourly sweep that runs the nightly user dreams
+    # (01:00-03:00 org-local) and agent dreams (03:00-05:00 org-local).
+    # Leader-only; each unit runs at most once per org-local night.
+    if is_scheduler_leader:
+        try:
+            from app.services.dreams.runtime import overnight_sweep
+            scheduler.add_job(
+                overnight_sweep,
+                trigger="interval",
+                hours=1,
+                id="overnight_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: overnight_sweep every 1 hour")
+        except Exception as e:
+            logger.warning(f"Failed to schedule overnight_sweep: {e}")
 
     # Background warmup of QVD Parquet caches so the first create_data/inspect_data
     # on a 1-5GB QVD doesn't block the UI for minutes.
