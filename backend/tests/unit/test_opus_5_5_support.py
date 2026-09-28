@@ -9,8 +9,12 @@ from app.models.llm_model import LLM_MODEL_DETAILS
 @pytest.mark.parametrize("model_id", ["claude-opus-5-5", "claude-opus-5"])
 @pytest.mark.parametrize("effort", ["low", "medium", "high"])
 def test_opus_5_family_never_gets_budget_tokens(model_id, effort):
-    # budget_tokens is a 400 on both; adaptive is the only on-mode.
-    assert _effort_to_thinking_config(effort, model_id) == {"type": "adaptive"}
+    # budget_tokens is a 400 on both; adaptive is the only on-mode. The
+    # config also carries the chosen effort (sent as output_config.effort).
+    cfg = _effort_to_thinking_config(effort, model_id)
+    assert cfg["type"] == "adaptive"
+    assert "budget_tokens" not in cfg
+    assert cfg["effort"] == effort
 
 
 def test_opus_5_5_effort_off_omits_thinking():
