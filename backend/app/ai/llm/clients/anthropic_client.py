@@ -1,5 +1,6 @@
 import json
 
+from app.ai.llm.reasoning import OFF_EFFORT_FOR_ALWAYS_THINKING, selected_effort, _effort_to_thinking_config
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
@@ -35,7 +36,7 @@ _STOP_REASON_MAP = {
 }
 
 # Model families that reject sampling parameters (temperature/top_p/top_k)
-# with a 400. Sonnet 5 / Opus 5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them
+# with a 400. Sonnet 5 / Opus 5 / Opus 5.5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them
 # from the API — prompting is the steering mechanism there. Older models (4.6
 # and earlier) still accept temperature.
 _NO_SAMPLING_PARAM_TAGS = (
@@ -436,11 +437,31 @@ class Anthropic(LLMClient):
         # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
         # the default temperature when thinking is on, so drop ours entirely
         # (omitting it is valid on every model).
-        if thinking:
-            t = dict(thinking)
+        # Modern models think even when the caller omits the setting. Ask for
+        # their summaries, and for low effort when the caller asked for none.
+        capability_model = getattr(self, "reasoning_model_id", None) or model_id
+        default_thinking = not _accepts_temperature(capability_model)
+        if thinking or default_thinking:
+            t = dict(thinking or {"type": "adaptive"})
+            # No thinking requested means reasoning is "off". These models
+            # cannot turn it off, and left to the provider they run at its
+            # default effort (high): tens of seconds of reasoning on routine
+            # planner steps. Ask for the least instead; an explicit effort
+            # (per-completion, model default, "think hard") still wins.
+            effort = selected_effort(thinking) if thinking else OFF_EFFORT_FOR_ALWAYS_THINKING
+            # Re-map for the actual client model, including routed/fallback
+            # models; the planner may have built a budget for another family.
+            mapped = _effort_to_thinking_config(effort, capability_model)
+            if mapped and ((thinking or {}).get("effort") or mapped.get("type") == "adaptive"):
+                t.update(mapped)
+                if mapped.get("type") == "adaptive":
+                    t.pop("budget_tokens", None)
+            t.pop("effort", None)
             t.setdefault("display", "summarized")
             extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
             extra_body["thinking"] = t
+            if effort and t.get("type") == "adaptive":
+                extra_body["output_config"] = {"effort": effort}
             request_kwargs["extra_body"] = extra_body
             request_kwargs.pop("temperature", None)
             # max_tokens must exceed budget_tokens; bump if needed.

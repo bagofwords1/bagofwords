@@ -919,7 +919,22 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM-användning för denna konversation",
     "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
-    "turnUsageTooltip": "LLM-användning för denna tur"
+    "turnUsageTooltip": "LLM-användning för denna tur",
+    "setup": "Förberedelse",
+    "setupTooltip": "Tid från start till första steget (kontextbygge m.m.)",
+    "overhead": "Övrigt",
+    "overheadTooltip": "Tid som inte hör till något steg: lagring, kontextuppdatering mellan steg, avslut",
+    "segment_planner": "Planerar-LLM",
+    "segment_tool_llm": "Verktygs-LLM",
+    "segment_tool_exec": "Verktygskörning",
+    "segment_setup": "Förberedelse",
+    "plannerShort": "Plan",
+    "toolShort": "Verktyg",
+    "stepTiming": "Stegtid",
+    "stepTotal": "Steg totalt",
+    "firstToken": "Tid till första token",
+    "thinking": "Tänkande",
+    "tool": "Verktyg"
   },
   "reportView": {
     "tabChat": "Chatt",
@@ -3301,7 +3316,22 @@
     "userNotFound": "Användaren hittades inte i organisationen",
     "copyFailed": "Det gick inte att kopiera",
     "includeDataTab": "Inkludera fliken Data",
-    "includeDataTabDesc": "Mottagarna ser hela datahistoriken och processen som användes för att skapa den här rapporten"
+    "includeDataTabDesc": "Mottagarna ser hela datahistoriken och processen som användes för att skapa den här rapporten",
+    "allowChat": "Tillåt chatt",
+    "allowChatDesc": "Inloggade medlemmar i arbetsytan kan ställa frågor om den här instrumentpanelen",
+    "chatScope": "Chatten kan använda",
+    "chatScopeAgents": "Rapportens agenter",
+    "chatScopeAgentsDesc": "Chatten får köra skrivskyddade livefrågor mot de valda agenterna",
+    "chatScopeDataOnly": "Endast instrumentpanelens data",
+    "chatScopeDataOnlyDesc": "Chatten svarar bara utifrån data som redan finns på den här instrumentpanelen",
+    "chatNoAgents": "Inga agenter är kopplade till den här rapporten — chatten svarar bara utifrån instrumentpanelens data.",
+    "chatModel": "Standardmodell",
+    "chatModelDesc": "Modellen som chatten använder för tittare. Tittare utan åtkomst till den använder sin egen standardmodell.",
+    "chatModelOrgDefault": "Organisationens standard ({name})",
+    "chatModelOrgDefaultPlain": "Organisationens standard",
+    "chatModelReport": "Samma som rapporten ({name})",
+    "chatModelReportPlain": "Samma som rapporten",
+    "chatModelUnavailable": "Modellen är inte tillgänglig — standard används"
   },
   "publish": {
     "published": "Publicerad",
@@ -3372,7 +3402,8 @@
       "too_large": "Posten är för stor för att sparas",
       "limit_reached": "Samlingen har nått sin gräns på {limit} poster",
       "conflict": "Någon annan har ändrat posten (nu version {current_version}). Ladda om och försök igen."
-    }
+    },
+    "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort."
   },
   "email": {
     "dashboardShare": {
@@ -5210,5 +5241,8 @@
     "preparing": "Förbereder din kopia…",
     "preparingDetail": "Kör frågorna med dina egna inloggningsuppgifter. Det brukar ta några sekunder.",
     "nothingRan": "Din kopia kunde inte skapas: ingen av dess frågor kunde köras med dina inloggningsuppgifter."
+  },
+  "quota": {
+    "resetsOn": "återställs {date}"
   }
 }

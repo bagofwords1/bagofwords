@@ -397,3 +397,68 @@ def test_connection_get_tables(
         org_id=org_id,
     )
 
+
+
+def _assert_explicit_utc(value, *, field, lower, upper):
+    """A timestamp the browser renders must carry its offset: `new Date()`
+    parses an offset-less ISO string as *local* time, shifting every label by
+    the viewer's UTC offset."""
+    from datetime import datetime, timedelta
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    assert parsed.tzinfo is not None, f"{field}={value!r} has no UTC offset"
+    assert lower - timedelta(seconds=5) <= parsed <= upper + timedelta(seconds=5), (
+        f"{field}={value!r} is not the UTC instant it was recorded at"
+    )
+
+
+@pytest.mark.e2e
+def test_connection_timestamps_are_explicit_utc(
+    create_connection,
+    test_connection_connectivity,
+    refresh_connection_schema,
+    get_connection,
+    get_connections,
+    delete_connection,
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """Every timestamp the connection endpoints return is an unambiguous UTC
+    instant, so "Last checked" / "Last synced" show the viewer's local time."""
+    if not CONNECTION_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {CONNECTION_TEST_DB_PATH}")
+    from datetime import datetime, timezone
+    from tests.e2e.test_connection_indexing import _poll_until_terminal
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    started = datetime.now(timezone.utc)
+    connection = create_connection(
+        name="Timestamp Test",
+        type="sqlite",
+        config={"database": str(CONNECTION_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+    assert test_connection_connectivity(
+        connection_id=connection["id"], user_token=user_token, org_id=org_id,
+    )["success"] is True
+    refresh_connection_schema(connection_id=connection["id"], user_token=user_token, org_id=org_id)
+    assert _poll_until_terminal(test_client, connection["id"], user_token, org_id)["status"] == "completed"
+    finished = datetime.now(timezone.utc)
+
+    detail = get_connection(connection_id=connection["id"], user_token=user_token, org_id=org_id)
+    assert detail["last_connection_checked_at"], "a system connection test records when it ran"
+    assert detail["last_synced_at"], "a completed index records when it synced"
+    listed = next(c for c in get_connections(user_token=user_token, org_id=org_id) if c["id"] == connection["id"])
+
+    for source, payload in (("detail", detail), ("list", listed)):
+        for field in ("last_connection_checked_at", "last_synced_at", "next_retry_at"):
+            if payload.get(field):
+                _assert_explicit_utc(payload[field], field=f"{source}.{field}", lower=started, upper=finished)
+
+    delete_connection(connection_id=connection["id"], user_token=user_token, org_id=org_id)

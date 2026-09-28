@@ -1,5 +1,26 @@
 # Release Notes
 
+## Version 0.0.570 (September 24, 2026)
+- Added a member's own usage quota under their name in the sidebar, with the full breakdown in the account menu (#1196)
+- Added Infor EPM (Application Engine) connector (#1178)
+- Added default model setting for dashboard chat (#1180)
+- Fixed connection timestamps shown in the wrong timezone (#1179)
+- Fixed transcript rendering, artifact caching, default reasoning effort, and "Thought for" showing tool run time instead of reasoning time (#1181)
+- Fixed parallel data steps failing with "greenlet_spawn" errors (#1182)
+- Fixed revoked columns and unchecked @table mentions reaching the agent prompt (#1183)
+- Faster agent runs: lighter step saves, context refreshes, and token streaming (#1184, #1185, #1186, #1187)
+- Fixed deleting an agent linked to a project wiping its content before failing (#1193)
+- Fixed generated code hidden in monitoring traces for users with code access (#1194)
+- Fixed unlinking a connection from an agent failing on PostgreSQL (#1195)
+- Fixed a reached org usage quota being reported as a provider failure (#1197)
+
+## Version 0.0.569 (September 22, 2026)
+- Added GPT-6 Sol and GPT-6 Luna as OpenAI presets — GPT-6 Luna is the new small default
+
+## Version 0.0.568 (September 22, 2026)
+- Added Claude Opus 5.5 (`claude-opus-5-5`) as an Anthropic preset: 1M context, 128K max output, $4/$20 per million tokens
+- Fixed Claude Opus 5 failing at low, medium or high effort — it was sent a fixed thinking budget the model rejects
+
 ## Version 0.0.567 (September 20, 2026)
 - Fixed report titles never being generated on PostgreSQL deployments — every report stayed "untitled report". Generating the title at prompt time (#1160) made it the first LLM call of a run, and that call's quota pre-check, which runs in a worker thread, was executing on an event loop of its own; the first check of a run reads the database, and asyncpg refuses a connection borrowed across loops. The agent now binds the usage context to the run's loop before any threaded call, so the check comes back to the right loop (SQLite deployments were unaffected — its driver tolerated the cross-loop access, which is why this slipped through)
 

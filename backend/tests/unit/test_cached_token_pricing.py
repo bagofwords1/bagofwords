@@ -230,3 +230,17 @@ def test_published_per_million_cache_read_prices():
         )
     assert at_ten("claude-fable-5-1") == pytest.approx(0.25)
     assert at_ten("claude-fable-5") == pytest.approx(1.00)
+
+
+def test_opus_5_5_reads_at_its_published_rate_and_opus_5_does_not():
+    """Claude Opus 5.5 publishes $0.20/MTok cache reads on a $4 base (0.05x);
+    Claude Opus 5 stays at the family 0.1x."""
+    assert pricing.rates_for("anthropic", "claude-opus-5-5").read == pytest.approx(0.05)
+    assert pricing.rates_for("bedrock", "anthropic.claude-opus-5-5").read == pytest.approx(0.05)
+    assert pricing.rates_for("anthropic", "claude-opus-5").read == pytest.approx(0.10)
+    at_four = pricing.cached_input_cost(
+        rate_per_million=4.0, prompt_tokens=0, cache_read_tokens=M,
+        cache_write_5m_tokens=0, cache_write_1h_tokens=0,
+        provider_type="anthropic", model_id="claude-opus-5-5",
+    )
+    assert at_four == pytest.approx(0.20)

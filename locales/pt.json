@@ -919,7 +919,22 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Uso de LLM nesta conversa",
     "turnTokensTooltip": "Tokens LLM do planejador neste turno",
-    "turnUsageTooltip": "Uso de LLM neste turno"
+    "turnUsageTooltip": "Uso de LLM neste turno",
+    "setup": "Preparação",
+    "setupTooltip": "Tempo do início até o primeiro passo (construção de contexto, etc.)",
+    "overhead": "Outros",
+    "overheadTooltip": "Tempo não atribuído a nenhum passo: persistência, atualização de contexto entre passos, finalização",
+    "segment_planner": "LLM do planejador",
+    "segment_tool_llm": "LLM da ferramenta",
+    "segment_tool_exec": "Execução da ferramenta",
+    "segment_setup": "Preparação",
+    "plannerShort": "Plano",
+    "toolShort": "Ferr.",
+    "stepTiming": "Tempo do passo",
+    "stepTotal": "Total do passo",
+    "firstToken": "Tempo até o primeiro token",
+    "thinking": "Raciocínio",
+    "tool": "Ferramenta"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -3301,7 +3316,22 @@
     "userNotFound": "Usuário não encontrado na organização",
     "copyFailed": "Falha ao copiar",
     "includeDataTab": "Incluir a aba Dados",
-    "includeDataTabDesc": "Os destinatários verão o histórico completo dos dados e o processo usado para gerar este relatório"
+    "includeDataTabDesc": "Os destinatários verão o histórico completo dos dados e o processo usado para gerar este relatório",
+    "allowChat": "Permitir chat",
+    "allowChatDesc": "Membros do espaço de trabalho conectados podem fazer perguntas sobre este painel",
+    "chatScope": "O chat pode usar",
+    "chatScopeAgents": "Agentes do relatório",
+    "chatScopeAgentsDesc": "O chat pode executar consultas ao vivo somente leitura nos agentes selecionados",
+    "chatScopeDataOnly": "Somente dados do painel",
+    "chatScopeDataOnlyDesc": "O chat responde apenas com os dados que já estão neste painel",
+    "chatNoAgents": "Nenhum agente está associado a este relatório — o chat responderá apenas com os dados do painel.",
+    "chatModel": "Modelo padrão",
+    "chatModelDesc": "O modelo que o chat usa para os visualizadores. Quem não tiver acesso a ele usará o próprio modelo padrão.",
+    "chatModelOrgDefault": "Padrão da organização ({name})",
+    "chatModelOrgDefaultPlain": "Padrão da organização",
+    "chatModelReport": "Igual ao relatório ({name})",
+    "chatModelReportPlain": "Igual ao relatório",
+    "chatModelUnavailable": "Modelo indisponível — usando o padrão"
   },
   "publish": {
     "published": "Publicado",
@@ -3372,7 +3402,8 @@
       "too_large": "Este registro é grande demais para ser salvo",
       "limit_reached": "Esta coleção atingiu o limite de {limit} registros",
       "conflict": "Outra pessoa alterou este registro (agora na versão {current_version}). Recarregue e tente novamente."
-    }
+    },
+    "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído."
   },
   "email": {
     "dashboardShare": {
@@ -5210,5 +5241,8 @@
     "preparing": "Preparando sua cópia…",
     "preparingDetail": "Executando as consultas com suas próprias credenciais. Isso normalmente leva alguns segundos.",
     "nothingRan": "Não foi possível criar sua cópia: nenhuma das consultas pôde ser executada com suas credenciais."
+  },
+  "quota": {
+    "resetsOn": "reinicia em {date}"
   }
 }

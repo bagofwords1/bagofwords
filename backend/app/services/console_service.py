@@ -1914,6 +1914,7 @@ class ConsoleService:
         total_codegen_llm_ms = 0.0
         total_db_ms = 0.0
         iterations: List[IterationTimingSchema] = []
+        seen_decisions: set[str] = set()
         for b in blocks:
             tool_ms: float | None = None
             sub_timings = None
@@ -1942,10 +1943,16 @@ class ConsoleService:
                     # No sub_timings at all — entire tool duration is execution
                     total_db_ms += tool_ms
 
+            # Full planner LLM call for this iteration (thinking is only a
+            # slice of it). A decision that fans out into several tools yields
+            # several blocks; attribute its planner time to the first only.
             llm_ms: float | None = None
-            if b.plan_decision and b.plan_decision.metrics_json:
-                m = b.plan_decision.metrics_json
-                llm_ms = m.get("thinking_ms") or m.get("generation_ms")
+            pd = b.plan_decision
+            if pd and pd.metrics_json and pd.id not in seen_decisions:
+                m = pd.metrics_json
+                llm_ms = m.get("total_duration_ms") or m.get("thinking_ms") or m.get("generation_ms")
+            if pd:
+                seen_decisions.add(pd.id)
 
             iterations.append(IterationTimingSchema(
                 loop_index=b.loop_index,

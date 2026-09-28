@@ -21,8 +21,8 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        # Selectable, but not the default: Astra is ~4x Terra's input price and
-        # 3.3x its output price, so switching every org's default on upgrade is
+        # Selectable, but not the default: Astra is 5x Terra's input price and
+        # ~4x its output price, so switching every org's default on upgrade is
         # a cost decision, not a catalog one.
         "is_default": False,
         "supports_vision": True,
@@ -30,6 +30,39 @@ LLM_MODEL_DETAILS = [
         "max_output_tokens": 128000,
         "input_cost_per_million_tokens_usd": 10.00,
         "output_cost_per_million_tokens_usd": 50.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-6-sol
+        # GPT-6 ships Astra, Sol and Luna only — there is no gpt-6-terra, so
+        # GPT-5.6 Terra keeps the provider default.
+        "name": "GPT-6 Sol",
+        "model_id": "gpt-6-sol",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-6-luna
+        # Small default: half GPT-5.6 Luna's input price and under half its
+        # output price, for the same 1.05M window.
+        "name": "GPT-6 Luna",
+        "model_id": "gpt-6-luna",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 0.10,
+        "output_cost_per_million_tokens_usd": 0.50
     },
     {
         "name": "GPT-5.6 Sol",
@@ -41,8 +74,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 5.00,
-        "output_cost_per_million_tokens_usd": 30.00
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
     },
     {
         "name": "GPT-5.6 Terra",
@@ -54,8 +87,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 2.50,
-        "output_cost_per_million_tokens_usd": 15.00
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 12.00
     },
     {
         "name": "GPT-5.6 Luna",
@@ -64,12 +97,12 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_default": False,
-        "is_small_default": True,
+        "is_small_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 1.00,
-        "output_cost_per_million_tokens_usd": 6.00
+        "input_cost_per_million_tokens_usd": 0.20,
+        "output_cost_per_million_tokens_usd": 1.20
     },
     {
         "name": "GPT-5.5",
@@ -170,6 +203,29 @@ LLM_MODEL_DETAILS = [
         "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 3.00,
         "output_cost_per_million_tokens_usd": 15.00
+    },
+    {
+        # Successor to Claude Opus 5, cheaper per token ($4/$20) with the same
+        # 1M window and 128K output. Selectable but not a default, like Fable
+        # 5.1: moving an org's default is the admin's call.
+        #
+        # Client handling rides on existing substring tags: ``opus-5`` in
+        # _NO_SAMPLING_PARAM_TAGS drops temperature, and in agent_v2's
+        # _effort_to_thinking_config it gets adaptive thinking (budget_tokens
+        # and ``disabled`` both 400 here; effort "off" omits the param, which
+        # runs adaptive). Forced tool_choice also 400s, but we only send auto.
+        # Its 0.05x cache-read rate lives in pricing._ANTHROPIC_READ_RATE_OVERRIDES.
+        "name": "Claude Opus 5.5",
+        "model_id": "claude-opus-5-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
     },
     {
         "name": "Claude Opus 5",

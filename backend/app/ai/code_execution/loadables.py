@@ -25,12 +25,12 @@ from __future__ import annotations
 
 import ast
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, lazyload, selectinload
 
 from app.models.entity import Entity
 from app.models.query import Query
@@ -143,6 +143,16 @@ async def resolve_loadables_for_code(
     return {"steps": resolved.get("steps", {}), "entities": resolved.get("entities", {})}
 
 
+def _summary_has_shape(summary: Any) -> bool:
+    """A step context summary carrying the discovery projection."""
+    return (
+        isinstance(summary, dict)
+        and isinstance(summary.get("columns"), list)
+        and isinstance(summary.get("row_count"), int)
+        and not isinstance(summary.get("row_count"), bool)
+    )
+
+
 class LoadablesResolver:
     """Resolves load_step / load_entity references for a single report turn."""
 
@@ -176,7 +186,7 @@ class LoadablesResolver:
         if not self.enable_load_step:
             return None
         steps = await self._report_default_steps(
-            limit=limit, max_age_seconds=self.step_max_age_seconds
+            limit=limit, max_age_seconds=self.step_max_age_seconds, light=True
         )
         if not steps:
             return None
@@ -199,18 +209,34 @@ class LoadablesResolver:
                     )
                 except Exception:
                     continue
+        # Columns and row count come from the step's context summary (kept in
+        # sync with Step.data on every write), so discovery doesn't load and
+        # decrypt up to `limit` full result sets. Steps written before the
+        # summary existed fall back to their data, fetched in one query.
+        summaries = {str(st.id): st.context_summary_json for st in steps}
+        missing = [sid for sid, sm in summaries.items() if not _summary_has_shape(sm)]
+        data_by_id: Dict[str, Any] = {}
+        if missing:
+            rows = (await self.db.execute(select(Step.id, Step.data).where(Step.id.in_(missing)))).all()
+            data_by_id = {str(sid): d for sid, d in rows}
         items: List[StepItem] = []
         for step in steps:
-            data = step.data if isinstance(step.data, dict) else {}
-            columns = [
-                c.get("field")
-                for c in (data.get("columns") or [])
-                if isinstance(c, dict) and c.get("field")
-            ]
-            info = data.get("info") or {}
-            row_count = info.get("total_rows")
-            if row_count is None:
-                row_count = len(data.get("rows") or [])
+            summary = summaries.get(str(step.id))
+            if _summary_has_shape(summary):
+                columns = [c["field"] for c in summary["columns"] if isinstance(c, dict) and c.get("field")]
+                row_count = summary["row_count"]
+            else:
+                data = data_by_id.get(str(step.id))
+                data = data if isinstance(data, dict) else {}
+                columns = [
+                    c.get("field")
+                    for c in (data.get("columns") or [])
+                    if isinstance(c, dict) and c.get("field")
+                ]
+                info = data.get("info") or {}
+                row_count = info.get("total_rows")
+                if row_count is None:
+                    row_count = len(data.get("rows") or [])
             items.append(
                 StepItem(
                     id=str(step.id),
@@ -326,6 +352,7 @@ class LoadablesResolver:
     # ------------------------------------------------------------------ #
     async def _report_default_steps(
         self, *, limit: Optional[int] = None, max_age_seconds: Optional[int] = None,
+        light: bool = False,
     ) -> List[Step]:
         """Successful default steps for the report (Report -> Query -> Step).
 
@@ -352,6 +379,10 @@ class LoadablesResolver:
             stmt = stmt.where(Step.created_at >= cutoff.replace(tzinfo=None))
         if limit:
             stmt = stmt.limit(limit)
+        if light:
+            # Discovery reads only scalar columns + the context summary: skip
+            # the eager query/entity graph and don't load the result data.
+            stmt = stmt.options(lazyload("*"), defer(Step.data))
         res = await self.db.execute(stmt)
         return list(res.scalars().all())
 

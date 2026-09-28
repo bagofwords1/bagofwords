@@ -246,11 +246,15 @@ class QueryService:
         payload: QueryCreate,
         organization_id: Optional[str],
         user_id: Optional[str],
+        commit: bool = True,
     ) -> Query:
         """Create a Query. If widget_id is not provided, create a widget under the given report_id.
 
         Note: For now, a Query always anchors to a Widget to avoid orphan Steps. If neither
         widget_id nor report_id is provided, this will raise a ValueError.
+
+        commit=False only flushes (no commit, no refresh), for callers that
+        create the query's step/visualization in the same transaction.
         """
         widget_id = payload.widget_id
         report_id = payload.report_id
@@ -260,9 +264,10 @@ class QueryService:
 
         if not widget_id:
             # Validate report exists before creating a widget
-            stmt = select(Report).where(Report.id == str(report_id))
-            report = (await db.execute(stmt)).scalar_one_or_none()
-            if report is None:
+            # Only the id is needed; don't pull Report's selectin graph.
+            stmt = select(Report.id).where(Report.id == str(report_id))
+            found_report_id = (await db.execute(stmt)).scalar_one_or_none()
+            if found_report_id is None:
                 raise ValueError("Report not found for creating widget")
 
             # Create a lightweight widget to anchor steps
@@ -272,7 +277,7 @@ class QueryService:
             w = Widget(
                 title=payload.title,
                 slug=slug,
-                report_id=str(report.id),
+                report_id=str(found_report_id),
                 status="draft",
             )
             db.add(w)
@@ -292,6 +297,9 @@ class QueryService:
             default_step_id=None,
         )
         db.add(q)
+        if not commit:
+            await db.flush()
+            return q
         await db.commit()
         await db.refresh(q)
         return q

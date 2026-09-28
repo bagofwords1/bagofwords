@@ -289,6 +289,7 @@ async def set_report_visibility(
         include_data_tab=payload.include_data_tab,
         artifact_chat_enabled=payload.artifact_chat_enabled,
         artifact_chat_data_source_ids=payload.artifact_chat_data_source_ids,
+        artifact_chat_model_id=payload.artifact_chat_model_id,
     )
 
 

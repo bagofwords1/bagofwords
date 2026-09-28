@@ -260,8 +260,18 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
     assert by_model_id["gpt-5.6-terra"]["is_enabled"] is True
     assert by_model_id["gpt-5.6-terra"]["is_default"] is True
 
+    # GPT-6 has no Terra, so GPT-5.6 Terra keeps the default above; GPT-6 Luna
+    # takes the small default from GPT-5.6 Luna.
+    assert by_model_id["gpt-6-sol"]["is_enabled"] is True
+    assert by_model_id["gpt-6-sol"]["is_default"] is False
+    assert by_model_id["gpt-6-sol"]["max_output_tokens"] == 128000
+
+    assert by_model_id["gpt-6-luna"]["is_enabled"] is True
+    assert by_model_id["gpt-6-luna"]["is_small_default"] is True
+    assert by_model_id["gpt-6-luna"]["is_default"] is False
+
     assert by_model_id["gpt-5.6-luna"]["is_enabled"] is True
-    assert by_model_id["gpt-5.6-luna"]["is_small_default"] is True
+    assert by_model_id["gpt-5.6-luna"]["is_small_default"] is False
 
     assert by_model_id["gpt-5.5"]["is_enabled"] is True
     assert by_model_id["gpt-5.5"]["is_default"] is False

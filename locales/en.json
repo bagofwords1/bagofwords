@@ -959,7 +959,22 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM usage for this conversation",
     "turnTokensTooltip": "Planner LLM tokens for this turn",
-    "turnUsageTooltip": "LLM usage for this turn"
+    "turnUsageTooltip": "LLM usage for this turn",
+    "setup": "Setup",
+    "setupTooltip": "Time from run start until the first step began (context building, etc.)",
+    "overhead": "Other",
+    "overheadTooltip": "Time not attributed to any step: persistence, context refresh between steps, finalization",
+    "segment_planner": "Planner LLM",
+    "segment_tool_llm": "Tool LLM",
+    "segment_tool_exec": "Tool execution",
+    "segment_setup": "Setup",
+    "plannerShort": "Plan",
+    "toolShort": "Tool",
+    "stepTiming": "Step timing",
+    "stepTotal": "Step total",
+    "firstToken": "Time to first token",
+    "thinking": "Thinking",
+    "tool": "Tool"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -3461,7 +3476,14 @@
     "chatScopeAgentsDesc": "Chat may run live read-only queries against the selected agents",
     "chatScopeDataOnly": "Dashboard data only",
     "chatScopeDataOnlyDesc": "Chat answers only from the data already on this dashboard",
-    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only."
+    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only.",
+    "chatModel": "Default model",
+    "chatModelDesc": "The model chat uses for viewers. Viewers without access to it fall back to their own default.",
+    "chatModelOrgDefault": "Organization default ({name})",
+    "chatModelOrgDefaultPlain": "Organization default",
+    "chatModelReport": "Same as report ({name})",
+    "chatModelReportPlain": "Same as report",
+    "chatModelUnavailable": "Unavailable model — using default"
   },
   "publish": {
     "published": "Published",
@@ -3530,7 +3552,8 @@
       "too_large": "This record is too large to save",
       "limit_reached": "This collection has reached its limit of {limit} records",
       "conflict": "Someone else changed this record (now at version {current_version}). Reload and try again."
-    }
+    },
+    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted."
   },
   "email": {
     "dashboardShare": {
@@ -5273,5 +5296,8 @@
     "preparing": "Preparing your copy…",
     "preparingDetail": "Running the queries with your own credentials. This usually takes a few seconds.",
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
+  },
+  "quota": {
+    "resetsOn": "resets {date}"
   }
 }

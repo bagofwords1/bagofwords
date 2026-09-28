@@ -312,7 +312,7 @@ class LLM:
         custom_headers = build_provider_headers(additional_config) or None
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
-            if base_url and not self.model_id.startswith("gpt-6"):
+            if base_url and not self.model_id.startswith("gpt-6") and not additional_config.get("use_responses_api"):
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
                 self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers)
             else:
@@ -406,7 +406,14 @@ class LLM:
             verify_ssl = self.model.provider.additional_config.get("verify_ssl", True) if self.model.provider.additional_config else True
             # Use empty string for api_key if not provided (some local servers don't need auth)
             api_key = self.api_key or ""
-            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature, default_headers=custom_headers)
+            if additional_config.get("use_responses_api"):
+                self.client = OpenAIResponsesClient(
+                    api_key=api_key, base_url=base_url,
+                    temperature=configured_temperature, default_headers=custom_headers,
+                    verify_ssl=verify_ssl,
+                )
+            else:
+                self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature, default_headers=custom_headers)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")
@@ -433,6 +440,12 @@ class LLM:
             self.client = self._build_vertex_client(additional_config, configured_temperature, custom_headers)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
+
+        # Explicit capability identity for opaque deployment/gateway aliases.
+        # Never infer API capabilities from an arbitrary deployment name.
+        model_config = getattr(self.model, "config", None) or {}
+        if isinstance(model_config, dict) and isinstance(model_config.get("reasoning_model_id"), str):
+            self.client.reasoning_model_id = model_config["reasoning_model_id"]
 
     def _build_vertex_client(self, additional_config: dict, configured_temperature, custom_headers):
         """Pick the transport for a Vertex model and build its client.

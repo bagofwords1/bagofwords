@@ -63,8 +63,14 @@ class PromptBuilderV3:
         estimate.
         """
         v3 = PromptBuilderV3.build(planner_input)
-        user_msg = v3.messages[0]["content"] if v3.messages else ""
-        return f"{v3.system}\n{user_msg}"
+        # Every message, not just the first: on the transcript path the
+        # volatile head (conversation history, current artifact) rides on the
+        # last turn, so reading messages[0] alone under-counted it.
+        bodies = [
+            m["content"] if isinstance(m["content"], str) else json.dumps(m["content"], default=str)
+            for m in v3.messages
+        ]
+        return "\n".join([v3.system, *bodies])
 
     @staticmethod
     def build(planner_input: PlannerInput) -> PlannerInputV3:
@@ -685,8 +691,8 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         path so it forms one long cacheable prefix.
 
         Deliberately excludes observations (they become turns), the clock and
-        routing state (volatile — see _build_turn_head), and steering (arrives
-        mid-run).
+        routing state (volatile — see _build_turn_head), steering (arrives
+        mid-run), and the current artifact (edits change it mid-run).
         """
         parts: List[str] = []
         for block in (
@@ -713,7 +719,6 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
-        parts.append(f"  {PromptBuilder._render_current_artifact(planner_input.active_artifact)}")
         parts.append("</context>")
         return "\n".join(parts)
 
@@ -781,7 +786,8 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 
     @staticmethod
     def _build_turn_head(planner_input: PlannerInput) -> str:
-        """The volatile per-turn head: clock, routing state, steering.
+        """The volatile per-turn head: clock, routing state, current artifact,
+        conversation history, steering.
 
         Rides with the newest tool results so everything above it stays stable.
         """
@@ -797,6 +803,12 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         runtime = PromptBuilderV3._format_runtime(planner_input)
         if runtime:
             parts.append(runtime)
+        # The artifact is re-read every iteration and every create/edit changes
+        # its id, version and code. In turn 0 that invalidated the cached prefix
+        # — the whole transcript behind it — on each edit, forcing the next call
+        # to re-write hundreds of thousands of tokens. Here it costs only its
+        # own size, uncached.
+        parts.append(PromptBuilder._render_current_artifact(planner_input.active_artifact))
         # Conversation history belongs here, not in the "static" block. It is
         # rebuilt every iteration and GROWS during a run — the agent's own
         # completion blocks land in it as it works — so keeping it up front made

@@ -1,7 +1,7 @@
 """add app_records table (artifact app persistence)
 
 Revision ID: apprec01
-Revises: cachettl01
+Revises: artchatmodel01
 Create Date: 2026-09-27 12:00:00.000000
 
 One row per record of an artifact app's data: a fixed envelope the server
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'apprec01'
-down_revision: Union[str, None] = 'cachettl01'
+down_revision: Union[str, None] = 'artchatmodel01'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

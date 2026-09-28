@@ -111,6 +111,9 @@ class ReportSchema(ReportBase):
     # Owner's agent allowlist for artifact-page chat: null = inherit the
     # report's attached roster, [] = dashboard data only, list = subset.
     artifact_chat_data_source_ids: Optional[List[str]] = None
+    # Owner's default model for artifact-page chat: null = inherit the
+    # report's model; "org_default" = the organization default; else a model id.
+    artifact_chat_model_id: Optional[str] = None
     # True when the report reads an RLS-enabled relation: viewers always run
     # under their own identity and 'run on my behalf' (creator mode) is blocked.
     has_rls: bool = False
@@ -213,6 +216,10 @@ class ReportVisibilityUpdate(BaseModel):
     # omitted = leave unchanged; [] = dashboard data only; ["*"] = reset to
     # inherit the report's attached roster (null); a list = explicit subset.
     artifact_chat_data_source_ids: Optional[List[str]] = None
+    # Artifact sharing only: default model for chat. Sentinel-aware like
+    # ReportUpdate.model_id: omitted = leave unchanged; "" = clear (inherit the
+    # report's model); "org_default" = the organization default model.
+    artifact_chat_model_id: Optional[str] = None
 
 
 class ViewerRunResultSchema(BaseModel):

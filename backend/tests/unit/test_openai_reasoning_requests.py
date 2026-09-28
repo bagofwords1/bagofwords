@@ -14,7 +14,7 @@ async def empty_stream():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('model_id', ['gpt-6-astra', 'gpt-6-astra-2026-09-05'])
+@pytest.mark.parametrize('model_id', ['gpt-6-astra', 'gpt-6-astra-2026-09-05', 'gpt-6-sol', 'gpt-6-luna'])
 @pytest.mark.parametrize('temperature', [None, 0, 0.7])
 @pytest.mark.parametrize('path', ['sync', 'stream', 'tools'])
 async def test_reasoning_requests_omit_sampling_and_honor_thinking(model_id, temperature, path):

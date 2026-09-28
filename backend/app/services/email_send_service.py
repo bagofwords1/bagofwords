@@ -167,6 +167,7 @@ class EmailSendService:
         report: Any = None,
         organization: Any = None,
         system_completion: Any = None,
+        user: Any = None,
     ) -> SendEmailOutput:
         """Send an email to ``recipient`` with the given attachments.
 
@@ -187,7 +188,7 @@ class EmailSendService:
         try:
             for spec in attachment_specs:
                 result, att_dict, temp_path = await self.resolve_attachment(
-                    spec, db, report, organization
+                    spec, db, report, organization, user=user
                 )
                 attachment_results.append(result)
                 if att_dict:
@@ -344,7 +345,7 @@ class EmailSendService:
     # ---- attachment resolution ----
 
     async def resolve_attachment(
-        self, spec: EmailAttachmentSpec, db, report: Any, organization: Any
+        self, spec: EmailAttachmentSpec, db, report: Any, organization: Any, user: Any = None
     ) -> Tuple[SendEmailAttachmentResult, Optional[Dict[str, Any]], Optional[str]]:
         """Resolve a single attachment spec to a fastapi-mail attachment dict.
 
@@ -358,7 +359,7 @@ class EmailSendService:
             if spec.ref_type == "artifact":
                 return await self._resolve_artifact(spec, db, report, res)
             if spec.ref_type == "file":
-                return await self._resolve_file(spec, db, organization, res)
+                return await self._resolve_file(spec, db, report, organization, res, user)
             res.error = f"Unknown ref_type '{spec.ref_type}'"
             return res, None, None
         except Exception as e:
@@ -504,18 +505,21 @@ class EmailSendService:
         # pdf_path is a persistent file under uploads/ — do NOT schedule it for cleanup.
         return res, _att_dict(pdf_path, filename, maintype, subtype), None
 
-    async def _resolve_file(self, spec, db, organization, res):
-        """file_id -> attach the uploaded file as-is."""
+    async def _resolve_file(self, spec, db, report, organization, res, user=None):
+        """file_id -> attach the uploaded file as-is.
+
+        Mailing a file sends it outside the app, so it must be one the sender
+        may see — the agent run's user, or the report owner for runs without
+        one (notifications, schedules) — not merely any file id in the org."""
         from app.models.file import File
+        from app.services.file_access_service import run_viewable_file_ids
 
-        _, org_id = self._scope_ids(None, organization)
-
-        f = await db.get(File, spec.ref_id)
+        allowed = await run_viewable_file_ids(
+            db, user=user, report=report, organization=organization, file_ids=[str(spec.ref_id)],
+        )
+        f = await db.get(File, spec.ref_id) if allowed else None
         if not f:
             res.error = "File not found"
-            return res, None, None
-        if org_id and str(f.organization_id) != org_id:
-            res.error = "File does not belong to this organization"
             return res, None, None
         if not f.path or not os.path.isfile(f.path):
             res.error = "File is no longer available on disk"

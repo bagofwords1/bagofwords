@@ -381,5 +381,8 @@ class MCPTool(ABC):
         # Update system completion
         system_completion.status = "success" if success else "error"
         system_completion.completion = {"content": summary}
-        
+
         await db.commit()
+        # Diagnosis rollup, as finish_agent_execution does for agent-loop runs.
+        from app.services.diagnosis.rollup import refresh_after_run
+        await refresh_after_run(db, str(agent_execution.id))

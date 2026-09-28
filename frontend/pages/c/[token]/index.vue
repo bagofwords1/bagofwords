@@ -540,6 +540,15 @@ function hasCompletedContent(block: any): boolean {
 function getThoughtProcessLabel(block: any): string {
     if (block.status === 'stopped') return 'Thought Process'
 
+    // Measured reasoning: the planner's plus the tool's code generation, which
+    // streams into this same block.
+    const pm = block.plan_decision?.metrics || block.plan_decision?.metrics_json
+    const measured = [pm?.thinking_ms, block.tool_execution?.sub_timings_json?.codegen_reasoning_ms]
+        .filter((ms: any) => typeof ms === 'number' && isFinite(ms) && ms >= 0)
+    if (measured.length) {
+        return `Thought for ${Math.round(measured.reduce((a: number, b: number) => a + b, 0) / 1000)}s`
+    }
+
     if (block.started_at && block.completed_at) {
         const startTime = new Date(block.started_at).getTime()
         const endTime = new Date(block.completed_at).getTime()
@@ -549,11 +558,7 @@ function getThoughtProcessLabel(block: any): string {
         return `Thought for ${durationSeconds}s`
     }
 
-    if (block.tool_execution?.duration_ms) {
-        const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
-        return `Thought for ${durationSeconds}s`
-    }
-
+    // The tool's own duration is not reasoning time; it already shows on the tool row.
     return 'Thought Process'
 }
 

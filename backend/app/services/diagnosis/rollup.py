@@ -35,13 +35,21 @@ _PRIMARY_SCOPES = ("planner", "agent")
 _PLATFORMS = {"slack", "teams", "email", "mcp", "api", "web"}
 
 
+def _clean_text(value) -> Optional[str]:
+    """Postgres TEXT rejects NUL bytes that the source JSON can carry (driver
+    errors, pasted binary); one such row would fail its whole batch."""
+    if value is None:
+        return None
+    text = str(value).replace("\x00", "").strip()
+    return text[:TEXT_LIMIT] if text else None
+
+
 def _prompt_text(value) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, dict):
         value = value.get("content") or value.get("text") or ""
-    text = str(value).strip()
-    return text[:TEXT_LIMIT] if text else None
+    return _clean_text(value)
 
 
 def _error_text(error_json) -> Optional[str]:
@@ -52,8 +60,7 @@ def _error_text(error_json) -> Optional[str]:
         text = str(msg) if msg else str(error_json)
     else:
         text = str(error_json)
-    text = text.strip()
-    return text[:TEXT_LIMIT] if text else None
+    return _clean_text(text)
 
 
 def _platform(user_c: Optional[Completion], sys_c: Optional[Completion], config_json) -> str:
@@ -113,7 +120,7 @@ def _rollup_values(ae, head, user_c, sys_c, fb, tool_counts, usage_rows, cost_is
         error_text=_error_text(ae.error_json),
         platform=_platform(user_c, sys_c, ae.config_json),
         feedback_direction=feedback_direction,
-        feedback_message=feedback_message,
+        feedback_message=feedback_message.replace("\x00", "") if feedback_message else feedback_message,
         judge_response_score=getattr(head, "response_score", None) if head is not None else None,
         judge_instructions_score=getattr(head, "instructions_effectiveness", None) if head is not None else None,
         judge_context_score=getattr(head, "context_effectiveness", None) if head is not None else None,
@@ -428,8 +435,20 @@ async def backfill(
         rows = (await db.execute(q)).all()
         if not rows:
             break
-        done += await refresh_rollups_bulk(db, [str(r.id) for r in rows])
-        await db.commit()
+        ids = [str(r.id) for r in rows]
+        try:
+            done += await refresh_rollups_bulk(db, ids)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — one bad run must not hold back the rest
+            await db.rollback()
+            logger.warning("diagnosis rollup batch failed (%s); indexing its runs one by one", exc)
+            for ae_id in ids:
+                try:
+                    await refresh_rollup(db, ae_id)
+                    done += 1
+                except Exception as run_exc:  # noqa: BLE001 — stays pending; retried next pass
+                    await db.rollback()
+                    logger.warning("diagnosis rollup for run %s failed: %s", ae_id, run_exc)
         last = (rows[-1].created_at, str(rows[-1].id))
         if progress:
             progress(done, total)

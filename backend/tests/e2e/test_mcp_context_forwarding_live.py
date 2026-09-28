@@ -92,7 +92,7 @@ def test_haiku_agent_forwards_user_context_to_mcp(
         },
     }
     ds = create_data_source(
-        name="Echo LN MCP",
+        name="Echo MCP",
         type="mcp",
         config=forwarding,
         credentials={},
@@ -107,11 +107,11 @@ def test_haiku_agent_forwards_user_context_to_mcp(
     if conn_id is None:
         # Fall back to listing connections for this org.
         conns = test_client.get("/api/connections", headers=headers).json()
-        conn_id = next((c["id"] for c in conns if c.get("name") == "Echo LN MCP"), None)
+        conn_id = next((c["id"] for c in conns if c.get("name") == "Echo MCP"), None)
     assert conn_id, f"could not resolve MCP connection id from {json.dumps(ds)[:400]}"
     refresh_connection_tools(connection_id=conn_id, user_token=token, org_id=org_id)
 
-    report = create_report(title="LN Orders", user_token=token, org_id=org_id, data_sources=[ds_id])
+    report = create_report(title="Orders", user_token=token, org_id=org_id, data_sources=[ds_id])
 
     # Wipe any stale capture, then let Haiku drive the tool call.
     try:

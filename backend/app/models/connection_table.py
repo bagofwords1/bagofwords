@@ -28,6 +28,9 @@ class ConnectionTable(BaseSchema):
     """
     __tablename__ = 'connection_tables'
 
+    # Power BI identity uniqueness is enforced by the dialect-specific JSON
+    # expression index uq_connection_powerbi_identity (migration pbiidentity01).
+    # Display names are intentionally not that identity.
     # NOTE: (connection_id, name) uniqueness is enforced in the service layer
     # (custom_query_service), not by a DB constraint — existing installs may
     # already hold duplicate introspected rows and a migration that added the

@@ -919,7 +919,22 @@
     "tokensCount": "{count} Token",
     "llmUsageTooltip": "LLM-Nutzung für diese Konversation",
     "turnTokensTooltip": "Planner-LLM-Token in dieser Runde",
-    "turnUsageTooltip": "LLM-Nutzung in dieser Runde"
+    "turnUsageTooltip": "LLM-Nutzung in dieser Runde",
+    "setup": "Vorbereitung",
+    "setupTooltip": "Zeit vom Start bis zum ersten Schritt (Kontextaufbau usw.)",
+    "overhead": "Sonstiges",
+    "overheadTooltip": "Keinem Schritt zugeordnete Zeit: Speichern, Kontextaktualisierung zwischen Schritten, Abschluss",
+    "segment_planner": "Planer-LLM",
+    "segment_tool_llm": "Tool-LLM",
+    "segment_tool_exec": "Tool-Ausführung",
+    "segment_setup": "Vorbereitung",
+    "plannerShort": "Plan",
+    "toolShort": "Tool",
+    "stepTiming": "Schritt-Timing",
+    "stepTotal": "Schritt gesamt",
+    "firstToken": "Zeit bis zum ersten Token",
+    "thinking": "Denken",
+    "tool": "Tool"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -3301,7 +3316,22 @@
     "userNotFound": "Benutzer in Organisation nicht gefunden",
     "copyFailed": "Kopieren fehlgeschlagen",
     "includeDataTab": "Registerkarte „Daten“ einschließen",
-    "includeDataTabDesc": "Empfänger sehen den vollständigen Datenverlauf und den Prozess, mit dem dieser Bericht erstellt wurde"
+    "includeDataTabDesc": "Empfänger sehen den vollständigen Datenverlauf und den Prozess, mit dem dieser Bericht erstellt wurde",
+    "allowChat": "Chat erlauben",
+    "allowChatDesc": "Angemeldete Mitglieder des Arbeitsbereichs können Fragen zu diesem Dashboard stellen",
+    "chatScope": "Chat darf verwenden",
+    "chatScopeAgents": "Agenten des Berichts",
+    "chatScopeAgentsDesc": "Der Chat darf schreibgeschützte Live-Abfragen an die ausgewählten Agenten ausführen",
+    "chatScopeDataOnly": "Nur Dashboard-Daten",
+    "chatScopeDataOnlyDesc": "Der Chat antwortet nur mit den Daten, die bereits auf diesem Dashboard sind",
+    "chatNoAgents": "Diesem Bericht sind keine Agenten zugeordnet – der Chat antwortet nur mit den Dashboard-Daten.",
+    "chatModel": "Standardmodell",
+    "chatModelDesc": "Das Modell, das der Chat für Betrachter verwendet. Betrachter ohne Zugriff darauf nutzen ihr eigenes Standardmodell.",
+    "chatModelOrgDefault": "Standard der Organisation ({name})",
+    "chatModelOrgDefaultPlain": "Standard der Organisation",
+    "chatModelReport": "Wie im Bericht ({name})",
+    "chatModelReportPlain": "Wie im Bericht",
+    "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet"
   },
   "publish": {
     "published": "Veröffentlicht",
@@ -3372,7 +3402,8 @@
       "too_large": "Dieser Datensatz ist zu groß zum Speichern",
       "limit_reached": "Diese Sammlung hat ihr Limit von {limit} Datensätzen erreicht",
       "conflict": "Jemand anderes hat diesen Datensatz geändert (jetzt Version {current_version}). Laden Sie neu und versuchen Sie es erneut."
-    }
+    },
+    "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht."
   },
   "email": {
     "dashboardShare": {
@@ -5210,5 +5241,8 @@
     "preparing": "Deine Kopie wird vorbereitet…",
     "preparingDetail": "Die Abfragen werden mit deinen eigenen Zugangsdaten ausgeführt. Das dauert meist nur ein paar Sekunden.",
     "nothingRan": "Deine Kopie konnte nicht erstellt werden: Keine ihrer Abfragen ließ sich mit deinen Zugangsdaten ausführen."
+  },
+  "quota": {
+    "resetsOn": "Zurücksetzung am {date}"
   }
 }

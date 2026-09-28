@@ -919,7 +919,22 @@
     "tokensCount": "{count} token",
     "llmUsageTooltip": "Utilizzo LLM per questa conversazione",
     "turnTokensTooltip": "Token LLM del pianificatore per questo turno",
-    "turnUsageTooltip": "Utilizzo LLM per questo turno"
+    "turnUsageTooltip": "Utilizzo LLM per questo turno",
+    "setup": "Preparazione",
+    "setupTooltip": "Tempo dall'avvio al primo passo (costruzione del contesto, ecc.)",
+    "overhead": "Altro",
+    "overheadTooltip": "Tempo non attribuito a nessun passo: persistenza, aggiornamento del contesto tra i passi, finalizzazione",
+    "segment_planner": "LLM del pianificatore",
+    "segment_tool_llm": "LLM dello strumento",
+    "segment_tool_exec": "Esecuzione dello strumento",
+    "segment_setup": "Preparazione",
+    "plannerShort": "Piano",
+    "toolShort": "Strum.",
+    "stepTiming": "Tempi del passo",
+    "stepTotal": "Totale del passo",
+    "firstToken": "Tempo al primo token",
+    "thinking": "Ragionamento",
+    "tool": "Strumento"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -3301,7 +3316,22 @@
     "userNotFound": "Utente non trovato nell'organizzazione",
     "copyFailed": "Impossibile copiare",
     "includeDataTab": "Includi la scheda Dati",
-    "includeDataTabDesc": "I destinatari vedranno la cronologia completa dei dati e il processo utilizzato per generare questo report"
+    "includeDataTabDesc": "I destinatari vedranno la cronologia completa dei dati e il processo utilizzato per generare questo report",
+    "allowChat": "Consenti chat",
+    "allowChatDesc": "I membri dell'area di lavoro che hanno effettuato l'accesso possono porre domande su questa dashboard",
+    "chatScope": "La chat può usare",
+    "chatScopeAgents": "Agenti del report",
+    "chatScopeAgentsDesc": "La chat può eseguire query live in sola lettura sugli agenti selezionati",
+    "chatScopeDataOnly": "Solo dati della dashboard",
+    "chatScopeDataOnlyDesc": "La chat risponde solo con i dati già presenti in questa dashboard",
+    "chatNoAgents": "Nessun agente è collegato a questo report: la chat risponderà solo con i dati della dashboard.",
+    "chatModel": "Modello predefinito",
+    "chatModelDesc": "Il modello usato dalla chat per chi visualizza. Chi non vi ha accesso usa il proprio modello predefinito.",
+    "chatModelOrgDefault": "Predefinito dell'organizzazione ({name})",
+    "chatModelOrgDefaultPlain": "Predefinito dell'organizzazione",
+    "chatModelReport": "Come nel report ({name})",
+    "chatModelReportPlain": "Come nel report",
+    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito"
   },
   "publish": {
     "published": "Pubblicato",
@@ -3372,7 +3402,8 @@
       "too_large": "Questo record è troppo grande per essere salvato",
       "limit_reached": "Questa raccolta ha raggiunto il limite di {limit} record",
       "conflict": "Qualcun altro ha modificato questo record (ora alla versione {current_version}). Ricarica e riprova."
-    }
+    },
+    "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla."
   },
   "email": {
     "dashboardShare": {
@@ -5210,5 +5241,8 @@
     "preparing": "Preparazione della tua copia…",
     "preparingDetail": "Esecuzione delle query con le tue credenziali. Di solito richiede pochi secondi.",
     "nothingRan": "Impossibile creare la tua copia: nessuna delle sue query è stata eseguita con le tue credenziali."
+  },
+  "quota": {
+    "resetsOn": "si azzera il {date}"
   }
 }
