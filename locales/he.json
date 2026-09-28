@@ -5422,6 +5422,7 @@
     "title": "מאז הביקור האחרון",
     "gotIt": "הבנתי",
     "why": "למה: {why}",
+    "waitingOn": "ממתין ל{what}",
     "notUseful": "לא שימושי",
     "checkinQuiet": "נבדק שוב — אין משהו שכדאי לציין",
     "eventPrepared": "הוכן ב-{report}",

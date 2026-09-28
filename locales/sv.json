@@ -5376,6 +5376,7 @@
     "title": "Sedan du var här",
     "gotIt": "Uppfattat",
     "why": "varför: {why}",
+    "waitingOn": "väntar på {what}",
     "notUseful": "Inte användbart",
     "checkinQuiet": "Kontrollerat igen – inget att flagga",
     "eventPrepared": "förberett i {report}",

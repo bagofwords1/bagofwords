@@ -5431,6 +5431,7 @@
     "title": "Since you were here",
     "gotIt": "Got it",
     "why": "why: {why}",
+    "waitingOn": "waiting on {what}",
     "notUseful": "Not useful",
     "checkinQuiet": "Checked again — nothing worth flagging",
     "eventPrepared": "prepared in {report}",

@@ -5376,6 +5376,7 @@
     "title": "Seit deinem letzten Besuch",
     "gotIt": "Verstanden",
     "why": "warum: {why}",
+    "waitingOn": "wartet auf {what}",
     "notUseful": "Nicht hilfreich",
     "checkinQuiet": "Erneut geprüft – nichts Erwähnenswertes",
     "eventPrepared": "vorbereitet in {report}",

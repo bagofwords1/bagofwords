@@ -5376,6 +5376,7 @@
     "title": "منذ زيارتك الأخيرة",
     "gotIt": "فهمت",
     "why": "السبب: {why}",
+    "waitingOn": "بانتظار {what}",
     "notUseful": "غير مفيد",
     "checkinQuiet": "تم التحقق مجددًا — لا شيء يستحق التنبيه",
     "eventPrepared": "تم التحضير في {report}",

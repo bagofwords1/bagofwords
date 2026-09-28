@@ -5402,6 +5402,7 @@
     "title": "Desde tu última visita",
     "gotIt": "Entendido",
     "why": "por qué: {why}",
+    "waitingOn": "a la espera de {what}",
     "notUseful": "No es útil",
     "checkinQuiet": "Revisado de nuevo; nada que destacar",
     "eventPrepared": "preparado en {report}",

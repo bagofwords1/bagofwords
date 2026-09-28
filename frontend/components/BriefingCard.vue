@@ -52,7 +52,7 @@
               class="truncate max-w-[240px] hover:text-blue-600 dark:hover:text-blue-400"
               @click="markSeen"
             >{{ item.report_title }}</NuxtLink>
-            <span v-if="item.why" class="truncate" :title="item.why">· {{ $t('briefing.why', { why: item.why }) }}</span>
+            <span v-if="item.why" class="truncate" :title="item.why">· {{ item.kind === 'thread' ? $t('briefing.waitingOn', { what: item.why }) : $t('briefing.why', { why: item.why }) }}</span>
           </div>
           <div v-if="item.kind === 'habit'" class="flex items-center gap-2 mt-1.5">
             <UButton size="2xs" color="blue" :loading="busy === item.id" data-testid="briefing-habit-accept" @click="acceptHabit(item)">

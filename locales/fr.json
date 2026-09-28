@@ -5376,6 +5376,7 @@
     "title": "Depuis votre dernière visite",
     "gotIt": "Compris",
     "why": "pourquoi : {why}",
+    "waitingOn": "en attente de {what}",
     "notUseful": "Pas utile",
     "checkinQuiet": "Vérifié à nouveau — rien à signaler",
     "eventPrepared": "préparé dans {report}",

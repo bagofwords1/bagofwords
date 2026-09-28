@@ -329,6 +329,7 @@ def test_managers_get_one_notification_per_night_only_when_something_changed():
                                                Notification.type == "nightly_learning")))
     assert len(notes) == 1 and notes[0].user_id == s["admin"]
     assert "learned 1 thing" in notes[0].title
+    assert notes[0].link == f"/agents/{s['ds']}"  # where the agent's pending suggestions are
 
     s2 = _run(_seed(settings={"enable_agent_dreaming": True}))
     _dream(_runtime(_Consolidate(lambda p: AgentDreamProposal())), s2, ignore_window=True)

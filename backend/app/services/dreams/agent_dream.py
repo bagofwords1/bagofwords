@@ -683,8 +683,10 @@ async def _notify_managers(db, *, organization, ds, outputs: Dict[str, Any], now
         f"{ds.name or 'Agent'} learned {changes} thing{'s' if changes != 1 else ''} overnight"
         if changes else f"{ds.name or 'Agent'}: overnight suggestion cleanup"
     )
-    body = " · ".join(parts) + (f"\n{status_line}" if status_line else "")
-    link = f"/instructions?build={outputs['build_id']}" if outputs.get("build_id") else "/instructions"
+    body = " · ".join(parts) + (f". {status_line}" if parts and status_line else status_line)
+    # The agent page lists the agent's pending suggestions (the nightly one
+    # included), like other agent notices.
+    link = f"/agents/{ds.id}"
     try:
         await InboxService().notify_agent_managers(
             db, organization_id=str(organization.id), data_source_id=str(ds.id),

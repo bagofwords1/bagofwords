@@ -219,7 +219,7 @@ def main() -> None:
     for email in args.invite:
         r = client.post(
             f"/api/organizations/{org_id}/members",
-            json={"email": email, "role_id": "member"},
+            json={"organization_id": org_id, "email": email, "role": "member"},
             headers=auth(admin_token, org_id),
         )
         if r.status_code != 200:
