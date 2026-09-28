@@ -625,12 +625,6 @@
         "high": "Высокое",
         "max": "Макс."
       },
-      "short": {
-        "low": "Н",
-        "medium": "С",
-        "high": "В",
-        "max": "Макс"
-      },
       "searchModels": "Поиск моделей…",
       "noMatches": "Нет подходящих моделей",
       "otherProvider": "Другое",

@@ -657,12 +657,6 @@
         "high": "High",
         "max": "Max"
       },
-      "short": {
-        "low": "L",
-        "medium": "M",
-        "high": "H",
-        "max": "Max"
-      },
       "searchModels": "Search models…",
       "noMatches": "No models match",
       "otherProvider": "Other",

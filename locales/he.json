@@ -640,12 +640,6 @@
         "high": "גבוה",
         "max": "מקסימלי"
       },
-      "short": {
-        "low": "נ",
-        "medium": "ב",
-        "high": "ג",
-        "max": "מקס"
-      },
       "searchModels": "חיפוש מודלים…",
       "noMatches": "אין מודלים תואמים",
       "otherProvider": "אחר",

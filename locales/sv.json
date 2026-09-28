@@ -625,12 +625,6 @@
         "high": "Hög",
         "max": "Max"
       },
-      "short": {
-        "low": "L",
-        "medium": "M",
-        "high": "H",
-        "max": "Max"
-      },
       "searchModels": "Sök modeller…",
       "noMatches": "Inga modeller matchar",
       "otherProvider": "Övrigt",

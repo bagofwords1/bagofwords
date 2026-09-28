@@ -640,12 +640,6 @@
         "high": "Alto",
         "max": "Máx."
       },
-      "short": {
-        "low": "B",
-        "medium": "M",
-        "high": "A",
-        "max": "Máx"
-      },
       "searchModels": "Buscar modelos…",
       "noMatches": "Ningún modelo coincide",
       "otherProvider": "Otro",
