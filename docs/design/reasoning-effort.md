@@ -31,8 +31,8 @@ Every row below was verified live (Sep 2026) unless marked.
 | Claude Sonnet 5, Opus 4.7+, Fable, Mythos | low – max (adaptive) | max |
 | Claude Opus / Sonnet 4.6 | low, medium, high, max (no xhigh) | max |
 | Claude ≤ 4.5 (incl. Haiku 4.5) | token budget 1,024 / 5,000 / 15,000 / 31,999 | 31,999 budget |
-| Gemini 3.x *(not live-tested)* | low – high (`thinking_level`) | high |
-| Gemini 2.5 *(not live-tested)* | token budget (capped 24,576) | 24,576 budget |
+| Gemini 3.x (verified on Vertex) | low – high (`thinking_level`) | high |
+| Gemini 2.5 (verified on Vertex) | token budget (capped 24,576) | 24,576 budget |
 | gpt-4.x, gpt-image, unknown ids | — (no effort) | — |
 
 ## Provider translation
@@ -116,7 +116,9 @@ level as a badge. Strings are in every locale catalog (`prompt.effort.*`,
 
 ## Known limits / follow-ups
 
-- Gemini and Vertex were verified by request-shape tests only (no key).
+- Gemini on Vertex was verified live (3.1 Pro, 3.6 / 3.8 Flash, 2.5 Pro / Flash:
+  every level accepted). Claude on Vertex was not: the test project had no
+  quota for it (429). Gemini through the Google AI API was not live-tested.
 - Reasoning token counts are recorded for OpenAI/Azure only (Anthropic folds
   thinking into output tokens; Google/Bedrock not read yet).
 - Named presets ("Analyst – Deep") that pair a base model with a level would
