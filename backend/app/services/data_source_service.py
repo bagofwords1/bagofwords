@@ -164,6 +164,7 @@ AGENT_DELETE_CLEARS = frozenset({
     "data_source_file_association",      # DataSource.files (secondary)
     "data_source_memberships",           # explicit delete
     "datasource_tables",                 # delete_data_source_tables (+ retry)
+    "dream_runs",                        # explicit delete (nightly-learning log)
     "entity_data_source_association",    # _delete_agent_scoped_entities
     "git_repositories",                  # explicit delete
     "instruction_data_source_association",  # _delete_agent_scoped_instructions
@@ -2075,6 +2076,9 @@ class DataSourceService:
         await db.execute(
             delete(UserDataSourceCredentials).where(UserDataSourceCredentials.data_source_id == data_source_id)
         )
+        # Nightly-learning run log for this agent (history of a deleted agent).
+        from app.models.dream_run import DreamRun
+        await db.execute(delete(DreamRun).where(DreamRun.data_source_id == data_source_id))
 
         # A suite's data_source_id is only its Drafts home, not ownership.
         # Preserve the suite and its cases as org-level content when its agent
