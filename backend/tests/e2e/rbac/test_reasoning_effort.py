@@ -27,7 +27,7 @@ def cast(test_client, bootstrap_admin):
             "provider_type": "anthropic",
             "credentials": {"api_key": "dummy-key"},
             "models": [
-                {"model_id": "claude-sonnet-5", "is_enabled": True},
+                {"model_id": "claude-sonnet-5", "name": "Claude Sonnet 5", "is_enabled": True},
                 {"model_id": opaque_id, "name": "Opaque deployment", "is_custom": True, "is_enabled": True},
             ],
         },
@@ -79,8 +79,12 @@ def test_admin_reasoning_settings_persist_and_change_capability(test_client, cas
     m = _models(test_client, cast)[opaque["id"]]
     assert m["config"]["temperature"] == 0.5 and m["reasoning"]["default"] is None
     assert m["reasoning"]["mode"] == "like"          # omitted fields unchanged
-    # Back to automatic drops the capability again.
+    # Back to automatic: an unknown id offers only the levels the admin wrote
+    # raw fields for; clearing them drops the capability entirely.
     assert _set_reasoning(test_client, t, org, opaque["id"], {"mode": "auto"}).status_code == 200
+    info = _models(test_client, cast)[opaque["id"]]["reasoning"]
+    assert info["supported"] and set(info["levels"].values()) == {"high"}
+    assert _set_reasoning(test_client, t, org, opaque["id"], {"params": None}).status_code == 200
     assert _models(test_client, cast)[opaque["id"]]["reasoning"]["supported"] is False
 
 
