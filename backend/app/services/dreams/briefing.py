@@ -3,10 +3,12 @@
 Pull only — it never notifies. Items (current user only):
 
 - check-in results (sent / ran quietly) since the user last saw the briefing,
-- open threads the user dream noted (auto-resolved when the user returns to
-  that report, or a check-in on it notifies them),
+- open threads the user dream noted since the briefing was last seen
+  (auto-resolved when the user returns to that report, or a check-in on it
+  notifies them),
 - upcoming memory events in the next days — only when something is prepared
-  for them (a planned check-in or an open thread),
+  for them (a planned check-in or an open thread), and only when the event or
+  its preparation is new since the briefing was last seen,
 - at most one habit offer.
 
 Every item carries a "why" so it reads as helpful rather than creepy, and can
@@ -137,9 +139,12 @@ async def get_briefing(db, *, organization_id: str, user_id: str, now: Optional[
         })
 
     # Open threads.
+    # "Got it" means seen: threads and events show once, until a later night
+    # notes them again (the user dream replaces its threads each night).
     tq = select(UserOpenThread).where(
         UserOpenThread.organization_id == org_id, UserOpenThread.user_id == user_id,
         UserOpenThread.status == THREAD_OPEN, UserOpenThread.deleted_at.is_(None),
+        UserOpenThread.created_at > since,
     )
     if report_id:
         tq = tq.where(UserOpenThread.report_id == str(report_id))
@@ -175,6 +180,9 @@ async def get_briefing(db, *, organization_id: str, user_id: str, now: Optional[
         ).scalars().all()
         for e in events:
             prepared = next((c for c in planned if c.due_at and c.due_at <= e.event_start), None)
+            fresh = (e.created_at and e.created_at > since) or (prepared and prepared.created_at and prepared.created_at > since)
+            if not fresh:
+                continue
             items.append({
                 "kind": "event", "id": str(e.id), "handle": e.handle, "text": e.text,
                 "when": e.event_start.isoformat(),

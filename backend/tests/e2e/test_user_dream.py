@@ -502,3 +502,34 @@ def test_watermark_moves_so_the_next_night_reads_only_new_turns(env):
         async with async_session_maker() as db:
             return (await db.execute(select(DreamRun).where(DreamRun.user_id == env.user_id))).scalars().all()
     assert len(_run(_runs())) == 2
+
+
+@pytest.mark.e2e
+def test_got_it_hides_items_until_a_later_night_notes_them_again(env):
+    env.settings(enable_user_dreaming=True, enable_agent_checkins=True)
+    board_day = (env.now + timedelta(days=2)).date().isoformat()
+    rid = env.report("Board prep")
+    env.turn(rid, f"Churn for the board meeting on {board_day}")
+
+    def propose(prompt):
+        r = _report_key(prompt, "Board prep")
+        return UserDreamProposal(
+            memory=[MemoryOp(op="create", text="Board meeting", event_start=board_day, source=r)],
+            open_threads=[ThreadOp(report=r, text="Churn by plan for the board")],
+            follow_ups=[FollowUpOp(report=r, due_local=(env.now + timedelta(days=1)).strftime("%Y-%m-%dT10:00"),
+                                   note="Re-run churn")],
+        )
+
+    env.dream(_Reflect(propose))
+    assert {i["kind"] for i in env.briefing()} >= {"thread", "event"}
+
+    r = env.client.post("/api/users/me/briefing/seen", headers=env.headers)
+    assert r.status_code == 200
+    assert env.briefing() == []  # seen: nothing comes back on the next visit
+
+    # The next night notes the unfinished thread again → it shows once more.
+    env.turn(rid, "Still need the Enterprise split")
+    env.nights += 1
+    env.dream(_Reflect(lambda p: UserDreamProposal(
+        open_threads=[ThreadOp(report=_report_key(p, "Board prep"), text="Enterprise split")])))
+    assert [i["text"] for i in env.briefing() if i["kind"] == "thread"] == ["Enterprise split"]
