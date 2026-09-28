@@ -727,6 +727,7 @@
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
+					:initialEffort="report?.reasoning_effort || ''"
 					:textareaContent="prefillText"
 					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt } : undefined"
 					:isStopping="false"
@@ -4830,7 +4831,7 @@ function resolveRunningSystemId(): string | undefined {
 
 // Queue a prompt while a completion runs. The backend persists it as a
 // status='queued' user row; the dispatcher starts it when the run finishes.
-async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
 	const text = data.text.trim()
 	if (!text) return
 	try {
@@ -4843,6 +4844,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					mentions: data.mentions || [],
 					mode: data.mode || 'chat',
 					model_id: data.model_id || null,
+					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
 				},
 				queue: true
@@ -4980,7 +4982,7 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
-function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; files?: { id: string; filename: string; content_type: string }[] }) {
+function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
 
@@ -5029,6 +5031,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			mentions: data.mentions || [],
 			mode: data.mode || 'chat',
 			model_id: data.model_id || null,
+			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
@@ -5581,6 +5584,7 @@ onMounted(async () => {
 		} catch {}
 		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
 		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
+		const reasoning_effort = typeof route.query.reasoning_effort === 'string' ? route.query.reasoning_effort : null
 		// Images attached in the composer before this report existed. They are
 		// already on the report row; this only lets the first user bubble show
 		// its chips instead of appearing bare until a reload.
@@ -5589,7 +5593,7 @@ onMounted(async () => {
 			const rawFiles = typeof route.query.files === 'string' ? decodeURIComponent(route.query.files) : ''
 			if (rawFiles) files = JSON.parse(rawFiles)
 		} catch {}
-		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, files })
+		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, reasoning_effort: reasoning_effort || null, files })
 	} else if (route.query.prompt && messages.value.length == 0) {
 		// Pre-fill the prompt box without submitting (e.g. a training session draft).
 		prefillText.value = route.query.prompt as string

@@ -7,6 +7,10 @@ from google import genai
 from google.genai import types
 
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.reasoning import (
+    THINKING_BUDGETS, capability_model as _capability_model, clamp_effort, client_mode,
+    efforts_for_client, merge_raw_params, raw_params_for, selected_effort,
+)
 from app.ai.llm.types import (
     ImageInput,
     LLMResponse,
@@ -24,6 +28,10 @@ from app.ai.llm.types import (
     ToolUseStartEvent,
     UsageEvent,
 )
+
+
+# Largest thinking budget every Gemini 2.5 model accepts (Flash: 24,576).
+GEMINI_MAX_THINKING_BUDGET = 24576
 
 
 class Google(LLMClient):
@@ -303,9 +311,20 @@ class Google(LLMClient):
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
-        if thinking:
-            budget = self._thinking_budget(thinking.get("budget_tokens") or 1024)
-            thinking_config = types.ThinkingConfig(thinking_budget=budget, include_thoughts=True)
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
+        requested = selected_effort(thinking) if thinking else None
+        effort = (clamp_effort(requested, efforts_for_client(self, model_id)) or requested) if requested else None
+        if thinking and mode != "custom" and effort and _capability_model(self, model_id).lower().rsplit("/", 1)[-1].startswith("gemini-3"):
+            # Gemini 3 takes a named level; a budget would be converted
+            # imprecisely, and sending both is a 400.
+            thinking_config = types.ThinkingConfig(thinking_level=effort.upper(), include_thoughts=True)
+        elif thinking:
+            budget = thinking.get("budget_tokens")
+            if effort in THINKING_BUDGETS and (thinking.get("effort") or not budget):
+                budget = min(THINKING_BUDGETS[effort], GEMINI_MAX_THINKING_BUDGET)
+            thinking_config = types.ThinkingConfig(thinking_budget=self._thinking_budget(budget or 1024), include_thoughts=True)
         else:
             thinking_config = types.ThinkingConfig(
                 thinking_budget=self._thinking_budget(), include_thoughts=False
@@ -314,6 +333,15 @@ class Google(LLMClient):
             "thinking_config": thinking_config,
             "temperature": self.temperature,
         }
+        raw = raw_params_for(self, requested, effort) if requested else {}
+        if raw:
+            # Raw fields use GenerateContentConfig names, e.g.
+            # {"thinking_config": {"thinking_budget": 2048}}. In custom mode
+            # they replace our thinking config instead of merging into it.
+            base_thinking = {} if mode == "custom" else thinking_config.model_dump(exclude_none=True)
+            merged = merge_raw_params({"thinking_config": base_thinking, **{k: v for k, v in config_kwargs.items() if k != "thinking_config"}}, raw, passthrough_key=None)
+            tc = merged.pop("thinking_config", None)
+            config_kwargs = {**merged, "thinking_config": types.ThinkingConfig(**tc) if isinstance(tc, dict) and tc else thinking_config}
         if system:
             config_kwargs["system_instruction"] = system
         if tools:

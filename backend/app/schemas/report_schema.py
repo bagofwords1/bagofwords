@@ -7,6 +7,7 @@ from app.schemas.data_source_schema import DataSourceReportSchema
 from app.schemas.external_platform_schema import ExternalPlatformSchema
 from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
 from app.schemas.project_schema import ProjectMiniSchema
+from app.utils.reasoning_effort import normalize_effort
 
 class ReportBase(BaseModel):
     title: Optional[str] = None
@@ -27,6 +28,14 @@ class ReportCreate(ReportBase):
     # so omitted/None simply means "no override, resolve the default at run
     # time" — which is also what Auto sends.
     model_id: Optional[str] = None
+    # Reasoning level picked with the model (low|medium|high|max). Omitted /
+    # None = Default.
+    reasoning_effort: Optional[str] = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
 
 class ReportUpdate(BaseModel):
     title: Optional[str] = None
@@ -42,6 +51,17 @@ class ReportUpdate(BaseModel):
     # Report-level LLM override. Sentinel-aware: omit to leave unchanged, send a
     # model id to set, send "" (empty string) to clear back to user/org default.
     model_id: Optional[str] = None
+    # Reasoning level stored beside model_id. Sentinel-aware the same way:
+    # omit to leave unchanged, "" or "default" to clear back to Default.
+    reasoning_effort: Optional[str] = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        if v is None:
+            return None
+        # Keep the clear sentinel distinguishable from "omitted".
+        return normalize_effort(v) or ""
     # Project membership. Sentinel-aware like model_id: omit to leave unchanged,
     # send a project id to move into that project, send "" to move back to the
     # personal root list.
@@ -91,6 +111,8 @@ class ReportSchema(ReportBase):
 
     # Report-level LLM override (null = user/org default resolves at run time)
     model_id: Optional[str] = None
+    # Reasoning level stored beside model_id (null = Default)
+    reasoning_effort: Optional[str] = None
     # Agent focus: subset of attached agents whose full schema is in context.
     # null/empty = no explicit focus (planner renders all when few / auto-seeds when many).
     focused_data_source_ids: Optional[List[str]] = None

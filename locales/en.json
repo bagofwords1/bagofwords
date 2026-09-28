@@ -646,7 +646,31 @@
     "modelAutoHint": "Router picks the best model",
     "autoAgentsHint": "Any agent you can access",
     "loadingDataSources": "Loading data sources…",
-    "noDataSources": "No data sources found"
+    "noDataSources": "No data sources found",
+    "effort": {
+      "title": "Effort",
+      "default": "Default",
+      "levels": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "max": "Max"
+      },
+      "short": {
+        "low": "L",
+        "medium": "M",
+        "high": "H",
+        "max": "Max"
+      },
+      "searchModels": "Search models…",
+      "noMatches": "No models match",
+      "otherProvider": "Other",
+      "anyModel": "Applies to whichever model runs",
+      "notSupported": "This model has no effort setting",
+      "providerDefault": "Model's own default",
+      "modelDefault": "Admin default: {level}",
+      "runsAs": "Runs as {level} on this model"
+    }
   },
   "exports": {
     "label": "Export",
@@ -2938,7 +2962,36 @@
       "modelsCount": "{count} models",
       "dangerZone": "Danger Zone",
       "modelSettings": "Model Settings",
-      "imageGenDefaultBlocked": "Default models can't be image-generation models. Make another model the default first."
+      "imageGenDefaultBlocked": "Default models can't be image-generation models. Make another model the default first.",
+      "reasoning": {
+        "title": "Reasoning",
+        "tooltip": "How this model receives the effort users pick (Low / Medium / High / Max).",
+        "modes": {
+          "auto": "Automatic (from model catalog)",
+          "like": "Behaves like another model",
+          "generic": "Generic (reasoning_effort)",
+          "custom": "Custom request fields only",
+          "off": "Off"
+        },
+        "likeLabel": "Behaves like",
+        "likePlaceholder": "e.g. gpt-6-luna",
+        "defaultLevel": "Default level",
+        "unsupported": "Effort does not apply to this model",
+        "savedSettings": "saved settings",
+        "rawTitle": "Raw request fields per level (advanced)",
+        "rawHelp": "JSON merged into the provider request when that level is used. Keys already in the request are merged; others are passed through as-is.",
+        "ranAs": "ran as {level}",
+        "tokens": "reasoning tokens",
+        "saveToTest": "Save to test your changes",
+        "testTooltip": "Send one tool-calling request at this level",
+        "test": "Test",
+        "rawNotObject": "Must be a JSON object",
+        "rawInvalid": "Invalid JSON",
+        "fixRaw": "Fix the invalid raw request fields first",
+        "likeRequired": "Enter the model this one behaves like",
+        "customRequired": "Custom mode needs raw fields for at least one level",
+        "saveFailed": "Could not save reasoning settings"
+      }
     },
     "licensePage": {
       "title": "License",

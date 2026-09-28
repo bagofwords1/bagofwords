@@ -132,7 +132,8 @@ class PromptService:
         )
         return {
             "id": p.id, "title": p.title, "text": p.text, "mode": p.mode,
-            "model_id": p.model_id, "mentions": p.mentions, "parameters": p.parameters,
+            "model_id": p.model_id, "reasoning_effort": getattr(p, "reasoning_effort", None),
+            "mentions": p.mentions, "parameters": p.parameters,
             "scope": p.scope, "is_starter": p.is_starter, "data_source_ids": ds_ids,
             "user_id": p.user_id, "created_at": p.created_at, "can_manage": can_manage,
         }
@@ -312,6 +313,7 @@ class PromptService:
         )
         p = Prompt(
             title=data.title, text=data.text, mode=data.mode, model_id=data.model_id,
+            reasoning_effort=data.reasoning_effort,
             mentions=data.mentions, parameters=self._params_to_json(data.parameters),
             scope=data.scope, is_starter=data.is_starter,
             user_id=current_user.id, organization_id=organization.id,
@@ -450,6 +452,7 @@ class PromptService:
                 mentions=prompt.mentions,
                 mode=prompt.mode,
                 model_id=prompt.model_id,
+                reasoning_effort=getattr(prompt, "reasoning_effort", None),
             )),
             current_user=current_user,
             organization=organization,
@@ -718,6 +721,7 @@ class PromptService:
                     mentions=prompt.mentions,
                     mode=prompt.mode,
                     model_id=prompt.model_id,
+                    reasoning_effort=getattr(prompt, "reasoning_effort", None),
                 )),
                 current_user=target,
                 organization=organization,

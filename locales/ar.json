@@ -615,7 +615,31 @@
     "modelAutoHint": "يختار الموجّه أفضل نموذج",
     "autoAgentsHint": "أي وكيل يمكنك الوصول إليه",
     "loadingDataSources": "جارٍ تحميل مصادر البيانات…",
-    "noDataSources": "لم يتم العثور على مصادر بيانات"
+    "noDataSources": "لم يتم العثور على مصادر بيانات",
+    "effort": {
+      "title": "الجهد",
+      "default": "افتراضي",
+      "levels": {
+        "low": "منخفض",
+        "medium": "متوسط",
+        "high": "مرتفع",
+        "max": "أقصى"
+      },
+      "short": {
+        "low": "م",
+        "medium": "و",
+        "high": "ع",
+        "max": "أقصى"
+      },
+      "searchModels": "البحث في النماذج…",
+      "noMatches": "لا توجد نماذج مطابقة",
+      "otherProvider": "أخرى",
+      "anyModel": "ينطبق على النموذج الذي يعمل",
+      "notSupported": "لا يوجد إعداد جهد لهذا النموذج",
+      "providerDefault": "الإعداد الافتراضي للنموذج",
+      "modelDefault": "افتراضي المسؤول: {level}",
+      "runsAs": "يعمل كـ {level} على هذا النموذج"
+    }
   },
   "reports": {
     "title": "التقارير",
@@ -2766,7 +2790,36 @@
       "modelsCount": "{count} نماذج",
       "providerLabel": "المزوّد",
       "providerSettingsTooltip": "إعدادات المزوّد",
-      "save": "حفظ"
+      "save": "حفظ",
+      "reasoning": {
+        "title": "الاستدلال",
+        "tooltip": "كيف يتلقى هذا النموذج مستوى الجهد الذي يختاره المستخدمون (منخفض / متوسط / مرتفع / أقصى).",
+        "modes": {
+          "auto": "تلقائي (من كتالوج النماذج)",
+          "like": "يتصرف مثل نموذج آخر",
+          "generic": "عام (reasoning_effort)",
+          "custom": "حقول طلب مخصصة فقط",
+          "off": "إيقاف"
+        },
+        "likeLabel": "يتصرف مثل",
+        "likePlaceholder": "مثل gpt-6-luna",
+        "defaultLevel": "المستوى الافتراضي",
+        "unsupported": "الجهد لا ينطبق على هذا النموذج",
+        "savedSettings": "الإعدادات المحفوظة",
+        "rawTitle": "حقول الطلب الخام لكل مستوى (متقدم)",
+        "rawHelp": "JSON يُدمج في الطلب إلى المزوّد عند استخدام هذا المستوى. تُدمج المفاتيح الموجودة، وتُمرَّر البقية كما هي.",
+        "ranAs": "عمل كـ {level}",
+        "tokens": "رموز استدلال",
+        "saveToTest": "احفظ لاختبار تغييراتك",
+        "testTooltip": "إرسال طلب واحد مع أدوات بهذا المستوى",
+        "test": "اختبار",
+        "rawNotObject": "يجب أن يكون كائن JSON",
+        "rawInvalid": "JSON غير صالح",
+        "fixRaw": "أصلح الحقول غير الصالحة أولاً",
+        "likeRequired": "أدخل النموذج الذي يشبهه",
+        "customRequired": "يتطلب الوضع المخصص حقولاً لمستوى واحد على الأقل",
+        "saveFailed": "تعذّر حفظ إعدادات الاستدلال"
+      }
     },
     "licensePage": {
       "title": "الترخيص",
