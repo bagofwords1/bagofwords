@@ -106,6 +106,10 @@
           <input v-model="form.allowViewerSubmissions" type="checkbox" data-testid="list-allow-viewer-submissions" class="rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
           {{ $t('lists.editor.allowViewerSubmissions') }}
         </label>
+        <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 -mt-2">
+          <input v-model="form.keepHumanEdits" type="checkbox" data-testid="list-keep-human-edits" class="rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
+          {{ $t('lists.editor.keepHumanEdits') }}
+        </label>
 
         <div v-if="errors.length" class="rounded-md border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-300 space-y-0.5" data-testid="list-editor-errors">
           <div v-for="(e, i) in errors" :key="i">{{ e }}</div>
@@ -146,6 +150,7 @@ const form = reactive({
   key: props.list?.key_field_id || null as string | null,
   requireEvidence: !!props.list?.require_evidence,
   allowViewerSubmissions: !!props.list?.allow_viewer_submissions,
+  keepHumanEdits: !!props.list?.keep_human_edits,
 })
 const saving = ref(false)
 const errors = ref<string[]>([])
@@ -166,6 +171,7 @@ function payload() {
     description: form.description.trim(),
     require_evidence: form.requireEvidence,
     allow_viewer_submissions: form.allowViewerSubmissions,
+    keep_human_edits: form.keepHumanEdits,
     key_field: keyField ? keyField.name : null,
     fields: form.fields.map(f => ({
       ...(f.id ? { id: f.id } : {}),

@@ -36,6 +36,9 @@ class AgentList(BaseSchema):
     # who can MANAGE the agent (the same bar as editing rows by hand). On:
     # anyone who can use (view) the agent — crowd-sourced extraction.
     allow_viewer_submissions = Column(Boolean, nullable=False, default=False)
+    # When on, a value a person edited is locked: agent submissions skip it until
+    # unlocked. Off by default — edits are still recorded, the agent may overwrite.
+    keep_human_edits = Column(Boolean, nullable=False, default=False)
     # Bumped on breaking schema changes only (see classify_schema_change).
     version = Column(Integer, nullable=False, default=1)
 

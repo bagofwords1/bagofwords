@@ -63,6 +63,7 @@ class ListSchemaIn(BaseModel):
     )
     require_evidence: bool = False
     allow_viewer_submissions: bool = False
+    keep_human_edits: bool = False
 
     @field_validator("name")
     @classmethod
@@ -114,6 +115,7 @@ class AgentListOut(BaseModel):
     key_field: Optional[str] = None
     require_evidence: bool = False
     allow_viewer_submissions: bool = False
+    keep_human_edits: bool = False
     version: int = 1
     row_count: int = 0
     tool_name: str

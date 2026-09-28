@@ -22,6 +22,7 @@ export interface AgentList {
   key_field?: string | null
   require_evidence: boolean
   allow_viewer_submissions: boolean
+  keep_human_edits: boolean
   version: number
   row_count: number
   tool_name: string

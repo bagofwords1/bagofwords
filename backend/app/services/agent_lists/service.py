@@ -86,6 +86,7 @@ def serialize_list(lst: AgentList, ds: DataSource, *, row_count: int = 0, can_ma
         key_field=_key_name(lst),
         require_evidence=bool(lst.require_evidence),
         allow_viewer_submissions=bool(lst.allow_viewer_submissions),
+        keep_human_edits=bool(lst.keep_human_edits),
         version=int(lst.version or 1),
         row_count=row_count,
         tool_name=tool_name_for(lst.slug, list_id=str(lst.id)),
@@ -127,6 +128,7 @@ async def create_list(db, organization, ds: DataSource, payload: ListSchemaIn, u
         key_field_id=_key_id(payload, fields),
         require_evidence=payload.require_evidence,
         allow_viewer_submissions=payload.allow_viewer_submissions,
+        keep_human_edits=payload.keep_human_edits,
         version=1,
     )
     db.add(lst)
@@ -144,7 +146,8 @@ async def update_list(db, ds: DataSource, lst: AgentList, payload: ListSchemaIn)
     change = classify_schema_change(lst.fields or [], lst.key_field_id, fields, key_id)
     if change == "none" and (lst.name != payload.name or (lst.description or "") != (payload.description or "")
                              or bool(lst.require_evidence) != payload.require_evidence
-                             or bool(lst.allow_viewer_submissions) != payload.allow_viewer_submissions):
+                             or bool(lst.allow_viewer_submissions) != payload.allow_viewer_submissions
+                             or bool(lst.keep_human_edits) != payload.keep_human_edits):
         change = "additive"
     lst.name = payload.name
     lst.description = payload.description or ""
@@ -152,6 +155,7 @@ async def update_list(db, ds: DataSource, lst: AgentList, payload: ListSchemaIn)
     lst.key_field_id = key_id
     lst.require_evidence = payload.require_evidence
     lst.allow_viewer_submissions = payload.allow_viewer_submissions
+    lst.keep_human_edits = payload.keep_human_edits
     if change == "breaking":
         lst.version = int(lst.version or 1) + 1
     lst.updated_at = datetime.utcnow()
@@ -172,7 +176,9 @@ def serialize_row(row: AgentListRow, lst: AgentList) -> RowOut:
         values=row.values or {},
         schema_version=int(row.schema_version or 1),
         row_version=int(row.row_version or 1),
-        locked_fields=list(row.locked_fields or []),
+        # Locks are recorded either way but only mean something (and are only
+        # shown) when the list keeps hand edits.
+        locked_fields=list(row.locked_fields or []) if lst.keep_human_edits else [],
         report_id=row.report_id,
         created_at=row.created_at,
         updated_at=row.updated_at,

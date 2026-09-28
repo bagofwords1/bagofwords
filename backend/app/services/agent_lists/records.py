@@ -348,11 +348,12 @@ async def apply_submission(
         row = target
         values = copy.deepcopy(row.values or {})
         locked = set(row.locked_fields or [])
+        enforce_locks = bool(agent_list.keep_human_edits)
         changed: Dict[str, Any] = {}
         refreshed = False
         skipped_ids: set = set()
         for fid, env in new_envs.items():
-            if fid in locked:
+            if fid in locked and enforce_locks:
                 skipped_ids.add(fid)
                 fname = next((f["name"] for f in agent_list.fields if f["id"] == fid), fid)
                 locked_skipped.append({"record": i, "field": fname, "row_id": row.id})
@@ -373,6 +374,9 @@ async def apply_submission(
             _record_out(i, "unchanged", row, new_envs, skipped_ids)
             continue
         row.values = values
+        if not enforce_locks and locked & changed.keys():
+            # The agent replaced a hand-edited value: it is no longer a person's edit.
+            row.locked_fields = [fid for fid in (row.locked_fields or []) if fid not in changed]
         if key_field is not None and key_field["id"] in changed:
             row.key_value = normalize_key(key_field, values[key_field["id"]].get("value"))
         row.row_version = (row.row_version or 1) + 1

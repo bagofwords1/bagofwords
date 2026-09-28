@@ -855,3 +855,22 @@ Screenshots: `media/pr/agent-lists/r2-*.png`.
   - `test_bulk_delete_needs_exactly_one_target` (4 cases)
   - `test_bulk_delete_and_clear_require_manage` (manager 200, viewer and outsider 403)
 - Screenshots: `media/pr/agent-lists/r3-*.png`.
+
+## Round 4: hand edits are no longer locked by default
+
+- New per-list option **"Keep people's edits: the agent won't overwrite a value someone changed
+  by hand"** (`AgentList.keep_human_edits`, default **off**), next to the other two options in
+  the list editor.
+- **Off (the default):** a hand edit is still recorded (source `human`, revision, history,
+  revert), but it doesn't lock anything.
+  - The agent's next submission may overwrite it.
+  - When that happens, the field is no longer counted as a person's edit (`locked_fields`
+    drops it), so turning the option on later never locks the agent's value.
+  - The API returns `locked_fields: []`, so the table's lock icon, "Let the agent update" and
+    "edit kept" in the chat card simply don't appear.
+- **On:** the behavior described in S6. Locks are enforced and shown. Edits made while the
+  option was off become protected as soon as it is turned on.
+- Tests (`test_agent_lists.py`):
+  - `test_by_default_the_agent_may_overwrite_a_hand_edit`
+  - `test_turning_keep_human_edits_on_protects_edits_made_while_it_was_off`
+  - The two earlier lock tests now turn the option on first.
