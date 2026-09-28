@@ -49,8 +49,8 @@ export TESTING=true BOW_DATABASE_URL="sqlite:///db/app.db"
 uv run pytest tests/unit/test_overnight_common.py tests/e2e/test_agent_dream.py tests/e2e/test_user_dream.py -q
 ```
 
-Observed on the final commit: **37 + 17 + 17 passed** on SQLite, and the same
-71 on Postgres 16 (`--db=external` against a local server, no Docker:
+Observed on the final commit: **37 + 17 + 18 passed** on SQLite, and the same
+72 on Postgres 16 (`--db=external` against a local server, no Docker:
 `TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/bow_test`).
 
 What they pin down (by contract, not by incident):
@@ -64,7 +64,7 @@ What they pin down (by contract, not by incident):
 | User dream inputs | only the user's own **human** turns (scheduled/check-in/other users' turns never reach the prompt); nothing new → skipped, no model call; watermark moves |
 | User dream outputs | memory created with `source=dream`; entries the **user** wrote are never edited/forgotten; rules and secrets refused by the memory rules; follow-ups only with check-ins on, not opted out, own report, known key; threads replaced only when the night saw sessions |
 | Habits | only for a recurring ask code detected; accept creates a normal scheduled task (`30 8 * * 1`); answered offers can't be re-answered (`habit_offer.not_pending`); already-scheduled and recently-declined asks are not offered again |
-| Briefing | owner-only (another member gets `404 briefing.item_not_found`, sees nothing); "not useful" dismisses; returning to a report resolves its thread; **"Got it" hides items until a later night notes them again** |
+| Briefing | owner-only (another member gets `404 briefing.item_not_found`, sees nothing); threads only on reports the user owns, and archived reports drop out; "not useful" dismisses; returning to a report resolves its thread; **"Got it" hides items until a later night notes them again** |
 
 Spot-checked by mutation — each of these tests fails with its guarded line
 removed: the human-turn filter, the user-authored refusal, the last-seen
