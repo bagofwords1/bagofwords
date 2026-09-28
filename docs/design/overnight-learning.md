@@ -64,13 +64,13 @@ Add to `OrganizationSettingsConfig`
 
 ```python
 enable_agent_dreaming: FeatureConfig = FeatureConfig(
-    value=False, name="Agent overnight learning",
+    value=True, name="Agent overnight learning",
     description="Each night, agents review their pending suggestions, feedback and "
                 "usage and propose one consolidated improvement per agent. What "
                 "happens to it follows each agent's Self-Learning setting.",
     is_lab=True, editable=True)
 enable_user_dreaming: FeatureConfig = FeatureConfig(
-    value=False, name="Overnight preparation for users",
+    value=True, name="Overnight preparation for users",
     description="Each night, the agent reflects on each active user's work to keep "
                 "their memory tidy, remember open threads, and prepare follow-ups "
                 "(e.g. before a meeting). Users can turn it off for themselves.",

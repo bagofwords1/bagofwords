@@ -70,13 +70,13 @@ def _bool(org_settings: Any, key: str, default: bool) -> bool:
 
 
 def agent_dreaming_enabled(org_settings: Any) -> bool:
-    return _bool(org_settings, SETTING_AGENT_DREAMING, False)
+    return _bool(org_settings, SETTING_AGENT_DREAMING, True)
 
 
 def user_dreaming_enabled(org_settings: Any) -> bool:
     """The user dream also needs user memory: keeping memory up to date is
     half of what it does, and its prompt is built around it."""
-    return _bool(org_settings, SETTING_USER_DREAMING, False) and _bool(
+    return _bool(org_settings, SETTING_USER_DREAMING, True) and _bool(
         org_settings, SETTING_USER_MEMORY, True
     )
 

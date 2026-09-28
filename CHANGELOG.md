@@ -4,7 +4,7 @@
 - Added agent check-ins: the agent schedules its own follow-up and notifies you only when something changed (#1200) — `enable_agent_checkins` org setting (default off)
 - Added per-user memory: the agent saves, edits and searches personal facts, managed from a new Memory tab in your profile (#1201) — `enable_user_memory` org setting (default on)
 - Added Agent Lists: typed tables an agent fills in from documents, emails or query results, with evidence, row history and CSV export (#1203)
-- Added overnight learning: agents merge repeated suggestions into one nightly suggestion, and users get a "Since you were here" briefing on the home page (#1205) — `enable_agent_dreaming` and `enable_user_dreaming` org settings (default off)
+- Added overnight learning: agents merge repeated suggestions into one nightly suggestion, and each user's memory and follow-up check-ins are kept current overnight (#1205) — `enable_agent_dreaming` and `enable_user_dreaming` org settings (default on)
 - Added an expiry for unreviewed instruction suggestions (#1205) — `ai_suggestion_expiry_days` org setting (default 30, `0` = never)
 - Added reasoning effort (Default, Low, Medium, High, Max) and search to the model picker, saved per conversation, scheduled task, trigger, prompt and eval case (#1206)
 - Fixed Bedrock Sonnet 5 rejecting thinking requests, Azure GPT-6 failing tool calls on Chat Completions, and Gemini ignoring the reasoning level (#1206)
