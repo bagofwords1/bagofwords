@@ -417,7 +417,7 @@
               <div v-else class="mx-auto w-full max-w-[640px] px-5 pb-12 pt-4 sm:px-8 sm:pt-5">
                 <div class="text-center" data-testid="agent-hero">
                   <div class="mb-2 flex justify-center">
-                    <AgentIconPicker v-if="agentDetail && agentCanUpdate" :model-value="agentDetail.icon" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :connections="agentDetail.connections || []" icon-only icon-class="h-7 w-7" @change="setAgentIcon" />
+                    <AgentIconPicker v-if="agentDetail && agentCanUpdate" :model-value="agentDetail.icon" :icon-token="agentDetail.icon_token" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :connections="agentDetail.connections || []" icon-only icon-class="h-7 w-7" @change="setAgentIcon" />
                     <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon-token="agentDetail.icon_token" :icon="agentDetail.icon" class="h-7 w-7" />
                   </div>
                   <h2 dir="auto" class="break-words text-lg font-semibold leading-7 text-gray-900 dark:text-white">{{ agentDetail?.name || agentViewName }}</h2>
@@ -2255,13 +2255,19 @@ const setAgentPublic = async (val: boolean) => {
 const setAgentIcon = async (token: string | null) => {
   const id = agentView.value?.agentId; if (!id) return
   const prev = agentDetail.value?.icon ?? null
-  if (agentDetail.value) agentDetail.value.icon = token
+  const prevToken = agentDetail.value?.icon_token ?? null
+  // Drop the resolved token optimistically so a reset doesn't keep showing the
+  // old override; the server's re-resolved token replaces it below.
+  if (agentDetail.value) { agentDetail.value.icon = token; agentDetail.value.icon_token = token }
   try {
-    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { icon: token } })
-    const a = agents.value.find(x => x.id === id); if (a) { a.icon = token; agents.value = [...agents.value] }
+    const { data, error } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'PUT', body: { icon: token } })
+    if (error?.value) throw error.value
+    const iconToken = data.value?.icon_token ?? token
+    if (agentDetail.value) agentDetail.value.icon_token = iconToken
+    const a = agents.value.find(x => x.id === id); if (a) { a.icon = token; a.icon_token = iconToken; agents.value = [...agents.value] }
     toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
   } catch (e: any) {
-    if (agentDetail.value) agentDetail.value.icon = prev
+    if (agentDetail.value) { agentDetail.value.icon = prev; agentDetail.value.icon_token = prevToken }
     toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
   }
 }
