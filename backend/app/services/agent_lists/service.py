@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision
 from app.models.data_source import DataSource
@@ -206,6 +206,22 @@ async def delete_row(db, row: AgentListRow) -> None:
         await db.delete(r)
     await db.delete(row)
     await db.commit()
+
+
+async def delete_rows(db, lst: AgentList, row_ids: Optional[List[str]] = None) -> int:
+    """Hard-delete rows of ``lst`` (with their revisions), like a single row
+    delete. ``row_ids=None`` empties the list; ids from other lists are
+    ignored. Returns how many rows were deleted."""
+    q = select(AgentListRow.id).where(AgentListRow.list_id == lst.id, AgentListRow.deleted_at.is_(None))
+    if row_ids is not None:
+        q = q.where(AgentListRow.id.in_([str(r) for r in row_ids]))
+    ids = list((await db.execute(q)).scalars().all())
+    if not ids:
+        return 0
+    await db.execute(delete(AgentListRowRevision).where(AgentListRowRevision.row_id.in_(ids)))
+    await db.execute(delete(AgentListRow).where(AgentListRow.id.in_(ids)))
+    await db.commit()
+    return len(ids)
 
 
 # ── CSV ───────────────────────────────────────────────────────────────────

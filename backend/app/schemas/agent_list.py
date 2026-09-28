@@ -152,6 +152,26 @@ class RowPatchIn(BaseModel):
     unlock: List[str] = Field(default_factory=list, description="Field names/ids to unlock for agent updates.")
 
 
+MAX_ROWS_PER_DELETE = 1000
+
+
+class RowsDeleteIn(BaseModel):
+    """Delete some rows (``row_ids``) or empty the list (``all``). The list
+    itself — schema, tool, table name — is kept either way."""
+    row_ids: List[str] = Field(default_factory=list, max_length=MAX_ROWS_PER_DELETE)
+    all: bool = False
+
+    @model_validator(mode="after")
+    def _one_target(self):
+        if self.all == bool(self.row_ids):
+            raise ValueError("Pass either row_ids or all=true")
+        return self
+
+
+class RowsDeleteOut(BaseModel):
+    deleted: int
+
+
 class RevisionOut(BaseModel):
     id: str
     actor_type: str

@@ -5377,6 +5377,17 @@
     "toastDeleted": "List deleted",
     "toastError": "Something went wrong",
     "loadMore": "Load more",
-    "justNow": "just now"
+    "justNow": "just now",
+    "clearRows": "Clear all rows",
+    "clearConfirmTitle": "Clear all rows from “{name}”?",
+    "clearConfirmBody": "All {n} rows and their history will be deleted. The list’s fields, its save tool and its table stay, so the agent can fill it again.",
+    "clear": "Clear rows",
+    "deleteRowsTitle": "Delete {n} row? | Delete {n} rows?",
+    "deleteRowsBody": "The selected rows and their history will be deleted. This can’t be undone.",
+    "selectedCount": "{n} selected",
+    "clearSelection": "Clear selection",
+    "selectAll": "Select all rows",
+    "selectRow": "Select row",
+    "toastRowsDeleted": "{n} row deleted | {n} rows deleted"
   }
 }

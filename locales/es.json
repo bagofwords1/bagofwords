@@ -5348,6 +5348,17 @@
     "toastDeleted": "Lista eliminada",
     "toastError": "Algo salió mal",
     "loadMore": "Cargar más",
-    "justNow": "ahora mismo"
+    "justNow": "ahora mismo",
+    "clearRows": "Vaciar todas las filas",
+    "clearConfirmTitle": "¿Vaciar todas las filas de “{name}”?",
+    "clearConfirmBody": "Se eliminarán las {n} filas y su historial. Los campos de la lista, su herramienta de guardado y su tabla se mantienen, así que el agente puede volver a llenarla.",
+    "clear": "Vaciar filas",
+    "deleteRowsTitle": "¿Eliminar {n} fila? | ¿Eliminar {n} filas?",
+    "deleteRowsBody": "Se eliminarán las filas seleccionadas y su historial. No se puede deshacer.",
+    "selectedCount": "{n} seleccionadas",
+    "clearSelection": "Quitar selección",
+    "selectAll": "Seleccionar todas las filas",
+    "selectRow": "Seleccionar fila",
+    "toastRowsDeleted": "{n} fila eliminada | {n} filas eliminadas"
   }
 }

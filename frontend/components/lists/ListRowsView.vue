@@ -6,6 +6,9 @@
   the quote was found in the source), who last changed it, and the history
   with revert. A field a person edited is locked — the agent will not
   overwrite it on later runs — and can be handed back from the same panel.
+
+  Managers can tick rows to delete them, or clear every row from the menu;
+  both keep the list itself (fields, save tool, table) so it can be refilled.
 -->
 <template>
   <div class="flex flex-col h-full min-h-0 relative" data-testid="list-rows-view">
@@ -15,7 +18,14 @@
           <UIcon name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0 rtl:rotate-180" />
           <span class="text-[13px] text-gray-500 dark:text-gray-400">{{ $t('lists.back') }}</span>
         </button>
-        <div class="ms-auto flex items-center gap-2">
+        <div v-if="checked.length" class="ms-auto flex items-center gap-2" data-testid="list-selection-bar">
+          <span class="text-xs text-gray-600 dark:text-gray-300 tabular-nums" data-testid="list-selected-count">{{ $t('lists.selectedCount', { n: checked.length }) }}</span>
+          <button type="button" class="h-8 px-2.5 rounded-md text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="checked = []">{{ $t('lists.clearSelection') }}</button>
+          <button type="button" data-testid="list-delete-selected" class="h-8 px-2.5 rounded-md border border-red-200 dark:border-red-900/60 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 inline-flex items-center gap-1" @click="confirm = 'rows'">
+            <UIcon name="i-heroicons-trash" class="w-3.5 h-3.5" />{{ $t('lists.delete') }}
+          </button>
+        </div>
+        <div v-else class="ms-auto flex items-center gap-2">
           <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums" data-testid="list-row-total">{{ $t('lists.rowsCount', { n: total }, total) }}</span>
           <button
             type="button"
@@ -63,6 +73,9 @@
       <table v-else class="min-w-full text-xs" data-testid="list-rows-table">
         <thead class="sticky top-0 z-10 bg-gray-50/95 dark:bg-gray-900/95 backdrop-blur">
           <tr class="text-start text-[11px] text-gray-500 dark:text-gray-400">
+            <th v-if="list.can_manage" class="w-8 ps-3 pe-0 py-2 border-b border-gray-100 dark:border-gray-800">
+              <input type="checkbox" data-testid="list-select-all" class="rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500/30" :aria-label="$t('lists.selectAll')" :checked="allChecked" :indeterminate="checked.length > 0 && !allChecked" @change="toggleAll" />
+            </th>
             <th v-for="f in list.fields" :key="f.id" class="px-3 py-2 font-medium text-start whitespace-nowrap border-b border-gray-100 dark:border-gray-800">
               <span class="font-mono">{{ f.name }}</span>
               <UIcon v-if="f.id === list.key_field_id" name="i-heroicons-key" class="w-3 h-3 ms-1 align-[-2px] text-gray-400" />
@@ -76,9 +89,12 @@
             :key="r.id"
             data-testid="list-row"
             class="cursor-pointer border-b border-gray-50 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/40"
-            :class="selected?.id === r.id ? 'bg-blue-50/60 dark:bg-blue-500/10' : ''"
+            :class="selected?.id === r.id || checked.includes(r.id) ? 'bg-blue-50/60 dark:bg-blue-500/10' : ''"
             @click="openRow(r)"
           >
+            <td v-if="list.can_manage" class="w-8 ps-3 pe-0 py-2 align-top" @click.stop>
+              <input v-model="checked" type="checkbox" :value="r.id" data-testid="list-row-check" class="rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500/30" :aria-label="$t('lists.selectRow')" />
+            </td>
             <td v-for="f in list.fields" :key="f.id" class="px-3 py-2 align-top max-w-[260px]">
               <div class="flex items-center gap-1 min-w-0">
                 <span v-if="cell(r, f).empty" class="text-gray-300 dark:text-gray-600">—</span>
@@ -113,12 +129,27 @@
       />
     </Transition>
 
-    <UModal v-model="confirmDelete" :ui="{ width: 'sm:max-w-md' }">
+    <UModal :model-value="confirm === 'rows' || confirm === 'clear'" :ui="{ width: 'sm:max-w-md' }" @update:model-value="v => { if (!v) confirm = null }">
+      <div class="p-5" data-testid="list-rows-delete-confirm">
+        <h3 dir="auto" class="text-sm font-semibold text-gray-900 dark:text-white">
+          {{ confirm === 'clear' ? $t('lists.clearConfirmTitle', { name: list.name }) : $t('lists.deleteRowsTitle', { n: checked.length }, checked.length) }}
+        </h3>
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ confirm === 'clear' ? $t('lists.clearConfirmBody', { n: total }) : $t('lists.deleteRowsBody') }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="confirm = null">{{ $t('lists.cancel') }}</button>
+          <button type="button" data-testid="list-rows-delete-confirm-button" :disabled="deleting" class="h-8 px-3 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1.5" @click="deleteRows(confirm === 'clear')">
+            <Spinner v-if="deleting" class="w-3 h-3" />{{ confirm === 'clear' ? $t('lists.clear') : $t('lists.delete') }}
+          </button>
+        </div>
+      </div>
+    </UModal>
+
+    <UModal :model-value="confirm === 'list'" :ui="{ width: 'sm:max-w-md' }" @update:model-value="v => { if (!v) confirm = null }">
       <div class="p-5" data-testid="list-delete-confirm">
         <h3 dir="auto" class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('lists.deleteConfirmTitle', { name: list.name }) }}</h3>
         <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('lists.deleteConfirmBody') }}</p>
         <div class="mt-5 flex justify-end gap-2">
-          <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="confirmDelete = false">{{ $t('lists.cancel') }}</button>
+          <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="confirm = null">{{ $t('lists.cancel') }}</button>
           <button type="button" data-testid="list-delete-confirm-button" :disabled="deleting" class="h-8 px-3 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1.5" @click="deleteList">
             <Spinner v-if="deleting" class="w-3 h-3" />{{ $t('lists.delete') }}
           </button>
@@ -152,8 +183,12 @@ const total = ref(0)
 const loading = ref(true)
 const selected = ref<ListRow | null>(null)
 const exporting = ref(false)
-const confirmDelete = ref(false)
+const confirm = ref<null | 'list' | 'rows' | 'clear'>(null)
 const deleting = ref(false)
+// Rows ticked for bulk delete (managers only). Selection is over loaded rows.
+const checked = ref<string[]>([])
+const allChecked = computed(() => rows.value.length > 0 && rows.value.every(r => checked.value.includes(r.id)))
+function toggleAll() { checked.value = allChecked.value ? [] : rows.value.map(r => r.id) }
 
 const base = computed(() => `/api/data_sources/${props.dsId}/lists/${props.list.id}`)
 const numeric = (f: ListField) => f.type === 'number' || f.type === 'integer'
@@ -169,7 +204,10 @@ const menu = computed(() => {
   ]]
   if (props.list.can_manage) {
     groups.push([{ label: t('lists.editFields'), icon: 'i-heroicons-pencil-square', click: () => emit('edit') }])
-    groups.push([{ label: t('lists.deleteList'), icon: 'i-heroicons-trash', class: 'text-red-600', click: () => { confirmDelete.value = true } }])
+    groups.push([
+      { label: t('lists.clearRows'), icon: 'i-heroicons-archive-box-x-mark', class: 'text-red-600', disabled: total.value === 0, click: () => { confirm.value = 'clear' } },
+      { label: t('lists.deleteList'), icon: 'i-heroicons-trash', class: 'text-red-600', click: () => { confirm.value = 'list' } },
+    ])
   }
   return groups
 })
@@ -205,6 +243,7 @@ function onRowUpdated(r: ListRow) {
 }
 function onRowDeleted(id: string) {
   rows.value = rows.value.filter(r => r.id !== id)
+  checked.value = checked.value.filter(x => x !== id)
   total.value = Math.max(0, total.value - 1)
   selected.value = null
   emit('changed')
@@ -232,12 +271,34 @@ async function exportCsv(withEvidence: boolean) {
   }
 }
 
+// Delete the ticked rows, or clear the list (`all`) — the list itself stays.
+async function deleteRows(all: boolean) {
+  deleting.value = true
+  try {
+    const body = all ? { all: true } : { row_ids: checked.value }
+    const { data, error } = await useMyFetch<{ deleted: number }>(`${base.value}/rows/delete`, { method: 'POST', body })
+    if (error.value) throw new Error(t('lists.toastError'))
+    const n = data.value?.deleted ?? 0
+    const gone = all ? null : new Set(checked.value)
+    if (selected.value && (!gone || gone.has(selected.value.id))) selected.value = null
+    checked.value = []
+    confirm.value = null
+    toast.add({ title: t('lists.toastRowsDeleted', { n }, n), color: 'green' })
+    await load()
+    emit('changed')
+  } catch (e: any) {
+    toast.add({ title: t('lists.toastError'), description: e?.message, color: 'red' })
+  } finally {
+    deleting.value = false
+  }
+}
+
 async function deleteList() {
   deleting.value = true
   try {
     const { error } = await useMyFetch(base.value, { method: 'DELETE' })
     if (error.value) throw new Error(t('lists.toastError'))
-    confirmDelete.value = false
+    confirm.value = null
     toast.add({ title: t('lists.toastDeleted'), color: 'green' })
     emit('deleted')
   } catch (e: any) {

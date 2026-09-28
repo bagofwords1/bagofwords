@@ -24,6 +24,8 @@ from app.schemas.agent_list import (
     RevisionOut,
     RowOut,
     RowPatchIn,
+    RowsDeleteIn,
+    RowsDeleteOut,
     RowsPage,
 )
 from app.services.agent_lists import service as svc
@@ -217,6 +219,23 @@ async def delete_list_row(
     row = await svc.get_row(db, lst, row_id)
     await svc.delete_row(db, row)
     return None
+
+
+@router.post("/data_sources/{data_source_id}/lists/{list_id}/rows/delete", response_model=RowsDeleteOut)
+@requires_resource_permission("data_source", "manage")
+async def delete_list_rows(
+    data_source_id: str,
+    list_id: str,
+    payload: RowsDeleteIn,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Delete selected rows, or clear the list (``all``) keeping its schema."""
+    ds = await svc.get_agent(db, organization, data_source_id)
+    lst = await svc.get_list(db, ds, list_id)
+    n = await svc.delete_rows(db, lst, None if payload.all else payload.row_ids)
+    return RowsDeleteOut(deleted=n)
 
 
 @router.get(

@@ -835,3 +835,23 @@ that wasn't sent, so trimming never skips rows.
 | Live, Chinook `Track` (3,503 rows): "read offsets 2000–2009 via read_query" | `read_query(offset=2000, limit=10)` gave `source: re-executed`, `total_rows: 3503`, `next_offset: 2010`, TrackId 2001–2010 (correct) |
 
 Screenshots: `media/pr/agent-lists/r2-*.png`.
+
+## Round 3: delete rows and clear a list
+
+- **Delete selected rows:** managers get a checkbox column (plus select-all over the loaded
+  rows). Ticking rows swaps the header for "N selected · Clear selection · Delete". Viewers get
+  no checkboxes.
+- **Clear all rows** (in the list's ⋯ menu, next to "Delete list"): deletes every row and its
+  history but **keeps the list**. Its fields, the `submit_<list>` tool and the
+  `bow.<agent>.lists.<list>` table stay, so the agent can fill it again, with the same keys.
+- One endpoint handles both: `POST /data_sources/{id}/lists/{list}/rows/delete` with
+  `{"row_ids": [...]}` (at most 1,000) or `{"all": true}`. Exactly one is required, otherwise
+  it returns 422. It needs **manage** and returns `{deleted: n}`. Ids from another list are
+  ignored, not deleted. Rows are hard-deleted with their revisions, the same as the existing
+  single-row delete.
+- Tests (`test_agent_lists.py`):
+  - `test_delete_selected_rows_only_touches_those_rows_of_this_list`
+  - `test_clear_empties_rows_but_keeps_the_list_its_tool_and_revisions_of_nothing`
+  - `test_bulk_delete_needs_exactly_one_target` (4 cases)
+  - `test_bulk_delete_and_clear_require_manage` (manager 200, viewer and outsider 403)
+- Screenshots: `media/pr/agent-lists/r3-*.png`.

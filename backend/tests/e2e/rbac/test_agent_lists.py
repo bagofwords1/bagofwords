@@ -788,3 +788,56 @@ def test_deleted_or_foreign_row_is_404(test_client, world):
     assert test_client.get(_url(world, f"/{other['id']}/rows/{row['id']}"), headers=h).status_code == 404
     assert test_client.delete(_url(world, f"/{world['list']['id']}/rows/{row['id']}"), headers=h).status_code == 204
     assert test_client.get(_url(world, f"/{world['list']['id']}/rows/{row['id']}"), headers=h).status_code == 404
+
+
+# ── Deleting rows: selected rows, or clear the list and keep it ───────────
+
+def _bulk_delete(test_client, world, body, actor="admin"):
+    return test_client.post(_url(world, f"/{world['list']['id']}/rows/delete"), json=body,
+                            headers=_h(world[actor]["token"], world["org_id"]))
+
+
+def test_delete_selected_rows_only_touches_those_rows_of_this_list(test_client, world):
+    submit(world, [_record(cp="A"), _record(cp="B"), _record(cp="C")])
+    rows = {r["key_value"]: r for r in _rows(test_client, world)["rows"]}
+    other = test_client.post(_url(world), json=_schema(name="Other"), headers=_h(world["admin"]["token"], world["org_id"])).json()
+    submit(world, [_record(cp="Z")], list_id=other["id"])
+    foreign = test_client.get(_url(world, f"/{other['id']}/rows"), headers=_h(world["admin"]["token"], world["org_id"])).json()["rows"][0]
+
+    r = _bulk_delete(test_client, world, {"row_ids": [rows["a"]["id"], rows["b"]["id"], foreign["id"]]})
+    assert r.status_code == 200 and r.json() == {"deleted": 2}
+    left = _rows(test_client, world)
+    assert [x["key_value"] for x in left["rows"]] == ["c"]
+    # the foreign id was ignored, not deleted
+    assert test_client.get(_url(world, f"/{other['id']}/rows"), headers=_h(world["admin"]["token"], world["org_id"])).json()["total"] == 1
+
+
+def test_clear_empties_rows_but_keeps_the_list_its_tool_and_revisions_of_nothing(test_client, world):
+    submit(world, [_record(cp="A"), _record(cp="B")])
+    row = _rows(test_client, world)["rows"][0]
+    assert _patch(test_client, world, row, {"annual_value": "1"}).status_code == 200
+
+    r = _bulk_delete(test_client, world, {"all": True})
+    assert r.status_code == 200 and r.json() == {"deleted": 2}
+    assert _rows(test_client, world)["total"] == 0
+    lst = test_client.get(_url(world, f"/{world['list']['id']}"), headers=_h(world["admin"]["token"], world["org_id"]))
+    assert lst.status_code == 200 and lst.json()["row_count"] == 0
+    assert [t["name"] for t in _build(world)[0]] == [world["list"]["tool_name"]]
+    # the agent can fill it again, with the same key
+    assert submit(world, [_record(cp="A")])["output"]["inserted"] == 1
+    assert _bulk_delete(test_client, world, {"all": True}).json() == {"deleted": 1}
+    assert _bulk_delete(test_client, world, {"all": True}).json() == {"deleted": 0}
+
+
+@pytest.mark.parametrize("body", [{}, {"row_ids": []}, {"row_ids": ["x"], "all": True}, {"row_ids": ["x"] * 1001}])
+def test_bulk_delete_needs_exactly_one_target(test_client, world, body):
+    assert _bulk_delete(test_client, world, body).status_code == 422
+
+
+@pytest.mark.parametrize("actor,code", [("manager", 200), ("viewer", 403), ("outsider", 403)])
+def test_bulk_delete_and_clear_require_manage(test_client, world, actor, code):
+    submit(world, [_record()])
+    row = _rows(test_client, world)["rows"][0]
+    assert _bulk_delete(test_client, world, {"row_ids": [row["id"]]}, actor=actor).status_code == code
+    assert _bulk_delete(test_client, world, {"all": True}, actor=actor).status_code == code
+    assert _rows(test_client, world)["total"] == (0 if code == 200 else 1)
