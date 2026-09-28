@@ -34,7 +34,7 @@ def upgrade() -> None:
         *_base_cols(),
         sa.Column('organization_id', sa.String(length=36), sa.ForeignKey('organizations.id'), nullable=False),
         sa.Column('kind', sa.String(length=8), nullable=False),
-        sa.Column('data_source_id', sa.String(length=36), sa.ForeignKey('data_sources.id'), nullable=True),
+        sa.Column('data_source_id', sa.String(length=36), sa.ForeignKey('data_sources.id', ondelete='SET NULL'), nullable=True),
         sa.Column('user_id', sa.String(length=36), sa.ForeignKey('users.id'), nullable=True),
         sa.Column('local_date', sa.String(length=10), nullable=False),
         sa.Column('status', sa.String(length=12), nullable=False),

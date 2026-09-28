@@ -42,7 +42,7 @@ class DreamRun(BaseSchema):
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     kind = Column(String(8), nullable=False)
     # Exactly one of these is set, depending on ``kind``.
-    data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=True)
+    data_source_id = Column(String(36), ForeignKey("data_sources.id", ondelete="SET NULL"), nullable=True)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     # The org-local night this run belongs to (YYYY-MM-DD).
     local_date = Column(String(10), nullable=False)
