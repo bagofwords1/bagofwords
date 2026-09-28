@@ -48,6 +48,11 @@ class ConversationTurnSchema(BaseModel):
     user_completion_id: Optional[str] = None
     user_prompt: Optional[str] = None
     role: str = "user"  # 'user' | 'external'
+    # Machine turns (wait wake, eval run, agent check-in, …) carry the source
+    # of the hidden trigger; null for a human turn.
+    trigger_source: Optional[str] = None
+    # For trigger_source='checkin': the agent_checkins row this run belongs to.
+    checkin_id: Optional[str] = None
 
     # Assistant side
     completion_id: Optional[str] = None  # system completion
@@ -85,6 +90,34 @@ class ConversationTurnSchema(BaseModel):
     completion_blocks: List[CompletionBlockV2Schema] = []
 
 
+class CheckinTraceSchema(BaseModel):
+    """One agent check-in decision, for the TraceModal lifecycle card.
+
+    Every row for the report is included — not_proposed, rejected, cancelled
+    and skipped too — so admins see the decisions that left nothing visible.
+    """
+    id: str
+    status: str
+    status_reason: Optional[str] = None
+    source_completion_id: Optional[str] = None
+    run_completion_id: Optional[str] = None
+    note: Optional[str] = None
+    plan_reason: Optional[str] = None
+    due_at: OptionalUTCDatetime = None
+    judge_decision: Optional[str] = None
+    judge_reason: Optional[str] = None
+    judge_focus: Optional[str] = None
+    judged_at: OptionalUTCDatetime = None
+    notified: bool = False
+    notify_subject: Optional[str] = None
+    sent_at: OptionalUTCDatetime = None
+    planner_llm_tokens: Optional[int] = None
+    planner_llm_cost_usd: Optional[float] = None
+    judge_llm_tokens: Optional[int] = None
+    judge_llm_cost_usd: Optional[float] = None
+    created_at: OptionalUTCDatetime = None
+
+
 class ConversationTraceResponse(BaseModel):
     """A whole report conversation as an ordered list of turns + roll-up."""
     report_id: str
@@ -104,5 +137,6 @@ class ConversationTraceResponse(BaseModel):
     total_llm_tokens: Optional[int] = None
     total_llm_cost_usd: Optional[float] = None
     turns: List[ConversationTurnSchema] = []
+    checkins: List[CheckinTraceSchema] = []
 
 

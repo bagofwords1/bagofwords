@@ -171,6 +171,13 @@
 							<!-- collapsed -->
 						</template>
 
+						<!-- Agent check-in that ran quietly (did not notify): the reply
+						     stays in the report, collapsed under its "Checked back:
+						     nothing new" strip until expanded. -->
+						<template v-else-if="m.role === 'system' && (m as any).trigger_source === 'checkin' && isQuietCheckinReplyCollapsed(m)">
+							<!-- collapsed -->
+						</template>
+
 						<!-- Machine event entry (eval run finished, wait resumed): a
 						     borderless, compact line aligned into the agent column —
 						     same gutter as system messages, styled like a tool card. -->
@@ -178,9 +185,15 @@
 							<!-- avatar-width spacer so the line lines up with agent content -->
 							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
 							<div class="w-full ms-0 md:ms-4 max-w-2xl">
-								<div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+								<div
+									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
+									:class="isQuietCheckinStrip(m) ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
+									:data-testid="(m as any).trigger_source === 'checkin' ? `checkin-strip-${m.id}` : undefined"
+									@click="isQuietCheckinStrip(m) && toggleCheckinExpand(m.id)"
+								>
 									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
 									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
+									<Icon v-if="isQuietCheckinStrip(m)" :name="expandedCheckinIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 flex-shrink-0" />
 									<span v-if="m.created_at" class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
 								</div>
 							</div>
@@ -1872,6 +1885,60 @@ function visibleInstructions(m: ChatMessage) {
 	return m._loaded_instructions || []
 }
 
+// ---- Agent check-in (trigger_source='checkin') strip helpers ----
+// The strip's prompt.meta carries {checkin_id, outcome, run_completion_id,
+// notify_subject}; outcome is stamped after the follow-up run finishes.
+const expandedCheckinIds = ref<Set<string>>(new Set())
+function checkinMeta(m: any): any {
+	return (m as any)?.trigger_source === 'checkin' ? (m?.prompt?.meta || {}) : null
+}
+// The run's reply for a strip: linked by meta once stamped, else the next
+// check-in system message after the strip.
+function checkinReply(strip: any): any {
+	const id = checkinMeta(strip)?.run_completion_id
+	if (id) return messages.value.find((x: any) => x.id === id) || null
+	const i = messages.value.indexOf(strip)
+	for (let j = i + 1; j < messages.value.length; j++) {
+		const x: any = messages.value[j]
+		if (x.role === 'external') break
+		if (x.role === 'system' && x.trigger_source === 'checkin') return x
+	}
+	return null
+}
+// Outcome of a check-in strip. The server stamps meta.outcome just after the
+// run ends — which can land after the page's end-of-run refresh — so derive it
+// from the reply itself until then (a successful notify call ⇒ sent).
+function checkinOutcome(strip: any): string {
+	const meta = checkinMeta(strip) || {}
+	if (meta.outcome) return meta.outcome
+	if (strip?.status === 'in_progress') return 'running'
+	const reply = checkinReply(strip)
+	if (!reply || reply.status === 'in_progress') return strip?.status === 'error' ? 'failed' : 'running'
+	const notified = (reply.completion_blocks || []).some((b: any) => {
+		const te = b?.tool_execution
+		if (!te || te.tool_name !== 'notify') return false
+		return te.status ? te.status === 'success' : te.success !== false
+	})
+	if (notified) return 'sent'
+	if (reply.status === 'error' || strip?.status === 'error') return 'failed'
+	return 'ran_quiet'
+}
+function isQuietCheckinStrip(m: any): boolean {
+	return m?.role === 'external' && (m as any)?.trigger_source === 'checkin' && checkinOutcome(m) === 'ran_quiet'
+}
+function toggleCheckinExpand(id: string) {
+	const next = new Set(expandedCheckinIds.value)
+	if (next.has(id)) next.delete(id)
+	else next.add(id)
+	expandedCheckinIds.value = next
+}
+function isQuietCheckinReplyCollapsed(msg: any): boolean {
+	const strip = messages.value.find((x: any) =>
+		x.role === 'external' && (x as any).trigger_source === 'checkin' && checkinReply(x)?.id === msg.id)
+	if (!strip || checkinOutcome(strip) !== 'ran_quiet') return false
+	return !expandedCheckinIds.value.has(strip.id)
+}
+
 function isScheduledSystemExpanded(msg: ChatMessage): boolean {
 	// Find the preceding user message with the same scheduled_prompt_id
 	const idx = messages.value.indexOf(msg)
@@ -1951,6 +2018,7 @@ function webhookSourceIcon(source?: string): string {
 		// Machine-turn events (trigger_source doubles as external_platform)
 		case 'eval_run': return 'heroicons-beaker'
 		case 'wait': return 'heroicons-clock'
+		case 'checkin': return 'heroicons-arrow-path-rounded-square'
 		default: return 'heroicons-bolt'
 	}
 }
@@ -1968,6 +2036,18 @@ function machineEventLabel(m: any): string {
 	}
 	if (meta && src === 'wait') {
 		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return t('events.checkin.running')
+		if (outcome === 'failed') return t('events.checkin.failed')
+		if (outcome === 'sent') {
+			return meta?.notify_subject
+				? t('events.checkin.sentWithSubject', { subject: meta.notify_subject })
+				: t('events.checkin.sent')
+		}
+		if (outcome === 'ran_quiet') return t('events.checkin.quiet')
+		return t('events.checkin.label')
 	}
 	return m.prompt?.summary || m.prompt?.content
 }
@@ -2009,11 +2089,23 @@ function machineEventIcon(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'heroicons-arrow-path'
+		if (outcome === 'failed') return 'heroicons-x-circle'
+		return outcome === 'sent' ? 'heroicons-bell-alert' : 'heroicons-arrow-path-rounded-square'
+	}
 	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
 }
 function machineEventIconClass(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'text-blue-400 animate-spin'
+		if (outcome === 'failed') return 'text-red-400'
+		if (outcome === 'sent') return 'text-blue-500'
+	}
 	return 'text-gray-400 dark:text-gray-500'
 }
 // Inbound webhook events expand to show the delivery that caused the run —

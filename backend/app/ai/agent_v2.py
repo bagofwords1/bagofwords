@@ -471,6 +471,9 @@ class AgentV2:
         self._fallback_controller = None
         self._fallback_engaged = False
         self.head_completion = head_completion
+        # Scalar copy (see report_id note below): machine-turn source of the
+        # head completion, e.g. 'checkin' for an agent check-in run.
+        self._head_trigger_source = getattr(head_completion, "trigger_source", None) if head_completion is not None else None
         # Stamp the asker's identity for LLM header injection BEFORE the
         # planner below constructs its LLM client — provider header_injection
         # rules resolve at client construction. Membership role/attributes need
@@ -796,6 +799,13 @@ class AgentV2:
         self._notes_enabled = bool(getattr(notes_enabled_cfg, "value", False)) if notes_enabled_cfg is not None else False
         if not self._notes_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('create_note', 'edit_note')]
+
+        # Check-in runs (the agent following up on its own) never create
+        # recurring work or re-arm themselves, and reach the user only through
+        # `notify` (whose check-in guardrails send_email would bypass).
+        if getattr(self, "_head_trigger_source", None) == "checkin":
+            _checkin_hidden = ('create_scheduled_task', 'edit_scheduled_task', 'wait', 'send_email')
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in _checkin_hidden]
 
         # Shared-artifact viewer chat runs read/query-only: no artifact or
         # dashboard mutations, no comms, no automation, no agent-scope tools
@@ -2645,6 +2655,17 @@ class AgentV2:
                             logger.warning(f"Failed to emit context.compacted event: {e}")
         except Exception as e:
             logger.warning(f"Auto compaction skipped: {e}")
+
+    def _checkins_enabled(self) -> bool:
+        """Agent check-ins org setting (lab, off by default). Checked first so a
+        disabled org never spawns the planning task or pays for an LLM call."""
+        if self.mode == "training" or self.is_eval_run:
+            return False
+        try:
+            from app.services.checkin_policy import feature_enabled
+            return feature_enabled(self.organization_settings)
+        except Exception:
+            return False
 
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
@@ -6817,6 +6838,26 @@ class AgentV2:
                         )
                 except Exception as _harness_exc:
                     logger.warning(f"[agent] knowledge harness dispatch failed: {_harness_exc!r}")
+
+                # Agent check-ins: a separate, silent planning step (not a
+                # harness tool — the harness only runs on its own triggers and
+                # emits visible blocks). Setting off → no task, no LLM call.
+                # Eligibility (human-initiated turn only) and the planner run in
+                # a background task with its own session: no SSE, no blocks.
+                try:
+                    if not completion_errored and self._checkins_enabled():
+                        from app.services.checkin_service import checkin_service as _checkins
+                        from app.core.fire_and_forget import spawn as _spawn
+                        _spawn(_checkins.dispatch_after_turn(
+                            organization_id=str(self.organization.id) if self.organization else None,
+                            user_id=self._asker_user_id,
+                            report_id=self.report_id,
+                            head_completion_id=str(self.head_completion.id) if self.head_completion else None,
+                            system_completion_id=str(self.system_completion_id) if self.system_completion else None,
+                            small_model_id=str(getattr(self.small_model or self.model, "id", "") or "") or None,
+                        ))
+                except Exception as _checkin_exc:
+                    logger.warning(f"[agent] checkin dispatch failed: {_checkin_exc!r}")
 
             # Save final context snapshot (recompute metadata so counts/tokens are up to date)
             view = await self._refresh_warm_traced("final_snapshot")

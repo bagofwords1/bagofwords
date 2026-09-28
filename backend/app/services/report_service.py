@@ -1732,6 +1732,15 @@ class ReportService:
 
         logger.info(f"Deleted {len(scheduled_prompts)} scheduled prompt(s) for archived report(s): {report_ids}")
 
+    async def _cancel_checkins_for_reports(self, db: AsyncSession, report_ids) -> None:
+        """Archived reports: cancel their pending agent check-ins
+        (cancelled:report_deleted) and remove the checkin:* jobs."""
+        try:
+            from app.services.checkin_service import checkin_service
+            await checkin_service.cancel_for_reports(db, list(report_ids or []))
+        except Exception:
+            logger.warning(f"Failed to cancel check-ins for archived report(s): {report_ids}", exc_info=True)
+
     async def archive_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
@@ -1741,6 +1750,7 @@ class ReportService:
         report.status = 'archived'
         await self._delete_scheduled_prompts_for_reports(db, [str(report.id)])
         await db.commit()
+        await self._cancel_checkins_for_reports(db, [str(report.id)])
         await db.refresh(report)
 
         # Audit log
@@ -2988,6 +2998,7 @@ class ReportService:
         if count:
             await self._delete_scheduled_prompts_for_reports(db, archived_ids)
             await db.commit()
+            await self._cancel_checkins_for_reports(db, archived_ids)
 
             # Audit log
             try:

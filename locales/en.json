@@ -478,6 +478,11 @@
         "title": "⚡ \"{name}\" fired — {summary}",
         "body": "The investigation completed — open the session for the findings."
       }
+    },
+    "checkin": {
+      "badge": "Follow-up",
+      "openReport": "Open report",
+      "assistantFallback": "AI Analyst"
     }
   },
   "auth": {
@@ -974,7 +979,63 @@
     "stepTotal": "Step total",
     "firstToken": "Time to first token",
     "thinking": "Thinking",
-    "tool": "Tool"
+    "tool": "Tool",
+    "machineTurn": "Machine turn ({source})",
+    "checkin": {
+      "title": "Agent check-in",
+      "runTurn": "Follow-up run (agent check-in)",
+      "noFollowUp": "No follow-up planned",
+      "noReason": "The planner gave no reason.",
+      "due": "due {when}",
+      "note": "Note to future self",
+      "planReason": "Why follow up",
+      "judge": "Judge",
+      "focus": "Focus",
+      "whyRun": "Why the judge ran this follow-up",
+      "plannerUsage": "Planner",
+      "judgeUsage": "Judge",
+      "status": {
+        "not_proposed": "not proposed",
+        "rejected": "rejected",
+        "planned": "planned",
+        "cancelled": "cancelled",
+        "skipped": "skipped",
+        "running": "running",
+        "ran_quiet": "ran quietly",
+        "sent": "notified",
+        "failed": "failed"
+      },
+      "decision": {
+        "run": "run",
+        "skip": "skip"
+      },
+      "reason": {
+        "disabled": "setting off",
+        "pending_exists_user": "user already has one pending",
+        "pending_exists_report": "report already has one pending",
+        "weekly_cap": "weekly limit reached",
+        "org_daily_cap": "org daily limit reached",
+        "report_deleted": "report deleted",
+        "access_lost": "access lost",
+        "judge_skip": "judge skipped",
+        "run_failed": "run failed",
+        "invalid_judge_output": "invalid judge output",
+        "opted_out": "opted out",
+        "fire_error": "error during the check",
+        "stale_running": "left running (restart)"
+      },
+      "outcome": {
+        "sent": "Notified the user",
+        "sentWithSubject": "Notified the user: {subject}",
+        "ran_quiet": "Ran quietly — nothing worth notifying",
+        "planned": "Waiting for its due time",
+        "running": "Running now",
+        "skipped": "Skipped by the judge — nothing ran",
+        "failed": "The follow-up run failed — nothing was sent",
+        "rejected": "Not armed: {reason}",
+        "cancelled": "Cancelled: {reason}"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2740,6 +2801,18 @@
         "llm_fallback": {
           "name": "LLM fallback",
           "description": "Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable."
+        },
+        "enable_agent_checkins": {
+          "name": "Agent check-ins",
+          "description": "Let the agent follow up on its own after a conversation when something is worth revisiting (e.g. after a data refresh). Follow-ups run as the user in the same report and notify them only when something meaningful changed."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Check-ins per user per week",
+          "description": "Maximum follow-up runs a single user can receive in 7 days."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Check-in runs per day",
+          "description": "Upper bound on follow-up runs across the organization per day (cost cap)."
         }
       }
     },
@@ -4731,7 +4804,11 @@
       "defaultModelSubtitle": "The model used by default when you start a new chat. Only models you have access to are listed.",
       "orgDefault": "Organization default",
       "defaultModelSaved": "Default model updated",
-      "defaultModelFailed": "Failed to update default model"
+      "defaultModelFailed": "Failed to update default model",
+      "checkinsTitle": "Agent follow-ups",
+      "checkinsSubtitle": "Let the agent check back on its own after a conversation when something is worth revisiting (for example after a data refresh). It notifies you only when something meaningful changed.",
+      "checkinsSaved": "Follow-up preference saved",
+      "checkinsFailed": "Could not save your follow-up preference"
     },
     "instructions": {
       "title": "Custom Instructions",
@@ -5047,7 +5124,15 @@
   },
   "events": {
     "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
-    "waitResumed": "Wait elapsed — resuming: {reason}"
+    "waitResumed": "Wait elapsed — resuming: {reason}",
+    "checkin": {
+      "label": "Follow-up",
+      "running": "Following up on this conversation…",
+      "sent": "Follow-up — notified you",
+      "sentWithSubject": "Follow-up — notified you: {subject}",
+      "quiet": "Checked back: nothing new",
+      "failed": "Follow-up failed"
+    }
   },
   "sessionEvents": {
     "run_stopped": "Run was stopped",

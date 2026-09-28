@@ -461,6 +461,11 @@
         "title": "⚡ \"{name}\" se activó — {summary}",
         "body": "La investigación terminó — abre la sesión para ver los hallazgos."
       }
+    },
+    "checkin": {
+      "badge": "Seguimiento",
+      "openReport": "Abrir informe",
+      "assistantFallback": "Analista de IA"
     }
   },
   "auth": {
@@ -948,7 +953,63 @@
     "stepTotal": "Total del paso",
     "firstToken": "Tiempo hasta el primer token",
     "thinking": "Razonamiento",
-    "tool": "Herramienta"
+    "tool": "Herramienta",
+    "machineTurn": "Turno automático ({source})",
+    "checkin": {
+      "title": "Seguimiento del agente",
+      "runTurn": "Ejecución de seguimiento (agente)",
+      "noFollowUp": "No se planificó seguimiento",
+      "noReason": "El planificador no dio un motivo.",
+      "due": "vence {when}",
+      "note": "Nota para el futuro",
+      "planReason": "Por qué hacer seguimiento",
+      "judge": "Juez",
+      "focus": "Enfoque",
+      "whyRun": "Por qué el juez ejecutó este seguimiento",
+      "plannerUsage": "Planificador",
+      "judgeUsage": "Juez",
+      "status": {
+        "not_proposed": "no propuesto",
+        "rejected": "rechazado",
+        "planned": "planificado",
+        "cancelled": "cancelado",
+        "skipped": "omitido",
+        "running": "en ejecución",
+        "ran_quiet": "ejecutado sin aviso",
+        "sent": "notificado",
+        "failed": "fallido"
+      },
+      "decision": {
+        "run": "ejecutar",
+        "skip": "omitir"
+      },
+      "reason": {
+        "disabled": "ajuste desactivado",
+        "pending_exists_user": "el usuario ya tiene uno pendiente",
+        "pending_exists_report": "el informe ya tiene uno pendiente",
+        "weekly_cap": "límite semanal alcanzado",
+        "org_daily_cap": "límite diario de la organización alcanzado",
+        "report_deleted": "informe eliminado",
+        "access_lost": "acceso perdido",
+        "judge_skip": "omitido por el juez",
+        "run_failed": "la ejecución falló",
+        "invalid_judge_output": "respuesta del juez no válida",
+        "opted_out": "el usuario se excluyó",
+        "fire_error": "error durante la comprobación",
+        "stale_running": "quedó en ejecución (reinicio)"
+      },
+      "outcome": {
+        "sent": "Se notificó al usuario",
+        "sentWithSubject": "Se notificó al usuario: {subject}",
+        "ran_quiet": "Se ejecutó sin aviso — nada que notificar",
+        "planned": "Esperando su hora",
+        "running": "En ejecución",
+        "skipped": "Omitido por el juez — no se ejecutó nada",
+        "failed": "El seguimiento falló — no se envió nada",
+        "rejected": "No se programó: {reason}",
+        "cancelled": "Cancelado: {reason}"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2660,6 +2721,18 @@
         "llm_fallback": {
           "name": "Respaldo de LLM",
           "description": "Enterprise. Cuando el modelo activo falla por un límite de tasa, una sobrecarga del proveedor o un error de red, la petición se reintenta automáticamente en el siguiente modelo del orden de respaldo (configurado en la página de LLM) durante el resto de la ejecución. La sustitución siempre se indica en el chat. Desactivado por defecto; su activación requiere una licencia enterprise."
+        },
+        "enable_agent_checkins": {
+          "name": "Seguimientos del agente",
+          "description": "Permite que el agente haga un seguimiento por su cuenta después de una conversación cuando vale la pena revisar algo (p. ej., tras una actualización de datos). Los seguimientos se ejecutan como el usuario en el mismo informe y solo le notifican cuando algo cambió de forma significativa."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Seguimientos por usuario por semana",
+          "description": "Número máximo de seguimientos que un usuario puede recibir en 7 días."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Seguimientos por día",
+          "description": "Límite de seguimientos en toda la organización por día (tope de costo)."
         }
       }
     },
@@ -4655,7 +4728,11 @@
       "defaultModelSaved": "Modelo predeterminado actualizado",
       "defaultModelFailed": "No se pudo actualizar el modelo predeterminado",
       "directorySubtitle": "Datos laborales sincronizados desde el proveedor de identidad de tu organización. Visibles para la IA como contexto.",
-      "directoryTitle": "Perfil del directorio"
+      "directoryTitle": "Perfil del directorio",
+      "checkinsTitle": "Seguimientos del agente",
+      "checkinsSubtitle": "Permite que el agente vuelva por su cuenta después de una conversación cuando vale la pena revisar algo (por ejemplo, tras una actualización de datos). Solo te notifica cuando algo cambió de forma significativa.",
+      "checkinsSaved": "Preferencia de seguimiento guardada",
+      "checkinsFailed": "No se pudo guardar tu preferencia de seguimiento"
     },
     "instructions": {
       "title": "Instrucciones personalizadas",
@@ -4973,7 +5050,15 @@
   },
   "events": {
     "evalRunFinished": "La ejecución de evaluación '{title}' terminó — {passed}/{total} aprobadas ({status})",
-    "waitResumed": "La espera terminó — reanudando: {reason}"
+    "waitResumed": "La espera terminó — reanudando: {reason}",
+    "checkin": {
+      "label": "Seguimiento",
+      "running": "Haciendo seguimiento de esta conversación…",
+      "sent": "Seguimiento — te notificó",
+      "sentWithSubject": "Seguimiento — te notificó: {subject}",
+      "quiet": "Revisado de nuevo: nada nuevo",
+      "failed": "El seguimiento falló"
+    }
   },
   "sessionEvents": {
     "run_stopped": "Se detuvo la ejecución",

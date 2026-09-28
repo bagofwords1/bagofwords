@@ -177,6 +177,22 @@
               </UPopover>
             </div>
 
+            <!-- Agent check-ins: personal opt-out (only while the org has them on) -->
+            <div v-if="checkins.available" class="pt-2 border-t border-gray-100 dark:border-gray-800" data-testid="profile-checkins">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('profile.general.checkinsTitle') }}</div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.general.checkinsSubtitle') }}</p>
+                </div>
+                <UToggle
+                  :model-value="checkins.enabled"
+                  :disabled="savingCheckins"
+                  data-testid="profile-checkins-toggle"
+                  @update:model-value="saveCheckins"
+                />
+              </div>
+            </div>
+
             <!-- External platforms summary -->
             <div class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-3">
               <div>
@@ -725,6 +741,39 @@ async function saveDefaultModel(modelId: string | null) {
   }
 }
 
+// --- General: agent check-ins (personal opt-out) ---
+const checkins = ref<{ enabled: boolean; available: boolean }>({ enabled: true, available: false })
+const savingCheckins = ref(false)
+
+async function loadCheckins() {
+  try {
+    const res = await useMyFetch('/users/me/checkins')
+    if (res.status.value === 'success' && res.data.value) checkins.value = res.data.value as any
+  } catch {
+    // non-fatal; the section stays hidden
+  }
+}
+
+async function saveCheckins(enabled: boolean) {
+  const previous = checkins.value.enabled
+  checkins.value = { ...checkins.value, enabled }
+  savingCheckins.value = true
+  try {
+    const res = await useMyFetch('/users/me/checkins', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+    if (res.status.value !== 'success') throw new Error(t('profile.general.checkinsFailed'))
+    toast.add({ title: t('profile.general.checkinsSaved'), color: 'green' })
+  } catch (e: any) {
+    checkins.value = { ...checkins.value, enabled: previous }
+    toast.add({ title: e?.message || t('profile.general.checkinsFailed'), color: 'red' })
+  } finally {
+    savingCheckins.value = false
+  }
+}
+
 // --- General: external platforms ---
 const externalPlatforms = computed<any[]>(() => (currentUser.value as any)?.external_user_mappings || [])
 
@@ -1162,6 +1211,7 @@ watch(isOpen, (open) => {
     syncNameInput()
     loadOrgLocale()
     loadModels()
+    loadCheckins()
     loadProfileAttributes()
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()

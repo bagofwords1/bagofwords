@@ -447,6 +447,11 @@
         "title": "⚡ \"{name}\" si è attivato — {summary}",
         "body": "L'indagine è terminata — apri la sessione per vedere i risultati."
       }
+    },
+    "checkin": {
+      "badge": "Follow-up",
+      "openReport": "Apri report",
+      "assistantFallback": "Analista IA"
     }
   },
   "auth": {
@@ -934,7 +939,63 @@
     "stepTotal": "Totale del passo",
     "firstToken": "Tempo al primo token",
     "thinking": "Ragionamento",
-    "tool": "Strumento"
+    "tool": "Strumento",
+    "machineTurn": "Turno automatico ({source})",
+    "checkin": {
+      "title": "Follow-up dell'agente",
+      "runTurn": "Esecuzione di follow-up (agente)",
+      "noFollowUp": "Nessun follow-up pianificato",
+      "noReason": "Il pianificatore non ha fornito un motivo.",
+      "due": "scadenza {when}",
+      "note": "Nota per il futuro",
+      "planReason": "Perché un follow-up",
+      "judge": "Giudice",
+      "focus": "Focus",
+      "whyRun": "Perché il giudice ha eseguito questo follow-up",
+      "plannerUsage": "Pianificatore",
+      "judgeUsage": "Giudice",
+      "status": {
+        "not_proposed": "non proposto",
+        "rejected": "rifiutato",
+        "planned": "pianificato",
+        "cancelled": "annullato",
+        "skipped": "saltato",
+        "running": "in esecuzione",
+        "ran_quiet": "eseguito senza avviso",
+        "sent": "notificato",
+        "failed": "non riuscito"
+      },
+      "decision": {
+        "run": "esegui",
+        "skip": "salta"
+      },
+      "reason": {
+        "disabled": "impostazione disattivata",
+        "pending_exists_user": "l'utente ne ha già uno in attesa",
+        "pending_exists_report": "il report ne ha già uno in attesa",
+        "weekly_cap": "limite settimanale raggiunto",
+        "org_daily_cap": "limite giornaliero dell'organizzazione raggiunto",
+        "report_deleted": "report eliminato",
+        "access_lost": "accesso perso",
+        "judge_skip": "saltato dal giudice",
+        "run_failed": "esecuzione non riuscita",
+        "invalid_judge_output": "risposta del giudice non valida",
+        "opted_out": "disattivato dall'utente",
+        "fire_error": "errore durante il controllo",
+        "stale_running": "rimasto in esecuzione (riavvio)"
+      },
+      "outcome": {
+        "sent": "Utente notificato",
+        "sentWithSubject": "Utente notificato: {subject}",
+        "ran_quiet": "Eseguito senza avviso — niente da segnalare",
+        "planned": "In attesa della scadenza",
+        "running": "In esecuzione",
+        "skipped": "Saltato dal giudice — nessuna esecuzione",
+        "failed": "L'esecuzione del follow-up non è riuscita — nulla è stato inviato",
+        "rejected": "Non pianificato: {reason}",
+        "cancelled": "Annullato: {reason}"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2568,6 +2629,18 @@
         "llm_fallback": {
           "name": "Ripiego LLM",
           "description": "Enterprise. Quando il modello attivo fallisce per un limite di frequenza, un sovraccarico del fornitore o un errore di rete, la richiesta viene automaticamente ritentata sul modello successivo nell'ordine di ripiego (configurato nella pagina LLM) per il resto dell'esecuzione. La sostituzione viene sempre dichiarata nella chat. Disattivato per impostazione predefinita; l'attivazione richiede una licenza enterprise."
+        },
+        "enable_agent_checkins": {
+          "name": "Follow-up dell'agente",
+          "description": "Consente all'agente di fare un follow-up in autonomia dopo una conversazione quando vale la pena ricontrollare (ad es. dopo un aggiornamento dei dati). I follow-up vengono eseguiti come l'utente nello stesso report e lo notificano solo quando qualcosa di significativo è cambiato."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Follow-up per utente a settimana",
+          "description": "Numero massimo di follow-up che un utente può ricevere in 7 giorni."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Follow-up al giorno",
+          "description": "Limite massimo di follow-up per l'intera organizzazione al giorno (limite di costo)."
         }
       }
     },
@@ -4541,7 +4614,11 @@
       "defaultModelSaved": "Modello predefinito aggiornato",
       "defaultModelFailed": "Impossibile aggiornare il modello predefinito",
       "directorySubtitle": "Informazioni professionali sincronizzate dal provider di identità della tua organizzazione. Visibili all'AI come contesto.",
-      "directoryTitle": "Profilo della directory"
+      "directoryTitle": "Profilo della directory",
+      "checkinsTitle": "Follow-up dell'agente",
+      "checkinsSubtitle": "Consente all'agente di ricontrollare in autonomia dopo una conversazione quando vale la pena (ad esempio dopo un aggiornamento dei dati). Ti notifica solo quando qualcosa di significativo è cambiato.",
+      "checkinsSaved": "Preferenza di follow-up salvata",
+      "checkinsFailed": "Impossibile salvare la preferenza di follow-up"
     },
     "instructions": {
       "title": "Istruzioni personalizzate",
@@ -4859,7 +4936,15 @@
   },
   "events": {
     "evalRunFinished": "L'esecuzione di valutazione '{title}' è terminata — {passed}/{total} superati ({status})",
-    "waitResumed": "Attesa trascorsa — ripresa: {reason}"
+    "waitResumed": "Attesa trascorsa — ripresa: {reason}",
+    "checkin": {
+      "label": "Follow-up",
+      "running": "Follow-up su questa conversazione…",
+      "sent": "Follow-up — ti ho notificato",
+      "sentWithSubject": "Follow-up — ti ho notificato: {subject}",
+      "quiet": "Ricontrollato: niente di nuovo",
+      "failed": "Follow-up non riuscito"
+    }
   },
   "chatSummary": {
     "empty": "Ancora nessun elemento",

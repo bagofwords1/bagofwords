@@ -46,6 +46,19 @@ tracer = get_tracer(__name__)
 # can still schedule usage recording via run_coroutine_threadsafe.
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
 
+
+def bind_usage_loop(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    """Remember the app's event loop for usage recording.
+
+    ``LLM.inference`` is sync and usually runs in a worker thread
+    (``asyncio.to_thread``); it schedules its usage write onto ``_MAIN_LOOP``,
+    which is otherwise only captured by an earlier *async* LLM call. Call this
+    from async code before off-loading when the sync call may be the first LLM
+    call in the process (e.g. a scheduler job right after a restart), or its
+    usage record is silently dropped."""
+    global _MAIN_LOOP
+    _MAIN_LOOP = loop or asyncio.get_running_loop()
+
 # Strong references to in-flight usage-record tasks. asyncio only keeps a weak
 # reference to tasks created via loop.create_task(), so a fire-and-forget task
 # can be garbage-collected mid-execution before its DB commit lands — silently
