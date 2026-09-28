@@ -45,7 +45,7 @@ MCP_HTML = ROOT / "frontend" / "public" / "mcp-artifact-app.html"
 VIEWER = {"id": "user-ada", "name": "Ada Viewer"}
 
 # No .catch on any write on purpose: an uncaught app-data rejection must not
-# blank the dashboard (PP14). Two components share one collection to prove the
+# blank the dashboard. Two components share one collection to prove the
 # store issues a single list for both.
 NOTES_APP = """<script type="text/babel">
 function Notes() {
@@ -361,7 +361,7 @@ async def test_bridge_correlates_rid_and_ignores_foreign_results(tmp_path):
 @requires_browser
 @pytest.mark.asyncio
 async def test_uncaught_write_failure_is_not_an_artifact_error(tmp_path):
-    """PP14: the host answers 403 to an uncaught notes.add(); the dashboard
+    """The host answers 403 to an uncaught notes.add(); the dashboard
     keeps rendering with error.code, the error boundary posts nothing, and the
     browser reports no page error."""
     from playwright.async_api import async_playwright
@@ -456,7 +456,7 @@ async def test_unauthenticated_list_surfaces_as_error_code(tmp_path):
 @requires_browser
 @pytest.mark.asyncio
 async def test_unanswered_request_times_out(tmp_path):
-    """PP12: a host that never answers ends in `timeout`, not a spinner."""
+    """A host that never answers ends in `timeout`, not a spinner."""
     from playwright.async_api import async_playwright
 
     child_html = _artifact_page(
@@ -478,7 +478,7 @@ async def test_unanswered_request_times_out(tmp_path):
 @requires_browser
 @pytest.mark.asyncio
 async def test_artifact_without_use_collection_sends_no_request(tmp_path):
-    """PP9: legacy artifacts see no new traffic."""
+    """Legacy artifacts see no new traffic."""
     from playwright.async_api import async_playwright
 
     async with async_playwright() as p:

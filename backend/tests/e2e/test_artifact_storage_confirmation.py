@@ -1,6 +1,6 @@
 """Destructive storage-declaration changes need the run user's approval.
 
-Contract (spec 12, plan P6, RD4):
+Contract (docs/design/artifact-app-persistence.md, "App changes"):
 - When create_artifact (rebuild) or edit_artifact would change an artifact's
   effective storage declaration in a way that hides or exposes stored records
   (collection removed, field removed, field type changed, scope changed,
@@ -10,7 +10,7 @@ Contract (spec 12, plan P6, RD4):
   detected change asks, even when the collection is empty (impact 0).
 - Approve -> the new version is persisted. Deny, timeout, a non-interactive
   run, or too little tool budget left to ask -> nothing becomes effective:
-  edit persists nothing, a rebuild ends `failed` (PP11).
+  edit persists nothing, a rebuild ends `failed`.
 - Additive changes (new optional field, new field with a default) never ask.
 - The legacy, unauthenticated /api/artifacts/confirm route cannot answer a
   builtin confirmation (404, the wait stays pending).
@@ -253,7 +253,7 @@ def test_removing_an_empty_collection_still_asks_with_zero_impact(page):
 
     end, confirmations = _edit(page.report_id, _drop_notes_edit(v1), answer=False)
 
-    assert len(confirmations) == 1, "spec 12: every detected change asks, even with no records"
+    assert len(confirmations) == 1, "every detected change asks, even with no records"
     assert confirmations[0]["storage_changes"][0]["kind"] == "collection_removed"
     assert confirmations[0]["storage_changes"][0]["records"] == 0
     assert confirmations[0]["storage_changes"][0]["users"] == 0
@@ -312,7 +312,7 @@ def test_each_detected_change_asks_even_on_an_empty_collection(page, kind):
 
     end, confirmations = _edit(page.report_id, {"artifact_id": v1, "storage": after_decl}, answer=False)
 
-    assert len(confirmations) == 1, f"{kind} must ask (RD4 / spec 12)"
+    assert len(confirmations) == 1, f"{kind} must ask"
     got = [(c["kind"], c["principal"], c["capability"], c["before"], c["after"])
            for c in confirmations[0]["storage_changes"]]
     assert got == EXPECTED_CHANGES[kind]
@@ -446,7 +446,7 @@ def test_legacy_confirm_route_refuses_builtin_confirmation_ids(test_client):
 
 
 # ---------------------------------------------------------------------------
-# W3 remediation
+# Orphaned rows, older and failed versions, rebuild failures, approval wait
 # ---------------------------------------------------------------------------
 
 import time  # noqa: E402
@@ -740,7 +740,7 @@ def test_runner_deadline_in_the_runtime_context_caps_the_wait(page):
 
 
 # ---------------------------------------------------------------------------
-# W6-A: public reads are an explicit decision; access diff; re-added fields
+# Public reads are an explicit decision; access diff; re-added fields
 # ---------------------------------------------------------------------------
 
 async def _make_public(report_id: str):

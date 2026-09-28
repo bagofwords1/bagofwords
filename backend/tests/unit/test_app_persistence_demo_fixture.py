@@ -1,4 +1,4 @@
-"""The P11 demo app (tools/agent) passes the real storage gates.
+"""The app persistence demo app (tools/agent) passes the real storage gates.
 
 The fixture is POSTed to /api/artifacts by tools/agent/seed_app_persistence_demo.py
 with the declaration defined there; both must satisfy the same checks the
@@ -107,17 +107,20 @@ def test_pick_visualizations_by_title():
 
 
 @pytest.mark.parametrize(
-    "title,ok",
+    "title,suffix,ok",
     [
-        ("Country Revenue by Genre (demo copy)", True),
-        ("Country Revenue by Genre", False),
-        ("(demo copy) Country Revenue", False),
-        ("", False),
-        (None, False),
+        ("Country Revenue by Genre (demo copy)", " (demo copy)", True),
+        ("Country Revenue by Genre", " (demo copy)", False),
+        ("(demo copy) Country Revenue", " (demo copy)", False),
+        (" (demo copy)", " (demo copy)", False),
+        ("", " (demo copy)", False),
+        (None, " (demo copy)", False),
+        ("Any report", None, True),
+        ("Any report", "", True),
     ],
 )
-def test_binding_check_requires_the_copy_marker(title, ok):
-    assert _seed_module().is_demo_copy_title(title) is ok
+def test_title_suffix_check_is_opt_in_and_strict(title, suffix, ok):
+    assert _seed_module().title_has_suffix(title, suffix) is ok
 
 
 def test_fixture_does_not_rely_on_form_submission(code):

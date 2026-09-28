@@ -3,19 +3,19 @@
 Invariants under test (design spec sections 9, 11, 12; plan E1-E3):
   * Declaration changes apply at READ time: missing fields come back with
     their declared default, removed fields are hidden but kept, retyped
-    values come back as stored. Reads never rewrite a row (PP7).
+    values come back as stored. Reads never rewrite a row.
   * Records are validated against the effective declaration over HTTP:
     unknown keys, wrong types, missing required fields, size limits, and the
     per-collection record limit.
   * Optimistic concurrency: a stale version is 409 and changes nothing;
-    every successful write bumps the version by exactly one (PP6). Deletes
+    every successful write bumps the version by exactly one. Deletes
     are soft; a deleted record is 404 for further writes.
-  * The effective declaration is the latest COMPLETED version (PP8); an
-    artifact without storage has no collections (PP9).
-  * Records survive new versions and an owner rerun (PP13).
+  * The effective declaration is the latest COMPLETED version; an
+    artifact without storage has no collections.
+  * Records survive new versions and an owner rerun.
   * Writes are audited without record content.
-  * `user` and `mine` are computed server-side for every reader (PP5);
-    unverified users cannot write when email verification is on (RD11).
+  * `user` and `mine` are computed server-side for every reader;
+    unverified users cannot write when email verification is on.
 """
 import asyncio
 import json
@@ -171,7 +171,7 @@ def test_declaration_changes_apply_at_read_time_without_rewriting_rows(test_clie
     [item] = listed.json()["items"]
     assert item["data"] == {"title": "a", "score": 5, "done": False, "tag": None, "status": "open"}
     assert item["version"] == 1
-    # PP7: reading changed nothing in the stored row.
+    # Reading changed nothing in the stored row.
     assert _row(rid) == stored_before
 
     # A PATCH of another field works on the old row: the new required field is
@@ -286,7 +286,7 @@ def test_optimistic_concurrency_and_soft_delete(test_client, bootstrap_admin, cr
 
     rid = api.create("tasks", {"title": "a"}).json()["id"]
 
-    # Two writers on the same base version: exactly one wins (PP6).
+    # Two writers on the same base version: exactly one wins.
     first = api.update("tasks", rid, {"title": "first"}, version=1)
     assert first.status_code == 200 and first.json()["version"] == 2, first.text
     stale = _error(api.update("tasks", rid, {"title": "second"}, version=1), 409, "app_data.conflict")
@@ -335,7 +335,7 @@ def test_effective_declaration_is_latest_completed_version(test_client, bootstra
             return str(pending.id), str(failed.id)
     pending_id, failed_id = asyncio.run(_append())
 
-    assert api.list("tasks").status_code == 200  # PP8
+    assert api.list("tasks").status_code == 200
     _error(api.list("drafts"), 404, "app_data.collection_not_declared")
     for bad in ("Tasks", "no-tes", "tasks_"):
         _error(api.list(bad), 404, "app_data.collection_not_declared")
@@ -343,7 +343,7 @@ def test_effective_declaration_is_latest_completed_version(test_client, bootstra
     # A version id is not an artifact id.
     _error(_Api(test_client, version_id, owner["token"]).list("tasks"), 404, "artifact.not_found")
 
-    # PP9: an artifact without storage has no collections, for every op.
+    # An artifact without storage has no collections, for every op.
     plain_version, plain_id = _create_artifact(test_client, owner, report["id"], None)
     plain = _Api(test_client, plain_id, owner["token"])
     _error(plain.list("tasks"), 404, "app_data.collection_not_declared")
@@ -457,7 +457,7 @@ def test_author_and_mine_are_computed_per_reader(test_client, bootstrap_admin, c
     assert api.delete("tasks", by_owner, version=1).status_code == 200
     assert asyncio.run(_stats()) == {"tasks": {"records": 1, "users": 1}}
 
-    # RD11: an unverified user never writes while email verification is on.
+    # An unverified user never writes while email verification is on.
     # Invited users are verified by accepting the invite, so the unverified
     # principal here is a report owner who signed up while verification was on.
     from app.settings.config import settings

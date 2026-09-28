@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
-"""Install the artifact app persistence demo (P11) through the real HTTP API.
+"""Install the artifact app persistence demo through the real HTTP API.
 
 Creates a NEW page artifact in an existing report that reuses the source
 dashboard's visualizations and adds three declared collections (notes,
 selections, highlights), then seeds one owner highlight and one owner note.
-No LLM, no direct database access.
+No LLM, no direct database access. Writes are additive: the source artifact
+is never changed, and an existing demo artifact is reused or left untouched.
 
-Safety: this is meant for the migrated COPY of a dev database. Before any
-write, in every mode, the report must be titled "... (demo copy)"; that
-marker only exists in the copy, so seeing it through the API proves the
-backend is bound to the copy.
+Prerequisite: a report owned by the demo owner with a page artifact that has
+visualizations (any dashboard the agent built, e.g. on the demo data source
+from tools/agent/seed_org.py --demo).
 
 Run it with the backend's venv so httpx is available:
 
     cd backend && uv run python ../tools/agent/seed_app_persistence_demo.py \\
-        --report-title "Country Revenue by Genre (demo copy)" \\
-        --source-artifact-title "Revenue by Country"
+        --report-title "Revenue report" --source-artifact-title "Revenue by Country"
 
 Credentials come ONLY from the environment (never flags, never files):
     BOW_DEMO_OWNER_EMAIL / BOW_DEMO_OWNER_PASSWORD   report owner (required)
@@ -24,15 +23,18 @@ Credentials come ONLY from the environment (never flags, never files):
 
 Flags:
     --base-url               frontend (proxies /api) or backend URL (default http://localhost:3000)
-    --report-title           exact report title (must end with " (demo copy)")
-    --source-artifact-title  exact title of the artifact whose visualizations are reused
-    --check-binding          only prove the binding (read-only), then exit
+    --report-title           exact report title (required)
+    --source-artifact-title  exact title of the artifact whose visualizations are reused (required)
+    --require-title-suffix   refuse to write unless the report title ends with this suffix;
+                             use it when the stack runs on a copy of a real database and
+                             only the copy carries the suffix (e.g. " (demo copy)")
+    --check-binding          only resolve the report and run the suffix check (read-only), then exit
     --dry-run                resolve everything, print the plan, write nothing
     --force-new              create a new demo artifact even if one exists (required when the
                              existing demo declares different storage; it is never mutated)
     --note-country           country of the seeded notes (default USA)
 
-Exit codes: 0 ok, 2 usage/credentials, 3 binding check failed, 4 not found,
+Exit codes: 0 ok, 2 usage/credentials, 3 title suffix check failed, 4 not found,
 5 API error, 6 the existing demo declares different storage (rerun with --force-new). Prints a JSON summary on success (never credentials or tokens).
 """
 import argparse
@@ -46,7 +48,6 @@ from typing import Iterable, Optional, Tuple
 import httpx
 
 DEMO_TITLE = "Revenue by Country — with notes"
-COPY_MARKER = " (demo copy)"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "app_persistence_demo.jsx"
 RUNTIME_VERSION = 11
 
@@ -93,9 +94,12 @@ class DemoError(Exception):
 # Pure helpers (unit tested in backend/tests/unit/test_app_persistence_demo_fixture.py)
 # ---------------------------------------------------------------------------
 
-def is_demo_copy_title(title: Optional[str]) -> bool:
-    """True only for a non-empty title that ends with the copy marker."""
-    return isinstance(title, str) and title.endswith(COPY_MARKER) and len(title.strip()) > len(COPY_MARKER.strip())
+def title_has_suffix(title: Optional[str], suffix: Optional[str]) -> bool:
+    """No suffix required: always True. Otherwise True only for a non-empty
+    title that ends with the suffix and has more than the suffix."""
+    if not suffix:
+        return True
+    return isinstance(title, str) and title.endswith(suffix) and len(title.strip()) > len(suffix.strip())
 
 
 def render_code(template: str, revenue_id: str, customers_id: str) -> str:
@@ -181,8 +185,9 @@ def latest_by_title(artifacts: list, title: str) -> Optional[dict]:
 def main(argv: Optional[list] = None) -> int:
     p = argparse.ArgumentParser(description="Install the artifact app persistence demo (API only).")
     p.add_argument("--base-url", default="http://localhost:3000")
-    p.add_argument("--report-title", default="Country Revenue by Genre (demo copy)")
-    p.add_argument("--source-artifact-title", default="Revenue by Country")
+    p.add_argument("--report-title", required=True)
+    p.add_argument("--source-artifact-title", required=True)
+    p.add_argument("--require-title-suffix", default=None)
     p.add_argument("--check-binding", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--force-new", action="store_true")
@@ -204,15 +209,16 @@ def main(argv: Optional[list] = None) -> int:
         org_id, report = find_report(client, token, args.report_title)
         report_id = report["id"]
 
-        # Binding proof: first thing after the read, before any write, in every mode.
-        if not is_demo_copy_title(report.get("title")):
+        # Optional binding proof: first thing after the read, before any write, in every mode.
+        if not title_has_suffix(report.get("title"), args.require_title_suffix):
             print(
-                f"BINDING CHECK FAILED: report title {report.get('title')!r} does not end with {COPY_MARKER!r}; "
-                "the backend is not on the demo copy. Nothing was written.",
+                f"TITLE SUFFIX CHECK FAILED: report title {report.get('title')!r} does not end with "
+                f"{args.require_title_suffix!r}. Nothing was written.",
                 file=sys.stderr,
             )
             return 3
-        print(f"binding ok: report {report_id} is titled {report['title']!r}", file=sys.stderr)
+        if args.require_title_suffix:
+            print(f"binding ok: report {report_id} is titled {report['title']!r}", file=sys.stderr)
         if args.check_binding:
             print(json.dumps({"binding": "ok", "report_id": report_id, "organization_id": org_id}))
             return 0

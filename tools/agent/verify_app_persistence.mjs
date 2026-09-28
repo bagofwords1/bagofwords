@@ -1,4 +1,4 @@
-// Acceptance run for the artifact app persistence demo (P11).
+// Acceptance run for the artifact app persistence demo.
 //
 // Drives the demo artifact installed by tools/agent/seed_app_persistence_demo.py
 // as three principals (report owner, a second org member, an anonymous
@@ -9,17 +9,20 @@
 //
 //   node tools/agent/verify_app_persistence.mjs \
 //     [--base-url http://localhost:3000] \
-//     [--report-title "Country Revenue by Genre (demo copy)"] \
-//     [--source-artifact-title "Revenue by Country"] [--headed]
+//     --report-title "Revenue report" --source-artifact-title "Revenue by Country" \
+//     [--require-title-suffix " (demo copy)"] [--headed]
+//
+// Run tools/agent/seed_app_persistence_demo.py with the same titles first.
 //
 // Env (credentials ONLY from the environment; never logged or written):
 //   BOW_DEMO_OWNER_EMAIL / BOW_DEMO_OWNER_PASSWORD   report owner
 //   BOW_DEMO_USER_EMAIL  / BOW_DEMO_USER_PASSWORD    second org member
-//   BOW_DEMO_EVIDENCE_DIR  screenshots + evidence.json (default: the session scratchpad p11 dir)
+//   BOW_DEMO_EVIDENCE_DIR  screenshots + evidence.json (default: <os tmpdir>/bow-app-persistence-evidence)
 //   PW_CHROMIUM            optional Chromium binary (else Playwright's, else the newest cached one)
 //
-// Safety: before any write the report title must end with " (demo copy)" (the
-// marker only exists in the migrated copy of the dev database). The run sets
+// Safety: with --require-title-suffix, the report title must end with that
+// suffix before any write (for a stack running on a copy of a real database
+// where only the copy carries it). The run sets
 // the report's artifact visibility to `public` for the anonymous checks (and
 // to `internal` for the run when it was `none`) and restores the original in
 // a finally block.
@@ -42,7 +45,6 @@ import { createHash } from 'node:crypto';
 const { chromium } = createRequire(new URL('../../frontend/package.json', import.meta.url))('@playwright/test');
 
 const DEMO_TITLE = 'Revenue by Country — with notes';
-const COPY_MARKER = ' (demo copy)';
 const DEFAULT_EVIDENCE_DIR = join(tmpdir(), 'bow-app-persistence-evidence');
 
 function arg(name, fallback) {
@@ -50,8 +52,9 @@ function arg(name, fallback) {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 const ORIGIN = arg('--base-url', process.env.BOW_ORIGIN || 'http://localhost:3000').replace(/\/$/, '');
-const REPORT_TITLE = arg('--report-title', 'Country Revenue by Genre (demo copy)');
-const SOURCE_TITLE = arg('--source-artifact-title', 'Revenue by Country');
+const REPORT_TITLE = arg('--report-title', null);
+const SOURCE_TITLE = arg('--source-artifact-title', null);
+const TITLE_SUFFIX = arg('--require-title-suffix', null);
 const HEADED = process.argv.includes('--headed');
 const OUT = process.env.BOW_DEMO_EVIDENCE_DIR || DEFAULT_EVIDENCE_DIR;
 const RUN = Date.now().toString(36);
@@ -59,6 +62,10 @@ const T = { page: 90_000, ui: 30_000 };
 
 const OWNER = { email: process.env.BOW_DEMO_OWNER_EMAIL, password: process.env.BOW_DEMO_OWNER_PASSWORD };
 const USER = { email: process.env.BOW_DEMO_USER_EMAIL, password: process.env.BOW_DEMO_USER_PASSWORD };
+if (!REPORT_TITLE || !SOURCE_TITLE) {
+  console.error('--report-title and --source-artifact-title are required');
+  process.exit(2);
+}
 if (!OWNER.email || !OWNER.password || !USER.email || !USER.password) {
   console.error('set BOW_DEMO_OWNER_EMAIL, BOW_DEMO_OWNER_PASSWORD, BOW_DEMO_USER_EMAIL and BOW_DEMO_USER_PASSWORD');
   process.exit(2);
@@ -193,11 +200,13 @@ try {
     if (report) { org = o.id; break; }
   }
   if (!report) throw Object.assign(new Error(`report ${JSON.stringify(REPORT_TITLE)} not found for the owner`), { exit: 4 });
-  // Binding proof before ANY write.
-  if (!(typeof report.title === 'string' && report.title.endsWith(COPY_MARKER))) {
-    throw Object.assign(new Error(`BINDING CHECK FAILED: ${JSON.stringify(report.title)} lacks ${JSON.stringify(COPY_MARKER)}; nothing written`), { exit: 3 });
+  // Optional binding proof before ANY write.
+  if (TITLE_SUFFIX) {
+    if (!(typeof report.title === 'string' && report.title.endsWith(TITLE_SUFFIX))) {
+      throw Object.assign(new Error(`TITLE SUFFIX CHECK FAILED: ${JSON.stringify(report.title)} lacks ${JSON.stringify(TITLE_SUFFIX)}; nothing written`), { exit: 3 });
+    }
+    record('binding', 'report title carries the required suffix (read before any write)', true, { report_id: report.id, title: report.title });
   }
-  record('binding', 'report carries the demo-copy marker (read before any write)', true, { report_id: report.id, title: report.title });
   const rid = report.id;
   const H = { token: ownerToken, org };
 

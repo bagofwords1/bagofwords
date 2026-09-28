@@ -1,6 +1,6 @@
 """Agent tools and artifact routes: the `storage` declaration end to end.
 
-Contract (spec 13, plan P5):
+Contract (docs/design/artifact-app-persistence.md, "App changes"):
 - create_artifact / edit_artifact accept an optional `storage` declaration;
   it is persisted as `content["storage"]` and omitted when absent.
 - Mechanical gates run before anything is persisted: an invalid declaration,
@@ -248,7 +248,7 @@ def test_create_rejects_unbacked_use_collection_and_persists_nothing(page, case)
     assert result["output"]["success"] is False
     assert result["observation"]["error"]["type"] == "storage_errors"
     assert all(e.startswith("[storage]") for e in result["observation"]["error"]["errors"])
-    assert _run(_version_count(page.report_id)) == 0, "a rejected create must not persist a row (PP10)"
+    assert _run(_version_count(page.report_id)) == 0, "a rejected create must not persist a row"
 
 
 @pytest.mark.parametrize("bad", [
@@ -287,7 +287,7 @@ def test_rebuild_without_storage_carries_the_effective_declaration(page):
 
 
 def test_rebuild_with_empty_declaration_removes_storage(page, monkeypatch):
-    # Removing a collection asks the user (P6, covered in
+    # Removing a collection asks the user (covered in
     # test_artifact_storage_confirmation.py); approve it here.
     from app.ai.tools.implementations import _artifact_storage
 
@@ -390,7 +390,7 @@ def test_edit_gate_failures_persist_nothing(page, case):
     assert result["output"]["success"] is False
     errors = result["observation"]["error"]["errors"]
     assert errors and all(e.startswith("[storage]") for e in errors)
-    assert _run(_version_count(page.report_id)) == before, "a rejected edit must not persist (PP10)"
+    assert _run(_version_count(page.report_id)) == before, "a rejected edit must not persist"
 
 
 def test_edit_rejects_storage_on_slides(page):
@@ -586,7 +586,7 @@ def test_planner_current_artifact_shows_storage(page):
 
 
 # ---------------------------------------------------------------------------
-# Legacy invariance (PP9) and unmigrated-database safety (RD12)
+# Legacy invariance and unmigrated-database safety
 # ---------------------------------------------------------------------------
 
 def test_artifacts_without_storage_keep_their_content_keys_and_never_touch_app_records(page):
@@ -605,7 +605,7 @@ def test_artifacts_without_storage_keep_their_content_keys_and_never_touch_app_r
     assert set(_run(_content(rebuilt["output"]["artifact_id"]))) == {"code", "visualization_ids", "runtime_version"}
 
     assert sql.statements, "the listener must have seen the tools' SQL"
-    assert not sql.mentions("app_records"), "no storage anywhere: app_records must never be queried (RD12)"
+    assert not sql.mentions("app_records"), "no storage anywhere: app_records must never be queried"
 
 
 # ---------------------------------------------------------------------------

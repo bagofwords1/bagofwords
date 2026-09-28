@@ -107,7 +107,7 @@ class EditArtifactTool(Tool):
         only) in destructive_storage_changes, which protects edits of an older
         version; app_records is queried there only through collection_stats,
         when a declaration is involved and a change or a newly declared
-        collection needs record counts (RD12).
+        collection needs record counts.
         """
         from pydantic import ValidationError
         from app.ai.tools.implementations._artifact_storage import (

@@ -1291,7 +1291,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 )
 
         # Storage gates run BEFORE the pending row: a rejected declaration or
-        # an unbacked useCollection call must leave nothing behind (PP10).
+        # an unbacked useCollection call must leave nothing behind.
         storage_to_persist, storage_errors, storage_error_type, storage_note = await self._resolve_storage(
             db, data, report, replace_source,
         )
@@ -2074,8 +2074,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         Returns (storage_to_persist, errors, error_type, observation_note).
         A rebuild without `storage` carries the replaced artifact's effective
-        declaration forward (RD7). Only artifact_versions is read here; the
-        app_records table is never touched (RD12).
+        declaration forward. Only artifact_versions is read here; the
+        app_records table is never touched.
         """
         from app.ai.tools.implementations._artifact_storage import (
             effective_declaration_strict,

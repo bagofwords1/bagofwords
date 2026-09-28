@@ -1,7 +1,7 @@
 """Contract tests for the artifact app storage declaration (schemas/app_storage.py).
 
 The declaration lives in ``ArtifactVersion.content.storage``. These tests pin
-what a valid declaration is (RD8 strictness), how defaults are recognized, and
+what a valid declaration is (strict: unknown keys are rejected), how defaults are recognized, and
 the shape of the record DTOs the API will speak.
 """
 from datetime import datetime, timezone
@@ -287,7 +287,7 @@ class TestFieldSpec:
 
 
 class TestPublicRead:
-    """Reading through a public link is its own decision (spec 7, revised):
+    """Reading through a public link is its own decision (see the design note, "Declaration and access rules"):
     ``public_read`` is allowed only on shared collections the owner alone writes."""
 
     def test_defaults_to_false_and_stays_out_of_the_stored_shape(self):

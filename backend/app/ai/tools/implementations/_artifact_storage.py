@@ -5,7 +5,7 @@ and its code reads/writes records through ``useCollection("<name>")``. The
 tools are mechanical, so everything here is a deterministic check the planner
 can act on:
 
-- ``storage_declaration_errors``: the declaration parses (RD8 strictness) and
+- ``storage_declaration_errors``: the declaration parses (strict: unknown keys are rejected) and
   a field added to an EXISTING collection is optional or has a default (old
   records do not have it).
 - ``storage_reference_errors``: every ``useCollection`` reference is a direct
@@ -18,7 +18,7 @@ can act on:
   (``app_data_rules``) on the old and the new declaration for every principal
   class; any difference is a change. Data-level changes (removed or re-added
   collections and fields, type changes, fields made required) are detected
-  separately because stored values survive removal (spec 12, revised).
+  separately because stored values survive removal.
 
 The impure parts are at the end: ``destructive_storage_changes`` (reads the
 effective declaration and, only when storage is involved and something may
@@ -457,7 +457,7 @@ def storage_changes(
 ) -> List[StorageChange]:
     """Every declaration change that changes who can read or change stored records.
 
-    Reported regardless of record count (spec 12). ``stats`` maps collection
+    Reported regardless of record count. ``stats`` maps collection
     -> ``records``/``users`` (live rows and distinct authors) and
     ``owner_records`` (live rows written by the report owner); missing
     entries count 0. For collections in both declarations, the access of
@@ -649,7 +649,7 @@ async def destructive_storage_changes(db, artifact_id: str, new_raw: Any) -> Lis
     Raises ValidationError when ``new_raw`` does not parse. Record counts
     (app_records, including rows written by the report owner) are read only
     when storage is involved on either side and a change or a newly declared
-    collection needs them (RD12); earlier versions' declarations only when a
+    collection needs them; earlier versions' declarations only when a
     field is added to a kept collection.
     """
     from app.services.app_data_service import app_data_service

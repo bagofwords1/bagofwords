@@ -226,7 +226,7 @@ class AppDataService:
                 ErrorCode.APP_DATA_COLLECTION_NOT_DECLARED, "Collection is not declared", collection=collection,
             )
 
-        # RD11: an unverified user never writes while verification is enforced.
+        # An unverified user never writes while verification is enforced.
         # No rule lets an outsider write, so this is the refusal every write
         # would get; the reason tells the viewer what to do about it.
         if write and not user.is_verified and settings.bow_config.features.verify_emails:

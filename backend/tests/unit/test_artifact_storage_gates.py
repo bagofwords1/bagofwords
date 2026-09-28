@@ -318,7 +318,7 @@ def test_create_input_accepts_storage():
 
 
 # ---------------------------------------------------------------------------
-# W3 remediation: orphaned rows, reference forms, approval budget
+# Orphaned rows, reference forms, approval budget
 # ---------------------------------------------------------------------------
 
 OWNER_NOTES = {**NOTES, "create": "owner"}

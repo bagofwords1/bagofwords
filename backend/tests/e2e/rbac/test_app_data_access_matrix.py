@@ -5,16 +5,16 @@ Wiring proof for the two access layers of the app-data endpoints
 
   * Layer 1 is the report's artifact visibility (`_check_visibility`) and
     always runs first; Layer 2 (the collection's scope/create/modify rules)
-    can only narrow it (PP1).
-  * Anonymous callers never write (PP2): every write is 401 and no row
+    can only narrow it.
+  * Anonymous callers never write: every write is 401 and no row
     changes, whatever the visibility.
   * Signed-in outsiders and anonymous visitors read only collections the
     owner published with `public_read`, and only the owner's rows of them,
-    even when other users' rows exist (PP3, RD1, spec 7 revised); an org
-    admin who does not own the report has no special rights (RD2).
+    even when other users' rows exist; an org
+    admin who does not own the report has no special rights.
   * per_user collections are private to their author: lists never contain
-    another user's rows and another user's record is 404 (PP4).
-  * The stored author is always the session user (PP5).
+    another user's rows and another user's record is 404.
+  * The stored author is always the session user.
 
 One test per visibility. Each seeds ONE artifact carrying all five
 collection kinds, then loops every principal over list/create/update/delete.
@@ -70,7 +70,7 @@ LAYER1 = {
 }
 LAYER1_ERROR = {404: "artifact.not_found", 403: "app_data.forbidden", 401: "app_data.unauthenticated"}
 
-# Principal class for Layer 2 (RD1: outsider like anonymous; RD2: admin = member).
+# Principal class for Layer 2 (an outsider is treated like anonymous; an org admin like a member).
 CLASS = {"owner": "owner", "admin": "member", "member": "member", "recipient": "member",
          "outsider": "outsider", "anonymous": "anonymous"}
 
@@ -270,14 +270,14 @@ def _run_matrix(visibility, test_client, bootstrap_admin, invite_user_to_org, cr
                 items = resp.json()["items"]
                 ids = {i["id"] for i in items}
                 if coll == "prefs":
-                    # PP4: only the caller's own rows, never another author's.
+                    # Only the caller's own rows, never another author's.
                     assert all(i["mine"] and i["user"]["id"] == user_id for i in items), (ctx, items)
                     assert seeds[other_author][coll] not in ids, ctx
                 else:
                     assert seeds["owner"][coll] in ids, ctx
                     public_reader = CLASS[principal] in ("outsider", "anonymous")
                     if coll in seeds["recipient"]:
-                        # PP3: public-link readers never see another author's row.
+                        # Public-link readers never see another author's row.
                         assert (seeds["recipient"][coll] in ids) is (not public_reader), ctx
                     if public_reader:
                         assert all(i["user"]["id"] == people["owner"]["user_id"] for i in items), (ctx, items)
@@ -292,14 +292,14 @@ def _run_matrix(visibility, test_client, bootstrap_admin, invite_user_to_org, cr
             own_id = None
             if want[0] == 201:
                 body = resp.json()
-                # PP5: author is the session user, computed server-side.
+                # Author is the session user, computed server-side.
                 assert body["user"]["id"] == user_id and body["mine"] is True and body["version"] == 1, body
                 assert _stored_version(body["id"])[2] == user_id
                 assert _live_count(artifact_id, coll) == before + 1, ctx
                 own_id = body["id"]
                 versions[own_id] = 1
             else:
-                assert _live_count(artifact_id, coll) == before, ctx  # PP2: no row
+                assert _live_count(artifact_id, coll) == before, ctx  # No row
 
             # -- update / delete: the caller's own record, then another author's
             targets = [("own", own_id)] if own_id else []
