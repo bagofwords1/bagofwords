@@ -154,10 +154,10 @@ class OpenAi(LLMClient):
         quality: Optional[str] = None,
         images: Optional[list[ImageInput]] = None,
     ) -> ImageOutput:
-        """Generate an image via the OpenAI Images API (e.g. gpt-image-1).
+        """Generate an image via the OpenAI Images API (e.g. gpt-image-2.5-sunburst).
 
         Uses the sync SDK off-thread (mirrors how the OpenAI-compatible client
-        runs elsewhere). gpt-image-1 always returns base64 (no url option), so we
+        runs elsewhere). GPT Image models return base64 (no url option), so we
         read ``b64_json`` directly. Reference ``images`` are not wired into the
         edit endpoint yet — text-to-image only for now.
         """

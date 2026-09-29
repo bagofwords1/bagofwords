@@ -130,6 +130,8 @@ _FAMILIES: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
     (("claude-",), ()),
     # OpenAI — reasoning.effort / reasoning_effort
     (("gpt-6-astra",), ("low", "medium", "high", "xhigh", "max")),
+    # GPT-6.1 Sol dropped "none" (GPT-6 Sol still has it).
+    (("gpt-6.1",), ("low", "medium", "high", "xhigh", "max")),
     (("gpt-6",), ("none", "low", "medium", "high", "xhigh", "max")),
     (("gpt-5.6",), ("none", "low", "medium", "high", "xhigh", "max")),
     (("gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2"), ("none", "low", "medium", "high", "xhigh")),

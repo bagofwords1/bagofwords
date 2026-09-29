@@ -143,7 +143,7 @@ const levelOptions = computed(() => [
 
 // Suggestions for "behaves like": the catalog ids people usually deploy.
 const likeSuggestions = [
-    'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
+    'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
     'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-opus-5-5',
     'claude-opus-4-8', 'claude-haiku-4-5', 'gemini-3.6-flash', 'gemini-3.1-pro-preview',
 ]

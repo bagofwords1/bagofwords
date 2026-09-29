@@ -2896,7 +2896,7 @@
       "fallbackOn": "Respaldo de LLM activado",
       "fallbackPrimary": "principal",
       "imageGenDefaultBlocked": "Los modelos predeterminados no pueden generar imágenes. Define antes otro modelo como predeterminado.",
-      "imageGenTooltip": "Si este modelo genera imágenes (p. ej. gpt-image-1). Lo habilita para la herramienta generate_image y para incrustar imágenes generadas en los artefactos. Los modelos de imagen se excluyen del selector de modelos del chat y no pueden ser predeterminados.",
+      "imageGenTooltip": "Si este modelo genera imágenes (p. ej. gpt-image-2.5-sunburst). Lo habilita para la herramienta generate_image y para incrustar imágenes generadas en los artefactos. Los modelos de imagen se excluyen del selector de modelos del chat y no pueden ser predeterminados.",
       "modelAdded": "Modelo añadido",
       "modelCardHint": "Haz clic en la fila de un modelo para abrir sus ajustes",
       "modelDeleted": "Modelo eliminado",

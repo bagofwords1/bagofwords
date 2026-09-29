@@ -244,3 +244,16 @@ def test_opus_5_5_reads_at_its_published_rate_and_opus_5_does_not():
         provider_type="anthropic", model_id="claude-opus-5-5",
     )
     assert at_four == pytest.approx(0.20)
+
+
+@pytest.mark.parametrize("model,read", [
+    ("gpt-6.1-sol", 0.05),   # $0.10 cached vs $2 input
+    ("gpt-6-sol", 0.10),     # $0.20 cached vs $2 input
+    ("openai/gpt-6.1-sol", 0.05),
+    ("gpt-5.6-terra", 0.50),  # unpriced ids keep the family rate
+])
+def test_openai_per_model_cached_read_rates(model, read):
+    assert pricing.rates_for("openai", model).read == pytest.approx(read)
+    # Cached tokens ride inside prompt_tokens, so the rate is applied as a rebate.
+    cost = _cost("openai", model, prompt=100_000, read=100_000)
+    assert cost == pytest.approx(100_000 * read * RATE / M)
