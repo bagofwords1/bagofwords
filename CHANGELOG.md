@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.573 (September 29, 2026)
+- Added Claude Sonnet 5.5 (`claude-sonnet-5-5`) as an Anthropic preset — the new Anthropic default for new providers
+- Added GPT-6.1 Sol (`gpt-6.1-sol`) as an OpenAI preset
+- Replaced GPT Image 1 with GPT Image 2.5 Sunburst and Flare for image generation — GPT Image 1 shuts down December 1, 2026
+- Fixed new image models reaching existing organizations unusable by image generation and listed in the chat model picker
+- Fixed cached-token cost for GPT-6 Sol and GPT-6.1 Sol being overstated
+
 ## Version 0.0.572 (September 29, 2026)
 - Removed the "User overnight learning" setting — overnight memory upkeep now follows the User memory setting
 - Agent check-ins are now on by default — turn off with the `enable_agent_checkins` org setting
