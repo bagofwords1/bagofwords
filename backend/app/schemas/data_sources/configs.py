@@ -2991,7 +2991,8 @@ class QlikSenseOnPremCertCredentials(BaseModel):
         title="Root CA Certificate (root.pem)",
         description=(
             "Paste the full contents of root.pem. Qlik signs its service certificates with its "
-            "own root, so this is what makes 'Verify SSL' work on a default install."
+            "own root, so this is what makes 'Verify SSL' work on a default install. Ignored "
+            "when 'Verify SSL' is off."
         ),
         json_schema_extra={"ui:type": "textarea"},
     )
@@ -3064,7 +3065,8 @@ class QlikSenseOnPremConfig(BaseModel):
         title="Verify SSL",
         description=(
             "Verify the server's TLS certificate. A default install uses self-signed service "
-            "certificates, so this needs root.pem pasted in the credentials section."
+            "certificates, so this needs root.pem pasted in the credentials section. When off, "
+            "the certificate is not checked, even if root.pem is pasted."
         ),
         json_schema_extra={"ui:type": "boolean"},
     )

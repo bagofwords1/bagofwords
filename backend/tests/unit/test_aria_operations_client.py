@@ -241,6 +241,12 @@ def test_ca_bundle_used_for_verification(patch_requests):
     c = _client(ca_bundle="/etc/ssl/corp.pem", verify_ssl=True)
     assert c._verify == "/etc/ssl/corp.pem"
     assert _client(verify_ssl=False)._verify is False
+    assert _client(verify_ssl=True)._verify is True
+
+
+def test_verify_ssl_off_wins_over_ca_bundle(patch_requests):
+    # The toggle is authoritative: a saved CA bundle must not keep verification on.
+    assert _client(ca_bundle="/etc/ssl/corp.pem", verify_ssl=False)._verify is False
 
 
 # ── pagination ────────────────────────────────────────────────────────────────
