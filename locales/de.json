@@ -2780,7 +2780,7 @@
       "fallbackOn": "LLM-Fallback an",
       "fallbackPrimary": "primär",
       "imageGenDefaultBlocked": "Standardmodelle können keine Bildgenerierungsmodelle sein. Mache zuerst ein anderes Modell zum Standard.",
-      "imageGenTooltip": "Ob dieses Modell Bilder erzeugt (z. B. gpt-image-1). Aktiviert es für das Tool generate_image und zum Einbetten erzeugter Bilder in Artefakte. Bildmodelle erscheinen nicht in der Modellauswahl im Chat und können kein Standard sein.",
+      "imageGenTooltip": "Ob dieses Modell Bilder erzeugt (z. B. gpt-image-2.5-sunburst). Aktiviert es für das Tool generate_image und zum Einbetten erzeugter Bilder in Artefakte. Bildmodelle erscheinen nicht in der Modellauswahl im Chat und können kein Standard sein.",
       "modelAdded": "Modell hinzugefügt",
       "modelCardHint": "Klicke auf eine Modellzeile, um ihre Einstellungen zu öffnen",
       "modelDeleted": "Modell gelöscht",

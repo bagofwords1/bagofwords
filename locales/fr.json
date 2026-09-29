@@ -2780,7 +2780,7 @@
       "fallbackOn": "Repli LLM activé",
       "fallbackPrimary": "principal",
       "imageGenDefaultBlocked": "Les modèles par défaut ne peuvent pas être des modèles de génération d'images. Définissez d'abord un autre modèle par défaut.",
-      "imageGenTooltip": "Indique si ce modèle génère des images (p. ex. gpt-image-1). Il devient disponible pour l'outil generate_image et pour intégrer des images générées dans les artefacts. Les modèles d'image sont exclus du sélecteur de modèle du chat et ne peuvent pas être par défaut.",
+      "imageGenTooltip": "Indique si ce modèle génère des images (p. ex. gpt-image-2.5-sunburst). Il devient disponible pour l'outil generate_image et pour intégrer des images générées dans les artefacts. Les modèles d'image sont exclus du sélecteur de modèle du chat et ne peuvent pas être par défaut.",
       "modelAdded": "Modèle ajouté",
       "modelCardHint": "Cliquez sur la ligne d'un modèle pour ouvrir ses paramètres",
       "modelDeleted": "Modèle supprimé",

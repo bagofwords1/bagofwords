@@ -2571,6 +2571,13 @@ class LLMService:
             getattr(model, "supports_vision_override", None),
             model_data.get("supports_vision", False),
         )
+        # Image generation follows the catalog the same way, admin override first.
+        # Without this a synced image model stayed unflagged: invisible to the
+        # generate_image tool and listed as a chat model.
+        model.supports_image_generation = LLMService._resolve_supports_vision(
+            getattr(model, "supports_image_generation_override", None),
+            model_data.get("supports_image_generation", False),
+        )
         # Same for the context window: an admin-set size survives catalog re-syncs.
         model.context_window_tokens = LLMService._resolve_context_window(
             getattr(model, "context_window_tokens_override", None),
@@ -2689,6 +2696,7 @@ class LLMService:
                     is_default=False,
                     is_small_default=False,
                     supports_vision=model_data.get("supports_vision", False),
+                    supports_image_generation=model_data.get("supports_image_generation", False),
                     context_window_tokens=model_data.get("context_window_tokens"),
                     max_output_tokens=model_data.get("max_output_tokens"),
                     input_cost_per_million_tokens_usd=model_data.get("input_cost_per_million_tokens_usd"),

@@ -56,7 +56,7 @@ def _effort(request: dict):
     return ((request.get("extra_body") or {}).get("output_config") or {}).get("effort")
 
 
-ALWAYS_THINKING = ["claude-sonnet-5", "claude-opus-4-8", "claude-fable-5-1"]
+ALWAYS_THINKING = ["claude-sonnet-5-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5-1"]
 
 
 @pytest.mark.parametrize("model_id", ALWAYS_THINKING)

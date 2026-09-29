@@ -61,7 +61,7 @@ def test_every_catalog_level_runs_as_an_accepted_effort(detail, level):
 
 
 @pytest.mark.parametrize("model_id,top", [
-    ("gpt-6-luna", "max"), ("gpt-5.6-terra", "max"), ("gpt-5.5", "xhigh"), ("gpt-5.4-mini", "xhigh"),
+    ("gpt-6-luna", "max"), ("gpt-6.1-sol", "max"), ("gpt-5.6-terra", "max"), ("gpt-5.5", "xhigh"), ("gpt-5.4-mini", "xhigh"),
     ("claude-sonnet-5", "max"), ("claude-opus-4-6", "max"), ("gemini-3.6-flash", "high"),
     ("eu.anthropic.claude-sonnet-5", "max"), ("us.anthropic.claude-opus-4-6-v1:0", "max"),
 ])
@@ -69,7 +69,13 @@ def test_max_means_the_strongest_level_the_model_has(model_id, top):
     assert clamp_effort("max", native_efforts(model_id)) == top
 
 
-@pytest.mark.parametrize("model_id", ["gpt-4.1", "gpt-image-1", "claude-3-haiku-20240307"])
+def test_gpt_6_1_sol_has_no_none_effort():
+    """GPT-6.1 Sol dropped reasoning effort "none"; GPT-6 Sol still has it."""
+    assert "none" not in native_efforts("gpt-6.1-sol")
+    assert "none" in native_efforts("gpt-6-sol")
+
+
+@pytest.mark.parametrize("model_id", ["gpt-4.1", "gpt-image-1", "gpt-image-2.5-sunburst", "claude-3-haiku-20240307"])
 def test_non_reasoning_models_get_nothing(model_id):
     info = reasoning_info(model_id)
     assert info["supported"] is False and info["levels"] == {}

@@ -1177,7 +1177,7 @@ class LLM:
         if not getattr(self.model, "supports_image_generation", False):
             raise ValueError(
                 f"Model '{self.model_id}' does not support image generation. "
-                "Select an image-generation model (e.g. gpt-image-1)."
+                "Select an image-generation model (e.g. gpt-image-2.5-sunburst)."
             )
 
     async def generate_image(

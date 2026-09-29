@@ -274,7 +274,7 @@ class LLMModelBase(BaseModel):
     supports_vision: bool = False
     # Manual admin override for vision. None = follow the catalog; True/False = explicit, survives catalog re-syncs.
     supports_vision_override: Optional[bool] = None
-    # Whether the model produces images (gpt-image-1). Such models are not chat
+    # Whether the model produces images (e.g. gpt-image-2.5-sunburst). Such models are not chat
     # models and are excluded from the chat/agent model picker.
     supports_image_generation: bool = False
     # Manual admin override for image generation. None = follow the catalog;

@@ -103,7 +103,7 @@ class OpenAIResponsesClient(LLMClient):
         quality: Optional[str] = None,
         images: Optional[list[ImageInput]] = None,
     ) -> ImageOutput:
-        """Generate an image via the OpenAI Images API (e.g. gpt-image-1).
+        """Generate an image via the OpenAI Images API (e.g. gpt-image-2.5-sunburst).
 
         Image generation is a separate endpoint from the Responses API, so this
         mirrors the OpenAi client's implementation exactly.

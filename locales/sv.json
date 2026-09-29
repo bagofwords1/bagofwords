@@ -2780,7 +2780,7 @@
       "fallbackOn": "LLM-reserv på",
       "fallbackPrimary": "primär",
       "imageGenDefaultBlocked": "Standardmodeller kan inte vara bildgenereringsmodeller. Gör en annan modell till standard först.",
-      "imageGenTooltip": "Om den här modellen genererar bilder (t.ex. gpt-image-1). Gör den tillgänglig för verktyget generate_image och för att bädda in genererade bilder i artefakter. Bildmodeller visas inte i modellväljaren i chatten och kan inte vara standard.",
+      "imageGenTooltip": "Om den här modellen genererar bilder (t.ex. gpt-image-2.5-sunburst). Gör den tillgänglig för verktyget generate_image och för att bädda in genererade bilder i artefakter. Bildmodeller visas inte i modellväljaren i chatten och kan inte vara standard.",
       "modelAdded": "Modellen lades till",
       "modelCardHint": "Klicka på en modellrad för att öppna dess inställningar",
       "modelDeleted": "Modellen togs bort",
