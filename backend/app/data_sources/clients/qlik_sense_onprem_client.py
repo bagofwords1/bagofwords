@@ -316,13 +316,15 @@ class QlikSenseOnPremClient(DataSourceClient):
     def _verify_arg(self):
         """What to hand `requests` as `verify=`.
 
-        A pasted root.pem always wins: QSEoW signs its service certificates with
-        its own root, so verifying against that root is the only way to get real
-        TLS verification on a default install.
+        `verify_ssl` decides whether to verify at all — turning it off must work
+        even with a root.pem saved. When on, a pasted root.pem is the trust
+        store: QSEoW signs its service certificates with its own root, so
+        verifying against that root is the only way to get real TLS
+        verification on a default install.
         """
-        if self._ca_path:
-            return self._ca_path
-        return self.verify_ssl
+        if not self.verify_ssl:
+            return False
+        return self._ca_path or True
 
     def close(self) -> None:
         """Drop the HTTP session and shred the materialized certificate files."""
@@ -399,7 +401,8 @@ class QlikSenseOnPremClient(DataSourceClient):
             raise RuntimeError(
                 f"TLS failed talking to QRS at {url}: {e}. A default QSEoW install signs its "
                 "service certificates with its own root — paste root.pem into Root CA "
-                "Certificate, or turn off Verify SSL."
+                "Certificate and use the hostname the certificate was issued for as the "
+                "Server URL, or turn off Verify SSL."
             )
         if resp.status_code >= 300:
             raise RuntimeError(
