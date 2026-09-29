@@ -1023,6 +1023,14 @@
         "always": "toujours",
         "matched": "correspondance"
       }
+    },
+    "export": {
+      "button": "Exporter",
+      "turnJson": "Télécharger ce tour (JSON)",
+      "conversationJson": "Télécharger la conversation (JSON)",
+      "copyTurn": "Copier ce tour en JSON",
+      "copied": "JSON de la trace copié dans le presse-papiers",
+      "failed": "Impossible d'exporter la trace"
     }
   },
   "reportView": {

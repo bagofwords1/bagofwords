@@ -1064,6 +1064,14 @@
         "always": "always",
         "matched": "matched"
       }
+    },
+    "export": {
+      "button": "Export",
+      "turnJson": "Download this turn (JSON)",
+      "conversationJson": "Download conversation (JSON)",
+      "copyTurn": "Copy this turn as JSON",
+      "copied": "Trace JSON copied to clipboard",
+      "failed": "Couldn't export the trace"
     }
   },
   "reportView": {

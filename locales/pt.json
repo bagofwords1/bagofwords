@@ -1023,6 +1023,14 @@
         "always": "sempre",
         "matched": "correspondência"
       }
+    },
+    "export": {
+      "button": "Exportar",
+      "turnJson": "Baixar este turno (JSON)",
+      "conversationJson": "Baixar conversa (JSON)",
+      "copyTurn": "Copiar este turno como JSON",
+      "copied": "JSON do rastreamento copiado para a área de transferência",
+      "failed": "Não foi possível exportar o rastreamento"
     }
   },
   "reportView": {

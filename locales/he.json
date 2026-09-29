@@ -1038,6 +1038,14 @@
         "always": "תמיד",
         "matched": "תואם"
       }
+    },
+    "export": {
+      "button": "ייצוא",
+      "turnJson": "הורדת תור זה (JSON)",
+      "conversationJson": "הורדת השיחה (JSON)",
+      "copyTurn": "העתקת תור זה כ-JSON",
+      "copied": "ה-JSON של המעקב הועתק ללוח",
+      "failed": "לא ניתן לייצא את המעקב"
     }
   },
   "reportView": {

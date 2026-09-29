@@ -1023,6 +1023,14 @@
         "always": "sempre",
         "matched": "corrispondenza"
       }
+    },
+    "export": {
+      "button": "Esporta",
+      "turnJson": "Scarica questo turno (JSON)",
+      "conversationJson": "Scarica la conversazione (JSON)",
+      "copyTurn": "Copia questo turno come JSON",
+      "copied": "JSON della traccia copiato negli appunti",
+      "failed": "Impossibile esportare la traccia"
     }
   },
   "reportView": {

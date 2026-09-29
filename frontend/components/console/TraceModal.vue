@@ -35,6 +35,22 @@
                                 {{ formatCost(conversation.total_llm_cost_usd) }}
                             </span>
                         </div>
+                        <UDropdown
+                            v-if="conversation"
+                            :items="exportItems"
+                            :popper="{ placement: 'bottom-end' }"
+                            :ui="{ width: 'w-64', item: { size: 'text-xs', padding: 'px-3 py-2' } }"
+                        >
+                            <UButton
+                                color="gray"
+                                variant="ghost"
+                                size="xs"
+                                :icon="isExporting ? undefined : 'i-heroicons-arrow-down-tray'"
+                                :loading="isExporting"
+                                :label="$t('traceModal.export.button')"
+                                data-testid="trace-export-button"
+                            />
+                        </UDropdown>
                         <UButton
                             color="gray"
                             variant="ghost"
@@ -1222,6 +1238,101 @@ const fetchTraceData = async () => {
         isLoading.value = false
     }
 }
+
+// --- Export -----------------------------------------------------------------
+// Client-side JSON export of what this modal loads, so a trace can be diffed,
+// grepped, attached to an issue or handed to an LLM. Built from the same
+// endpoints the modal reads, so it carries the same visibility scoping.
+const toast = useToast()
+const isExporting = ref(false)
+const TRACE_EXPORT_VERSION = 1
+
+const fetchTurnTrace = async (completionId: string) => {
+    const response = await useMyFetch<AgentExecutionTraceResponse>(`/api/console/agent_executions/by-completion/${completionId}`)
+    if (response.error.value) return { trace: null, error: String((response.error.value as any)?.message || response.error.value) }
+    return { trace: response.data.value ?? null, error: null }
+}
+
+const buildEnvelope = (scope: 'turn' | 'conversation', turnTraces: any[]) => ({
+    export_version: TRACE_EXPORT_VERSION,
+    exported_at: new Date().toISOString(),
+    scope,
+    report_id: props.reportId,
+    selected_completion_id: selectedCompletionId.value,
+    conversation: conversation.value,
+    turns: turnTraces,
+})
+
+const buildTurnExport = async () => {
+    const id = selectedCompletionId.value
+    if (!id) return null
+    const trace = traceData.value ?? (await fetchTurnTrace(id)).trace
+    return buildEnvelope('turn', [{ completion_id: id, trace }])
+}
+
+const buildConversationExport = async () => {
+    const ids = turns.value.map(tu => tu.completion_id).filter((id): id is string => !!id)
+    const results: any[] = new Array(ids.length)
+    // Small worker pool: long conversations shouldn't fire dozens of requests at once.
+    let next = 0
+    const worker = async () => {
+        while (next < ids.length) {
+            const i = next++
+            const id = ids[i]
+            // Reuse the trace already on screen instead of refetching it.
+            const res = id === selectedCompletionId.value && traceData.value
+                ? { trace: traceData.value, error: null }
+                : await fetchTurnTrace(id)
+            results[i] = { completion_id: id, trace: res.trace, ...(res.error ? { error: res.error } : {}) }
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker))
+    return buildEnvelope('conversation', results)
+}
+
+const exportFileName = (scope: 'turn' | 'conversation') => {
+    const suffix = scope === 'turn' ? (selectedCompletionId.value || 'turn') : 'conversation'
+    return `trace-${props.reportId}-${suffix}.json`
+}
+
+const runExport = async (scope: 'turn' | 'conversation', mode: 'download' | 'copy') => {
+    if (isExporting.value) return
+    isExporting.value = true
+    try {
+        const payload = scope === 'turn' ? await buildTurnExport() : await buildConversationExport()
+        if (!payload) return
+        const json = JSON.stringify(payload, null, 2)
+        if (mode === 'copy') {
+            await navigator.clipboard.writeText(json)
+            toast.add({ title: t('traceModal.export.copied'), color: 'green' })
+            return
+        }
+        const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = exportFileName(scope)
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+    } catch (error) {
+        console.error('Failed to export trace:', error)
+        toast.add({ title: t('traceModal.export.failed'), color: 'red' })
+    } finally {
+        isExporting.value = false
+    }
+}
+
+const exportItems = computed(() => [
+    [
+        { label: t('traceModal.export.turnJson'), icon: 'i-heroicons-document-arrow-down', disabled: !selectedCompletionId.value, click: () => runExport('turn', 'download') },
+        { label: t('traceModal.export.conversationJson'), icon: 'i-heroicons-document-duplicate', click: () => runExport('conversation', 'download') },
+    ],
+    [
+        { label: t('traceModal.export.copyTurn'), icon: 'i-heroicons-clipboard-document', disabled: !selectedCompletionId.value, click: () => runExport('turn', 'copy') },
+    ],
+])
 
 const closeModal = () => {
     emit('update:modelValue', false)

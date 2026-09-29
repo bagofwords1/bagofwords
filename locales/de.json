@@ -1023,6 +1023,14 @@
         "always": "immer",
         "matched": "Treffer"
       }
+    },
+    "export": {
+      "button": "Exportieren",
+      "turnJson": "Diesen Schritt herunterladen (JSON)",
+      "conversationJson": "Unterhaltung herunterladen (JSON)",
+      "copyTurn": "Diesen Schritt als JSON kopieren",
+      "copied": "Trace-JSON in die Zwischenablage kopiert",
+      "failed": "Trace konnte nicht exportiert werden"
     }
   },
   "reportView": {
