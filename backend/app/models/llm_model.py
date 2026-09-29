@@ -158,7 +158,7 @@ LLM_MODEL_DETAILS = [
         # Anthropic's most capable widely released model. Same tier, price and
         # 1M window as Claude Fable 5, which stays in the catalog because it is
         # still served. Selectable but not a default: at $10/$50 per million it
-        # is 2x Opus 5 and ~3.3x the Sonnet 5 default, so moving an org onto it
+        # is 2x Opus 5 and 5x the Sonnet 5.5 default, so moving an org onto it
         # is a cost decision for the admin, not a catalog one.
         #
         # No client changes were needed for it: the ``fable-5`` substring tags
@@ -193,12 +193,35 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 50.00
     },
     {
+        # Successor to Claude Sonnet 5 and the Anthropic default: same 1M
+        # window and 128K output, $2/$10 per million. Cache reads are the
+        # standard 0.1x, so no pricing._ANTHROPIC_READ_RATE_OVERRIDES entry.
+        #
+        # Client handling rides on the existing ``sonnet-5`` substring tags:
+        # _NO_SAMPLING_PARAM_TAGS drops temperature (non-default values 400),
+        # and _effort_to_thinking_config sends adaptive thinking. We never send
+        # ``{type: "disabled"}`` (a 400 here) — effort "off" omits thinking and
+        # the client lowers effort instead. Forced tool_choice also 400s, but
+        # we only send auto.
+        "name": "Claude Sonnet 5.5",
+        "model_id": "claude-sonnet-5-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
         "name": "Claude Sonnet 5",
         "model_id": "claude-sonnet-5",
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 3.00,
@@ -361,6 +384,19 @@ LLM_MODEL_DETAILS = [
         # Tiered: $4.00 / $18.00 above a 200k-token prompt.
         "input_cost_per_million_tokens_usd": 2.00,
         "output_cost_per_million_tokens_usd": 12.00
+    },
+    {
+        "name": "Claude Sonnet 5.5",
+        "model_id": "claude-sonnet-5-5",
+        "provider_type": "vertex",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
     },
     {
         "name": "Claude Sonnet 5",
