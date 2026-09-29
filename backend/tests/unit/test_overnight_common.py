@@ -38,14 +38,12 @@ def test_expiry_days_parses_and_clamps(raw, expected):
     assert C.expiry_days(s) == expected
 
 
-def test_master_switches_default_on_and_user_dream_needs_memory():
+def test_agent_switch_defaults_on_and_user_dream_follows_memory():
     assert C.agent_dreaming_enabled(_Settings()) is True
-    assert C.user_dreaming_enabled(_Settings()) is True
     assert C.agent_dreaming_enabled(_Settings(enable_agent_dreaming=False)) is False
-    assert C.user_dreaming_enabled(_Settings(enable_user_dreaming=False)) is False
-    assert C.agent_dreaming_enabled(_Settings(enable_agent_dreaming=True)) is True
-    assert C.user_dreaming_enabled(_Settings(enable_user_dreaming=True)) is True  # memory defaults on
-    assert C.user_dreaming_enabled(_Settings(enable_user_dreaming=True, enable_user_memory=False)) is False
+    # The user dream has no switch of its own: it runs whenever user memory does.
+    assert C.user_dreaming_enabled(_Settings()) is True
+    assert C.user_dreaming_enabled(_Settings(enable_user_memory=False)) is False
 
 
 def test_org_timezone_falls_back_to_utc_on_invalid():

@@ -1,6 +1,6 @@
 # Feedback Loop — Overnight learning: agents consolidate what they were taught; users' memory and follow-ups kept current
 
-Two nightly jobs, both **off by default** (lab):
+Two nightly jobs (lab). The agent dream has its own switch, `enable_agent_dreaming` (on by default); the user dream runs whenever user memory is on:
 
 - **Agent dream** (per agent, 03:00–05:00 org-local). Pending AI instruction
   suggestions pile up: the same correction arrives from several people as
@@ -25,7 +25,7 @@ from the plan). Evidence: `media/pr/claude-overnight-learning/`.
 
 | Layer | Where |
 |---|---|
-| Settings | `enable_agent_dreaming`, `enable_user_dreaming`, `ai_suggestion_expiry_days` in `app/schemas/organization_settings_schema.py`; per-agent `nightly_learning` in `app/schemas/agent_automation_schema.py`. The user dream also follows `enable_user_memory`, `enable_agent_checkins` and each user's check-in opt-out |
+| Settings | `enable_agent_dreaming`, `ai_suggestion_expiry_days` in `app/schemas/organization_settings_schema.py`; per-agent `nightly_learning` in `app/schemas/agent_automation_schema.py`. The user dream has no switch of its own: it runs when `enable_user_memory` is on, and its check-ins follow `enable_agent_checkins` and each user's check-in opt-out |
 | Storage | `dream_runs`; watermarks `memberships.user_dreamed_at`, `data_sources.agent_dreamed_at`; `agent_checkins.origin/dream_run_id` — `alembic/versions/dream01_overnight_learning.py` (+ `mrgckmem01` merging the check-ins and memory heads) |
 | Runtime | `app/services/dreams/runtime.py` — hourly leader-only `overnight_sweep` (`main.py`), org-local windows, once per unit per night (`dream_runs` + `claim_scheduled_run`), 2M-token nightly org budget, watermark only on done/skipped, switches re-checked before any write |
 | Agent dream | `app/services/dreams/agent_dream.py`, prompt/parse `app/ai/agents/dreams/agent_prompts.py` |

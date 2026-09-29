@@ -71,8 +71,8 @@ def _cfg_value(org_settings: Any, key: str, default: Any) -> Any:
 
 
 def feature_enabled(org_settings: Any) -> bool:
-    """The master switch. Off by default while the feature is in lab."""
-    return bool(_cfg_value(org_settings, SETTING_ENABLED, False))
+    """The master switch. On by default; admins can turn it off in AI settings."""
+    return bool(_cfg_value(org_settings, SETTING_ENABLED, True))
 
 
 def _int_setting(org_settings: Any, key: str, default: int) -> int:

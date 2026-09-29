@@ -397,7 +397,7 @@ class OrganizationSettingsService:
                 # Overnight learning turned off: cancel queued dream runs for
                 # the org right away (running ones re-check the setting before
                 # every write and stop there).
-                if any(k in update_data['config'] for k in ('enable_agent_dreaming', 'enable_user_dreaming')):
+                if any(k in update_data['config'] for k in ('enable_agent_dreaming', 'enable_user_memory')):
                     try:
                         from app.services.dreams import common as dream_common
                         from app.services.dreams.runtime import dream_runtime

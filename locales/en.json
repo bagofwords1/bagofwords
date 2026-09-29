@@ -2833,15 +2833,11 @@
         },
         "enable_user_memory": {
           "name": "User memory",
-          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory."
+          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory. It is kept up to date overnight."
         },
         "enable_agent_dreaming": {
           "name": "Agent overnight learning",
           "description": "Each night, agents review their pending suggestions, feedback and usage and propose one consolidated improvement per agent. What happens to it follows each agent's Self-Learning setting."
-        },
-        "enable_user_dreaming": {
-          "name": "User overnight learning",
-          "description": "Each night, the agent reviews each active user's day to keep their memory up to date and plan follow-ups (e.g. before a meeting). Follow-ups use the normal check-in limits and each user's check-in opt-out."
         },
         "ai_suggestion_expiry_days": {
           "name": "Expire unreviewed AI suggestions after (days)",

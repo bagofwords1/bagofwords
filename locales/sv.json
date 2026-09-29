@@ -2643,10 +2643,6 @@
           "name": "Nattlig inlärning för agenter",
           "description": "Varje natt går agenterna igenom sina väntande förslag, feedback och användning och föreslår en samlad förbättring per agent. Vad som händer med den följer varje agents inställning för självlärande."
         },
-        "enable_user_dreaming": {
-          "name": "Nattlig inlärning för användare",
-          "description": "Varje natt går agenten igenom varje aktiv användares dag för att hålla minnet uppdaterat och planera uppföljningar (t.ex. inför ett möte). Uppföljningarna följer de vanliga gränserna och varje användares avstängning av uppföljningar."
-        },
         "ai_suggestion_expiry_days": {
           "name": "Låt ogranskade AI-förslag löpa ut efter (dagar)",
           "description": "AI-föreslagna instruktioner som fortfarande väntar efter så många dagar stängs som utgångna (inte avvisade) av den nattliga inlärningen. Utgångna förslag räknas fortfarande som belägg om samma mönster återkommer. 0 håller dem öppna för alltid."

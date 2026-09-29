@@ -2643,10 +2643,6 @@
           "name": "Apprendimento notturno degli agenti",
           "description": "Ogni notte gli agenti esaminano i suggerimenti in sospeso, i feedback e l'utilizzo e propongono un miglioramento consolidato per agente. Cosa accade dopo segue l'impostazione di autoapprendimento di ciascun agente."
         },
-        "enable_user_dreaming": {
-          "name": "Apprendimento notturno degli utenti",
-          "description": "Ogni notte l'agente ripercorre la giornata di ogni utente attivo per mantenere aggiornata la sua memoria e pianificare follow-up (ad es. prima di una riunione). I follow-up rispettano i limiti abituali e la disattivazione personale dei follow-up."
-        },
         "ai_suggestion_expiry_days": {
           "name": "Fai scadere i suggerimenti IA non revisionati dopo (giorni)",
           "description": "Le istruzioni suggerite dall'IA ancora in sospeso dopo questi giorni vengono chiuse come scadute (non rifiutate) dall'apprendimento notturno. I suggerimenti scaduti contano ancora come prova se lo stesso schema ritorna. 0 li lascia aperti per sempre."

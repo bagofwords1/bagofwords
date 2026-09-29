@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 # ----------------------------------------------------------------- settings keys
 
 SETTING_AGENT_DREAMING = "enable_agent_dreaming"
-SETTING_USER_DREAMING = "enable_user_dreaming"
 SETTING_EXPIRY_DAYS = "ai_suggestion_expiry_days"
 SETTING_USER_MEMORY = "enable_user_memory"
 SETTING_CHECKINS = "enable_agent_checkins"
@@ -74,15 +73,14 @@ def agent_dreaming_enabled(org_settings: Any) -> bool:
 
 
 def user_dreaming_enabled(org_settings: Any) -> bool:
-    """The user dream also needs user memory: keeping memory up to date is
-    half of what it does, and its prompt is built around it."""
-    return _bool(org_settings, SETTING_USER_DREAMING, True) and _bool(
-        org_settings, SETTING_USER_MEMORY, True
-    )
+    """The user dream has no switch of its own: it keeps user memory up to
+    date (and plans check-ins, which follow their own switch and opt-out),
+    so it runs whenever user memory is on."""
+    return _bool(org_settings, SETTING_USER_MEMORY, True)
 
 
 def checkins_enabled(org_settings: Any) -> bool:
-    return _bool(org_settings, SETTING_CHECKINS, False)
+    return _bool(org_settings, SETTING_CHECKINS, True)
 
 
 def expiry_days(org_settings: Any) -> int:

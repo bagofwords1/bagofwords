@@ -113,12 +113,12 @@ class _Settings:
         return None
 
 
-def test_feature_off_by_default():
+def test_feature_on_by_default():
     from app.schemas.organization_settings_schema import OrganizationSettingsConfig
-    assert OrganizationSettingsConfig().enable_agent_checkins.value is False
-    assert policy.feature_enabled(None) is False
-    assert policy.feature_enabled(_Settings()) is False
-    assert policy.feature_enabled(_Settings(enable_agent_checkins=True)) is True
+    assert OrganizationSettingsConfig().enable_agent_checkins.value is True
+    assert policy.feature_enabled(None) is True
+    assert policy.feature_enabled(_Settings()) is True
+    assert policy.feature_enabled(_Settings(enable_agent_checkins=False)) is False
 
 
 @pytest.mark.parametrize("weekly,daily", [(1, 5), (3, 50), (10, 1)])
