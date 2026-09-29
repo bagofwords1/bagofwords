@@ -2753,15 +2753,11 @@
         },
         "enable_user_memory": {
           "name": "Memoria del usuario",
-          "description": "Permite que el agente recuerde hechos sobre cada usuario entre sesiones: su trabajo, proyectos, plazos y eventos, lo que sigue y sus propias abreviaturas. Las reglas sobre cómo responder siguen en las instrucciones. Cada usuario puede ver, editar y borrar su memoria."
+          "description": "Permite que el agente recuerde hechos sobre cada usuario entre sesiones: su trabajo, proyectos, plazos y eventos, lo que sigue y sus propias abreviaturas. Las reglas sobre cómo responder siguen en las instrucciones. Cada usuario puede ver, editar y borrar su memoria. Se mantiene actualizada durante la noche."
         },
         "enable_agent_dreaming": {
           "name": "Aprendizaje nocturno de agentes",
           "description": "Cada noche, los agentes revisan sus sugerencias pendientes, los comentarios y el uso, y proponen una mejora consolidada por agente. Lo que ocurre con ella sigue la configuración de autoaprendizaje de cada agente."
-        },
-        "enable_user_dreaming": {
-          "name": "Aprendizaje nocturno de usuarios",
-          "description": "Cada noche, el agente repasa el día de cada usuario activo para mantener su memoria al día y planificar seguimientos (p. ej., antes de una reunión). Los seguimientos usan los límites habituales y respetan la desactivación personal de seguimientos."
         },
         "ai_suggestion_expiry_days": {
           "name": "Caducar sugerencias de IA sin revisar tras (días)",

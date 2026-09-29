@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.572 (September 29, 2026)
+- Removed the "User overnight learning" setting — overnight memory upkeep now follows the User memory setting
+
 ## Version 0.0.571 (September 28, 2026)
 - Added agent check-ins: the agent schedules its own follow-up and notifies you only when something changed (#1200) — `enable_agent_checkins` org setting (default off)
 - Added per-user memory: the agent saves, edits and searches personal facts, managed from a new Memory tab in your profile (#1201) — `enable_user_memory` org setting (default on)

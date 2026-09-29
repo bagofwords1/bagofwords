@@ -360,15 +360,14 @@ class OrganizationSettingsConfig(BaseModel):
     enable_agent_checkins: FeatureConfig = FeatureConfig(value=False, name="Agent check-ins", description="Let the agent follow up on its own after a conversation when something is worth revisiting (e.g. after a data refresh). Follow-ups run as the user in the same report and notify them only when something meaningful changed.", is_lab=True, editable=True)
     checkins_max_per_user_per_week: FeatureConfig = FeatureConfig(value=2, name="Check-ins per user per week", description="Maximum follow-up runs a single user can receive in 7 days.", is_lab=True, editable=True)
     checkins_max_runs_per_org_per_day: FeatureConfig = FeatureConfig(value=50, name="Check-in runs per day", description="Upper bound on follow-up runs across the organization per day (cost cap).", is_lab=True, editable=True)
-    enable_user_memory: FeatureConfig = FeatureConfig(value=True, name="User memory", description="Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory.", is_lab=False, editable=True)
-    # Overnight learning (lab). Two master switches (ceilings): when off,
-    # nothing of that kind runs whatever the per-agent `nightly_learning`
-    # value is. The user dream only writes memory and check-ins, so it also
-    # follows enable_user_memory, enable_agent_checkins and each user's
-    # check-in opt-out. See
+    enable_user_memory: FeatureConfig = FeatureConfig(value=True, name="User memory", description="Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory. It is kept up to date overnight.", is_lab=False, editable=True)
+    # Overnight learning (lab). enable_agent_dreaming is the ceiling for the
+    # agent dream: when off, nothing runs whatever the per-agent
+    # `nightly_learning` value is. The user dream has no switch of its own:
+    # it only writes memory and check-ins, so it follows enable_user_memory,
+    # enable_agent_checkins and each user's check-in opt-out. See
     # app/services/dreams/ and docs/design/overnight-learning.md.
     enable_agent_dreaming: FeatureConfig = FeatureConfig(value=True, name="Agent overnight learning", description="Each night, agents review their pending suggestions, feedback and usage and propose one consolidated improvement per agent. What happens to it follows each agent's Self-Learning setting.", is_lab=True, editable=True)
-    enable_user_dreaming: FeatureConfig = FeatureConfig(value=True, name="User overnight learning", description="Each night, the agent reviews each active user's day to keep their memory up to date and plan follow-ups (e.g. before a meeting). Follow-ups use the normal check-in limits and each user's check-in opt-out.", is_lab=True, editable=True)
     ai_suggestion_expiry_days: FeatureConfig = FeatureConfig(value=30, name="Expire unreviewed AI suggestions after (days)", description="AI-suggested instructions still pending after this many days are closed as expired (not rejected) by the nightly agent learning. Expired suggestions still count as evidence if the same pattern comes back. 0 keeps them open forever.", is_lab=True, editable=True)
     max_instructions_in_context: FeatureConfig = FeatureConfig(value=50, name="Max instructions in context", description="Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots.", is_lab=False, editable=True)
     allow_report_webhooks: FeatureConfig = FeatureConfig(value=True, name="Report Webhooks", description="Allow external systems (GitHub, Jira, generic services) to send events to reports via inbound webhooks. Master switch for the whole feature.", is_lab=False, editable=True)

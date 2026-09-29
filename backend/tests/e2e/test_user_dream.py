@@ -143,7 +143,7 @@ def env(test_client, create_user, login_user, whoami, create_report, update_orga
         return _run(rt.run_unit("user", org_id, user_id or e.user_id, now=now, ignore_window=True, **kw))
 
     e.settings, e.report, e.turn, e.dream = settings, report, turn, dream
-    settings(enable_user_dreaming=True)
+    settings(enable_user_memory=True)
     # The night window itself is covered in test_overnight_common /
     # test_agent_dream; here dreams run at the real clock.
     e.now, e.nights = datetime.utcnow(), 0
@@ -235,7 +235,7 @@ def test_an_upcoming_memory_event_wakes_the_dream_without_new_turns(env):
 
 @pytest.mark.e2e
 def test_a_night_updates_memory_and_plans_a_check_in(env):
-    env.settings(enable_user_dreaming=True, enable_agent_checkins=True)
+    env.settings(enable_agent_checkins=True)
     board_day = (env.now + timedelta(days=2)).date().isoformat()
     rid = env.report("Board prep")
     env.turn(rid, f"I need churn by plan ready for the board meeting on {board_day}")
@@ -291,7 +291,7 @@ def test_dream_never_edits_what_the_user_wrote_and_memory_rules_still_apply(env)
 @pytest.mark.e2e
 @pytest.mark.parametrize("checkins_on,opted_out", [(False, False), (True, True)])
 def test_check_ins_need_checkins_on_and_the_user_not_opted_out(env, checkins_on, opted_out):
-    env.settings(enable_user_dreaming=True, enable_agent_checkins=checkins_on)
+    env.settings(enable_agent_checkins=checkins_on)
     if opted_out:
         r = env.client.put("/api/users/me/checkins", json={"enabled": False}, headers=env.headers)
         assert r.status_code == 200, r.text
@@ -315,7 +315,7 @@ def test_check_ins_need_checkins_on_and_the_user_not_opted_out(env, checkins_on,
 
 @pytest.mark.e2e
 def test_check_ins_only_on_reports_the_user_owns_and_keys_it_was_shown(env):
-    env.settings(enable_user_dreaming=True, enable_agent_checkins=True)
+    env.settings(enable_agent_checkins=True)
     mine = env.report("Mine")
     env.turn(mine, "Revenue by month")
     other_token, _ = env.add_member()
@@ -335,7 +335,7 @@ def test_check_ins_only_on_reports_the_user_owns_and_keys_it_was_shown(env):
 
 @pytest.mark.e2e
 def test_at_most_two_check_ins_a_night(env):
-    env.settings(enable_user_dreaming=True, enable_agent_checkins=True, checkins_max_per_user_per_week=10)
+    env.settings(enable_agent_checkins=True, checkins_max_per_user_per_week=10)
     rids = [env.report(f"Report {i}") for i in range(3)]
     for rid in rids:
         env.turn(rid, "Numbers please")
@@ -353,12 +353,10 @@ def test_at_most_two_check_ins_a_night(env):
 # ── switches / runtime ──────────────────────────────────────────────────────
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("cfg", [{"enable_user_dreaming": False},
-                                 {"enable_user_dreaming": True, "enable_user_memory": False}])
-def test_the_dream_needs_its_switch_and_user_memory_on(env, cfg):
+def test_the_dream_needs_user_memory_on(env):
     rid = env.report("Churn")
     env.turn(rid, "Churn by plan")
-    env.settings(**cfg)
+    env.settings(enable_user_memory=False)
     reflect = _Reflect()
     run = env.dream(reflect)
     assert run.status == "cancelled" and reflect.prompts == []
@@ -366,7 +364,7 @@ def test_the_dream_needs_its_switch_and_user_memory_on(env, cfg):
 
 @pytest.mark.e2e
 def test_switching_off_during_the_reflection_writes_nothing(env):
-    env.settings(enable_user_dreaming=True, enable_agent_checkins=True)
+    env.settings(enable_agent_checkins=True)
     rid = env.report("Churn")
     env.turn(rid, "Churn by plan")
 
@@ -375,7 +373,7 @@ def test_switching_off_during_the_reflection_writes_nothing(env):
             s = (await db.execute(select(OrganizationSettings).where(
                 OrganizationSettings.organization_id == env.org_id))).scalar_one()
             cfg = dict(s.config or {})
-            cfg["enable_user_dreaming"] = {"value": False}
+            cfg["enable_user_memory"] = {"value": False}
             s.config = cfg
             await db.commit()
 

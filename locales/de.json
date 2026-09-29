@@ -2643,10 +2643,6 @@
           "name": "Nächtliches Lernen der Agenten",
           "description": "Jede Nacht prüfen Agenten ihre offenen Vorschläge, Feedback und Nutzung und schlagen pro Agent eine zusammengeführte Verbesserung vor. Was damit passiert, folgt der Selbstlern-Einstellung des jeweiligen Agenten."
         },
-        "enable_user_dreaming": {
-          "name": "Nächtliches Lernen für Nutzer",
-          "description": "Jede Nacht geht der Agent den Tag jedes aktiven Nutzers durch, hält dessen Gedächtnis aktuell und plant Nachfassaktionen (z. B. vor einem Meeting). Dafür gelten die üblichen Limits und die persönliche Abmeldung vom Nachfassen."
-        },
         "ai_suggestion_expiry_days": {
           "name": "Ungeprüfte KI-Vorschläge verfallen nach (Tagen)",
           "description": "KI-vorgeschlagene Anweisungen, die nach so vielen Tagen noch offen sind, werden vom nächtlichen Lernen als verfallen (nicht abgelehnt) geschlossen. Verfallene Vorschläge zählen weiter als Beleg, wenn dasselbe Muster wiederkehrt. 0 lässt sie für immer offen."

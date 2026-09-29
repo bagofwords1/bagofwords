@@ -2643,10 +2643,6 @@
           "name": "Apprentissage nocturne des agents",
           "description": "Chaque nuit, les agents examinent leurs suggestions en attente, les retours et l'usage, et proposent une amélioration consolidée par agent. La suite dépend du réglage d'auto-apprentissage de chaque agent."
         },
-        "enable_user_dreaming": {
-          "name": "Apprentissage nocturne des utilisateurs",
-          "description": "Chaque nuit, l'agent passe en revue la journée de chaque utilisateur actif pour garder sa mémoire à jour et planifier des suivis (p. ex. avant une réunion). Les suivis respectent les limites habituelles et la désactivation personnelle des suivis."
-        },
         "ai_suggestion_expiry_days": {
           "name": "Faire expirer les suggestions IA non examinées après (jours)",
           "description": "Les instructions suggérées par l'IA encore en attente après ce nombre de jours sont fermées comme expirées (non rejetées) par l'apprentissage nocturne. Les suggestions expirées comptent toujours comme preuve si le même schéma revient. 0 les laisse ouvertes indéfiniment."
