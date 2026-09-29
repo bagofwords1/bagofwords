@@ -1038,6 +1038,14 @@
         "always": "siempre",
         "matched": "coincidencia"
       }
+    },
+    "export": {
+      "button": "Exportar",
+      "turnJson": "Descargar este turno (JSON)",
+      "conversationJson": "Descargar conversación (JSON)",
+      "copyTurn": "Copiar este turno como JSON",
+      "copied": "JSON de la traza copiado al portapapeles",
+      "failed": "No se pudo exportar la traza"
     }
   },
   "reportView": {

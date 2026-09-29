@@ -1023,6 +1023,14 @@
         "always": "alltid",
         "matched": "matchad"
       }
+    },
+    "export": {
+      "button": "Exportera",
+      "turnJson": "Ladda ner denna tur (JSON)",
+      "conversationJson": "Ladda ner konversationen (JSON)",
+      "copyTurn": "Kopiera denna tur som JSON",
+      "copied": "Spårnings-JSON kopierad till urklipp",
+      "failed": "Det gick inte att exportera spårningen"
     }
   },
   "reportView": {

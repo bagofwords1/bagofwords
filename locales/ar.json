@@ -1023,6 +1023,14 @@
         "always": "دائمًا",
         "matched": "مطابق"
       }
+    },
+    "export": {
+      "button": "تصدير",
+      "turnJson": "تنزيل هذا الدور (JSON)",
+      "conversationJson": "تنزيل المحادثة (JSON)",
+      "copyTurn": "نسخ هذا الدور كـ JSON",
+      "copied": "تم نسخ JSON التتبع إلى الحافظة",
+      "failed": "تعذّر تصدير التتبع"
     }
   },
   "reportView": {
