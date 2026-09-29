@@ -2,6 +2,7 @@
 
 ## Version 0.0.572 (September 29, 2026)
 - Removed the "User overnight learning" setting — overnight memory upkeep now follows the User memory setting
+- Agent check-ins are now on by default — turn off with the `enable_agent_checkins` org setting
 
 ## Version 0.0.571 (September 28, 2026)
 - Added agent check-ins: the agent schedules its own follow-up and notifies you only when something changed (#1200) — `enable_agent_checkins` org setting (default off)

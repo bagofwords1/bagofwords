@@ -7,7 +7,7 @@ arms an invisible one-shot job. When the job comes due: code guardrails run
 first (facts), then a small judge model decides run/skip **with a reason**, then
 — only on run — a normal machine turn runs in the same report and calls
 `notify` only on explicit criteria. The user configures nothing; org admins turn
-the whole feature on in AI settings (lab, **off by default**); users can opt out
+the whole feature on in AI settings (lab, **on by default**); users can opt out
 for themselves in their profile. Every decision is visible to admins in the
 TraceModal, including the ones that left nothing visible to the user.
 

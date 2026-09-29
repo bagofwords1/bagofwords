@@ -265,6 +265,7 @@ def _planned(env, report_id=None):
 
 @pytest.mark.e2e
 def test_setting_off_turn_creates_no_rows_and_no_llm_calls(env):
+    env.set_settings(enable_agent_checkins=False)
     rid = env.new_report()
     pair = env.human_turn(rid)
     assert env.plan(rid, pair) is None
@@ -760,6 +761,7 @@ def _set_opt_in(env, enabled: bool):
 
 @pytest.mark.e2e
 def test_my_checkins_preference_reports_org_availability(env):
+    env.set_settings(enable_agent_checkins=False)
     r = env.client.get("/api/users/me/checkins", headers=env.headers).json()
     assert r == {"enabled": True, "available": False}
     env.set_settings(enable_agent_checkins=True)
@@ -876,6 +878,7 @@ def test_real_turn_hook_dispatches_with_the_turns_ids(real_agent):
 @pytest.mark.e2e
 def test_real_turn_hook_does_nothing_when_setting_off(real_agent):
     env = real_agent
+    env.set_settings(enable_agent_checkins=False)
     rid = env.new_report()
     env.human_turn(rid)
     assert env.dispatched == []

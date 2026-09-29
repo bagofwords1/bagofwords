@@ -80,7 +80,7 @@ def user_dreaming_enabled(org_settings: Any) -> bool:
 
 
 def checkins_enabled(org_settings: Any) -> bool:
-    return _bool(org_settings, SETTING_CHECKINS, False)
+    return _bool(org_settings, SETTING_CHECKINS, True)
 
 
 def expiry_days(org_settings: Any) -> int:
