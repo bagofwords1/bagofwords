@@ -479,7 +479,7 @@ class TestSetup:
         assert client._verify_arg() == client._ca_path
         client.close()
 
-    @pytest.mark.parametrize("root_ca", [None, CERT_PEM])
+    @pytest.mark.parametrize("root_ca", [None, CERT_PEM], ids=["no_root_ca", "root_ca"])
     def test_verify_ssl_off_disables_verification_even_with_root_ca(self, root_ca):
         """The Verify SSL toggle is authoritative: a saved root.pem must not
         silently keep verification (and its hostname check) on."""
