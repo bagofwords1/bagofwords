@@ -908,6 +908,11 @@
     "llm": "LLM",
     "exec": "Kör",
     "selectItem": "Välj ett objekt i trädet för att se detaljer",
+    "tabs": {
+      "conversation": "Konversation",
+      "timeline": "Tidslinje",
+      "details": "Detaljer"
+    },
     "userPrompt": "Användarprompt",
     "instructionsCount": "{count} instruktioner",
     "alwaysCount": "{count} alltid",

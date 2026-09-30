@@ -923,6 +923,11 @@
     "llm": "LLM",
     "exec": "Exec",
     "selectItem": "Selecciona un elemento del árbol para ver los detalles",
+    "tabs": {
+      "conversation": "Conversación",
+      "timeline": "Cronología",
+      "details": "Detalles"
+    },
     "userPrompt": "Prompt del usuario",
     "instructionsCount": "{count} instrucciones",
     "alwaysCount": "{count} siempre",

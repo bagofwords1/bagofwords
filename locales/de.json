@@ -908,6 +908,11 @@
     "llm": "LLM",
     "exec": "Ausf.",
     "selectItem": "Wählen Sie ein Element im Baum aus, um Details anzuzeigen",
+    "tabs": {
+      "conversation": "Unterhaltung",
+      "timeline": "Zeitachse",
+      "details": "Details"
+    },
     "userPrompt": "Benutzer-Prompt",
     "instructionsCount": "{count} Anweisungen",
     "alwaysCount": "{count} immer",

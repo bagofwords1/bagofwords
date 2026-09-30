@@ -923,6 +923,11 @@
     "llm": "LLM",
     "exec": "ביצוע",
     "selectItem": "בחר פריט מהעץ להצגת פרטים",
+    "tabs": {
+      "conversation": "שיחה",
+      "timeline": "ציר זמן",
+      "details": "פרטים"
+    },
     "userPrompt": "הנחיית משתמש",
     "instructionsCount": "{count} הנחיות",
     "alwaysCount": "{count} תמיד",
