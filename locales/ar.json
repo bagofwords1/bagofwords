@@ -908,6 +908,11 @@
     "llm": "نموذج اللغة",
     "exec": "تنفيذ",
     "selectItem": "اختر عنصرًا من الشجرة لعرض التفاصيل",
+    "tabs": {
+      "conversation": "المحادثة",
+      "timeline": "الخط الزمني",
+      "details": "التفاصيل"
+    },
     "userPrompt": "طلب المستخدم",
     "instructionsCount": "{count} تعليمة",
     "alwaysCount": "{count} دائمة",

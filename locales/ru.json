@@ -908,6 +908,11 @@
     "llm": "LLM",
     "exec": "Выполнение",
     "selectItem": "Выберите элемент в дереве, чтобы увидеть детали",
+    "tabs": {
+      "conversation": "Диалог",
+      "timeline": "Хронология",
+      "details": "Детали"
+    },
     "userPrompt": "Запрос пользователя",
     "instructionsCount": "{count} инструкций",
     "alwaysCount": "{count} всегда",

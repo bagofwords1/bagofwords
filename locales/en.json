@@ -949,6 +949,11 @@
     "llm": "LLM",
     "exec": "Exec",
     "selectItem": "Select an item from the tree to view details",
+    "tabs": {
+      "conversation": "Conversation",
+      "timeline": "Timeline",
+      "details": "Details"
+    },
     "userPrompt": "User Prompt",
     "instructionsCount": "{count} instructions",
     "alwaysCount": "{count} always",
