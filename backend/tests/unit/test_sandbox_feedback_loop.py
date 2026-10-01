@@ -119,13 +119,14 @@ class TestUnsafePythonIsRetryable:
 
 
 class _PromptCapturingLLM:
-    """Stands in for Coder.llm — records the rendered prompt."""
+    """Stands in for Coder.llm — records the rendered prompt the model sees,
+    system prompt included (create_data sends its rules via `system=`)."""
 
     def __init__(self):
         self.prompts = []
 
-    async def inference_stream_v2(self, messages, **kwargs):
-        self.prompts.append(messages[0].content)
+    async def inference_stream_v2(self, messages, system=None, **kwargs):
+        self.prompts.append(f"{system or ''}\n{messages[0].content}")
         yield TextDeltaEvent(text=CLEAN_CODE)
 
 
