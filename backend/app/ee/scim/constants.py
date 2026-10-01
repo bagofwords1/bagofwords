@@ -93,7 +93,51 @@ SCHEMAS = [
             "resourceType": "Schema",
             "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:User",
         },
-    }
+    },
+    {
+        "id": "urn:ietf:params:scim:schemas:core:2.0:Group",
+        "name": "Group",
+        "description": "Group",
+        "attributes": [
+            {
+                "name": "displayName",
+                "type": "string",
+                "multiValued": False,
+                "required": True,
+                "caseExact": False,
+                "mutability": "readWrite",
+                "returned": "default",
+                "uniqueness": "server",
+            },
+            {
+                "name": "members",
+                "type": "complex",
+                "multiValued": True,
+                "required": False,
+                "mutability": "readWrite",
+                "returned": "default",
+                "subAttributes": [
+                    {"name": "value", "type": "string", "multiValued": False, "required": True, "caseExact": True, "mutability": "immutable", "returned": "default"},
+                    {"name": "display", "type": "string", "multiValued": False, "required": False, "mutability": "readOnly", "returned": "default"},
+                    {"name": "$ref", "type": "reference", "referenceTypes": ["User"], "multiValued": False, "required": False, "mutability": "immutable", "returned": "default"},
+                    {"name": "type", "type": "string", "canonicalValues": ["User"], "multiValued": False, "required": False, "mutability": "immutable", "returned": "default"},
+                ],
+            },
+            {
+                "name": "externalId",
+                "type": "string",
+                "multiValued": False,
+                "required": False,
+                "caseExact": True,
+                "mutability": "readWrite",
+                "returned": "default",
+            },
+        ],
+        "meta": {
+            "resourceType": "Schema",
+            "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:Group",
+        },
+    },
 ]
 
 RESOURCE_TYPES = [
@@ -109,5 +153,18 @@ RESOURCE_TYPES = [
             "resourceType": "ResourceType",
             "location": "/scim/v2/ResourceTypes/User",
         },
-    }
+    },
+    {
+        "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"],
+        "id": "Group",
+        "name": "Group",
+        "endpoint": "/scim/v2/Groups",
+        "description": "Group",
+        "schema": "urn:ietf:params:scim:schemas:core:2.0:Group",
+        "schemaExtensions": [],
+        "meta": {
+            "resourceType": "ResourceType",
+            "location": "/scim/v2/ResourceTypes/Group",
+        },
+    },
 ]

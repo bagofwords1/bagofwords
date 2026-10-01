@@ -42,6 +42,7 @@ class ErrorCode(str, Enum):
     MEMBERSHIP_NOT_FOUND = "membership.not_found"
     ROLE_NOT_FOUND = "role.not_found"
     GROUP_NOT_FOUND = "group.not_found"
+    GROUP_MANAGED_BY_SCIM = "group.managed_by_scim"
     INSTRUCTION_NOT_FOUND = "instruction.not_found"
     INSTRUCTION_VERSION_NOT_FOUND = "instruction.version_not_found"
     INSTRUCTION_LABEL_NOT_FOUND = "instruction.label_not_found"

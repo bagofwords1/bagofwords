@@ -1,0 +1,1221 @@
+[
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users?filter=userName%20eq%20%22Test_User_78cbac60-e322-46bb-b10c-1a07a17b157c%22",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+      ],
+      "totalResults": 0,
+      "startIndex": 1,
+      "itemsPerPage": 100,
+      "Resources": []
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users?filter=userName%20eq%20%22bob_bd7cd8%40example.com%22",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+      ],
+      "totalResults": 1,
+      "startIndex": 1,
+      "itemsPerPage": 100,
+      "Resources": [
+        {
+          "schemas": [
+            "urn:ietf:params:scim:schemas:core:2.0:User"
+          ],
+          "id": "824331a9-b0f5-4480-a03d-e417e46fa295",
+          "externalId": null,
+          "userName": "bob_bd7cd8@example.com",
+          "name": {
+            "formatted": "Bob",
+            "givenName": "Bob",
+            "familyName": ""
+          },
+          "displayName": "Bob",
+          "emails": [
+            {
+              "value": "bob_bd7cd8@example.com",
+              "type": "work",
+              "primary": true
+            }
+          ],
+          "active": true,
+          "meta": {
+            "resourceType": "User",
+            "created": "2026-10-01T18:22:46.482456",
+            "lastModified": "2026-10-01T18:22:46.727497",
+            "location": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+      ],
+      "Operations": [
+        {
+          "op": "Replace",
+          "path": "displayName",
+          "value": "Bob Builder"
+        }
+      ]
+    },
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "824331a9-b0f5-4480-a03d-e417e46fa295",
+      "externalId": null,
+      "userName": "bob_bd7cd8@example.com",
+      "name": {
+        "formatted": "Bob Builder",
+        "givenName": "Bob",
+        "familyName": "Builder"
+      },
+      "displayName": "Bob Builder",
+      "emails": [
+        {
+          "value": "bob_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:46.482456",
+        "lastModified": "2026-10-01T18:22:46.727497",
+        "location": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users?filter=userName%20eq%20%22alice_bd7cd8%40example.com%22",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+      ],
+      "totalResults": 1,
+      "startIndex": 1,
+      "itemsPerPage": 100,
+      "Resources": [
+        {
+          "schemas": [
+            "urn:ietf:params:scim:schemas:core:2.0:User"
+          ],
+          "id": "f58f6f53-1081-4bc7-9105-865109bf284e",
+          "externalId": null,
+          "userName": "alice_bd7cd8@example.com",
+          "name": {
+            "formatted": "Alice",
+            "givenName": "Alice",
+            "familyName": ""
+          },
+          "displayName": "Alice",
+          "emails": [
+            {
+              "value": "alice_bd7cd8@example.com",
+              "type": "work",
+              "primary": true
+            }
+          ],
+          "active": true,
+          "meta": {
+            "resourceType": "User",
+            "created": "2026-10-01T18:22:45.984885",
+            "lastModified": "2026-10-01T18:22:46.232818",
+            "location": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+      ],
+      "Operations": [
+        {
+          "op": "Replace",
+          "path": "displayName",
+          "value": "Alice Analyst"
+        }
+      ]
+    },
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "f58f6f53-1081-4bc7-9105-865109bf284e",
+      "externalId": null,
+      "userName": "alice_bd7cd8@example.com",
+      "name": {
+        "formatted": "Alice Analyst",
+        "givenName": "Alice",
+        "familyName": "Analyst"
+      },
+      "displayName": "Alice Analyst",
+      "emails": [
+        {
+          "value": "alice_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:45.984885",
+        "lastModified": "2026-10-01T18:22:46.232818",
+        "location": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users?filter=userName%20eq%20%22carol.chen%40entra-bd7cd8.example.com%22",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+      ],
+      "totalResults": 0,
+      "startIndex": 1,
+      "itemsPerPage": 100,
+      "Resources": []
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/scim/v2/Users",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User",
+        "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
+      ],
+      "externalId": "carol.chen",
+      "userName": "carol.chen@entra-bd7cd8.example.com",
+      "active": true,
+      "displayName": "Carol Chen",
+      "emails": [
+        {
+          "primary": true,
+          "type": "work",
+          "value": "carol.chen@entra-bd7cd8.example.com"
+        }
+      ],
+      "meta": {
+        "resourceType": "User"
+      },
+      "name": {
+        "formatted": "Carol Chen",
+        "familyName": "Chen",
+        "givenName": "Carol"
+      },
+      "roles": []
+    },
+    "status": 201,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+      "externalId": "carol.chen",
+      "userName": "carol.chen@entra-bd7cd8.example.com",
+      "name": {
+        "formatted": "Carol Chen",
+        "givenName": "Carol",
+        "familyName": "Chen"
+      },
+      "displayName": "Carol Chen",
+      "emails": [
+        {
+          "value": "carol.chen@entra-bd7cd8.example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:47.476209",
+        "lastModified": "2026-10-01T18:22:47.476215",
+        "location": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Groups?excludedAttributes=members&filter=displayName%20eq%20%22All%20Staff%20bd7cd8%22",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+      ],
+      "totalResults": 0,
+      "startIndex": 1,
+      "itemsPerPage": 0,
+      "Resources": []
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/scim/v2/Groups",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group",
+        "http://schemas.microsoft.com/2006/11/ResourceManagement/ADSCIM/2.0/Group"
+      ],
+      "externalId": "b6eaa1b3-dc31-4d9b-8fc8-fd10e39cffab",
+      "displayName": "All Staff bd7cd8",
+      "meta": {
+        "resourceType": "Group"
+      }
+    },
+    "status": 201,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "573e33db-9004-467f-a1ab-0d8270a25626",
+      "externalId": "b6eaa1b3-dc31-4d9b-8fc8-fd10e39cffab",
+      "displayName": "All Staff bd7cd8",
+      "members": [],
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.575771",
+        "lastModified": "2026-10-01T18:22:47.575779",
+        "location": "http://localhost:8000/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626"
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+      ],
+      "Operations": [
+        {
+          "op": "Add",
+          "path": "members",
+          "value": [
+            {
+              "$ref": null,
+              "value": "824331a9-b0f5-4480-a03d-e417e46fa295"
+            },
+            {
+              "$ref": null,
+              "value": "f58f6f53-1081-4bc7-9105-865109bf284e"
+            },
+            {
+              "$ref": null,
+              "value": "fc6527a6-8fc4-409c-a89e-1264b773b31f"
+            }
+          ]
+        }
+      ]
+    },
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "573e33db-9004-467f-a1ab-0d8270a25626",
+      "externalId": "b6eaa1b3-dc31-4d9b-8fc8-fd10e39cffab",
+      "displayName": "All Staff bd7cd8",
+      "members": [
+        {
+          "value": "f58f6f53-1081-4bc7-9105-865109bf284e",
+          "display": "Alice Analyst",
+          "$ref": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+          "type": "User"
+        },
+        {
+          "value": "824331a9-b0f5-4480-a03d-e417e46fa295",
+          "display": "Bob Builder",
+          "$ref": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+          "type": "User"
+        },
+        {
+          "value": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+          "display": "Carol Chen",
+          "$ref": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f",
+          "type": "User"
+        }
+      ],
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.575771",
+        "lastModified": "2026-10-01T18:22:47.651088",
+        "location": "http://localhost:8000/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Groups?excludedAttributes=members&filter=displayName%20eq%20%22Data%20Team%20bd7cd8%22",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+      ],
+      "totalResults": 0,
+      "startIndex": 1,
+      "itemsPerPage": 0,
+      "Resources": []
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/scim/v2/Groups",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group",
+        "http://schemas.microsoft.com/2006/11/ResourceManagement/ADSCIM/2.0/Group"
+      ],
+      "externalId": "cc3e721c-e2e5-402f-acb1-6eebc05476f0",
+      "displayName": "Data Team bd7cd8",
+      "meta": {
+        "resourceType": "Group"
+      }
+    },
+    "status": 201,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "94d1f093-1853-4a03-a3fd-361ce0716873",
+      "externalId": "cc3e721c-e2e5-402f-acb1-6eebc05476f0",
+      "displayName": "Data Team bd7cd8",
+      "members": [],
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.733964",
+        "lastModified": "2026-10-01T18:22:47.733970",
+        "location": "http://localhost:8000/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873"
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+      ],
+      "Operations": [
+        {
+          "op": "Add",
+          "path": "members",
+          "value": [
+            {
+              "$ref": null,
+              "value": "824331a9-b0f5-4480-a03d-e417e46fa295"
+            },
+            {
+              "$ref": null,
+              "value": "f58f6f53-1081-4bc7-9105-865109bf284e"
+            },
+            {
+              "$ref": null,
+              "value": "fc6527a6-8fc4-409c-a89e-1264b773b31f"
+            }
+          ]
+        }
+      ]
+    },
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "94d1f093-1853-4a03-a3fd-361ce0716873",
+      "externalId": "cc3e721c-e2e5-402f-acb1-6eebc05476f0",
+      "displayName": "Data Team bd7cd8",
+      "members": [
+        {
+          "value": "f58f6f53-1081-4bc7-9105-865109bf284e",
+          "display": "Alice Analyst",
+          "$ref": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+          "type": "User"
+        },
+        {
+          "value": "824331a9-b0f5-4480-a03d-e417e46fa295",
+          "display": "Bob Builder",
+          "$ref": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+          "type": "User"
+        },
+        {
+          "value": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+          "display": "Carol Chen",
+          "$ref": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f",
+          "type": "User"
+        }
+      ],
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.733964",
+        "lastModified": "2026-10-01T18:22:47.792416",
+        "location": "http://localhost:8000/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "824331a9-b0f5-4480-a03d-e417e46fa295",
+      "externalId": null,
+      "userName": "bob_bd7cd8@example.com",
+      "name": {
+        "formatted": "Bob Builder",
+        "givenName": "Bob",
+        "familyName": "Builder"
+      },
+      "displayName": "Bob Builder",
+      "emails": [
+        {
+          "value": "bob_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:46.482456",
+        "lastModified": "2026-10-01T18:22:46.727497",
+        "location": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "f58f6f53-1081-4bc7-9105-865109bf284e",
+      "externalId": null,
+      "userName": "alice_bd7cd8@example.com",
+      "name": {
+        "formatted": "Alice Analyst",
+        "givenName": "Alice",
+        "familyName": "Analyst"
+      },
+      "displayName": "Alice Analyst",
+      "emails": [
+        {
+          "value": "alice_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:45.984885",
+        "lastModified": "2026-10-01T18:22:46.232818",
+        "location": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+      "externalId": "carol.chen",
+      "userName": "carol.chen@entra-bd7cd8.example.com",
+      "name": {
+        "formatted": "Carol Chen",
+        "givenName": "Carol",
+        "familyName": "Chen"
+      },
+      "displayName": "Carol Chen",
+      "emails": [
+        {
+          "value": "carol.chen@entra-bd7cd8.example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:47.476209",
+        "lastModified": "2026-10-01T18:22:47.476215",
+        "location": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626?excludedAttributes=members",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "573e33db-9004-467f-a1ab-0d8270a25626",
+      "externalId": "b6eaa1b3-dc31-4d9b-8fc8-fd10e39cffab",
+      "displayName": "All Staff bd7cd8",
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.575771",
+        "lastModified": "2026-10-01T18:22:47.651088",
+        "location": "http://localhost:8000/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873?excludedAttributes=members",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "94d1f093-1853-4a03-a3fd-361ce0716873",
+      "externalId": "cc3e721c-e2e5-402f-acb1-6eebc05476f0",
+      "displayName": "Data Team bd7cd8",
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.733964",
+        "lastModified": "2026-10-01T18:22:47.792416",
+        "location": "http://localhost:8000/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "824331a9-b0f5-4480-a03d-e417e46fa295",
+      "externalId": null,
+      "userName": "bob_bd7cd8@example.com",
+      "name": {
+        "formatted": "Bob Builder",
+        "givenName": "Bob",
+        "familyName": "Builder"
+      },
+      "displayName": "Bob Builder",
+      "emails": [
+        {
+          "value": "bob_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:46.482456",
+        "lastModified": "2026-10-01T18:22:46.727497",
+        "location": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "f58f6f53-1081-4bc7-9105-865109bf284e",
+      "externalId": null,
+      "userName": "alice_bd7cd8@example.com",
+      "name": {
+        "formatted": "Alice Analyst",
+        "givenName": "Alice",
+        "familyName": "Analyst"
+      },
+      "displayName": "Alice Analyst",
+      "emails": [
+        {
+          "value": "alice_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:45.984885",
+        "lastModified": "2026-10-01T18:22:46.232818",
+        "location": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+      "externalId": "carol.chen",
+      "userName": "carol.chen@entra-bd7cd8.example.com",
+      "name": {
+        "formatted": "Carol Chen",
+        "givenName": "Carol",
+        "familyName": "Chen"
+      },
+      "displayName": "Carol Chen",
+      "emails": [
+        {
+          "value": "carol.chen@entra-bd7cd8.example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:47.476209",
+        "lastModified": "2026-10-01T18:22:47.476215",
+        "location": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626?excludedAttributes=members",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "573e33db-9004-467f-a1ab-0d8270a25626",
+      "externalId": "b6eaa1b3-dc31-4d9b-8fc8-fd10e39cffab",
+      "displayName": "All Staff bd7cd8",
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.575771",
+        "lastModified": "2026-10-01T18:22:47.651088",
+        "location": "http://localhost:8000/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873?excludedAttributes=members",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "94d1f093-1853-4a03-a3fd-361ce0716873",
+      "externalId": "cc3e721c-e2e5-402f-acb1-6eebc05476f0",
+      "displayName": "Data Team bd7cd8",
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.733964",
+        "lastModified": "2026-10-01T18:22:47.792416",
+        "location": "http://localhost:8000/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873"
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+      ],
+      "Operations": [
+        {
+          "op": "Replace",
+          "path": "displayName",
+          "value": "Data Platform bd7cd8"
+        }
+      ]
+    },
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "94d1f093-1853-4a03-a3fd-361ce0716873",
+      "externalId": "cc3e721c-e2e5-402f-acb1-6eebc05476f0",
+      "displayName": "Data Platform bd7cd8",
+      "members": [
+        {
+          "value": "f58f6f53-1081-4bc7-9105-865109bf284e",
+          "display": "Alice Analyst",
+          "$ref": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+          "type": "User"
+        },
+        {
+          "value": "824331a9-b0f5-4480-a03d-e417e46fa295",
+          "display": "Bob Builder",
+          "$ref": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+          "type": "User"
+        },
+        {
+          "value": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+          "display": "Carol Chen",
+          "$ref": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f",
+          "type": "User"
+        }
+      ],
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.733964",
+        "lastModified": "2026-10-01T18:22:48.830201",
+        "location": "http://localhost:8000/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873"
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+      ],
+      "Operations": [
+        {
+          "op": "Remove",
+          "path": "members",
+          "value": [
+            {
+              "$ref": null,
+              "value": "f58f6f53-1081-4bc7-9105-865109bf284e"
+            }
+          ]
+        }
+      ]
+    },
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "94d1f093-1853-4a03-a3fd-361ce0716873",
+      "externalId": "cc3e721c-e2e5-402f-acb1-6eebc05476f0",
+      "displayName": "Data Platform bd7cd8",
+      "members": [
+        {
+          "value": "824331a9-b0f5-4480-a03d-e417e46fa295",
+          "display": "Bob Builder",
+          "$ref": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+          "type": "User"
+        },
+        {
+          "value": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+          "display": "Carol Chen",
+          "$ref": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f",
+          "type": "User"
+        }
+      ],
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.733964",
+        "lastModified": "2026-10-01T18:22:48.892305",
+        "location": "http://localhost:8000/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "824331a9-b0f5-4480-a03d-e417e46fa295",
+      "externalId": null,
+      "userName": "bob_bd7cd8@example.com",
+      "name": {
+        "formatted": "Bob Builder",
+        "givenName": "Bob",
+        "familyName": "Builder"
+      },
+      "displayName": "Bob Builder",
+      "emails": [
+        {
+          "value": "bob_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:46.482456",
+        "lastModified": "2026-10-01T18:22:46.727497",
+        "location": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "f58f6f53-1081-4bc7-9105-865109bf284e",
+      "externalId": null,
+      "userName": "alice_bd7cd8@example.com",
+      "name": {
+        "formatted": "Alice Analyst",
+        "givenName": "Alice",
+        "familyName": "Analyst"
+      },
+      "displayName": "Alice Analyst",
+      "emails": [
+        {
+          "value": "alice_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:45.984885",
+        "lastModified": "2026-10-01T18:22:46.232818",
+        "location": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+      "externalId": "carol.chen",
+      "userName": "carol.chen@entra-bd7cd8.example.com",
+      "name": {
+        "formatted": "Carol Chen",
+        "givenName": "Carol",
+        "familyName": "Chen"
+      },
+      "displayName": "Carol Chen",
+      "emails": [
+        {
+          "value": "carol.chen@entra-bd7cd8.example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:47.476209",
+        "lastModified": "2026-10-01T18:22:47.476215",
+        "location": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626?excludedAttributes=members",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "573e33db-9004-467f-a1ab-0d8270a25626",
+      "externalId": "b6eaa1b3-dc31-4d9b-8fc8-fd10e39cffab",
+      "displayName": "All Staff bd7cd8",
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.575771",
+        "lastModified": "2026-10-01T18:22:47.651088",
+        "location": "http://localhost:8000/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626"
+      }
+    }
+  },
+  {
+    "method": "DELETE",
+    "path": "/scim/v2/Groups/94d1f093-1853-4a03-a3fd-361ce0716873",
+    "request": null,
+    "status": 204,
+    "content_type": null,
+    "response": null
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "824331a9-b0f5-4480-a03d-e417e46fa295",
+      "externalId": null,
+      "userName": "bob_bd7cd8@example.com",
+      "name": {
+        "formatted": "Bob Builder",
+        "givenName": "Bob",
+        "familyName": "Builder"
+      },
+      "displayName": "Bob Builder",
+      "emails": [
+        {
+          "value": "bob_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:46.482456",
+        "lastModified": "2026-10-01T18:22:46.727497",
+        "location": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "f58f6f53-1081-4bc7-9105-865109bf284e",
+      "externalId": null,
+      "userName": "alice_bd7cd8@example.com",
+      "name": {
+        "formatted": "Alice Analyst",
+        "givenName": "Alice",
+        "familyName": "Analyst"
+      },
+      "displayName": "Alice Analyst",
+      "emails": [
+        {
+          "value": "alice_bd7cd8@example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": true,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:45.984885",
+        "lastModified": "2026-10-01T18:22:46.232818",
+        "location": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e"
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+      ],
+      "Operations": [
+        {
+          "op": "Replace",
+          "path": "active",
+          "value": false
+        }
+      ]
+    },
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:User"
+      ],
+      "id": "fc6527a6-8fc4-409c-a89e-1264b773b31f",
+      "externalId": "carol.chen",
+      "userName": "carol.chen@entra-bd7cd8.example.com",
+      "name": {
+        "formatted": "Carol Chen",
+        "givenName": "Carol",
+        "familyName": "Chen"
+      },
+      "displayName": "Carol Chen",
+      "emails": [
+        {
+          "value": "carol.chen@entra-bd7cd8.example.com",
+          "type": "work",
+          "primary": true
+        }
+      ],
+      "active": false,
+      "meta": {
+        "resourceType": "User",
+        "created": "2026-10-01T18:22:47.476209",
+        "lastModified": "2026-10-01T18:22:47.476215",
+        "location": "http://localhost:8000/scim/v2/Users/fc6527a6-8fc4-409c-a89e-1264b773b31f"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626?excludedAttributes=members",
+    "request": null,
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "573e33db-9004-467f-a1ab-0d8270a25626",
+      "externalId": "b6eaa1b3-dc31-4d9b-8fc8-fd10e39cffab",
+      "displayName": "All Staff bd7cd8",
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.575771",
+        "lastModified": "2026-10-01T18:22:47.651088",
+        "location": "http://localhost:8000/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626"
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626",
+    "request": {
+      "schemas": [
+        "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+      ],
+      "Operations": [
+        {
+          "op": "Remove",
+          "path": "members",
+          "value": [
+            {
+              "$ref": null,
+              "value": "fc6527a6-8fc4-409c-a89e-1264b773b31f"
+            }
+          ]
+        }
+      ]
+    },
+    "status": 200,
+    "content_type": "application/scim+json",
+    "response": {
+      "schemas": [
+        "urn:ietf:params:scim:schemas:core:2.0:Group"
+      ],
+      "id": "573e33db-9004-467f-a1ab-0d8270a25626",
+      "externalId": "b6eaa1b3-dc31-4d9b-8fc8-fd10e39cffab",
+      "displayName": "All Staff bd7cd8",
+      "members": [
+        {
+          "value": "f58f6f53-1081-4bc7-9105-865109bf284e",
+          "display": "Alice Analyst",
+          "$ref": "http://localhost:8000/scim/v2/Users/f58f6f53-1081-4bc7-9105-865109bf284e",
+          "type": "User"
+        },
+        {
+          "value": "824331a9-b0f5-4480-a03d-e417e46fa295",
+          "display": "Bob Builder",
+          "$ref": "http://localhost:8000/scim/v2/Users/824331a9-b0f5-4480-a03d-e417e46fa295",
+          "type": "User"
+        }
+      ],
+      "meta": {
+        "resourceType": "Group",
+        "created": "2026-10-01T18:22:47.575771",
+        "lastModified": "2026-10-01T18:22:49.480149",
+        "location": "http://localhost:8000/scim/v2/Groups/573e33db-9004-467f-a1ab-0d8270a25626"
+      }
+    }
+  }
+]
