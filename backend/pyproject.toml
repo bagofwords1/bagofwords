@@ -145,7 +145,12 @@ dev = [
 # Validation of Certificate with Host Mismatch) and SNYK-PYTHON-ANYIO-19958322
 # (High, Incorrect Privilege Assignment), both fixed in 4.14.2. anyio is pulled
 # in transitively (fastapi / starlette / httpx / anthropic / openai, ...).
-constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2"]
+# urllib3 < 2.8.0 is affected by SNYK-PYTHON-URLLIB3-20302844 (High, Improper
+# Certificate Validation) and SNYK-PYTHON-URLLIB3-20302846 (High, Allocation of
+# Resources Without Limits or Throttling), both fixed in 2.8.0. urllib3 is pulled
+# in transitively (requests / botocore / kubernetes / snowflake-connector, ...);
+# every current dependent allows 2.8.x (botocore caps < 3 on Python >= 3.10).
+constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0"]
 # Security override: force cryptography >= 50.0.0 to fix the PKCS#7 EnvelopedData
 # Bleichenbacher oracle (GHSA-g6cj-pr64-35w5 / SNYK-PYTHON-CRYPTOGRAPHY-18516621,
 # High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail
