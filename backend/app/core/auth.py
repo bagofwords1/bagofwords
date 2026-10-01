@@ -1072,6 +1072,7 @@ class SessionEpochJWTStrategy(JWTStrategy):
         from fastapi_users.jwt import generate_jwt
 
         data = {
+            "saml_identity": getattr(user, "_saml_identity_hash", None),
             "sub": str(user.id),
             "aud": self.token_audience,
             SESSION_EPOCH_CLAIM: _session_epoch_of(user),
@@ -1101,6 +1102,28 @@ class SessionEpochJWTStrategy(JWTStrategy):
                 user.id,
             )
             return None
+
+        if claims.get("saml_identity"):
+            from app.models.saml import SAMLIdentity
+            async with user_manager.user_db.session as session:
+                identity = (await session.execute(select(SAMLIdentity).where(
+                    SAMLIdentity.identity_hash == claims["saml_identity"],
+                    SAMLIdentity.user_id == user.id, SAMLIdentity.deleted_at.is_(None),
+                ))).scalar_one_or_none()
+                if identity is None:
+                    return None
+                cfg = next((p for p in settings.bow_config.saml_providers
+                            if p.enabled and p.name == identity.provider
+                            and p.organization_id == identity.organization_id), None)
+                if cfg is None:
+                    return None
+                member = (await session.execute(select(Membership.id).where(
+                    Membership.user_id == user.id,
+                    Membership.organization_id == identity.organization_id,
+                    Membership.deleted_at.is_(None),
+                ))).first()
+                if member is None:
+                    return None
 
         if user.ldap_subject:
             if claims.get("directory_subject") != user.ldap_subject or not settings.bow_config.ldap.enabled:

@@ -3474,6 +3474,8 @@
     "copyClipboardFailed": "Det gick inte att kopiera till urklipp"
   },
   "errors": {
+    "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
+    "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",
     "generic": "Något gick fel. Försök igen.",
     "network": "Nätverksfel. Kontrollera din anslutning.",
     "unauthorized": "Du har inte behörighet att göra det.",

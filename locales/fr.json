@@ -3474,6 +3474,8 @@
     "copyClipboardFailed": "Échec de la copie dans le presse-papiers"
   },
   "errors": {
+    "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
+    "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",
     "generic": "Une erreur s'est produite. Veuillez réessayer.",
     "network": "Erreur réseau. Vérifiez votre connexion.",
     "unauthorized": "Vous n'êtes pas autorisé à effectuer cette action.",
