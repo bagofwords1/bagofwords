@@ -1,5 +1,8 @@
 from typing import Optional, Literal, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+from app.schemas.artifact_resource_schema import ResourceDefinition
 
 
 class CreateArtifactInput(BaseModel):
@@ -10,6 +13,8 @@ class CreateArtifactInput(BaseModel):
     - mode: 'page' for dashboards, 'slides' for presentations
     - visualization_ids: ordered list of visualization IDs to include
     """
+
+    resources: List[ResourceDefinition] = Field(default_factory=list, max_length=50, description="Optional collection/file/AI resource definitions. Private by default. No user records or sharing changes.")
 
     prompt: str = Field(..., description=(
         "PRECONDITION: If existing viz_ids in `past_observations` or message history already cover the user's dashboard ask, call this tool directly with those viz_ids. Only call `create_data` first when the dashboard needs data those viz_ids don't provide.\n\n"
@@ -60,13 +65,19 @@ class CreateArtifactInput(BaseModel):
     )
     visualization_ids: List[str] = Field(default_factory=list, description=(
         "Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. "
-        "Required for data dashboards; may be empty when `file_ids` is provided (an image/PDF-only artifact) "
+        "Required for analytical dashboards; may be empty for static pages, resource-backed apps, or when `file_ids` is provided "
         "or when `mode` is 'slides' (a deck may open with a title/agenda slide and may be narrative-only). "
         "CONTINUITY: When a `current_artifact` exists in context, this list MUST be a superset of its existing viz_ids — carry forward every viz unless the user explicitly asked to remove one. "
         "Phrases like 'improve', 'add KPIs', 'make it amazing', 'redesign', 'add a chart' are ADDITIVE — they never imply removal. "
         "Drop a viz only on explicit instruction ('remove the customers chart', 'get rid of the KPI row') OR when the Dashboard Contract preflight classified it as meaningless under the contract (e.g., `Total Customers` under a customer filter = 1). "
         "Every viz in this list must be able to participate in any cross-viz contract your prompt declares (filter/compare/slice/rank/drill) — if it can't, rebuild its data via `create_data` first and swap in the new viz_id, or drop it."
     ))
+
+    @model_validator(mode='after')
+    def resources_require_page(self):
+        if self.resources and self.mode != 'page':
+            raise ValueError('Live resources require a page artifact')
+        return self
 
 
 class CreateArtifactOutput(BaseModel):
@@ -78,6 +89,7 @@ class CreateArtifactOutput(BaseModel):
     - title: the artifact title
     """
 
+    resource_artifact_id: Optional[str] = Field(default=None, description='Stable parent identity for resources, independent of UI versions.')
     verification_hint: Optional[dict[str, Any]] = Field(default=None, description="Advisory interaction check: recommendation, focus, exact artifact version, and availability.")
     artifact_id: str = Field(..., description="ID of the created artifact in the database")
     code: str = Field(..., description="The generated React/JSX code")

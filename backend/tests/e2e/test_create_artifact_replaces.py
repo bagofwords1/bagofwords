@@ -244,3 +244,23 @@ def test_duplicate_and_list_speak_artifact_id(
     assert body["artifact_id"] == by_id[dash_v1]["artifact_id"]
     assert body["version"] == 3
     assert body["title"] == "Dash", "title must survive the thumbnail-copy flush (expire_on_flush)"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize('with_resources', [False, True])
+def test_non_analytical_pages_keep_a_stable_resource_identity(
+    create_report, create_user, login_user, whoami, test_client, stub_render_validation,
+    monkeypatch, with_resources,
+):
+    monkeypatch.setenv('BOW_ARTIFACT_RESOURCES_ENABLED', 'true')
+    report, token, org = _make_report(create_report, create_user, login_user, whoami, 'Non analytical app')
+    definitions = [{'name': 'notes', 'fields': {'title': {'type': 'string', 'required': True}}}] if with_resources else []
+    result = _run(_run_create(report['id'], {'prompt': 'A small app', 'code': PAGE_CODE, 'resources': definitions}))
+    output = result['output']
+    assert output.get('artifact_id'), result.get('observation')
+    saved = _run(_version_row(output['artifact_id']))
+    assert output['resource_artifact_id'] == saved['artifact_id']
+    response = test_client.get(f"/api/artifacts/{saved['artifact_id']}/runtime/resources",
+        headers={'Authorization': 'Bearer '+token, 'X-Organization-Id': org})
+    assert response.status_code == 200
+    assert {item['name'] for item in response.json()['items']} == ({'notes'} if with_resources else set())

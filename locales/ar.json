@@ -3527,7 +3527,18 @@
     "memory.sensitive": "لا يمكن للذاكرة أن تحتوي على أسرار أو كلمات مرور أو بيانات شخصية حساسة.",
     "memory.looks_like_rule": "هذه قاعدة لطريقة الإجابة — أضفها إلى تعليماتك المخصصة. الذاكرة تحفظ حقائق عنك.",
     "memory.full": "الذاكرة ممتلئة. احذف بعض الإدخالات أولًا.",
-    "memory.not_active": "تم تغيير هذا الإدخال أو نسيانه بالفعل."
+    "memory.not_active": "تم تغيير هذا الإدخال أو نسيانه بالفعل.",
+    "ARTIFACT_RESOURCE_VALIDATION": "طلب مورد غير صالح",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "المورد غير موجود",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "الوصول مرفوض",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "سجّل الدخول للمتابعة",
+    "ARTIFACT_RESOURCE_CONFLICT": "تغير المورد؛ حدّث وحاول مجددًا",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "تم بلوغ حد المورد",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "طلبات كثيرة؛ حاول لاحقًا",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "المورد غير متاح",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "انقطع الطلب",
+    "ARTIFACT_RESOURCE_ABORTED": "أُلغي الطلب",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم"
   },
   "email": {
     "dashboardShare": {
@@ -5420,5 +5431,30 @@
     "expired": "منتهي الصلاحية",
     "mergedTip": "أُدمج في اقتراح من التعلّم الليلي. ليس رفضًا من مراجع.",
     "expiredTip": "أُغلق بعد بقائه دون مراجعة بعد المهلة المحددة للمؤسسة. يظل دليلًا إذا عاد النمط."
+  },
+  "artifactResources": {
+    "inspect": "البيانات والتحليلات",
+    "readOnly": "معلومات العنصر للقراءة فقط",
+    "data": "مستكشف البيانات",
+    "analytics": "التحليلات",
+    "collection": "اختر مجموعة",
+    "refresh": "تحديث",
+    "schema": "مخطط المجموعة",
+    "filterField": "حقل التصفية",
+    "filterValue": "يساوي",
+    "filter": "تصفية",
+    "empty": "لا توجد بيانات لعرضها",
+    "pageRows": "{count} سجل في هذه الصفحة",
+    "next": "الصفحة التالية",
+    "details": "تفاصيل السجل",
+    "views": "المشاهدات",
+    "viewers": "الزوار الفريدون المسجلون",
+    "anonymousNote": "تُحتسب الزيارات المجهولة كمشاهدات، وليس كأشخاص فريدين.",
+    "embedded": "مضمّن",
+    "standalone": "صفحة مشتركة",
+    "days": "آخر {count} يوم",
+    "failed": "تعذر تحميل بيانات العنصر",
+    "newest": "الأحدث أولاً",
+    "oldest": "الأقدم أولاً"
   }
 }

@@ -213,7 +213,7 @@
                     ref="artifactIframeRef"
                     :srcdoc="iframeSrcdoc"
                     @load="onArtifactIframeLoad"
-                    sandbox="allow-scripts allow-same-origin allow-downloads"
+                    sandbox="allow-scripts allow-downloads"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
                 />
 
@@ -902,6 +902,7 @@ async function loadVisualizationData(artifactId?: string) {
 // mode and pushes fresh rows back with a new ARTIFACT_DATA message.
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
+useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id}));
 // The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
 // later data change has to be posted into it. A message posted before the
 // iframe finishes loading is simply lost, so deliveries wait for `load`.

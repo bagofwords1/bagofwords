@@ -177,6 +177,9 @@
         <!-- View as (page artifacts only): preview the dashboard as another
              viewer — anonymous or any org member, searchable by name/email.
              Identity-only — data is unaffected. -->
+        <button v-if="resourcesAvailable && selectedArtifact?.artifact_id && !verificationPreview" type="button"
+          class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700"
+          @click="resourceInspectorOpen = true">{{ $t('artifactResources.inspect') }}</button>
         <USelectMenu
           v-if="canViewAs"
           v-model="viewAsMode"
@@ -416,7 +419,7 @@
         ref="iframeRef"
         data-artifact-frame
         :srcdoc="iframeSrcdoc"
-        sandbox="allow-scripts allow-same-origin allow-downloads"
+        sandbox="allow-scripts allow-downloads"
         class="absolute inset-0 w-full h-full border-0 bg-white dark:bg-gray-900 z-0"
         @load="onIframeLoad"
       />
@@ -518,9 +521,10 @@
             </div>
             <!-- Other artifacts use iframe -->
             <iframe
+              ref="fullscreenRuntimeFrame"
               v-else-if="isFullscreenOpen && iframeSrcdoc"
               :srcdoc="iframeSrcdoc"
-              sandbox="allow-scripts allow-same-origin allow-downloads"
+              sandbox="allow-scripts allow-downloads"
               class="absolute inset-0 w-full h-full border-0"
             />
           </div>
@@ -528,6 +532,8 @@
       </UModal>
     </Teleport>
   </div>
+  <ArtifactResourceExplorer v-if="resourceInspectorOpen && selectedArtifact?.artifact_id"
+    :artifact-id="selectedArtifact.artifact_id" @close="resourceInspectorOpen = false" />
 </template>
 
 <script setup lang="ts">
@@ -684,7 +690,7 @@ function enterPolishMode() {
   polishSelectedElement.value = null;
   polishInstruction.value = '';
   // Tell iframe to enable pick mode (srcdoc iframe inherits parent origin)
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
 }
 
 function exitPolishMode() {
@@ -692,14 +698,14 @@ function exitPolishMode() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, '*');
 }
 
 function cancelPolishPrompt() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
 }
 
 // Enter applies — except the Enter that commits an IME candidate (CJK input),
@@ -1018,6 +1024,12 @@ async function fetchViewerContext() {
 }
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+const fullscreenRuntimeFrame = ref<HTMLIFrameElement | null>(null);
+const resourceInspectorOpen = ref(false);
+const resourcesAvailable = ref(false);
+
+
+useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you" }));
 const isLoading = ref(true);
 
 // App color mode, forwarded into the artifact iframe (initial srcdoc + live
@@ -1369,6 +1381,15 @@ async function fetchArtifactFiles(): Promise<any[]> {
 const artifactsList = ref<ArtifactItem[]>([]);
 const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
+watch(() => selectedArtifact.value?.artifact_id, async (id) => {
+  resourcesAvailable.value = false;
+  resourceInspectorOpen.value = false;
+  if (!id || props.verificationPreview) return;
+  try {
+    await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/context`, {headers:{Authorization:token.value || ''}});
+    if (selectedArtifact.value?.artifact_id === id) resourcesAvailable.value = true;
+  } catch { /* Disabled on existing installations until explicitly enabled. */ }
+}, {immediate:true});
 
 // Availability of PDF / PPTX / HTML for whatever is on screen; the public
 // share page derives its list from the same composable.
@@ -2177,7 +2198,7 @@ function sendDataToIframe() {
     iframeRef.value.contentWindow.postMessage({
       type: 'ARTIFACT_DATA',
       payload
-    }, window.location.origin);
+    }, '*');
   } catch (err: any) {
     console.error('[ArtifactFrame] Failed to send data to iframe:', err);
     iframeError.value = err?.message || 'Failed to send data to dashboard iframe';
@@ -2751,6 +2772,7 @@ const iframeSrcdoc = computed(() => {
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
     polishMode: !props.verificationPreview,
+    fixtureMode: !!props.verificationPreview,
     loadingLabel: t('artifactFrame.loadingArtifact'),
     reactBuild: 'development',
     colorMode: artifactColorMode,

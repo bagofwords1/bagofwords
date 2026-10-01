@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const payload={visualizations:[{id:7,rows:[{total:12}]}],params:{values:{region:'north'}}};
+let listeners=[], hookParams={values:{region:'north'},setParam(){},refresh(){}};
+const context={console,Map,Promise,Error,AbortController,setTimeout,clearTimeout};
+context.window={ARTIFACT_DATA:payload,__artifactDataListeners:listeners,addEventListener(){},
+  useArtifactData:()=>payload,vizById:id=>payload.visualizations.find(v=>String(v.id)===String(id))||null,
+  useParams:()=>hookParams,useParamOptions:()=>null,useFilters:()=>({})};
+vm.runInNewContext(fs.readFileSync(new URL('../../public/libs/artifact-sdk.js',import.meta.url),'utf8'),context);
+const {bow}=context.window;
+assert.equal(bow.data.getSnapshot(),payload);
+assert.equal(bow.data.useParams(),hookParams);
+assert.equal(bow.data.vizById('7'),payload.visualizations[0]);
+assert.equal(bow.data.vizById('absent'),null);
+assert.equal(bow.data.useArtifactData,context.window.useArtifactData);
+let seen=0;const stop=bow.data.subscribe(()=>seen++);listeners.forEach(fn=>fn());stop();listeners.forEach(fn=>fn());assert.equal(seen,1);
+const fixture=await bow.records.collection('notes').list();assert.equal(fixture.items.length,0);
+await assert.rejects(bow.records.collection('notes').create({title:'x'}),e=>e.code==='VALIDATION');
+await assert.rejects(bow.records.collection('notes').create({title:'x'},{idempotencyKey:'test-key'}),e=>e.code==='UNAVAILABLE');
+console.log('PASS: data aliases preserve identity, subscription cleanup, fixture reads and fail-closed preview mutations');
+context.window.__BOW_FIXTURE_MODE__=true;
+const entries=bow.records.collection('entries');
+const saved=await entries.create({title:'Preview only'},{idempotencyKey:'fixture-retry'});
+assert.equal((await entries.list()).items.length,1);
+assert.equal((await entries.create({title:'Preview only'},{idempotencyKey:'fixture-retry'})).id,saved.id);
+assert.equal((await entries.get(saved.id)).data.title,'Preview only');
+await assert.rejects(entries.update(saved.id,{title:'Conflict'},{expectedRevision:9,idempotencyKey:'stale-revision'}),e=>e.code==='CONFLICT');
+let events=[];for await(const event of bow.ai.stream('preview-operation',{text:'Example'}))events.push(event);
+assert.equal(events.at(-1).type,'completed');
+assert.match(events.at(-1).output,/No model was called/);
+console.log('PASS: explicit verifier fixtures support record interactions and synthetic streams without a host');
+
+payload._fixture_resources=[{name:'posts',kind:'collection',fields:{title:{type:'string',required:true},status:{type:'string',default:'draft',enum:['draft','published']}}}];
+const posts=bow.records.collection('posts');
+await assert.rejects(posts.create({},{idempotencyKey:'missing-title'}),e=>e.code==='VALIDATION');
+const post=await posts.create({title:'Preview title'},{idempotencyKey:'new-title'});
+assert.equal((await posts.get(post.id)).data.status,'draft');
+assert.equal(bow.context.get().resources[0].name,'posts');
+console.log('PASS: verifier fixtures expose declared capabilities and validate defaults/required fields');

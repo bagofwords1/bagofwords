@@ -3701,7 +3701,18 @@
     "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
     "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
     "memory.full": "Memory is full. Delete some entries first.",
-    "memory.not_active": "That entry was already changed or forgotten."
+    "memory.not_active": "That entry was already changed or forgotten.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Invalid resource request",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Resource not found",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Resource access denied",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Sign in to continue",
+    "ARTIFACT_RESOURCE_CONFLICT": "Resource changed; refresh and try again",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Resource limit reached",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Too many requests; try again later",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Resource unavailable",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Request interrupted",
+    "ARTIFACT_RESOURCE_ABORTED": "Request cancelled",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Unsupported SDK version"
   },
   "email": {
     "dashboardShare": {
@@ -5609,5 +5620,30 @@
     "selectAll": "Select all rows",
     "selectRow": "Select row",
     "toastRowsDeleted": "{n} row deleted | {n} rows deleted"
+  },
+  "artifactResources": {
+    "inspect": "Data & analytics",
+    "readOnly": "Read-only artifact insights",
+    "data": "Data explorer",
+    "analytics": "Analytics",
+    "collection": "Select collection",
+    "refresh": "Refresh",
+    "schema": "Collection schema",
+    "filterField": "Filter field",
+    "filterValue": "Equals",
+    "filter": "Filter",
+    "empty": "No data to display",
+    "pageRows": "{count} records on this page",
+    "next": "Next page",
+    "details": "Record details",
+    "views": "Views",
+    "viewers": "Authenticated unique viewers",
+    "anonymousNote": "Anonymous visits are included in views, not unique people.",
+    "embedded": "Embedded",
+    "standalone": "Shared page",
+    "days": "Last {count} days",
+    "failed": "Unable to load artifact data",
+    "newest": "Newest first",
+    "oldest": "Oldest first"
   }
 }

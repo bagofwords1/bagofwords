@@ -3527,7 +3527,18 @@
     "memory.sensitive": "La mémoire ne peut pas contenir de secrets, de mots de passe ni de données personnelles sensibles.",
     "memory.looks_like_rule": "C'est une règle sur la façon de répondre : ajoutez-la à vos instructions personnalisées. La mémoire garde des faits vous concernant.",
     "memory.full": "La mémoire est pleine. Supprimez d'abord des entrées.",
-    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée."
+    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Requête de ressource non valide",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Ressource introuvable",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Accès refusé",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Connectez-vous pour continuer",
+    "ARTIFACT_RESOURCE_CONFLICT": "Ressource modifiée ; actualisez et réessayez",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Limite de ressource atteinte",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Trop de requêtes ; réessayez plus tard",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource indisponible",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Requête interrompue",
+    "ARTIFACT_RESOURCE_ABORTED": "Requête annulée",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge"
   },
   "email": {
     "dashboardShare": {
@@ -5420,5 +5431,30 @@
     "expired": "Expirée",
     "mergedTip": "Intégrée à une suggestion de l'apprentissage nocturne. Ce n'est pas un rejet d'un relecteur.",
     "expiredTip": "Fermée après être restée non examinée au-delà du délai de l'organisation. Compte toujours comme preuve si le schéma revient."
+  },
+  "artifactResources": {
+    "inspect": "Données et analyses",
+    "readOnly": "Informations sur l’artefact en lecture seule",
+    "data": "Explorateur de données",
+    "analytics": "Analyses",
+    "collection": "Choisir une collection",
+    "refresh": "Actualiser",
+    "schema": "Schéma de la collection",
+    "filterField": "Champ du filtre",
+    "filterValue": "Égal à",
+    "filter": "Filtrer",
+    "empty": "Aucune donnée à afficher",
+    "pageRows": "{count} enregistrements sur cette page",
+    "next": "Page suivante",
+    "details": "Détails de l’enregistrement",
+    "views": "Vues",
+    "viewers": "Visiteurs authentifiés uniques",
+    "anonymousNote": "Les visites anonymes comptent comme vues, pas comme personnes uniques.",
+    "embedded": "Intégré",
+    "standalone": "Page partagée",
+    "days": "{count} derniers jours",
+    "failed": "Impossible de charger les données de l’artefact",
+    "newest": "Plus récents en premier",
+    "oldest": "Plus anciens en premier"
   }
 }

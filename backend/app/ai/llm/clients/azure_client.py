@@ -116,12 +116,13 @@ class AzureClient(LLMClient):
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None
     ) -> AsyncGenerator[str, None]:
         # For Azure, model_id is the deployment (deployment name)
         temperature = self._resolve_temperature(model_id)
 
-        stream = await self.async_client.chat.completions.create(
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        stream = await client.chat.completions.create(
             messages=[
                 {
                     "role": "user",
@@ -129,36 +130,42 @@ class AzureClient(LLMClient):
                 }
             ],
             model=model_id,
+            **({"max_completion_tokens": max_output_tokens} if max_output_tokens is not None else {}),
             temperature=temperature,
             stream=True
         )
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if not chunk.choices:
-                # heartbeat/control packets; may still carry usage
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    # heartbeat/control packets; may still carry usage
+                    usage = self._extract_usage(getattr(chunk, "usage", None))
+                    if usage.prompt_tokens or usage.completion_tokens:
+                        prompt_tokens = usage.prompt_tokens or prompt_tokens
+                        completion_tokens = usage.completion_tokens or completion_tokens
+                    continue
+
+                if max_output_tokens is not None and getattr(chunk.choices[0], "finish_reason", None) == "length":
+                    raise ValueError("Model output limit reached")
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+
                 usage = self._extract_usage(getattr(chunk, "usage", None))
                 if usage.prompt_tokens or usage.completion_tokens:
                     prompt_tokens = usage.prompt_tokens or prompt_tokens
                     completion_tokens = usage.completion_tokens or completion_tokens
-                continue
-            
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
 
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
-
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await stream.close()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[dict]:

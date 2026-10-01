@@ -211,37 +211,44 @@ class OpenAi(LLMClient):
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None
     ) -> AsyncGenerator[str, None]:
-        stream = await self.async_client.chat.completions.create(
-            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True)
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        stream = await client.chat.completions.create(
+            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True),
+            **({"max_completion_tokens": max_output_tokens} if max_output_tokens is not None else {})
         )
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if not chunk.choices:
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    usage = self._extract_usage(getattr(chunk, "usage", None))
+                    if usage.prompt_tokens or usage.completion_tokens:
+                        prompt_tokens = usage.prompt_tokens or prompt_tokens
+                        completion_tokens = usage.completion_tokens or completion_tokens
+                    continue
+
+                if max_output_tokens is not None and getattr(chunk.choices[0], 'finish_reason', None) == 'length':
+                    raise RuntimeError('Output token limit reached')
+                content = chunk.choices[0].delta.content
+                if content is not None:
+                    yield content
+
                 usage = self._extract_usage(getattr(chunk, "usage", None))
                 if usage.prompt_tokens or usage.completion_tokens:
                     prompt_tokens = usage.prompt_tokens or prompt_tokens
                     completion_tokens = usage.completion_tokens or completion_tokens
-                continue
 
-            content = chunk.choices[0].delta.content
-            if content is not None:
-                yield content
-
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
-
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await stream.close()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _extract_usage(raw: Any) -> LLMUsage:

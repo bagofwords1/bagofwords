@@ -174,11 +174,13 @@ class OpenAIResponsesClient(LLMClient):
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None
     ) -> AsyncGenerator[str, None]:
         temperature = self.temperature if self.temperature is not None else (1.0 if "gpt-5" in model_id else 0.3)
-        stream = await self.async_client.chat.completions.create(
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        stream = await client.chat.completions.create(
             model=model_id,
+            **({"max_completion_tokens": max_output_tokens} if max_output_tokens is not None else {}),
             messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
             **({"temperature": temperature} if not model_id.startswith("gpt-6") else {}),
             stream=True,
@@ -186,17 +188,22 @@ class OpenAIResponsesClient(LLMClient):
         )
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if not chunk.choices:
-                usage_raw = getattr(chunk, "usage", None)
-                if usage_raw:
-                    prompt_tokens = getattr(usage_raw, "prompt_tokens", 0) or prompt_tokens
-                    completion_tokens = getattr(usage_raw, "completion_tokens", 0) or completion_tokens
-                continue
-            content = chunk.choices[0].delta.content
-            if content:
-                yield content
-        self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    usage_raw = getattr(chunk, "usage", None)
+                    if usage_raw:
+                        prompt_tokens = getattr(usage_raw, "prompt_tokens", 0) or prompt_tokens
+                        completion_tokens = getattr(usage_raw, "completion_tokens", 0) or completion_tokens
+                    continue
+                if max_output_tokens is not None and getattr(chunk.choices[0], "finish_reason", None) == "length":
+                    raise ValueError("Model output limit reached")
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
+        finally:
+            await stream.close()
+            self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
 
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[dict]:

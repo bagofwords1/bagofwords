@@ -3527,7 +3527,18 @@
     "memory.sensitive": "La memoria non può contenere segreti, password o dati personali sensibili.",
     "memory.looks_like_rule": "Questa è una regola su come rispondere: aggiungila alle tue istruzioni personalizzate. La memoria conserva fatti su di te.",
     "memory.full": "La memoria è piena. Elimina prima alcune voci.",
-    "memory.not_active": "Questa voce è già stata modificata o dimenticata."
+    "memory.not_active": "Questa voce è già stata modificata o dimenticata.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Richiesta non valida",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Risorsa non trovata",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Accesso negato",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Accedi per continuare",
+    "ARTIFACT_RESOURCE_CONFLICT": "Risorsa modificata; aggiorna e riprova",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Limite della risorsa raggiunto",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Troppe richieste; riprova più tardi",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Risorsa non disponibile",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Richiesta interrotta",
+    "ARTIFACT_RESOURCE_ABORTED": "Richiesta annullata",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versione SDK non supportata"
   },
   "email": {
     "dashboardShare": {
@@ -5420,5 +5431,30 @@
     "expired": "Scaduta",
     "mergedTip": "Confluita in un suggerimento dell'apprendimento notturno. Non è un rifiuto di un revisore.",
     "expiredTip": "Chiusa dopo essere rimasta non revisionata oltre la scadenza dell'organizzazione. Conta ancora come prova se lo schema ritorna."
+  },
+  "artifactResources": {
+    "inspect": "Dati e analisi",
+    "readOnly": "Informazioni sull’artefatto in sola lettura",
+    "data": "Esplora dati",
+    "analytics": "Analisi",
+    "collection": "Seleziona raccolta",
+    "refresh": "Aggiorna",
+    "schema": "Schema della raccolta",
+    "filterField": "Campo del filtro",
+    "filterValue": "Uguale a",
+    "filter": "Filtra",
+    "empty": "Nessun dato da visualizzare",
+    "pageRows": "{count} record in questa pagina",
+    "next": "Pagina successiva",
+    "details": "Dettagli del record",
+    "views": "Visualizzazioni",
+    "viewers": "Visitatori autenticati unici",
+    "anonymousNote": "Le visite anonime sono conteggiate come visualizzazioni, non come persone uniche.",
+    "embedded": "Incorporato",
+    "standalone": "Pagina condivisa",
+    "days": "Ultimi {count} giorni",
+    "failed": "Impossibile caricare i dati dell’artefatto",
+    "newest": "Più recenti prima",
+    "oldest": "Meno recenti prima"
   }
 }
