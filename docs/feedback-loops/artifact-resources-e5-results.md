@@ -161,3 +161,24 @@ statuses, plus per-step DB snapshots with row fingerprints) and screenshots:
 
 The v2 screenshot is from the first sandbox run, before the restart; the others are
 from the final run. Steps 1–2 behaved the same in both.
+
+## Fix verification (PR head `1b90288`)
+
+Findings 1–4 plus two earlier review gaps (Compose/Helm proxy trust and the fullscreen
+frame) are fixed in `1b90288` on `codex/artifact-resources`.
+
+| Check | Before | After |
+|---|---|---|
+| New `test_artifact_resource_tool_errors.py`: a rejected change, publication or rebuild followed by another tool call in the same session | 5/5 fail (`MissingGreenlet`) | 5/5 pass |
+| New `test_artifact_resource_requirements.py`: requirements track the resources code names; deleted resource blocks publish; reserved vs duplicate names are distinguishable | 3/3 fail | 3/3 pass |
+| Resource, rebuild and new suites (SQLite) | — | 55 passed |
+| Edit, publication and artifact-adjacent suites | — | 180 passed |
+| Frontend `artifactVerificationDelivery`, `artifactOpaqueFrame`, `artifactFormIsolation`, `artifactResourceSdk` | — | all pass |
+| Live Luna replay: required field on a table with rows | 500 | 200: agent made the field optional on the server, required in the form, and said so |
+| Live Luna replay: recreate a deleted name | 500 | 200: agent explains the name is reserved and offers a new name |
+| Live Luna replay: delete a non-empty collection | 500 | 200: agent explains records must be removed first; data untouched |
+| Fullscreen frame follows a live theme change | not delivered | light → dark → light delivered |
+
+Still open: the honesty gap in finding 5 (model behaviour; not changed here) and
+finding 6 (Playwright cannot simulate drag-and-drop in opaque-origin frames).
+The PostgreSQL leg was not run in this sandbox; CI runs it.
