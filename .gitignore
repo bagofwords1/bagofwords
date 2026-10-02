@@ -84,3 +84,4 @@ audit/**/state.json
 audit/**/screenshots/
 audit/**/routes/
 audit/**/*.json
+ddsql_spike_out/
