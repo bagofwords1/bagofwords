@@ -108,13 +108,24 @@ SPIKE_QUERIES = [
     ("logs_attr_columns",
      "SELECT * FROM dd.logs(filter => 'env:bow-demo', "
      "columns => ARRAY['timestamp','service','@error.kind','@duration_ms']"
-     ") AS (ts TIMESTAMP, service VARCHAR, error_kind VARCHAR, duration_ms DOUBLE) LIMIT 20"),
+     ") AS (ts TIMESTAMP, service VARCHAR, error_kind VARCHAR, duration_ms DECIMAL) LIMIT 20"),
     ("metrics_timeseries",
      "SELECT * FROM dd.metrics_timeseries("
      "'avg:bow.demo.request.latency.p95{env:bow-demo} by {service}') LIMIT 50"),
     ("metrics_scalar",
      "SELECT * FROM dd.metrics_scalar("
      "'sum:bow.demo.request.errors{env:bow-demo} by {service}', 'sum')"),
+    # other catalog guesses
+    ("show_tables", "SHOW TABLES"),
+    ("dd_schema_listing", "SELECT * FROM dd.schemas LIMIT 5"),
+    # spans function shape (no seeded spans — expect 0 rows, not an error)
+    ("spans_fn",
+     "SELECT * FROM dd.spans(columns => ARRAY['service','resource_name','@duration']) "
+     "AS (service VARCHAR, resource_name VARCHAR, duration DECIMAL) LIMIT 5"),
+    # truncation signal when the result exceeds row_limit
+    ("row_limit_truncation",
+     "SELECT * FROM dd.logs(filter => 'env:bow-demo', columns => ARRAY['service']) "
+     "AS (service VARCHAR)"),
     # row_limit behavior
     ("row_limit_probe",
      "SELECT * FROM dd.logs(filter => 'env:bow-demo', columns => ARRAY['service']) "
@@ -127,7 +138,7 @@ SIDE_APIS = [
     ("dashboards", "GET", "/api/v1/dashboard?count=20"),
     ("monitors", "GET", "/api/v1/monitor?page_size=20"),
     ("log_indexes", "GET", "/api/v1/logs/config/indexes"),
-    ("events", "GET", "/api/v2/events?filter[query]=source:bow-seed&page[limit]=10"),
+    ("events", "GET", "/api/v2/events?filter[query]=env:bow-demo&filter[from]=now-1d&page[limit]=10"),
 ]
 
 
@@ -150,7 +161,7 @@ def main() -> None:
     for name, method, path in SIDE_APIS:
         status, resp, secs = call(method, path)
         dump(name, resp)
-        data = resp.get("data", resp.get("dashboards", resp.get("indexes", resp)))
+        data = resp if isinstance(resp, list) else resp.get("data", resp.get("dashboards", resp.get("indexes", resp)))
         size = len(data) if isinstance(data, list) else (len(data.get("metrics", [])) if isinstance(data, dict) else "?")
         if status >= 400:
             size = json.dumps(resp)[:200]
