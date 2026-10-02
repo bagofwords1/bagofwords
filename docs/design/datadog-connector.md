@@ -64,6 +64,25 @@ not spiked: `dd.cloud_cost_scalar/_timeseries` (24–48h delay), `dd.logs(indexe
 
 ## Catalog (`get_schemas`) — "everything in Datadog"
 
+> **Update (2026-10-02, supersedes the build-time scraper below).** There is no
+> SQL-level `information_schema`, but Datadog's **MCP server exposes the DDSQL
+> schema catalog** at runtime (`?toolsets=ddsql`, API+app key headers, needs the
+> `mcp_read` permission — a key without it gets 403 on tool calls):
+>
+> | MCP tool | Verified result |
+> |---|---|
+> | `ddsql_schema_search_tables(query=".", public_limit≤100, public_offset)` | **2,204 public tables** (+ reference tables, published analyses) and **277 org metrics**, paginated by 100 → ~26 calls for everything; each row has `name, id, searchable(=table function), description, ptf_format_doc` (exact call shape) |
+> | `ddsql_schema_get_table_columns(table_id)` | typed columns, e.g. `public.k8s.pods` → 15 cols; for `metrics.<name>` → its tag keys |
+> | `ddsql_schema_search_unstructured_fields(source_id="public.dd.logs")` | **org-specific** log fields with types (42 here, incl. seeded `@error.kind`, `@http.status_code`) — solves open item 3 |
+> | `ddsql_get_spec` | DDSQL dialect deltas vs PostgreSQL → `system_prompt()` |
+>
+> So `get_schemas` = list all tables via MCP (cheap) → columns via MCP for
+> tables with data (batched DDSQL `UNION ALL count(*)`) and for table functions →
+> remaining tables stay **thin** (name + description; columns fetched on demand),
+> the Splunk long-tail pattern. Don't fetch columns for all 2,204 on every
+> reindex: MCP fair use is 50 calls/10 s and 100k calls/month. Queries keep
+> going through REST DDSQL (60 req/20 s). The MCP path is `/api/unstable/…`.
+
 Goal: one connection scans **all** data DDSQL can reach — k8s, hosts,
 containers, cloud resources, DBM, services, monitors, events, logs, spans, RUM,
 security, CI, network, LLM obs, cost.
