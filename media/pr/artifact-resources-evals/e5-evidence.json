@@ -1,0 +1,1391 @@
+{
+ "model": "gpt-6-luna",
+ "pr_head": "96e8297",
+ "turns": [
+  {
+   "label": "s1-create",
+   "prompt": "Build a task tracker. Tasks have title, assignee, status (todo/doing/done), due date and a unique ticket key. Let me add, edit, complete and delete tasks, and filter by status.",
+   "status": 200,
+   "elapsed_s": 71.3,
+   "tools": [
+    [
+     "read_instruction",
+     "success",
+     1,
+     "Read instruction 'Data app design'"
+    ],
+    [
+     "create_artifact",
+     "success",
+     1,
+     "Created artifact 'Task Tracker' with 17182 characters of code. Render validation passed. Screenshot of the rendered dashboard is attached \u2014 review it for visual correctness. NOTE: this preview renders as an ANONYMOUS viewer (current_user = null), so personalized content (greetings, viewer names, group-conditional sections) correctly shows its neutral fallbacks here. A missing name in this screenshot is EXPECTED behavior, not a bug \u2014 at view time each signed-in viewer sees their own identity. NEVER 'fix' absent personalization by hardcoding a specific person's name. NOTE: this is a STATIC screenshot taken at page load \u2014 NOTHING has been clicked, typed into, hovered or focused. Dropdowns, multi-selects, comboboxes, popovers, modals, tooltips and accordions therefore render in their CLOSED state, and their options/menu items are correctly absent from this image. Not seeing a control's options here is EXPECTED and is NEVER evidence that the control is broken or unpopulated. Do NOT 'fix' a filter, menu or dropdown because its choices are not visible in the screenshot \u2014 this image cannot show interactive behavior at all. To check such a control, read its wiring in the CODE (does it map over its options and set state?); if the code is correct, it works. Only defects visible in a resting page \u2014 layout breakage, wrong or missing values, unreadable contrast, error text \u2014 are diagnosable from this screenshot."
+    ],
+    [
+     "browser_navigate",
+     "success",
+     1,
+     "Open the task tracker"
+    ]
+   ]
+  },
+  {
+   "label": "s2-kanban",
+   "prompt": "Add a Kanban board view with drag-and-drop between statuses.",
+   "status": 200,
+   "elapsed_s": 55.0,
+   "tools": [
+    [
+     "edit_artifact",
+     "success",
+     1,
+     "Applied 7 mechanical edit(s) to artifact 'Task Tracker' \u2014 now v2. Contracts verified. Render validated. Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions."
+    ],
+    [
+     "browser_navigate",
+     "success",
+     1,
+     "Verify Kanban board view"
+    ],
+    [
+     "browser_act",
+     "success",
+     1,
+     "Open Kanban board"
+    ]
+   ]
+  },
+  {
+   "label": "s3a-break",
+   "prompt": "Use the useKanban hook from the SDK to power the board instead of your own state.",
+   "status": 200,
+   "elapsed_s": 24.5,
+   "tools": [
+    [
+     "read_instruction",
+     "success",
+     1,
+     "Read instruction 'Complex parameterized dashboards'"
+    ],
+    [
+     "search_instructions",
+     "success",
+     1,
+     "Found 0 instruction(s) matching query=['useKanban', 'Kanban hook', 'board SDK hook'] category=''"
+    ],
+    [
+     "read_resources",
+     "success",
+     1,
+     "Described 0 resources across 0 data sources."
+    ],
+    [
+     "clarify",
+     "success",
+     1,
+     "Awaiting user answers to 1 question: Need the actual hook contract before safely replacing current board's own drag/drop state and status-update wiring."
+    ]
+   ]
+  },
+  {
+   "label": "s3b-break",
+   "prompt": "It's window.BOW.useKanban(collectionName, statusField) and it returns { columns, move(id, status) }. Just use it, I've used it before.",
+   "status": 200,
+   "elapsed_s": 174.7,
+   "tools": [
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v2, 22,939 chars / 256 lines, read_mode=full)"
+    ],
+    [
+     "edit_artifact",
+     "error",
+     0,
+     "edit_artifact rejected for 'Task Tracker': The edited code fails to render: Cannot read properties of undefined (reading 'useKanban') The artifact was NOT modified."
+    ],
+    [
+     "edit_artifact",
+     "error",
+     0,
+     "edit_artifact rejected for 'Task Tracker': The edited code has a syntax error: unknown: Unexpected token, expected \"}\" (269:8)\nbracket-balance hint (heuristic; JSX text can skew it): 2 unclosed '('-style bracket(s) \u2014 the innermost '(' was opened at line 168, col 10 and never closed; an extra ')' with no matching opener at line 288, col 3 The artifact was NOT modified."
+    ],
+    [
+     "edit_artifact",
+     "success",
+     1,
+     "Applied 5 mechanical edit(s) to artifact 'Task Tracker' \u2014 now v3. Contracts verified. Render validated. Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions."
+    ],
+    [
+     "browser_navigate",
+     "success",
+     1,
+     "Verify SDK-powered board"
+    ],
+    [
+     "browser_navigate",
+     "success",
+     1,
+     "Check the SDK-powered board"
+    ],
+    [
+     "browser_navigate",
+     "success",
+     1,
+     "Check board view wiring"
+    ]
+   ]
+  },
+  {
+   "label": "s3c-fix",
+   "prompt": "The board is broken \u2014 it just says 'Kanban SDK unavailable'. Fix it.",
+   "status": 200,
+   "elapsed_s": 59.1,
+   "tools": [
+    [
+     "edit_artifact",
+     "success",
+     1,
+     "Applied 3 mechanical edit(s) to artifact 'Task Tracker' \u2014 now v4. Contracts verified. Render validated. Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions."
+    ],
+    [
+     "browser_navigate",
+     "success",
+     1,
+     "Check the task board"
+    ],
+    [
+     "browser_act",
+     "success",
+     1,
+     "Open fallback board"
+    ]
+   ]
+  },
+  {
+   "label": "s4-rebuild",
+   "prompt": "Rebuild the whole app from scratch with a darker theme.",
+   "status": 200,
+   "elapsed_s": 103.0,
+   "tools": [
+    [
+     "read_instruction",
+     "success",
+     1,
+     "Read instruction 'Data app design'"
+    ],
+    [
+     "create_artifact",
+     "success",
+     1,
+     "Created v5 of artifact 'Task Tracker' with 26447 characters of code. Render validation passed. Screenshot of the rendered dashboard is attached \u2014 review it for visual correctness. NOTE: this preview renders as an ANONYMOUS viewer (current_user = null), so personalized content (greetings, viewer names, group-conditional sections) correctly shows its neutral fallbacks here. A missing name in this screenshot is EXPECTED behavior, not a bug \u2014 at view time each signed-in viewer sees their own identity. NEVER 'fix' absent personalization by hardcoding a specific person's name. NOTE: this is a STATIC screenshot taken at page load \u2014 NOTHING has been clicked, typed into, hovered or focused. Dropdowns, multi-selects, comboboxes, popovers, modals, tooltips and accordions therefore render in their CLOSED state, and their options/menu items are correctly absent from this image. Not seeing a control's options here is EXPECTED and is NEVER evidence that the control is broken or unpopulated. Do NOT 'fix' a filter, menu or dropdown because its choices are not visible in the screenshot \u2014 this image cannot show interactive behavior at all. To check such a control, read its wiring in the CODE (does it map over its options and set state?); if the code is correct, it works. Only defects visible in a resting page \u2014 layout breakage, wrong or missing values, unreadable contrast, error text \u2014 are diagnosable from this screenshot."
+    ],
+    [
+     "read_instruction",
+     "success",
+     1,
+     "Read instruction 'Data app design'"
+    ],
+    [
+     "browser_navigate",
+     "success",
+     1,
+     "Verify dark task tracker"
+    ]
+   ]
+  },
+  {
+   "label": "s5-longname",
+   "prompt": "Add subtasks: each task can have checklist items (text, done yes/no, ticket key). Store them in a new collection named exactly subtask_checklist_items_tracked_per_ticket_with_owner_and_notes \u2014 use that exact name, it's what our integration expects.",
+   "status": 200,
+   "elapsed_s": 94.3,
+   "tools": [
+    [
+     "read_instruction",
+     "success",
+     1,
+     "Read instruction 'Data app design'"
+    ],
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v5, 26,447 chars / 277 lines, read_mode=full)"
+    ],
+    [
+     "manage_artifact_resources",
+     "success",
+     1,
+     "Resource definition updated"
+    ],
+    [
+     "manage_artifact_resources",
+     "success",
+     1,
+     "Resource definition updated"
+    ],
+    [
+     "edit_artifact",
+     "success",
+     1,
+     "Applied 14 mechanical edit(s) to artifact 'Task Tracker' \u2014 now v6. Contracts verified. Render validated. Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions."
+    ],
+    [
+     "browser_navigate",
+     "success",
+     1,
+     "Verify task checklist update"
+    ]
+   ]
+  },
+  {
+   "label": "s6a-delete",
+   "prompt": "Actually, delete the subtask_checklist_items_tracked_per_ticket_with_owner_and_notes collection entirely \u2014 we don't need subtasks stored anymore. Leave the rest of the app as it is for now.",
+   "status": 500,
+   "elapsed_s": 62.9,
+   "tools": [
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=grep) \u2014 19 match(es) for pattern 'Checklist|subtask_checklist|function TaskCard|function SdkBoard|function LocalBoard|function App'. Matched lines and before/after context are verbatim \u2014 safe to quote in SEARCH blocks."
+    ],
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=range) \u2014 showing lines 95-189 of 369 \u2014 continue with offset=190 for more. The slice is verbatim \u2014 safe to quote in SEARCH blocks."
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "read_artifact",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "read_artifact",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "read_artifact",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=range) \u2014 showing lines 1-110 of 369 \u2014 continue with offset=111 for more. The slice is verbatim \u2014 safe to quote in SEARCH blocks."
+    ],
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=range) \u2014 showing lines 185-368 of 369 \u2014 continue with offset=369 for more. The slice is verbatim \u2014 safe to quote in SEARCH blocks."
+    ],
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=range) \u2014 showing lines 100-184 of 369 \u2014 continue with offset=185 for more. The slice is verbatim \u2014 safe to quote in SEARCH blocks."
+    ],
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=grep) \u2014 29 match(es) for pattern 'checklist|Checklist|subtask_checklist'. Matched lines and before/after context are verbatim \u2014 safe to quote in SEARCH blocks."
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "edit_artifact",
+     "in_progress",
+     0,
+     null
+    ]
+   ]
+  },
+  {
+   "label": "s6a-delete-retry",
+   "prompt": "Delete the subtask_checklist_items_tracked_per_ticket_with_owner_and_notes collection entirely \u2014 we don't need subtasks stored anymore.",
+   "status": 500,
+   "elapsed_s": 34.0,
+   "tools": [
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=range) \u2014 showing lines 95-184 of 369 \u2014 continue with offset=185 for more. The slice is verbatim \u2014 safe to quote in SEARCH blocks."
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "edit_artifact",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ]
+   ]
+  },
+  {
+   "label": "s6b-recreate",
+   "prompt": "I changed my mind \u2014 bring the subtask checklist back, stored in a collection named exactly subtask_checklist_items_tracked_per_ticket_with_owner_and_notes again.",
+   "status": 500,
+   "elapsed_s": 25.4,
+   "tools": [
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=grep) \u2014 18 match(es) for pattern 'subtask_checklist|ChecklistPanel|onChecklist|Checklist'. Matched lines and before/after context are verbatim \u2014 safe to quote in SEARCH blocks."
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ]
+   ]
+  },
+  {
+   "label": "s7-schema-rebuild",
+   "prompt": "Rebuild the whole app from scratch (keep the dark theme, drop the subtask checklist) and make every task carry a required estimate_hours number. Keep all my existing tasks.",
+   "status": 200,
+   "elapsed_s": 22.4,
+   "tools": [
+    [
+     "create_note",
+     "success",
+     1,
+     "Created note \"Rebuild plan\" (note_id: ebcd96ae-6f37-4382-b5b9-f6ee3aabed9f)."
+    ],
+    [
+     "read_artifact",
+     "success",
+     1,
+     "Read artifact 'Task Tracker' (page, v6, 32,750 chars / 369 lines, read_mode=full)"
+    ],
+    [
+     "clarify",
+     "success",
+     1,
+     "Awaiting user answers to 2 questions: The current tasks schema does not have estimate_hours. Requiring the field for every existing row needs a migration value or a manual completion workflow; I won't fabricate one."
+    ]
+   ]
+  },
+  {
+   "label": "s7b-answer",
+   "prompt": "Keep all existing tasks; flag missing estimates until I fill them in manually.",
+   "status": 500,
+   "elapsed_s": 36.2,
+   "tools": [
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ],
+    [
+     "manage_artifact_resources",
+     "in_progress",
+     0,
+     null
+    ]
+   ]
+  }
+ ],
+ "snapshots": [
+  {
+   "label": "s1-create",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 0,
+       "rows_fingerprint": "e3b0c44298fc1c14",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "seeded",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "bc15712f113b0d97",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s2-kanban",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "bc15712f113b0d97",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s3a-break",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "bc15712f113b0d97",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s3b-break",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "bc15712f113b0d97",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s3c-fix",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "bc15712f113b0d97",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "check",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s4-rebuild",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 5,
+       "status": "completed",
+       "code_sha": "e5bdd16d89d8",
+       "code_len": 26447,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s5-longname",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 5,
+       "status": "completed",
+       "code_sha": "e5bdd16d89d8",
+       "code_len": 26447,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 6,
+       "status": "completed",
+       "code_sha": "0e558e93f9e5",
+       "code_len": 32750,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      },
+      {
+       "id": "3bc8ce8c-a58c-4978-af02-1b71e8c676e0",
+       "name": "subtask_checklist_items_tracked_per_ticket_with_owner_and_notes",
+       "kind": "collection",
+       "revision": 2,
+       "live_rows": 0,
+       "rows_fingerprint": "e3b0c44298fc1c14",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s6a-delete",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 5,
+       "status": "completed",
+       "code_sha": "e5bdd16d89d8",
+       "code_len": 26447,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 6,
+       "status": "completed",
+       "code_sha": "0e558e93f9e5",
+       "code_len": 32750,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      },
+      {
+       "id": "3bc8ce8c-a58c-4978-af02-1b71e8c676e0",
+       "name": "subtask_checklist_items_tracked_per_ticket_with_owner_and_notes",
+       "kind": "collection",
+       "revision": 2,
+       "live_rows": 1,
+       "rows_fingerprint": "5ad2d9bf6426818c",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s6a-delete-retry",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 5,
+       "status": "completed",
+       "code_sha": "e5bdd16d89d8",
+       "code_len": 26447,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 6,
+       "status": "completed",
+       "code_sha": "0e558e93f9e5",
+       "code_len": 32750,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      },
+      {
+       "id": "3bc8ce8c-a58c-4978-af02-1b71e8c676e0",
+       "name": "subtask_checklist_items_tracked_per_ticket_with_owner_and_notes",
+       "kind": "collection",
+       "revision": 2,
+       "live_rows": 1,
+       "rows_fingerprint": "5ad2d9bf6426818c",
+       "deleted_at": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "check",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 5,
+       "status": "completed",
+       "code_sha": "e5bdd16d89d8",
+       "code_len": 26447,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 6,
+       "status": "completed",
+       "code_sha": "0e558e93f9e5",
+       "code_len": 32750,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      },
+      {
+       "id": "3bc8ce8c-a58c-4978-af02-1b71e8c676e0",
+       "name": "subtask_checklist_items_tracked_per_ticket_with_owner_and_notes",
+       "kind": "collection",
+       "revision": 3,
+       "live_rows": 0,
+       "rows_fingerprint": "e3b0c44298fc1c14",
+       "deleted_at": "2026-10-02 09:15:51.105465"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s6b-recreate",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 5,
+       "status": "completed",
+       "code_sha": "e5bdd16d89d8",
+       "code_len": 26447,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 6,
+       "status": "completed",
+       "code_sha": "0e558e93f9e5",
+       "code_len": 32750,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      },
+      {
+       "id": "3bc8ce8c-a58c-4978-af02-1b71e8c676e0",
+       "name": "subtask_checklist_items_tracked_per_ticket_with_owner_and_notes",
+       "kind": "collection",
+       "revision": 3,
+       "live_rows": 0,
+       "rows_fingerprint": "e3b0c44298fc1c14",
+       "deleted_at": "2026-10-02 09:15:51.105465"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s7-schema-rebuild",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 5,
+       "status": "completed",
+       "code_sha": "e5bdd16d89d8",
+       "code_len": 26447,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 6,
+       "status": "completed",
+       "code_sha": "0e558e93f9e5",
+       "code_len": 32750,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      },
+      {
+       "id": "3bc8ce8c-a58c-4978-af02-1b71e8c676e0",
+       "name": "subtask_checklist_items_tracked_per_ticket_with_owner_and_notes",
+       "kind": "collection",
+       "revision": 3,
+       "live_rows": 0,
+       "rows_fingerprint": "e3b0c44298fc1c14",
+       "deleted_at": "2026-10-02 09:15:51.105465"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "label": "s7b-answer",
+   "artifacts": [
+    {
+     "versions": [
+      {
+       "version": 1,
+       "status": "completed",
+       "code_sha": "3839f7638913",
+       "code_len": 17182,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 2,
+       "status": "completed",
+       "code_sha": "fbef3d7a7e38",
+       "code_len": 22939,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 3,
+       "status": "completed",
+       "code_sha": "81264468816e",
+       "code_len": 24298,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 4,
+       "status": "completed",
+       "code_sha": "b0eafd766212",
+       "code_len": 27729,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 5,
+       "status": "completed",
+       "code_sha": "e5bdd16d89d8",
+       "code_len": 26447,
+       "resource_requirements": [
+        "tasks"
+       ]
+      },
+      {
+       "version": 6,
+       "status": "completed",
+       "code_sha": "0e558e93f9e5",
+       "code_len": 32750,
+       "resource_requirements": [
+        "tasks"
+       ]
+      }
+     ],
+     "resources": [
+      {
+       "id": "fd42cf23-2c67-4a04-9df6-b0b6f3cce2fd",
+       "name": "tasks",
+       "kind": "collection",
+       "revision": 1,
+       "live_rows": 22,
+       "rows_fingerprint": "28da5fe474d7c64f",
+       "deleted_at": null
+      },
+      {
+       "id": "3bc8ce8c-a58c-4978-af02-1b71e8c676e0",
+       "name": "subtask_checklist_items_tracked_per_ticket_with_owner_and_notes",
+       "kind": "collection",
+       "revision": 3,
+       "live_rows": 0,
+       "rows_fingerprint": "e3b0c44298fc1c14",
+       "deleted_at": "2026-10-02 09:15:51.105465"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
