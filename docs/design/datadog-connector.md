@@ -62,43 +62,69 @@ Metrics functions return `timestamp`, the group-by keys as **`VARCHAR[]`**
 chosen by Datadog from the window (10-min points over 6h). Also documented,
 not spiked: `dd.cloud_cost_scalar/_timeseries` (24–48h delay), `dd.logs(indexes=>, storage=>)`.
 
-## Catalog (`get_schemas`) — the spike's main answer
+## Catalog (`get_schemas`) — "everything in Datadog"
 
-**DDSQL cannot list its own tables.** `information_schema.tables`,
-`information_schema.columns`, `pg_catalog.pg_tables`, `SHOW TABLES` and
-`dd.schemas` all fail (400). But:
+Goal: one connection scans **all** data DDSQL can reach — k8s, hosts,
+containers, cloud resources, DBM, services, monitors, events, logs, spans, RUM,
+security, CI, network, LLM obs, cost.
 
-* **`SELECT * FROM <table> LIMIT 0` returns the full typed column list with zero
-  rows** (`dd.hosts` → 16 cols, `aws.ec2_instance`, `k8s.pods` all resolve even
-  with no data), and
-* an unknown table is a clean 400 `non-existent dataset`.
+### What exists (verified 2026-10-02)
 
-So discovery = **known table names × `LIMIT 0` probe**:
+The public [Data Directory](https://docs.datadoghq.com/ddsql_reference/data_directory/)
+lists **2,173 datasets**: `aws.*` 1,258 · `gcp.*` 484 · `azure.*` 329 · `oci.*` 49 ·
+`dd.*` 45 · `k8s.*` 8 (`clusters, daemonsets, deployments, namespaces, nodes,
+pods, services, statefulsets`). They come in two kinds:
 
-1. **Candidate names**: a static list shipped with the client
-   (`backend/app/data_sources/clients/datadog_tables.json`), generated from the
-   public [DDSQL Data Directory](https://docs.datadoghq.com/ddsql_reference/data_directory/)
-   (`aws.*`, `azure.*`, `gcp.*`, `oci.*`, `k8s.*`, `dd.*` — hundreds of tables).
-   A small script regenerates it; stale entries just fail the probe and are skipped.
-2. **Columns**: `LIMIT 0` per candidate, run with bounded concurrency and a
-   `progress_callback`. Cache per connection (inventory schemas are stable).
-3. **Keep only tables with data** (config toggle, default on): `SELECT 1 FROM t LIMIT 1`
-   — a trial org has `dd.hosts` but no `aws.*`; listing hundreds of empty AWS
-   tables would drown the planner.
-4. **Function tables** (always present, hand-written entries): `dd.logs`,
-   `dd.spans`, `dd.metrics_timeseries`, `dd.metrics_scalar`, `dd.cloud_cost_*`.
-   Their "columns" are the useful fields:
-   * `dd.logs` — reserved fields + top facets, sampled once via
-     `dd.logs(columns => ARRAY['*'])`-style probe or the log facets list (to verify);
-   * `dd.metrics_*` — description embeds the org's metric names from
-     `GET /api/v2/metrics` (verified 200; paged), capped, no table per metric.
-5. **Knowledge tables** (Splunk-dashboard pattern):
-   * `dashboard::<title>` — one column per widget, carrying its query
-     (`GET /api/v1/dashboard`, `/dashboard/{id}`; verified 200).
-   * `monitors` — one table, rows = monitors with query + thresholds
-     (`GET /api/v1/monitor`; verified 200, 7 monitors in the trial org).
-     `dd.monitors` is **not** a DDSQL dataset (verified 400), so this goes over REST
-     and `execute_query` needs a tiny JSON-spec path for it — see below.
+| Kind | Examples | How to query | Verified |
+|---|---|---|---|
+| **Static tables** (inventory/state) | `k8s.pods`, `dd.hosts`, `dd.containers`, `dd.services`, `dd.datadog_agents`, `dd.postgres_tables`, `aws.ec2_instance`, … | plain `SELECT … FROM k8s.pods` | all 8 `k8s.*`, 30 `dd.*`, 15 random cloud tables resolve |
+| **Table functions** (event streams) | `dd.logs`, `dd.spans`, `dd.rum`, `dd.events`, `dd.audit`, `dd.monitors`, `dd.network`, `dd.network_device_flows`, `dd.llm_observability`, `dd.product_analytics`, `dd.security_findings`, `dd.ci_pipelines`, `dd.ci_tests`, `dd.monitor_groups`(?), `dd.metrics_*`, `dd.cloud_cost_*` | `FROM dd.x(columns => ARRAY[...], filter => '…') AS (…)` | `rum, events, audit, network, llm_observability, product_analytics, security_findings, ci_pipelines, monitors` all 200 as functions; plain `SELECT` on them is 400 "non-existent dataset" |
+
+So **monitors and events are in DDSQL too** (as functions) — the REST
+side-path is only needed for dashboards (widget queries), SLOs, incidents.
+
+### Discovery constraints (verified)
+
+* **No introspection** (`information_schema`, `pg_catalog`, `SHOW` → 400).
+* **Rate limit: 60 DDSQL requests / 20 s** (`x-ratelimit-name:
+  logs_advanced_query_api_query`, likely per org and shared with the DDSQL
+  Editor). A naive per-table probe of 2,173 tables hit 429 after ~75 calls.
+* `SELECT * FROM t LIMIT 0` returns typed columns for an empty table.
+* `UNION ALL` of `SELECT 't' AS t, count(*) FROM t` works across tables in
+  **one request** — 28 tables (k8s + dd + aws/gcp/azure) counted in one call.
+  One missing dataset fails the whole batch with a 400 naming it, so the loop
+  is: drop the named table, resubmit (3 requests for that batch).
+* Every Data Directory page documents each field (name, data type, description)
+  — e.g. `k8s.pods`: `_key, annotations(hstore), cluster_name, creation_timestamp,
+  labels(hstore), name, namespace, spec_node_name, …`.
+
+### Algorithm
+
+1. **Build-time catalog** — `tools/datadog/build_ddsql_catalog.py` scrapes the
+   Data Directory index + each dataset page → `datadog_ddsql_catalog.json`
+   (table, kind static|function, fields with type + description, product/namespace).
+   Ships with the client; regenerate per release. Gives rich column
+   descriptions at zero API cost.
+2. **Runtime — which tables have data**: batched `UNION ALL count(*)` over the
+   static tables, ~50 per request, with drop-and-retry on "non-existent dataset"
+   → ~45–60 requests for all 2,173, paced under the 60/20 s limit
+   (≈ 20–30 s). Keep tables with `n > 0` (config `only_tables_with_data`,
+   default on); a fresh trial org keeps ~5 (`dd.hosts`, `dd.agent_hosts`,
+   `dd.datadog_agents`, `dd.datadog_agent_integrations`, …) — k8s/aws tables
+   exist but are empty until a cluster/cloud account reports.
+3. **Column truth for kept tables**: `LIMIT 0` only for kept tables (catches
+   schema drift vs the shipped JSON).
+4. **Function tables**: always catalogued with their documented fields; a cheap
+   `LIMIT 1` per function over the default window tells "has recent data"
+   (e.g. `dd.events` 5 rows, `dd.audit` 1, `dd.rum` 0 in the trial org).
+   `dd.logs` additionally gets top facets (open item 3).
+5. **Metrics**: names from `GET /api/v2/metrics` embedded in the
+   `dd.metrics_*` descriptions; no table per metric.
+6. **Knowledge tables** over REST: `dashboard::<title>` (widget queries),
+   SLOs, incidents.
+7. **One shared rate limiter** in the client (token bucket seeded from
+   `x-ratelimit-*`, sleep until `x-ratelimit-reset` on 429) used by discovery
+   *and* `execute_query`, so a 12h reindex never starves user queries.
 
 ## `execute_query`
 
@@ -152,8 +178,8 @@ scoped key** to confirm DDSQL needs nothing beyond these.
 1. **Bearer token auth** against `/api/v2/ddsql/*` — unverified.
 2. **Scoped app key** — re-run the spike with only the scopes above.
 3. **Logs field discovery** — pick between sampling `dd.logs` and the facets API.
-4. **DDSQL rate limits** — not hit in the spike; read `X-RateLimit-*` headers
-   during the hundreds-of-probes catalog pass and size concurrency from them.
+4. **DDSQL rate limit** — 60/20 s, verified. Open: is it per org or per key, and
+   is there a max query length for the `UNION ALL` batch (50 tables untested; 28 OK)?
 5. **APM data** — `dd.spans` returns empty here; validating it needs a real
    Agent (agentless OTLP span intake is an allowlisted preview).
 6. `tools/datadog/*` and seeded data use `env:bow-demo`; rotate the trial keys
