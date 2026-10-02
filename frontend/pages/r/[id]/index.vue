@@ -917,7 +917,7 @@ watch(() => colorMode.value, (v) => {
     artifactColorMode = v === 'dark' ? 'dark' : 'light';
     artifactIframeRef.value?.contentWindow?.postMessage(
         { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
-        window.location.origin
+        '*'
     );
 });
 
@@ -1074,7 +1074,7 @@ function queriesWithIdentityParams(): string[] {
 
 function postToArtifactIframe(msg: any) {
     try {
-        artifactIframeRef.value?.contentWindow?.postMessage(msg, window.location.origin);
+        artifactIframeRef.value?.contentWindow?.postMessage(msg, '*');
     } catch { /* iframe not ready */ }
 }
 
@@ -1239,6 +1239,7 @@ const iframeSrcdoc = computed(() => {
         data: seed,
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
+        resourceApp: artifact.value?.content?.sdk_version === 1,
         colorMode: artifactColorMode,
     });
 });

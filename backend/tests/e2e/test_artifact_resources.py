@@ -889,3 +889,25 @@ def test_mcp_resource_authoring_uses_same_scope_revisions_and_permissions(
     assert "manage_artifact_resources" not in {t["name"] for t in list_mcp_tools()}
     with pytest.raises(AppError):
         asyncio.run(call({"action": "read"}))
+
+@pytest.mark.e2e
+def test_deleted_resources_release_live_capacity_without_rebinding_names(artifact_api):
+    client, base, headers, _ = artifact_api
+    names=[]
+    # Exceed the original lifetime limit through the public configuration API.
+    for i in range(51):
+        name=f'collection_{i}'
+        made=make_collection(client,base,headers,name=name)
+        names.append(name)
+        response=client.post(base+'/resources',headers=headers,json={
+            'action':'delete','resource':name,'expected_revision':made['revision'],
+            'idempotency_key':str(uuid.uuid4()),
+        })
+        assert response.status_code==200,response.text
+    assert client.get(base+'/resources',headers=headers).json()['items']==[]
+    reused=client.post(base+'/resources',headers=headers,json={
+        'action':'create','definition':{'name':names[0],'fields':{'title':{'type':'string'}}},
+        'idempotency_key':str(uuid.uuid4()),
+    })
+    assert reused.status_code==409
+    make_collection(client,base,headers,name='current_collection')

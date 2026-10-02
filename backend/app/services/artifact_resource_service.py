@@ -276,8 +276,17 @@ class ArtifactResources:
                 .select_from(ArtifactResource)
                 .where(ArtifactResource.artifact_id == self.artifact.id)
             )
-            if count >= 50:
-                fail("QUOTA_EXCEEDED", "Artifact resource limit reached", 429)
+            # Keep deleted names reserved so old UI versions never bind to an
+            # unrelated replacement resource. Live capacity is independent of
+            # a larger, bounded identity-history budget.
+            if count >= 1000:
+                fail("QUOTA_EXCEEDED", "Artifact reserved resource identity limit reached", 429)
+            live_count = await self.db.scalar(select(func.count()).select_from(ArtifactResource).where(
+                ArtifactResource.artifact_id == self.artifact.id,
+                ArtifactResource.deleted_at.is_(None),
+            ))
+            if live_count >= 50:
+                fail("QUOTA_EXCEEDED", "Artifact live resource limit reached", 429)
             row = ArtifactResource(
                 id=str(uuid.uuid4()),
                 artifact_id=self.artifact.id,

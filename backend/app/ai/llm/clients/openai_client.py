@@ -242,7 +242,7 @@ class OpenAi(LLMClient):
                     completion_tokens = usage.completion_tokens or completion_tokens
 
         finally:
-            await stream.close()
+            await (getattr(stream, "aclose", None) or stream.close)()
             self._set_last_usage(
                 LLMUsage(
                     prompt_tokens=prompt_tokens,

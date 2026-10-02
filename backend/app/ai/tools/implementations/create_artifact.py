@@ -1217,6 +1217,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "report and mode, so a NEW artifact was created instead."
                 )
 
+        replace_content = dict(replace_source.content or {}) if replace_source is not None else {}
+
         # Create artifact early with pending status so frontend can show it
         if replace_source is not None:
             artifact = await new_version(
@@ -1567,6 +1569,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         if data.mode == "slides" and preview_images:
             content["preview_images"] = preview_images
 
+        if replace_content.get('sdk_version') == 1:
+            content = {**content, 'sdk_version': 1,
+                       'resource_requirements': replace_content.get('resource_requirements', {})}
         artifact.content = content
         if data.mode == "slides":
             artifact.status = "completed" if pptx_success else "failed"
@@ -1595,10 +1600,32 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 if os.environ.get('BOW_ARTIFACT_RESOURCES_ENABLED') != 'true':
                     fail('UNAVAILABLE', 'Artifact resources are not enabled', 404)
                 resource_service = await ArtifactResources.open(db, str(artifact.artifact_id), user, organization.id, manage=True)
+                from hashlib import sha256
+                from datetime import datetime
+                from sqlalchemy import update
+                from app.models.artifact import Artifact
+                from app.models.artifact_resource import ArtifactResource
+                from app.schemas.artifact_resource_schema import ResourceDefinition
+                # Serialize with schema mutations. Rebuilding UI is not permission
+                # to silently migrate existing data or overwrite resource policies.
+                await db.execute(update(Artifact).where(Artifact.id == artifact.artifact_id).values(updated_at=datetime.utcnow()))
                 for definition in sorted(data.resources, key=lambda d: d.kind == 'ai'):
+                    existing = await db.scalar(select(ArtifactResource).where(
+                        ArtifactResource.artifact_id == artifact.artifact_id,
+                        ArtifactResource.name == definition.name,
+                    ))
+                    if existing is not None:
+                        expected = definition.model_dump()
+                        if definition.kind == 'ai' and definition.model_id is None:
+                            expected['model_id'] = existing.definition.get('model_id')
+                        if existing.deleted_at is not None or expected != ResourceDefinition.model_validate(existing.definition).model_dump():
+                            fail('CONFLICT', 'Resource already exists with a different definition. Read and explicitly update its schema or permissions before rebuilding.')
+                        continue
                     await resource_service.configure(ResourceChange(action='create', definition=definition,
-                        idempotency_key=f'create:{artifact.id}:{definition.name}'))
-                artifact.content = {**artifact.content, 'sdk_version': 1, 'resource_requirements': {d.name: {'kind': d.kind, 'fields': {k: f.type for k, f in d.fields.items()}} for d in data.resources}}
+                        idempotency_key=f'create:{artifact.id}:{sha256(definition.name.encode()).hexdigest()[:32]}'))
+                requirements = {**artifact.content.get('resource_requirements', {}), **{
+                    d.name: {'kind': d.kind, 'fields': {k: f.type for k, f in d.fields.items()}} for d in data.resources}}
+                artifact.content = {**artifact.content, 'sdk_version': 1, 'resource_requirements': requirements}
         except Exception as exc:
             await db.rollback()
             failed = await db.get(ArtifactVersion, resource_artifact_version_id)

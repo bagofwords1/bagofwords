@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '12'; // v11: themed design system (setTheme/useTheme, token utilities, Icon/Sparkline/Delta/PageHeader…, className merge); v10: FilterSelect single-select mode; // v10: FilterSelect single-select mode (scalar params); v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
+export const ARTIFACT_GLOBALS_VERSION = '11'; // v11: themed design system (setTheme/useTheme, token utilities, Icon/Sparkline/Delta/PageHeader…, className merge); v10: FilterSelect single-select mode; // v10: FilterSelect single-select mode (scalar params); v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
 
 export interface ArtifactIframeFile {
   id: string;
@@ -100,6 +100,8 @@ export interface ArtifactIframeOptions {
   /** Inject polish element-picker. Only meaningful in the editor. */
   polishMode?: boolean;
   fixtureMode?: boolean;
+  /** Resource apps prohibit third-party image requests; legacy pages retain HTTPS images. */
+  resourceApp?: boolean;
   /** Text shown inside #root before Babel transforms the artifact code. */
   loadingLabel?: string;
   /** Default 'production'. 'development' gives clearer React error messages. */
@@ -332,9 +334,10 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
       : '/libs/react-dom-18.production.min.js';
 
   const embeddedData = JSON.stringify(opts.data).replace(/</g, '\\u003c');
-  const runtimeNonce = crypto.randomUUID();
+  // getRandomValues is available on plain-HTTP self-hosted installations too.
+  const runtimeNonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   const assetOrigin = window.location.origin;
-  const isolationPolicy = `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' ${assetOrigin}/libs/; style-src 'unsafe-inline' ${assetOrigin}/libs/; img-src data: blob: ${assetOrigin}; font-src data: ${assetOrigin}; connect-src 'none'; worker-src blob:; frame-src blob: data:; form-action 'none'; base-uri 'none';`;
+  const isolationPolicy = `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' ${assetOrigin}/libs/; style-src 'unsafe-inline' ${assetOrigin}/libs/; img-src data: blob: ${assetOrigin}${opts.resourceApp ? '' : ' https:'}; font-src data: ${assetOrigin}; connect-src 'none'; worker-src blob:; frame-src blob: data:; form-action 'none'; base-uri 'none';`;
   const polish = opts.polishMode ? polishScript() : '';
   const isDark = opts.colorMode === 'dark';
 
@@ -365,6 +368,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   <script>
     // Live color-mode toggle from the host (no iframe reload).
     window.addEventListener('message', function (e) {
+      if (e.source !== window.parent) return;
       var d = e && e.data;
       if (d && d.type === 'ARTIFACT_SET_COLOR_MODE') {
         // A forced-dark artifact (root <div className="dark">) stays dark
@@ -377,7 +381,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   ${SC}
   <script>window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${SC}
   <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}&revision=verification-1">${SC}
-  <script src="/libs/artifact-sdk.js?v=1">${SC}
+  <script src="/libs/artifact-sdk.js?v=2">${SC}
 
   <script>${polish}${errorBoundaryScript()}${SC}
 

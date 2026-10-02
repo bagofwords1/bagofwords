@@ -1043,7 +1043,7 @@ watch(() => colorMode.value, (v) => {
   artifactColorMode = v === 'dark' ? 'dark' : 'light';
   iframeRef.value?.contentWindow?.postMessage(
     { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
-    window.location.origin
+    '*'
   );
 });
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
@@ -1234,7 +1234,7 @@ function postParamsStatus(loading: boolean, error: string | null = null) {
   try {
     iframeRef.value?.contentWindow?.postMessage(
       { type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } },
-      window.location.origin,
+      '*',
     );
   } catch { /* iframe not ready */ }
 }
@@ -2143,7 +2143,7 @@ onUnmounted(() => {
 
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
-  if (props.verificationPreview && event.source !== iframeRef.value?.contentWindow) return;
+  if (event.source !== iframeRef.value?.contentWindow && event.source !== fullscreenRuntimeFrame.value?.contentWindow) return;
   if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
@@ -2773,6 +2773,7 @@ const iframeSrcdoc = computed(() => {
     mode: selectedArtifact.value?.mode || 'page',
     polishMode: !props.verificationPreview,
     fixtureMode: !!props.verificationPreview,
+    resourceApp: selectedArtifact.value?.content?.sdk_version === 1,
     loadingLabel: t('artifactFrame.loadingArtifact'),
     reactBuild: 'development',
     colorMode: artifactColorMode,

@@ -202,7 +202,7 @@ class OpenAIResponsesClient(LLMClient):
                 if content:
                     yield content
         finally:
-            await stream.close()
+            await (getattr(stream, "aclose", None) or stream.close)()
             self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
 
     @staticmethod

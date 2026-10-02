@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse
 class ArtifactBodyLimit:
     def __init__(self, app):
         self.app = app
+        self.stream_capacity = asyncio.Semaphore(max(1, min(16, int(os.environ.get("BOW_ARTIFACT_MAX_STREAMS", "4")))))
         self.capacity = asyncio.Semaphore(max(1, min(64, int(os.environ.get("BOW_ARTIFACT_MAX_INFLIGHT", "16")))))
 
     async def __call__(self, scope, receive, send):
@@ -16,7 +17,8 @@ class ArtifactBodyLimit:
             return await self.app(scope, receive, send)
         # No waiting request retains a large buffered body. Per-worker capacity
         # is transport backpressure, not persisted execution state.
-        if self.capacity.locked():
+        capacity = self.stream_capacity if path.endswith("/stream") else self.capacity
+        if capacity.locked():
             return await JSONResponse(
                 {
                     "detail": "Artifact service is busy; retry explicitly",
@@ -24,7 +26,7 @@ class ArtifactBodyLimit:
                 },
                 status_code=429,
             )(scope, receive, send)
-        async with self.capacity:
+        async with capacity:
             return await self._bounded(scope, receive, send)
 
     async def _bounded(self, scope, receive, send):

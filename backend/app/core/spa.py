@@ -54,6 +54,10 @@ def _cache_headers(spa_path: str, resolved: str, index_file: str) -> dict[str, s
     if spa_path.lstrip("/").startswith("_nuxt/"):
         return {"Cache-Control": IMMUTABLE_ASSET_CACHE_CONTROL}
 
+    # These are public, immutable-font assets, never API/user content. Opaque
+    # artifact frames require CORS even when hosted by this same server.
+    if spa_path.lstrip('/').startswith('libs/fonts/') and Path(resolved).suffix in {'.woff', '.woff2', '.ttf', '.otf'}:
+        return {"Access-Control-Allow-Origin": "*"}
     return {}
 
 

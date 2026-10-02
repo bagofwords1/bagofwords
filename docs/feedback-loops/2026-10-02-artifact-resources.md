@@ -136,7 +136,7 @@ key; replacing it without a data migration makes existing data unreadable.
 while retaining authorized reads. Turning the whole feature off hides its APIs
 and inspection controls; it does not delete resources or change sharing.
 
-Defaults: 50 definitions per artifact; 10,000 rows/files per resource; 64 MiB per
+Defaults: 50 live definitions and 1,000 reserved resource identities per artifact; 10,000 rows/files per resource; 64 MiB per
 resource unless configured lower/higher within its 256 MiB ceiling; 256 MiB total
 artifact payload; 256 KiB records; 100 rows and 1 MiB per returned page; 10 MiB
 uploads; 512 KiB JSON request bodies. Runtime requests have shared database
@@ -173,9 +173,9 @@ on the deployment scheduler. It removes expired acknowledgements/events/counters
 and encrypted blobs without live bindings after a 24-hour grace period. Database
 purges are batched; blob scanning is a maintenance-process operation.
 
-Each API worker admits at most 16 concurrent resource requests by default
+Each API worker admits at most 16 concurrent ordinary resource requests by default
 (`BOW_ARTIFACT_MAX_INFLIGHT`, 1–64). Excess requests fail before body buffering.
-This bounds upload/decryption memory alongside request-size limits. It is
+Streams use a separate pool of four connections (`BOW_ARTIFACT_MAX_STREAMS`, 1–16), so stream saturation does not consume ordinary request slots. This bounds upload/decryption memory alongside request-size limits. It is
 transient transport backpressure, not stored execution state. Size worker memory
 and shared storage for that configured concurrency; place normal ingress limits
 in front of the service as for the existing API.

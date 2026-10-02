@@ -1,4 +1,15 @@
 /* Artifact SDK v1. No credentials, network endpoints or execution persistence. */
+// Existing generated apps use randomUUID for mutation keys. Keep that contract
+// in insecure self-hosted contexts without weakening randomness.
+if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
+  crypto.randomUUID = function () {
+    var bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    var h = Array.from(bytes, function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);
+  };
+}
+
 (function () {
   'use strict';
   var pending = new Map(), port = null, sequence = 0;
