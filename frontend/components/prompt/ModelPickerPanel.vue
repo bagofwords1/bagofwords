@@ -65,7 +65,7 @@
     </div>
 
     <!-- Effort for the selected model: a Faster ↔ Smarter slider -->
-    <div class="border-t border-gray-100 dark:border-gray-800 px-3 pt-2.5 pb-2" data-testid="effort-bar">
+    <div class="border-t border-gray-100 dark:border-gray-800 px-3 pt-2.5 pb-3" data-testid="effort-bar">
       <div class="flex items-baseline justify-between gap-2">
         <span class="flex items-baseline gap-1.5 min-w-0">
           <span class="text-gray-500 dark:text-gray-400">{{ $t('prompt.effort.title') }}</span>
@@ -106,11 +106,6 @@
           class="effort-thumb absolute top-0.5 w-5 h-5 -ms-2.5 rounded-full bg-white dark:bg-gray-200 shadow ring-1 ring-black/5"
           :style="{ insetInlineStart: stopPos(currentIndex) }"
         />
-      </div>
-      <div class="relative h-4 mt-1 text-[10px] text-gray-400 dark:text-gray-500">
-        <span class="absolute top-0 w-0 flex" :class="recommendedAlign" :style="recommendedStyle">
-          <span class="whitespace-nowrap" data-testid="effort-recommended">{{ $t('prompt.effort.recommended') }}</span>
-        </span>
       </div>
     </div>
   </div>
@@ -206,13 +201,13 @@ function stopIndex(effort: string | null | undefined) {
 }
 
 // No explicit pick runs the admin's default for the model, else Fast.
-const recommendedIndex = computed(() => {
+const defaultIndex = computed(() => {
   const i = stopIndex(selectedModel.value?.reasoning?.default)
   return i >= 0 ? i : 0
 })
 const currentIndex = computed(() => {
   const i = stopIndex(props.effort)
-  return i >= 0 ? i : recommendedIndex.value
+  return i >= 0 ? i : defaultIndex.value
 })
 const currentLabel = computed(() => {
   const e = props.effort && !STOPS.includes(props.effort as Stop) ? props.effort : STOPS[currentIndex.value]
@@ -224,17 +219,6 @@ function stopPos(i: number) {
   return `calc(12px + (100% - 24px) * ${i / (STOPS.length - 1)})`
 }
 const fillWidth = computed(() => `calc(24px + (100% - 24px) * ${currentIndex.value / (STOPS.length - 1)})`)
-// The label centres under its stop; at either end it hugs the edge instead.
-const recommendedStyle = computed(() => {
-  const i = recommendedIndex.value
-  if (i === 0) return { insetInlineStart: '0' }
-  if (i === STOPS.length - 1) return { insetInlineEnd: '0' }
-  return { insetInlineStart: stopPos(i) }
-})
-const recommendedAlign = computed(() => {
-  const i = recommendedIndex.value
-  return i === 0 ? 'justify-start' : i === STOPS.length - 1 ? 'justify-end' : 'justify-center'
-})
 
 const effortHint = computed(() => {
   const m = selectedModel.value
@@ -249,9 +233,9 @@ const effortHint = computed(() => {
 function setStop(i: number) {
   if (effortDisabled.value) return
   const clamped = Math.max(0, Math.min(STOPS.length - 1, i))
-  // The recommended stop means "no explicit choice", so the admin default
-  // keeps applying and the trigger shows no badge.
-  emit('update:effort', clamped === recommendedIndex.value ? null : STOPS[clamped])
+  // The default stop means "no explicit choice", so the admin default keeps
+  // applying and the trigger shows no badge.
+  emit('update:effort', clamped === defaultIndex.value ? null : STOPS[clamped])
 }
 
 const trackRef = ref<HTMLElement | null>(null)

@@ -650,8 +650,7 @@
       "modelDefault": "ברירת מחדל של מנהל: {level}",
       "runsAs": "רץ כ-{level} במודל זה",
       "faster": "מהיר יותר",
-      "smarter": "חכם יותר",
-      "recommended": "מומלץ"
+      "smarter": "חכם יותר"
     }
   },
   "reports": {

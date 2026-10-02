@@ -667,8 +667,7 @@
       "modelDefault": "Admin default: {level}",
       "runsAs": "Runs as {level} on this model",
       "faster": "Faster",
-      "smarter": "Smarter",
-      "recommended": "Recommended"
+      "smarter": "Smarter"
     }
   },
   "exports": {

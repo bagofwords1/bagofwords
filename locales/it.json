@@ -635,8 +635,7 @@
       "modelDefault": "Predefinito dall'amministratore: {level}",
       "runsAs": "Eseguito come {level} su questo modello",
       "faster": "Più veloce",
-      "smarter": "Più intelligente",
-      "recommended": "Consigliato"
+      "smarter": "Più intelligente"
     }
   },
   "reports": {

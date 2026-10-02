@@ -635,8 +635,7 @@
       "modelDefault": "По умолчанию от администратора: {level}",
       "runsAs": "На этой модели выполняется как {level}",
       "faster": "Быстрее",
-      "smarter": "Умнее",
-      "recommended": "Рекомендуется"
+      "smarter": "Умнее"
     }
   },
   "reports": {

@@ -635,8 +635,7 @@
       "modelDefault": "Padrão do administrador: {level}",
       "runsAs": "Executa como {level} neste modelo",
       "faster": "Mais rápido",
-      "smarter": "Mais inteligente",
-      "recommended": "Recomendado"
+      "smarter": "Mais inteligente"
     }
   },
   "reports": {

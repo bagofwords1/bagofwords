@@ -635,8 +635,7 @@
       "modelDefault": "افتراضي المسؤول: {level}",
       "runsAs": "يعمل كـ {level} على هذا النموذج",
       "faster": "أسرع",
-      "smarter": "أذكى",
-      "recommended": "موصى به"
+      "smarter": "أذكى"
     }
   },
   "reports": {
