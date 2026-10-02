@@ -652,6 +652,7 @@
       "title": "Effort",
       "default": "Default",
       "levels": {
+        "off": "Fast",
         "low": "Low",
         "medium": "Medium",
         "high": "High",
@@ -664,7 +665,10 @@
       "notSupported": "This model has no effort setting",
       "providerDefault": "Model's own default",
       "modelDefault": "Admin default: {level}",
-      "runsAs": "Runs as {level} on this model"
+      "runsAs": "Runs as {level} on this model",
+      "faster": "Faster",
+      "smarter": "Smarter",
+      "recommended": "Recommended"
     }
   },
   "exports": {

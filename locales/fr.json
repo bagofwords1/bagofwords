@@ -620,6 +620,7 @@
       "title": "Effort",
       "default": "Par défaut",
       "levels": {
+        "off": "Rapide",
         "low": "Faible",
         "medium": "Moyen",
         "high": "Élevé",
@@ -632,7 +633,10 @@
       "notSupported": "Ce modèle n'a pas de réglage d'effort",
       "providerDefault": "Valeur par défaut du modèle",
       "modelDefault": "Défaut administrateur : {level}",
-      "runsAs": "S'exécute en {level} sur ce modèle"
+      "runsAs": "S'exécute en {level} sur ce modèle",
+      "faster": "Plus rapide",
+      "smarter": "Plus intelligent",
+      "recommended": "Recommandé"
     }
   },
   "reports": {

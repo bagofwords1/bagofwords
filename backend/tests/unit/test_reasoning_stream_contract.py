@@ -73,7 +73,9 @@ async def test_summary_requested_when_no_effort_given(kind):
         # least rather than the provider's default (high).
         assert params['extra_body']['output_config'] == {'effort': 'low'}
     else:
-        assert params['reasoning'] == {'summary': 'auto'}
+        # Likewise OpenAI runs reasoning models at medium when the effort is
+        # left out; "off" asks for none, so there is no summary to request.
+        assert params['reasoning'] == {'effort': 'none'}
     await client.async_client.close()
     client.client.close()
 
@@ -146,7 +148,7 @@ async def test_reported_reasoning_usage_survives_stream(kind):
     (None, 'Please think carefully about this table', None, 'high'),
     ('low', 'Please think carefully about this table', 'medium', 'low'),
     (None, 'Create the table', 'medium', 'medium'),
-    ('off', 'Think hard about this table', 'high', None),
+    ('off', 'Think hard about this table', 'high', 'none'),
 ])
 @pytest.mark.parametrize('method', ['generate_code', 'generate_inspection_code', 'generate_transform_code'])
 async def test_coder_inherits_effort_and_keeps_summary_out_of_code(explicit, prompt, default, expected, method):

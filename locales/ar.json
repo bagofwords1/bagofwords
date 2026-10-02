@@ -620,6 +620,7 @@
       "title": "الجهد",
       "default": "افتراضي",
       "levels": {
+        "off": "سريع",
         "low": "منخفض",
         "medium": "متوسط",
         "high": "مرتفع",
@@ -632,7 +633,10 @@
       "notSupported": "لا يوجد إعداد جهد لهذا النموذج",
       "providerDefault": "الإعداد الافتراضي للنموذج",
       "modelDefault": "افتراضي المسؤول: {level}",
-      "runsAs": "يعمل كـ {level} على هذا النموذج"
+      "runsAs": "يعمل كـ {level} على هذا النموذج",
+      "faster": "أسرع",
+      "smarter": "أذكى",
+      "recommended": "موصى به"
     }
   },
   "reports": {

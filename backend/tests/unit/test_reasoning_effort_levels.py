@@ -131,11 +131,6 @@ def test_responses_sends_the_clamped_effort(model_id, level, sent):
     assert "temperature" not in params
 
 
-def test_responses_default_sends_no_effort():
-    params = _responses_request("gpt-6-luna", None)
-    assert "effort" not in params.get("reasoning", {})
-
-
 def test_responses_raw_fields_merge_into_the_request():
     params = _responses_request(
         "gpt-5.5", "high",

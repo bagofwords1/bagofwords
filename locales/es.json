@@ -635,6 +635,7 @@
       "title": "Esfuerzo",
       "default": "Predeterminado",
       "levels": {
+        "off": "Rápido",
         "low": "Bajo",
         "medium": "Medio",
         "high": "Alto",
@@ -647,7 +648,10 @@
       "notSupported": "Este modelo no tiene ajuste de esfuerzo",
       "providerDefault": "Valor predeterminado del modelo",
       "modelDefault": "Predeterminado del administrador: {level}",
-      "runsAs": "Se ejecuta como {level} en este modelo"
+      "runsAs": "Se ejecuta como {level} en este modelo",
+      "faster": "Más rápido",
+      "smarter": "Más inteligente",
+      "recommended": "Recomendado"
     }
   },
   "reports": {
