@@ -63,6 +63,32 @@ def digest(value):
     return hmac.new(key(), canonical(normalize(value)).encode(), hashlib.sha256).hexdigest()
 
 
+async def code_requirements(db, artifact_id, code, previous=None):
+    """Publication preconditions for one UI version: every resource its code
+    names (as a quoted string), with the field types it was written against.
+
+    A name the code still uses after its resource was deleted keeps its old
+    requirement, so publishing that version fails instead of shipping a UI
+    bound to nothing."""
+    import re
+
+    def named(name):
+        return re.search(r"""['"`]""" + re.escape(name) + r"""['"`]""", code or "") is not None
+
+    rows = (await db.execute(select(ArtifactResource).where(
+        ArtifactResource.artifact_id == artifact_id,
+        ArtifactResource.deleted_at.is_(None),
+    ))).scalars()
+    result = {
+        row.name: {"kind": row.kind, "fields": {k: f["type"] for k, f in (row.definition.get("fields") or {}).items()}}
+        for row in rows if named(row.name)
+    }
+    for name, requirement in (previous or {}).items():
+        if name not in result and named(name):
+            result[name] = requirement
+    return result
+
+
 class ArtifactResources:
     def __init__(self, db, artifact, report, user, groups=(), member=False):
         self.db, self.artifact, self.report, self.user = db, artifact, report, user
@@ -287,6 +313,18 @@ class ArtifactResources:
             ))
             if live_count >= 50:
                 fail("QUOTA_EXCEEDED", "Artifact live resource limit reached", 429)
+            taken = await self.db.scalar(select(ArtifactResource).where(
+                ArtifactResource.artifact_id == self.artifact.id,
+                ArtifactResource.name == change.definition.name,
+            ))
+            if taken is not None:
+                name = change.definition.name
+                fail("CONFLICT", (
+                    f"Resource name '{name}' belonged to a deleted resource and stays reserved so older "
+                    "versions never bind to new data. Choose a new name."
+                ) if taken.deleted_at is not None else (
+                    f"Resource '{name}' already exists. Read it and update it instead of creating it."
+                ), 409)
             row = ArtifactResource(
                 id=str(uuid.uuid4()),
                 artifact_id=self.artifact.id,

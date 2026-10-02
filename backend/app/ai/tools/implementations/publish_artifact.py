@@ -47,20 +47,13 @@ class PublishArtifactTool(Tool):
         try:
             if os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") != "true":
                 fail("UNAVAILABLE", "Artifact resources are not enabled", 404)
-            service = await ArtifactResources.open(db, data.artifact_id, user, org.id, manage=True)
-            if report is None or str(report.id) != str(service.report.id):
-                fail("FORBIDDEN", "Artifact is outside this report", 403)
-            result = await publish(service, data.version_id, data.expected_revision, data.idempotency_key)
-            await db.commit()
-            yield ToolEndEvent(
-                type="tool.end",
-                payload={
-                    "output": result,
-                    "observation": {"summary": "Shared artifact UI version selected", "publication": result},
-                },
-            )
+            # Savepoint: a rejected publication must not expire the agent's state.
+            async with db.begin_nested():
+                service = await ArtifactResources.open(db, data.artifact_id, user, org.id, manage=True)
+                if report is None or str(report.id) != str(service.report.id):
+                    fail("FORBIDDEN", "Artifact is outside this report", 403)
+                result = await publish(service, data.version_id, data.expected_revision, data.idempotency_key)
         except Exception as exc:
-            await db.rollback()
             from app.errors import AppError
 
             message = (
@@ -71,3 +64,12 @@ class PublishArtifactTool(Tool):
             yield ToolEndEvent(
                 type="tool.end", payload={"output": {"success": False}, "observation": {"error": message}}
             )
+            return
+        await db.commit()
+        yield ToolEndEvent(
+            type="tool.end",
+            payload={
+                "output": result,
+                "observation": {"summary": "Shared artifact UI version selected", "publication": result},
+            },
+        )

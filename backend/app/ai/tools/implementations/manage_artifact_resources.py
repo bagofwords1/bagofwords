@@ -43,24 +43,16 @@ class ManageArtifactResources(Tool):
         try:
             if os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") != "true":
                 fail("UNAVAILABLE", "Artifact resources are not enabled", 404)
-            service = await ArtifactResources.open(db, data.artifact_id, user, org.id, manage=True)
-            if report is None or str(service.report.id) != str(report.id):
-                fail("FORBIDDEN", "Resource is outside the current report", 403)
-            result = await service.configure(ResourceChange.model_validate(data.model_dump(exclude={"artifact_id"})))
-            await db.commit()
-            yield ToolEndEvent(
-                type="tool.end",
-                payload={
-                    "output": result,
-                    "observation": {
-                        "summary": "Resource definition updated",
-                        "resource": result,
-                        "resources": await service.definitions(),
-                    },
-                },
-            )
+            # Savepoint: a rejected change rolls back only itself. A session-wide
+            # rollback would expire the agent's own loaded state and crash the turn.
+            async with db.begin_nested():
+                service = await ArtifactResources.open(db, data.artifact_id, user, org.id, manage=True)
+                if report is None or str(service.report.id) != str(report.id):
+                    fail("FORBIDDEN", "Resource is outside the current report", 403)
+                result = await service.configure(
+                    ResourceChange.model_validate(data.model_dump(exclude={"artifact_id"}))
+                )
         except Exception as exc:
-            await db.rollback()
             from app.errors import AppError
 
             message = (
@@ -71,3 +63,16 @@ class ManageArtifactResources(Tool):
             yield ToolEndEvent(
                 type="tool.end", payload={"output": {"success": False}, "observation": {"error": message}}
             )
+            return
+        await db.commit()
+        yield ToolEndEvent(
+            type="tool.end",
+            payload={
+                "output": result,
+                "observation": {
+                    "summary": "Resource definition updated",
+                    "resource": result,
+                    "resources": await service.definitions(),
+                },
+            },
+        )

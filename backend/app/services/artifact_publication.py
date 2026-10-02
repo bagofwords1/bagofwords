@@ -5,6 +5,7 @@ from sqlalchemy import select, update, or_
 from sqlalchemy.orm import lazyload
 from app.models.artifact import Artifact, ArtifactVersion
 from app.models.artifact_resource import ArtifactPublication
+from app.errors import AppError
 from app.services.artifact_resource_service import fail, digest
 
 
@@ -42,7 +43,12 @@ async def publish(service, version_id, expected_revision, request_key):
     if version is None:
         fail("NOT_FOUND", "Completed artifact version not found", 404)
     for name, requirement in (version.content or {}).get("resource_requirements", {}).items():
-        _, definition = await service.resource(name)
+        try:
+            _, definition = await service.resource(name)
+        except AppError as exc:
+            if exc.status_code != 404:
+                raise
+            fail("CONFLICT", f"This UI version uses resource '{name}', which no longer exists", 409)
         if definition.kind != requirement.get("kind") or any(
             key not in definition.fields or definition.fields[key].type != kind
             for key, kind in requirement.get("fields", {}).items()

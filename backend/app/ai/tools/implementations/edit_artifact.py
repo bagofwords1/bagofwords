@@ -312,9 +312,13 @@ class EditArtifactTool(Tool):
         # one stays themed.
         if content.get("runtime_version"):
             new_content["runtime_version"] = content.get("runtime_version")
-        for key in ('sdk_version', 'resource_requirements'):
-            if key in content:
-                new_content[key] = content[key]
+        if 'sdk_version' in content:
+            from app.services.artifact_resource_service import code_requirements
+            new_content['sdk_version'] = content['sdk_version']
+            # Recomputed, not copied: an edit may start using a resource added
+            # since the last build, and publication must check that one too.
+            new_content['resource_requirements'] = await code_requirements(
+                db, artifact.artifact_id, new_code, content.get('resource_requirements'))
         if data.expected_latest_version is not None:
             from app.models.artifact import Artifact
             from sqlalchemy import update, func

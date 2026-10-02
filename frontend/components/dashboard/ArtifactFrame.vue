@@ -1025,6 +1025,15 @@ async function fetchViewerContext() {
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const fullscreenRuntimeFrame = ref<HTMLIFrameElement | null>(null);
+// Fullscreen runs a second copy of the artifact: it seeds from the same
+// srcdoc, then needs every live update (data, theme, param status) too.
+const fullscreenReady = ref(false);
+watch(isFullscreenOpen, (open) => { if (!open) fullscreenReady.value = false; });
+function postToRuntimeFrames(message: any) {
+  for (const frame of [iframeRef.value, fullscreenRuntimeFrame.value]) {
+    try { frame?.contentWindow?.postMessage(message, '*'); } catch { /* frame not ready */ }
+  }
+}
 const resourceInspectorOpen = ref(false);
 const resourcesAvailable = ref(false);
 
@@ -1041,10 +1050,7 @@ const colorMode = useColorMode();
 let artifactColorMode: 'light' | 'dark' = colorMode.value === 'dark' ? 'dark' : 'light';
 watch(() => colorMode.value, (v) => {
   artifactColorMode = v === 'dark' ? 'dark' : 'light';
-  iframeRef.value?.contentWindow?.postMessage(
-    { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
-    '*'
-  );
+  postToRuntimeFrames({ type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode });
 });
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
 
@@ -1231,12 +1237,7 @@ function queriesWithIdentityParams(): string[] {
 function postParamsStatus(loading: boolean, error: string | null = null) {
   paramRunLoading.value = loading;
   verificationEvent(error ? 'error' : 'params_status', { loading, message: error });
-  try {
-    iframeRef.value?.contentWindow?.postMessage(
-      { type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } },
-      '*',
-    );
-  } catch { /* iframe not ready */ }
+  postToRuntimeFrames({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } });
 }
 
 // Execute the parameterized queries server-side (viewer mode: per-viewer
@@ -2148,7 +2149,10 @@ function handleIframeMessage(event: MessageEvent) {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
   }
-  if (event.data?.type === 'ARTIFACT_READY') {
+  if (event.data?.type === 'ARTIFACT_READY' && event.source === fullscreenRuntimeFrame.value?.contentWindow) {
+    fullscreenReady.value = true;
+    sendDataToIframe();
+  } else if (event.data?.type === 'ARTIFACT_READY') {
     console.log('[ArtifactFrame] Iframe ready');
     iframeError.value = null;
     iframeReady.value = true;
@@ -2164,21 +2168,21 @@ function handleIframeMessage(event: MessageEvent) {
     nextTick(() => polishInputRef.value?.focus());
   } else if (event.data?.type === 'ARTIFACT_SET_PARAMS') {
     // A control in the artifact committed param changes: run the consuming
-    // queries server-side and push fresh rows back down.
-    if (event.source === iframeRef.value?.contentWindow) {
-      paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
-      runParamQueries(event.data.changes || {}, event.data.targets || null, {});
-    }
+    // queries server-side and push fresh rows back down (to both frames).
+    paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
+    runParamQueries(event.data.changes || {}, event.data.targets || null, {});
   } else if (event.data?.type === 'ARTIFACT_REFRESH_PARAMS') {
-    if (event.source === iframeRef.value?.contentWindow) {
-      runParamQueries(null, event.data.targets || null, { force: true });
-    }
+    runParamQueries(null, event.data.targets || null, { force: true });
   }
 }
 
 // Send data to iframe via postMessage
 function sendDataToIframe() {
-  if (!iframeRef.value?.contentWindow || !iframeReady.value) return;
+  const targets = [
+    iframeReady.value ? iframeRef.value?.contentWindow : null,
+    fullscreenReady.value ? fullscreenRuntimeFrame.value?.contentWindow : null,
+  ].filter((w): w is Window => !!w);
+  if (!targets.length) return;
 
   const payload = JSON.parse(JSON.stringify({
     report: toRaw(reportData.value),
@@ -2195,10 +2199,7 @@ function sendDataToIframe() {
     request_ids: [...new Set(visualizationsData.value.map(v => verificationRequests.get(v.queryId)).filter(Boolean))],
   });
   try {
-    iframeRef.value.contentWindow.postMessage({
-      type: 'ARTIFACT_DATA',
-      payload
-    }, '*');
+    for (const target of targets) target.postMessage({ type: 'ARTIFACT_DATA', payload }, '*');
   } catch (err: any) {
     console.error('[ArtifactFrame] Failed to send data to iframe:', err);
     iframeError.value = err?.message || 'Failed to send data to dashboard iframe';
