@@ -213,7 +213,7 @@
                     ref="artifactIframeRef"
                     :srcdoc="iframeSrcdoc"
                     @load="onArtifactIframeLoad"
-                    sandbox="allow-scripts allow-downloads"
+                    sandbox="allow-scripts allow-downloads allow-forms"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
                 />
 

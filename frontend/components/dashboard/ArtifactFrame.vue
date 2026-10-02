@@ -419,7 +419,7 @@
         ref="iframeRef"
         data-artifact-frame
         :srcdoc="iframeSrcdoc"
-        sandbox="allow-scripts allow-downloads"
+        sandbox="allow-scripts allow-downloads allow-forms"
         class="absolute inset-0 w-full h-full border-0 bg-white dark:bg-gray-900 z-0"
         @load="onIframeLoad"
       />
@@ -524,7 +524,7 @@
               ref="fullscreenRuntimeFrame"
               v-else-if="isFullscreenOpen && iframeSrcdoc"
               :srcdoc="iframeSrcdoc"
-              sandbox="allow-scripts allow-downloads"
+              sandbox="allow-scripts allow-downloads allow-forms"
               class="absolute inset-0 w-full h-full border-0"
             />
           </div>

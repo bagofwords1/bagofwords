@@ -6,6 +6,8 @@ failed case pass. Generated apps still need browser interaction qualification.
 """
 
 import os
+import json
+from pathlib import Path
 import pytest
 
 CASES = [
@@ -56,7 +58,7 @@ def test_ordinary_prompt_creates_resource_app(
     )
     assert provider.status_code == 200
     report = create_report(title="Artifact qualification", user_token=token, org_id=org, data_sources=[])
-    create_completion(report_id=report["id"], prompt=prompt, user_token=token, org_id=org)
+    completion = create_completion(report_id=report["id"], prompt=prompt, user_token=token, org_id=org)
     result = test_client.get(f"/api/artifacts/report/{report['id']}/latest", headers=headers)
     assert result.status_code == 200, "Planner did not produce an artifact"
     artifact = result.json()
@@ -66,10 +68,25 @@ def test_ordinary_prompt_creates_resource_app(
     response = test_client.get(base + "/resources", headers=headers)
     assert response.status_code == 200
     definitions = response.json()["items"]
+    # Optional evidence contains synthetic output only, never tokens/credentials.
+    if directory := os.environ.get("ARTIFACT_LIVE_EVIDENCE"):
+        destination = Path(directory)
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / f"{case}-{model_id}-{report['id']}.json").write_text(
+            json.dumps(
+                {
+                    "model": model_id,
+                    "case": case,
+                    "prompt": prompt,
+                    "completion": completion,
+                    "artifact": artifact,
+                    "resources": definitions,
+                },
+                indent=2,
+            )
+        )
     assert kinds <= {r["kind"] for r in definitions}
     if case == "documents":
-        import json
-
         operation = next(r for r in definitions if r["kind"] == "ai")
         stream = test_client.post(
             base + "/ai/" + operation["name"] + "/stream",

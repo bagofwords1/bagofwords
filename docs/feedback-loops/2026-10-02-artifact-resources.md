@@ -1,6 +1,6 @@
 # Artifact resource implementation and qualification
 
-Status: implementation and local qualification complete; real-model qualification and production enablement remain blocked/pending.
+Status: local verification and initial real Luna/Sol completion and browser checks passed. Full repeated release qualification and production enablement remain pending.
 
 Branch: `codex/artifact-resources`, based on `origin/main` at
 `c56f60c8f6333b19ed8c5934debaf8b48d438552`. Existing artifacts and UI history
@@ -78,9 +78,12 @@ quality or a real external model call.
   diagnostics remain visible. HTTP tests check this across token waits. Real SDK
   calls to the localhost controlled provider also completed on both workers,
   with private input absent from their debug logs.
-- **No real Luna/Sol evaluation has run.** Automatic approval review blocked
-  sending internal authoring instructions to the model service. Approval of that
-  payload remains pending. The supplied key has not been used or stored.
+- **Real Luna/Sol evaluation now ran with explicit approval:** six full-completion
+  API cases passed, plus four persistent generated apps were exercised. The fresh
+  reading-list apps exposed a blocked-form compatibility bug, fixed in the
+  platform and verified against the same generated source. See
+  [the live completion report](2026-10-02-artifact-live-completions.md) for all
+  outcomes, setup issues, warnings, screenshots and remaining limits.
 
 Evidence lives under `media/pr/artifact-resources/`: `legacy-before-main.png`,
 `legacy-after.png`, `record-persisted.png`, `file-upload.png`, `streaming.png`,
@@ -143,7 +146,7 @@ These bounds are not a throughput guarantee; load qualification remains required
 
 ## Remaining release gates
 
-Run the approved real-model authoring and runtime matrix, including independent
+Complete the repeated real-model authoring and runtime matrix, including independent
 held-out attempts and browser interaction with model-generated apps. The initial
 harness is `backend/tests/ai/test_artifact_resources_live.py`: ordinary prompts go
 through the normal completion/planner path. It requires both
@@ -190,7 +193,7 @@ encryption, indexes, acknowledgements and audit metadata require additional disk
 
 Use a disposable database and stable disposable encryption key. Run two API
 workers on 8108/8109 with the feature enabled, storage configured, and
-`TESTING=false`. Run the frontend on 3118 with
+`TESTING=false` and `BOW_ARTIFACT_PREVIEW_URL=http://127.0.0.1:3118`. Run the frontend on 3118 with
 `BOW_API_TARGET=http://127.0.0.1:8108`. Run the controlled provider with:
 
 ```sh

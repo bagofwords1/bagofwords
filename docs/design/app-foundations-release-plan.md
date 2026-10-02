@@ -1,6 +1,6 @@
 # Artifact apps: implementation and release plan
 
-Status: implemented locally behind an opt-in flag; release qualification incomplete. Updated 2026-10-02.
+Status: implemented locally behind an opt-in flag; initial real Luna/Sol completion and browser checks passed, including a form-isolation regression fix. Full repeated release qualification remains incomplete. Updated 2026-10-02.
 Branch: `codex/artifact-resources`, based on main at `c56f60c8`.
 See `docs/feedback-loops/2026-10-02-artifact-resources.md` for measured evidence and outstanding gates.
 
