@@ -5,6 +5,8 @@ from app.ai.llm.reasoning import (
     capability_model, clamp_effort, client_mode, client_reasons, efforts_for_client, lightest_effort,
     merge_raw_params, raw_params_for, selected_effort, supports_openai_summary,
 )
+from app.ai.llm.clients.openai_client import OpenAi
+from app.ai.llm.clients.chat_effort import apply_chat_reasoning
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -149,7 +151,7 @@ class OpenAIResponsesClient(LLMClient):
         return content
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
 
         OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
@@ -160,43 +162,51 @@ class OpenAIResponsesClient(LLMClient):
         _msgs = [{"role": "user", "content": self._build_chat_content(prompt, images)}]
         if system:
             _msgs = [{"role": "system", "content": system}] + _msgs
-        chat_completion = self.client.chat.completions.create(
-            model=model_id,
-            messages=_msgs,
-            **({"temperature": temperature} if not model_id.startswith("gpt-6") else {}),
-        )
+        params = {"model": model_id, "messages": _msgs}
+        if not model_id.startswith("gpt-6"):
+            params["temperature"] = temperature
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        chat_completion = self.client.chat.completions.create(**params)
         content = chat_completion.choices[0].message.content or ""
         usage_raw = getattr(chat_completion, "usage", None)
-        prompt_tokens = getattr(usage_raw, "prompt_tokens", 0) or 0
-        completion_tokens = getattr(usage_raw, "completion_tokens", 0) or 0
-        usage = LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+        usage = OpenAi._extract_usage(usage_raw)
         self._set_last_usage(usage)
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None, thinking: Optional[dict] = None
     ) -> AsyncGenerator[str, None]:
         temperature = self.temperature if self.temperature is not None else (1.0 if "gpt-5" in model_id else 0.3)
-        stream = await self.async_client.chat.completions.create(
-            model=model_id,
-            messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
-            **({"temperature": temperature} if not model_id.startswith("gpt-6") else {}),
-            stream=True,
-            stream_options={"include_usage": True},
-        )
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        params = {"model": model_id, "messages": [{"role": "user", "content": self._build_chat_content(prompt, images)}],
+                  "stream": True, "stream_options": {"include_usage": True}}
+        if not model_id.startswith("gpt-6"):
+            params["temperature"] = temperature
+        if max_output_tokens is not None:
+            params["max_completion_tokens"] = max_output_tokens
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        stream = await client.chat.completions.create(**params)
+
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if not chunk.choices:
-                usage_raw = getattr(chunk, "usage", None)
-                if usage_raw:
-                    prompt_tokens = getattr(usage_raw, "prompt_tokens", 0) or prompt_tokens
-                    completion_tokens = getattr(usage_raw, "completion_tokens", 0) or completion_tokens
-                continue
-            content = chunk.choices[0].delta.content
-            if content:
-                yield content
-        self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    usage_raw = getattr(chunk, "usage", None)
+                    if usage_raw:
+                        prompt_tokens = getattr(usage_raw, "prompt_tokens", 0) or prompt_tokens
+                        completion_tokens = getattr(usage_raw, "completion_tokens", 0) or completion_tokens
+                    continue
+                if max_output_tokens is not None and getattr(chunk.choices[0], "finish_reason", None) == "length":
+                    raise ValueError("Model output limit reached")
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
+        finally:
+            await (getattr(stream, "aclose", None) or stream.close)()
+            self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
 
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[dict]:
@@ -375,9 +385,9 @@ class OpenAIResponsesClient(LLMClient):
             requested = selected_effort(thinking)
             efforts = efforts_for_client(self, model_id)
             effort = clamp_effort(requested, efforts)
-            if not requested and client_mode(self) in ("auto", "like"):
-                # Reasoning "off": without an effort the model reasons at its
-                # default (medium), so ask for none, or the least it allows.
+            if requested == "off" and client_mode(self) in ("auto", "like"):
+                # Explicit off asks for none, or the least the model allows.
+                # An unset configuration retains the provider default.
                 effort = lightest_effort(efforts)
             if effort != "none" and supports_openai_summary(capability_model(self, model_id)):
                 reasoning["summary"] = "auto"

@@ -792,7 +792,8 @@
         "title": "Afficher les réponses mal notées",
         "prompt": "Examine les réponses ayant reçu des retours négatifs des utilisateurs afin d'identifier des tendances et des axes d'amélioration."
       }
-    ]
+    ],
+    "artifactLoadFailed": "Impossible de charger le tableau de bord. Actualisez la page pour réessayer."
   },
   "projects": {
     "title": "Projets",
@@ -1697,6 +1698,18 @@
       "pathLabel": "Chemin :",
       "attachedAsSessionFile": "Joint à cette conversation en tant que fichier de session",
       "showPagePreviews": "Afficher les aperçus des pages ({n})"
+    },
+    "resource": {
+      "failed": "Échec de la modification",
+      "create": "Ressource créée",
+      "update": "Ressource mise à jour",
+      "delete": "Ressource supprimée",
+      "working": "Configuration de la ressource",
+      "stopped": "Arrêté",
+      "unchanged": "Ressource inchangée",
+      "preserved": "Les enregistrements existants sont conservés.",
+      "changed": "Modifications",
+      "noChanges": "Aucune modification appliquée."
     }
   },
   "entityCreate": {
@@ -2476,7 +2489,191 @@
       "daysAbbr": "{n} j",
       "rangeCount": "{start}–{end} sur {total}",
       "prev": "‹ Préc.",
-      "next": "Suiv. ›"
+      "next": "Suiv. ›",
+      "tabs": {
+        "activity": "Activité",
+        "streams": "Flux"
+      },
+      "actorAgent": "via un agent",
+      "actorSystem": "système",
+      "searchPlaceholder": "Rechercher des actions, utilisateurs, titres…",
+      "filters": {
+        "user": "Utilisateur",
+        "allUsers": "Tous les utilisateurs",
+        "resource": "Ressource",
+        "allResources": "Toutes les ressources",
+        "range": "Période",
+        "rangeAll": "Toute la période",
+        "range24h": "Dernières 24 heures",
+        "range7d": "7 derniers jours",
+        "range30d": "30 derniers jours",
+        "filterActions": "Filtrer les actions…",
+        "noOptions": "Aucun résultat"
+      },
+      "export": {
+        "button": "Exporter",
+        "json": "Télécharger JSON (NDJSON)",
+        "csv": "Télécharger CSV",
+        "hint": "Exporte la vue filtrée actuelle, du plus ancien au plus récent.",
+        "failed": "L'export a échoué"
+      },
+      "drawer": {
+        "title": "Détails de l'événement",
+        "close": "Fermer",
+        "who": "Qui",
+        "when": "Quand",
+        "where": "Où",
+        "what": "Quoi",
+        "details": "Détails",
+        "rawJson": "JSON brut",
+        "copy": "Copier",
+        "copied": "Copié",
+        "actor": "Acteur",
+        "actorType": "Type d'acteur",
+        "timeUtc": "UTC",
+        "timeLocal": "Local",
+        "relative": "Relatif",
+        "ip": "Adresse IP",
+        "userAgent": "Agent utilisateur",
+        "action": "Action",
+        "resourceType": "Type de ressource",
+        "resourceId": "ID de ressource",
+        "open": "Ouvrir",
+        "agentRun": "Exécution de l'agent",
+        "executionMode": "Mode d'exécution",
+        "none": "—",
+        "noDetails": "Aucun détail supplémentaire",
+        "fields": {
+          "title": "Titre",
+          "tool": "Outil",
+          "data_source": "Source de données",
+          "connection": "Connexion",
+          "queries": "Requêtes",
+          "row_count": "Lignes",
+          "reason": "Raison",
+          "error": "Erreur",
+          "changed": "Modifications",
+          "state": "État",
+          "destination": "Destination",
+          "format": "Format"
+        },
+        "actorKinds": {
+          "user": "Utilisateur",
+          "agent": "Agent (pour le compte de l'utilisateur)",
+          "system": "Système"
+        }
+      },
+      "streams": {
+        "title": "Flux de journaux",
+        "subtitle": "Envoyez chaque événement d'audit vers votre SIEM ou votre bucket de stockage. Après toute panne, la livraison reprend au dernier événement envoyé.",
+        "empty": "Aucun flux de journaux pour l'instant",
+        "emptyHint": "Ajoutez un flux pour envoyer les événements d'audit vers Datadog, Splunk, Microsoft Sentinel, S3, Google Cloud Storage, un webhook ou syslog.",
+        "add": "Ajouter un flux",
+        "edit": "Modifier",
+        "delete": "Supprimer",
+        "deleteConfirm": "Supprimer le flux \"{name}\" ? Les événements ne lui seront plus envoyés.",
+        "pause": "Suspendre",
+        "resume": "Reprendre",
+        "state": {
+          "active": "Actif",
+          "inactive": "Suspendu",
+          "error": "Erreur",
+          "invalid": "Identifiants invalides"
+        },
+        "delivered": "{n} livrés",
+        "pending": "{n} en attente",
+        "lag": "en retard de {time}",
+        "lastDelivered": "Dernière livraison {time}",
+        "never": "jamais",
+        "lastError": "Dernière erreur",
+        "nextAttempt": "Nouvelle tentative {time}",
+        "manageRequired": "Seuls les membres disposant de Gérer les paramètres peuvent modifier les flux.",
+        "form": {
+          "titleNew": "Ajouter un flux de journaux",
+          "titleEdit": "Modifier le flux de journaux",
+          "name": "Nom",
+          "namePlaceholder": "ex. Splunk production",
+          "destination": "Destination",
+          "chooseDestination": "Choisissez où envoyer les événements",
+          "startFrom": "Commencer à",
+          "startNow": "Nouveaux événements uniquement",
+          "startBeginning": "Inclure tout l'historique",
+          "actionFilter": "Uniquement les actions commençant par",
+          "actionFilterHint": "Préfixes séparés par des virgules, comme tool., member. — laissez vide pour tout envoyer.",
+          "advanced": "Paramètres avancés",
+          "test": "Envoyer un événement de test",
+          "testing": "Envoi…",
+          "testOk": "Événement de test livré",
+          "testFailed": "Le test a échoué : {error}",
+          "save": "Enregistrer le flux",
+          "saving": "Enregistrement…",
+          "cancel": "Annuler",
+          "back": "Retour",
+          "secretStored": "Enregistré — laissez tel quel pour le conserver",
+          "externalIdHint": "Indiquez cet External ID dans la politique d'approbation du rôle IAM.",
+          "required": "Obligatoire"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "Webhook HTTPS",
+          "syslog": "Syslog sur TLS"
+        },
+        "destinationHints": {
+          "datadog": "API d'ingestion de logs",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "API d'ingestion de logs (DCR)",
+          "s3": "Objets NDJSON par lot",
+          "gcs": "Objets NDJSON via clés HMAC",
+          "https": "POST JSON signé",
+          "syslog": "RFC 5424, JSON ou CEF"
+        },
+        "fields": {
+          "url": "URL du point de terminaison",
+          "auth_header_name": "Nom de l'en-tête d'authentification",
+          "auth_header_value": "Valeur de l'en-tête d'authentification",
+          "hmac_secret": "Secret de signature (HMAC)",
+          "headers": "En-têtes supplémentaires (objet JSON)",
+          "verify_tls": "Vérifier le certificat TLS",
+          "site": "Site Datadog",
+          "api_key": "Clé API",
+          "service": "Service",
+          "tags": "Tags",
+          "intake_url": "URL d'ingestion personnalisée",
+          "hec_url": "URL HEC",
+          "token": "Jeton HEC",
+          "index": "Index",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "ID de locataire",
+          "client_id": "ID client",
+          "client_secret": "Secret client",
+          "dce_url": "Point de terminaison de collecte",
+          "dcr_immutable_id": "ID immuable de la DCR",
+          "stream_name": "Nom du flux",
+          "authority_url": "URL d'autorité",
+          "bucket": "Bucket",
+          "region": "Région",
+          "prefix": "Préfixe de clé",
+          "role_arn": "ARN du rôle",
+          "external_id": "External ID",
+          "access_key_id": "ID de clé d'accès",
+          "secret_access_key": "Clé d'accès secrète",
+          "gzip": "Compresser les objets (gzip)",
+          "endpoint_url": "URL de point de terminaison personnalisée",
+          "sts_endpoint_url": "Point de terminaison STS personnalisé",
+          "host": "Hôte",
+          "port": "Port",
+          "tls": "Utiliser TLS",
+          "format": "Format du message",
+          "ca_cert": "Certificat CA (PEM)",
+          "app_name": "Nom de l'application",
+          "client_cert": "Certificat client (PEM)",
+          "client_key": "Clé client (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "Paramètres IA",
@@ -2484,9 +2681,39 @@
       "beta": "Fonctionnalité bêta",
       "locked": "Ce paramètre est verrouillé et ne peut pas être modifié.",
       "notEditable": "(Non directement modifiable)",
-      "aiAgentsTitle": "Agents IA",
-      "aiAgentsSubtitle": "Configurez les agents IA et les capacités disponibles pour les membres de votre organisation.",
       "noSettings": "Aucun paramètre IA disponible.",
+      "sectionSummary": "{n} paramètres",
+      "sectionSummaryOn": "{n} paramètres · {on} activés",
+      "sections": {
+        "data": {
+          "title": "Accès aux données et confidentialité",
+          "description": "Ce que l'IA peut voir et intégrer à une conversation"
+        },
+        "capabilities": {
+          "title": "Capacités de l'agent",
+          "description": "Ce que l'agent peut faire pour répondre"
+        },
+        "learning": {
+          "title": "Apprentissage et mémoire",
+          "description": "Comment l'IA apprend des utilisateurs, des retours et de l'usage"
+        },
+        "tools": {
+          "title": "Outils et MCP",
+          "description": "Serveurs MCP externes et outils d'API personnalisés"
+        },
+        "limits": {
+          "title": "Limites",
+          "description": "Plafonds de lignes, délais, nouvelles tentatives et tailles de contexte"
+        },
+        "workspace": {
+          "title": "Espace de travail",
+          "description": "Webhooks, duplications et conservation des données"
+        },
+        "other": {
+          "title": "Autres",
+          "description": "Paramètres pas encore rattachés à une section"
+        }
+      },
       "llmAccessWarning": "Modifier ce paramètre affecte la confidentialité des données. Une confirmation sera requise.",
       "llmModalTitleEnable": "Activer l'accès aux données par le LLM",
       "llmModalTitleDisable": "Désactiver l'accès aux données par le LLM",
@@ -2496,7 +2723,7 @@
       "llmImpactInspectTool": "Inspecter les données",
       "llmImpactAccuracy": "Précision et performance d'analyse réduites",
       "llmImpactColumns": "L'IA ne verra que les noms de colonnes et les statistiques, pas les valeurs réelles",
-      "llmFileUploadsNote": "Les téléversements de fichiers ne sont pas affectés par ce paramètre et resteront visibles par l'IA (vous pouvez désactiver les téléversements séparément).",
+      "llmFileUploadsNote": "Les téléversements de fichiers ne sont pas affectés par ce paramètre et resteront visibles par l'IA.",
       "llmConfirmLabel": "Tapez {phrase} pour confirmer",
       "llmConfirmPhrase": "JE SUIS SÛR",
       "llmConfirmPlaceholder": "JE SUIS SÛR",
@@ -2619,6 +2846,10 @@
           "name": "Taille en ligne du résultat MCP",
           "description": "Quelle part du résultat d'un outil MCP ou d'API personnalisée l'agent voit directement dans son contexte, en caractères. La réponse complète est toujours enregistrée dans un fichier quelle que soit cette valeur ; ce réglage détermine seulement ce que le modèle peut lire sans ouvrir ce fichier. Augmentez-le pour que l'agent réponde à partir d'un jeu de résultats complet plutôt que d'un échantillon ; diminuez-le pour dépenser moins de tokens par appel. Mettez 0 pour un échantillon de 3 enregistrements. Borné entre 0 et 500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "Lignes d'aperçu des données MCP",
+          "description": "Nombre de lignes de résultat que create_data renvoie à un client MCP externe (Claude, Cursor, etc.) dans sa réponse. Le résultat complet est toujours enregistré dans le rapport ; ce réglage décide seulement de la quantité que le modèle du client reçoit directement. Un client peut demander moins de lignes, jamais plus. Également limité par « Limiter le nombre de lignes ». Borné entre 1 et 10000."
+        },
         "enable_web_fetch": {
           "name": "Récupération web",
           "description": "Autorise l'agent à récupérer le contenu d'URL publiques HTTP et HTTPS. Seules les réponses de type texte sont renvoyées et les contenus volumineux sont tronqués."
@@ -2698,6 +2929,10 @@
         "checkins_max_runs_per_org_per_day": {
           "name": "Suivis par jour",
           "description": "Plafond de suivis pour toute l'organisation par jour (limite de coût)."
+        },
+        "enable_artifact_resources": {
+          "name": "Ressources des artefacts",
+          "description": "Autoriser les enregistrements persistants, les fichiers privés et les opérations IA approuvées dans les artefacts. Les autorisations de partage et de ressources restent applicables."
         }
       }
     },
@@ -3532,7 +3767,23 @@
     "memory.sensitive": "La mémoire ne peut pas contenir de secrets, de mots de passe ni de données personnelles sensibles.",
     "memory.looks_like_rule": "C'est une règle sur la façon de répondre : ajoutez-la à vos instructions personnalisées. La mémoire garde des faits vous concernant.",
     "memory.full": "La mémoire est pleine. Supprimez d'abord des entrées.",
-    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée."
+    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée.",
+    "audit_stream.not_found": "Flux de journaux introuvable.",
+    "audit_stream.invalid_destination": "Destination de flux inconnue.",
+    "audit_stream.missing_field": "Un champ obligatoire est manquant : {field}.",
+    "audit_stream.invalid_field": "Valeur invalide pour {field}.",
+    "audit_log.export_too_large": "L'export est limité à {limit} événements et ce filtre en renvoie {total}. Affinez le filtre ou utilisez un flux de journaux.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Requête de ressource non valide",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Ressource introuvable",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Accès refusé",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Connectez-vous pour continuer",
+    "ARTIFACT_RESOURCE_CONFLICT": "Ressource modifiée ; actualisez et réessayez",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Limite de ressource atteinte",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Trop de requêtes ; réessayez plus tard",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource indisponible",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Requête interrompue",
+    "ARTIFACT_RESOURCE_ABORTED": "Requête annulée",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge"
   },
   "email": {
     "dashboardShare": {
@@ -3697,16 +3948,6 @@
     "menuData": "Données"
   },
   "toolbar": {
-    "collapse": "Réduire",
-    "switchToArtifact": "Passer à la vue Artefact",
-    "dashboard": "Tableau de bord",
-    "addComponent": "Ajouter un composant",
-    "addText": "Ajouter du texte",
-    "theme": "Thème",
-    "rerun": "Réexécuter le rapport",
-    "openInNewTab": "Ouvrir le tableau de bord dans un nouvel onglet",
-    "fullscreen": "Plein écran",
-    "shareDashboard": "Partager le tableau de bord",
     "polishDashboard": "Peaufiner le tableau de bord"
   },
   "artifactFrame": {
@@ -3772,44 +4013,8 @@
     "partialRenderFailed": "Une partie de ce tableau de bord utilise des données auxquelles vous n’avez pas accès ; il n’a donc pas pu être affiché. Demandez l’accès à son propriétaire."
   },
   "filter": {
-    "addFilters": "Ajouter des filtres",
-    "title": "Filtres",
-    "clear": "Effacer",
-    "loading": "Chargement…",
-    "noData": "Aucune donnée à filtrer",
-    "refresh": "Actualiser",
-    "noFilters": "Aucun filtre appliqué",
-    "addFilter": "Ajouter un filtre",
-    "columnPlaceholder": "Colonne",
-    "searchPlaceholder": "Rechercher…",
-    "valuePlaceholder": "Valeur",
     "selectColumn": "Sélectionner une colonne",
-    "visualization": "Visualisation",
-    "orDivider": "OU",
-    "andDivider": "ET",
-    "rowsCount": "{shown} sur {total} lignes",
-    "apply": "Appliquer",
-    "op": {
-      "equals": "égal à",
-      "notEquals": "différent de",
-      "contains": "contient",
-      "notContains": "ne contient pas",
-      "startsWith": "commence par",
-      "endsWith": "se termine par",
-      "isEmpty": "est vide",
-      "isNotEmpty": "n'est pas vide",
-      "in": "dans",
-      "notIn": "pas dans",
-      "greaterThan": "supérieur à",
-      "lessThan": "inférieur à",
-      "greaterOrEqual": "supérieur ou égal",
-      "lessOrEqual": "inférieur ou égal",
-      "between": "entre",
-      "before": "avant",
-      "after": "après",
-      "isTrue": "est vrai",
-      "isFalse": "est faux"
-    }
+    "visualization": "Visualisation"
   },
   "slideViewer": {
     "loading": "Chargement des diapositives...",
@@ -5425,5 +5630,55 @@
     "expired": "Expirée",
     "mergedTip": "Intégrée à une suggestion de l'apprentissage nocturne. Ce n'est pas un rejet d'un relecteur.",
     "expiredTip": "Fermée après être restée non examinée au-delà du délai de l'organisation. Compte toujours comme preuve si le schéma revient."
+  },
+  "schemaIdentity": {
+    "viewing": "Affichage :",
+    "myAccount": "Mon compte",
+    "serviceAccount": "Compte de service",
+    "sharedConnection": "Connexion partagée",
+    "sharedSchema": "Schéma partagé",
+    "changeIdentity": "Changer l’identité des requêtes",
+    "refresh": "Actualiser le schéma",
+    "refreshMyFor": "Actualiser {name} · Mon compte",
+    "refreshSharedFor": "Actualiser {name} · Schéma partagé",
+    "refreshing": "Actualisation…",
+    "unknown": "Dernière actualisation du schéma : inconnue",
+    "refreshedAt": "Dernière actualisation du schéma : {time}",
+    "attemptedAt": "Dernière tentative : {time}",
+    "updated": "Schéma actualisé.",
+    "partial": "Certains modèles n’ont pas pu être actualisés. Leurs anciennes colonnes ont été conservées.",
+    "failed": "L’actualisation du schéma n’a pas abouti. Réessayez.",
+    "connectRequired": "Connectez votre compte pour voir ses tables."
+  },
+"artifactResources": {
+    "readOnlyLabel": "Lecture seule",
+    "sort": "Trier les enregistrements",
+    "applyFilter": "Appliquer",
+    "clearFilter": "Effacer le filtre",
+    "true": "Vrai",
+    "false": "Faux",
+    "inspect": "Ressources",
+    "readOnly": "Informations sur l’artefact en lecture seule",
+    "data": "Explorateur de données",
+    "analytics": "Analyses",
+    "collection": "Choisir une collection",
+    "refresh": "Actualiser",
+    "schema": "Schéma de la collection",
+    "filterField": "Champ du filtre",
+    "filterValue": "Égal à",
+    "filter": "Filtrer",
+    "empty": "Aucune donnée à afficher",
+    "pageRows": "{count} enregistrement sur cette page | {count} enregistrements sur cette page",
+    "next": "Page suivante",
+    "details": "Détails de l’enregistrement",
+    "views": "Vues",
+    "viewers": "Visiteurs authentifiés uniques",
+    "anonymousNote": "Les visites anonymes comptent comme vues, pas comme personnes uniques.",
+    "embedded": "Intégré",
+    "standalone": "Page partagée",
+    "days": "{count} derniers jours",
+    "failed": "Impossible de charger les données de l’artefact",
+    "newest": "Plus récents en premier",
+    "oldest": "Plus anciens en premier"
   }
 }

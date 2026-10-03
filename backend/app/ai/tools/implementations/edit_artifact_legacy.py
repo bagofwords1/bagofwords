@@ -757,7 +757,8 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
 (replacement lines)
 >>>>>>> REPLACE"""
 
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         try:
             chunks: list[str] = []
             async for evt in llm.inference_stream_v2(
@@ -1153,7 +1154,8 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
 
         # Stream LLM response
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         buffer = ""
 
         async for evt in llm.inference_stream_v2(

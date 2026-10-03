@@ -58,3 +58,15 @@ PII, general, channels, audit, identity provider, SMTP, license,
 instructions, integrations), onboarding wizard (`/onboarding/**`), auth
 (`/users/sign-in`, `/users/sign-up`, verify), share links (`/r/`, `/c/`).
 A future full QA pass should expand these into behavioral flow rows.
+
+## Artifact resources (opt-in)
+
+| Area | Flow | Routes | API | Automated coverage | Last QA | Status |
+|---|---|---|---|---|---|---|
+| Artifacts | Existing saved artifact renders and responds to controls | `/reports/:id`, `/r/:id` | Existing artifact/data APIs | Legacy artifact regressions; `legacy-browser.mjs` | 2026-10-02 | Passed before/after browser and targeted regressions |
+| Artifact data | Save a record in generated UI and read it after refresh | `/reports/:id` | `/artifacts/:id/runtime/collections/:resource/records` | Resource API tests; `interactions.mjs` | 2026-10-02 | Passed SQLite + browser |
+| Artifact files | Upload a private file, authorize delivery and reject unsafe deletion | `/reports/:id` | `/artifacts/:id/runtime/files/*` | Resource API tests; `interactions.mjs` | 2026-10-02 | Passed PostgreSQL + browser |
+| Artifact AI | Stream an approved operation and explicitly save its result | `/reports/:id` | `/artifacts/:id/runtime/ai/:operation/stream` | Controlled-provider API/browser tests, cancellation and revocation | 2026-10-02 | Controlled provider passed; real models pending |
+| Shared artifacts | Anonymous reader sees published rows and no drafts/edit controls | `/r/:id` | Existing sharing + scoped records | Resource policy tests; `public-blog.mjs` | 2026-10-02 | Passed |
+| Inspection | Browse schemas/records and inspect view counts without editing | Artifact dialog | Runtime read APIs + `/analytics` | Resource API tests; screenshots | 2026-10-02 | Passed; Hebrew checked |
+| Publication | Pin shared UI while preserving resource data and UI history | Authoring tools | `/artifacts/:id/runtime/publication` | Resource API tests | 2026-10-02 | Passed PostgreSQL |

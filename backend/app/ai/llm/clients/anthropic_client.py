@@ -1,7 +1,7 @@
 import json
 
 from app.ai.llm.reasoning import (
-    OFF_EFFORT_FOR_ALWAYS_THINKING, selected_effort, _effort_to_thinking_config,
+    claude_off_params, selected_effort, _effort_to_thinking_config,
     capability_model as _capability_model, clamp_effort, client_mode, efforts_for_client,
     merge_raw_params, raw_params_for,
 )
@@ -163,8 +163,64 @@ class Anthropic(LLMClient):
         content.append({"type": "text", "text": prompt.strip()})
         return content
 
+    def _apply_reasoning(self, model_id, request_kwargs, thinking):
+        # Extended thinking. The installed Anthropic SDK (<=0.40.0) doesn't
+        # expose `thinking` as a top-level kwarg, but the API server does
+        # accept it — pass via `extra_body` so it's appended to the request
+        # JSON. We also default display="summarized" so the UI gets readable
+        # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
+        # the default temperature when thinking is on, so drop ours entirely
+        # (omitting it is valid on every model).
+        # An omitted setting preserves provider defaults; explicit off is
+        # translated separately and must never become an enabled budget.
+        capability_model = _capability_model(self, model_id)
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
+        requested = selected_effort(thinking) if thinking else None
+        if requested and mode == "custom":
+            # Custom mode: the admin's raw fields ARE the reasoning request.
+            extra_body = merge_raw_params(dict(request_kwargs.pop("extra_body", {}) or {}),
+                                          raw_params_for(self, requested, clamp_effort(requested, efforts_for_client(self, model_id))),
+                                          passthrough_key=None)
+            request_kwargs["extra_body"] = extra_body
+            if "thinking" in extra_body:
+                request_kwargs.pop("temperature", None)
+        elif requested == "off":
+            extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
+            extra_body.update(claude_off_params(capability_model))
+            merge_raw_params(extra_body, raw_params_for(self, requested, None), passthrough_key=None)
+            if extra_body:
+                request_kwargs["extra_body"] = extra_body
+                request_kwargs.pop("temperature", None)
+        elif thinking:
+            t = dict(thinking)
+            effort = clamp_effort(requested, efforts_for_client(self, model_id)) or requested
+            # Re-map for the actual client model, including routed/fallback
+            # models; the planner may have built a budget for another family.
+            mapped = _effort_to_thinking_config(effort, capability_model)
+            if mapped and ((thinking or {}).get("effort") or mapped.get("type") == "adaptive"):
+                t.update(mapped)
+                if mapped.get("type") == "adaptive":
+                    t.pop("budget_tokens", None)
+            t.pop("effort", None)
+            t.setdefault("display", "summarized")
+            extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
+            extra_body["thinking"] = t
+            if effort and t.get("type") == "adaptive":
+                extra_body["output_config"] = {"effort": effort}
+            if requested:
+                merge_raw_params(extra_body, raw_params_for(self, requested, effort), passthrough_key=None)
+            request_kwargs["extra_body"] = extra_body
+            request_kwargs.pop("temperature", None)
+            # max_tokens must exceed budget_tokens; bump if needed.
+            budget = int((extra_body.get("thinking") or {}).get("budget_tokens") or 0)
+            if budget and request_kwargs.get("max_tokens", 0) <= budget:
+                request_kwargs["max_tokens"] = budget + 4096
+
+
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         kwargs: dict[str, Any] = {}
         if _accepts_temperature(model_id):
             kwargs["temperature"] = self.temperature
@@ -176,6 +232,8 @@ class Anthropic(LLMClient):
             kwargs["system"] = [
                 {"type": "text", "text": system, "cache_control": _prefix_cache_control()},
             ]
+        kwargs["max_tokens"] = self.max_tokens
+        self._apply_reasoning(model_id, kwargs, thinking)
         message = self.client.messages.create(
             model=model_id,
             messages=[
@@ -184,7 +242,6 @@ class Anthropic(LLMClient):
                     "content": self._build_content(prompt, images),
                 }
             ],
-            max_tokens=self.max_tokens,
             **kwargs,
         )
         usage = self._extract_usage(getattr(message, "usage", None))
@@ -200,12 +257,17 @@ class Anthropic(LLMClient):
         return LLMResponse(text=text, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None, thinking: Optional[dict] = None
     ) -> AsyncGenerator[str, None]:
         kwargs: dict[str, Any] = {}
         if _accepts_temperature(model_id):
             kwargs["temperature"] = self.temperature
-        stream = await self.async_client.messages.create(
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        kwargs["max_tokens"] = min(self.max_tokens, max_output_tokens) if max_output_tokens is not None else self.max_tokens
+        self._apply_reasoning(model_id, kwargs, thinking)
+        if max_output_tokens is not None:
+            kwargs["max_tokens"] = min(kwargs["max_tokens"], max_output_tokens)
+        stream = await client.messages.create(
             model=model_id,
             messages=[
                 {
@@ -213,27 +275,31 @@ class Anthropic(LLMClient):
                     "content": self._build_content(prompt, images),
                 }
             ],
-            max_tokens=self.max_tokens,
             stream=True,
             **kwargs,
         )
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if chunk.type == "content_block_delta" and chunk.delta.text:
-                yield chunk.delta.text
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
+        try:
+            async for chunk in stream:
+                if max_output_tokens is not None and getattr(getattr(chunk, "delta", None), "stop_reason", None) == "max_tokens":
+                    raise ValueError("Model output limit reached")
+                if chunk.type == "content_block_delta" and getattr(chunk.delta, "text", None):
+                    yield chunk.delta.text
+                usage = self._extract_usage(getattr(chunk, "usage", None))
+                if usage.prompt_tokens or usage.completion_tokens:
+                    prompt_tokens = usage.prompt_tokens or prompt_tokens
+                    completion_tokens = usage.completion_tokens or completion_tokens
 
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await (getattr(stream, "aclose", None) or stream.close)()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _extract_usage(raw: Any) -> LLMUsage:
@@ -434,61 +500,7 @@ class Anthropic(LLMClient):
         if _accepts_temperature(model_id):
             request_kwargs["temperature"] = self.temperature
 
-        # Extended thinking. The installed Anthropic SDK (<=0.40.0) doesn't
-        # expose `thinking` as a top-level kwarg, but the API server does
-        # accept it — pass via `extra_body` so it's appended to the request
-        # JSON. We also default display="summarized" so the UI gets readable
-        # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
-        # the default temperature when thinking is on, so drop ours entirely
-        # (omitting it is valid on every model).
-        # Modern models think even when the caller omits the setting. Ask for
-        # their summaries, and for low effort when the caller asked for none.
-        capability_model = _capability_model(self, model_id)
-        mode = client_mode(self)
-        if mode == "off":
-            thinking = None
-        requested = selected_effort(thinking) if thinking else None
-        default_thinking = not _accepts_temperature(capability_model)
-        if requested and mode == "custom":
-            # Custom mode: the admin's raw fields ARE the reasoning request.
-            extra_body = merge_raw_params(dict(request_kwargs.pop("extra_body", {}) or {}),
-                                          raw_params_for(self, requested, clamp_effort(requested, efforts_for_client(self, model_id))),
-                                          passthrough_key=None)
-            request_kwargs["extra_body"] = extra_body
-            if "thinking" in extra_body:
-                request_kwargs.pop("temperature", None)
-        elif thinking or default_thinking:
-            t = dict(thinking or {"type": "adaptive"})
-            # No thinking requested means reasoning is "off". These models
-            # cannot turn it off, and left to the provider they run at its
-            # default effort (high): tens of seconds of reasoning on routine
-            # planner steps. Ask for the least instead; an explicit effort
-            # (per-completion, model default, "think hard") still wins.
-            effort = (
-                clamp_effort(requested, efforts_for_client(self, model_id)) or requested
-                if thinking else OFF_EFFORT_FOR_ALWAYS_THINKING
-            )
-            # Re-map for the actual client model, including routed/fallback
-            # models; the planner may have built a budget for another family.
-            mapped = _effort_to_thinking_config(effort, capability_model)
-            if mapped and ((thinking or {}).get("effort") or mapped.get("type") == "adaptive"):
-                t.update(mapped)
-                if mapped.get("type") == "adaptive":
-                    t.pop("budget_tokens", None)
-            t.pop("effort", None)
-            t.setdefault("display", "summarized")
-            extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
-            extra_body["thinking"] = t
-            if effort and t.get("type") == "adaptive":
-                extra_body["output_config"] = {"effort": effort}
-            if requested:
-                merge_raw_params(extra_body, raw_params_for(self, requested, effort), passthrough_key=None)
-            request_kwargs["extra_body"] = extra_body
-            request_kwargs.pop("temperature", None)
-            # max_tokens must exceed budget_tokens; bump if needed.
-            budget = int((extra_body.get("thinking") or {}).get("budget_tokens") or 0)
-            if budget and request_kwargs.get("max_tokens", 0) <= budget:
-                request_kwargs["max_tokens"] = budget + 4096
+        self._apply_reasoning(model_id, request_kwargs, thinking)
 
         # Prompt caching. Historically only system + tools were marked, so
         # everything in `messages` — the static context (instructions, schemas,

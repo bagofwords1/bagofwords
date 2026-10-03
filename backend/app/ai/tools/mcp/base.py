@@ -170,6 +170,15 @@ class MCPTool(ABC):
         await assert_read(db, report.bow_source_access, user)
         return report
 
+    async def _authorize_artifact_authoring(self, db, user, organization, report):
+        """Authorize before building any source/model context for artifact writes."""
+        if (str(report.organization_id) != str(organization.id)
+                or str(report.user_id) != str(user.id)
+                or report.deleted_at is not None or report.status == 'archived'):
+            raise HTTPException(status_code=404, detail='Report not found or access denied')
+        from app.core.permissions_decorator import require_org_permission
+        await require_org_permission(db, str(user.id), str(organization.id), 'update_reports')
+
     async def _assert_can_view_report(
         self,
         db: AsyncSession,

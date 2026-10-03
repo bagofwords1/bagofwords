@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.0.575 (October 3, 2026)
+- Added artifact resources: persistent records, files and AI streaming (#1220) — default off in organization settings
+- Added audit log streams to Datadog, Splunk, Microsoft Sentinel, Amazon S3, Google Cloud Storage, HTTPS webhooks and syslog (#1232) — Settings → Audit Logs → Streams
+- Added an event details drawer, user, resource and time filters, and JSON/CSV export to the audit log
+- Fixed audit log rows overlapping on actions with more than two parts
+- Fixed AI tool audit events being dropped under load or when the database was briefly unavailable
+- Made six connectors available without an enterprise license and unified license checks (#1225)
+- Fixed report scrolling, dashboard refresh, reasoning settings and access checks; updated the not-found page (#1227, #1228, #1230, #1231)
+
 ## Version 0.0.574 (October 3, 2026)
 - Added SAML single sign-on with any SAML 2.0 identity provider (#1219) — configured under `saml_providers` in `bow-config.yaml`
 - Replaced the reasoning effort buttons with a Faster ↔ Smarter slider in the model picker (#1223)

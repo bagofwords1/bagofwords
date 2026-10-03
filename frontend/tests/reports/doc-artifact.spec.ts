@@ -82,9 +82,6 @@ test('shared doc renders markdown, table, viz, columns and mermaid via DocViewer
       }),
     })
   );
-  await page.route(`**/api/r/${REPORT_ID}/layouts**`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-  );
   await page.route(`**/api/r/${REPORT_ID}/queries**`, (route) => {
     // Both /queries?artifact_id=... and /queries/{id}/step hit this glob —
     // dispatch on the URL so each gets its own payload.
