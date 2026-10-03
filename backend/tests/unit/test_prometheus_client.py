@@ -434,3 +434,100 @@ def test_garbage_numeric_config_does_not_break_the_client():
     c = PrometheusClient(base_url="http://h:9090", timeout="soon", discovery_lookback_hours="lots")
     assert c.timeout == 30
     assert c.discovery_lookback_s == 3600
+
+
+# ---------- series-cap fallback (VictoriaMetrics) ---------- #
+
+
+def _labels_route(by_metric):
+    """/api/v1/labels answering per match[] — the per-metric fallback."""
+
+    class _Labels:
+        def __init__(self):
+            self.status_code = 200
+            self.text = ""
+            self.params = None
+
+        def json(self):
+            name = dict(self.params)["match[]"]
+            return {"status": "success", "data": ["__name__", *by_metric[name]]}
+
+    return _Labels()
+
+
+class _ParamAwareSession(_FakeSession):
+    def get(self, url, params=None, timeout=None):
+        resp = super().get(url, params, timeout)
+        if hasattr(resp, "params"):
+            resp.params = params
+        return resp
+
+
+def _install_param_aware(monkeypatch, routes):
+    session = _ParamAwareSession(routes)
+    monkeypatch.setattr(
+        "app.data_sources.clients.prometheus_client.requests.Session",
+        lambda: session,
+    )
+    return session
+
+
+_LABELS = {
+    "up": ["job", "instance"],
+    "node_cpu_seconds_total": ["cpu", "mode"],
+    "http_requests_total": ["handler", "code"],
+    "job:up:count": ["job"],
+}
+
+
+def _columns(tables):
+    return {t.name: {c.name for c in t.columns} - {"timestamp", "value"} for t in tables}
+
+
+def test_series_cap_error_falls_back_to_per_metric_labels(monkeypatch):
+    """VictoriaMetrics rejects /series once the matched set exceeds
+    -search.maxUniqueTimeseries, whatever `limit` says. Discovery must still
+    produce every metric's label columns instead of failing the whole index."""
+    routes = _schema_routes()
+    routes["/api/v1/series"] = _FakeResponse(
+        {"status": "error", "errorType": "422",
+         "error": "the number of matching timeseries exceeds 30000"},
+        status_code=422,
+    )
+    routes["/api/v1/labels"] = _labels_route(_LABELS)
+    _install_param_aware(monkeypatch, routes)
+
+    tables = PrometheusClient(base_url="http://h:9090").get_schemas()
+
+    assert _columns(tables) == {k: set(v) for k, v in _LABELS.items()}
+
+
+def test_truncated_series_batch_does_not_drop_other_metrics_labels(monkeypatch):
+    """A batch that hits the series limit is cut off server-side, so metrics
+    past the cut would silently lose their labels."""
+    limit = PrometheusClient._SERIES_LIMIT
+    routes = _schema_routes()
+    routes["/api/v1/series"] = _ok(
+        [{"__name__": "up", "job": "j", "instance": str(i)} for i in range(limit)]
+    )
+    routes["/api/v1/labels"] = _labels_route(_LABELS)
+    _install_param_aware(monkeypatch, routes)
+
+    tables = PrometheusClient(base_url="http://h:9090").get_schemas()
+
+    assert _columns(tables) == {k: set(v) for k, v in _LABELS.items()}
+
+
+def test_a_metric_failing_label_fallback_does_not_fail_discovery(monkeypatch):
+    routes = _schema_routes()
+    routes["/api/v1/series"] = _FakeResponse(
+        {"status": "error", "errorType": "422", "error": "too many series"}, status_code=422,
+    )
+    routes["/api/v1/labels"] = _FakeResponse(
+        {"status": "error", "errorType": "422", "error": "too many series"}, status_code=422,
+    )
+    _install(monkeypatch, routes)
+
+    tables = PrometheusClient(base_url="http://h:9090").get_schemas()
+
+    assert {t.name for t in tables} == set(_LABELS)
