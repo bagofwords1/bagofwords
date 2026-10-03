@@ -83,6 +83,7 @@
         "intercomEnabled": { "type": "boolean" },
         "telemetryEnabled": { "type": "boolean" },
         "baseUrl": { "type": "string" },
+        "forwardedAllowIps": { "type": "string" },
         "authMode": { "type": "string", "enum": ["hybrid", "local_only", "sso_only"] },
         "allowUninvitedSignups": { "type": "boolean" },
         "allowMultipleOrganizations": { "type": "boolean" },

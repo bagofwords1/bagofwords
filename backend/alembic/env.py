@@ -14,6 +14,7 @@ from app.settings.db_auth import get_auth_provider
 
 from app.models.base import BaseSchema
 from app.models.report import Report
+from app.models.artifact_resource import ArtifactResource, ArtifactRecord, ArtifactRecordIndex, ArtifactMutation, ArtifactView, ArtifactFileBinding, ArtifactRateBucket
 from app.models.artifact import Artifact, ArtifactVersion
 from app.models.widget import Widget
 from app.models.step import Step
