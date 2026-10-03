@@ -170,6 +170,25 @@ class ConnectionInfo(BaseModel):
         from_attributes = True
 
 
+class CatalogViewConnection(ConnectionInfo):
+    """A user_required connection the "all tables" toggle does not open."""
+    reason: str  # "no_permission" (caller can't manage the connection) | "no_org_credentials"
+
+
+class CatalogViewInfo(BaseModel):
+    """The tables selector's "All tables / My tables" toggle.
+
+    Only returned to agent managers with at least one user_required connection
+    they manage whose org catalog their default view hides.
+    """
+    all_tables: bool  # True when this response applied the "all tables" view
+    applies_to: List[ConnectionInfo]  # user_required connections the toggle opens
+    not_applicable: List[CatalogViewConnection]  # the rest, with the reason
+    # Selected tables on the agent that the caller's own view does not include.
+    # Only computed for the default ("my tables") view.
+    selected_inaccessible_count: int = 0
+
+
 class PaginatedTablesResponse(BaseModel):
     """Paginated response for large table lists."""
     tables: List[DataSourceTableSchema]
@@ -182,6 +201,7 @@ class PaginatedTablesResponse(BaseModel):
     selected_count: int  # Count of is_active=True across ALL tables
     total_tables: int  # Total count of ALL tables for this datasource (no filters)
     has_more: bool
+    catalog_view: Optional[CatalogViewInfo] = None
 
     class Config:
         from_attributes = True
