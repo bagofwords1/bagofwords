@@ -768,6 +768,9 @@ class QueryCapturingClientWrapper:
         self._last_cancel_outcome: Optional[str] = None
         self._active_query_thread: Optional[threading.Thread] = None
         self._active_query_lock = threading.Lock()
+        # Set by cancel_active_query when the abort lands before the query
+        # thread is running; the query path honours it once it is.
+        self._abort_pending = False
         self._max_concurrent_queries = (
             int(max_concurrent_queries)
             if isinstance(max_concurrent_queries, (int, float)) and max_concurrent_queries > 0
@@ -912,9 +915,17 @@ class QueryCapturingClientWrapper:
             name="bow_query_timeout_guard",
             daemon=True,
         )
-        t.start()
+        # Register before start: cancel_active_query runs on the sandbox
+        # runner's abort thread and must never see a running query it cannot
+        # find. An abort that arrives before the thread is running sets
+        # _abort_pending instead, and is honoured right after start.
         with self._active_query_lock:
             self._active_query_thread = t
+        t.start()
+        with self._active_query_lock:
+            abort_pending, self._abort_pending = self._abort_pending, False
+        if abort_pending:
+            self._last_cancel_outcome = self._cancel_orphan(t)
         try:
             t.join(self._query_timeout_seconds)
         finally:
@@ -931,11 +942,20 @@ class QueryCapturingClientWrapper:
         return holder.get("value")
 
     def cancel_active_query(self) -> None:
-        """Request source-side cancellation when the sandbox job stops early."""
+        """Request source-side cancellation when the sandbox job stops early.
+
+        Called from the sandbox runner's abort thread. If the query thread is
+        not running yet (or no query is in flight), the abort is remembered
+        and the query path cancels itself as soon as its thread starts, so
+        the two sides can never miss each other.
+        """
         with self._active_query_lock:
             thread = self._active_query_thread
-        if thread is not None and thread.is_alive():
-            self._cancel_orphan(thread)
+            if thread is None or thread.ident is None:
+                self._abort_pending = True
+                return
+        if thread.is_alive():
+            self._last_cancel_outcome = self._cancel_orphan(thread)
 
     def _cancel_orphan(self, thread: threading.Thread) -> str:
         """Best-effort source-side cancellation of an abandoned query.

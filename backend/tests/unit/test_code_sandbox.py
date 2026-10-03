@@ -23,6 +23,7 @@ import pandas as pd
 import pytest
 
 from app.ai.code_execution.code_execution import (
+    QueryCapturingClientWrapper,
     QueryTimeoutError,
     StreamingCodeExecutor,
     UnsafePythonError,
@@ -345,6 +346,51 @@ def generate_df(ds_clients, excel_files):
     wide, meta = protocol.dataframe_to_arrow(pd.DataFrame({"w": [1 << 70, 1]}, dtype=object))
     assert meta["stringified"] == ["w"]
     assert protocol.arrow_to_dataframe(wide, meta)["w"].tolist() == [str(1 << 70), "1"]
+
+
+def test_abort_before_the_query_thread_registers_still_cancels_the_query(monkeypatch):
+    # The runner's abort thread and the wrapper's query thread race at job
+    # cancellation. If the abort lands before the query thread is running,
+    # it must be remembered and honoured once the thread starts, not lost.
+    from app.data_sources import query_cancellation
+
+    released = threading.Event()
+    cancelled = threading.Event()
+
+    class Client:
+        def execute_query(self, query):
+            released.wait(timeout=10)
+            return pd.DataFrame({"ok": [1]})
+
+    client = Client()
+
+    def cancel_thread(target, thread_ident):
+        assert target is client and thread_ident
+        cancelled.set()
+        released.set()
+        return "cancelled"
+
+    monkeypatch.setattr(query_cancellation, "cancel_thread", cancel_thread)
+    wrapper = QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30)
+    wrapper.cancel_active_query()  # abort arrives first: nothing is running yet
+    assert not cancelled.is_set()
+    df = wrapper.execute_query("SELECT 1")  # the query path picks the abort up itself
+    assert cancelled.is_set() and df["ok"].tolist() == [1]
+
+    # And the ordinary order still works: a running query is cancelled directly.
+    released.clear()
+    cancelled.clear()
+    wrapper2 = QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30)
+    worker = threading.Thread(target=wrapper2.execute_query, args=("SELECT 1",), daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 5
+    while wrapper2._active_query_thread is None or wrapper2._active_query_thread.ident is None:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    wrapper2.cancel_active_query()
+    assert cancelled.wait(timeout=5)
+    worker.join(timeout=5)
+    assert not worker.is_alive()
 
 
 def test_runner_works_with_more_than_1024_descriptors_open():
