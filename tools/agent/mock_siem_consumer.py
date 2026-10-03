@@ -266,6 +266,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(status, f"<Error><Code>{code}</Code><Message>injected</Message></Error>", "application/xml")
         elif dest == "splunk" and status in (401, 403):
             self._send(status, {"text": "Invalid token", "code": 4})
+        elif dest == "splunk" and status == 503:
+            self._send(status, {"text": "Server is busy", "code": 9})  # HEC back-pressure
         else:
             self._send(status, {"error": f"injected {status}"}, extra={"Retry-After": "1"} if status == 429 else None)
         return True
