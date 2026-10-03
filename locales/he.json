@@ -5025,6 +5025,7 @@
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "הדף לא נמצא",
+    "notFoundHint": "הדף שחיפשת לא קיים או שאין לך גישה אליו.",
     "genericTitle": "משהו השתבש",
     "unknownError": "שגיאה לא ידועה",
     "goHome": "לדף הבית"

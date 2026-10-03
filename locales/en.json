@@ -5096,6 +5096,7 @@
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "Page not found",
+    "notFoundHint": "The page you're looking for doesn't exist or you don't have access to it.",
     "genericTitle": "Something went wrong",
     "unknownError": "Unknown error",
     "goHome": "Go home"

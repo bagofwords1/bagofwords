@@ -5005,6 +5005,7 @@
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "Página no encontrada",
+    "notFoundHint": "La página que buscas no existe o no tienes acceso a ella.",
     "genericTitle": "Algo salió mal",
     "unknownError": "Error desconocido",
     "goHome": "Ir al inicio"
