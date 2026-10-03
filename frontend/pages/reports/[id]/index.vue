@@ -2473,6 +2473,9 @@ const panelFile = ref<{
 	imageFileIds?: string[] | null
 	name?: string
 } | null>(null)
+// Same return-path bookkeeping as the data pane below.
+const filePanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'data'>('artifact')
+const filePanelOpenedSplit = ref(false)
 
 function openFilePreview(payload: any) {
 	if (!payload?.fileId) return
@@ -2480,7 +2483,11 @@ function openFilePreview(payload: any) {
 	// Mobile keeps the inline/modal behaviour — mobileView is a separate closed
 	// union and opening a second surface there is its own piece of work.
 	if (isMobile.value) return
-	if (!isSplitScreen.value) toggleSplitScreen()
+	if (rightPanelView.value !== 'file') filePanelReturnView.value = rightPanelView.value
+	if (!isSplitScreen.value) {
+		filePanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
 	rightPanelView.value = 'file'
 }
 
@@ -2502,7 +2509,15 @@ function leftWidthFor(view: string): number {
 
 function closeFilePanel() {
 	panelFile.value = null
-	if (rightPanelView.value === 'file') rightPanelView.value = 'artifact'
+	const openedSplit = filePanelOpenedSplit.value
+	filePanelOpenedSplit.value = false
+	if (rightPanelView.value !== 'file') return
+	// A data view only exists while its result is open.
+	const back = filePanelReturnView.value
+	rightPanelView.value = back === 'data' && !panelData.value ? 'artifact' : back
+	// Opening the file is what opened the panel, so closing it closes the
+	// panel too instead of landing on whatever tab sat underneath.
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
 
 // A query result (create_data / read_query / …) opened from its inline card
@@ -2518,6 +2533,9 @@ const panelData = ref<{
 // The view that was showing when the data pane opened, so closing it goes
 // back there (dashboard, agent, summary…) rather than always to the dashboard.
 const dataPanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+// Whether opening the data pane is what opened the side panel. If so, closing
+// it closes the panel too — there was no view underneath to go back to.
+const dataPanelOpenedSplit = ref(false)
 
 function openDataPanel(payload: { toolExecution: any; title?: string; visual?: boolean }) {
 	const te = payload?.toolExecution
@@ -2530,16 +2548,22 @@ function openDataPanel(payload: { toolExecution: any; title?: string; visual?: b
 	}
 	if (isMobile.value) return
 	if (rightPanelView.value !== 'data') dataPanelReturnView.value = rightPanelView.value
-	if (!isSplitScreen.value) toggleSplitScreen()
+	if (!isSplitScreen.value) {
+		dataPanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
 	rightPanelView.value = 'data'
 }
 
 function closeDataPanel() {
 	panelData.value = null
+	const openedSplit = dataPanelOpenedSplit.value
+	dataPanelOpenedSplit.value = false
 	if (rightPanelView.value !== 'data') return
 	// A file view only exists while its file is open.
 	const back = dataPanelReturnView.value
 	rightPanelView.value = back === 'file' && !panelFile.value ? 'artifact' : back
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
 
 // Mobile view mode (full-screen single section on narrow screens)
@@ -2943,7 +2967,13 @@ watch(
 
 // Split screen toggles reflow the chat column; keep the bottom pinned only
 // when the reader was already following.
-watch(() => isSplitScreen.value, () => {
+watch(() => isSplitScreen.value, (open) => {
+    // Once the user closes the panel themselves, a later close of the data /
+    // file tab must not collapse a panel they reopened some other way.
+    if (!open) {
+        dataPanelOpenedSplit.value = false
+        filePanelOpenedSplit.value = false
+    }
     nextTick(() => setTimeout(followScrollToBottom, 80))
 })
 
