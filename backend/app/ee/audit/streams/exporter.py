@@ -13,9 +13,11 @@
 # commits late can carry a created_at earlier than rows already delivered, and
 # the lag window is what keeps the cursor from stepping over it.
 
+import asyncio
 import logging
 import os
 import random
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -31,7 +33,11 @@ from app.ee.audit.streams.models import AuditLogStream
 logger = logging.getLogger(__name__)
 
 LEASE_SECONDS = 120
-MAX_BATCHES_PER_TICK = 10
+# Per-stream work per tick is bounded by time, not batch count, so a large
+# backfill ("include all history") drains at full speed while one slow stream
+# cannot hold the tick; the lease (LEASE_SECONDS) always outlasts the budget.
+STREAM_BUDGET_SECONDS = 20.0
+STREAM_CONCURRENCY = 4
 MAX_BACKOFF_SECONDS = 900
 _DEFAULT_LAG_SECONDS = 30
 
@@ -189,8 +195,9 @@ async def deliver_stream(stream_id: str, now: Optional[datetime] = None) -> int:
     delivered = 0
     result = SendResult.success()
     maker = _session_maker()
+    started = time.monotonic()
     try:
-        for _ in range(MAX_BATCHES_PER_TICK):
+        while time.monotonic() - started < STREAM_BUDGET_SECONDS:
             async with maker() as db:
                 rows = await fetch_batch(db, snap["organization_id"], cursor, cutoff, dest.max_batch)
             if not rows:
@@ -238,11 +245,16 @@ async def run_exporter_tick(now: Optional[datetime] = None) -> Dict[str, int]:
             )
         )).scalars().all()
     out: Dict[str, int] = {}
-    for sid in ids:
-        try:
-            out[sid] = await deliver_stream(sid, now)
-        except Exception:
-            logger.exception("audit stream %s: delivery tick failed", sid)
+    gate = asyncio.Semaphore(STREAM_CONCURRENCY)
+
+    async def one(sid: str) -> None:
+        async with gate:
+            try:
+                out[sid] = await deliver_stream(sid, now)
+            except Exception:
+                logger.exception("audit stream %s: delivery tick failed", sid)
+
+    await asyncio.gather(*(one(sid) for sid in ids))
     return out
 
 

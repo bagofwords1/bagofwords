@@ -26,6 +26,7 @@ Control / inspection:
     POST   /_control/fault   {"dest": "splunk", "mode": "503|429|500|401|403|400|reset|timeout", "count": 3, "sleep": 20}
     DELETE /_control/fault
     POST   /_control/config  {"dd_api_key": "...", "hec_token": "...", "hmac_secret": "...", "external_id": "...", ...}
+    POST   /_control/reset   faults cleared, credentials back to defaults, received events dropped
     GET    /_received?dest=splunk
     POST   /_stats           {"dest": "splunk", "expect_ids": ["..."]}   (GET /_stats?dest= without ids)
     DELETE /_received
@@ -322,6 +323,12 @@ class Handler(BaseHTTPRequestHandler):
             d = json.loads(self._body() or b"{}")
             with self.state.lock:
                 self.state.faults[d["dest"]] = {"mode": d["mode"], "count": int(d.get("count", 1)), "sleep": d.get("sleep")}
+            return self._send(200, {"ok": True})
+        if p == "/_control/reset":
+            with self.state.lock:
+                self.state.faults.clear()
+                self.state.config = dict(DEFAULT_CONFIG)
+                self.state.reset()
             return self._send(200, {"ok": True})
         if p == "/_control/config":
             d = json.loads(self._body() or b"{}")

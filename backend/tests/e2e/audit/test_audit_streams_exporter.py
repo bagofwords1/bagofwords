@@ -282,3 +282,49 @@ def test_concurrent_exporters_claim_a_stream_once(test_client, bootstrap_admin, 
     assert sorted(sent)[-1] > 0 and sum(1 for n in sent if n) == 1
     stats = siem.state.stats("https", _db_ids(test_client, admin))
     assert stats["missing"] == [] and stats["duplicates"] == 0
+
+
+def test_tool_events_written_late_still_reach_the_stream(test_client, bootstrap_admin, siem, monkeypatch, tmp_path):
+    """Tool-audit events can reach the table long after they happened (queue
+    backpressure, or a disk spill replayed on the next start). They must not
+    land behind a cursor that has already moved on."""
+    from types import SimpleNamespace
+
+    import app.ee.audit.tool_audit as ta
+
+    monkeypatch.setenv("BOW_AUDIT_SPILL_DIR", str(tmp_path / "spill"))
+    admin = bootstrap_admin()
+    s = _stream(test_client, admin, siem)
+    ctx = {"organization": SimpleNamespace(id=admin["org_id"]), "user": None, "agent_execution_id": "run-late"}
+
+    async def outage_then_spill():
+        async def down(events):
+            raise ConnectionError("database unavailable")
+        monkeypatch.setattr(ta, "_write_batch", down)
+        monkeypatch.setattr(ta, "_RETRY_DELAYS_SECONDS", ())
+        await ta.start_tool_audit_worker()
+        for i in range(3):
+            await ta.log_tool_audit(ctx, "tool.data_queried", "data_source", None, {"i": i})
+        await ta.stop_tool_audit_worker(timeout=5)
+        monkeypatch.undo()
+        monkeypatch.setenv("BOW_AUDIT_SPILL_DIR", str(tmp_path / "spill"))
+
+    _run(outage_then_spill())
+    assert ta.get_tool_audit_queue_stats()["spilled"] >= 3
+
+    # Other activity moves the cursor forward before the replay happens.
+    _api_key_events(test_client, admin, 2)
+    _tick(_later(120))
+    assert _get(test_client, admin, s["id"])["status"]["pending"] == 0
+
+    # Treat any delay as "late" so the replayed rows record their original time.
+    monkeypatch.setattr(ta, "_LATE_WRITE_SECONDS", 0.0)
+    assert _run(ta.replay_spilled_tool_audit_events()) == 3
+    _tick(_later(600))
+
+    late = [e for e in siem.state.envelopes("https") if e["actor"]["type"] == "agent"]
+    assert len(late) == 3
+    stats = siem.state.stats("https", _db_ids(test_client, admin))
+    assert stats["missing"] == [] and stats["duplicates"] == 0
+    # The original event time is preserved for the late writes.
+    assert all(e["metadata"].get("occurred_at") for e in late)

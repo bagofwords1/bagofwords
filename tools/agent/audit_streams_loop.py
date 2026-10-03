@@ -7,8 +7,10 @@ API, generates events through real audited actions, injects faults through the
 mock's control API, and checks convergence against the database (the audit
 list endpoint), printing a PASS/FAIL table. Exits non-zero on any FAIL.
 
-    # stack up with a short lag/interval so the loop runs in seconds:
+    # stack up with a short lag/interval so the loop runs in seconds, and a
+    # pinned encryption key so stream secrets survive the B5 restart:
     export BOW_AUDIT_STREAM_LAG_SECONDS=2 BOW_AUDIT_STREAM_INTERVAL_SECONDS=5
+    export BOW_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())")
     tools/agent/boot_stack.sh
     cd backend && uv run python ../tools/agent/seed_org.py --demo
     uv run python ../tools/agent/mock_siem_consumer.py --state-dir /tmp/siem-mock &
@@ -111,8 +113,7 @@ class Loop:
     def setup(self):
         for s in self.api.get("/api/enterprise/audit/streams", headers=self.h).json():
             self.api.delete(f"/api/enterprise/audit/streams/{s['id']}", headers=self.h)
-        self.mock.delete("/_received")
-        self.mock.delete("/_control/fault")
+        self.mock.post("/_control/reset").raise_for_status()
         m = self.a.mock
         ca = open(self.a.ca_cert).read() if self.a.ca_cert and os.path.exists(self.a.ca_cert) else None
         cfg = {
@@ -180,7 +181,7 @@ class Loop:
         cmd = [sys.executable, os.path.abspath(__file__), "--burst-worker", str(n), "--org", self.org]
         t0 = time.time()
         out = subprocess.run(cmd, cwd=os.path.join(ROOT, "backend"), capture_output=True, text=True, timeout=600)
-        line = next((ln for ln in out.stdout.splitlines() if ln.startswith("{")), "{}")
+        line = next((ln for ln in out.stdout.splitlines() if ln.startswith('{"rows"')), "{}")
         stats = json.loads(line)
         self.check("B4 burst: queue dropped nothing", stats.get("dropped") == 0 and stats.get("rows") == n,
                    f"burst={n} rows={stats.get('rows')} {json.dumps(stats.get('queue', {}))} in {time.time() - t0:.1f}s")

@@ -16,6 +16,11 @@
 #     file, replayed into audit_logs on the next start.
 # Event ids are assigned at enqueue time, so a retry or replay of an event that
 # did reach the table is detected and skipped rather than written twice.
+# created_at is stamped when the row is written, not when the event happened:
+# log streams cursor on created_at and only wait a short lag window for late
+# commits, so a row that lands minutes later (backpressure, a replayed spill)
+# with an old created_at would sit behind a cursor that has already moved on.
+# A delayed write keeps the original time in details["occurred_at"].
 
 import asyncio
 import contextlib
@@ -39,6 +44,7 @@ _RETRY_DELAYS_SECONDS = (0.5, 1.0, 2.0)
 _ENQUEUE_WAIT_SECONDS = 2.0
 _SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 5.0
 _SLOW_AUDIT_WRITE_MS = 1000.0
+_LATE_WRITE_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -147,6 +153,7 @@ async def _write_batch(events: List[ToolAuditEvent]) -> int:
         ids = [e.id for e in events]
         existing = set((await session.execute(select(AuditLog.id).where(AuditLog.id.in_(ids)))).scalars())
         fresh = [e for e in events if e.id not in existing]
+        written_at = datetime.utcnow()
         session.add_all([
             AuditLog(
                 id=e.id,
@@ -155,8 +162,8 @@ async def _write_batch(events: List[ToolAuditEvent]) -> int:
                 action=e.action,
                 resource_type=e.resource_type,
                 resource_id=e.resource_id,
-                details=e.details,
-                created_at=e.occurred_at,
+                details=_with_occurred_at(e, written_at),
+                created_at=written_at,
             )
             for e in fresh
         ])
@@ -167,13 +174,20 @@ async def _write_batch(events: List[ToolAuditEvent]) -> int:
     return len(fresh)
 
 
+def _with_occurred_at(e: ToolAuditEvent, written_at: datetime) -> Optional[dict]:
+    if (written_at - e.occurred_at).total_seconds() < _LATE_WRITE_SECONDS:
+        return e.details
+    return {**(e.details or {}), "occurred_at": e.occurred_at.isoformat() + "Z"}
+
+
 async def _persist(events: List[ToolAuditEvent]) -> List[ToolAuditEvent]:
     """Write events with retry; return the ones that still could not be written."""
     for attempt, delay in enumerate((0.0,) + _RETRY_DELAYS_SECONDS):
         if delay:
             await asyncio.sleep(delay)
         try:
-            _stats["written"] += await _write_batch(events)
+            n = await _write_batch(events)
+            _stats["written"] += n
             return []
         except asyncio.CancelledError:
             raise
@@ -191,7 +205,8 @@ async def _persist(events: List[ToolAuditEvent]) -> List[ToolAuditEvent]:
     remaining: List[ToolAuditEvent] = []
     for e in events:
         try:
-            _stats["written"] += await _write_batch([e])
+            n = await _write_batch([e])
+            _stats["written"] += n
         except asyncio.CancelledError:
             raise
         except Exception:
