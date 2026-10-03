@@ -71,7 +71,7 @@ class CreateArtifactMCPTool(MCPTool):
 
         # Load report as ORM model (preserves Connection.get_credentials())
         try:
-            report = await self._load_report(db, input_data.report_id)
+            report = await self._load_report(db, input_data.report_id, user, organization)
         except Exception as e:
             return MCPCreateArtifactOutput(
                 report_id=input_data.report_id,

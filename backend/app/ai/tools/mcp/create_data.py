@@ -117,7 +117,7 @@ class CreateDataMCPTool(MCPTool):
         platform = await self._get_or_create_mcp_platform(db, organization)
 
         # Load report as ORM model (preserves Connection.get_credentials())
-        report = await self._load_report(db, input_data.report_id)
+        report = await self._load_report(db, input_data.report_id, user, organization)
         
         # Update report with external_platform_id if not set (direct DB update)
         if not report.external_platform:
