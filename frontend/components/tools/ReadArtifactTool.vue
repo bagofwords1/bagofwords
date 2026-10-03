@@ -42,7 +42,13 @@
     <Transition name="fade">
       <div v-if="!isCollapsed && status === 'success'" class="mt-2 ms-4 space-y-2">
         <!-- Artifact Info Card -->
-        <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 max-w-xs">
+        <div
+          :class="[
+            'flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 max-w-xs',
+            artifactId ? 'cursor-pointer hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all' : ''
+          ]"
+          @click="openArtifact"
+        >
           <div
             :class="[
               'w-8 h-8 rounded flex-shrink-0 flex items-center justify-center',
@@ -142,6 +148,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const emit = defineEmits(['openArtifact'])
 
 const toast = useToast()
 
@@ -224,6 +231,10 @@ function toggleCollapsed() {
 
 function toggleCode() {
   isCodeExpanded.value = !isCodeExpanded.value
+}
+
+function openArtifact() {
+  if (artifactId.value) emit('openArtifact', { artifactId: artifactId.value })
 }
 
 async function copyArtifactId() {
