@@ -24,4 +24,8 @@ Live Chromium verification used the seeded document report for the More menu, an
 
 ## Manual follow-up / deployment
 
-The user will perform broader manual journeys, including real model follow-ups and context compaction. No paid-model evaluations or production deployment are part of this pass. Deploy backend and rebuilt frontend together: a backend-only hot patch cannot deliver the new cards/menu. Existing database publication rows can remain; reverting to an older image would reactivate its pin interpretation.
+The user will perform broader manual journeys, including real model follow-ups and context compaction. No paid-model evaluations were repeated in this pass. Backend and generated static frontend were subsequently deployed together to `bow` on 2026-10-03 at the user’s request. Existing database publication rows can remain; reverting to an older image would reactivate its pin interpretation.
+
+Deployment verification: static generation passed; all 2,126 generated files and affected backend source hashes matched the deployed files. `/health` and `/users/sign-in` returned HTTP 200, the served index matched the build, and all 88 referenced entry assets matched their expected hashes. The app container became healthy. No image rebuild, database migration, or customer-data mutation was performed. Old hashed assets were preserved for open tabs.
+
+Rollback backup: `/home/ubuntu/artifact-experience-backup-20261003T103005Z` on `bow`, including `rollback.sh`. The container image is unchanged; recreating the container requires an updated image or reapplying the patch. Broader authenticated journeys remain for the user’s manual verification.
