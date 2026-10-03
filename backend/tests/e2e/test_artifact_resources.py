@@ -875,19 +875,20 @@ def test_mcp_resource_authoring_uses_same_scope_revisions_and_permissions(
             user = await db.get(User, member["user_id"])
             org = await db.get(Organization, report.organization_id)
             for name in ("create_artifact", "edit_artifact"):
-                with pytest.raises(HTTPException) as denied:
-                    await get_mcp_tool(name)().execute(
-                        {
-                            "report_id": report_id,
-                            "artifact_id": parent,
-                            "prompt": "A small app",
-                            "edit_instruction": "Change the title",
-                        },
-                        db,
-                        user,
-                        org,
-                    )
-                assert denied.value.status_code in (403, 404)
+                result = await get_mcp_tool(name)().execute(
+                    {
+                        "report_id": report_id,
+                        "artifact_id": parent,
+                        "prompt": "A small app",
+                        "edit_instruction": "Change the title",
+                    },
+                    db,
+                    user,
+                    org,
+                )
+                assert result["success"] is False
+                assert result["error_message"]
+                assert not result.get("artifact_id")
 
     asyncio.run(reject_nonowner_authoring())
     assert records(client, base, headers, action="list").json()["items"][0]["data"]["title"] == "Kept"

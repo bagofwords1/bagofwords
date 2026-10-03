@@ -133,8 +133,20 @@ class MCPTool(ABC):
     
     # ==================== Report Loading ====================
 
-    async def _load_report(self, db: AsyncSession, report_id: str) -> Report:
-        """Load report as ORM model with data sources and connections eagerly loaded.
+    async def _load_report(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        user: User,
+        organization: Organization,
+    ) -> Report:
+        """Load a report the caller owns, with data sources and connections eagerly loaded.
+
+        Every MCP tool that takes a report_id writes into that report (tracking
+        completions, queries, artifacts), so this mirrors the web app's
+        ``create_reports`` + ``owner_only`` rule: the report must be in the
+        caller's organization and owned by the caller. Anything else is a 404
+        so a foreign id is indistinguishable from a missing one.
 
         This loads the Report directly as an ORM object (not a Pydantic schema)
         so that Connection objects retain their get_credentials() /
@@ -145,11 +157,17 @@ class MCPTool(ABC):
             .options(
                 selectinload(Report.data_sources).selectinload(DataSource.connections),
             )
-            .filter(Report.id == report_id)
+            .filter(
+                Report.id == report_id,
+                Report.organization_id == str(organization.id),
+                Report.user_id == str(user.id),
+            )
         )
         report = result.unique().scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, report.bow_source_access, user)
         return report
 
     async def _authorize_artifact_authoring(self, db, user, organization, report):
@@ -160,6 +178,34 @@ class MCPTool(ABC):
             raise HTTPException(status_code=404, detail='Report not found or access denied')
         from app.core.permissions_decorator import require_org_permission
         await require_org_permission(db, str(user.id), str(organization.id), 'update_reports')
+
+    async def _assert_can_view_report(
+        self,
+        db: AsyncSession,
+        report_id: Optional[str],
+        user: User,
+        organization: Organization,
+    ) -> bool:
+        """Read-only gate for objects that hang off a report (visualizations,
+        artifacts): the report must be in the caller's organization and visible
+        to the caller under the same artifact-visibility rules as the web app."""
+        if not report_id:
+            return False
+        from sqlalchemy.orm import lazyload
+        report = (await db.execute(
+            select(Report).options(lazyload("*")).where(
+                Report.id == str(report_id),
+                Report.organization_id == str(organization.id),
+            )
+        )).scalar_one_or_none()
+        if report is None:
+            return False
+        from app.services.report_service import ReportService
+        try:
+            await ReportService()._check_visibility(db, report, 'artifact_visibility', user)
+        except Exception:
+            return False
+        return True
 
     # ==================== Tracking Helpers ====================
     

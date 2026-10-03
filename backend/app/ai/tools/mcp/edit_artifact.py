@@ -80,7 +80,7 @@ class EditArtifactMCPTool(MCPTool):
 
         # Load report
         try:
-            report = await self._load_report(db, input_data.report_id)
+            report = await self._load_report(db, input_data.report_id, user, organization)
         except Exception as e:
             return MCPEditArtifactOutput(
                 report_id=input_data.report_id,
@@ -96,6 +96,7 @@ class EditArtifactMCPTool(MCPTool):
                 select(ArtifactVersion).where(
                     ArtifactVersion.id == input_data.artifact_id,
                     ArtifactVersion.organization_id == str(organization.id),
+                    # Only live artifacts of the caller-owned report being edited.
                     ArtifactVersion.report_id == str(report.id),
                     ArtifactVersion.deleted_at.is_(None),
                 )
@@ -186,7 +187,11 @@ class EditArtifactMCPTool(MCPTool):
                     selectinload(Visualization.query).selectinload(Query.default_step),
                     selectinload(Visualization.query).selectinload(Query.steps),
                 )
-                .where(Visualization.id.in_(merged_viz_ids))
+                .where(
+                    Visualization.id.in_(merged_viz_ids),
+                    # Caller-supplied ids may only pull from this report.
+                    Visualization.report_id == str(report.id),
+                )
                 .execution_options(populate_existing=True)
             )
             fetched_vizs = {str(v.id): v for v in viz_result.scalars().all()}
