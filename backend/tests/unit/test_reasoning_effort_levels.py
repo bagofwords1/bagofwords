@@ -334,3 +334,74 @@ def test_gemini_3_gets_a_thinking_level_not_a_budget(level, sent):
 def test_gemini_2_5_gets_a_budget():
     tc = _google_config("gemini-2.5-flash", "high")
     assert tc.thinking_level is None and tc.thinking_budget and tc.thinking_budget > 1024
+
+
+@pytest.mark.parametrize("model_id", ["gpt-6-luna", "gpt-5.5", "gpt-5.4"])
+@pytest.mark.parametrize("level", ["off", "none"])
+@pytest.mark.parametrize("transport", ["responses", "chat"])
+def test_explicit_off_reaches_openai_wire(model_id, level, transport):
+    req = (_responses_request(model_id, level) if transport == "responses"
+           else _chat_request(model_id, level).call_args.kwargs)
+    assert (req["reasoning"]["effort"] if transport == "responses" else req["reasoning_effort"]) == "none"
+
+
+@pytest.mark.parametrize("model_id", ["claude-sonnet-5", "claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"])
+def test_explicit_off_disables_supported_claude(model_id):
+    req = _anthropic_request(model_id, "off")
+    assert req["extra_body"]["thinking"] == {"type": "disabled"}
+    assert "output_config" not in req["extra_body"]
+
+
+def test_sonnet_55_off_disables_upfront_thinking():
+    req = _anthropic_request("claude-sonnet-5-5", "off")
+    assert req["extra_body"]["thinking"]["type"] == "between_tools"
+    assert req["extra_body"]["output_config"]["effort"] == "low"
+
+
+@pytest.mark.parametrize("model_id", ["eu.anthropic.claude-sonnet-5", "global.anthropic.claude-opus-4-8"])
+def test_bedrock_off_does_not_turn_into_a_budget(model_id):
+    req = _bedrock_request(model_id, "off")
+    assert req["additionalModelRequestFields"]["thinking"] == {"type": "disabled"}
+
+
+def test_custom_off_mapping_reaches_request():
+    config = {"reasoning_params": {"off": {"reasoning_effort": "none"}}}
+    from app.ai.llm.reasoning import reasoning_params
+    req = _responses_request("my-model", "off", reasoning_mode="custom", reasoning_params=reasoning_params(config))
+    assert req["extra_body"]["reasoning_effort"] == "none"
+
+
+@pytest.mark.parametrize("model_id", ["gemini-3.6-flash", "gemini-2.5-pro"])
+def test_google_off_keeps_existing_minimum_without_enabling_a_budget(model_id):
+    tc = _google_config(model_id, "off")
+    assert tc.thinking_budget == Google.MIN_THINKING_BUDGET
+    assert tc.include_thoughts is False
+
+
+@pytest.mark.parametrize("model_id", ["gpt-6-astra", "gpt-6.1-sol", "o3"])
+def test_off_never_sends_unsupported_none(model_id, caplog):
+    req = _responses_request(model_id, "off")
+    assert req["reasoning"]["effort"] == "low"
+    assert "off is unsupported" in caplog.text
+
+
+@pytest.mark.parametrize("kind", ["responses", "chat", "anthropic"])
+def test_admin_disabled_parameters_override_explicit_off(kind):
+    if kind == "responses":
+        req = _responses_request("gpt-6-luna", "off", reasoning_mode="off")
+    elif kind == "chat":
+        req = _chat_request("gpt-6-luna", "off", reasoning_mode="off").call_args.kwargs
+    else:
+        req = _anthropic_request("claude-sonnet-5", "off", reasoning_mode="off")
+    assert "reasoning" not in req and "reasoning_effort" not in req
+    assert "thinking" not in req.get("extra_body", {})
+
+
+def test_reasoning_settings_accept_off_without_relaxing_raw_field_safety():
+    from app.schemas.llm_schema import ModelReasoningUpdate
+    from pydantic import ValidationError
+    settings = ModelReasoningUpdate(default_effort="off", params={"off": {"thinking": {"type": "disabled"}}})
+    assert settings.default_effort == "off"
+    assert settings.params["off"]["thinking"]["type"] == "disabled"
+    with pytest.raises(ValidationError):
+        ModelReasoningUpdate(params={"off": {"model": "another-model"}})

@@ -316,7 +316,13 @@ class Google(LLMClient):
             thinking = None
         requested = selected_effort(thinking) if thinking else None
         effort = (clamp_effort(requested, efforts_for_client(self, model_id)) or requested) if requested else None
-        if thinking and mode != "custom" and effort and _capability_model(self, model_id).lower().rsplit("/", 1)[-1].startswith("gemini-3"):
+        if requested == "off":
+            # Preserve the existing minimum for models that cannot disable
+            # thinking; a disabled marker must not become a 1024-token budget.
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=self._thinking_budget(), include_thoughts=False
+            )
+        elif thinking and mode != "custom" and effort and _capability_model(self, model_id).lower().rsplit("/", 1)[-1].startswith("gemini-3"):
             # Gemini 3 takes a named level; a budget would be converted
             # imprecisely, and sending both is a 400.
             thinking_config = types.ThinkingConfig(thinking_level=effort.upper(), include_thoughts=True)

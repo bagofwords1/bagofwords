@@ -375,9 +375,9 @@ class OpenAIResponsesClient(LLMClient):
             requested = selected_effort(thinking)
             efforts = efforts_for_client(self, model_id)
             effort = clamp_effort(requested, efforts)
-            if not requested and client_mode(self) in ("auto", "like"):
-                # Reasoning "off": without an effort the model reasons at its
-                # default (medium), so ask for none, or the least it allows.
+            if requested == "off" and client_mode(self) in ("auto", "like"):
+                # Explicit off asks for none, or the least the model allows.
+                # An unset configuration retains the provider default.
                 effort = lightest_effort(efforts)
             if effort != "none" and supports_openai_summary(capability_model(self, model_id)):
                 reasoning["summary"] = "auto"

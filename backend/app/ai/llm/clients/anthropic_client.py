@@ -1,7 +1,7 @@
 import json
 
 from app.ai.llm.reasoning import (
-    OFF_EFFORT_FOR_ALWAYS_THINKING, selected_effort, _effort_to_thinking_config,
+    claude_off_params, selected_effort, _effort_to_thinking_config,
     capability_model as _capability_model, clamp_effort, client_mode, efforts_for_client,
     merge_raw_params, raw_params_for,
 )
@@ -441,14 +441,13 @@ class Anthropic(LLMClient):
         # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
         # the default temperature when thinking is on, so drop ours entirely
         # (omitting it is valid on every model).
-        # Modern models think even when the caller omits the setting. Ask for
-        # their summaries, and for low effort when the caller asked for none.
+        # An omitted setting preserves provider defaults; explicit off is
+        # translated separately and must never become an enabled budget.
         capability_model = _capability_model(self, model_id)
         mode = client_mode(self)
         if mode == "off":
             thinking = None
         requested = selected_effort(thinking) if thinking else None
-        default_thinking = not _accepts_temperature(capability_model)
         if requested and mode == "custom":
             # Custom mode: the admin's raw fields ARE the reasoning request.
             extra_body = merge_raw_params(dict(request_kwargs.pop("extra_body", {}) or {}),
@@ -457,17 +456,16 @@ class Anthropic(LLMClient):
             request_kwargs["extra_body"] = extra_body
             if "thinking" in extra_body:
                 request_kwargs.pop("temperature", None)
-        elif thinking or default_thinking:
-            t = dict(thinking or {"type": "adaptive"})
-            # No thinking requested means reasoning is "off". These models
-            # cannot turn it off, and left to the provider they run at its
-            # default effort (high): tens of seconds of reasoning on routine
-            # planner steps. Ask for the least instead; an explicit effort
-            # (per-completion, model default, "think hard") still wins.
-            effort = (
-                clamp_effort(requested, efforts_for_client(self, model_id)) or requested
-                if thinking else OFF_EFFORT_FOR_ALWAYS_THINKING
-            )
+        elif requested == "off":
+            extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
+            extra_body.update(claude_off_params(capability_model))
+            merge_raw_params(extra_body, raw_params_for(self, requested, None), passthrough_key=None)
+            if extra_body:
+                request_kwargs["extra_body"] = extra_body
+                request_kwargs.pop("temperature", None)
+        elif thinking:
+            t = dict(thinking)
+            effort = clamp_effort(requested, efforts_for_client(self, model_id)) or requested
             # Re-map for the actual client model, including routed/fallback
             # models; the planner may have built a budget for another family.
             mapped = _effort_to_thinking_config(effort, capability_model)

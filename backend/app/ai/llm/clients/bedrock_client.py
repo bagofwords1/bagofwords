@@ -13,7 +13,7 @@ from botocore.config import Config
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.reasoning import (
-    _effort_to_thinking_config, capability_model as _capability_model, clamp_effort,
+    claude_off_params, _effort_to_thinking_config, capability_model as _capability_model, clamp_effort,
     client_mode, efforts_for_client, merge_raw_params, raw_params_for, selected_effort,
 )
 from app.ai.llm.image_utils import normalize_image_input
@@ -471,7 +471,9 @@ class BedrockClient(LLMClient):
             requested = selected_effort(thinking)
             effort = clamp_effort(requested, efforts_for_client(self, model_id)) or requested
             fields: dict = {}
-            if mode != "custom":
+            if requested == "off" and mode != "custom":
+                fields = claude_off_params(_capability_model(self, model_id))
+            elif mode != "custom":
                 # Claude 4.6+ on Bedrock takes adaptive thinking with the effort
                 # in output_config BESIDE thinking (inside it is a
                 # ValidationException); Sonnet 5 / Opus 4.7+ reject
