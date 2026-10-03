@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.0.574 (October 3, 2026)
+- Added SAML single sign-on with any SAML 2.0 identity provider (#1219) — configured under `saml_providers` in `bow-config.yaml`
+- Replaced the reasoning effort buttons with a Faster ↔ Smarter slider in the model picker (#1223)
+- Fixed the fastest effort still running OpenAI models at medium reasoning (#1223)
+- Fixed the model picker closing when clicking its lower half on the home page (#1223)
+- Fixed closing a data or file tab leaving an empty dashboard screen in the side panel (#1222)
+- Fixed long tilted chart labels squashing the bars in chat charts (#1222)
+- Fixed high and critical Snyk findings in frontend dependencies (#1221)
+
 ## Version 0.0.573 (September 29, 2026)
 - Added Claude Sonnet 5.5 (`claude-sonnet-5-5`) as an Anthropic preset — the new Anthropic default for new providers
 - Added GPT-6.1 Sol (`gpt-6.1-sol`) as an OpenAI preset
