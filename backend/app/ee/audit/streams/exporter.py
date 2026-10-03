@@ -2,33 +2,39 @@
 # Licensed under the BOW Enterprise License
 # See backend/app/ee/LICENSE for details
 #
-# Treats audit_logs as an outbox. Each tick, for every active stream that is
-# due: claim it with a short lease (a compare-and-set UPDATE of next_attempt_at,
-# so several hosts never double-send), read the next batch after its cursor, send it, and
-# move the cursor only when the destination accepted the batch. Delivery is
-# therefore at-least-once with no gaps; every event carries its audit_logs id
-# so the receiver can dedupe.
+# Treats audit_logs as an outbox, in two steps per tick:
 #
-# Rows newer than ``now - lag`` are left for a later tick: a transaction that
-# commits late can carry a created_at earlier than rows already delivered, and
-# the lag window is what keeps the cursor from stepping over it.
+# 1. Stamp. One process at a time (a lease on audit_export_state) gives every
+#    newly *visible* row of an organization that has a stream the next value of
+#    a global sequence, audit_logs.export_seq. A row whose transaction commits
+#    late (lock contention, a slow request, a replayed spill) simply becomes
+#    visible later and is stamped later, with a higher number. Ordering by
+#    visibility instead of created_at is what makes "no gaps" hold without a
+#    lag window: no cursor can be past a row that was not yet visible.
+# 2. Deliver. For every active stream that is due: claim it with a short lease
+#    (a compare-and-set UPDATE of next_attempt_at, so several workers or hosts
+#    never double-send), read the next batch after its export_seq cursor, send
+#    it, and move the cursor only when the destination accepted the batch.
+#
+# Delivery is therefore at-least-once with no gaps; every event carries its
+# audit_logs id so the receiver can dedupe.
 
 import asyncio
 import logging
-import os
 import random
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.ee.audit.models import AuditLog
 from app.ee.audit.streams.destinations import build_destination
 from app.ee.audit.streams.destinations.base import FATAL, INVALID, OK, RETRYABLE, SendResult
 from app.ee.audit.streams.envelope import build_envelope
-from app.ee.audit.streams.models import AuditLogStream
+from app.ee.audit.streams.models import AuditExportState, AuditLogStream
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +45,9 @@ LEASE_SECONDS = 120
 STREAM_BUDGET_SECONDS = 20.0
 STREAM_CONCURRENCY = 4
 MAX_BACKOFF_SECONDS = 900
-_DEFAULT_LAG_SECONDS = 30
-
-
-def lag_seconds() -> float:
-    try:
-        return max(0.0, float(os.environ.get("BOW_AUDIT_STREAM_LAG_SECONDS", _DEFAULT_LAG_SECONDS)))
-    except ValueError:
-        return float(_DEFAULT_LAG_SECONDS)
+STAMP_BATCH = 2000
+STAMP_BUDGET_SECONDS = 10.0
+STAMP_LEASE_SECONDS = 60
 
 
 def backoff_seconds(failures: int) -> float:
@@ -65,30 +66,84 @@ def _session_maker():
     return async_session_maker
 
 
-def after_cursor(cursor_created_at: Optional[datetime], cursor_id: Optional[str]):
-    """SQL predicate: rows strictly after the (created_at, id) cursor."""
-    if cursor_created_at is None:
-        return None
-    return or_(
-        AuditLog.created_at > cursor_created_at,
-        and_(AuditLog.created_at == cursor_created_at, AuditLog.id > (cursor_id or "")),
-    )
+async def _ensure_state(maker) -> None:
+    async with maker() as db:
+        if await db.get(AuditExportState, 1) is None:
+            db.add(AuditExportState(id=1, last_seq=0))
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()  # another worker created it first
 
 
-async def fetch_batch(db, organization_id: str, cursor: Tuple[Optional[datetime], Optional[str]],
-                      cutoff: datetime, limit: int):
+async def stamp_visible_rows(now: Optional[datetime] = None) -> int:
+    """Give newly visible rows of streamed organizations the next export_seq.
+
+    Returns the number of rows stamped (0 when another process holds the
+    stamper lease).
+    """
+    now = now or datetime.utcnow()
+    maker = _session_maker()
+    await _ensure_state(maker)
+    async with maker() as db:
+        won = await db.execute(
+            update(AuditExportState)
+            .where(
+                AuditExportState.id == 1,
+                or_(AuditExportState.stamp_lease_until.is_(None), AuditExportState.stamp_lease_until <= now),
+            )
+            .values(stamp_lease_until=now + timedelta(seconds=STAMP_LEASE_SECONDS))
+            .execution_options(synchronize_session=False)
+        )
+        if won.rowcount != 1:
+            await db.rollback()
+            return 0
+        await db.commit()
+
+    stamped = 0
+    started = time.monotonic()
+    try:
+        while time.monotonic() - started < STAMP_BUDGET_SECONDS:
+            async with maker() as db:
+                streamed_orgs = select(AuditLogStream.organization_id).where(AuditLogStream.deleted_at.is_(None))
+                ids = (await db.execute(
+                    select(AuditLog.id)
+                    .where(AuditLog.export_seq.is_(None), AuditLog.organization_id.in_(streamed_orgs))
+                    .order_by(AuditLog.created_at, AuditLog.id)
+                    .limit(STAMP_BATCH)
+                )).scalars().all()
+                if not ids:
+                    break
+                state = await db.get(AuditExportState, 1)
+                base = state.last_seq or 0
+                await db.execute(update(AuditLog), [{"id": i, "export_seq": base + k + 1} for k, i in enumerate(ids)])
+                state.last_seq = base + len(ids)
+                await db.commit()
+                stamped += len(ids)
+                if len(ids) < STAMP_BATCH:
+                    break
+    finally:
+        async with maker() as db:
+            await db.execute(update(AuditExportState).where(AuditExportState.id == 1).values(stamp_lease_until=None))
+            await db.commit()
+    return stamped
+
+
+def _deliverable(q, organization_id: str, cursor_seq: Optional[int], start_after: Optional[datetime]):
+    q = q.where(AuditLog.organization_id == organization_id, AuditLog.export_seq.isnot(None))
+    if cursor_seq is not None:
+        q = q.where(AuditLog.export_seq > cursor_seq)
+    if start_after is not None:
+        q = q.where(AuditLog.created_at >= start_after)
+    return q
+
+
+async def fetch_batch(db, organization_id: str, cursor_seq: Optional[int], start_after: Optional[datetime], limit: int):
     from app.models.user import User
 
-    q = (
-        select(AuditLog, User.email)
-        .outerjoin(User, User.id == AuditLog.user_id)
-        .where(AuditLog.organization_id == organization_id, AuditLog.created_at < cutoff)
-    )
-    pred = after_cursor(*cursor)
-    if pred is not None:
-        q = q.where(pred)
-    q = q.order_by(AuditLog.created_at, AuditLog.id).limit(limit)
-    return (await db.execute(q)).all()
+    q = select(AuditLog, User.email).outerjoin(User, User.id == AuditLog.user_id)
+    q = _deliverable(q, organization_id, cursor_seq, start_after)
+    return (await db.execute(q.order_by(AuditLog.export_seq).limit(limit))).all()
 
 
 async def _claim(stream_id: str, now: datetime) -> Optional[dict]:
@@ -129,19 +184,20 @@ async def _claim(stream_id: str, now: datetime) -> Optional[dict]:
             "config": dict(st.config or {}),
             "secrets": secrets,
             "action_filter": list(st.action_filter or []) or None,
-            "cursor": (st.cursor_created_at, st.cursor_id),
+            "cursor": st.cursor_seq,
+            "start_after": st.start_after,
             "failures": st.consecutive_failures or 0,
         }
         return snap
 
 
-async def _save_progress(stream_id: str, cursor: Tuple[datetime, str], delivered: int, now: datetime) -> None:
+async def _save_progress(stream_id: str, cursor: int, delivered: int, now: datetime) -> None:
     maker = _session_maker()
     async with maker() as db:
         st = await db.get(AuditLogStream, stream_id)
         if st is None:
             return
-        st.cursor_created_at, st.cursor_id = cursor
+        st.cursor_seq = cursor
         st.delivered_count = (st.delivered_count or 0) + delivered
         if delivered:
             st.last_delivered_at = now
@@ -190,7 +246,6 @@ async def deliver_stream(stream_id: str, now: Optional[datetime] = None) -> int:
         return 0
 
     dest = build_destination(snap["destination"], snap["config"], snap["secrets"])
-    cutoff = now - timedelta(seconds=lag_seconds())
     cursor = snap["cursor"]
     delivered = 0
     result = SendResult.success()
@@ -199,7 +254,7 @@ async def deliver_stream(stream_id: str, now: Optional[datetime] = None) -> int:
     try:
         while time.monotonic() - started < STREAM_BUDGET_SECONDS:
             async with maker() as db:
-                rows = await fetch_batch(db, snap["organization_id"], cursor, cutoff, dest.max_batch)
+                rows = await fetch_batch(db, snap["organization_id"], cursor, snap["start_after"], dest.max_batch)
             if not rows:
                 break
             envelopes = [
@@ -215,8 +270,7 @@ async def deliver_stream(stream_id: str, now: Optional[datetime] = None) -> int:
                     result = SendResult(RETRYABLE, f"{type(e).__name__}: {e}"[:500])
                 if not result.ok:
                     break
-            last = rows[-1][0]
-            cursor = (last.created_at, last.id)
+            cursor = rows[-1][0].export_seq
             await _save_progress(stream_id, cursor, len(envelopes), now)
             delivered += len(envelopes)
             if len(rows) < dest.max_batch:
@@ -233,8 +287,13 @@ async def deliver_stream(stream_id: str, now: Optional[datetime] = None) -> int:
 
 
 async def run_exporter_tick(now: Optional[datetime] = None) -> Dict[str, int]:
-    """One scheduler tick over every due stream (all organizations)."""
+    """One scheduler tick: stamp newly visible rows, then deliver every due
+    stream (all organizations)."""
     now = now or datetime.utcnow()
+    try:
+        await stamp_visible_rows(now)
+    except Exception:
+        logger.exception("audit stream export: sequence stamping failed")
     maker = _session_maker()
     async with maker() as db:
         ids = (await db.execute(
@@ -269,12 +328,13 @@ async def scheduled_export_tick() -> None:
 
 async def stream_status(db, st: AuditLogStream, now: Optional[datetime] = None) -> dict:
     now = now or datetime.utcnow()
+    # Pending = stamped rows past the cursor + rows not stamped yet.
     q = select(func.count(AuditLog.id), func.min(AuditLog.created_at)).where(
-        AuditLog.organization_id == st.organization_id
+        AuditLog.organization_id == st.organization_id,
+        or_(AuditLog.export_seq.is_(None), AuditLog.export_seq > (st.cursor_seq if st.cursor_seq is not None else -1)),
     )
-    pred = after_cursor(st.cursor_created_at, st.cursor_id)
-    if pred is not None:
-        q = q.where(pred)
+    if st.start_after is not None:
+        q = q.where(AuditLog.created_at >= st.start_after)
     pending, oldest = (await db.execute(q)).one()
     lag = (now - oldest).total_seconds() if pending and oldest else 0.0
     return {"pending": int(pending or 0), "lag_seconds": max(0.0, lag)}

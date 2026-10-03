@@ -95,9 +95,8 @@ def _activate(st: AuditLogStream, now: datetime) -> None:
     st.next_attempt_at = None
     st.consecutive_failures = 0
     st.last_error = None
-    if st.cursor_created_at is None and st.start_from == "now":
-        st.cursor_created_at = now
-        st.cursor_id = ""
+    if st.cursor_seq is None and st.start_from == "now" and st.start_after is None:
+        st.start_after = now
 
 
 class AuditStreamService:
@@ -121,7 +120,7 @@ class AuditStreamService:
         return StreamResponse(
             id=st.id, name=st.name, destination=st.destination, config=st.config or {},
             secrets=secrets, action_filter=st.action_filter, state=st.state, start_from=st.start_from,
-            cursor_created_at=st.cursor_created_at, delivered_count=st.delivered_count or 0,
+            delivered_count=st.delivered_count or 0,
             last_delivered_at=st.last_delivered_at, last_attempt_at=st.last_attempt_at,
             last_error=st.last_error, consecutive_failures=st.consecutive_failures or 0,
             next_attempt_at=st.next_attempt_at, created_at=st.created_at, updated_at=st.updated_at,

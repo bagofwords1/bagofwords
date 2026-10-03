@@ -1,6 +1,49 @@
 # Audit log streams — implementation plan
 
-**Status:** plan (not implemented). Branch: `ai/hopeful-pasteur-ubk7d7`.
+**Status:** implemented and verified in the sandbox (2026-10-03). Branch:
+`ai/hopeful-pasteur-ubk7d7`. Replay steps and observed results:
+`docs/feedback-loops/audit-log-streams.md`.
+
+**As built — where the implementation departs from the plan below:**
+
+- **Stream secrets** use the `Connection.credentials` scheme (Fernet with
+  `bow_config.encryption_key`, always on) instead of `encrypt_value`, which
+  stays plaintext unless the `data_encryption` feature is licensed and enabled.
+  As with connection credentials, a deployment needs a stable
+  `BOW_ENCRYPTION_KEY`. If the key changes, the affected streams move to
+  `invalid` with "stored secrets could not be decrypted", and resume once the
+  secret is re-entered.
+- **The exporter claim** is a compare-and-set `UPDATE` of `next_attempt_at`
+  (the lease) rather than `SELECT … FOR UPDATE SKIP LOCKED`. SQLite ignores
+  `FOR UPDATE`, so the row lock would not have stopped two hosts sharing one
+  database from double-sending; a regression test proves 1-of-4 racers sends.
+- **Tool-audit `created_at` is stamped when the row is written**, not when the
+  event was enqueued. A delayed write (backpressure, or a disk spill replayed
+  on the next start) keeps its original time in `details.occurred_at`.
+- **Streams cursor on a visibility-ordered sequence, not on `created_at` with a
+  lag window.** On each tick, the exporter stamps every newly *visible* row of
+  an organization that has a stream with the next value of a global sequence,
+  `audit_logs.export_seq`. One stamper runs at a time, under a lease on the
+  single-row `audit_export_state`. A row whose transaction commits late is
+  stamped later, with a higher number, so no cursor can ever be past it.
+  Loop B4 disproved the time-plus-lag design twice: first through enqueue-time
+  stamps, then through SQLite lock waits longer than the window. A3 now
+  injects rows that commit 5 s, 10 min and 2 days "late". "Start from now" is
+  a `start_after` time filter. `BOW_AUDIT_STREAM_LAG_SECONDS` no longer exists.
+- **The exporter** handles up to 4 streams concurrently, each with a 20 s time
+  budget per tick (stamping gets 10 s), in place of a fixed batch count, so a
+  large history backfill drains quickly. APScheduler fires the tick in every uvicorn worker
+  (shared job store); the compare-and-set lease makes that safe.
+- **The detail drawer** reads the row already returned by the list endpoint,
+  which carries every stored field, so no extra `GET /{log_id}` is needed.
+- **Loop A5** is a plain-node formatter test plus a Playwright layout spec
+  (`frontend/tests/settings/audit-log.spec.ts`). The spec skips on the
+  unlicensed CI stack; the licensed run is `tools/agent/audit_ui_flow.mjs`.
+- **Loop B4** drives the burst through the real `log_tool_audit` queue in a
+  separate process on the same sandbox database. There is no LLM-driven agent:
+  the sandbox Anthropic key has no credit.
+- **Loop B7** (multi-host) is covered by the concurrent-claim e2e test rather
+  than two live backends.
 
 An org admin configures one or more **log streams** in *Settings → Audit*,
 and every audit event the org produces is delivered to their SIEM or bucket:

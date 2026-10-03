@@ -216,34 +216,39 @@ def test_start_from_now_skips_history_and_beginning_backfills(test_client, boots
     assert now_stream["start_from"] == "now" and back_stream["start_from"] == "beginning"
 
 
-def test_late_committed_row_inside_the_lag_window_is_not_skipped(test_client, bootstrap_admin, siem):
-    """A row whose created_at is earlier than rows already visible (a slow
-    transaction) must still be delivered: the cursor never passes now - lag."""
+@pytest.mark.parametrize("delay", [timedelta(seconds=5), timedelta(minutes=10), timedelta(days=2)])
+def test_row_committed_after_newer_rows_were_delivered_is_not_skipped(test_client, bootstrap_admin, siem, delay):
+    """A transaction that commits late (lock contention, a slow request, a
+    replayed spill) makes a row visible after newer rows were already sent,
+    with a created_at older than them. Delivery order follows visibility, so
+    it is still delivered — however large the delay."""
     from app.dependencies import async_session_maker
     from app.ee.audit.models import AuditLog
 
     admin = bootstrap_admin()
     _stream(test_client, admin, siem)
-    now = datetime.utcnow()
+    _api_key_events(test_client, admin, 2)
+    _tick(_later())
+    first = set(_delivered_ids(siem))
+    assert first
 
-    async def insert(created_at):
-        # Direct write: the API cannot backdate created_at, which is exactly
-        # the late-commit shape under test.
+    async def insert_late():
+        # Direct write: the API cannot produce a row whose created_at predates
+        # rows that are already visible, which is exactly the shape under test.
         async with async_session_maker() as s:
             row = AuditLog(id=str(uuid.uuid4()), organization_id=admin["org_id"], action="tool.data_queried",
-                           resource_type="data_source", created_at=created_at)
+                           resource_type="data_source", created_at=datetime.utcnow() - delay)
             s.add(row)
             await s.commit()
             return row.id
 
-    visible = _run(insert(now - timedelta(seconds=5)))
-    _tick(now)  # cutoff = now - 30s: neither row is old enough yet
-    late = _run(insert(now - timedelta(seconds=10)))  # commits after, but is "older"
-    _tick(now + timedelta(seconds=60))
+    late = _run(insert_late())
+    _tick(_later(120))
 
     got = _delivered_ids(siem)
-    assert visible in got and late in got
-    assert siem.state.stats("https")["duplicates"] == 0
+    assert late in got
+    stats = siem.state.stats("https", _db_ids(test_client, admin))
+    assert stats["missing"] == [] and stats["duplicates"] == 0
 
 
 def test_paused_stream_is_not_delivered_and_resumes_from_its_cursor(test_client, bootstrap_admin, siem):
@@ -274,6 +279,7 @@ def test_concurrent_exporters_claim_a_stream_once(test_client, bootstrap_admin, 
     _api_key_events(test_client, admin, 5)
     s = _stream(test_client, admin, siem)
     now = _later()
+    _run(exporter.stamp_visible_rows(now))
 
     async def race():
         return await asyncio.gather(*(exporter.deliver_stream(s["id"], now) for _ in range(4)))
@@ -328,3 +334,37 @@ def test_tool_events_written_late_still_reach_the_stream(test_client, bootstrap_
     assert stats["missing"] == [] and stats["duplicates"] == 0
     # The original event time is preserved for the late writes.
     assert all(e["metadata"].get("occurred_at") for e in late)
+
+
+def test_racing_stampers_give_every_row_one_unique_sequence(test_client, bootstrap_admin, siem):
+    """Several workers run the tick at once (APScheduler fires it in every
+    worker). The stamper lease lets one of them number the rows; no row gets
+    two numbers and no number is used twice."""
+    from sqlalchemy import func, select
+
+    from app.dependencies import async_session_maker
+    from app.ee.audit.models import AuditLog
+
+    admin = bootstrap_admin()
+    _stream(test_client, admin, siem)
+    _api_key_events(test_client, admin, 6)
+    now = _later()
+
+    async def race():
+        return await asyncio.gather(*(exporter.stamp_visible_rows(now) for _ in range(4)))
+
+    stamped = _run(race())
+    assert sum(1 for n in stamped if n) == 1
+
+    async def check():
+        async with async_session_maker() as s:
+            total, seqs, distinct, nulls = (await s.execute(
+                select(func.count(AuditLog.id), func.count(AuditLog.export_seq),
+                       func.count(func.distinct(AuditLog.export_seq)),
+                       func.count(AuditLog.id).filter(AuditLog.export_seq.is_(None)))
+                .where(AuditLog.organization_id == admin["org_id"])
+            )).one()
+            return total, seqs, distinct, nulls
+
+    total, seqs, distinct, nulls = _run(check())
+    assert nulls == 0 and seqs == total == distinct

@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 
-from app.models.base import BaseSchema
+from app.models.base import Base, BaseSchema
 from app.settings.config import settings
 
 DESTINATIONS = ("datadog", "splunk", "sentinel", "s3", "gcs", "https", "syslog")
@@ -18,9 +18,10 @@ STATES = ("active", "inactive", "error", "invalid")
 class AuditLogStream(BaseSchema):
     """An organization's delivery target for its audit events.
 
-    The cursor ``(cursor_created_at, cursor_id)`` names the last event this
+    ``cursor_seq`` is the ``audit_logs.export_seq`` of the last event this
     stream delivered; the exporter only moves it forward after a successful
-    send, so a paused or failing stream resumes with no gaps.
+    send, so a paused or failing stream resumes with no gaps. ``start_after``
+    ("new events only") excludes rows created before the stream was activated.
     """
     __tablename__ = "audit_log_streams"
 
@@ -35,8 +36,8 @@ class AuditLogStream(BaseSchema):
     state = Column(String(16), nullable=False, default="inactive")
     start_from = Column(String(16), nullable=False, default="now")  # now | beginning
 
-    cursor_created_at = Column(DateTime, nullable=True)
-    cursor_id = Column(String(36), nullable=True)
+    cursor_seq = Column(BigInteger, nullable=True)
+    start_after = Column(DateTime, nullable=True)
 
     delivered_count = Column(BigInteger, nullable=False, default=0)
     last_delivered_at = Column(DateTime, nullable=True)
@@ -57,3 +58,13 @@ class AuditLogStream(BaseSchema):
         if not self.secrets:
             return {}
         return json.loads(Fernet(settings.bow_config.encryption_key).decrypt(self.secrets.encode()).decode())
+
+
+class AuditExportState(Base):
+    """Single row (id=1): the exporter's sequence stamper lease and the last
+    export_seq handed out."""
+    __tablename__ = "audit_export_state"
+
+    id = Column(Integer, primary_key=True)
+    last_seq = Column(BigInteger, nullable=False, default=0)
+    stamp_lease_until = Column(DateTime, nullable=True)

@@ -7,9 +7,9 @@ API, generates events through real audited actions, injects faults through the
 mock's control API, and checks convergence against the database (the audit
 list endpoint), printing a PASS/FAIL table. Exits non-zero on any FAIL.
 
-    # stack up with a short lag/interval so the loop runs in seconds, and a
+    # stack up with a short export interval so the loop runs in seconds, and a
     # pinned encryption key so stream secrets survive the B5 restart:
-    export BOW_AUDIT_STREAM_LAG_SECONDS=2 BOW_AUDIT_STREAM_INTERVAL_SECONDS=5
+    export BOW_AUDIT_STREAM_INTERVAL_SECONDS=5
     export BOW_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())")
     tools/agent/boot_stack.sh
     cd backend && uv run python ../tools/agent/seed_org.py --demo
@@ -199,8 +199,7 @@ class Loop:
             time.sleep(1)
         print("B5: request in flight; restarting backend", flush=True)
         subprocess.run(self.a.restart_cmd, shell=True, check=True, timeout=240,
-                       env={**os.environ, "BOW_AUDIT_STREAM_LAG_SECONDS": os.environ.get("BOW_AUDIT_STREAM_LAG_SECONDS", "2"),
-                            "BOW_AUDIT_STREAM_INTERVAL_SECONDS": os.environ.get("BOW_AUDIT_STREAM_INTERVAL_SECONDS", "5")})
+                       env={**os.environ, "BOW_AUDIT_STREAM_INTERVAL_SECONDS": os.environ.get("BOW_AUDIT_STREAM_INTERVAL_SECONDS", "5")})
         self.login()  # a restarted sandbox backend may sign tokens with a new secret
         # The interrupted claim holds a 120s lease; delivery resumes after it.
         ids, last = self.converge(["https"], 300, "B5 restart mid-batch")

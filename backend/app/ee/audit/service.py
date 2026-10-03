@@ -264,15 +264,15 @@ class AuditService:
     ):
         """Yield (AuditLog, user_email) pages oldest-first by keyset, never
         loading the whole result into memory."""
-        from app.ee.audit.streams.exporter import after_cursor
-
         cursor = (None, None)
         base = self.build_conditions(organization_id, filters)
         while True:
             stmt = select(AuditLog, User.email).outerjoin(User, User.id == AuditLog.user_id).where(and_(*base))
-            pred = after_cursor(*cursor)
-            if pred is not None:
-                stmt = stmt.where(pred)
+            if cursor[0] is not None:
+                stmt = stmt.where(or_(
+                    AuditLog.created_at > cursor[0],
+                    and_(AuditLog.created_at == cursor[0], AuditLog.id > cursor[1]),
+                ))
             stmt = stmt.order_by(AuditLog.created_at, AuditLog.id).limit(page_size)
             rows = (await db.execute(stmt)).all()
             if not rows:

@@ -33,13 +33,5 @@ def _clean_siem(request):
     yield
 
 
-@pytest.fixture(autouse=True)
-def _no_stream_lag(monkeypatch):
-    # Tests pass an explicit ``now`` to the exporter; the lag window is
-    # exercised on purpose in the late-commit test.
-    monkeypatch.setenv("BOW_AUDIT_STREAM_LAG_SECONDS", "30")
-    yield
-
-
 def h(token: str, org_id: str) -> dict:
     return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}

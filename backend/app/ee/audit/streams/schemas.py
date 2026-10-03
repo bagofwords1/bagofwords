@@ -58,7 +58,6 @@ class StreamResponse(BaseModel):
     action_filter: Optional[List[str]] = None
     state: str
     start_from: str
-    cursor_created_at: Optional[datetime] = None
     delivered_count: int = 0
     last_delivered_at: Optional[datetime] = None
     last_attempt_at: Optional[datetime] = None
