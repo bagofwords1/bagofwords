@@ -526,6 +526,15 @@ class ReadArtifactTool(Tool):
             "version": artifact.version,
             "runtime_environment": SANDBOX_RUNTIME_OBSERVATION,
         }
+        observation["resource_artifact_id"] = str(artifact.artifact_id)
+        import os
+        from app.services.artifact_resource_policy import artifact_resources_enabled
+        observation['resources_enabled'] = await artifact_resources_enabled(db, organization.id)
+        if observation['resources_enabled']:
+            from app.services.artifact_resource_service import ArtifactResources
+            viewer = getattr(context_hub, 'user', None) if context_hub else runtime_ctx.get('user')
+            resources = await ArtifactResources.open(db, str(artifact.artifact_id), viewer, organization.id)
+            observation['resources'] = await resources.definitions()
         # Available for 1 iteration; compacted by observation builder on next tool call
         if read_mode in ("full", "range"):
             observation["code"] = code_view

@@ -807,7 +807,8 @@
     },
     "inProject": "En {name}",
     "sharedEmpty": "No hay informes compartidos",
-    "sharedEmptyHint": "Los informes que otras personas compartan contigo aparecerán aquí."
+    "sharedEmptyHint": "Los informes que otras personas compartan contigo aparecerán aquí.",
+    "artifactLoadFailed": "No se pudo cargar el panel. Actualiza la página para intentarlo de nuevo."
   },
   "projects": {
     "title": "Proyectos",
@@ -1739,6 +1740,18 @@
         "updated": "actualizada",
         "unchanged": "sin cambios"
       }
+    },
+    "resource": {
+      "failed": "Error al cambiar el recurso",
+      "create": "Recurso creado",
+      "update": "Recurso actualizado",
+      "delete": "Recurso eliminado",
+      "working": "Configurando recurso",
+      "stopped": "Detenido",
+      "unchanged": "Recurso sin cambios",
+      "preserved": "Se conservaron los registros existentes.",
+      "changed": "Cambios",
+      "noChanges": "No se aplicaron cambios."
     }
   },
   "entityCreate": {
@@ -2998,6 +3011,10 @@
         "checkins_max_runs_per_org_per_day": {
           "name": "Seguimientos por día",
           "description": "Límite de seguimientos en toda la organización por día (tope de costo)."
+        },
+        "enable_artifact_resources": {
+          "name": "Recursos de artefactos",
+          "description": "Permitir registros persistentes, archivos privados y operaciones de IA aprobadas en los artefactos. Se mantienen los permisos de recursos y uso compartido."
         }
       }
     },
@@ -3835,7 +3852,18 @@
     "audit_stream.invalid_destination": "Destino de flujo desconocido.",
     "audit_stream.missing_field": "Falta un campo obligatorio: {field}.",
     "audit_stream.invalid_field": "Valor no válido para {field}.",
-    "audit_log.export_too_large": "La exportación está limitada a {limit} eventos y este filtro coincide con {total}. Acota el filtro o usa un flujo de registros."
+    "audit_log.export_too_large": "La exportación está limitada a {limit} eventos y este filtro coincide con {total}. Acota el filtro o usa un flujo de registros.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Solicitud de recurso no válida",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Recurso no encontrado",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Acceso al recurso denegado",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Inicia sesión para continuar",
+    "ARTIFACT_RESOURCE_CONFLICT": "El recurso ha cambiado; actualiza e inténtalo de nuevo",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Se ha alcanzado el límite del recurso",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Demasiadas solicitudes; inténtalo más tarde",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso no disponible",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitud interrumpida",
+    "ARTIFACT_RESOURCE_ABORTED": "Solicitud cancelada",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versión del SDK no compatible"
   },
   "email": {
     "dashboardShare": {
@@ -5774,5 +5802,36 @@
     "selectAll": "Seleccionar todas las filas",
     "selectRow": "Seleccionar fila",
     "toastRowsDeleted": "{n} fila eliminada | {n} filas eliminadas"
+  },
+  "artifactResources": {
+    "readOnlyLabel": "Solo lectura",
+    "sort": "Ordenar registros",
+    "applyFilter": "Aplicar",
+    "clearFilter": "Borrar filtro",
+    "true": "Verdadero",
+    "false": "Falso",
+    "inspect": "Recursos",
+    "readOnly": "Información del artefacto de solo lectura",
+    "data": "Explorador de datos",
+    "analytics": "Análisis",
+    "collection": "Seleccionar colección",
+    "refresh": "Actualizar",
+    "schema": "Esquema de la colección",
+    "filterField": "Campo de filtro",
+    "filterValue": "Igual a",
+    "filter": "Filtrar",
+    "empty": "No hay datos para mostrar",
+    "pageRows": "{count} registro en esta página | {count} registros en esta página",
+    "next": "Página siguiente",
+    "details": "Detalles del registro",
+    "views": "Vistas",
+    "viewers": "Usuarios autenticados únicos",
+    "anonymousNote": "Las visitas anónimas se incluyen en vistas, no en personas únicas.",
+    "embedded": "Integrado",
+    "standalone": "Página compartida",
+    "days": "Últimos {count} días",
+    "failed": "No se pudieron cargar los datos",
+    "newest": "Más recientes primero",
+    "oldest": "Más antiguos primero"
   }
 }

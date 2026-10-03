@@ -1,0 +1,1214 @@
+{
+  "suite": {
+    "cases": [
+      "notes",
+      "documents",
+      "blog + permission follow-up"
+    ],
+    "models": [
+      "gpt-6-luna",
+      "gpt-6-sol"
+    ],
+    "passed": 6,
+    "elapsed_seconds": 484.47,
+    "warnings": "SQLite worker threads reported event-loop-closed during test teardown; assertions passed."
+  },
+  "persistent_completions": [
+    {
+      "model": "gpt-6-sol",
+      "case": "documents",
+      "prompt": "I want a small app: drop in a document, get an AI summary as it writes, and keep the summaries I like.",
+      "report_id": "4f9a8b58-ae25-4e9c-8e90-162adba327f9",
+      "artifact_id": "c72faf12-5f30-40b2-85b5-002de622f526",
+      "version_id": "546bc956-6fa2-409a-a136-d5a9e16e7c64",
+      "elapsed_seconds": 87.7,
+      "code_sha256": "7c78a4de68b576de7b2151acb42a98197503781e0a32b0b579b3301cfbd48ab8",
+      "resources": [
+        {
+          "name": "documents",
+          "kind": "files"
+        },
+        {
+          "name": "summaries",
+          "kind": "collection"
+        },
+        {
+          "name": "summarize_document",
+          "kind": "ai"
+        }
+      ],
+      "tools": [
+        {
+          "name": "read_instruction",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "create_artifact",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "browser_navigate",
+          "status": "error",
+          "error": "Artifact preview could not become ready"
+        }
+      ],
+      "usage": [
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 35704,
+          "output_tokens": 41
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 36196,
+          "output_tokens": 7338
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 52902,
+          "output_tokens": 73
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 53359,
+          "output_tokens": 319
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "artifact",
+          "input_tokens": 183,
+          "output_tokens": 197
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "artifact",
+          "input_tokens": 183,
+          "output_tokens": 161
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-luna",
+      "case": "documents",
+      "prompt": "I want a small app: drop in a document, get an AI summary as it writes, and keep the summaries I like.",
+      "report_id": "49e36d1f-d22e-42d6-911b-63089ffbf4a1",
+      "artifact_id": "0a884ce1-279b-42b5-9597-ebacbdbf05bd",
+      "version_id": "23d1bfd4-df54-4492-ab25-ebdc94b75e25",
+      "elapsed_seconds": 90.2,
+      "code_sha256": "6d3e6123406f768b613d630f026193fe2d9839db97be2045d39e6b24fa44241f",
+      "resources": [
+        {
+          "name": "documents",
+          "kind": "files"
+        },
+        {
+          "name": "saved_summaries",
+          "kind": "collection"
+        },
+        {
+          "name": "summarizer",
+          "kind": "ai"
+        }
+      ],
+      "tools": [
+        {
+          "name": "read_instruction",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "create_artifact",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "browser_navigate",
+          "status": "error",
+          "error": "Artifact preview could not become ready"
+        },
+        {
+          "name": "browser_navigate",
+          "status": "error",
+          "error": "Artifact preview could not become ready"
+        },
+        {
+          "name": "edit_artifact",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "browser_navigate",
+          "status": "error",
+          "error": "Artifact preview could not become ready"
+        }
+      ],
+      "usage": [
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 35705,
+          "output_tokens": 144
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 36210,
+          "output_tokens": 5765
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 50033,
+          "output_tokens": 68
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 50588,
+          "output_tokens": 204
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 51053,
+          "output_tokens": 926
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 53733,
+          "output_tokens": 47
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 54175,
+          "output_tokens": 329
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "artifact",
+          "input_tokens": 171,
+          "output_tokens": 116
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "artifact",
+          "input_tokens": 171,
+          "output_tokens": 157
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-luna",
+      "case": "reading",
+      "prompt": "Can you make me a little reading list? I keep losing articles I want to read. Let me save them and mark them done.",
+      "report_id": "7ecea5dd-64ab-47df-b866-98132810322c",
+      "artifact_id": "842c16dc-c7e8-4c33-90d5-80a347572723",
+      "version_id": "cd068ebf-968e-4d11-9387-5505674250df",
+      "elapsed_seconds": 58.8,
+      "code_sha256": "20bd8165fa0eb8e81417ce3d8b942735244792ab93bfd3ae53d16c4f4ed47a6b",
+      "resources": [
+        {
+          "name": "articles",
+          "kind": "collection"
+        }
+      ],
+      "tools": [
+        {
+          "name": "read_instruction",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "create_artifact",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "browser_navigate",
+          "status": "success",
+          "error": null
+        }
+      ],
+      "usage": [
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 35708,
+          "output_tokens": 190
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 36110,
+          "output_tokens": 4479
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 48436,
+          "output_tokens": 46
+        },
+        {
+          "model": "gpt-6-luna",
+          "scope": "planner",
+          "input_tokens": 50167,
+          "output_tokens": 230
+        }
+      ]
+    },
+    {
+      "model": "gpt-6-sol",
+      "case": "reading",
+      "prompt": "Can you make me a little reading list? I keep losing articles I want to read. Let me save them and mark them done.",
+      "report_id": "c9a4dda8-2f87-428f-b455-f2d92e13e17c",
+      "artifact_id": "7983db8b-3e7d-43b6-b89e-eeb7889e384a",
+      "version_id": "a9651041-b583-4958-aeb5-1b3c2c4c26d5",
+      "elapsed_seconds": 87.3,
+      "code_sha256": "b7ddbf0ee69d7c1fe41c7dd5cfda4ff12e1609213587bad530f187a737b55a98",
+      "resources": [
+        {
+          "name": "reading_items",
+          "kind": "collection"
+        }
+      ],
+      "tools": [
+        {
+          "name": "read_instruction",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "create_artifact",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "browser_navigate",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "browser_snapshot",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "browser_act",
+          "status": "success",
+          "error": null
+        },
+        {
+          "name": "browser_act",
+          "status": "success",
+          "error": null
+        }
+      ],
+      "usage": [
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 35707,
+          "output_tokens": 38
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 36109,
+          "output_tokens": 4821
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 49018,
+          "output_tokens": 66
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 49996,
+          "output_tokens": 102
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 50849,
+          "output_tokens": 86
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 50337,
+          "output_tokens": 88
+        },
+        {
+          "model": "gpt-6-sol",
+          "scope": "planner",
+          "input_tokens": 51031,
+          "output_tokens": 185
+        }
+      ]
+    }
+  ],
+  "document_ui": [
+    {
+      "model": "gpt-6-sol",
+      "report_id": "4f9a8b58-ae25-4e9c-8e90-162adba327f9",
+      "observedWhileStreaming": true,
+      "streamObservations": [
+        {
+          "length": 3,
+          "busy": true
+        },
+        {
+          "length": 41,
+          "busy": true
+        },
+        {
+          "length": 50,
+          "busy": true
+        },
+        {
+          "length": 59,
+          "busy": true
+        },
+        {
+          "length": 60,
+          "busy": true
+        },
+        {
+          "length": 62,
+          "busy": true
+        },
+        {
+          "length": 63,
+          "busy": true
+        },
+        {
+          "length": 68,
+          "busy": true
+        },
+        {
+          "length": 79,
+          "busy": true
+        },
+        {
+          "length": 83,
+          "busy": true
+        },
+        {
+          "length": 97,
+          "busy": true
+        },
+        {
+          "length": 104,
+          "busy": true
+        },
+        {
+          "length": 107,
+          "busy": true
+        },
+        {
+          "length": 110,
+          "busy": true
+        },
+        {
+          "length": 120,
+          "busy": true
+        },
+        {
+          "length": 131,
+          "busy": true
+        },
+        {
+          "length": 134,
+          "busy": true
+        },
+        {
+          "length": 135,
+          "busy": true
+        },
+        {
+          "length": 140,
+          "busy": true
+        },
+        {
+          "length": 145,
+          "busy": true
+        },
+        {
+          "length": 154,
+          "busy": true
+        },
+        {
+          "length": 165,
+          "busy": true
+        },
+        {
+          "length": 169,
+          "busy": true
+        },
+        {
+          "length": 174,
+          "busy": true
+        },
+        {
+          "length": 183,
+          "busy": true
+        },
+        {
+          "length": 187,
+          "busy": true
+        },
+        {
+          "length": 190,
+          "busy": true
+        },
+        {
+          "length": 198,
+          "busy": true
+        },
+        {
+          "length": 199,
+          "busy": true
+        },
+        {
+          "length": 201,
+          "busy": true
+        },
+        {
+          "length": 203,
+          "busy": true
+        },
+        {
+          "length": 204,
+          "busy": true
+        },
+        {
+          "length": 209,
+          "busy": true
+        },
+        {
+          "length": 214,
+          "busy": true
+        },
+        {
+          "length": 228,
+          "busy": true
+        },
+        {
+          "length": 235,
+          "busy": true
+        },
+        {
+          "length": 236,
+          "busy": true
+        },
+        {
+          "length": 240,
+          "busy": true
+        },
+        {
+          "length": 249,
+          "busy": true
+        },
+        {
+          "length": 250,
+          "busy": true
+        },
+        {
+          "length": 251,
+          "busy": true
+        },
+        {
+          "length": 253,
+          "busy": true
+        },
+        {
+          "length": 254,
+          "busy": true
+        },
+        {
+          "length": 258,
+          "busy": true
+        },
+        {
+          "length": 264,
+          "busy": true
+        },
+        {
+          "length": 271,
+          "busy": true
+        },
+        {
+          "length": 274,
+          "busy": true
+        },
+        {
+          "length": 276,
+          "busy": true
+        },
+        {
+          "length": 278,
+          "busy": true
+        },
+        {
+          "length": 279,
+          "busy": true
+        },
+        {
+          "length": 282,
+          "busy": true
+        },
+        {
+          "length": 284,
+          "busy": true
+        },
+        {
+          "length": 285,
+          "busy": true
+        },
+        {
+          "length": 289,
+          "busy": true
+        },
+        {
+          "length": 293,
+          "busy": true
+        },
+        {
+          "length": 302,
+          "busy": true
+        },
+        {
+          "length": 311,
+          "busy": true
+        },
+        {
+          "length": 319,
+          "busy": true
+        },
+        {
+          "length": 322,
+          "busy": true
+        },
+        {
+          "length": 333,
+          "busy": true
+        },
+        {
+          "length": 338,
+          "busy": true
+        },
+        {
+          "length": 340,
+          "busy": true
+        },
+        {
+          "length": 341,
+          "busy": true
+        },
+        {
+          "length": 345,
+          "busy": true
+        },
+        {
+          "length": 350,
+          "busy": true
+        },
+        {
+          "length": 357,
+          "busy": true
+        },
+        {
+          "length": 360,
+          "busy": true
+        },
+        {
+          "length": 369,
+          "busy": true
+        },
+        {
+          "length": 370,
+          "busy": true
+        },
+        {
+          "length": 371,
+          "busy": true
+        },
+        {
+          "length": 373,
+          "busy": true
+        },
+        {
+          "length": 374,
+          "busy": true
+        },
+        {
+          "length": 377,
+          "busy": true
+        },
+        {
+          "length": 386,
+          "busy": true
+        },
+        {
+          "length": 395,
+          "busy": true
+        },
+        {
+          "length": 407,
+          "busy": true
+        },
+        {
+          "length": 414,
+          "busy": true
+        },
+        {
+          "length": 417,
+          "busy": true
+        },
+        {
+          "length": 426,
+          "busy": true
+        },
+        {
+          "length": 429,
+          "busy": true
+        },
+        {
+          "length": 433,
+          "busy": true
+        },
+        {
+          "length": 439,
+          "busy": true
+        },
+        {
+          "length": 440,
+          "busy": true
+        },
+        {
+          "length": 440,
+          "busy": false
+        }
+      ],
+      "summary": "The Project Cedar team agreed to launch a pilot on November 12, with interviews and accessibility checks to be completed beforehand.\n\n- Mira owns customer interviews and will complete six by October 28.\n- Omar owns accessibility checks, due November 3.\n- The pilot budget is $12,000.\n- Delayed document approval remains an unresolved risk.\n- The next review is November 5.\n- No personal customer information should be included in the pilot.",
+      "status": "passed"
+    },
+    {
+      "model": "gpt-6-luna",
+      "report_id": "49e36d1f-d22e-42d6-911b-63089ffbf4a1",
+      "observedWhileStreaming": true,
+      "streamObservations": [
+        {
+          "length": 7,
+          "busy": true
+        },
+        {
+          "length": 13,
+          "busy": true
+        },
+        {
+          "length": 16,
+          "busy": true
+        },
+        {
+          "length": 26,
+          "busy": true
+        },
+        {
+          "length": 28,
+          "busy": true
+        },
+        {
+          "length": 34,
+          "busy": true
+        },
+        {
+          "length": 41,
+          "busy": true
+        },
+        {
+          "length": 44,
+          "busy": true
+        },
+        {
+          "length": 53,
+          "busy": true
+        },
+        {
+          "length": 54,
+          "busy": true
+        },
+        {
+          "length": 56,
+          "busy": true
+        },
+        {
+          "length": 57,
+          "busy": true
+        },
+        {
+          "length": 62,
+          "busy": true
+        },
+        {
+          "length": 71,
+          "busy": true
+        },
+        {
+          "length": 82,
+          "busy": true
+        },
+        {
+          "length": 86,
+          "busy": true
+        },
+        {
+          "length": 100,
+          "busy": true
+        },
+        {
+          "length": 107,
+          "busy": true
+        },
+        {
+          "length": 117,
+          "busy": true
+        },
+        {
+          "length": 128,
+          "busy": true
+        },
+        {
+          "length": 129,
+          "busy": true
+        },
+        {
+          "length": 133,
+          "busy": true
+        },
+        {
+          "length": 140,
+          "busy": true
+        },
+        {
+          "length": 143,
+          "busy": true
+        },
+        {
+          "length": 145,
+          "busy": true
+        },
+        {
+          "length": 147,
+          "busy": true
+        },
+        {
+          "length": 148,
+          "busy": true
+        },
+        {
+          "length": 151,
+          "busy": true
+        },
+        {
+          "length": 152,
+          "busy": true
+        },
+        {
+          "length": 160,
+          "busy": true
+        },
+        {
+          "length": 169,
+          "busy": true
+        },
+        {
+          "length": 178,
+          "busy": true
+        },
+        {
+          "length": 186,
+          "busy": true
+        },
+        {
+          "length": 189,
+          "busy": true
+        },
+        {
+          "length": 200,
+          "busy": true
+        },
+        {
+          "length": 205,
+          "busy": true
+        },
+        {
+          "length": 208,
+          "busy": true
+        },
+        {
+          "length": 209,
+          "busy": true
+        },
+        {
+          "length": 212,
+          "busy": true
+        },
+        {
+          "length": 217,
+          "busy": true
+        },
+        {
+          "length": 224,
+          "busy": true
+        },
+        {
+          "length": 227,
+          "busy": true
+        },
+        {
+          "length": 236,
+          "busy": true
+        },
+        {
+          "length": 237,
+          "busy": true
+        },
+        {
+          "length": 239,
+          "busy": true
+        },
+        {
+          "length": 240,
+          "busy": true
+        },
+        {
+          "length": 241,
+          "busy": true
+        },
+        {
+          "length": 244,
+          "busy": true
+        },
+        {
+          "length": 252,
+          "busy": true
+        },
+        {
+          "length": 263,
+          "busy": true
+        },
+        {
+          "length": 266,
+          "busy": true
+        },
+        {
+          "length": 271,
+          "busy": true
+        },
+        {
+          "length": 276,
+          "busy": true
+        },
+        {
+          "length": 280,
+          "busy": true
+        },
+        {
+          "length": 291,
+          "busy": true
+        },
+        {
+          "length": 292,
+          "busy": true
+        },
+        {
+          "length": 296,
+          "busy": true
+        },
+        {
+          "length": 304,
+          "busy": true
+        },
+        {
+          "length": 305,
+          "busy": true
+        },
+        {
+          "length": 307,
+          "busy": true
+        },
+        {
+          "length": 308,
+          "busy": true
+        },
+        {
+          "length": 309,
+          "busy": true
+        },
+        {
+          "length": 312,
+          "busy": true
+        },
+        {
+          "length": 325,
+          "busy": true
+        },
+        {
+          "length": 332,
+          "busy": true
+        },
+        {
+          "length": 335,
+          "busy": true
+        },
+        {
+          "length": 340,
+          "busy": true
+        },
+        {
+          "length": 345,
+          "busy": true
+        },
+        {
+          "length": 350,
+          "busy": true
+        },
+        {
+          "length": 351,
+          "busy": true
+        },
+        {
+          "length": 355,
+          "busy": true
+        },
+        {
+          "length": 364,
+          "busy": true
+        },
+        {
+          "length": 365,
+          "busy": true
+        },
+        {
+          "length": 366,
+          "busy": true
+        },
+        {
+          "length": 367,
+          "busy": true
+        },
+        {
+          "length": 368,
+          "busy": true
+        },
+        {
+          "length": 371,
+          "busy": true
+        },
+        {
+          "length": 377,
+          "busy": true
+        },
+        {
+          "length": 380,
+          "busy": true
+        },
+        {
+          "length": 382,
+          "busy": true
+        },
+        {
+          "length": 384,
+          "busy": true
+        },
+        {
+          "length": 385,
+          "busy": true
+        },
+        {
+          "length": 388,
+          "busy": true
+        },
+        {
+          "length": 389,
+          "busy": true
+        },
+        {
+          "length": 390,
+          "busy": true
+        },
+        {
+          "length": 393,
+          "busy": true
+        },
+        {
+          "length": 395,
+          "busy": true
+        },
+        {
+          "length": 403,
+          "busy": true
+        },
+        {
+          "length": 408,
+          "busy": true
+        },
+        {
+          "length": 411,
+          "busy": true
+        },
+        {
+          "length": 415,
+          "busy": true
+        },
+        {
+          "length": 419,
+          "busy": true
+        },
+        {
+          "length": 428,
+          "busy": true
+        },
+        {
+          "length": 437,
+          "busy": true
+        },
+        {
+          "length": 438,
+          "busy": true
+        },
+        {
+          "length": 439,
+          "busy": true
+        },
+        {
+          "length": 442,
+          "busy": true
+        },
+        {
+          "length": 446,
+          "busy": true
+        },
+        {
+          "length": 453,
+          "busy": true
+        },
+        {
+          "length": 456,
+          "busy": true
+        },
+        {
+          "length": 465,
+          "busy": true
+        },
+        {
+          "length": 466,
+          "busy": true
+        },
+        {
+          "length": 467,
+          "busy": true
+        },
+        {
+          "length": 468,
+          "busy": true
+        },
+        {
+          "length": 469,
+          "busy": true
+        },
+        {
+          "length": 472,
+          "busy": true
+        },
+        {
+          "length": 473,
+          "busy": true
+        },
+        {
+          "length": 476,
+          "busy": true
+        },
+        {
+          "length": 478,
+          "busy": true
+        },
+        {
+          "length": 481,
+          "busy": true
+        },
+        {
+          "length": 484,
+          "busy": true
+        },
+        {
+          "length": 488,
+          "busy": true
+        },
+        {
+          "length": 496,
+          "busy": true
+        },
+        {
+          "length": 505,
+          "busy": true
+        },
+        {
+          "length": 514,
+          "busy": true
+        },
+        {
+          "length": 526,
+          "busy": true
+        },
+        {
+          "length": 529,
+          "busy": true
+        },
+        {
+          "length": 533,
+          "busy": true
+        },
+        {
+          "length": 539,
+          "busy": true
+        },
+        {
+          "length": 539,
+          "busy": false
+        }
+      ],
+      "summary": "Project Cedar is preparing a pilot launch on November 12, with customer interviews and accessibility checks scheduled beforehand. The budget is $12,000; delayed document approval remains an unresolved risk.\n\n- **Pilot launch:** November 12\n- **Customer interviews:** Mira owns six interviews, due October 28\n- **Accessibility checks:** Omar owns them, due November 3\n- **Budget:** $12,000\n- **Unresolved risk:** Delayed document approval\n- **Next review:** November 5\n- **Caveat:** Do not include personal customer information in the pilot",
+      "status": "passed"
+    }
+  ],
+  "reading_ui_after_fix": [
+    {
+      "model": "gpt-6-luna",
+      "report_id": "7ecea5dd-64ab-47df-b866-98132810322c",
+      "status": "passed"
+    },
+    {
+      "model": "gpt-6-sol",
+      "report_id": "c9a4dda8-2f87-428f-b455-f2d92e13e17c",
+      "status": "passed"
+    }
+  ],
+  "initial_findings": [
+    "Persistent harness initially selected catalog models attached to the controlled provider; those two setup failures are excluded from model outcomes.",
+    "Initial document authoring preview URL pointed to port 3000 rather than 3118; separately tested live UI passed.",
+    "Both first held-out reading apps failed to save: iframe sandbox blocked native submit handlers. Same generated source passed after the platform form-isolation fix.",
+    "First checkbox test assumed synchronous state; harness now waits for the asynchronous record update."
+  ]
+}

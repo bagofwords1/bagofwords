@@ -188,6 +188,15 @@ class EditArtifactTool(Tool):
         if artifact_data is None:
             yield self._fail(artifact, "no_report", "The artifact's report no longer exists.")
             return
+        if content.get('sdk_version') == 1:
+            from app.models.artifact_resource import ArtifactResource
+            definitions = (await db.execute(select(ArtifactResource.definition).where(
+                ArtifactResource.artifact_id == artifact.artifact_id,
+                ArtifactResource.deleted_at.is_(None)))).scalars()
+            artifact_data['_fixture_resources'] = [
+                {k: d[k] for k in ('name', 'kind', 'fields')} for d in definitions
+            ]
+
         # collect_artifact_payload mirrors the live client and appends the
         # report's OTHER visualizations as stragglers after the listed ones.
         # The contracts apply to the artifact's own viz set only — gate and
@@ -303,6 +312,22 @@ class EditArtifactTool(Tool):
         # one stays themed.
         if content.get("runtime_version"):
             new_content["runtime_version"] = content.get("runtime_version")
+        if 'sdk_version' in content:
+            from app.services.artifact_resource_service import code_requirements
+            new_content['sdk_version'] = content['sdk_version']
+            # Recomputed, not copied: an edit may start using a resource added
+            # since the last build, and publication must check that one too.
+            new_content['resource_requirements'] = await code_requirements(
+                db, artifact.artifact_id, new_code, content.get('resource_requirements'))
+        if data.expected_latest_version is not None:
+            from app.models.artifact import Artifact
+            from sqlalchemy import update, func
+            from datetime import datetime
+            await db.execute(update(Artifact).where(Artifact.id == artifact.artifact_id).values(updated_at=datetime.utcnow()))
+            latest = await db.scalar(select(func.max(ArtifactVersion.version)).where(ArtifactVersion.artifact_id == artifact.artifact_id))
+            if latest != data.expected_latest_version:
+                yield self._fail(artifact, 'version_conflict', 'A newer UI version exists. Read it before editing.', {'latest_version': latest})
+                return
         new_artifact = await new_version(
             db,
             artifact,
@@ -372,6 +397,7 @@ class EditArtifactTool(Tool):
                     "success": True,
                     "verification_hint": verification_hint,
                     "artifact_id": str(new_artifact.id),
+                    "resource_artifact_id": str(new_artifact.artifact_id),
                     "title": new_artifact.title,
                     "mode": new_artifact.mode,
                     "version": new_artifact.version,
@@ -391,6 +417,7 @@ class EditArtifactTool(Tool):
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
                     "artifact_id": str(new_artifact.id),
+                    "resource_artifact_id": str(new_artifact.artifact_id),
                     "mode": new_artifact.mode,
                     "version": new_artifact.version,
                     "diff_applied": True,

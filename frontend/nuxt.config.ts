@@ -134,6 +134,7 @@ export default defineNuxtConfig({
             rewrite: (path) => `/api${path}`
         },
         '/api': {
+            xfwd: true, // Append the actual client address; backend trusts only configured proxy peers.
             target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
@@ -260,6 +261,7 @@ export default defineNuxtConfig({
   },
 
   routeRules: {
+    '/libs/fonts/**': { headers: { 'Access-Control-Allow-Origin': '*' } },
     '/data': { redirect: '/agents' },
     '/data/**': { redirect: '/agents/**' },
     // The org-wide evals page is gone — evals live in the Agents explorer, under

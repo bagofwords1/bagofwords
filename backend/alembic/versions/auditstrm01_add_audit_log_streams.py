@@ -1,7 +1,7 @@
 """audit log streams
 
 Revision ID: auditstrm01
-Revises: saml1001
+Revises: saml1001, artres01
 
 Adds audit_log_streams (per-org SIEM/bucket delivery targets with a resumable
 cursor), audit_logs.export_seq (a visibility-ordered sequence the exporter
@@ -14,7 +14,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "auditstrm01"
-down_revision = "saml1001"
+down_revision = ("saml1001", "artres01")
 branch_labels = None
 depends_on = None
 

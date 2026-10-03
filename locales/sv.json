@@ -792,7 +792,8 @@
         "title": "Visa svar med negativ återkoppling",
         "prompt": "Granska svar som fått negativ återkoppling från användare för att hitta mönster och förbättringsområden."
       }
-    ]
+    ],
+    "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen."
   },
   "projects": {
     "title": "Projekt",
@@ -1697,6 +1698,18 @@
       "pathLabel": "Sökväg:",
       "attachedAsSessionFile": "Bifogad till denna konversation som sessionsfil",
       "showPagePreviews": "Visa sidförhandsvisningar ({n})"
+    },
+    "resource": {
+      "failed": "Resursändringen misslyckades",
+      "create": "Resurs skapad",
+      "update": "Resurs uppdaterad",
+      "delete": "Resurs borttagen",
+      "working": "Konfigurerar resurs",
+      "stopped": "Stoppad",
+      "unchanged": "Resurs oförändrad",
+      "preserved": "Befintliga poster bevarade.",
+      "changed": "Ändringar",
+      "noChanges": "Inga ändringar tillämpades."
     }
   },
   "entityCreate": {
@@ -2882,6 +2895,10 @@
         "checkins_max_runs_per_org_per_day": {
           "name": "Uppföljningar per dag",
           "description": "Övre gräns för uppföljningar i hela organisationen per dag (kostnadstak)."
+        },
+        "enable_artifact_resources": {
+          "name": "Artefaktresurser",
+          "description": "Tillåt artefakter att använda beständiga poster, privata filer och godkända AI-operationer. Befintliga delnings- och resursbehörigheter gäller fortfarande."
         }
       }
     },
@@ -3721,7 +3738,18 @@
     "audit_stream.invalid_destination": "Okänt mål för strömmen.",
     "audit_stream.missing_field": "Ett obligatoriskt fält saknas: {field}.",
     "audit_stream.invalid_field": "Ogiltigt värde för {field}.",
-    "audit_log.export_too_large": "Exporten är begränsad till {limit} händelser och filtret matchar {total}. Begränsa filtret eller använd en loggström."
+    "audit_log.export_too_large": "Exporten är begränsad till {limit} händelser och filtret matchar {total}. Begränsa filtret eller använd en loggström.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Ogiltig resursbegäran",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Resursen hittades inte",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Åtkomst nekad",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Logga in för att fortsätta",
+    "ARTIFACT_RESOURCE_CONFLICT": "Resursen har ändrats; uppdatera och försök igen",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Resursgränsen har nåtts",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "För många förfrågningar; försök senare",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Resursen är inte tillgänglig",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Begäran avbröts",
+    "ARTIFACT_RESOURCE_ABORTED": "Begäran avbruten",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte"
   },
   "email": {
     "dashboardShare": {
@@ -5614,5 +5642,36 @@
     "expired": "Utgången",
     "mergedTip": "Uppgick i ett förslag från den nattliga inlärningen. Inte ett avslag från en granskare.",
     "expiredTip": "Stängd efter att ha legat ogranskad längre än organisationens gräns. Räknas fortfarande som belägg om mönstret återkommer."
+  },
+  "artifactResources": {
+    "readOnlyLabel": "Skrivskyddad",
+    "sort": "Sortera poster",
+    "applyFilter": "Tillämpa",
+    "clearFilter": "Rensa filter",
+    "true": "Sant",
+    "false": "Falskt",
+    "inspect": "Resurser",
+    "readOnly": "Skrivskyddad artefaktöversikt",
+    "data": "Datautforskare",
+    "analytics": "Analys",
+    "collection": "Välj samling",
+    "refresh": "Uppdatera",
+    "schema": "Samlingsschema",
+    "filterField": "Filterfält",
+    "filterValue": "Lika med",
+    "filter": "Filtrera",
+    "empty": "Inga data att visa",
+    "pageRows": "{count} post på sidan | {count} poster på sidan",
+    "next": "Nästa sida",
+    "details": "Postinformation",
+    "views": "Visningar",
+    "viewers": "Unika inloggade besökare",
+    "anonymousNote": "Anonyma besök räknas som visningar, inte som unika personer.",
+    "embedded": "Inbäddad",
+    "standalone": "Delad sida",
+    "days": "Senaste {count} dagarna",
+    "failed": "Det gick inte att läsa artefaktdata",
+    "newest": "Nyast först",
+    "oldest": "Äldst först"
   }
 }

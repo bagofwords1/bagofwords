@@ -109,6 +109,12 @@ config:
   telemetryEnabled: true
   # -- Public base URL of the application (e.g. `https://app.example.com`).
   baseUrl: ""
+  # -- Proxies trusted to set X-Forwarded-For (IPs/CIDRs, comma-separated), e.g.
+  # your ingress controller's pod CIDR. Unset trusts only loopback, so behind an
+  # ingress every anonymous visitor shares one rate-limit identity. Use `*` only
+  # if the Service is reachable solely through an ingress that overwrites
+  # client-sent X-Forwarded-For.
+  forwardedAllowIps: ""
   # -- Authentication mode. `hybrid` allows both local and SSO login.
   # `local_only` disables SSO. `sso_only` disables local login.
   authMode: "hybrid"   # hybrid | local_only | sso_only

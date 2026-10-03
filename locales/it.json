@@ -792,7 +792,8 @@
         "title": "Mostra risposte con feedback negativo",
         "prompt": "Esamina le risposte che hanno ricevuto feedback negativi dagli utenti per individuare schemi e aree di miglioramento."
       }
-    ]
+    ],
+    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare."
   },
   "projects": {
     "title": "Progetti",
@@ -1697,6 +1698,18 @@
       "pathLabel": "Percorso:",
       "attachedAsSessionFile": "Allegato a questa conversazione come file di sessione",
       "showPagePreviews": "Mostra anteprime delle pagine ({n})"
+    },
+    "resource": {
+      "failed": "Modifica della risorsa non riuscita",
+      "create": "Risorsa creata",
+      "update": "Risorsa aggiornata",
+      "delete": "Risorsa eliminata",
+      "working": "Configurazione della risorsa",
+      "stopped": "Interrotto",
+      "unchanged": "Risorsa invariata",
+      "preserved": "I record esistenti sono conservati.",
+      "changed": "Modifiche",
+      "noChanges": "Nessuna modifica applicata."
     }
   },
   "entityCreate": {
@@ -2882,6 +2895,10 @@
         "checkins_max_runs_per_org_per_day": {
           "name": "Follow-up al giorno",
           "description": "Limite massimo di follow-up per l'intera organizzazione al giorno (limite di costo)."
+        },
+        "enable_artifact_resources": {
+          "name": "Risorse degli artefatti",
+          "description": "Consenti agli artefatti di usare record persistenti, file privati e operazioni IA approvate. Restano valide le autorizzazioni di condivisione e delle risorse."
         }
       }
     },
@@ -3721,7 +3738,18 @@
     "audit_stream.invalid_destination": "Destinazione del flusso sconosciuta.",
     "audit_stream.missing_field": "Manca un campo obbligatorio: {field}.",
     "audit_stream.invalid_field": "Valore non valido per {field}.",
-    "audit_log.export_too_large": "L'esportazione è limitata a {limit} eventi e questo filtro ne restituisce {total}. Restringi il filtro o usa un flusso di log."
+    "audit_log.export_too_large": "L'esportazione è limitata a {limit} eventi e questo filtro ne restituisce {total}. Restringi il filtro o usa un flusso di log.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Richiesta non valida",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Risorsa non trovata",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Accesso negato",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Accedi per continuare",
+    "ARTIFACT_RESOURCE_CONFLICT": "Risorsa modificata; aggiorna e riprova",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Limite della risorsa raggiunto",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Troppe richieste; riprova più tardi",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Risorsa non disponibile",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Richiesta interrotta",
+    "ARTIFACT_RESOURCE_ABORTED": "Richiesta annullata",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versione SDK non supportata"
   },
   "email": {
     "dashboardShare": {
@@ -5614,5 +5642,36 @@
     "expired": "Scaduta",
     "mergedTip": "Confluita in un suggerimento dell'apprendimento notturno. Non è un rifiuto di un revisore.",
     "expiredTip": "Chiusa dopo essere rimasta non revisionata oltre la scadenza dell'organizzazione. Conta ancora come prova se lo schema ritorna."
+  },
+  "artifactResources": {
+    "readOnlyLabel": "Sola lettura",
+    "sort": "Ordina record",
+    "applyFilter": "Applica",
+    "clearFilter": "Rimuovi filtro",
+    "true": "Vero",
+    "false": "Falso",
+    "inspect": "Risorse",
+    "readOnly": "Informazioni sull’artefatto in sola lettura",
+    "data": "Esplora dati",
+    "analytics": "Analisi",
+    "collection": "Seleziona raccolta",
+    "refresh": "Aggiorna",
+    "schema": "Schema della raccolta",
+    "filterField": "Campo del filtro",
+    "filterValue": "Uguale a",
+    "filter": "Filtra",
+    "empty": "Nessun dato da visualizzare",
+    "pageRows": "{count} record in questa pagina",
+    "next": "Pagina successiva",
+    "details": "Dettagli del record",
+    "views": "Visualizzazioni",
+    "viewers": "Visitatori autenticati unici",
+    "anonymousNote": "Le visite anonime sono conteggiate come visualizzazioni, non come persone uniche.",
+    "embedded": "Incorporato",
+    "standalone": "Pagina condivisa",
+    "days": "Ultimi {count} giorni",
+    "failed": "Impossibile caricare i dati dell’artefatto",
+    "newest": "Più recenti prima",
+    "oldest": "Meno recenti prima"
   }
 }

@@ -83,7 +83,8 @@ def _read_globals() -> str:
             "Run scripts/download-vendor-libs.sh during Docker build."
         )
     path = libs_dir / _GLOBALS_FILENAME
-    return _read_file_cached(str(path), path.stat().st_mtime)
+    sdk = libs_dir / "artifact-sdk.js"
+    return _read_file_cached(str(path), path.stat().st_mtime) + ("\n" + _read_file_cached(str(sdk), sdk.stat().st_mtime) if sdk.exists() else "")
 
 
 def _find_libs_dir() -> Path | None:
