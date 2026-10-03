@@ -4,7 +4,7 @@ The selector previously displayed a generic Reload button without identifying wh
 
 ## Reproduction and verification
 
-Before changing the selector, capture the real component with synthetic connection/table API responses. The before screenshot has no identity or refresh timestamp. After the change, the same component shows the effective account, the matching indexing timestamp and the refresh outcome.
+Capture the real selector and Connections modal with synthetic connection/table API responses. The current design keeps identity selection in the modal and separates table-list reload from connection schema discovery.
 
 Start the frontend locally on port 3100:
 
@@ -19,19 +19,18 @@ In another terminal, from the repository root:
 node tools/agent/verify_schema_identity.cjs
 ```
 
-The script temporarily creates a public preview page, mounts the real `TablesSelector`, intercepts API calls with synthetic responses and removes the page on exit. It never reads or changes a live Power BI environment. Do not run the preview page on a public server.
+The script temporarily creates a public preview page, mounts the real `TablesSelector` and `AgentConnectionsModal`, intercepts API calls with synthetic responses and removes the page on exit. It never reads or changes a live Power BI environment. Do not run the preview page on a public server.
 
-Observed: **8 browser scenarios passed** — a non-Power-BI delegated table connection, a mixed Power BI/SQL agent, a shared-only connection, partial model failure, failed job, disconnected account, reader without account-switch permission, and Hebrew RTL. The personal scenario also opens the existing account dialog and switches identity. Assertions verify that a direct click runs the sole action, a multi-action click opens a menu without starting a job, menu choices select the named connection and scope, the connection icons load, the toolbar spinner appears during a refresh, and completion reloads the catalog. No browser exceptions occurred.
+Observed: **8 browser scenarios passed** — a non-Power-BI delegated table connection, a mixed Power BI/SQL agent, a shared-only connection, partial model failure, failed job, disconnected account, reader without account-switch permission, and Hebrew RTL. Assertions verify that Reload rereads the table list without starting a schema job; its chevron opens scoped choices even for a sole action; the modal switches query identity and updates available actions; a reader cannot switch identity; the toolbar spinner and result notification appear during and after a schema job. No browser exceptions occurred.
 
-Evidence: `media/pr/powerbi-schema-identity/after.png` shows the first implementation with a per-connection button. `after-refresh-menu-single.png`, `after-refresh-menu-mixed.png`, `after-refresh-loading.png`, `after-refresh-direct.png`, `after-refresh-menu-he.png`, and `refresh-menu-flow.gif` show the revised control. Partial and failed screenshots are in the same directory.
+Evidence: `media/pr/powerbi-schema-identity/after-refresh-menu-mixed.png` shows the previous identity strip and menu. `after-reload-menu-mixed.png`, `after-connections-toggle.png`, `after-reload-loading.png`, `after-reload-menu-he.png`, and `reload-menu-flow.gif` show the latest design. Partial and failed screenshots are in the same directory.
 
 ## Implementation
 
-- `frontend/components/datasources/SchemaIdentityStatus.vue` shows each table connection's effective identity and opens the existing `ConnectionDetailModal` when switching is permitted.
-- Refresh starts the existing personal or shared background job and polls the matching scope. Completion reloads the displayed tables. Partial/failed results remain visibly distinct from success.
+- `frontend/components/AgentConnectionsModal.vue` shows a small account toggle for a delegated connection when the user may manage it. Switching refreshes the parent view. Its connection-test control uses a distinct icon and accessible label.
+- `frontend/components/datasources/SchemaIdentityStatus.vue` remains mounted as a headless refresh controller. It starts a personal or shared background job, polls the matching scope, and reports success, partial results or failure through a toast. Completion reloads the displayed tables.
 - `backend/app/routes/data_source.py` includes registry data shape and catalog ownership in the existing agent-connections response.
-- `frontend/components/datasources/TablesSelector.vue` keeps each connection's name, icon, identity pill and short date on one compact line. Its toolbar has one refresh control: direct when exactly one action is available, a full-button menu with connection icons and a separate scope label otherwise. The button shows `Spinner.vue` while a chosen refresh runs. The old agent-wide Reload is used only when no table connection can be identified.
-- Unknown timestamps are shown as unknown; credential-use timestamps are never presented as schema refresh times. Partial results label their time as the last refresh attempt.
+- `frontend/components/datasources/TablesSelector.vue` has a split Reload control. The main button rereads the existing catalog without invoking discovery. The chevron opens connection-specific schema refresh actions with icons and scope labels; this is consistent when one or many actions are available. `Spinner.vue` appears in the chevron while a schema job runs.
 - New strings are included in all ten locale catalogs with matching key shapes.
 
 ## Limits

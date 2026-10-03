@@ -1,5 +1,5 @@
 <template>
-  <div class="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="schema-identity">
+  <div v-if="!headless" class="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="schema-identity">
     <DataSourceIcon :type="connection.type" class="h-4 w-4" />
     <span class="font-medium text-gray-700 dark:text-gray-200">{{ connection.name }}</span>
     <button v-if="canSwitchIdentity" type="button" :disabled="busy || disabled" @click="detailsOpen = true"
@@ -26,8 +26,8 @@ import { useCan } from '~/composables/usePermissions'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
-const props = defineProps<{ connection: any; disabled?: boolean }>()
-const emit = defineEmits<{ (e: 'refreshed'): void; (e: 'identity-changed'): void; (e: 'busy-change', active: boolean): void }>()
+const props = defineProps<{ connection: any; disabled?: boolean; headless?: boolean }>()
+const emit = defineEmits<{ (e: 'refreshed'): void; (e: 'identity-changed'): void; (e: 'busy-change', active: boolean): void; (e: 'finished', result: { message: string; warning: boolean }): void }>()
 const { t, locale } = useI18n()
 const detailsOpen = ref(false)
 const job = ref<ConnectionIndexing | null>(null)
@@ -81,6 +81,13 @@ const timestamp = computed(() => {
 })
 watch([hasRequested, busy], () => emit('busy-change', hasRequested.value && busy.value), { immediate: true })
 let generation = 0
+let notifiedGeneration = 0
+watch([hasRequested, busy, notice], () => {
+  if (hasRequested.value && !busy.value && notice.value && notifiedGeneration !== generation) {
+    notifiedGeneration = generation
+    emit('finished', { message: notice.value, warning: warning.value })
+  }
+})
 let timer: ReturnType<typeof setTimeout> | undefined
 async function readJob(version: number, selectedScope: 'user' | 'org') {
   const { data, error } = await useMyFetch(`/connections/${props.connection.id}/indexing?scope=${selectedScope}`, { method: 'GET' })

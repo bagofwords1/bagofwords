@@ -5,11 +5,12 @@
       <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
       <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
-    <div v-if="schemaConnections.length" class="mb-2 flex flex-wrap gap-x-4 gap-y-1 px-1">
-      <SchemaIdentityStatus v-for="connection in schemaConnections" :key="connection.id"
+    <div v-if="schemaConnections.length" class="hidden" aria-hidden="true">
+      <SchemaIdentityStatus v-for="connection in schemaConnections" :key="connection.id" headless
         :ref="el => setSchemaStatusRef(connection.id, el)" :connection="connection"
         :disabled="loading || refreshing || hasPendingChanges" @refreshed="reloadKnownCatalog"
-        @identity-changed="onSchemaIdentityChanged" @busy-change="onSchemaBusyChange(connection.id, $event)" />
+        @busy-change="onSchemaBusyChange(connection.id, $event)"
+        @finished="onSchemaRefreshFinished" />
     </div>
     <div class="shrink-0 mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
       <div class="flex items-center gap-4">
@@ -34,18 +35,24 @@
           class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
           {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
-        <div v-if="showRefresh && refreshActions.length" class="relative">
-          <button ref="refreshButtonRef" type="button" :disabled="loading || refreshing || hasPendingChanges || (refreshActions.length === 1 && busyConnectionIds.has(refreshActions[0].connection.id))"
-            :aria-haspopup="refreshActions.length > 1 ? 'menu' : undefined"
-            :aria-expanded="refreshActions.length > 1 ? refreshMenuOpen : undefined"
-            @click="refreshActions.length === 1 ? runSchemaRefresh(refreshActions[0]) : toggleRefreshMenu()"
-            class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-            <Spinner v-if="anySchemaRefreshBusy" data-testid="schema-refresh-spinner" class="h-3 w-3" />
-            {{ t('schemaIdentity.refresh') }}
-            <UIcon v-if="refreshActions.length > 1" name="i-heroicons-chevron-down" class="ms-1 h-3 w-3 text-gray-400" />
+        <div v-if="showRefresh" class="relative inline-flex rounded-md border border-gray-200 text-[11px] text-gray-600 dark:border-gray-700 dark:text-gray-300">
+          <button type="button" :disabled="loading || refreshing || hasPendingChanges" @click="onRefresh"
+            class="inline-flex items-center gap-1.5 rounded-s-md px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-50 dark:hover:bg-gray-800">
+            <Spinner v-if="refreshing" class="h-3 w-3" />
+            <UIcon v-else name="i-heroicons-arrow-path" class="h-3 w-3" />
+            {{ t('tableErd.reload') }}
           </button>
-          <div v-if="refreshMenuOpen && refreshActions.length > 1" ref="refreshMenuRef" role="menu"
+          <button v-if="refreshActions.length" ref="refreshButtonRef" type="button"
+            :disabled="loading || refreshing || hasPendingChanges"
+            aria-haspopup="menu" :aria-expanded="refreshMenuOpen"
+            :aria-label="t('schemaIdentity.refresh')" @click="toggleRefreshMenu"
+            class="inline-flex items-center rounded-e-md border-s border-gray-200 px-2 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800">
+            <Spinner v-if="anySchemaRefreshBusy" data-testid="schema-refresh-spinner" class="h-3 w-3" />
+            <UIcon v-else name="i-heroicons-chevron-down" class="h-3 w-3" />
+          </button>
+          <div v-if="refreshMenuOpen && refreshActions.length" ref="refreshMenuRef" role="menu"
             class="absolute end-0 top-full z-30 mt-1 w-64 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            <div class="px-3 py-1.5 text-[10px] font-medium text-gray-400">{{ t('schemaIdentity.refresh') }}</div>
             <button v-for="(action, index) in refreshActions" :key="`${action.connection.id}:${action.scope}`" type="button" role="menuitem"
               :aria-label="t(action.scope === 'user' ? 'schemaIdentity.refreshMyFor' : 'schemaIdentity.refreshSharedFor', { name: action.connection.name })"
               :disabled="busyConnectionIds.has(action.connection.id)"
@@ -63,13 +70,6 @@
             </button>
           </div>
         </div>
-        <button v-else-if="showRefresh && !schemaConnections.length" @click="onRefresh" :disabled="loading || refreshing"
-          :aria-label="t('tableErd.reload')"
-          class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-          <Spinner v-if="loading || refreshing" class="w-3 h-3" />
-          <UIcon v-else name="i-heroicons-arrow-path" class="w-3 h-3" />
-          <span v-if="!refreshIconOnly">{{ t('tableErd.reload') }}</span>
-        </button>
       </div>
     </div>
 
@@ -859,6 +859,9 @@ function onSchemaBusyChange(id: string, active: boolean) {
   else next.delete(id)
   busyConnectionIds.value = next
 }
+function onSchemaRefreshFinished(result: { message: string; warning: boolean }) {
+  toast.add({ title: result.message, color: result.warning ? 'amber' : 'green' })
+}
 function setSchemaStatusRef(id: string, el: any) {
   if (el) schemaStatusRefs.set(id, el)
   else schemaStatusRefs.delete(id)
@@ -873,11 +876,6 @@ function runSchemaRefresh(action: SchemaRefreshAction) {
   refreshMenuOpen.value = false
   schemaStatusRefs.get(action.connection.id)?.refreshSchema(action.scope)
 }
-async function onSchemaIdentityChanged() {
-  await loadAuthConnections()
-  await reloadKnownCatalog()
-}
-
 const connectRequiredConn = computed(() => {
   return authConnections.value.find((c: any) =>
     c?.auth_policy === 'user_required'
@@ -1596,31 +1594,12 @@ async function onSave() {
 
 async function onRefresh() {
   if (loading.value || refreshing.value) return
+  refreshMenuOpen.value = false
   refreshing.value = true
 
   try {
-    if (endpointForSchema() === 'full_schema') {
-      const res = await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
-      if (res.error?.value) {
-        // Surface the real reason (e.g. 403 "Connect required: this connection
-        // runs queries with your own credentials…") — a silent no-op here left
-        // users staring at an empty list with no explanation.
-        const err: any = res.error.value
-        const detail = err?.data?.detail || err?.message || 'Failed to reload'
-        toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: String(detail), color: 'red' })
-      }
-    }
-
-    invalidateCatalog()
-    // Clear all tracking on refresh
-    originalActiveState.value.clear()
-    currentActiveState.value.clear()
-    selectedConnections.value = []
-    page.value = 1
-
-    await fetchTables()
+    await reloadKnownCatalog()
     await loadAuthConnections()
-    if (tableView.value === 'erd') await loadCatalog()
   } catch (e: any) {
     toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: e?.message || String(e), color: 'red' })
   } finally {

@@ -29,7 +29,7 @@
 
             <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">{{ $t('common.loading') }}</div>
 
-            <div v-else-if="connections.length === 0" class="py-8 text-center">
+            <div v-else-if="displayConnections.length === 0" class="py-8 text-center">
                 <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
                 <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('data.noLinkedConnections') }}</p>
                 <UButton v-if="canLinkConnections" color="blue" variant="soft" size="sm" class="mt-3" @click="openLinkModal">
@@ -39,7 +39,7 @@
 
             <div v-else class="divide-y divide-gray-100 dark:divide-gray-800">
                 <div
-                    v-for="conn in connections"
+                    v-for="conn in displayConnections"
                     :key="conn.id"
                     class="py-4 first:pt-0 last:pb-0"
                 >
@@ -52,6 +52,16 @@
                                     <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDotClass(getConnectionEffective(conn))" />
                                     {{ getStatusLabel(conn) }}
                                 </div>
+                                <button v-if="canToggleIdentity(conn)" type="button" :disabled="switchingIdentityId === conn.id"
+                                    class="mt-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50"
+                                    :class="conn.user_status?.query_identity === 'service_account' ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'"
+                                    :aria-label="t('schemaIdentity.changeIdentity')" :title="t('schemaIdentity.changeIdentity')"
+                                    @click="toggleIdentity(conn)">
+                                    <Spinner v-if="switchingIdentityId === conn.id" class="h-3 w-3" />
+                                    {{ identityLabel(conn) }}
+                                    <UIcon v-if="switchingIdentityId !== conn.id" name="i-heroicons-arrows-right-left" class="h-3 w-3" />
+                                </button>
+                                <span v-else-if="conn.auth_policy === 'user_required'" class="mt-1.5 inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">{{ identityLabel(conn) }}</span>
                                 <div v-if="connectionCounts(conn).length" class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
                                     <span v-for="count in connectionCounts(conn)" :key="count.key">{{ $t(count.key, { n: count.value }, count.value) }}</span>
                                 </div>
@@ -73,10 +83,10 @@
                                 @click="testConnection(conn.id)"
                                 :disabled="testingConnectionId === conn.id"
                                 class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                                :title="$t('data.testConnection')"
+                                :title="$t('data.testConnection')" :aria-label="$t('data.testConnection')"
                             >
                                 <Spinner v-if="testingConnectionId === conn.id" class="w-4 h-4" />
-                                <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-400" />
+                                <UIcon v-else name="heroicons-beaker" class="w-4 h-4 text-gray-400" />
                             </button>
                             <UButton
                                 v-if="canManageConnection(conn)"
@@ -242,8 +252,22 @@ const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async (
 // Prefer explicit props (standalone use); fall back to the injected integration.
 const dsId = computed(() => props.dsId ?? String(route.params.id || ''))
 const connections = computed(() => props.connections ?? (integration.value?.connections || []))
+const identityConnections = ref<Record<string, any>>({})
+const displayConnections = computed(() => connections.value.map((conn: any) => ({
+    ...conn,
+    ...identityConnections.value[conn.id],
+})))
 const agentInfo = computed(() => props.agent ?? integration.value)
 const ready = computed(() => props.dsId != null || !!integration.value)
+let identityRequest = 0
+async function loadIdentityConnections() {
+    const version = ++identityRequest
+    if (!isOpen.value || !dsId.value) return
+    const { data, error } = await useMyFetch(`/data_sources/${dsId.value}/connections`, { method: 'GET' })
+    if (version !== identityRequest || error.value) return
+    identityConnections.value = Object.fromEntries(((data.value as any[]) || []).map(conn => [conn.id, conn]))
+}
+watch([isOpen, dsId], () => { if (isOpen.value) loadIdentityConnections() }, { immediate: true })
 
 // Linking/unlinking a connection to THIS agent is an agent-management action:
 // anyone who can manage the agent may attach connections they have access to
@@ -260,6 +284,38 @@ const canLinkConnections = computed(() =>
 // full_admin imply it) rather than agent-management.
 function canManageConnection(conn: any) {
     return useCan('manage_connection', { type: 'connection', id: conn.id })
+}
+function canToggleIdentity(conn: any) {
+    return conn.auth_policy === 'user_required' && !!conn.user_status?.can_switch_identity && canManageConnection(conn)
+}
+function identityLabel(conn: any) {
+    return t(conn.user_status?.query_identity === 'service_account' ? 'schemaIdentity.serviceAccount' : 'schemaIdentity.myAccount')
+}
+const switchingIdentityId = ref<string | null>(null)
+async function toggleIdentity(conn: any) {
+    if (!canToggleIdentity(conn) || switchingIdentityId.value) return
+    switchingIdentityId.value = conn.id
+    const current = conn.user_status?.query_identity === 'service_account' ? 'service_account' : 'self'
+    const target = current === 'self' ? 'service_account' : 'self'
+    try {
+        const { data, error } = await useMyFetch(`/connections/${conn.id}/query-identity`, {
+            method: 'PATCH', body: { query_identity: target },
+        })
+        if (error.value) {
+            toast.add({ title: t('data.switchIdentityFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
+            return
+        }
+        identityConnections.value = {
+            ...identityConnections.value,
+            [conn.id]: { ...conn, user_status: data.value },
+        }
+        await refresh()
+        await loadIdentityConnections()
+    } catch (error: any) {
+        toast.add({ title: t('data.switchIdentityFailed'), description: error?.message, color: 'red' })
+    } finally {
+        switchingIdentityId.value = null
+    }
 }
 
 // Refresh both the legacy layout (via inject) and the standalone parent (via emit).
