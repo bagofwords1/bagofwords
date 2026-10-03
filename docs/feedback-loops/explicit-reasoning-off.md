@@ -45,10 +45,11 @@ TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db PYTHONPATH=. uv run pytest --n
   tests/unit/test_openai_client_temperature.py tests/unit/test_azure_client_stream_v2.py \
   tests/unit/test_azure_foundry_endpoint.py tests/unit/test_anthropic_cache_breakpoints.py \
   tests/unit/test_anthropic_cache_ttl.py tests/unit/test_codegen_reasoning_time.py \
+  tests/unit/test_opus_5_5_support.py \
   -q --tb=short --disable-warnings
 ```
 
-Observed **439 passed**, no failures, 117 warnings. Existing assertions encoding omitted off/mandatory adaptive thinking were updated to the intended contract. An initial run caught a misnamed schema import in the new test; corrected before final verification.
+Observed **447 passed**, no failures, 151 warnings. Existing assertions encoding omitted off/mandatory adaptive thinking were updated to the intended contract. The old Opus 5.5 private-helper assertion is replaced by the provider-boundary always-on model test. An initial run caught a misnamed schema import in the new test; corrected before final verification.
 
 ## What this proves / limits
 
