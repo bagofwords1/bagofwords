@@ -125,7 +125,8 @@ proves create/edit behavior through the real browser validator.
 
 ## Local deployment requirements
 
-Set `BOW_ARTIFACT_RESOURCES_ENABLED=true` only after qualification. Keep a stable
+Artifact resources default to enabled. Organization admins can turn them off with
+`enable_artifact_resources` in AI settings; the former environment flag is no longer used. Keep a stable
 `BOW_ENCRYPTION_KEY` and configure `BOW_ARTIFACT_STORAGE` to a private shared
 volume visible to every API worker. Database and blobs must be backed up together;
 keep the encryption key separately. A local disk belonging to one worker is not

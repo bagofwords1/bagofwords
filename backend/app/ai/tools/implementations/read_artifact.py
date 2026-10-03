@@ -528,7 +528,9 @@ class ReadArtifactTool(Tool):
         }
         observation["resource_artifact_id"] = str(artifact.artifact_id)
         import os
-        if os.environ.get('BOW_ARTIFACT_RESOURCES_ENABLED') == 'true':
+        from app.services.artifact_resource_policy import artifact_resources_enabled
+        observation['resources_enabled'] = await artifact_resources_enabled(db, organization.id)
+        if observation['resources_enabled']:
             from app.services.artifact_resource_service import ArtifactResources
             viewer = getattr(context_hub, 'user', None) if context_hub else runtime_ctx.get('user')
             resources = await ArtifactResources.open(db, str(artifact.artifact_id), viewer, organization.id)

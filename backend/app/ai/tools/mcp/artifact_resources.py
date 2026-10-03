@@ -32,8 +32,6 @@ class PublicationInput(BaseModel):
 
 
 async def scoped_service(db, user, organization, data, manage=False):
-    if os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") != "true":
-        fail("UNAVAILABLE", "Artifact resources are not enabled", 404)
     service = await ArtifactResources.open(db, data.artifact_id, user, str(organization.id), manage=manage)
     if str(service.report.id) != data.report_id:
         fail("NOT_FOUND", "Artifact not found in this report", 404)
@@ -46,7 +44,7 @@ class ManageArtifactResourcesMCPTool(MCPTool):
 
     @property
     def is_available(self):
-        return os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") == "true"
+        return True
 
     @property
     def input_schema(self):
@@ -85,7 +83,7 @@ class PublishArtifactMCPTool(MCPTool):
 
     @property
     def is_available(self):
-        return os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") == "true"
+        return True
 
     @property
     def input_schema(self):

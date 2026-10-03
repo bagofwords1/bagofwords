@@ -2516,6 +2516,10 @@
           "name": "Låt LLM:en se data",
           "description": "Låter LLM:en se data som en del av analysen och användarnas frågor"
         },
+        "enable_artifact_resources": {
+          "name": "Artefaktresurser",
+          "description": "Tillåt artefakter att använda beständiga poster, privata filer och godkända AI-operationer. Befintliga delnings- och resursbehörigheter gäller fortfarande."
+        },
         "enable_artifact_verification": {
           "name": "Verifiera dataappar",
           "description": "Låt agenten kontrollera interaktiva sidor med webbläsarverktyg. Kräver att språkmodellen får se data."

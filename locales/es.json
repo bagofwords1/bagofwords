@@ -2632,6 +2632,10 @@
           "name": "Permitir que el LLM vea los datos",
           "description": "Permite que el LLM vea los datos como parte del análisis y de las consultas de los usuarios"
         },
+        "enable_artifact_resources": {
+          "name": "Recursos de artefactos",
+          "description": "Permitir registros persistentes, archivos privados y operaciones de IA aprobadas en los artefactos. Se mantienen los permisos de recursos y uso compartido."
+        },
         "enable_artifact_verification": {
           "name": "Verificar aplicaciones de datos",
           "description": "Permite que el agente compruebe páginas interactivas con herramientas de navegador. Requiere Permitir que el LLM vea los datos."

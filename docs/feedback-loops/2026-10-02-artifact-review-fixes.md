@@ -48,4 +48,4 @@ CI cleanup corrections keep the iframe asset version aligned with the existing r
 
 `media/pr/artifact-resources/review-fonts-before.png` and `review-fonts-after.png` show the existing generated document app before/after this review pass. The screenshots establish layout continuity; HTTP and browser assertions establish font/image policy behavior. They are not proof of ingress behavior or production capacity.
 
-The earlier real Luna/Sol completion results remain in `2026-10-02-artifact-live-completions.md`; no paid-model rerun was needed for these transport/compatibility changes. Full repeated release qualification and production load/failover checks remain outstanding. Keep the feature disabled by default and the PR draft.
+The earlier real Luna/Sol completion results remain in `2026-10-02-artifact-live-completions.md`; no paid-model rerun was needed for these transport/compatibility changes. Full repeated release qualification and production load/failover checks remain outstanding. The subsequent organization-settings change makes resources enabled by default; admins can disable them per organization. The PR remains draft.

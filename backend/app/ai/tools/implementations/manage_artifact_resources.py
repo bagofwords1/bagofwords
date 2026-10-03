@@ -1,6 +1,5 @@
 """Schema/configuration authoring only; never edits user records."""
 
-import os
 from pydantic import Field
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -25,7 +24,7 @@ class ManageArtifactResources(Tool):
             max_retries=0,
             required_permissions=["update_reports"],
             tags=["artifact", "schema", "resources"],
-            is_active=os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") == "true",
+            is_active=True,
         )
 
     @property
@@ -41,8 +40,6 @@ class ManageArtifactResources(Tool):
         org = hub.organization if hub else runtime_ctx.get("organization")
         report = hub.report if hub else runtime_ctx.get("report")
         try:
-            if os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") != "true":
-                fail("UNAVAILABLE", "Artifact resources are not enabled", 404)
             # Savepoint: a rejected change rolls back only itself. A session-wide
             # rollback would expire the agent's own loaded state and crash the turn.
             async with db.begin_nested():

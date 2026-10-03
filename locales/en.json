@@ -2712,6 +2712,10 @@
           "name": "Allow LLM to see data",
           "description": "Enable LLM to see data as part of the analysis and user queries"
         },
+        "enable_artifact_resources": {
+          "name": "Artifact resources",
+          "description": "Allow artifacts to use persistent records, private files and approved AI operations. Existing sharing and resource permissions still apply."
+        },
         "enable_artifact_verification": {
           "name": "Verify data apps",
           "description": "Let the agent check interactive page artifacts with browser tools. Requires Allow LLM to see data."

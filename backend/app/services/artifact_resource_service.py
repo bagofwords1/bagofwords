@@ -124,6 +124,8 @@ class ArtifactResources:
         if report is None or report.status == "archived":
             fail("NOT_FOUND", "Artifact not found", 404)
         await ReportService()._check_visibility(db, report, "artifact_visibility", user)
+        from app.services.artifact_resource_policy import require_artifact_resources
+        await require_artifact_resources(db, artifact.organization_id)
         groups = []
         member = False
         if user:

@@ -7,6 +7,8 @@ Keep useArtifactData(), vizById(id), useParams(), useParamOptions(), useFilters(
 and useCurrentUser() unchanged for existing analytical data; bow.data exposes
 those same helpers. Do not replace analytical queries with record collections.
 
+Artifact resources are enabled by default and controlled by the organization setting enable_artifact_resources. If disabled, an organization admin can enable Artifact resources in AI settings. Do not claim persistent writes succeeded or substitute temporary storage without explaining the limitation.
+
 Declare optional resources on create_artifact. For existing artifacts use
 read_artifact, then manage_artifact_resources for schema/configuration changes,
 then edit_artifact for UI changes. Optional publish_artifact selects a completed UI version for shared viewers; use the publication revision from read_artifact. Until explicitly enabled, existing latest-version sharing remains unchanged. Resource IDs belong to the stable artifact,

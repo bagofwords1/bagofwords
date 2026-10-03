@@ -949,6 +949,14 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         context_hub = runtime_ctx.get("context_hub")
         organization_settings = runtime_ctx.get("settings")
 
+        # Reject unavailable persistence before generating code or a pending version.
+        if data.resources:
+            from app.services.artifact_resource_policy import artifact_resources_enabled
+            if not await artifact_resources_enabled(db, organization.id):
+                yield ToolEndEvent(type="tool.end", payload={"output": {"success": False}, "observation": {
+                    "error": "Artifact resources are disabled in organization settings. Ask an organization admin to enable Artifact resources in AI settings; do not promise persistence while disabled."}})
+                return
+
         # Check privacy setting
         allow_llm_see_data = True
         if organization_settings:
@@ -1597,8 +1605,6 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 import os
                 from app.services.artifact_resource_service import ArtifactResources, fail
                 from app.schemas.artifact_resource_schema import ResourceChange
-                if os.environ.get('BOW_ARTIFACT_RESOURCES_ENABLED') != 'true':
-                    fail('UNAVAILABLE', 'Artifact resources are not enabled', 404)
                 from hashlib import sha256
                 from datetime import datetime
                 from sqlalchemy import update

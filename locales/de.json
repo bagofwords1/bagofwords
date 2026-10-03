@@ -2516,6 +2516,10 @@
           "name": "LLM darf Daten sehen",
           "description": "Erlaubt dem LLM, Daten im Rahmen der Analyse und der Nutzeranfragen zu sehen"
         },
+        "enable_artifact_resources": {
+          "name": "Artefaktressourcen",
+          "description": "Artefakten dauerhafte Datensätze, private Dateien und genehmigte KI-Operationen erlauben. Bestehende Freigabe- und Ressourcenberechtigungen gelten weiterhin."
+        },
         "enable_artifact_verification": {
           "name": "Daten-Apps überprüfen",
           "description": "Der Agent kann interaktive Seiten mit Browserwerkzeugen prüfen. Erfordert, dass das LLM Daten sehen darf."

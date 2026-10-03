@@ -18,7 +18,7 @@ from tests.e2e.rbac.conftest import (
 
 @pytest.fixture
 def artifact_api(monkeypatch, test_client, create_user, login_user, whoami, create_report):
-    monkeypatch.setenv("BOW_ARTIFACT_RESOURCES_ENABLED", "true")
+    monkeypatch.delenv("BOW_ARTIFACT_RESOURCES_ENABLED", raising=False)
     user = create_user()
     token = login_user(user["email"], user["password"])
     org = whoami(token)["organizations"][0]["id"]
@@ -885,8 +885,9 @@ def test_mcp_resource_authoring_uses_same_scope_revisions_and_permissions(
 
     asyncio.run(reject_nonowner_authoring())
     assert records(client, base, headers, action="list").json()["items"][0]["data"]["title"] == "Kept"
-    monkeypatch.setenv("BOW_ARTIFACT_RESOURCES_ENABLED", "false")
-    assert "manage_artifact_resources" not in {t["name"] for t in list_mcp_tools()}
+    response = client.put("/api/organization/settings", headers=headers, json={"config": {"enable_artifact_resources": {"value": False}}})
+    assert response.status_code == 200
+    assert "manage_artifact_resources" in {t["name"] for t in list_mcp_tools()}
     with pytest.raises(AppError):
         asyncio.run(call({"action": "read"}))
 
@@ -911,3 +912,61 @@ def test_deleted_resources_release_live_capacity_without_rebinding_names(artifac
     })
     assert reused.status_code==409
     make_collection(client,base,headers,name='current_collection')
+
+
+@pytest.mark.e2e
+def test_org_resource_switch_defaults_on_and_preserves_data(artifact_api, monkeypatch):
+    client, base, headers, _ = artifact_api
+    monkeypatch.delenv('BOW_ARTIFACT_RESOURCES_ENABLED', raising=False)
+    settings = client.get('/api/organization/settings', headers=headers)
+    assert settings.status_code == 200
+    assert settings.json()['config']['enable_artifact_resources']['value'] is True
+    make_collection(client, base, headers)
+    assert records(client, base, headers, action='create', data={'title': 'Retained'},
+                   idempotency_key=str(uuid.uuid4())).status_code == 200
+    for enabled in (False, True):
+        changed = client.put('/api/organization/settings', headers=headers, json={
+            'config': {'enable_artifact_resources': {'value': enabled}}})
+        assert changed.status_code == 200, changed.text
+        response = client.get(base + '/resources', headers=headers)
+        assert response.status_code == (200 if enabled else 404), response.text
+    assert records(client, base, headers, action='list').json()['items'][0]['data']['title'] == 'Retained'
+
+
+@pytest.mark.e2e
+def test_resource_setting_is_admin_only_and_tenant_scoped(artifact_api, invite_user_to_org, create_organization, monkeypatch):
+    client, base, headers, report_id = artifact_api
+    member = invite_user_to_org(org_id=headers['X-Organization-Id'], admin_token=headers['Authorization'].split()[1])
+    member_headers = {**headers, 'Authorization': 'Bearer ' + member['token']}
+    payload = {'config': {'enable_artifact_resources': {'value': False}}}
+    assert client.put('/api/organization/settings', headers=member_headers, json=payload).status_code == 403
+    assert client.get(base + '/resources', headers=headers).status_code == 200
+    from app.settings.config import settings
+    monkeypatch.setattr(settings.bow_config.features, 'allow_multiple_organizations', True)
+    other_org = create_organization(user_token=headers['Authorization'].split()[1])
+    assert client.put('/api/organization/settings', headers=headers, json=payload).status_code == 200
+
+    async def verify():
+        from app.services.artifact_resource_policy import artifact_resources_enabled
+        from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+        from app.models.organization import Organization
+        from app.models.user import User
+        async with async_session_maker() as db:
+            assert await artifact_resources_enabled(db, other_org)
+            assert not await artifact_resources_enabled(db, headers['X-Organization-Id'])
+            report = await db.get(Report, report_id)
+            ctx = {'db': db, 'report': report, 'organization': await db.get(Organization, report.organization_id),
+                   'user': await db.get(User, report.user_id)}
+            # No model/provider is supplied: disabled resource creation must exit
+            # before generation or any pending artifact/version is created.
+            events = [e async for e in CreateArtifactTool().run_stream(
+                {'prompt': 'a blog', 'resources': [{'name': 'posts', 'fields': {'title': {'type': 'string'}}}]}, ctx)]
+            assert events[-1].type == 'tool.end'
+            assert events[-1].payload['output']['success'] is False
+            assert not any(e.payload.get('stage') == 'artifact_created' for e in events)
+    asyncio.run(verify())
+    # The retired process flag must not override organization policy.
+    monkeypatch.setenv('BOW_ARTIFACT_RESOURCES_ENABLED', 'false')
+    assert client.put('/api/organization/settings', headers=headers,
+                      json={'config': {'enable_artifact_resources': {'value': True}}}).status_code == 200
+    assert client.get(base + '/resources', headers=headers).status_code == 200

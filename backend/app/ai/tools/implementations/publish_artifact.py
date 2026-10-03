@@ -1,6 +1,5 @@
 """Select a completed UI version; existing artifact sharing remains authoritative."""
 
-import os
 from pydantic import BaseModel, Field, ConfigDict
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -29,7 +28,7 @@ class PublishArtifactTool(Tool):
             max_retries=0,
             required_permissions=["update_reports"],
             tags=["artifact", "resources"],
-            is_active=os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") == "true",
+            is_active=True,
         )
 
     @property
@@ -45,8 +44,6 @@ class PublishArtifactTool(Tool):
         report = hub.report if hub else runtime_ctx.get("report")
         org = hub.organization if hub else runtime_ctx.get("organization")
         try:
-            if os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") != "true":
-                fail("UNAVAILABLE", "Artifact resources are not enabled", 404)
             # Savepoint: a rejected publication must not expire the agent's state.
             async with db.begin_nested():
                 service = await ArtifactResources.open(db, data.artifact_id, user, org.id, manage=True)

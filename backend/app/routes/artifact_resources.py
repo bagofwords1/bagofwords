@@ -24,8 +24,6 @@ router = APIRouter(prefix="/artifacts/{artifact_id}/runtime", tags=["artifact re
 
 
 async def access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
-    if os.environ.get("BOW_ARTIFACT_RESOURCES_ENABLED") != "true":
-        fail("UNAVAILABLE", "Artifact resources are not enabled", 404)
     if (
         os.environ.get("BOW_ARTIFACT_RESOURCES_READ_ONLY") == "true"
         and request.method in ("POST", "DELETE")
