@@ -5431,6 +5431,7 @@
     "myAccount": "حسابي",
     "serviceAccount": "حساب الخدمة",
     "sharedConnection": "اتصال مشترك",
+    "sharedSchema": "المخطط المشترك",
     "changeIdentity": "تغيير هوية الاستعلام",
     "refresh": "تحديث المخطط",
     "refreshMyFor": "تحديث {name} · حسابي",

@@ -5,11 +5,11 @@
       <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
       <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
-    <div v-if="schemaConnections.length" class="mb-3 flex flex-wrap gap-x-6 gap-y-2 px-1">
+    <div v-if="schemaConnections.length" class="mb-2 flex flex-wrap gap-x-4 gap-y-1 px-1">
       <SchemaIdentityStatus v-for="connection in schemaConnections" :key="connection.id"
         :ref="el => setSchemaStatusRef(connection.id, el)" :connection="connection"
         :disabled="loading || refreshing || hasPendingChanges" @refreshed="reloadKnownCatalog"
-        @identity-changed="onSchemaIdentityChanged" />
+        @identity-changed="onSchemaIdentityChanged" @busy-change="onSchemaBusyChange(connection.id, $event)" />
     </div>
     <div class="shrink-0 mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
       <div class="flex items-center gap-4">
@@ -35,21 +35,31 @@
           {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
         <div v-if="showRefresh && refreshActions.length" class="relative">
-          <button ref="refreshButtonRef" type="button" :disabled="loading || refreshing || hasPendingChanges"
+          <button ref="refreshButtonRef" type="button" :disabled="loading || refreshing || hasPendingChanges || (refreshActions.length === 1 && busyConnectionIds.has(refreshActions[0].connection.id))"
             :aria-haspopup="refreshActions.length > 1 ? 'menu' : undefined"
             :aria-expanded="refreshActions.length > 1 ? refreshMenuOpen : undefined"
             @click="refreshActions.length === 1 ? runSchemaRefresh(refreshActions[0]) : toggleRefreshMenu()"
             class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-            <UIcon name="i-heroicons-arrow-path" class="h-3 w-3" />
+            <Spinner v-if="anySchemaRefreshBusy" data-testid="schema-refresh-spinner" class="h-3 w-3" />
             {{ t('schemaIdentity.refresh') }}
-            <UIcon v-if="refreshActions.length > 1" name="i-heroicons-chevron-down" class="h-3 w-3" />
+            <UIcon v-if="refreshActions.length > 1" name="i-heroicons-chevron-down" class="ms-1 h-3 w-3 text-gray-400" />
           </button>
           <div v-if="refreshMenuOpen && refreshActions.length > 1" ref="refreshMenuRef" role="menu"
-            class="absolute end-0 top-full z-30 mt-1 min-w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-            <button v-for="action in refreshActions" :key="`${action.connection.id}:${action.scope}`" type="button" role="menuitem"
-              class="block w-full px-3 py-2 text-start text-xs text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+            class="absolute end-0 top-full z-30 mt-1 w-64 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            <button v-for="(action, index) in refreshActions" :key="`${action.connection.id}:${action.scope}`" type="button" role="menuitem"
+              :aria-label="t(action.scope === 'user' ? 'schemaIdentity.refreshMyFor' : 'schemaIdentity.refreshSharedFor', { name: action.connection.name })"
+              :disabled="busyConnectionIds.has(action.connection.id)"
+              class="flex w-full items-center gap-2.5 px-3 py-2 text-start text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              :class="index > 0 && refreshActions[index - 1].connection.id !== action.connection.id ? 'border-t border-gray-100 dark:border-gray-800' : ''"
               @click="runSchemaRefresh(action)">
-              {{ t(action.scope === 'user' ? 'schemaIdentity.refreshMyFor' : 'schemaIdentity.refreshSharedFor', { name: action.connection.name }) }}
+              <DataSourceIcon :type="action.connection.type" class="h-4 w-4 shrink-0" />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate font-medium">{{ action.connection.name }}</span>
+                <span class="block text-[10px]" :class="action.scope === 'user' ? 'text-blue-600 dark:text-blue-400' : 'text-violet-600 dark:text-violet-400'">
+                  {{ t(action.scope === 'user' ? 'schemaIdentity.myAccount' : 'schemaIdentity.sharedSchema') }}
+                </span>
+              </span>
+              <Spinner v-if="busyConnectionIds.has(action.connection.id)" class="h-3 w-3 shrink-0 text-blue-500" />
             </button>
           </div>
         </div>
@@ -841,6 +851,14 @@ const refreshActions = computed<SchemaRefreshAction[]>(() => {
   return actions
 })
 const schemaStatusRefs = new Map<string, any>()
+const busyConnectionIds = ref<Set<string>>(new Set())
+const anySchemaRefreshBusy = computed(() => busyConnectionIds.value.size > 0)
+function onSchemaBusyChange(id: string, active: boolean) {
+  const next = new Set(busyConnectionIds.value)
+  if (active) next.add(id)
+  else next.delete(id)
+  busyConnectionIds.value = next
+}
 function setSchemaStatusRef(id: string, el: any) {
   if (el) schemaStatusRefs.set(id, el)
   else schemaStatusRefs.delete(id)

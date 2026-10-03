@@ -5620,6 +5620,7 @@
     "myAccount": "My account",
     "serviceAccount": "Service account",
     "sharedConnection": "Shared connection",
+    "sharedSchema": "Shared schema",
     "changeIdentity": "Change query identity",
     "refresh": "Refresh schema",
     "refreshMyFor": "Refresh {name} · My account",

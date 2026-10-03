@@ -5431,6 +5431,7 @@
     "myAccount": "Mein Konto",
     "serviceAccount": "Dienstkonto",
     "sharedConnection": "Gemeinsame Verbindung",
+    "sharedSchema": "Gemeinsames Schema",
     "changeIdentity": "Abfrageidentität ändern",
     "refresh": "Schema aktualisieren",
     "refreshMyFor": "{name} aktualisieren · Mein Konto",

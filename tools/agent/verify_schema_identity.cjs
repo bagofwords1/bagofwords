@@ -82,6 +82,7 @@ usePermissionsLoaded().value = true
         await expect(strips.first()).toContainText('החשבון שלי');
         await page.getByRole('button', { name: 'רענון סכימה', exact: true }).click();
         await expect(page.getByRole('menu')).toBeVisible();
+        await expect.poll(() => page.getByRole('menu').locator('img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
         await page.screenshot({ path: path.join(evidence, 'after-refresh-menu-he.png') });
       } else {
         await expect(refresh).toBeVisible();
@@ -95,9 +96,14 @@ usePermissionsLoaded().value = true
           const menu = page.getByRole('menu');
           await expect(menu).toBeVisible();
           await expect(menu.getByRole('menuitem')).toHaveCount(mixed ? 3 : 2);
+          await expect.poll(() => menu.locator('img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
           if (mixed) await page.screenshot({ path: path.join(evidence, 'after-refresh-menu-mixed.png') });
           if (scenario === 'personal') await page.screenshot({ path: path.join(evidence, 'after-refresh-menu-single.png') });
           await menu.getByRole('menuitem', { name: onlyShared ? 'Warehouse' : 'Sales semantic model · My account' }).click();
+          if (mixed) {
+            await expect(page.getByTestId('schema-refresh-spinner')).toBeVisible();
+            await page.screenshot({ path: path.join(evidence, 'after-refresh-loading.png') });
+          }
         }
         await expect(strips.first()).toContainText(scenario === 'partial' ? 'Some models could not be refreshed' : scenario === 'failed' ? 'Schema refresh did not complete' : 'Schema updated.', { timeout: 15000 });
         expect(posts).toEqual([onlyShared ? '/api/connections/demo-sql/refresh' : '/api/connections/demo-pbi/my-schema/refresh?background=true']);
@@ -108,7 +114,7 @@ usePermissionsLoaded().value = true
           await menu.getByRole('menuitem', { name: 'Sales semantic model · Shared schema' }).click();
           await expect.poll(() => posts.length).toBe(2);
           expect(posts[1]).toBe('/api/connections/demo-pbi/refresh');
-          await expect(strips.first()).toContainText('Service account');
+          await expect(strips.first()).toContainText('Shared schema');
         }
         if (scenario === 'personal') {
           await strips.first().getByRole('button', { name: 'My account', exact: true }).click();

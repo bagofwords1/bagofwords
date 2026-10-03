@@ -5591,6 +5591,7 @@
     "myAccount": "Mi cuenta",
     "serviceAccount": "Cuenta de servicio",
     "sharedConnection": "Conexión compartida",
+    "sharedSchema": "Esquema compartido",
     "changeIdentity": "Cambiar identidad de consulta",
     "refresh": "Actualizar esquema",
     "refreshMyFor": "Actualizar {name} · Mi cuenta",

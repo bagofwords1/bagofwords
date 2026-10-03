@@ -5431,6 +5431,7 @@
     "myAccount": "Моя учётная запись",
     "serviceAccount": "Служебная учётная запись",
     "sharedConnection": "Общее подключение",
+    "sharedSchema": "Общая схема",
     "changeIdentity": "Изменить учётную запись для запросов",
     "refresh": "Обновить схему",
     "refreshMyFor": "Обновить {name} · Моя учётная запись",

@@ -5611,6 +5611,7 @@
     "myAccount": "החשבון שלי",
     "serviceAccount": "חשבון שירות",
     "sharedConnection": "חיבור משותף",
+    "sharedSchema": "סכמה משותפת",
     "changeIdentity": "שינוי זהות לשאילתות",
     "refresh": "רענון סכימה",
     "refreshMyFor": "רענון {name} · החשבון שלי",

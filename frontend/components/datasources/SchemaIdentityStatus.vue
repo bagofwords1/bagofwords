@@ -1,22 +1,21 @@
 <template>
-  <div class="min-w-0" data-testid="schema-identity">
-    <div class="flex flex-wrap items-center gap-2">
-      <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-        <DataSourceIcon :type="connection.type" class="h-4 w-4" />
-        <span class="font-medium text-gray-700 dark:text-gray-200">{{ connection.name }}</span>
-        <span class="text-[10px] uppercase tracking-wide text-gray-400">{{ connection.type }}</span>
-        <span v-if="connection.auth_policy === 'user_required'" class="text-gray-500">{{ t('schemaIdentity.viewing') }}</span>
-        <button v-if="canSwitchIdentity" type="button" :disabled="busy || disabled" @click="detailsOpen = true"
-          class="inline-flex items-center gap-1 font-medium text-gray-800 hover:text-blue-600 disabled:opacity-50 dark:text-gray-100"
-          :title="t('schemaIdentity.changeIdentity')">
-          {{ identityLabel }}<UIcon name="i-heroicons-chevron-down" class="h-3 w-3" />
-        </button>
-        <span v-else class="font-medium text-gray-800 dark:text-gray-100">{{ identityLabel }}</span>
-      </div>
-      <span v-if="busy" class="text-[11px] text-gray-500">{{ t('schemaIdentity.refreshing') }}</span>
-    </div>
-    <p class="mt-1 text-[11px] text-gray-500"><template v-if="displayScope !== scope">{{ displayedScopeLabel }} · </template>{{ refreshedLabel }}</p>
-    <p v-if="notice" role="status" class="mt-1.5 text-xs" :class="warning ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'">{{ notice }}</p>
+  <div class="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="schema-identity">
+    <DataSourceIcon :type="connection.type" class="h-4 w-4" />
+    <span class="font-medium text-gray-700 dark:text-gray-200">{{ connection.name }}</span>
+    <button v-if="canSwitchIdentity" type="button" :disabled="busy || disabled" @click="detailsOpen = true"
+      class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50"
+      :class="identityPillClass" :title="t('schemaIdentity.changeIdentity')">
+      {{ identityLabel }}<UIcon name="i-heroicons-chevron-down" class="h-3 w-3" />
+    </button>
+    <span v-else class="rounded-full border px-2 py-0.5 text-[11px] font-medium" :class="identityPillClass">{{ identityLabel }}</span>
+    <span v-if="displayScope !== scope" class="text-[11px] text-gray-500">{{ displayedScopeLabel }}</span>
+    <span class="inline-flex items-center gap-1 text-[11px] text-gray-500" :title="notice || refreshedLabel">
+      <span class="h-1.5 w-1.5 rounded-full" :class="busy ? 'bg-blue-500' : warning ? 'bg-amber-500' : job?.status === 'completed' ? 'bg-green-500' : 'bg-gray-400'" />
+      <time v-if="timestamp" :datetime="job?.finished_at || undefined">{{ timestamp }}</time>
+      <span v-else>—</span>
+    </span>
+    <span v-if="disconnected || (hasRequested && notice)" role="status" class="max-w-64 truncate text-[11px]"
+      :class="warning ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'" :title="notice">{{ notice }}</span>
     <ConnectionDetailModal v-model="detailsOpen" :connection="connection" @updated="emit('identity-changed')" />
   </div>
 </template>
@@ -28,12 +27,13 @@ import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
 const props = defineProps<{ connection: any; disabled?: boolean }>()
-const emit = defineEmits<{ (e: 'refreshed'): void; (e: 'identity-changed'): void }>()
+const emit = defineEmits<{ (e: 'refreshed'): void; (e: 'identity-changed'): void; (e: 'busy-change', active: boolean): void }>()
 const { t, locale } = useI18n()
 const detailsOpen = ref(false)
 const job = ref<ConnectionIndexing | null>(null)
 const requesting = ref(false)
 const requestFailed = ref(false)
+const hasRequested = ref(false)
 const personal = computed(() => props.connection.user_status?.effective_auth === 'user')
 const disconnected = computed(() => props.connection.auth_policy === 'user_required' && !['user', 'system'].includes(props.connection.user_status?.effective_auth))
 const scope = computed<'user' | 'org'>(() => personal.value ? 'user' : 'org')
@@ -41,9 +41,14 @@ const displayScope = ref<'user' | 'org'>('org')
 const identityLabel = computed(() => t(props.connection.auth_policy !== 'user_required'
   ? 'schemaIdentity.sharedConnection'
   : personal.value || disconnected.value ? 'schemaIdentity.myAccount' : 'schemaIdentity.serviceAccount'))
+const identityPillClass = computed(() => props.connection.auth_policy !== 'user_required'
+  ? 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+  : personal.value || disconnected.value
+    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'
+    : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300')
 const displayedScopeLabel = computed(() => t(props.connection.auth_policy !== 'user_required'
   ? 'schemaIdentity.sharedConnection'
-  : displayScope.value === 'user' ? 'schemaIdentity.myAccount' : 'schemaIdentity.serviceAccount'))
+  : displayScope.value === 'user' ? 'schemaIdentity.myAccount' : 'schemaIdentity.sharedSchema'))
 const canSwitchIdentity = computed(() => props.connection.user_status?.can_switch_identity && useCan('manage_connection', { type: 'connection', id: props.connection.id }))
 const busy = computed(() => requesting.value || isIndexingActive(job.value))
 const partial = computed(() => !!job.value?.stats?.unreadable_dataset_count || !!job.value?.stats?.unreadable_datasets?.length || (job.value?.events || []).some(e => ['warn', 'warning', 'error'].includes(e.level)))
@@ -64,6 +69,17 @@ const refreshedLabel = computed(() => {
     time: new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date),
   })
 })
+const timestamp = computed(() => {
+  const value = job.value?.status === 'completed' ? job.value.finished_at : null
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return new Intl.DateTimeFormat(locale.value, {
+    month: 'short', day: 'numeric',
+    ...(date.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' as const }),
+  }).format(date)
+})
+watch([hasRequested, busy], () => emit('busy-change', hasRequested.value && busy.value), { immediate: true })
 let generation = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 async function readJob(version: number, selectedScope: 'user' | 'org') {
@@ -87,6 +103,7 @@ async function refreshSchema(selectedScope: 'user' | 'org') {
   clearTimeout(timer)
   const version = ++generation
   displayScope.value = selectedScope
+  hasRequested.value = true
   requesting.value = true
   requestFailed.value = false
   try {
@@ -106,9 +123,10 @@ watch(() => [props.connection.id, scope.value, disconnected.value], () => {
   clearTimeout(timer)
   job.value = null
   requestFailed.value = false
+  hasRequested.value = false
   displayScope.value = scope.value
   if (!disconnected.value) readJob(version, scope.value)
 }, { immediate: true })
-onBeforeUnmount(() => { generation++; clearTimeout(timer) })
+onBeforeUnmount(() => { generation++; clearTimeout(timer); emit('busy-change', false) })
 defineExpose({ refreshSchema })
 </script>

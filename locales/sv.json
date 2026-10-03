@@ -5431,6 +5431,7 @@
     "myAccount": "Mitt konto",
     "serviceAccount": "Tjänstekonto",
     "sharedConnection": "Delad anslutning",
+    "sharedSchema": "Gemensamt schema",
     "changeIdentity": "Byt frågeidentitet",
     "refresh": "Uppdatera schema",
     "refreshMyFor": "Uppdatera {name} · Mitt konto",

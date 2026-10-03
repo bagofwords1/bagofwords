@@ -5431,6 +5431,7 @@
     "myAccount": "Il mio account",
     "serviceAccount": "Account di servizio",
     "sharedConnection": "Connessione condivisa",
+    "sharedSchema": "Schema condiviso",
     "changeIdentity": "Cambia identità delle query",
     "refresh": "Aggiorna schema",
     "refreshMyFor": "Aggiorna {name} · Il mio account",
