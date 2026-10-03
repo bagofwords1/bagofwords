@@ -2208,7 +2208,10 @@ class LLMService:
         small: bool = False
     ):
         default_model = await db.execute(
-            select(LLMModel).filter(LLMModel.id == model_id)
+            select(LLMModel).filter(
+                LLMModel.id == model_id,
+                LLMModel.organization_id == organization.id,
+            )
         )
         default_model = default_model.scalar_one_or_none()
 

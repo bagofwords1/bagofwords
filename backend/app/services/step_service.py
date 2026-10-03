@@ -75,6 +75,23 @@ class StepService:
             )
         return self._df_from_step_data(resolution.data), step
 
+    async def get_step_authorized(self, db: AsyncSession, step_id: str, current_user: User, organization) -> tuple[Step, dict]:
+        """Load a step for display, with the same gate as export: the step's
+        report must be in the caller's org and viewable by them, and the rows
+        are what the viewer data policy grants (empty when withheld). Returns the
+        step and the rows to show; never mutate step.data with the latter."""
+        from app.errors import AppError, ErrorCode
+        from app.services.viewer_data_policy import resolve_step_data
+
+        step = await self.get_step_by_id(db, step_id)
+        report = step.widget.report if step and step.widget else None
+        if report is None or str(report.organization_id) != str(organization.id):
+            raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
+        await self._authorize_report_view(db, report, current_user, organization)
+
+        resolution = await resolve_step_data(db, step, report, current_user)
+        return step, resolution.data
+
     async def _authorize_report_view(self, db: AsyncSession, report, current_user: User, organization) -> None:
         """Raise unless current_user may view `report` (owner / org full-admin /
         artifact visibility). Mirrors the artifact GET gate."""

@@ -152,6 +152,18 @@ async def _audit_license(db, organization, user, action: str, details: dict) -> 
         logger.debug("license audit log failed", exc_info=True)
 
 
+def _ensure_instance_license_admin(current_user: User) -> None:
+    """The license is instance-wide, but manage_settings is per-org. With a
+    single org its admins own the instance; with multiple orgs any user can
+    create an org (and become its admin), so require an instance superuser."""
+    from app.settings.config import settings as _settings
+    if _settings.bow_config.features.allow_multiple_organizations and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=403,
+            detail="Only an instance administrator can manage the license on a multi-organization instance",
+        )
+
+
 @router.get("/license/key", response_model=LicenseKeyStatus)
 @requires_permission('manage_settings')
 async def get_license_key_status(
@@ -176,6 +188,7 @@ async def update_license_key(
     The key is verified before it is stored, so an invalid or expired key is
     rejected outright rather than replacing a working license.
     """
+    _ensure_instance_license_admin(current_user)
     from app.services.license_service import save_license_key
 
     try:
@@ -198,6 +211,7 @@ async def delete_license_key(
     organization: Organization = Depends(get_current_organization),
 ):
     """Remove the stored key and fall back to bow-config / BOW_LICENSE_KEY."""
+    _ensure_instance_license_admin(current_user)
     from app.services.license_service import remove_license_key
 
     info = await remove_license_key(db, str(current_user.id))
