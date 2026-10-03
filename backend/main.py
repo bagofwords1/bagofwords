@@ -461,6 +461,19 @@ async def startup_event():
     if not is_scheduler_leader:
         logger.info("Scheduler leader lock not acquired — skipping job registration in this worker")
 
+    # Tool-audit events that could not reach the database before a previous
+    # shutdown were spilled to disk; put them into audit_logs now. Leader-only
+    # so a multi-worker start does not race the same files (each file is also
+    # claimed by atomic rename). Background task: a large spill never delays
+    # serving.
+    if is_scheduler_leader:
+        try:
+            import asyncio as _asyncio
+            from app.ee.audit.tool_audit import replay_spilled_tool_audit_events
+            app.state.tool_audit_replay_task = _asyncio.create_task(replay_spilled_tool_audit_events())
+        except Exception as e:
+            logger.error(f"Failed to start tool audit spill replay: {e}")
+
     # Organizations created before a pre-built skill was flagged
     # default_enabled get it installed once, here. Leader-only so multiple
     # workers do not race the same check-then-install; a background task so a
@@ -603,6 +616,46 @@ async def startup_event():
             logger.info("Scheduled job: schema_reindex_sweep every 1 minute")
         except Exception as e:
             logger.error(f"Failed to schedule schema reindex sweep job: {e}")
+
+    # Tool-audit spill files left by a database outage: replay them while the
+    # service runs, not only at startup. Every worker's scheduler fires it
+    # (shared job store); files are claimed by atomic rename, so that is safe.
+    if is_scheduler_leader:
+        try:
+            from app.ee.audit.tool_audit import scheduled_spill_replay
+            scheduler.add_job(
+                scheduled_spill_replay,
+                trigger="interval",
+                seconds=60,
+                id="tool_audit_spill_replay",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=60,
+            )
+            logger.info("Scheduled job: tool_audit_spill_replay every 60 seconds")
+        except Exception as e:
+            logger.error(f"Failed to schedule tool audit spill replay job: {e}")
+
+    # Audit log streams: deliver new audit events to each org's SIEM/bucket.
+    # Leader-only; each stream is additionally claimed with a row lease so
+    # multiple hosts never double-send. No-ops without the license feature.
+    if is_scheduler_leader:
+        try:
+            from app.ee.audit.streams.exporter import scheduled_export_tick
+            scheduler.add_job(
+                scheduled_export_tick,
+                trigger="interval",
+                seconds=int(os.environ.get("BOW_AUDIT_STREAM_INTERVAL_SECONDS", "15")),
+                id="audit_stream_export",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=60,
+            )
+            logger.info("Scheduled job: audit_stream_export")
+        except Exception as e:
+            logger.error(f"Failed to schedule audit stream export job: {e}")
 
     # Background connection-status refresher: re-tests system_only connections
     # whose cached status is stale past the TTL (~5 min). Read endpoints serve

@@ -2,7 +2,7 @@
 # Licensed under the BOW Enterprise License
 # See backend/app/ee/LICENSE for details
 
-from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Index
+from sqlalchemy import BigInteger, Column, String, DateTime, ForeignKey, JSON, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -35,6 +35,10 @@ class AuditLog(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+    # Visibility-ordered sequence stamped by the log-stream exporter once the
+    # row is committed (app/ee/audit/streams/exporter.py). Null until then.
+    export_seq = Column(BigInteger, nullable=True)
+
     # Relationships
     organization = relationship("Organization", backref="audit_logs")
     user = relationship("User", backref="audit_logs")
@@ -45,6 +49,7 @@ class AuditLog(Base):
         Index("ix_audit_logs_action", "action"),
         Index("ix_audit_logs_user", "user_id"),
         Index("ix_audit_logs_resource", "resource_type", "resource_id"),
+        Index("ix_audit_logs_org_export_seq", "organization_id", "export_seq"),
     )
 
     def __repr__(self):

@@ -45,6 +45,13 @@ class ErrorCode(str, Enum):
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"
 
+    # Audit log streams / export
+    AUDIT_STREAM_NOT_FOUND = "audit_stream.not_found"
+    AUDIT_STREAM_INVALID_DESTINATION = "audit_stream.invalid_destination"
+    AUDIT_STREAM_MISSING_FIELD = "audit_stream.missing_field"
+    AUDIT_STREAM_INVALID_FIELD = "audit_stream.invalid_field"
+    AUDIT_EXPORT_TOO_LARGE = "audit_log.export_too_large"
+
     # Resources (common CRUD)
     REPORT_NOT_FOUND = "report.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
