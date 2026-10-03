@@ -5450,7 +5450,7 @@
     "expiredTip": "Stängd efter att ha legat ogranskad längre än organisationens gräns. Räknas fortfarande som belägg om mönstret återkommer."
   },
   "artifactResources": {
-    "inspect": "Data och analys",
+    "inspect": "Resurser",
     "readOnly": "Skrivskyddad artefaktöversikt",
     "data": "Datautforskare",
     "analytics": "Analys",

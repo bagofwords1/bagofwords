@@ -5639,7 +5639,7 @@
     "toastRowsDeleted": "{n} row deleted | {n} rows deleted"
   },
   "artifactResources": {
-    "inspect": "Data & analytics",
+    "inspect": "Resources",
     "readOnly": "Read-only artifact insights",
     "data": "Data explorer",
     "analytics": "Analytics",

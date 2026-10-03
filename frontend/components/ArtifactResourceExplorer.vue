@@ -2,15 +2,12 @@
   <UModal :model-value="true" :ui="{ width: 'sm:max-w-5xl' }" @update:model-value="$emit('close')">
     <section class="p-6 space-y-5 rounded-lg bg-white dark:bg-gray-900" aria-labelledby="artifact-data-title">
       <header class="flex items-center justify-between gap-4">
-        <div><h2 id="artifact-data-title" class="text-lg font-semibold">{{ t('artifactResources.inspect') }}</h2>
+        <div><h2 id="artifact-data-title" class="text-lg font-semibold">{{ t(view === 'analytics' ? 'artifactResources.analytics' : 'artifactResources.inspect') }}</h2>
           <p class="text-sm text-gray-500">{{ t('artifactResources.readOnly') }}</p></div>
         <UButton icon="i-heroicons-x-mark" color="gray" variant="ghost" :aria-label="t('common.close')" @click="$emit('close')" />
       </header>
-      <div class="flex gap-2 border-b pb-3">
-        <UButton v-for="item in tabs" :key="item.id" :variant="tab === item.id ? 'solid' : 'ghost'" color="gray" @click="tab = item.id">{{ item.label }}</UButton>
-      </div>
       <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
-      <div v-if="tab === 'data'" class="space-y-4">
+      <div v-if="view === 'resources'" class="space-y-4">
         <div class="flex flex-wrap items-center gap-3">
           <USelect v-model="collection" :options="collections" option-attribute="name" value-attribute="name" :placeholder="t('artifactResources.collection')" />
           <USelect v-model="order" :options="orderOptions" option-attribute="label" value-attribute="value" />
@@ -45,17 +42,16 @@
   </UModal>
 </template>
 <script setup lang="ts">
-const props = defineProps<{artifactId: string}>()
+const props = withDefaults(defineProps<{artifactId: string; view?: 'resources' | 'analytics'}>(), {view: 'resources'})
 defineEmits(['close'])
 const {t} = useI18n()
 const {token} = useAuth()
 const {getErrorMessage} = useErrorMessage()
-const tab = ref('data'), collection = ref(''), days = ref(30), filterField = ref(''), filterValue = ref('')
+const collection = ref(''), days = ref(30), filterField = ref(''), filterValue = ref('')
 const collections = ref<any[]>([]), rows = ref<any[]>([]), nextCursor = ref<string | null>(null), selected = ref<any>(null)
 const order = ref('-created_at')
 const orderOptions = computed(()=>[{value:'-created_at',label:t('artifactResources.newest')},{value:'created_at',label:t('artifactResources.oldest')}])
 const error = ref(''), loading = ref(false), analytics = ref<any>(null)
-const tabs = computed(()=>[{id:'data',label:t('artifactResources.data')},{id:'analytics',label:t('artifactResources.analytics')}])
 const ranges = computed(()=>[7,30,90].map(value=>({value,label:t('artifactResources.days',{count:value})})))
 const schema = computed(()=>collections.value.find(c=>c.name===collection.value))
 const columns = computed(()=>Object.keys(schema.value?.fields || {}))
@@ -76,7 +72,7 @@ async function loadRows(cursor:string | null = null) {
 async function loadAnalytics(){const request=++analyticsGeneration;error.value='';analytics.value=null;try{const result=await api(`/analytics?days=${days.value}`);if(request===analyticsGeneration)analytics.value=result}catch(e:any){if(request===analyticsGeneration){analytics.value=null;error.value=getErrorMessage(e, t('artifactResources.failed'))}}}
 watch(order,()=>loadRows())
 watch(collection,()=>{filterField.value='';filterValue.value='';loadRows()})
-watch([tab,days],()=>{if(tab.value==='analytics')loadAnalytics()})
-onMounted(async()=>{try{const result:any=await api('/resources');collections.value=result.items.filter((r:any)=>r.kind==='collection');collection.value=collections.value[0]?.name || ''}catch(e:any){error.value=getErrorMessage(e, t('artifactResources.failed'))}})
+watch(days,()=>{if(props.view==='analytics')loadAnalytics()})
+onMounted(async()=>{if(props.view==='analytics'){await loadAnalytics();return}try{const result:any=await api('/resources');collections.value=result.items.filter((r:any)=>r.kind==='collection');collection.value=collections.value[0]?.name || ''}catch(e:any){error.value=getErrorMessage(e, t('artifactResources.failed'))}})
 onUnmounted(()=>{generation++;analyticsGeneration++})
 </script>

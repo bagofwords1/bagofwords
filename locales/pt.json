@@ -5450,7 +5450,7 @@
     "expiredTip": "Fechada após ficar sem revisão além do prazo da organização. Continua contando como evidência se o padrão voltar."
   },
   "artifactResources": {
-    "inspect": "Dados e análises",
+    "inspect": "Recursos",
     "readOnly": "Informações do artefato somente para leitura",
     "data": "Explorador de dados",
     "analytics": "Análises",

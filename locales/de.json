@@ -5450,7 +5450,7 @@
     "expiredTip": "Geschlossen, weil er über die Frist der Organisation hinaus ungeprüft blieb. Zählt weiter als Beleg, wenn das Muster wiederkehrt."
   },
   "artifactResources": {
-    "inspect": "Daten & Analysen",
+    "inspect": "Ressourcen",
     "readOnly": "Schreibgeschützte Artefaktübersicht",
     "data": "Datenübersicht",
     "analytics": "Analysen",

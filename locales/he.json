@@ -5630,7 +5630,7 @@
     "toastRowsDeleted": "שורה אחת נמחקה | {n} שורות נמחקו"
   },
   "artifactResources": {
-    "inspect": "נתונים וניתוח שימוש",
+    "inspect": "משאבים",
     "readOnly": "נתוני התוצר לצפייה בלבד",
     "data": "סייר נתונים",
     "analytics": "ניתוח שימוש",

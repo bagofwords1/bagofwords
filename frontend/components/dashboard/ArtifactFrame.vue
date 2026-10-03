@@ -530,7 +530,7 @@
     </Teleport>
   </div>
   <ArtifactResourceExplorer v-if="resourceInspectorOpen && selectedArtifact?.artifact_id"
-    :artifact-id="selectedArtifact.artifact_id" @close="resourceInspectorOpen = false" />
+    :artifact-id="selectedArtifact.artifact_id" :view="resourceInspectorView" @close="resourceInspectorOpen = false" />
 </template>
 
 <script setup lang="ts">
@@ -1032,6 +1032,7 @@ function postToRuntimeFrames(message: any) {
   }
 }
 const resourceInspectorOpen = ref(false);
+const resourceInspectorView = ref<'resources' | 'analytics'>('resources');
 const resourcesAvailable = ref(false);
 
 
@@ -1608,7 +1609,10 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
   }
 
   if (resourcesAvailable.value && selectedArtifact.value?.artifact_id && !props.verificationPreview) {
-    view.unshift({ label: t('artifactResources.inspect'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorOpen.value = true; } });
+    view.unshift(
+      { label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } },
+      { label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } }
+    );
   }
   return [edit, exports, view].filter(g => g.length > 0);
 });

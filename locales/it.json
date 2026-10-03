@@ -5450,7 +5450,7 @@
     "expiredTip": "Chiusa dopo essere rimasta non revisionata oltre la scadenza dell'organizzazione. Conta ancora come prova se lo schema ritorna."
   },
   "artifactResources": {
-    "inspect": "Dati e analisi",
+    "inspect": "Risorse",
     "readOnly": "Informazioni sull’artefatto in sola lettura",
     "data": "Esplora dati",
     "analytics": "Analisi",

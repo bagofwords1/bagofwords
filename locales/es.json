@@ -5610,7 +5610,7 @@
     "toastRowsDeleted": "{n} fila eliminada | {n} filas eliminadas"
   },
   "artifactResources": {
-    "inspect": "Datos y análisis",
+    "inspect": "Recursos",
     "readOnly": "Información del artefacto de solo lectura",
     "data": "Explorador de datos",
     "analytics": "Análisis",
