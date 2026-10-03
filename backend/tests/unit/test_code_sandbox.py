@@ -347,6 +347,33 @@ def generate_df(ds_clients, excel_files):
     assert protocol.arrow_to_dataframe(wide, meta)["w"].tolist() == [str(1 << 70), "1"]
 
 
+def test_runner_works_with_more_than_1024_descriptors_open():
+    # select(2) refuses fds >= FD_SETSIZE. A busy API worker (many DB
+    # connections, sockets, open files) hands out pipe fds past 1024, and
+    # the supervision loop must still wait on them; with select it raised
+    # "filedescriptor out of range in select()" mid-run.
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 1300
+    if soft < want:
+        if hard != resource.RLIM_INFINITY and hard < want:
+            pytest.skip(f"RLIMIT_NOFILE hard limit {hard} too low to open {want} fds")
+        resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    held = []
+    try:
+        while len(held) < 1100:
+            held.append(os.open(os.devnull, os.O_RDONLY))
+        assert held[-1] >= 1024
+        df, _, _ = _run("def generate_df(ds_clients, excel_files): return pd.DataFrame({'ok': [1]})")
+        assert df["ok"].tolist() == [1]
+    finally:
+        for fd in held:
+            os.close(fd)
+        if soft < want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
 def test_protocol_refuses_oversized_frames():
     import io
     import struct

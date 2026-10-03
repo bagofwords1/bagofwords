@@ -431,10 +431,31 @@ def _wait_for_child(child: _ChildProcess, deadline: float, cancel_event: Optiona
         child.kill()
         raise SandboxTimeoutError(limits.timeout_seconds)
     watch = list(fds) + [child.stderr_fd]
-    ready, _, _ = select.select(watch, [], [], min(timeout, remaining))
+    ready = _poll_readable(watch, min(timeout, remaining))
     if child.stderr_fd in ready:
         child.drain_stderr()
     return [fd for fd in ready if fd != child.stderr_fd]
+
+
+def _poll_readable(fds: List[int], timeout: float) -> List[int]:
+    """fds with data (or EOF/error) to read, waiting at most `timeout` s.
+
+    poll(2), not select(2): select refuses any descriptor numbered 1024 or
+    higher (FD_SETSIZE), and a busy API worker (or an e2e test process)
+    hands out pipe descriptors well past that. HUP/ERR count as readable so
+    a dead child surfaces as EOF on the next read, as it did with select.
+    """
+    if not hasattr(select, "poll"):  # pragma: no cover - non-Linux fallback
+        ready, _, _ = select.select(fds, [], [], timeout)
+        return list(ready)
+    poller = select.poll()
+    for fd in fds:
+        poller.register(fd, select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR)
+    try:
+        events = poller.poll(max(0.0, timeout) * 1000.0)
+    except InterruptedError:  # pragma: no cover - retried by the caller's loop
+        return []
+    return [fd for fd, _ in events]
 
 
 def _read_exact_with_deadline(child: _ChildProcess, n: int, deadline: float,
