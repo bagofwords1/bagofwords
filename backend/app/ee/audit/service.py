@@ -4,7 +4,7 @@
 
 import logging
 from typing import Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -15,6 +15,13 @@ from app.ee.audit.schemas import AuditLogResponse, AuditLogFilters
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
+
+
+def _naive_utc(dt: datetime) -> datetime:
+    """audit_logs.created_at is naive UTC; normalize aware filter values."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 class AuditService:
@@ -77,6 +84,49 @@ class AuditService:
         logger.debug(f"Audit log created: {action} by user {user_id} in org {organization_id}")
         return audit_log
 
+    @staticmethod
+    def build_conditions(organization_id: str, filters: Optional[AuditLogFilters]) -> list:
+        """WHERE clauses shared by the list, export and count paths.
+
+        ``search`` matches the action, resource type, the actor's email and
+        ``details.title``; callers using it must outer-join ``User``.
+        """
+        conditions = [AuditLog.organization_id == organization_id]
+        if not filters:
+            return conditions
+        if filters.action:
+            # Support comma-separated action values for multiselect
+            actions = [a.strip() for a in filters.action.split(',') if a.strip()]
+            if len(actions) == 1:
+                conditions.append(AuditLog.action == actions[0])
+            elif len(actions) > 1:
+                conditions.append(AuditLog.action.in_(actions))
+        if filters.resource_type:
+            types = [t.strip() for t in filters.resource_type.split(',') if t.strip()]
+            if len(types) == 1:
+                conditions.append(AuditLog.resource_type == types[0])
+            elif len(types) > 1:
+                conditions.append(AuditLog.resource_type.in_(types))
+        if filters.resource_id:
+            conditions.append(AuditLog.resource_id == filters.resource_id)
+        if filters.user_id:
+            conditions.append(AuditLog.user_id == filters.user_id)
+        if filters.start_date:
+            conditions.append(AuditLog.created_at >= _naive_utc(filters.start_date))
+        if filters.end_date:
+            conditions.append(AuditLog.created_at <= _naive_utc(filters.end_date))
+        if filters.search:
+            search_term = f"%{filters.search}%"
+            conditions.append(
+                or_(
+                    AuditLog.action.ilike(search_term),
+                    AuditLog.resource_type.ilike(search_term),
+                    User.email.ilike(search_term),
+                    AuditLog.details["title"].as_string().ilike(search_term),
+                )
+            )
+        return conditions
+
     async def get_logs(
         self,
         db: AsyncSession,
@@ -91,48 +141,26 @@ class AuditService:
         Returns:
             Tuple of (list of audit logs, total count)
         """
-        # Build base query
-        conditions = [AuditLog.organization_id == organization_id]
-
-        if filters:
-            if filters.action:
-                # Support comma-separated action values for multiselect
-                actions = [a.strip() for a in filters.action.split(',') if a.strip()]
-                if len(actions) == 1:
-                    conditions.append(AuditLog.action == actions[0])
-                elif len(actions) > 1:
-                    conditions.append(AuditLog.action.in_(actions))
-            if filters.resource_type:
-                conditions.append(AuditLog.resource_type == filters.resource_type)
-            if filters.resource_id:
-                conditions.append(AuditLog.resource_id == filters.resource_id)
-            if filters.user_id:
-                conditions.append(AuditLog.user_id == filters.user_id)
-            if filters.start_date:
-                conditions.append(AuditLog.created_at >= filters.start_date)
-            if filters.end_date:
-                conditions.append(AuditLog.created_at <= filters.end_date)
-            if filters.search:
-                search_term = f"%{filters.search}%"
-                conditions.append(
-                    or_(
-                        AuditLog.action.ilike(search_term),
-                        AuditLog.resource_type.ilike(search_term),
-                    )
-                )
+        conditions = self.build_conditions(organization_id, filters)
+        needs_user_join = bool(filters and filters.search)
 
         # Count total
-        count_stmt = select(func.count(AuditLog.id)).where(and_(*conditions))
+        count_stmt = select(func.count(AuditLog.id))
+        if needs_user_join:
+            count_stmt = count_stmt.outerjoin(User, User.id == AuditLog.user_id)
+        count_stmt = count_stmt.where(and_(*conditions))
         total_result = await db.execute(count_stmt)
         total = total_result.scalar() or 0
 
         # Get paginated results
         offset = (page - 1) * page_size
+        stmt = select(AuditLog).options(selectinload(AuditLog.user))
+        if needs_user_join:
+            stmt = stmt.outerjoin(User, User.id == AuditLog.user_id)
         stmt = (
-            select(AuditLog)
-            .options(selectinload(AuditLog.user))
+            stmt
             .where(and_(*conditions))
-            .order_by(AuditLog.created_at.desc())
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
             .offset(offset)
             .limit(page_size)
         )
@@ -218,6 +246,52 @@ class AuditService:
         actions = result.scalars().all()
         
         return list(actions)
+
+
+    async def count_logs(self, db: AsyncSession, organization_id: str, filters: Optional[AuditLogFilters]) -> int:
+        stmt = select(func.count(AuditLog.id))
+        if filters and filters.search:
+            stmt = stmt.outerjoin(User, User.id == AuditLog.user_id)
+        stmt = stmt.where(and_(*self.build_conditions(organization_id, filters)))
+        return (await db.execute(stmt)).scalar() or 0
+
+    async def iter_logs_ascending(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        filters: Optional[AuditLogFilters],
+        page_size: int = 1000,
+    ):
+        """Yield (AuditLog, user_email) pages oldest-first by keyset, never
+        loading the whole result into memory."""
+        from app.ee.audit.streams.exporter import after_cursor
+
+        cursor = (None, None)
+        base = self.build_conditions(organization_id, filters)
+        while True:
+            stmt = select(AuditLog, User.email).outerjoin(User, User.id == AuditLog.user_id).where(and_(*base))
+            pred = after_cursor(*cursor)
+            if pred is not None:
+                stmt = stmt.where(pred)
+            stmt = stmt.order_by(AuditLog.created_at, AuditLog.id).limit(page_size)
+            rows = (await db.execute(stmt)).all()
+            if not rows:
+                return
+            yield rows
+            last = rows[-1][0]
+            cursor = (last.created_at, last.id)
+            if len(rows) < page_size:
+                return
+
+    async def get_resource_types(self, db: AsyncSession, organization_id: str) -> List[str]:
+        """Distinct non-null resource types used in the organization's audit logs."""
+        stmt = (
+            select(AuditLog.resource_type)
+            .where(AuditLog.organization_id == organization_id, AuditLog.resource_type.isnot(None))
+            .distinct()
+            .order_by(AuditLog.resource_type)
+        )
+        return list((await db.execute(stmt)).scalars().all())
 
 
 # Singleton instance

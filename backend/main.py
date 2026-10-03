@@ -615,6 +615,26 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule schema reindex sweep job: {e}")
 
+    # Audit log streams: deliver new audit events to each org's SIEM/bucket.
+    # Leader-only; each stream is additionally claimed with a row lease so
+    # multiple hosts never double-send. No-ops without the license feature.
+    if is_scheduler_leader:
+        try:
+            from app.ee.audit.streams.exporter import scheduled_export_tick
+            scheduler.add_job(
+                scheduled_export_tick,
+                trigger="interval",
+                seconds=int(os.environ.get("BOW_AUDIT_STREAM_INTERVAL_SECONDS", "15")),
+                id="audit_stream_export",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=60,
+            )
+            logger.info("Scheduled job: audit_stream_export")
+        except Exception as e:
+            logger.error(f"Failed to schedule audit stream export job: {e}")
+
     # Background connection-status refresher: re-tests system_only connections
     # whose cached status is stale past the TTL (~5 min). Read endpoints serve
     # the cached status and never live-test — this job is what keeps the

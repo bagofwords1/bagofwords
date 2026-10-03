@@ -19,6 +19,7 @@ from app.ee.license import (
     LicenseInfo,
 )
 from app.ee.audit.routes import router as audit_router
+from app.ee.audit.streams.routes import router as audit_streams_router
 from app.ee.scim.routes import scim_admin_router
 from app.ee.ldap.routes import ldap_admin_router
 from app.core.permissions_decorator import requires_permission
@@ -33,7 +34,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["enterprise"])
 
-# Include sub-routers
+# Include sub-routers. Streams first: the audit router's "/{log_id}" route
+# would otherwise capture "/enterprise/audit/streams".
+router.include_router(audit_streams_router)
 router.include_router(audit_router)
 router.include_router(scim_admin_router)
 router.include_router(ldap_admin_router)
