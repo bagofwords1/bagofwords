@@ -3697,16 +3697,6 @@
     "menuData": "Dati"
   },
   "toolbar": {
-    "collapse": "Comprimi",
-    "switchToArtifact": "Passa alla vista Artefatto",
-    "dashboard": "Dashboard",
-    "addComponent": "Aggiungi componente",
-    "addText": "Aggiungi testo",
-    "theme": "Tema",
-    "rerun": "Riesegui report",
-    "openInNewTab": "Apri dashboard in una nuova scheda",
-    "fullscreen": "Schermo intero",
-    "shareDashboard": "Condividi dashboard",
     "polishDashboard": "Rifinisci dashboard"
   },
   "artifactFrame": {
@@ -3772,44 +3762,8 @@
     "partialRenderFailed": "Parte di questa dashboard usa dati a cui non hai accesso, quindi non è stato possibile visualizzarla. Chiedi l’accesso al proprietario della dashboard."
   },
   "filter": {
-    "addFilters": "Aggiungi filtri",
-    "title": "Filtri",
-    "clear": "Cancella",
-    "loading": "Caricamento…",
-    "noData": "Nessun dato disponibile da filtrare",
-    "refresh": "Aggiorna",
-    "noFilters": "Nessun filtro applicato",
-    "addFilter": "Aggiungi filtro",
-    "columnPlaceholder": "Colonna",
-    "searchPlaceholder": "Cerca…",
-    "valuePlaceholder": "Valore",
     "selectColumn": "Seleziona colonna",
-    "visualization": "Visualizzazione",
-    "orDivider": "O",
-    "andDivider": "E",
-    "rowsCount": "{shown} di {total} righe",
-    "apply": "Applica",
-    "op": {
-      "equals": "uguale a",
-      "notEquals": "diverso da",
-      "contains": "contiene",
-      "notContains": "non contiene",
-      "startsWith": "inizia con",
-      "endsWith": "termina con",
-      "isEmpty": "è vuoto",
-      "isNotEmpty": "non è vuoto",
-      "in": "in",
-      "notIn": "non in",
-      "greaterThan": "maggiore di",
-      "lessThan": "minore di",
-      "greaterOrEqual": "maggiore o uguale",
-      "lessOrEqual": "minore o uguale",
-      "between": "tra",
-      "before": "prima",
-      "after": "dopo",
-      "isTrue": "è vero",
-      "isFalse": "è falso"
-    }
+    "visualization": "Visualizzazione"
   },
   "slideViewer": {
     "loading": "Caricamento delle diapositive...",

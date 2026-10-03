@@ -3697,16 +3697,6 @@
     "menuData": "Données"
   },
   "toolbar": {
-    "collapse": "Réduire",
-    "switchToArtifact": "Passer à la vue Artefact",
-    "dashboard": "Tableau de bord",
-    "addComponent": "Ajouter un composant",
-    "addText": "Ajouter du texte",
-    "theme": "Thème",
-    "rerun": "Réexécuter le rapport",
-    "openInNewTab": "Ouvrir le tableau de bord dans un nouvel onglet",
-    "fullscreen": "Plein écran",
-    "shareDashboard": "Partager le tableau de bord",
     "polishDashboard": "Peaufiner le tableau de bord"
   },
   "artifactFrame": {
@@ -3772,44 +3762,8 @@
     "partialRenderFailed": "Une partie de ce tableau de bord utilise des données auxquelles vous n’avez pas accès ; il n’a donc pas pu être affiché. Demandez l’accès à son propriétaire."
   },
   "filter": {
-    "addFilters": "Ajouter des filtres",
-    "title": "Filtres",
-    "clear": "Effacer",
-    "loading": "Chargement…",
-    "noData": "Aucune donnée à filtrer",
-    "refresh": "Actualiser",
-    "noFilters": "Aucun filtre appliqué",
-    "addFilter": "Ajouter un filtre",
-    "columnPlaceholder": "Colonne",
-    "searchPlaceholder": "Rechercher…",
-    "valuePlaceholder": "Valeur",
     "selectColumn": "Sélectionner une colonne",
-    "visualization": "Visualisation",
-    "orDivider": "OU",
-    "andDivider": "ET",
-    "rowsCount": "{shown} sur {total} lignes",
-    "apply": "Appliquer",
-    "op": {
-      "equals": "égal à",
-      "notEquals": "différent de",
-      "contains": "contient",
-      "notContains": "ne contient pas",
-      "startsWith": "commence par",
-      "endsWith": "se termine par",
-      "isEmpty": "est vide",
-      "isNotEmpty": "n'est pas vide",
-      "in": "dans",
-      "notIn": "pas dans",
-      "greaterThan": "supérieur à",
-      "lessThan": "inférieur à",
-      "greaterOrEqual": "supérieur ou égal",
-      "lessOrEqual": "inférieur ou égal",
-      "between": "entre",
-      "before": "avant",
-      "after": "après",
-      "isTrue": "est vrai",
-      "isFalse": "est faux"
-    }
+    "visualization": "Visualisation"
   },
   "slideViewer": {
     "loading": "Chargement des diapositives...",

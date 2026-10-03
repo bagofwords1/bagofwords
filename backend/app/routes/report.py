@@ -7,17 +7,10 @@ from app.ee.audit.service import audit_service
 from typing import List, Optional
 from pydantic import BaseModel
 from app.services.report_service import ReportService
-from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
 from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema, ReportActivityResponse
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
-from app.schemas.dashboard_layout_version_schema import (
-    DashboardLayoutVersionSchema,
-    DashboardLayoutVersionCreate,
-    DashboardLayoutVersionUpdate,
-    DashboardLayoutBlocksPatch,
-)
 from app.models.user import User
 
 from app.core.auth import current_user, current_user_optional
@@ -49,7 +42,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
-layout_service = DashboardLayoutService()
 
 @router.post("/reports", response_model=ReportSchema)
 @requires_permission('create_reports')
@@ -1088,69 +1080,3 @@ async def get_report_instructions(
     from app.services.instruction_service import InstructionService
     instruction_service = InstructionService()
     return await instruction_service.get_instructions_by_report(db, report_id, organization)
-
-# --- Dashboard Layout Routes ---
-
-@router.get("/reports/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
-@requires_permission('view_reports', model=Report, owner_only=True)
-async def list_layouts(report_id: str, hydrate: bool = False, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.get_layouts_for_report(db, report_id, hydrate=hydrate)
-
-@router.post("/reports/{report_id}/layouts", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def create_layout(report_id: str, payload: DashboardLayoutVersionCreate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    # Ensure payload.report_id matches route
-    if payload.report_id != report_id:
-        raise HTTPException(status_code=400, detail="report_id mismatch")
-    return await layout_service.create_layout(db, payload)
-
-@router.get("/reports/{report_id}/layouts/{layout_id}", response_model=DashboardLayoutVersionSchema)
-@requires_permission('view_reports', model=Report, owner_only=True)
-async def get_layout(report_id: str, layout_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return layout
-
-@router.patch("/reports/{report_id}/layouts/{layout_id}", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def update_layout(report_id: str, layout_id: str, payload: DashboardLayoutVersionUpdate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return await layout_service.update_layout(db, layout_id, payload, current_user, organization)
-
-@router.patch("/reports/{report_id}/layouts/active/blocks", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def patch_active_layout_blocks(report_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.patch_active_layout_blocks(db, report_id, payload, current_user, organization)
-
-
-@router.patch("/reports/{report_id}/layouts/{layout_id}/blocks", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def patch_layout_blocks(report_id: str, layout_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.patch_layout_blocks(db, report_id, layout_id, payload, current_user, organization)
-
-@router.post("/reports/{report_id}/layouts/{layout_id}/activate", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def activate_layout(report_id: str, layout_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return await layout_service.set_active_layout(db, report_id, layout_id)
-
-# --- Public (read-only) Dashboard Layout Routes ---
-
-@router.get("/r/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
-async def get_public_layouts(
-    report_id: str,
-    hydrate: bool = False,
-    db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
-):
-    from app.services.report_service import ReportService
-    rs = ReportService()
-    # Public service currently returns unhydrated; use private service for hydration
-    if hydrate:
-        return await layout_service.get_layouts_for_report(db, report_id, hydrate=True)
-    return await rs.get_public_layouts(db, report_id, user=user)

@@ -3697,16 +3697,6 @@
     "menuData": "Dados"
   },
   "toolbar": {
-    "collapse": "Recolher",
-    "switchToArtifact": "Mudar para visualização de artefato",
-    "dashboard": "Painel",
-    "addComponent": "Adicionar componente",
-    "addText": "Adicionar texto",
-    "theme": "Tema",
-    "rerun": "Reexecutar relatório",
-    "openInNewTab": "Abrir painel em uma nova aba",
-    "fullscreen": "Tela cheia",
-    "shareDashboard": "Compartilhar painel",
     "polishDashboard": "Aprimorar painel"
   },
   "artifactFrame": {
@@ -3772,44 +3762,8 @@
     "partialRenderFailed": "Parte deste painel usa dados aos quais você não tem acesso, por isso não pôde ser exibido. Peça acesso ao proprietário do painel."
   },
   "filter": {
-    "addFilters": "Adicionar filtros",
-    "title": "Filtros",
-    "clear": "Limpar",
-    "loading": "Carregando…",
-    "noData": "Nenhum dado disponível para filtrar",
-    "refresh": "Atualizar",
-    "noFilters": "Nenhum filtro aplicado",
-    "addFilter": "Adicionar filtro",
-    "columnPlaceholder": "Coluna",
-    "searchPlaceholder": "Buscar…",
-    "valuePlaceholder": "Valor",
     "selectColumn": "Selecionar coluna",
-    "visualization": "Visualização",
-    "orDivider": "OU",
-    "andDivider": "E",
-    "rowsCount": "{shown} de {total} linhas",
-    "apply": "Aplicar",
-    "op": {
-      "equals": "igual a",
-      "notEquals": "diferente de",
-      "contains": "contém",
-      "notContains": "não contém",
-      "startsWith": "começa com",
-      "endsWith": "termina com",
-      "isEmpty": "está vazio",
-      "isNotEmpty": "não está vazio",
-      "in": "em",
-      "notIn": "não em",
-      "greaterThan": "maior que",
-      "lessThan": "menor que",
-      "greaterOrEqual": "maior ou igual",
-      "lessOrEqual": "menor ou igual",
-      "between": "entre",
-      "before": "antes",
-      "after": "depois",
-      "isTrue": "é verdadeiro",
-      "isFalse": "é falso"
-    }
+    "visualization": "Visualização"
   },
   "slideViewer": {
     "loading": "Carregando slides...",

@@ -423,8 +423,6 @@
 													:can-expand="!isMobile"
 													@openFilePreview="openFilePreview"
 													@openDataPanel="openDataPanel"
-													@addWidget="handleAddWidgetFromPreview"
-													@refreshDashboard="refreshDashboardFast"
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
@@ -449,7 +447,7 @@
 											
 											<!-- Tool widget preview -->
 											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
-												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
+												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
 											</div>
 											</div>
 
@@ -799,7 +797,7 @@
 				<button
 					@click="rightPanelView = 'artifact'"
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-					:class="rightPanelView === 'artifact' || rightPanelView === 'grid'
+					:class="rightPanelView === 'artifact'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
 						: 'text-gray-400 hover:text-gray-600'"
 				>
@@ -906,43 +904,13 @@
 				</div>
 			</div>
 
-			<!-- Grid View (DashboardComponent - Edit Mode) -->
-			<DashboardComponent
-				v-else-if="rightPanelView === 'grid' && reportLoaded && (visualizations || []).length >= 0"
-				ref="dashboardRef"
-				:report="report"
-				:edit="true"
-				:visualizations="visualizations"
-				:textWidgetsIds="textWidgetsIds"
-				:isStreaming="isStreaming"
-				@toggleSplitScreen="toggleSplitScreen"
-				@editVisualization="handleEditQuery"
-				@toggleArtifactView="rightPanelView = 'artifact'"
-				class="h-full"
-			/>
-
-			<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
-			<DashboardComponent
-				v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
-				ref="dashboardRef"
-				:report="report"
-				:edit="true"
-				:visualizations="visualizations"
-				:textWidgetsIds="textWidgetsIds"
-				:isStreaming="isStreaming"
-				:hideArtifactSwitch="true"
-				@toggleSplitScreen="toggleSplitScreen"
-				@editVisualization="handleEditQuery"
-				class="h-full"
-			/>
-
 			<!-- A fork's dashboard waits until its queries have run as the forker -->
-			<div v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout && !forkReady" class="p-4">
+			<div v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !forkReady" class="p-4">
 				<ForkPreparing :nothing-ran="forkNothingRan" />
 			</div>
 			<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
 			<ArtifactFrame
-				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
+				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id"
 				:key="artifactFrameKey"
 				:report-id="report.id"
 				:report="report"
@@ -952,11 +920,6 @@
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
-
-			<!-- Empty state for grid view -->
-			<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 dark:text-gray-400 h-full">
-				No dashboard items yet.
-			</div>
 
 			<!-- A document or image opened from a read_file card. Reuses the
 			     same viewer the card renders, at panel size. -->
@@ -982,7 +945,6 @@
 					:key="panelData.key"
 					:tool-execution="panelData.toolExecution"
 					:expanded="true"
-					@addWidget="handleAddWidgetFromPreview"
 					@toggleSplitScreen="toggleSplitScreen"
 					@editQuery="handleEditQuery"
 				/>
@@ -1094,7 +1056,6 @@ import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
-import DashboardComponent from '~/components/DashboardComponent.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
@@ -1631,9 +1592,6 @@ const forkThisReport = async () => {
 // Browser tab / shortcut name — otherwise it falls back to the report UUID in
 // the URL. Falls back to a friendly default while the report loads.
 useHead(() => ({ title: report.value?.title || 'Report' }))
-const visualizations = ref<any[]>([])
-const dashboardRef = ref<any | null>(null)
-const textWidgetsIds = ref<string[]>([])
 
 // Report summary (queries + instructions independent of message pagination)
 const summaryQueries = ref<any[]>([])
@@ -2431,7 +2389,6 @@ async function onForkHydrated() {
     forkHydrating.value = false
     artifactFrameKey.value += 1
     await enrichForkedQueries()
-    if (hasLegacyLayout.value) await loadVisualizations()
 }
 
 onBeforeUnmount(() => {
@@ -2459,7 +2416,7 @@ const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
-const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
+const rightPanelView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
 
 // A document/image opened from a read_file card into the side panel. Transient
 // by nature — it exists only while a file is selected, which is why it gets a
@@ -2474,7 +2431,7 @@ const panelFile = ref<{
 	name?: string
 } | null>(null)
 // Same return-path bookkeeping as the data pane below.
-const filePanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'data'>('artifact')
+const filePanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'data'>('artifact')
 const filePanelOpenedSplit = ref(false)
 
 function openFilePreview(payload: any) {
@@ -2532,7 +2489,7 @@ const panelData = ref<{
 } | null>(null)
 // The view that was showing when the data pane opened, so closing it goes
 // back there (dashboard, agent, summary…) rather than always to the dashboard.
-const dataPanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+const dataPanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'file'>('artifact')
 // Whether opening the data pane is what opened the side panel. If so, closing
 // it closes the panel too — there was no view underneath to go back to.
 const dataPanelOpenedSplit = ref(false)
@@ -2582,10 +2539,8 @@ if (import.meta.client) {
 // Completion id currently wired up to forward Office.js results back to the backend.
 const currentOfficeJsCompletionId = ref<string | null>(null)
 
-// Legacy report detection: has artifacts vs legacy dashboard_layout_versions
 const hasArtifacts = ref(false)
 const reportArtifacts = ref<any[]>([])
-const hasLegacyLayout = ref(false)
 
 // Toggle states
 const collapsedReasoning = ref<Set<string>>(new Set())
@@ -3613,13 +3568,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					}
 
-					// When create_dashboard streams a completed block, broadcast layout change so previews refresh membership
-					if (payload.tool_name === 'create_dashboard' && payload.payload && payload.payload.stage === 'block.completed') {
-						try {
-							window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: report_id, action: 'added' } }))
-						} catch {}
-					}
-
 					// Visualizations resolved for create_artifact / edit_artifact
 					if ((payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact') && payload.payload) {
 						if (payload.payload.stage === 'visualizations_resolved' && Array.isArray(payload.payload.visualizations)) {
@@ -3808,9 +3756,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.created_visualization_ids && Array.isArray(payload.created_visualization_ids) && payload.created_visualization_ids.length > 0) {
 						blockWithTool.tool_execution.created_visualizations = payload.created_visualization_ids.map((id: string) => ({ id }))
 					}
-					// If the dashboard was created successfully, refresh widgets and open the dashboard pane
+					// If the dashboard was created successfully, open the dashboard pane
 					if (payload.tool_name === 'create_dashboard' && payload.status === 'success') {
-						try { await loadVisualizations() } catch (e) { /* noop */ }
 						if (!isSplitScreen.value) toggleSplitScreen()
 					}
 					// If the artifact was created successfully, mark all slides as done and dispatch event
@@ -4448,35 +4395,6 @@ async function loadReport() {
 	} catch {}
 }
 
-async function loadVisualizations() {
-	try {
-		const { data, error } = await useMyFetch(`/api/queries?report_id=${report_id}`, { method: 'GET' })
-		if (error.value) throw error.value
-		const queries = Array.isArray(data.value) ? data.value : []
-		const list: any[] = []
-		for (const q of queries) {
-			for (const v of (q?.visualizations || [])) {
-				if (v && v.id) list.push(v)
-			}
-		}
-		visualizations.value = list
-	} catch (e) {
-		visualizations.value = []
-	}
-}
-
-// Fast dashboard refresh triggered by editor save
-async function refreshDashboardFast() {
-    try {
-        const dash = dashboardRef.value
-        if (dash && typeof dash.refreshLayout === 'function') {
-            await dash.refreshLayout()
-        }
-    } catch (e) {
-        // noop
-    }
-}
-
 // Ensure dashboard pane opens only when currently closed
 const handleOfficeJsResult = async (event: MessageEvent) => {
     // Only accept messages from the hosting taskpane (same-origin parent).
@@ -4591,20 +4509,6 @@ watch(
     }
 )
 
-async function loadActiveLayoutHasBlocks(): Promise<boolean> {
-    try {
-        const { data } = await useMyFetch(`/api/reports/${report_id}/layouts`)
-        const layouts = Array.isArray(data.value) ? (data.value as any[]) : []
-        const active = layouts.find((l: any) => l.is_active)
-        const result = !!(active && Array.isArray(active.blocks) && active.blocks.length > 0)
-        hasLegacyLayout.value = result
-        return result
-    } catch (e) {
-        hasLegacyLayout.value = false
-        return false
-    }
-}
-
 // One request per report open (not per card, and not repeated inside
 // ArtifactFrame): the latest artifact seeds both the shared
 // "Added to Dashboard" state and ArtifactFrame's initial selection.
@@ -4716,53 +4620,6 @@ onUnmounted(() => {
 	stepDataCache.clear()
 })
 
-
-// Handle Add to dashboard from ToolWidgetPreview
-async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, visualization?: any }) {
-    try {
-        const viz = payload?.visualization
-        const widget = payload?.widget
-        if (viz?.id) {
-            const block = { type: 'visualization', visualization_id: viz.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
-        } else if (widget?.id) {
-            const block = { type: 'widget', widget_id: widget.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
-        } else {
-            return
-        }
-        
-        // Update the local widget status immediately to reflect the change in UI
-        // Find the tool execution that contains this widget and update its status
-        messages.value.forEach(message => {
-            if (message.completion_blocks) {
-                message.completion_blocks.forEach(block => {
-                    if (viz?.id && (block.tool_execution as any)?.created_visualizations) {
-                        const list = (block.tool_execution as any).created_visualizations as any[]
-                        const found = list.find(v => v?.id === viz.id)
-                        if (found) found.status = 'published'
-                    }
-                    if (widget?.id && block.tool_execution?.created_widget?.id === widget.id && block.tool_execution) {
-                        block.tool_execution.created_widget.status = 'published'
-                    }
-                })
-            }
-        })
-        
-        		if (!isSplitScreen.value) toggleSplitScreen()
-		await loadVisualizations()
-        // Ask dashboard to refresh layout immediately so item appears
-        try {
-            const dash = dashboardRef.value
-            if (dash && typeof dash.refreshLayout === 'function') await dash.refreshLayout()
-        } catch {}
-		// Scroll to bottom when dashboard opens after adding widget
-		await nextTick()
-        followScrollToBottom()
-    } catch (e) {
-        console.error('Failed to add widget from preview:', e)
-    }
-}
 
 // Handle opening an artifact from CreateArtifactTool
 async function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
@@ -5559,12 +5416,11 @@ function stopScheduledCompletionsPoll() {
 
 onMounted(async () => {
 	// Load only the metadata needed to choose the initial workspace. Conversation,
-	// summary, and legacy-grid data have independent loading paths so one large
+	// and summary data have independent loading paths so one large
 	// payload cannot hold the entire report page behind a full-screen spinner.
 	const workspaceLoads = Promise.all([
 		loadReport(),
 		checkHasArtifacts(),
-		loadActiveLayoutHasBlocks(),
 		loadScheduledPrompts()
 	])
 	const slowLoads = loadCompletions()
@@ -5576,13 +5432,9 @@ onMounted(async () => {
 	// Resolves on the first status read; polling (if any) continues detached.
 	await watchForkHydration()
 
-	// Artifact reports load their filtered query/Step data inside ArtifactFrame;
-	// the broad unfiltered query list is only needed by the legacy grid. Summary
-	// data is awaited only when summary is the initial pane.
-	if (hasLegacyLayout.value) {
-		await loadVisualizations()
-	}
-	const opensSummary = !hasArtifacts.value && !hasLegacyLayout.value
+	// Artifact reports load their filtered query/Step data inside ArtifactFrame.
+	// Summary data is awaited only when summary is the initial pane.
+	const opensSummary = !hasArtifacts.value
 		&& ((report.value as any)?.query_count > 0
 			|| (report.value as any)?.instruction_count > 0
 			|| (report.value as any)?.has_scheduled_prompts)
@@ -5597,7 +5449,7 @@ onMounted(async () => {
 	// Auto-open right pane based on report metadata (available immediately from loadReport)
 	// Skip auto-open in Excel mode — the taskpane is too narrow for split screen
 	if (!isExcel.value) {
-		if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
+		if (hasArtifacts.value || (report.value as any)?.artifact_count > 0) {
 			isSplitScreen.value = true
 			rightPanelView.value = 'artifact'
 			leftPanelWidth.value = Math.round(window.innerWidth * 0.37)

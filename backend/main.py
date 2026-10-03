@@ -54,7 +54,6 @@ from app.routes import (
     artifact_chat,
     project,
     test,
-    widget,
     query,
     visualization,
     entity,
@@ -68,7 +67,6 @@ from app.routes import (
     review,
     notification,
     demo_data_source,
-    text_widget,
     user_profile,
     user_memory,
     llm,
@@ -137,7 +135,6 @@ app = FastAPI(
     openapi_tags=[
         {"name": "auth", "description": "Authentication operations"},
         {"name": "reports", "description": "Report management"},
-        {"name": "widgets", "description": "Widget operations"},
         {"name": "data_sources", "description": "Data source management"},
         {"name": "organizations", "description": "Organization management"},
         {"name": "users", "description": "User management"},
@@ -265,7 +262,6 @@ app.include_router(project.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")
 app.include_router(test.router, prefix="/api")
-app.include_router(widget.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(visualization.router, prefix="/api")
 app.include_router(entity.router, prefix="/api")
@@ -276,7 +272,6 @@ app.include_router(file_reference.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(rbac.router, prefix="/api")
 app.include_router(usage_limits.router, prefix="/api")
-app.include_router(text_widget.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
