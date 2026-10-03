@@ -86,14 +86,33 @@ After the fix:
 3 passed, 20 deselected
 ```
 
-## Loop B — live UI confirmation
+## Loop B — live stack confirmation
 
-Stack: `tools/agent/boot_stack.sh --dev`, then `tools/agent/seed_org.py`, with
-no license configured. Screenshots of the Add Connection modal, before and
-after: `media/pr/free-connectors-license-gate/`. The frontend is unchanged.
-Before, the six connectors show the enterprise lock. After, they are
-selectable, and the remaining enterprise connectors (Power BI, Tableau,
-SharePoint, …) are still locked.
+Boot with `tools/agent/boot_stack.sh --dev`, then run `tools/agent/seed_org.py`.
+**Gotcha:** the sandbox exports an enterprise `BOW_LICENSE_KEY`, which
+`configs/bow-config.dev.yaml` reads, so nothing ever looks locked. Restart the
+backend with `BOW_LICENSE_KEY=""` and check that `GET /api/license` reports
+`"licensed": false`.
+
+Unlicensed, `POST /api/connections` with an empty config:
+
+```
+kubernetes             400   # passed the license check, failed config validation
+splunk                 400
+onedrive               400
+google_drive           200
+outlook_mail           400
+gmail_mail             200
+sharepoint             402   # still enterprise
+powerbi_report_server  402   # previously drifted: was 400, now enforced
+tableau                402
+```
+
+Screenshots of the onboarding connector picker (`/onboarding/data`), before
+and after, are in `media/pr/free-connectors-license-gate/`. The frontend is
+unchanged and only reads `requires_license`. Before, Kubernetes, Splunk,
+OneDrive, Google Drive, Outlook Mail and Gmail show the locked ENTERPRISE
+badge. After, they are open, and SharePoint is still locked.
 
 ## What this proves / regression notes
 
