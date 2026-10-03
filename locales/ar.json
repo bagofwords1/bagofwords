@@ -639,7 +639,6 @@
     }
   },
   "reports": {
-    "artifactLoadFailed": "تعذر تحميل لوحة المعلومات. حدّث الصفحة للمحاولة مرة أخرى.",
     "title": "التقارير",
     "subtitle": "تصفح وأدِر تقاريرك",
     "newReport": "تقرير جديد",
@@ -793,7 +792,8 @@
         "title": "عرض الإجابات ذات التقييم السلبي",
         "prompt": "راجع الإجابات التي تلقّت ملاحظات سلبية من المستخدمين لتحديد الأنماط ومجالات التحسين."
       }
-    ]
+    ],
+    "artifactLoadFailed": "تعذر تحميل لوحة المعلومات. حدّث الصفحة للمحاولة مرة أخرى."
   },
   "projects": {
     "title": "المشاريع",
@@ -1084,18 +1084,6 @@
     "loopRetryNotice": "حدث خطأ داخلي — تُعاد المحاولة من أحدث سياق (المحاولة {attempt}/{max})"
   },
   "tools": {
-    "resource": {
-      "failed": "تعذر تغيير المورد",
-      "create": "تم إنشاء المورد",
-      "update": "تم تحديث المورد",
-      "delete": "تم حذف المورد",
-      "working": "جارٍ إعداد المورد",
-      "stopped": "متوقف",
-      "unchanged": "المورد دون تغيير",
-      "preserved": "تم الاحتفاظ بالسجلات الحالية.",
-      "changed": "التغييرات",
-      "noChanges": "لم يتم تطبيق أي تغييرات."
-    },
     "common": {
       "input": "المدخلات",
       "output": "المخرجات",
@@ -1710,6 +1698,18 @@
       "pathLabel": "المسار:",
       "attachedAsSessionFile": "مُرفق بهذه المحادثة كملف جلسة",
       "showPagePreviews": "عرض معاينات الصفحات ({n})"
+    },
+    "resource": {
+      "failed": "تعذر تغيير المورد",
+      "create": "تم إنشاء المورد",
+      "update": "تم تحديث المورد",
+      "delete": "تم حذف المورد",
+      "working": "جارٍ إعداد المورد",
+      "stopped": "متوقف",
+      "unchanged": "المورد دون تغيير",
+      "preserved": "تم الاحتفاظ بالسجلات الحالية.",
+      "changed": "التغييرات",
+      "noChanges": "لم يتم تطبيق أي تغييرات."
     }
   },
   "entityCreate": {
@@ -2489,7 +2489,191 @@
       "daysAbbr": "{n} ي",
       "rangeCount": "{start}–{end} من إجمالي {total}",
       "prev": "‹ السابق",
-      "next": "التالي ›"
+      "next": "التالي ›",
+      "tabs": {
+        "activity": "النشاط",
+        "streams": "التدفقات"
+      },
+      "actorAgent": "عبر وكيل",
+      "actorSystem": "النظام",
+      "searchPlaceholder": "ابحث في الإجراءات والمستخدمين والعناوين…",
+      "filters": {
+        "user": "المستخدم",
+        "allUsers": "كل المستخدمين",
+        "resource": "المورد",
+        "allResources": "كل الموارد",
+        "range": "الوقت",
+        "rangeAll": "كل الأوقات",
+        "range24h": "آخر 24 ساعة",
+        "range7d": "آخر 7 أيام",
+        "range30d": "آخر 30 يومًا",
+        "filterActions": "تصفية الإجراءات…",
+        "noOptions": "لا توجد نتائج"
+      },
+      "export": {
+        "button": "تصدير",
+        "json": "تنزيل JSON ‏(NDJSON)",
+        "csv": "تنزيل CSV",
+        "hint": "يصدّر العرض المصفّى الحالي، من الأقدم إلى الأحدث.",
+        "failed": "فشل التصدير"
+      },
+      "drawer": {
+        "title": "تفاصيل الحدث",
+        "close": "إغلاق",
+        "who": "من",
+        "when": "متى",
+        "where": "من أين",
+        "what": "ماذا",
+        "details": "التفاصيل",
+        "rawJson": "JSON الخام",
+        "copy": "نسخ",
+        "copied": "تم النسخ",
+        "actor": "المنفّذ",
+        "actorType": "نوع المنفّذ",
+        "timeUtc": "UTC",
+        "timeLocal": "التوقيت المحلي",
+        "relative": "نسبي",
+        "ip": "عنوان IP",
+        "userAgent": "وكيل المستخدم",
+        "action": "الإجراء",
+        "resourceType": "نوع المورد",
+        "resourceId": "معرّف المورد",
+        "open": "فتح",
+        "agentRun": "تشغيل الوكيل",
+        "executionMode": "وضع التنفيذ",
+        "none": "—",
+        "noDetails": "لا توجد تفاصيل إضافية",
+        "fields": {
+          "title": "العنوان",
+          "tool": "الأداة",
+          "data_source": "مصدر البيانات",
+          "connection": "الاتصال",
+          "queries": "الاستعلامات",
+          "row_count": "الصفوف",
+          "reason": "السبب",
+          "error": "الخطأ",
+          "changed": "التغييرات",
+          "state": "الحالة",
+          "destination": "الوجهة",
+          "format": "التنسيق"
+        },
+        "actorKinds": {
+          "user": "مستخدم",
+          "agent": "وكيل (نيابةً عن المستخدم)",
+          "system": "النظام"
+        }
+      },
+      "streams": {
+        "title": "تدفقات السجل",
+        "subtitle": "سلّم كل حدث تدقيق إلى نظام SIEM أو حاوية التخزين لديك. بعد أي انقطاع، يُستأنف التسليم من آخر حدث مُرسَل.",
+        "empty": "لا توجد تدفقات سجل بعد",
+        "emptyHint": "أضف تدفقًا لإرسال أحداث التدقيق إلى Datadog أو Splunk أو Microsoft Sentinel أو S3 أو Google Cloud Storage أو webhook أو syslog.",
+        "add": "إضافة تدفق",
+        "edit": "تعديل",
+        "delete": "حذف",
+        "deleteConfirm": "حذف التدفق \"{name}\"؟ سيتوقف تسليم الأحداث إليه.",
+        "pause": "إيقاف مؤقت",
+        "resume": "استئناف",
+        "state": {
+          "active": "نشط",
+          "inactive": "متوقف مؤقتًا",
+          "error": "خطأ",
+          "invalid": "بيانات اعتماد غير صالحة"
+        },
+        "delivered": "تم تسليم {n}",
+        "pending": "{n} قيد الانتظار",
+        "lag": "متأخر بمقدار {time}",
+        "lastDelivered": "آخر تسليم {time}",
+        "never": "أبدًا",
+        "lastError": "آخر خطأ",
+        "nextAttempt": "إعادة المحاولة {time}",
+        "manageRequired": "يمكن فقط للأعضاء الذين لديهم صلاحية إدارة الإعدادات تغيير تدفقات السجل.",
+        "form": {
+          "titleNew": "إضافة تدفق سجل",
+          "titleEdit": "تعديل تدفق السجل",
+          "name": "الاسم",
+          "namePlaceholder": "مثل Splunk الإنتاج",
+          "destination": "الوجهة",
+          "chooseDestination": "اختر وجهة إرسال الأحداث",
+          "startFrom": "البدء من",
+          "startNow": "الأحداث الجديدة فقط",
+          "startBeginning": "تضمين كل السجل",
+          "actionFilter": "فقط الإجراءات التي تبدأ بـ",
+          "actionFilterHint": "بادئات مفصولة بفواصل مثل tool., member. — اتركه فارغًا لإرسال كل شيء.",
+          "advanced": "إعدادات متقدمة",
+          "test": "إرسال حدث تجريبي",
+          "testing": "جارٍ الإرسال…",
+          "testOk": "تم تسليم الحدث التجريبي",
+          "testFailed": "فشل الاختبار: {error}",
+          "save": "حفظ التدفق",
+          "saving": "جارٍ الحفظ…",
+          "cancel": "إلغاء",
+          "back": "رجوع",
+          "secretStored": "محفوظ — اتركه كما هو للاحتفاظ به",
+          "externalIdHint": "ضع هذا External ID في سياسة الثقة لدور IAM.",
+          "required": "مطلوب"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "Webhook عبر HTTPS",
+          "syslog": "Syslog عبر TLS"
+        },
+        "destinationHints": {
+          "datadog": "واجهة استيعاب السجلات",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "Logs Ingestion API ‏(DCR)",
+          "s3": "كائنات NDJSON لكل دفعة",
+          "gcs": "كائنات NDJSON عبر مفاتيح HMAC",
+          "https": "طلب POST بصيغة JSON موقّع",
+          "syslog": "RFC 5424، ‏JSON أو CEF"
+        },
+        "fields": {
+          "url": "عنوان نقطة النهاية",
+          "auth_header_name": "اسم ترويسة المصادقة",
+          "auth_header_value": "قيمة ترويسة المصادقة",
+          "hmac_secret": "سر التوقيع (HMAC)",
+          "headers": "ترويسات إضافية (كائن JSON)",
+          "verify_tls": "التحقق من شهادة TLS",
+          "site": "موقع Datadog",
+          "api_key": "مفتاح API",
+          "service": "الخدمة",
+          "tags": "الوسوم",
+          "intake_url": "عنوان استيعاب مخصص",
+          "hec_url": "عنوان HEC",
+          "token": "رمز HEC",
+          "index": "الفهرس",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "معرّف المستأجر",
+          "client_id": "معرّف العميل",
+          "client_secret": "سر العميل",
+          "dce_url": "نقطة نهاية جمع البيانات",
+          "dcr_immutable_id": "المعرّف الثابت لـ DCR",
+          "stream_name": "اسم التدفق",
+          "authority_url": "عنوان جهة المصادقة",
+          "bucket": "الحاوية (Bucket)",
+          "region": "المنطقة",
+          "prefix": "بادئة المفتاح",
+          "role_arn": "ARN الدور",
+          "external_id": "External ID",
+          "access_key_id": "معرّف مفتاح الوصول",
+          "secret_access_key": "مفتاح الوصول السري",
+          "gzip": "ضغط الكائنات بـ gzip",
+          "endpoint_url": "عنوان نقطة نهاية مخصص",
+          "sts_endpoint_url": "نقطة نهاية STS مخصصة",
+          "host": "المضيف",
+          "port": "المنفذ",
+          "tls": "استخدام TLS",
+          "format": "تنسيق الرسالة",
+          "ca_cert": "شهادة CA ‏(PEM)",
+          "app_name": "اسم التطبيق",
+          "client_cert": "شهادة العميل (PEM)",
+          "client_key": "مفتاح العميل (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "إعدادات الذكاء الاصطناعي",
@@ -2497,9 +2681,39 @@
       "beta": "ميزة تجريبية",
       "locked": "هذا الإعداد مقفل ولا يمكن تغييره.",
       "notEditable": "(لا يمكن تعديله مباشرة)",
-      "aiAgentsTitle": "وكلاء الذكاء الاصطناعي",
-      "aiAgentsSubtitle": "اضبط وكلاء الذكاء الاصطناعي والقدرات المتاحة لأعضاء مؤسستك.",
       "noSettings": "لا توجد إعدادات للذكاء الاصطناعي.",
+      "sectionSummary": "{n} إعدادات",
+      "sectionSummaryOn": "{n} إعدادات · {on} مفعّلة",
+      "sections": {
+        "data": {
+          "title": "الوصول إلى البيانات والخصوصية",
+          "description": "ما يمكن للذكاء الاصطناعي رؤيته وإدخاله في المحادثة"
+        },
+        "capabilities": {
+          "title": "قدرات الوكيل",
+          "description": "ما يمكن للوكيل فعله أثناء الإجابة"
+        },
+        "learning": {
+          "title": "التعلّم والذاكرة",
+          "description": "كيف يتعلّم الذكاء الاصطناعي من المستخدمين والملاحظات والاستخدام"
+        },
+        "tools": {
+          "title": "الأدوات وMCP",
+          "description": "خوادم MCP الخارجية وأدوات API المخصصة"
+        },
+        "limits": {
+          "title": "الحدود",
+          "description": "حدود الصفوف والمهلات وإعادة المحاولات وأحجام السياق"
+        },
+        "workspace": {
+          "title": "مساحة العمل",
+          "description": "خطافات الويب والتفرعات والاحتفاظ بالبيانات"
+        },
+        "other": {
+          "title": "أخرى",
+          "description": "إعدادات لم تُعيَّن لقسم بعد"
+        }
+      },
       "llmAccessWarning": "تغيير هذا الإعداد يؤثر على خصوصية البيانات. سيُطلب تأكيد.",
       "llmModalTitleEnable": "تفعيل وصول نموذج اللغة إلى البيانات",
       "llmModalTitleDisable": "إيقاف وصول نموذج اللغة إلى البيانات",
@@ -2509,7 +2723,7 @@
       "llmImpactInspectTool": "فحص البيانات",
       "llmImpactAccuracy": "انخفاض دقة التحليل والأداء",
       "llmImpactColumns": "سيرى الذكاء الاصطناعي أسماء الأعمدة والإحصائيات فقط، دون القيم الفعلية",
-      "llmFileUploadsNote": "لا يتأثر رفع الملفات بهذا الإعداد وسيظل مرئيًا للذكاء الاصطناعي (يمكنك إيقاف رفع الملفات بشكل منفصل).",
+      "llmFileUploadsNote": "لا يتأثر رفع الملفات بهذا الإعداد وسيظل مرئيًا للذكاء الاصطناعي.",
       "llmConfirmLabel": "اكتب {phrase} للتأكيد",
       "llmConfirmPhrase": "أنا متأكد",
       "llmConfirmPlaceholder": "أنا متأكد",
@@ -2531,10 +2745,6 @@
         "allow_llm_see_data": {
           "name": "السماح لنموذج اللغة برؤية البيانات",
           "description": "يتيح لنموذج اللغة رؤية البيانات كجزء من التحليل واستعلامات المستخدمين"
-        },
-        "enable_artifact_resources": {
-          "name": "موارد العناصر",
-          "description": "السماح للعناصر باستخدام سجلات دائمة وملفات خاصة وعمليات ذكاء اصطناعي معتمدة. تظل أذونات المشاركة والموارد الحالية سارية."
         },
         "enable_artifact_verification": {
           "name": "التحقق من تطبيقات البيانات",
@@ -2636,6 +2846,10 @@
           "name": "حجم نتيجة MCP المضمّنة",
           "description": "مقدار ما يراه الوكيل مباشرة في سياقه من نتيجة أداة MCP / API مخصصة، بالأحرف. تُحفظ الاستجابة الكاملة في ملف دائماً أياً كانت هذه القيمة؛ وهذا الإعداد يحدد فقط ما يمكن للنموذج قراءته دون فتح ذلك الملف. ارفعه ليجيب الوكيل من مجموعة نتائج كاملة بدل عينة؛ واخفضه لإنفاق عدد أقل من الرموز لكل استدعاء. اضبطه على 0 للحصول على عينة من 3 سجلات. محصور بين 0 و500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "صفوف معاينة بيانات MCP",
+          "description": "عدد صفوف النتائج التي تُرجعها create_data إلى عميل MCP خارجي (Claude وCursor وغيرهما) في استجابتها. تُحفظ النتيجة الكاملة دائمًا في التقرير؛ هذا يحدد فقط مقدار ما يستلمه نموذج العميل مباشرة. يمكن للعميل طلب صفوف أقل، وليس أكثر أبدًا. مقيد أيضًا بـ'تحديد عدد الصفوف'. محصور بين 1 و10000."
+        },
         "enable_web_fetch": {
           "name": "جلب من الويب",
           "description": "يتيح للوكيل جلب محتوى روابط HTTP وHTTPS العامة. تُعاد الاستجابات النصية فقط، وتُقتطع الأجسام الكبيرة."
@@ -2715,6 +2929,10 @@
         "checkins_max_runs_per_org_per_day": {
           "name": "المتابعات يوميًا",
           "description": "الحد الأعلى للمتابعات على مستوى المؤسسة يوميًا (سقف التكلفة)."
+        },
+        "enable_artifact_resources": {
+          "name": "موارد العناصر",
+          "description": "السماح للعناصر باستخدام سجلات دائمة وملفات خاصة وعمليات ذكاء اصطناعي معتمدة. تظل أذونات المشاركة والموارد الحالية سارية."
         }
       }
     },
@@ -3550,6 +3768,11 @@
     "memory.looks_like_rule": "هذه قاعدة لطريقة الإجابة — أضفها إلى تعليماتك المخصصة. الذاكرة تحفظ حقائق عنك.",
     "memory.full": "الذاكرة ممتلئة. احذف بعض الإدخالات أولًا.",
     "memory.not_active": "تم تغيير هذا الإدخال أو نسيانه بالفعل.",
+    "audit_stream.not_found": "لم يتم العثور على تدفق السجل.",
+    "audit_stream.invalid_destination": "وجهة تدفق غير معروفة.",
+    "audit_stream.missing_field": "حقل مطلوب مفقود: {field}.",
+    "audit_stream.invalid_field": "قيمة غير صالحة لـ {field}.",
+    "audit_log.export_too_large": "التصدير محدود بـ {limit} حدثًا وهذا التصفية تطابق {total}. ضيّق التصفية أو استخدم تدفق سجل.",
     "ARTIFACT_RESOURCE_VALIDATION": "طلب مورد غير صالح",
     "ARTIFACT_RESOURCE_NOT_FOUND": "المورد غير موجود",
     "ARTIFACT_RESOURCE_FORBIDDEN": "الوصول مرفوض",
@@ -3725,16 +3948,6 @@
     "menuData": "البيانات"
   },
   "toolbar": {
-    "collapse": "طيّ",
-    "switchToArtifact": "التبديل إلى عرض العنصر",
-    "dashboard": "لوحة تحكم",
-    "addComponent": "إضافة مكوّن",
-    "addText": "إضافة نص",
-    "theme": "السمة",
-    "rerun": "إعادة تشغيل التقرير",
-    "openInNewTab": "فتح لوحة التحكم في علامة تبويب جديدة",
-    "fullscreen": "ملء الشاشة",
-    "shareDashboard": "مشاركة لوحة التحكم",
     "polishDashboard": "تحسين لوحة التحكم"
   },
   "artifactFrame": {
@@ -3800,44 +4013,8 @@
     "partialRenderFailed": "يعتمد جزء من لوحة المعلومات هذه على بيانات لا تملك صلاحية الوصول إليها، لذا تعذّر عرضها. اطلب الوصول من مالك لوحة المعلومات."
   },
   "filter": {
-    "addFilters": "إضافة عوامل تصفية",
-    "title": "عوامل التصفية",
-    "clear": "مسح",
-    "loading": "جارٍ التحميل…",
-    "noData": "لا توجد بيانات للتصفية",
-    "refresh": "تحديث",
-    "noFilters": "لم يتم تطبيق عوامل تصفية",
-    "addFilter": "إضافة عامل تصفية",
-    "columnPlaceholder": "العمود",
-    "searchPlaceholder": "بحث…",
-    "valuePlaceholder": "القيمة",
     "selectColumn": "اختر عمودًا",
-    "visualization": "التصور المرئي",
-    "orDivider": "أو",
-    "andDivider": "و",
-    "rowsCount": "{shown} من {total} صف",
-    "apply": "تطبيق",
-    "op": {
-      "equals": "يساوي",
-      "notEquals": "لا يساوي",
-      "contains": "يحتوي على",
-      "notContains": "لا يحتوي على",
-      "startsWith": "يبدأ بـ",
-      "endsWith": "ينتهي بـ",
-      "isEmpty": "فارغ",
-      "isNotEmpty": "ليس فارغًا",
-      "in": "ضمن",
-      "notIn": "ليس ضمن",
-      "greaterThan": "أكبر من",
-      "lessThan": "أصغر من",
-      "greaterOrEqual": "أكبر من أو يساوي",
-      "lessOrEqual": "أصغر من أو يساوي",
-      "between": "بين",
-      "before": "قبل",
-      "after": "بعد",
-      "isTrue": "صحيح",
-      "isFalse": "خاطئ"
-    }
+    "visualization": "التصور المرئي"
   },
   "slideViewer": {
     "loading": "جارٍ تحميل الشرائح...",

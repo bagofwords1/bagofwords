@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from fastapi import HTTPException
 
-from app.dependencies import get_async_db, get_current_organization
+from app.dependencies import get_async_db, get_current_organization, ensure_path_organization_matches
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.resource_grant import ResourceGrant
@@ -26,7 +26,10 @@ from app.core.auth import forbid_service_account_principal
 
 # Service accounts must never manage roles, groups, assignments, or grants —
 # this is the self-escalation guard (a leaked SA key cannot grant itself more).
-router = APIRouter(tags=["rbac"], dependencies=[Depends(forbid_service_account_principal)])
+router = APIRouter(
+    tags=["rbac"],
+    dependencies=[Depends(forbid_service_account_principal), Depends(ensure_path_organization_matches)],
+)
 
 
 # ── Permission Registry ──────────────────────────────────────────────────

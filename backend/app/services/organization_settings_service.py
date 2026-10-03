@@ -27,6 +27,10 @@ from app.core.telemetry import telemetry
 logger = logging.getLogger(__name__)
 
 
+# Config keys the generic PUT /organization/settings may not write.
+PROTECTED_CONFIG_KEYS = frozenset({"signup_policy", "entra_profile_sync", "google_profile_sync", "smtp"})
+
+
 class OrganizationSettingsService:
     def __init__(self):
         pass
@@ -144,6 +148,17 @@ class OrganizationSettingsService:
              flag_modified(settings, "config") # Mark as modified if initialized
 
         update_data = settings_data.dict(exclude_unset=True)
+
+        # Keys owned by dedicated endpoints with stricter gates / validation
+        # (signup policy needs full_admin_access, profile sync needs
+        # manage_identity_providers, SMTP encrypts its password). The generic
+        # writer only needs manage_settings, so it must never write them.
+        protected = sorted(set((update_data.get('config') or {})) & PROTECTED_CONFIG_KEYS)
+        if protected:
+            raise HTTPException(
+                status_code=403,
+                detail=f"These settings must be changed through their dedicated endpoints: {', '.join(protected)}",
+            )
 
         if 'config' in update_data and update_data['config']:
             # Use dict() to ensure we have a mutable copy
