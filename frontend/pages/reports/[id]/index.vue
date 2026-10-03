@@ -4042,9 +4042,15 @@ function onReportFilesChanged() {
 	}, 500)
 }
 
+let completionLoadGeneration = 0
 async function loadCompletions({ skipEstimate = false } = {}) {
+	const generation = ++completionLoadGeneration
 	try {
 		const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
+		// A refresh may have started before a new prompt. Its snapshot cannot
+		// replace optimistic messages or newer streamed blocks. The owning
+		// stream reloads canonical rows once it finishes.
+		if (generation !== completionLoadGeneration || currentController) return
 		const response = data.value as any
 		if (error?.value || !response) {
 			// useMyFetch resolves with { error } instead of throwing on the client.
@@ -5091,6 +5097,12 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 async function startStreaming(requestBody: any, sysId: string) {
 
+	const controller = currentController
+	const ownsStream = () => currentController === controller
+	let completionId = messages.value.find(m => m.id === sysId)?.system_completion_id
+	const ensureSys = () => messages.value.findIndex(m =>
+		m.id === sysId || (completionId && (m.id === completionId || m.system_completion_id === completionId))
+	)
 	kickoffStalled = false
 	lastKickoffByteAt = Date.now()
 	startKickoffWatchdog()
@@ -5099,7 +5111,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(requestBody),
-			signal: currentController?.signal,
+			signal: controller?.signal,
 			stream: true
 		}
 		const raw: any = await useMyFetch(`/reports/${report_id}/completions`, options as any)
@@ -5112,17 +5124,16 @@ async function startStreaming(requestBody: any, sysId: string) {
 		let buffer = ''
 		let currentEvent: string | null = null
 
-		const ensureSys = () => messages.value.findIndex(m => m.id === sysId)
-
 		while (true) {
 			const { done, value } = await reader.read()
 			if (done) {
 				break
 			}
+			if (!ownsStream()) return
 			lastKickoffByteAt = Date.now()
 
 			// Check if stream was aborted
-			if (currentController?.signal.aborted) {
+			if (controller?.signal.aborted) {
 				break
 			}
 
@@ -5130,6 +5141,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 
 			let nlIndex: number
 			while ((nlIndex = buffer.indexOf('\n')) >= 0) {
+				if (!ownsStream()) return
 				const line = buffer.slice(0, nlIndex).trimEnd()
 				buffer = buffer.slice(nlIndex + 1)
 
@@ -5138,8 +5150,6 @@ async function startStreaming(requestBody: any, sysId: string) {
 				} else if (line.startsWith('data:')) {
 					const dataStr = line.slice(5).trim()
 					if (dataStr === '[DONE]') {
-						isStreaming.value = false
-						currentController = null
 						// Refresh report data and context estimate after stream fully ends.
 						// force=true: without it refreshContextEstimate early-returns after
 						// its first fetch, leaving the context meter stale for the whole
@@ -5158,6 +5168,9 @@ async function startStreaming(requestBody: any, sysId: string) {
 					try {
 						const parsed = JSON.parse(dataStr)
 						const payload = parsed.data ?? parsed
+						if (currentEvent === 'completion.started' && payload?.system_completion_id) {
+							completionId = payload.system_completion_id
+						}
 						const idx = ensureSys()
 						if (idx !== -1) {
 							await handleStreamingEvent(currentEvent, payload, idx)
@@ -5170,8 +5183,9 @@ async function startStreaming(requestBody: any, sysId: string) {
 			}
 		}
 	} catch (err) {
+		if (!ownsStream()) return
 		console.error('Streaming error:', err)
-		const idx = messages.value.findIndex(m => m.id === sysId)
+		const idx = ensureSys()
 		if (idx !== -1) {
 			let errorMessage = 'An error occurred during streaming.'
 
@@ -5191,7 +5205,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 					// heartbeats), not a user stop. Reconnect to the run.
 					if (kickoffStalled) {
 						kickoffStalled = false
-						if (await recoverStreamAfterError(sysId)) return
+						if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 					}
 					if (sysMsg && sysMsg.system_completion_id) {
 						// This was likely a user stop, mark as stopped without error
@@ -5207,14 +5221,14 @@ async function startStreaming(requestBody: any, sysId: string) {
 					// running server-side, so reconnect to its watch stream
 					// instead of surfacing a false error. Only mark error when
 					// recovery itself fails.
-					if (await recoverStreamAfterError(sysId)) return
+					if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 					errorMessage = err.message.includes('Stream HTTP error')
 						? `Connection error: ${err.message}`
 						: `Error: ${err.message}`
 					messages.value[idx] = { ...messages.value[idx], status: 'error' }
 				}
 			} else {
-				if (await recoverStreamAfterError(sysId)) return
+				if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 				messages.value[idx] = { ...messages.value[idx], status: 'error' }
 			}
 			
@@ -5234,10 +5248,12 @@ async function startStreaming(requestBody: any, sysId: string) {
 			}
 		}
 	} finally {
-		stopKickoffWatchdog()
-		isStreaming.value = false
-		isCompletionInProgress.value = false
-		currentController = null
+		if (ownsStream()) {
+			stopKickoffWatchdog()
+			isStreaming.value = false
+			isCompletionInProgress.value = false
+			currentController = null
+		}
 	}
 }
 
@@ -5322,16 +5338,18 @@ function stopWatchWatchdog() {
 // the started event, or the API if the POST died before it arrived) and
 // re-attach via the watch stream. Returns false when there is nothing to
 // re-attach to (the caller then surfaces the error).
-async function recoverStreamAfterError(sysId: string): Promise<boolean> {
-	const idx = messages.value.findIndex(m => m.id === sysId)
+async function recoverStreamAfterError(sysId: string, stillOwner: () => boolean = () => true): Promise<boolean> {
+	const idx = findWatchMessageIndex(sysId, sysId)
 	if (idx === -1) return false
 	const msg = messages.value[idx]
 	if (msg.status && msg.status !== 'in_progress') return false
 	let cid = (msg as any).system_completion_id as string | undefined
+	if (!cid && !String(msg.id).startsWith('system-')) cid = String(msg.id)
 	if (!cid) {
 		// The POST may have created the completion server-side before dying.
 		try {
 			const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=5`)
+			if (!stillOwner()) return false
 			const list: any[] = (data.value as any)?.completions || []
 			const inprog = [...list].reverse().find((c: any) => c.role === 'system' && c.status === 'in_progress')
 			if (inprog) {
@@ -5340,7 +5358,7 @@ async function recoverStreamAfterError(sysId: string): Promise<boolean> {
 			}
 		} catch {}
 	}
-	if (!cid) return false
+	if (!cid || !stillOwner()) return false
 	startWatchStream(cid, { sysId, ownStream: true })
 	return true
 }
@@ -5379,7 +5397,7 @@ async function startWatchStream(completionId: string, opts: { sysId?: string; ow
 			} catch (e) {
 				// Aborted (superseded / watchdog) or network error — loop decides.
 			} finally {
-				stopWatchWatchdog()
+				if (stillMine()) stopWatchWatchdog()
 			}
 			if (!stillMine() || sawDone) return
 			idleAttempts = gotEvents ? 0 : idleAttempts + 1
@@ -5419,6 +5437,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 
 		let nlIndex: number
 		while ((nlIndex = buffer.indexOf('\n')) >= 0) {
+			if (watchGeneration !== gen) return { sawDone: false, gotEvents }
 			const line = buffer.slice(0, nlIndex).trimEnd()
 			buffer = buffer.slice(nlIndex + 1)
 
