@@ -2484,9 +2484,39 @@
       "beta": "Fonctionnalité bêta",
       "locked": "Ce paramètre est verrouillé et ne peut pas être modifié.",
       "notEditable": "(Non directement modifiable)",
-      "aiAgentsTitle": "Agents IA",
-      "aiAgentsSubtitle": "Configurez les agents IA et les capacités disponibles pour les membres de votre organisation.",
       "noSettings": "Aucun paramètre IA disponible.",
+      "sectionSummary": "{n} paramètres",
+      "sectionSummaryOn": "{n} paramètres · {on} activés",
+      "sections": {
+        "data": {
+          "title": "Accès aux données et confidentialité",
+          "description": "Ce que l'IA peut voir et intégrer à une conversation"
+        },
+        "capabilities": {
+          "title": "Capacités de l'agent",
+          "description": "Ce que l'agent peut faire pour répondre"
+        },
+        "learning": {
+          "title": "Apprentissage et mémoire",
+          "description": "Comment l'IA apprend des utilisateurs, des retours et de l'usage"
+        },
+        "tools": {
+          "title": "Outils et MCP",
+          "description": "Serveurs MCP externes et outils d'API personnalisés"
+        },
+        "limits": {
+          "title": "Limites",
+          "description": "Plafonds de lignes, délais, nouvelles tentatives et tailles de contexte"
+        },
+        "workspace": {
+          "title": "Espace de travail",
+          "description": "Webhooks, duplications et conservation des données"
+        },
+        "other": {
+          "title": "Autres",
+          "description": "Paramètres pas encore rattachés à une section"
+        }
+      },
       "llmAccessWarning": "Modifier ce paramètre affecte la confidentialité des données. Une confirmation sera requise.",
       "llmModalTitleEnable": "Activer l'accès aux données par le LLM",
       "llmModalTitleDisable": "Désactiver l'accès aux données par le LLM",

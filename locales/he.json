@@ -2600,9 +2600,39 @@
       "beta": "תכונת בטא",
       "locked": "הגדרה זו נעולה ולא ניתן לשנותה.",
       "notEditable": "(לא ניתן לעריכה ישירה)",
-      "aiAgentsTitle": "סוכני בינה מלאכותית",
-      "aiAgentsSubtitle": "הגדר סוכנים ויכולות בינה מלאכותית הזמינים לחברי הארגון שלך.",
       "noSettings": "אין הגדרות בינה מלאכותית זמינות.",
+      "sectionSummary": "{n} הגדרות",
+      "sectionSummaryOn": "{n} הגדרות · {on} פעילות",
+      "sections": {
+        "data": {
+          "title": "גישה לנתונים ופרטיות",
+          "description": "מה ה-AI יכול לראות ולהכניס לשיחה"
+        },
+        "capabilities": {
+          "title": "יכולות הסוכן",
+          "description": "מה הסוכן יכול לעשות בזמן מתן תשובה"
+        },
+        "learning": {
+          "title": "למידה וזיכרון",
+          "description": "איך ה-AI לומד ממשתמשים, ממשוב ומשימוש"
+        },
+        "tools": {
+          "title": "כלים ו-MCP",
+          "description": "שרתי MCP חיצוניים וכלי API מותאמים"
+        },
+        "limits": {
+          "title": "מגבלות",
+          "description": "מגבלות שורות, זמני המתנה, ניסיונות חוזרים וגודל הקשר"
+        },
+        "workspace": {
+          "title": "סביבת עבודה",
+          "description": "Webhooks, פיצולים ושמירת נתונים"
+        },
+        "other": {
+          "title": "אחר",
+          "description": "הגדרות שעדיין לא שויכו לקבוצה"
+        }
+      },
       "llmAccessWarning": "שינוי הגדרה זו משפיע על פרטיות הנתונים. תידרש אישור.",
       "llmModalTitleEnable": "אפשר גישת LLM לנתונים",
       "llmModalTitleDisable": "בטל גישת LLM לנתונים",

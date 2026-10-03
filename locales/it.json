@@ -2484,9 +2484,39 @@
       "beta": "Funzionalità beta",
       "locked": "Questa impostazione è bloccata e non può essere modificata.",
       "notEditable": "(Non modificabile direttamente)",
-      "aiAgentsTitle": "Agenti IA",
-      "aiAgentsSubtitle": "Configura gli agenti IA e le funzionalità disponibili per i membri della tua organizzazione.",
       "noSettings": "Nessuna impostazione IA disponibile.",
+      "sectionSummary": "{n} impostazioni",
+      "sectionSummaryOn": "{n} impostazioni · {on} attive",
+      "sections": {
+        "data": {
+          "title": "Accesso ai dati e privacy",
+          "description": "Cosa l'IA può vedere e portare in una conversazione"
+        },
+        "capabilities": {
+          "title": "Capacità dell'agente",
+          "description": "Cosa può fare l'agente mentre risponde"
+        },
+        "learning": {
+          "title": "Apprendimento e memoria",
+          "description": "Come l'IA impara da utenti, feedback e utilizzo"
+        },
+        "tools": {
+          "title": "Strumenti e MCP",
+          "description": "Server MCP esterni e strumenti API personalizzati"
+        },
+        "limits": {
+          "title": "Limiti",
+          "description": "Limiti di righe, timeout, tentativi e dimensioni del contesto"
+        },
+        "workspace": {
+          "title": "Area di lavoro",
+          "description": "Webhook, fork e conservazione dei dati"
+        },
+        "other": {
+          "title": "Altro",
+          "description": "Impostazioni non ancora assegnate a una sezione"
+        }
+      },
       "llmAccessWarning": "La modifica di questa impostazione influisce sulla privacy dei dati. Sarà richiesta una conferma.",
       "llmModalTitleEnable": "Abilita accesso LLM ai dati",
       "llmModalTitleDisable": "Disabilita accesso LLM ai dati",

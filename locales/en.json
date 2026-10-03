@@ -2680,9 +2680,39 @@
       "beta": "Beta feature",
       "locked": "This setting is locked and cannot be changed.",
       "notEditable": "(Not directly editable)",
-      "aiAgentsTitle": "AI Agents",
-      "aiAgentsSubtitle": "Configure AI agents and capabilities available to your organization's members.",
       "noSettings": "No AI settings available.",
+      "sectionSummary": "{n} settings",
+      "sectionSummaryOn": "{n} settings · {on} on",
+      "sections": {
+        "data": {
+          "title": "Data access & privacy",
+          "description": "What the AI can see and bring into a conversation"
+        },
+        "capabilities": {
+          "title": "Agent capabilities",
+          "description": "What the agent can do while answering"
+        },
+        "learning": {
+          "title": "Learning & memory",
+          "description": "How the AI learns from users, feedback and usage"
+        },
+        "tools": {
+          "title": "Tools & MCP",
+          "description": "External MCP servers and custom API tools"
+        },
+        "limits": {
+          "title": "Limits",
+          "description": "Row caps, timeouts, retries and context sizes"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "description": "Webhooks, forks and data retention"
+        },
+        "other": {
+          "title": "Other",
+          "description": "Settings not yet assigned to a section"
+        }
+      },
       "llmAccessWarning": "Changing this setting affects data privacy. A confirmation will be required.",
       "llmModalTitleEnable": "Enable LLM Data Access",
       "llmModalTitleDisable": "Disable LLM Data Access",

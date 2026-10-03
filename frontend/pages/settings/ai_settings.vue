@@ -16,135 +16,80 @@
             {{ error }}
         </UAlert>
 
-        <!-- AI Settings content -->
-        <div v-if="!loading && !error" class="space-y-8">
-      <!-- General Configuration Section -->
-            <div v-if="Object.keys(configFeatures).length > 0">
-
-                <div class="space-y-5">
-                    <!-- Regular config features (excluding allow_llm_see_data) -->
-                    <div
-                        v-for="(feature, key) in regularConfigFeatures"
-                        :key="`config_${key}`"
-                        :data-testid="`ai-setting-${key}`"
-                        :class="['flex flex-col md:w-2/3', FEATURE_PARENT[String(key)] ? 'ps-5 border-s-2 border-gray-100 dark:border-gray-800' : '']"
-                    >
-                        <div class="flex items-center justify-between">
-                            <div class="font-medium flex items-center">
-                                {{ featureLabel(String(key), feature.name) }}
-                                <UTooltip v-if="feature.is_lab" :text="$t('settings.aiSettingsPage.beta')">
-                                    <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
-                                </UTooltip>
-                                <UTooltip v-if="feature.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
-                                </UTooltip>
-                            </div>
-                            <UToggle
-                                v-if="typeof feature.value === 'boolean'"
-                                v-model="feature.value"
-                                :disabled="!feature.editable || feature.state === 'locked'"
-                                @change="updateConfigFeature(key, feature)"
-                            />
-                            <UInput
-                                v-else-if="feature.editable && feature.state !== 'locked' && typeof feature.value === 'number'"
-                                v-model.number="feature.value"
-                                type="number"
-                                class="w-28"
-                                @blur="updateConfigFeature(key, feature)"
-                                @keyup.enter="updateConfigFeature(key, feature)"
-                            />
-                            <UInput
-                                v-else-if="feature.editable && feature.state !== 'locked' && typeof feature.value !== 'number'"
-                                v-model="feature.value"
-                                type="text"
-                                class="w-56"
-                                @blur="updateConfigFeature(key, feature)"
-                                @keyup.enter="updateConfigFeature(key, feature)"
-                            />
-                            <span v-else class="text-sm text-gray-600 dark:text-gray-400">
-                                {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
-                            </span>
+        <!-- AI Settings content: one collapsible card per section -->
+        <div v-if="!loading && !error" class="space-y-3 md:w-2/3">
+            <div
+                v-for="section in visibleSections"
+                :key="section.id"
+                :data-testid="`ai-section-${section.id}`"
+                class="border border-gray-200 dark:border-gray-800 rounded-lg"
+            >
+                <button
+                    type="button"
+                    class="w-full flex items-center justify-between gap-3 px-4 py-3 text-start"
+                    :aria-expanded="isOpen(section.id)"
+                    @click="toggleSection(section.id)"
+                >
+                    <div class="min-w-0">
+                        <div class="font-medium text-gray-900 dark:text-white flex items-center">
+                            {{ $t(`settings.aiSettingsPage.sections.${section.id}.title`) }}
+                            <Icon v-if="section.hasLocked" name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
                         </div>
-                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ featureDescription(String(key), feature.description) }}</p>
-                    </div>
-
-                    <!-- Allow LLM See Data - Special highlighted setting at the end -->
-                    <div v-if="configFeatures.allow_llm_see_data" class="flex flex-col md:w-2/3 mt-8 p-4 border-2 border-amber-300 bg-amber-50 dark:bg-amber-950 rounded-lg">
-                        <div class="flex items-center justify-between">
-                            <div class="font-medium flex items-center">
-                                <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
-                                {{ featureLabel('allow_llm_see_data', configFeatures.allow_llm_see_data.name) }}
-                                <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
-                                </UTooltip>
-                            </div>
-                            <UToggle
-                                v-model="configFeatures.allow_llm_see_data.value"
-                                :disabled="!configFeatures.allow_llm_see_data.editable || configFeatures.allow_llm_see_data.state === 'locked'"
-                                @change="handleAllowLlmSeeDataChange"
-                            />
+                        <div class="text-sm text-gray-500 dark:text-gray-400 truncate">
+                            {{ $t(`settings.aiSettingsPage.sections.${section.id}.description`) }}
                         </div>
-                        <p class="text-sm text-amber-700 mt-2.5">{{ featureDescription('allow_llm_see_data', configFeatures.allow_llm_see_data.description) }}</p>
-                        <p class="text-xs text-amber-600 mt-1 font-medium">
-                            <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 me-1" />
-                            {{ $t('settings.aiSettingsPage.llmAccessWarning') }}
-                        </p>
                     </div>
+                    <div class="flex items-center gap-3 shrink-0">
+                        <span v-if="!isOpen(section.id)" class="text-xs text-gray-500 dark:text-gray-400 hidden sm:inline">
+                            {{ sectionSummary(section) }}
+                        </span>
+                        <Icon
+                            name="heroicons:chevron-down"
+                            :class="['w-5 h-5 text-gray-400 transition-transform', isOpen(section.id) ? 'rotate-180' : '']"
+                        />
+                    </div>
+                </button>
+
+                <div v-if="isOpen(section.id)" class="px-4 pb-5 pt-1 space-y-5 border-t border-gray-100 dark:border-gray-800">
+                    <template v-for="key in section.keys" :key="key">
+                        <!-- Allow LLM See Data - highlighted, confirmation-gated -->
+                        <div v-if="key === 'allow_llm_see_data'" data-testid="ai-setting-allow_llm_see_data" class="flex flex-col mt-4 p-4 border-2 border-amber-300 bg-amber-50 dark:bg-amber-950 rounded-lg">
+                            <div class="flex items-center justify-between">
+                                <div class="font-medium flex items-center">
+                                    <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
+                                    {{ featureLabel('allow_llm_see_data', configFeatures.allow_llm_see_data.name) }}
+                                    <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
+                                        <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
+                                    </UTooltip>
+                                </div>
+                                <UToggle
+                                    v-model="configFeatures.allow_llm_see_data.value"
+                                    :disabled="!configFeatures.allow_llm_see_data.editable || configFeatures.allow_llm_see_data.state === 'locked'"
+                                    @change="handleAllowLlmSeeDataChange"
+                                />
+                            </div>
+                            <p class="text-sm text-amber-700 mt-2.5">{{ featureDescription('allow_llm_see_data', configFeatures.allow_llm_see_data.description) }}</p>
+                            <p class="text-xs text-amber-600 mt-1 font-medium">
+                                <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 me-1" />
+                                {{ $t('settings.aiSettingsPage.llmAccessWarning') }}
+                            </p>
+                        </div>
+                        <AiSettingRow
+                            v-else
+                            :class="key === section.keys[0] ? 'mt-4' : ''"
+                            :setting-key="key"
+                            :feature="configFeatures[key]"
+                            :label="featureLabel(key, configFeatures[key].name)"
+                            :description="featureDescription(key, configFeatures[key].description)"
+                            :child="!!FEATURE_PARENT[key]"
+                            @change="updateConfigFeature(key, configFeatures[key])"
+                        />
+                    </template>
                 </div>
             </div>
-            <hr />
-            <!-- AI Agents Section -->
-            <div v-if="Object.keys(aiFeatures).length > 0" class="hidden">
-                <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4">{{ $t('settings.aiSettingsPage.aiAgentsTitle') }}</h3>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">{{ $t('settings.aiSettingsPage.aiAgentsSubtitle') }}</p>
-
-                <div class="space-y-5">
-                    <div v-for="(feature, key) in aiFeatures" :key="`ai_${key}`" class="flex flex-col md:w-2/3">
-                        <div class="flex items-center justify-between">
-                            <div class="font-medium flex items-center">
-                                {{ featureLabel(String(key), feature.name) }}
-                                <UTooltip v-if="feature.is_lab" :text="$t('settings.aiSettingsPage.beta')">
-                                    <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
-                                </UTooltip>
-                                <UTooltip v-if="feature.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
-                                </UTooltip>
-                            </div>
-                            <UToggle
-                                v-if="typeof feature.value === 'boolean'"
-                                v-model="feature.value"
-                                :disabled="!feature.editable || feature.state === 'locked'"
-                                @change="updateAIFeature(key, feature)"
-                            />
-                            <UInput
-                                v-else-if="feature.editable && feature.state !== 'locked' && typeof feature.value === 'number'"
-                                v-model.number="feature.value"
-                                type="number"
-                                class="w-28"
-                                @blur="updateAIFeature(key, feature)"
-                                @keyup.enter="updateAIFeature(key, feature)"
-                            />
-                            <UInput
-                                v-else-if="feature.editable && feature.state !== 'locked' && typeof feature.value !== 'number'"
-                                v-model="feature.value"
-                                type="text"
-                                class="w-56"
-                                @blur="updateAIFeature(key, feature)"
-                                @keyup.enter="updateAIFeature(key, feature)"
-                            />
-                            <span v-else class="text-sm text-gray-600 dark:text-gray-400">
-                                {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
-                            </span>
-                        </div>
-                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ featureDescription(String(key), feature.description) }}</p>
-                    </div>
-                </div>
-            </div>
-
-
 
             <!-- No settings message -->
-            <div v-if="Object.keys(aiFeatures).length === 0 && Object.keys(configFeatures).length === 0" class="text-center py-8">
+            <div v-if="visibleSections.length === 0" class="text-center py-8">
                 <p class="text-gray-500 dark:text-gray-400">{{ $t('settings.aiSettingsPage.noSettings') }}</p>
             </div>
         </div>
@@ -226,6 +171,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '#imports'
+import AiSettingRow from '~/components/settings/AiSettingRow.vue'
 
 // Define feature interface matching backend FeatureConfig
 interface Feature {
@@ -240,7 +186,6 @@ interface Feature {
 // Define response interface for better type safety
 interface SettingsResponse {
     config?: {
-        ai_features?: Record<string, Feature>
         [key: string]: any
     }
 }
@@ -273,28 +218,88 @@ const pendingLlmValue = ref(false)
 // Settings that only apply while a parent toggle is on. They are hidden while
 // the parent is off and rendered right after it, indented, when it is on.
 const FEATURE_PARENT: Record<string, string> = {
+    enable_artifact_verification: 'allow_llm_see_data',
+    ml_training_row_limit: 'enable_ml_training',
     checkins_max_per_user_per_week: 'enable_agent_checkins',
     checkins_max_runs_per_org_per_day: 'enable_agent_checkins',
     ai_suggestion_expiry_days: 'enable_agent_dreaming',
+    mcp_native_tools_threshold: 'enable_mcp_native_tools',
+    mcp_native_tools_max: 'enable_mcp_native_tools',
+    max_webhooks: 'allow_report_webhooks',
+    webhook_rate_limit_per_min: 'allow_report_webhooks',
 }
 
-// Computed property to exclude allow_llm_see_data from regular features
-const regularConfigFeatures = computed(() => {
-    const features: Record<string, Feature> = {}
-    for (const key in configFeatures.value) {
-        if (key === 'allow_llm_see_data' || FEATURE_PARENT[key]) continue
-        features[key] = configFeatures.value[key]
-        // Dependents follow their parent, only while the parent is on.
-        for (const child in FEATURE_PARENT) {
-            if (FEATURE_PARENT[child] === key && configFeatures.value[child] && configFeatures.value[key]?.value === true) {
-                features[child] = configFeatures.value[child]
+// Page layout: settings grouped by what an admin is deciding, in display
+// order. Keys are top-level FeatureConfig fields on OrganizationSettingsConfig.
+// Dependents (FEATURE_PARENT) are placed automatically after their parent.
+// A backend setting not listed here lands in "other" so it never disappears.
+const SECTIONS: { id: string, keys: string[] }[] = [
+    { id: 'data', keys: ['allow_llm_see_data', 'enable_file_upload', 'enable_web_fetch'] },
+    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_load_step', 'enable_ml_training', 'enable_custom_queries', 'enable_follow_ups'] },
+    { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
+    { id: 'tools', keys: ['enable_mcp_tools', 'enable_mcp_native_tools', 'mcp_result_inline_chars'] },
+    { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'top_k_schema', 'top_k_metadata_resources', 'agent_roster_top_k'] },
+    { id: 'workspace', keys: ['allow_report_webhooks', 'allow_forks', 'step_retention_days'] },
+]
+
+// Org settings that have a dedicated control elsewhere (LLM page: router and
+// fallback, with their license gate; Integrations: MCP endpoint and Excel
+// add-in). Not repeated here so there is one place to change each.
+const MANAGED_ELSEWHERE = new Set(['model_routing', 'llm_fallback', 'mcp_enabled', 'enable_excel_addin'])
+
+const configFeatures = ref<Record<string, Feature>>({})
+
+interface Section { id: string, keys: string[], total: number, on: number, booleans: number, hasLocked: boolean }
+
+const visibleSections = computed<Section[]>(() => {
+    const cfg = configFeatures.value
+    const placed = new Set<string>([...MANAGED_ELSEWHERE, ...Object.keys(FEATURE_PARENT)])
+    const groups = SECTIONS.map(s => ({ id: s.id, keys: s.keys.filter(k => cfg[k]) }))
+    for (const g of groups) g.keys.forEach(k => placed.add(k))
+    const other = Object.keys(cfg).filter(k => !placed.has(k))
+    if (other.length) groups.push({ id: 'other', keys: other })
+
+    return groups.map(g => {
+        const keys: string[] = []
+        const all: string[] = []
+        for (const key of g.keys) {
+            keys.push(key)
+            all.push(key)
+            for (const child in FEATURE_PARENT) {
+                if (FEATURE_PARENT[child] !== key || !cfg[child]) continue
+                all.push(child)
+                // Dependents follow their parent, only while the parent is on.
+                if (cfg[key].value === true) keys.push(child)
             }
         }
-    }
-    return features
+        // The collapsed-header summary counts the section's own settings;
+        // dependents only matter for the lock hint.
+        const top = g.keys.map(k => cfg[k])
+        const booleans = top.filter(f => typeof f.value === 'boolean')
+        return {
+            id: g.id,
+            keys,
+            total: top.length,
+            on: booleans.filter(f => f.value === true).length,
+            booleans: booleans.length,
+            hasLocked: all.some(k => cfg[k].state === 'locked'),
+        }
+    }).filter(g => g.keys.length > 0)
 })
-const aiFeatures = ref<Record<string, Feature>>({})
-const configFeatures = ref<Record<string, Feature>>({})
+
+const sectionSummary = (s: Section): string => s.booleans > 0
+    ? t('settings.aiSettingsPage.sectionSummaryOn', { n: s.total, on: s.on })
+    : t('settings.aiSettingsPage.sectionSummary', { n: s.total })
+
+// Which sections are expanded. Data access starts open (it holds the risky
+// toggle); the choice is a per-browser convenience, so storage is optional.
+const OPEN_STORAGE_KEY = 'bow.aiSettings.openSections'
+const openSections = ref<string[]>(['data'])
+const isOpen = (id: string) => openSections.value.includes(id)
+const toggleSection = (id: string) => {
+    openSections.value = isOpen(id) ? openSections.value.filter(s => s !== id) : [...openSections.value, id]
+    try { localStorage.setItem(OPEN_STORAGE_KEY, JSON.stringify(openSections.value)) } catch {}
+}
 
 const toast = useToast()
 
@@ -312,10 +317,8 @@ const fetchSettings = async () => {
 
         const data = response.data.value as SettingsResponse
 
-        // Extract AI features
-        aiFeatures.value = (data.config?.ai_features) ? data.config.ai_features : {}
-
-        // Extract general configuration features (excluding ai_features)
+        // Top-level FeatureConfig entries. ai_features is a legacy dict of
+        // agent toggles with no UI.
         const allConfig = data.config || {}
         const generalConfig: Record<string, Feature> = {}
 
@@ -337,67 +340,6 @@ const fetchSettings = async () => {
         })
     } finally {
         loading.value = false
-    }
-}
-
-// Update AI feature setting
-const updateAIFeature = async (featureKey: string, feature: Feature) => {
-    const originalValue = !feature.value
-    try {
-        const payload = {
-            config: {
-                ai_features: {
-                    [featureKey]: {
-                        value: aiFeatures.value[featureKey].value
-                    }
-                }
-            }
-        }
-
-        const response = await useMyFetch('/api/organization/settings', {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        })
-
-        if (response.status.value !== 'success') {
-            const errorData = response.error?.value?.data || { message: t('settings.aiSettingsPage.updateError') }
-            throw new Error(errorData.message || errorData.detail || t('settings.aiSettingsPage.updateError'))
-        }
-
-        // Update the local state from response
-        const updatedConfig = (response.data?.value as SettingsResponse)?.config
-        if (updatedConfig?.ai_features?.[featureKey]) {
-            aiFeatures.value[featureKey] = updatedConfig.ai_features[featureKey]
-        } else {
-            // Fallback: manually update state based on new value
-            aiFeatures.value[featureKey].state = aiFeatures.value[featureKey].value ? 'enabled' : 'disabled'
-        }
-
-        toast.add({
-            title: t('settings.aiSettingsPage.toastSuccessTitle'),
-            description: t('settings.aiSettingsPage.toastSuccessBody', {
-                name: feature.name,
-                state: feature.value ? t('settings.aiSettingsPage.stateEnabled') : t('settings.aiSettingsPage.stateDisabled')
-            }),
-            color: 'green',
-            timeout: 3000
-        })
-    } catch (err: any) {
-        // Revert the toggle
-        aiFeatures.value[featureKey].value = originalValue
-        aiFeatures.value[featureKey].state = originalValue ? 'enabled' : 'disabled'
-
-        error.value = err.message || t('settings.aiSettingsPage.updateErrorGeneric')
-        toast.add({
-            title: t('settings.aiSettingsPage.toastUpdateTitle'),
-            description: error.value,
-            color: 'red',
-            timeout: 5000,
-            icon: 'i-heroicons-exclamation-circle'
-        })
     }
 }
 
@@ -438,7 +380,7 @@ const updateConfigFeature = async (featureKey: string, feature: Feature) => {
         toast.add({
             title: t('settings.aiSettingsPage.toastSuccessTitle'),
             description: t('settings.aiSettingsPage.toastSuccessBody', {
-                name: feature.name,
+                name: featureLabel(featureKey, feature.name),
                 state: feature.value ? t('settings.aiSettingsPage.stateEnabled') : t('settings.aiSettingsPage.stateDisabled')
             }),
             color: 'green',
@@ -501,6 +443,10 @@ const cancelLlmChange = () => {
 
 // Fetch settings when the component is mounted
 onMounted(async () => {
+    try {
+        const saved = JSON.parse(localStorage.getItem(OPEN_STORAGE_KEY) || 'null')
+        if (Array.isArray(saved)) openSections.value = saved
+    } catch {}
     await fetchSettings()
 })
 </script>

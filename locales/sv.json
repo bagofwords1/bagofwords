@@ -2484,9 +2484,39 @@
       "beta": "Betafunktion",
       "locked": "Den här inställningen är låst och kan inte ändras.",
       "notEditable": "(Inte direkt redigerbar)",
-      "aiAgentsTitle": "AI-agenter",
-      "aiAgentsSubtitle": "Konfigurera AI-agenter och funktioner som är tillgängliga för medlemmar i din organisation.",
       "noSettings": "Inga AI-inställningar tillgängliga.",
+      "sectionSummary": "{n} inställningar",
+      "sectionSummaryOn": "{n} inställningar · {on} på",
+      "sections": {
+        "data": {
+          "title": "Dataåtkomst & integritet",
+          "description": "Vad AI:n får se och ta in i en konversation"
+        },
+        "capabilities": {
+          "title": "Agentens förmågor",
+          "description": "Vad agenten får göra när den svarar"
+        },
+        "learning": {
+          "title": "Inlärning & minne",
+          "description": "Hur AI:n lär sig av användare, feedback och användning"
+        },
+        "tools": {
+          "title": "Verktyg & MCP",
+          "description": "Externa MCP-servrar och anpassade API-verktyg"
+        },
+        "limits": {
+          "title": "Gränser",
+          "description": "Radgränser, tidsgränser, omförsök och kontextstorlekar"
+        },
+        "workspace": {
+          "title": "Arbetsyta",
+          "description": "Webhooks, förgreningar och datalagring"
+        },
+        "other": {
+          "title": "Övrigt",
+          "description": "Inställningar som ännu inte tillhör en sektion"
+        }
+      },
       "llmAccessWarning": "Att ändra den här inställningen påverkar datasekretessen. En bekräftelse krävs.",
       "llmModalTitleEnable": "Aktivera LLM-dataåtkomst",
       "llmModalTitleDisable": "Inaktivera LLM-dataåtkomst",

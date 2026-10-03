@@ -2484,9 +2484,39 @@
       "beta": "Beta-Funktion",
       "locked": "Diese Einstellung ist gesperrt und kann nicht geändert werden.",
       "notEditable": "(Nicht direkt bearbeitbar)",
-      "aiAgentsTitle": "KI-Agenten",
-      "aiAgentsSubtitle": "Konfigurieren Sie KI-Agenten und Funktionen, die den Mitgliedern Ihrer Organisation zur Verfügung stehen.",
       "noSettings": "Keine KI-Einstellungen verfügbar.",
+      "sectionSummary": "{n} Einstellungen",
+      "sectionSummaryOn": "{n} Einstellungen · {on} aktiv",
+      "sections": {
+        "data": {
+          "title": "Datenzugriff & Datenschutz",
+          "description": "Was die KI sehen und in ein Gespräch einbringen darf"
+        },
+        "capabilities": {
+          "title": "Agentenfähigkeiten",
+          "description": "Was der Agent beim Antworten tun darf"
+        },
+        "learning": {
+          "title": "Lernen & Gedächtnis",
+          "description": "Wie die KI aus Nutzern, Feedback und Nutzung lernt"
+        },
+        "tools": {
+          "title": "Tools & MCP",
+          "description": "Externe MCP-Server und benutzerdefinierte API-Tools"
+        },
+        "limits": {
+          "title": "Limits",
+          "description": "Zeilenlimits, Timeouts, Wiederholungen und Kontextgrößen"
+        },
+        "workspace": {
+          "title": "Arbeitsbereich",
+          "description": "Webhooks, Forks und Datenaufbewahrung"
+        },
+        "other": {
+          "title": "Sonstiges",
+          "description": "Einstellungen ohne zugewiesenen Abschnitt"
+        }
+      },
       "llmAccessWarning": "Das Ändern dieser Einstellung wirkt sich auf den Datenschutz aus. Eine Bestätigung ist erforderlich.",
       "llmModalTitleEnable": "LLM-Datenzugriff aktivieren",
       "llmModalTitleDisable": "LLM-Datenzugriff deaktivieren",
