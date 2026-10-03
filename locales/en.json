@@ -5820,7 +5820,26 @@
     "selectRow": "Select row",
     "toastRowsDeleted": "{n} row deleted | {n} rows deleted"
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "Viewing:",
+    "myAccount": "My account",
+    "serviceAccount": "Service account",
+    "sharedConnection": "Shared connection",
+    "sharedSchema": "Shared schema",
+    "changeIdentity": "Change query identity",
+    "refresh": "Refresh schema",
+    "refreshMyFor": "Refresh {name} · My account",
+    "refreshSharedFor": "Refresh {name} · Shared schema",
+    "refreshing": "Refreshing…",
+    "unknown": "Schema last refreshed: unknown",
+    "refreshedAt": "Schema last refreshed: {time}",
+    "attemptedAt": "Last refresh attempt: {time}",
+    "updated": "Schema updated.",
+    "partial": "Some models could not be refreshed. Their previous columns were retained.",
+    "failed": "Schema refresh did not complete. Try again.",
+    "connectRequired": "Connect your account to view its tables."
+  },
+"artifactResources": {
     "readOnlyLabel": "Read only",
     "sort": "Sort records",
     "applyFilter": "Apply",

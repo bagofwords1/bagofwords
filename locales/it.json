@@ -5631,7 +5631,26 @@
     "mergedTip": "Confluita in un suggerimento dell'apprendimento notturno. Non è un rifiuto di un revisore.",
     "expiredTip": "Chiusa dopo essere rimasta non revisionata oltre la scadenza dell'organizzazione. Conta ancora come prova se lo schema ritorna."
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "Vista:",
+    "myAccount": "Il mio account",
+    "serviceAccount": "Account di servizio",
+    "sharedConnection": "Connessione condivisa",
+    "sharedSchema": "Schema condiviso",
+    "changeIdentity": "Cambia identità delle query",
+    "refresh": "Aggiorna schema",
+    "refreshMyFor": "Aggiorna {name} · Il mio account",
+    "refreshSharedFor": "Aggiorna {name} · Schema condiviso",
+    "refreshing": "Aggiornamento…",
+    "unknown": "Ultimo aggiornamento dello schema: sconosciuto",
+    "refreshedAt": "Ultimo aggiornamento dello schema: {time}",
+    "attemptedAt": "Ultimo tentativo: {time}",
+    "updated": "Schema aggiornato.",
+    "partial": "Non è stato possibile aggiornare alcuni modelli. Le colonne precedenti sono state mantenute.",
+    "failed": "Aggiornamento dello schema non completato. Riprova.",
+    "connectRequired": "Collega il tuo account per vedere le sue tabelle."
+  },
+"artifactResources": {
     "readOnlyLabel": "Sola lettura",
     "sort": "Ordina record",
     "applyFilter": "Applica",

@@ -5791,7 +5791,26 @@
     "selectRow": "Seleccionar fila",
     "toastRowsDeleted": "{n} fila eliminada | {n} filas eliminadas"
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "Viendo:",
+    "myAccount": "Mi cuenta",
+    "serviceAccount": "Cuenta de servicio",
+    "sharedConnection": "Conexión compartida",
+    "sharedSchema": "Esquema compartido",
+    "changeIdentity": "Cambiar identidad de consulta",
+    "refresh": "Actualizar esquema",
+    "refreshMyFor": "Actualizar {name} · Mi cuenta",
+    "refreshSharedFor": "Actualizar {name} · Esquema compartido",
+    "refreshing": "Actualizando…",
+    "unknown": "Última actualización del esquema: desconocida",
+    "refreshedAt": "Última actualización del esquema: {time}",
+    "attemptedAt": "Último intento de actualización: {time}",
+    "updated": "Esquema actualizado.",
+    "partial": "No se pudieron actualizar algunos modelos. Se conservaron sus columnas anteriores.",
+    "failed": "La actualización del esquema no se completó. Inténtalo de nuevo.",
+    "connectRequired": "Conecta tu cuenta para ver sus tablas."
+  },
+"artifactResources": {
     "readOnlyLabel": "Solo lectura",
     "sort": "Ordenar registros",
     "applyFilter": "Aplicar",
