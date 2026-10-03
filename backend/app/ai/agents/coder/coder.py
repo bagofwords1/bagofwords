@@ -1,11 +1,16 @@
-import asyncio
+import logging
+import time
 from typing import Callable, Optional
 
 from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm import LLM
-from app.ai.llm.types import Message, MessageStopEvent, TextDeltaEvent
+from app.ai.llm.reasoning import _effort_to_thinking_config, _resolve_reasoning_effort
+from app.ai.llm.types import (
+    Message, MessageStopEvent, TextDeltaEvent,
+    ReasoningStartEvent, ReasoningDeltaEvent, ReasoningCompleteEvent,
+)
 
 
 # Raised message when a codegen stream stops at the model's output-token cap.
@@ -189,6 +194,26 @@ def _excel_files_mapping(excel_files) -> str:
     return "\n".join(lines)
 
 
+def _render_snippets(top_success) -> str:
+    """Render the successful-examples section. Past code is the style the model
+    copies, so a long example teaches long code: keep only short ones; none is
+    better than a bad reference."""
+    top_success = [
+        s for s in (top_success or [])
+        if isinstance(s, dict)
+        and (s.get("code") or "").count("\n") <= _MAX_EXAMPLE_SNIPPET_LINES
+    ]
+    if not top_success:
+        return ""
+    lines = ["=== SUCCESSFUL EXAMPLES (by targeted tables) ==="]
+    for idx, s in enumerate(top_success, start=1):
+        lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('success_rate')}")
+        code = s.get("code") or ""
+        lines.append(code)
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
 class Coder:
     def __init__(
         self,
@@ -198,13 +223,66 @@ class Coder:
         context_hub=None,
         usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
         usage_context: Optional[UsageLimitContext] = None,
+        reasoning_effort: Optional[str] = None,
+        reasoning_callback=None,
+        read_session_maker: Optional[Callable[[], AsyncSession]] = None,
     ) -> None:
         self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
+        # Short-lived session factory for read-only context lookups (code
+        # snippets). The context hub's session is the agent's shared one,
+        # which parallel tool calls must not use concurrently.
+        self.read_session_maker = read_session_maker
+        self._snippets_cache: dict = {}
+        self.reasoning_callback = reasoning_callback
+        self.reasoning_effort = reasoning_effort
+        self.model = model
         self.organization_settings = organization_settings
         self.enable_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
         # Back-compat: accept either legacy builder or new context hub
         self.instruction_context_builder = instruction_context_builder
         self.context_hub = context_hub
+
+    def _time_reasoning(self, event) -> None:
+        """Accumulate wall time spent inside reasoning blocks of the stream.
+
+        A block opens on its start (or first delta) and closes on its complete
+        event — or on the first non-reasoning event, for a stream that never
+        sends one. Read by callers as ``reasoning_ms`` after a generation.
+        """
+        now = time.monotonic()
+        opened = getattr(self, "_reasoning_opened_at", None)
+        if isinstance(event, (ReasoningStartEvent, ReasoningDeltaEvent)):
+            if opened is None:
+                self._reasoning_opened_at = now
+            return
+        if opened is not None:
+            self.reasoning_ms = round(
+                getattr(self, "reasoning_ms", 0.0) + (now - opened) * 1000.0, 1
+            )
+            self._reasoning_opened_at = None
+
+    def _reset_reasoning_clock(self) -> None:
+        self.reasoning_ms = 0.0
+        self._reasoning_opened_at = None
+
+    async def _forward_reasoning(self, event):
+        self._time_reasoning(event)
+        callback = getattr(self, "reasoning_callback", None)
+        if callback and isinstance(event, (ReasoningDeltaEvent, ReasoningCompleteEvent)):
+            try:
+                await callback(event)
+            except Exception:
+                logging.getLogger(__name__).exception("Could not stream coder reasoning")
+
+    def _thinking_for_prompt(self, prompt: str) -> Optional[dict]:
+        model = getattr(self, "model", None)
+        config = getattr(model, "config", None) or {}
+        effort = _resolve_reasoning_effort(
+            per_completion=getattr(self, "reasoning_effort", None),
+            prompt_text=prompt,
+            model_default=config.get("reasoning_effort") if isinstance(config, dict) else None,
+        )
+        return _effort_to_thinking_config(effort, getattr(model, "model_id", None))
 
     def _time_context(self) -> str:
         """Current-time line for codegen prompts, same clock the planner sees.
@@ -514,9 +592,18 @@ class Coder:
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
         """
 
-        result = await asyncio.to_thread(
-            self.llm.inference, text, usage_scope="create_data.code_gen"
-        )
+        chunks = []
+        async for evt in self.llm.inference_stream_v2(
+            messages=[Message(role="user", content=text)],
+            usage_scope="create_data.code_gen",
+            thinking=self._thinking_for_prompt(prompt),
+        ):
+            await self._forward_reasoning(evt)
+            if isinstance(evt, TextDeltaEvent):
+                chunks.append(evt.text)
+            elif _is_truncation(evt):
+                raise RuntimeError(_TRUNCATION_ERROR)
+        result = "".join(chunks)
 
         # Remove markdown code fence (with optional language tag) if present
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
@@ -740,7 +827,29 @@ class Coder:
             # Retrieve top successful snippets based on targeted tables if provided
             similar_successful_code_snippets = ""
             try:
-                if getattr(context, "tables_by_source", None):
+                _snip_key = None
+                try:
+                    _snip_key = json.dumps(context.tables_by_source, sort_keys=True, default=str)
+                except Exception:
+                    _snip_key = None
+                if _snip_key is not None and _snip_key in getattr(self, "_snippets_cache", {}):
+                    # Same tables on a retry: the lookup's result can't differ.
+                    similar_successful_code_snippets = self._snippets_cache[_snip_key]
+                elif getattr(context, "tables_by_source", None) and getattr(self, "read_session_maker", None) is not None and code_context_builder is None and self.context_hub is not None:
+                    from app.ai.context.builders.code_context_builder import CodeContextBuilder
+                    organization = getattr(self.context_hub, "organization", None)
+                    current_user = getattr(self.context_hub, "user", None)
+                    if organization is not None:
+                        try:
+                            async with self.read_session_maker() as _read_db:
+                                _builder = CodeContextBuilder(db=_read_db, organization=organization, current_user=current_user)
+                                top_success = await _builder.get_top_successful_snippets_for_tables(context.tables_by_source, top_k=2)
+                            similar_successful_code_snippets = _render_snippets(top_success)
+                        except Exception:
+                            similar_successful_code_snippets = ""
+                    if _snip_key is not None:
+                        self._snippets_cache[_snip_key] = similar_successful_code_snippets
+                elif getattr(context, "tables_by_source", None):
                     builder = None
                     try:
                         # Prefer explicit code_context_builder param when provided
@@ -759,22 +868,7 @@ class Coder:
                     if builder is not None and hasattr(builder, "get_top_successful_snippets_for_tables"):
                         try:
                             top_success = await builder.get_top_successful_snippets_for_tables(context.tables_by_source, top_k=2)
-                            # Past code is the style the model copies, so a
-                            # long example teaches long code. Keep only short
-                            # ones; none is better than a bad reference.
-                            top_success = [
-                                s for s in (top_success or [])
-                                if isinstance(s, dict)
-                                and (s.get("code") or "").count("\n") <= _MAX_EXAMPLE_SNIPPET_LINES
-                            ]
-                            if top_success:
-                                lines = ["=== SUCCESSFUL EXAMPLES (by targeted tables) ==="]
-                                for idx, s in enumerate(top_success, start=1):
-                                    lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('success_rate')}")
-                                    code = s.get("code") or ""
-                                    lines.append(code)
-                                    lines.append("")
-                                similar_successful_code_snippets = "\n".join(lines).strip()
+                            similar_successful_code_snippets = _render_snippets(top_success)
                         except Exception as e:
                             similar_successful_code_snippets = ""
             except Exception:
@@ -967,15 +1061,19 @@ class Coder:
                 span.set_attribute("coder.system_chars", len(system_text))
                 span.set_attribute("coder.has_typed_context", context is not None)
                 span.set_attribute("coder.allow_llm_see_data", bool(self.enable_llm_see_data))
+                self._reset_reasoning_clock()
                 async for evt in self.llm.inference_stream_v2(
                     messages=[Message(role="user", content=text)],
                     system=system_text,
                     usage_scope="create_data.code_gen",
+                    thinking=self._thinking_for_prompt(prompt),
                 ):
+                    await self._forward_reasoning(evt)
                     if isinstance(evt, TextDeltaEvent):
                         chunks.append(evt.text)
                     elif _is_truncation(evt):
                         truncated = True
+                self._time_reasoning(None)  # close a block the stream never ended
                 span.set_attribute("coder.chunks", len(chunks))
                 span.set_attribute("coder.output_chars", sum(len(chunk) for chunk in chunks))
                 span.set_attribute("coder.truncated", truncated)
@@ -1122,14 +1220,18 @@ class Coder:
 
         chunks: list[str] = []
         truncated = False
+        self._reset_reasoning_clock()
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="create_data.inspection",
+            thinking=self._thinking_for_prompt(prompt),
         ):
+            await self._forward_reasoning(evt)
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
             elif _is_truncation(evt):
                 truncated = True
+        self._time_reasoning(None)  # close a block the stream never ended
         if truncated:
             raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
@@ -1271,14 +1373,18 @@ class Coder:
 
         chunks: list[str] = []
         truncated = False
+        self._reset_reasoning_clock()
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="write_csv.transform",
+            thinking=self._thinking_for_prompt(prompt),
         ):
+            await self._forward_reasoning(evt)
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
             elif _is_truncation(evt):
                 truncated = True
+        self._time_reasoning(None)  # close a block the stream never ended
         if truncated:
             raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)

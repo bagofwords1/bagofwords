@@ -104,7 +104,7 @@ test('MCP context forwarding: configure, test, save through the UI', async ({ pa
 
   // Modal step 2: the MCP form.
   await expect(page.locator('[data-test="mcp-name"]')).toBeVisible({ timeout: 15000 })
-  await page.locator('[data-test="mcp-name"]').fill('Echo LN MCP')
+  await page.locator('[data-test="mcp-name"]').fill('Echo MCP')
   await page.locator('[data-test="mcp-url"]').fill(ECHO_URL)
   await page.locator('[data-test="mcp-transport"]').selectOption('streamable_http')
   await shot(page, '01-form-filled')
@@ -159,7 +159,7 @@ test('MCP context forwarding: configure, test, save through the UI', async ({ pa
   const list = await page.request.get('/api/connections', { headers: apiHeaders })
   expect(list.ok()).toBeTruthy()
   const conns = await list.json()
-  const conn = (Array.isArray(conns) ? conns : conns.items || []).find((c: any) => c.name === 'Echo LN MCP')
+  const conn = (Array.isArray(conns) ? conns : conns.items || []).find((c: any) => c.name === 'Echo MCP')
   expect(conn, 'created MCP connection should exist').toBeTruthy()
 
   const detailRes = await page.request.get(`/api/connections/${conn.id}`, { headers: apiHeaders })

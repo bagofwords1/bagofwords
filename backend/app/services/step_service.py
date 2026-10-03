@@ -277,8 +277,13 @@ class StepService:
         organization_settings=None,
         params: Optional[dict] = None,
         param_specs: Optional[list] = None,
+        return_raw_df: bool = False,
     ) -> dict:
         """Execute a step's saved code and return the formatted result frame.
+
+        ``return_raw_df`` returns the executed DataFrame itself (not capped or
+        formatted) — for callers that page through the full result, such as
+        read_query's offset/limit reads past the saved snapshot.
 
         Pure execution — persists nothing. `current_user` decides whose
         data-source credentials are used when `db_clients` isn't prebuilt.
@@ -356,6 +361,8 @@ class StepService:
             )
             if identity_err:
                 raise ParamError(identity_err)
+        if return_raw_df:
+            return df
         df = await asyncio.to_thread(executor.format_df_for_widget, df)
         return df
 

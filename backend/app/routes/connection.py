@@ -63,10 +63,10 @@ indexing_service = ConnectionIndexingService()
 
 
 def _iso_utc(dt) -> "str | None":
-    """Serialize an indexing timestamp as an ISO string the browser will parse
-    as UTC. These columns are stored as naive `datetime.utcnow()`; a bare
-    `.isoformat()` (no offset) is parsed as *local* time by `new Date()`, which
-    skews the "Last indexed X ago" label by the viewer's timezone offset. Append
+    """Serialize a connection/indexing timestamp as an ISO string the browser
+    will parse as UTC. These columns are stored as naive `datetime.utcnow()`; a
+    bare `.isoformat()` (no offset) is parsed as *local* time by `new Date()`,
+    which skews labels like "Last checked" by the viewer's timezone offset. Append
     a `Z` for naive values (matching the event-log timestamps), and normalize
     any tz-aware value to a `Z`-suffixed UTC string.
     """
@@ -349,7 +349,7 @@ async def list_connections(
             is_active=conn.is_active,
             auth_policy=conn.auth_policy,
             allowed_user_auth_modes=conn.allowed_user_auth_modes,
-            last_synced_at=conn.last_synced_at.isoformat() if conn.last_synced_at else None,
+            last_synced_at=_iso_utc(conn.last_synced_at),
             organization_id=str(conn.organization_id),
             table_count=0 if conn.type in _TOOL_PROVIDER_TYPES else table_count,
             tool_count=tool_count,
@@ -415,7 +415,7 @@ async def create_connection(
         # what was stored — omitting it made API-driven setup look like it had
         # silently failed (the list endpoint returns it, create/update did not).
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,
@@ -503,7 +503,7 @@ async def get_connection(
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=allowed_user_auth_modes,
         config=config or {},
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,
@@ -517,14 +517,14 @@ async def get_connection(
         has_credentials=has_credentials,
         management_auth="user" if personal_management else "system",
         last_connection_status=None if personal_management else connection.last_connection_status,
-        last_connection_checked_at=(connection.last_connection_checked_at.isoformat() if not personal_management and connection.last_connection_checked_at else None),
+        last_connection_checked_at=(None if personal_management else _iso_utc(connection.last_connection_checked_at)),
         credentials_meta=credentials_meta,
         auto_reindex_enabled=bool(connection.auto_reindex_enabled),
         reindex_interval_hours=connection.reindex_interval_hours,
         reindex_schedule_mode=connection.reindex_schedule_mode or "interval",
         reindex_interval_minutes=connection.reindex_interval_minutes,
         reindex_at_time=connection.reindex_at_time,
-        next_retry_at=connection.next_retry_at.isoformat() if connection.next_retry_at else None,
+        next_retry_at=_iso_utc(connection.next_retry_at),
         last_reindex_error=connection.last_reindex_error,
         rate_limit_enabled=bool(connection.rate_limit_enabled),
         rate_limit_per_minute=connection.rate_limit_per_minute,
@@ -568,7 +568,7 @@ async def update_connection(
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,

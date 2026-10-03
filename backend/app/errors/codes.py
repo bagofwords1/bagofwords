@@ -8,6 +8,8 @@ from enum import Enum
 
 
 class ErrorCode(str, Enum):
+    SAML_UNAVAILABLE = "saml_unavailable"
+    SAML_LOGIN_FAILED = "saml_login_failed"
     # Generic
     VALIDATION = "validation"
     INVALID_JSON = "body.invalid_json"
@@ -36,6 +38,7 @@ class ErrorCode(str, Enum):
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     FILE_NOT_FOUND = "file.not_found"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
+    DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
     USER_NOT_FOUND = "user.not_found"
     MEMBERSHIP_NOT_FOUND = "membership.not_found"
@@ -46,6 +49,19 @@ class ErrorCode(str, Enum):
     INSTRUCTION_LABEL_NOT_FOUND = "instruction.label_not_found"
     INSTRUCTION_DIRECTORY_NOT_FOUND = "instruction.directory_not_found"
     INTEGRATION_NOT_FOUND = "integration.not_found"
+
+    # User memory
+    MEMORY_DISABLED = "memory.disabled"
+    MEMORY_NOT_FOUND = "memory.not_found"
+    MEMORY_TEXT_REQUIRED = "memory.text_required"
+    MEMORY_TEXT_TOO_LONG = "memory.text_too_long"
+    MEMORY_TOO_MANY_TAGS = "memory.too_many_tags"
+    MEMORY_TAGS_REQUIRED = "memory.tags_required"
+    MEMORY_INVALID_DATE = "memory.invalid_date"
+    MEMORY_SENSITIVE = "memory.sensitive"
+    MEMORY_LOOKS_LIKE_RULE = "memory.looks_like_rule"
+    MEMORY_FULL = "memory.full"
+    MEMORY_NOT_ACTIVE = "memory.not_active"
 
     # Conflicts
     RESOURCE_CONFLICT = "resource.conflict"

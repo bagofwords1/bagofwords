@@ -55,6 +55,7 @@ class Webhook(BaseSchema):
     task_template = Column(Text, nullable=True, default=None)
     mode = Column(String, nullable=False, default='chat')  # 'chat'
     model_id = Column(String(36), nullable=True, default=None)  # LLM override; null = org default
+    reasoning_effort = Column(String(16), nullable=True, default=None)  # paired with model_id; null = Default
 
     is_active = Column(Boolean, nullable=False, default=True)
     last_delivery_at = Column(DateTime, nullable=True, default=None)

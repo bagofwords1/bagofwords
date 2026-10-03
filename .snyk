@@ -8,6 +8,75 @@
 version: v1.0.0
 # Open-source vulnerability ignores (client-side policy applied by `snyk test`).
 ignore:
+  # Timing Attack in oauthlib (High). Fixed only in oauthlib 4.0.0, but that
+  # version is NOT installable in this tree: databricks-sql-connector hard-caps
+  # oauthlib<4.0.0,>=3.1.0 on every published version up to and including the
+  # latest (4.6.0), so no upgrade can remediate it without dropping the
+  # Databricks connector. The vulnerable code path is server-side OAuth
+  # signature/token *verification* (constant-time comparison when validating
+  # inbound requests). This backend uses oauthlib only as an OAuth1 *client* —
+  # requests_oauthlib.OAuth1 signs outbound requests in
+  # app/data_sources/clients/netsuite_client.py — and never verifies inbound
+  # OAuth signatures, so the vulnerable path is not reached. Databricks auth in
+  # this deployment uses a personal access token, not the oauthlib OAuth flow.
+  # Time-boxed; re-review when databricks-sql-connector relaxes its oauthlib cap.
+  SNYK-PYTHON-OAUTHLIB-20305255:
+    - '*':
+        reason: >-
+          No installable fix (fixed in oauthlib 4.0.0; databricks-sql-connector
+          hard-caps oauthlib<4.0.0 on all versions incl. latest 4.6.0). Vuln is
+          in server-side OAuth verification; this backend uses oauthlib only as
+          an OAuth1 client (outbound request signing in netsuite_client.py), so
+          the path is not reached. Re-review when the databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  # Command Injection in simple-git / @simple-git/argv-parser (Critical). Pulled
+  # in ONLY as a dev/build-tooling transitive:
+  #   nuxt > @nuxt/devtools > simple-git > @simple-git/argv-parser
+  # @nuxt/devtools is the local development UI; it uses simple-git to read repo
+  # info while running `nuxt dev` on a developer's machine. It is NOT part of the
+  # production runtime: `nuxt build` emits `.output/`, which the prod image runs
+  # directly, and @nuxt/devtools / simple-git never ship in that artifact. The
+  # injection requires attacker-controlled arguments to git commands; the only
+  # inputs here are the developer's own local repo during dev, never attacker-
+  # controlled production request data. No upgrade remediates it in this tree:
+  # the fix lands only in simple-git 4.0.0, but every @nuxt/devtools release
+  # (stable up to 3.4.2; latest tag 4.0.0-beta.2) pins simple-git ^3.x, and
+  # forcing simple-git 4.x breaks the build — @nuxt/devtools does
+  # `import Git from 'simple-git'` and simple-git 4 removed its default export.
+  # Resolved by the Nuxt 4 / @nuxt/devtools upgrade. Time-boxed for re-review.
+  SNYK-JS-SIMPLEGIT-20335524:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGIT-20335531:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGIT-20335540:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGITARGVPARSER-20335528:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools > simple-git);
+          not in the production .output runtime. No fix installable: the fix is
+          @simple-git/argv-parser 2.0.1 (simple-git 4.x), but all @nuxt/devtools
+          releases pin simple-git ^3.x and v4 breaks the build (default export
+          removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
   # Improper Verification of Cryptographic Signature in node-forge (CVSS 8.7).
   # Pulled in ONLY as a build/dev-tooling transitive:
   #   nuxt > @nuxt/cli > listhen > node-forge

@@ -896,12 +896,13 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         if new_file_ids:
             try:
                 from app.models.file import File as _File
-                frows = await db.execute(
-                    select(_File).where(
-                        _File.id.in_([str(x) for x in new_file_ids]),
-                        _File.organization_id == str(organization.id) if organization else _File.organization_id.is_(None),
-                    )
+                from app.services.file_access_service import run_viewable_file_ids
+                # Only files the run's user may see (see create_artifact).
+                allowed = await run_viewable_file_ids(
+                    db, user=user, report=report, organization=organization,
+                    file_ids=[str(x) for x in new_file_ids],
                 )
+                frows = await db.execute(select(_File).where(_File.id.in_(list(allowed))))
                 fetched = {str(f.id): f for f in frows.scalars().all()}
             except Exception as e:
                 logger.warning(f"edit_artifact: failed to fetch files: {e}")

@@ -74,6 +74,8 @@
                     @update:modelValue="(v:string) => promptText = v"
                     @update:selectedDataSources="(v:any[]) => testSelectedDataSources = v"
                     @update:selectedModelId="(v:string) => testSelectedModelId = v"
+                    :selectedEffort="testSelectedEffort"
+                    @update:selectedEffort="(v:string) => testSelectedEffort = v"
                     @update:uploadedFiles="(v:any[]) => testUploadedFiles = v"
                     @update:mentions="(v:any[]) => testMentions = v"
                 />
@@ -389,6 +391,8 @@ const buildOptions = computed(() => {
 // Test prompt context
 const testSelectedDataSources = ref<any[]>([])
 const testSelectedModelId = ref<string>('')
+// Reasoning level saved with the case, so a run is reproducible.
+const testSelectedEffort = ref<string>('')
 const testUploadedFiles = ref<any[]>([])
 const testMentions = ref<any[]>([])
 // Catalog and targets (Category → Field)
@@ -910,6 +914,7 @@ function resetFormForCreate() {
   promptText.value = ''
   seedAgentSelection()
   testSelectedModelId.value = ''
+  testSelectedEffort.value = ''
   testUploadedFiles.value = []
   testMentions.value = []
   selectedSuiteIdLocal.value = props.suiteId || ''
@@ -982,7 +987,7 @@ const createCase = async (): Promise<{ case: any | null, raw: any } | null> => {
     method: 'POST',
     body: {
       name,
-      prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, mentions, files: fileIds },
+      prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, reasoning_effort: testSelectedEffort.value || undefined, mentions, files: fileIds },
       expectations_json: expectations,
       data_source_ids_json: (testSelectedDataSources.value || []).map((ds: any) => ds.id)
     }
@@ -1004,7 +1009,7 @@ const updateCase = async (caseId: string): Promise<{ case: any | null, raw: any 
     method: 'PATCH',
     body: {
       name,
-      prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, mentions, files: fileIds },
+      prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, reasoning_effort: testSelectedEffort.value || undefined, mentions, files: fileIds },
       expectations_json: expectations,
       data_source_ids_json: (testSelectedDataSources.value || []).map((ds: any) => ds.id),
       // The suite picker was already rendered and resolved on the edit path, but
@@ -1068,6 +1073,7 @@ async function loadCaseForEdit(caseId: string) {
     // Prompt
     promptText.value = (c.prompt_json?.content || '').trim()
     testSelectedModelId.value = c.prompt_json?.model_id || ''
+    testSelectedEffort.value = c.prompt_json?.reasoning_effort || ''
     // Data sources (best-effort; PromptBox does not accept initial props)
     testSelectedDataSources.value = Array.isArray(c.data_source_ids_json) ? c.data_source_ids_json.map((id: string) => ({ id })) : []
     // Rules → UI

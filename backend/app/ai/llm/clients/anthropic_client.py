@@ -1,5 +1,10 @@
 import json
 
+from app.ai.llm.reasoning import (
+    OFF_EFFORT_FOR_ALWAYS_THINKING, selected_effort, _effort_to_thinking_config,
+    capability_model as _capability_model, clamp_effort, client_mode, efforts_for_client,
+    merge_raw_params, raw_params_for,
+)
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
@@ -35,7 +40,7 @@ _STOP_REASON_MAP = {
 }
 
 # Model families that reject sampling parameters (temperature/top_p/top_k)
-# with a 400. Sonnet 5 / Opus 5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them
+# with a 400. Sonnet 5 / Opus 5 / Opus 5.5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them
 # from the API — prompting is the steering mechanism there. Older models (4.6
 # and earlier) still accept temperature.
 _NO_SAMPLING_PARAM_TAGS = (
@@ -436,15 +441,52 @@ class Anthropic(LLMClient):
         # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
         # the default temperature when thinking is on, so drop ours entirely
         # (omitting it is valid on every model).
-        if thinking:
-            t = dict(thinking)
+        # Modern models think even when the caller omits the setting. Ask for
+        # their summaries, and for low effort when the caller asked for none.
+        capability_model = _capability_model(self, model_id)
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
+        requested = selected_effort(thinking) if thinking else None
+        default_thinking = not _accepts_temperature(capability_model)
+        if requested and mode == "custom":
+            # Custom mode: the admin's raw fields ARE the reasoning request.
+            extra_body = merge_raw_params(dict(request_kwargs.pop("extra_body", {}) or {}),
+                                          raw_params_for(self, requested, clamp_effort(requested, efforts_for_client(self, model_id))),
+                                          passthrough_key=None)
+            request_kwargs["extra_body"] = extra_body
+            if "thinking" in extra_body:
+                request_kwargs.pop("temperature", None)
+        elif thinking or default_thinking:
+            t = dict(thinking or {"type": "adaptive"})
+            # No thinking requested means reasoning is "off". These models
+            # cannot turn it off, and left to the provider they run at its
+            # default effort (high): tens of seconds of reasoning on routine
+            # planner steps. Ask for the least instead; an explicit effort
+            # (per-completion, model default, "think hard") still wins.
+            effort = (
+                clamp_effort(requested, efforts_for_client(self, model_id)) or requested
+                if thinking else OFF_EFFORT_FOR_ALWAYS_THINKING
+            )
+            # Re-map for the actual client model, including routed/fallback
+            # models; the planner may have built a budget for another family.
+            mapped = _effort_to_thinking_config(effort, capability_model)
+            if mapped and ((thinking or {}).get("effort") or mapped.get("type") == "adaptive"):
+                t.update(mapped)
+                if mapped.get("type") == "adaptive":
+                    t.pop("budget_tokens", None)
+            t.pop("effort", None)
             t.setdefault("display", "summarized")
             extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
             extra_body["thinking"] = t
+            if effort and t.get("type") == "adaptive":
+                extra_body["output_config"] = {"effort": effort}
+            if requested:
+                merge_raw_params(extra_body, raw_params_for(self, requested, effort), passthrough_key=None)
             request_kwargs["extra_body"] = extra_body
             request_kwargs.pop("temperature", None)
             # max_tokens must exceed budget_tokens; bump if needed.
-            budget = int(t.get("budget_tokens") or 0)
+            budget = int((extra_body.get("thinking") or {}).get("budget_tokens") or 0)
             if budget and request_kwargs.get("max_tokens", 0) <= budget:
                 request_kwargs["max_tokens"] = budget + 4096
 

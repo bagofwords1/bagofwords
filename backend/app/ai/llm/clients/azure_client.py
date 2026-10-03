@@ -1,5 +1,6 @@
 import json
 
+from app.ai.llm.clients.chat_effort import apply_chat_reasoning, create_chat_stream
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from openai import AzureOpenAI, AsyncAzureOpenAI
@@ -13,6 +14,9 @@ from app.ai.llm.types import (
     LLMUsage,
     Message,
     MessageStopEvent,
+    ReasoningStartEvent,
+    ReasoningDeltaEvent,
+    ReasoningCompleteEvent,
     TextDeltaEvent,
     ToolSpec,
     ToolUseCompleteEvent,
@@ -303,27 +307,22 @@ class AzureClient(LLMClient):
                 disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        _reasoning_model_prefixes = ("o1", "o3", "o4", "gpt-5")
-        if thinking and any(model_id.startswith(p) or f"/{p}" in model_id for p in _reasoning_model_prefixes):
-            budget = thinking.get("budget_tokens")
-            if thinking.get("type") == "adaptive" or not budget:
-                request_kwargs["reasoning_effort"] = "medium"
-            elif budget >= 10000:
-                request_kwargs["reasoning_effort"] = "high"
-            elif budget >= 3000:
-                request_kwargs["reasoning_effort"] = "medium"
-            else:
-                request_kwargs["reasoning_effort"] = "low"
+        efforts = apply_chat_reasoning(self, model_id, request_kwargs, thinking)
+        reasoning_text = ""
+        reasoning_active = False
 
         open_calls: dict[int, dict] = {}
+        reasoning_tokens = 0
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
         stop_reason: str | None = None
 
-        stream = await self.async_client.chat.completions.create(**request_kwargs)
+        stream = await create_chat_stream(self.async_client, request_kwargs, efforts)
         async for chunk in stream:
             usage = self._extract_usage(getattr(chunk, "usage", None))
+            if usage.reasoning_tokens:
+                reasoning_tokens = usage.reasoning_tokens
             if usage.prompt_tokens:
                 prompt_tokens = usage.prompt_tokens
             if usage.completion_tokens:
@@ -346,6 +345,19 @@ class AzureClient(LLMClient):
             # "'NoneType' object has no attribute 'content'".
             if delta is None:
                 continue
+            # Compatible servers use either of these fields. Only emit text
+            # actually supplied by the provider; never synthesize reasoning.
+            reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+            if isinstance(reasoning, str) and reasoning:
+                if not reasoning_active:
+                    yield ReasoningStartEvent()
+                    reasoning_active = True
+                reasoning_text += reasoning
+                yield ReasoningDeltaEvent(text=reasoning)
+            if reasoning_active and (delta.content or delta.tool_calls):
+                yield ReasoningCompleteEvent(text=reasoning_text)
+                reasoning_active = False
+                reasoning_text = ""
 
             if delta.content:
                 yield TextDeltaEvent(text=delta.content)
@@ -387,6 +399,8 @@ class AzureClient(LLMClient):
             )
 
         _stop_map = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
+        if reasoning_active:
+            yield ReasoningCompleteEvent(text=reasoning_text)
         yield MessageStopEvent(
             stop_reason=_stop_map.get(stop_reason or "", "other"),
             raw_stop_reason=stop_reason,
@@ -396,11 +410,13 @@ class AzureClient(LLMClient):
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         )
         self._set_last_usage(LLMUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         ))
 
     def test_connection(self):

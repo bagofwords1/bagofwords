@@ -70,6 +70,7 @@ from app.routes import (
     demo_data_source,
     text_widget,
     user_profile,
+    user_memory,
     llm,
     git,
     organization_settings,
@@ -108,6 +109,7 @@ from app.routes import (
     agent_yaml,
     eval_yaml,
     data_source_tools,
+    agent_lists,
     changelog,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
@@ -194,6 +196,7 @@ fastapi_users = create_fastapi_users(get_user_manager, auth_backend, oauth_provi
 current_user = fastapi_users.current_user(active=True)
 
 app.include_router(user_profile.router, prefix="/api")
+app.include_router(user_memory.router, prefix="/api")
 
 # Determine auth mode
 auth_mode = getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'
@@ -304,6 +307,7 @@ app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
+app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
@@ -486,6 +490,44 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule purge job: {e}")
 
+    # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
+    if is_scheduler_leader:
+        try:
+            from app.services.checkin_service import sweep_stale_checkins
+            scheduler.add_job(
+                sweep_stale_checkins,
+                trigger="interval",
+                hours=1,
+                id="checkin_stale_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: checkin_stale_sweep every 1 hour")
+        except Exception as e:
+            logger.error(f"Failed to schedule check-in stale sweep: {e}")
+
+    # Overnight learning: hourly sweep that runs the nightly user dreams
+    # (01:00-03:00 org-local) and agent dreams (03:00-05:00 org-local).
+    # Leader-only; each unit runs at most once per org-local night.
+    if is_scheduler_leader:
+        try:
+            from app.services.dreams.runtime import overnight_sweep
+            scheduler.add_job(
+                overnight_sweep,
+                trigger="interval",
+                hours=1,
+                id="overnight_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: overnight_sweep every 1 hour")
+        except Exception as e:
+            logger.warning(f"Failed to schedule overnight_sweep: {e}")
+
     # Background warmup of QVD Parquet caches so the first create_data/inspect_data
     # on a 1-5GB QVD doesn't block the UI for minutes.
     if is_scheduler_leader:
@@ -579,6 +621,27 @@ async def startup_event():
             logger.info("Scheduled job: connection_status_sweep every 5 minutes")
         except Exception as e:
             logger.error(f"Failed to schedule connection status sweep job: {e}")
+
+    # Diagnosis rollup sweep: the startup pass runs once per process, but runs
+    # keep becoming pending afterwards (a run orphaned by a restart turns stale
+    # an hour later). This indexes them without waiting for the next restart.
+    if is_scheduler_leader:
+        try:
+            from app.services.diagnosis.sweep import SCHEDULE_MINUTES, SCHEDULED_JOB_ID, enabled, scheduled_sweep
+            if enabled():
+                scheduler.add_job(
+                    scheduled_sweep,
+                    trigger="interval",
+                    minutes=SCHEDULE_MINUTES,
+                    id=SCHEDULED_JOB_ID,
+                    replace_existing=True,
+                    coalesce=True,
+                    max_instances=1,
+                    misfire_grace_time=SCHEDULE_MINUTES * 60,
+                )
+                logger.info(f"Scheduled job: {SCHEDULED_JOB_ID} every {SCHEDULE_MINUTES} minutes")
+        except Exception as e:
+            logger.error(f"Failed to schedule diagnosis rollup sweep job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):

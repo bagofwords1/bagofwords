@@ -84,6 +84,9 @@ _NON_TURN_USAGE_SCOPE_PREFIXES = (
 _NON_TURN_USAGE_SCOPES = (
     "tool_call_judge",
     "webhook_classifier",
+    # Agent check-ins: planner/judge are priced on their own check-in card.
+    "checkin_planner",
+    "checkin_judge",
 )
 
 
@@ -1914,6 +1917,7 @@ class ConsoleService:
         total_codegen_llm_ms = 0.0
         total_db_ms = 0.0
         iterations: List[IterationTimingSchema] = []
+        seen_decisions: set[str] = set()
         for b in blocks:
             tool_ms: float | None = None
             sub_timings = None
@@ -1942,10 +1946,16 @@ class ConsoleService:
                     # No sub_timings at all — entire tool duration is execution
                     total_db_ms += tool_ms
 
+            # Full planner LLM call for this iteration (thinking is only a
+            # slice of it). A decision that fans out into several tools yields
+            # several blocks; attribute its planner time to the first only.
             llm_ms: float | None = None
-            if b.plan_decision and b.plan_decision.metrics_json:
-                m = b.plan_decision.metrics_json
-                llm_ms = m.get("thinking_ms") or m.get("generation_ms")
+            pd = b.plan_decision
+            if pd and pd.metrics_json and pd.id not in seen_decisions:
+                m = pd.metrics_json
+                llm_ms = m.get("total_duration_ms") or m.get("thinking_ms") or m.get("generation_ms")
+            if pd:
+                seen_decisions.add(pd.id)
 
             iterations.append(IterationTimingSchema(
                 loop_index=b.loop_index,
@@ -2063,11 +2073,84 @@ class ConsoleService:
             raise ValueError("Agent execution not found for completion")
         return await self.get_agent_execution_trace(db, organization, ae.id)
 
+    async def _turn_memory_sections(self, db: AsyncSession, rows, ae_ids, viewer_id: Optional[str]) -> dict:
+        """Per-turn memory activity. Text only when the viewer owns the memory
+        (the turn's user); admins and everyone else see handles/counts."""
+        from app.models.memory_entry import MemoryEntry
+        from app.schemas.agent_execution_trace_schema import TurnMemorySchema, TurnMemoryItemSchema
+
+        memory_tools = ("create_memory", "edit_memory", "search_memory")
+        tool_rows: dict[str, list] = {}
+        if ae_ids:
+            q = (
+                select(ToolExecution)
+                .where(ToolExecution.agent_execution_id.in_(ae_ids), ToolExecution.tool_name.in_(memory_tools))
+                .order_by(ToolExecution.created_at.asc())
+            )
+            for te in (await db.execute(q)).scalars().all():
+                tool_rows.setdefault(str(te.agent_execution_id), []).append(te)
+
+        # Entry texts, loaded only for turns the viewer owns.
+        owned_ids: set[str] = set()
+        for r in rows:
+            mc = r.memory_context_json if isinstance(r.memory_context_json, dict) else {}
+            if viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id):
+                for it in (mc.get("injection") or {}).get("injected") or []:
+                    if it.get("id"):
+                        owned_ids.add(str(it["id"]))
+        texts: dict[str, str] = {}
+        if owned_ids:
+            q = select(MemoryEntry.id, MemoryEntry.text).where(
+                MemoryEntry.id.in_(list(owned_ids)), MemoryEntry.user_id == str(viewer_id)
+            )
+            texts = {str(i): (t or "") for i, t in (await db.execute(q)).all()}
+
+        out: dict[str, TurnMemorySchema] = {}
+        for r in rows:
+            ae = str(r.ae_id)
+            mc = r.memory_context_json if isinstance(r.memory_context_json, dict) else {}
+            tes = tool_rows.get(ae, [])
+            if not mc and not tes:
+                continue
+            owner = bool(viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id))
+            inj = mc.get("injection") or {}
+            mem = TurnMemorySchema(
+                owner_view=owner,
+                chars=int(inj.get("chars") or 0),
+                total_entries=int(inj.get("total_entries") or 0),
+                hidden=int(inj.get("hidden") or 0),
+            )
+            for it in inj.get("injected") or []:
+                mem.injected.append(TurnMemoryItemSchema(
+                    handle=it.get("handle"), dated=it.get("dated"), tier=it.get("tier"),
+                    text=texts.get(str(it.get("id"))) if owner else None,
+                ))
+            for te in tes:
+                args = te.arguments_json if isinstance(te.arguments_json, dict) else {}
+                res = te.result_json if isinstance(te.result_json, dict) else {}
+                text = None
+                if owner:
+                    text = args.get("text") or args.get("query") or None
+                mem.tool_calls.append(TurnMemoryItemSchema(
+                    tool=te.tool_name, action=args.get("action"),
+                    handle=res.get("handle") or args.get("handle"),
+                    dated=bool(args.get("date")) if te.tool_name == "create_memory" else None,
+                    success=bool(te.success), text=text,
+                ))
+            for ref in mc.get("refusals") or []:
+                mem.refusals.append(TurnMemoryItemSchema(
+                    tool=ref.get("tool"), code=ref.get("code"), handle=ref.get("handle"),
+                    text=ref.get("text") if owner else None,
+                ))
+            out[ae] = mem
+        return out
+
     async def get_report_conversation(
         self,
         db: AsyncSession,
         organization: Organization,
         report_id: str,
+        viewer_id: Optional[str] = None,
     ) -> ConversationTraceResponse:
         """Return a whole report conversation as ordered user→assistant turns.
 
@@ -2099,10 +2182,13 @@ class ConsoleService:
                 AgentExecution.status.label('ae_status'),
                 AgentExecution.total_duration_ms.label('total_duration_ms'),
                 AgentExecution.created_at.label('created_at'),
+                AgentExecution.user_id.label('ae_user_id'),
+                AgentExecution.memory_context_json.label('memory_context_json'),
                 SystemCompletion.completion.label('assistant_completion'),
                 UserCompletion.id.label('user_completion_id'),
                 UserCompletion.prompt.label('user_prompt'),
                 UserCompletion.role.label('user_role'),
+                UserCompletion.trigger_source.label('trigger_source'),
                 UserCompletion.external_platform.label('external_platform'),
                 UserCompletion.instructions_effectiveness.label('instructions_effectiveness'),
                 UserCompletion.context_effectiveness.label('context_effectiveness'),
@@ -2262,6 +2348,10 @@ class ConsoleService:
             tail = _re.sub(r'\s+', ' ', tail).strip()
             return tail
 
+        checkins = await self._report_checkins(db, organization, str(report.id))
+        checkin_by_run = {c.run_completion_id: c.id for c in checkins if c.run_completion_id}
+        memory_by_ae = await self._turn_memory_sections(db, rows, ae_ids, viewer_id)
+
         turns: List[ConversationTurnSchema] = []
         failed_turns = 0
         negative_feedback_turns = 0
@@ -2282,6 +2372,8 @@ class ConsoleService:
                 user_completion_id=str(r.user_completion_id) if r.user_completion_id else None,
                 user_prompt=_text(r.user_prompt)[:2000],
                 role=r.user_role or 'user',
+                trigger_source=r.trigger_source,
+                checkin_id=checkin_by_run.get(str(r.completion_id)) if r.completion_id else None,
                 completion_id=str(r.completion_id) if r.completion_id else None,
                 agent_execution_id=str(r.ae_id),
                 assistant_content=_clean_answer(r.assistant_completion)[:2000],
@@ -2303,6 +2395,7 @@ class ConsoleService:
                 llm_cost_usd=turn_llm_cost_usd,
                 created_at=r.created_at,
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
+                memory=memory_by_ae.get(str(r.ae_id)),
             ))
 
         # Conversation-level origin platform = first turn that carries one
@@ -2358,7 +2451,58 @@ class ConsoleService:
             total_llm_tokens=total_llm_tokens,
             total_llm_cost_usd=total_llm_cost_usd,
             turns=turns,
+            checkins=checkins,
         )
+
+    async def _report_checkins(self, db: AsyncSession, organization: Organization, report_id: str) -> list:
+        """Every agent check-in row for the report, with planner/judge LLM usage
+        (llm_usage_records scoped checkin_planner / checkin_judge, keyed by the
+        check-in id)."""
+        from app.models.agent_checkin import AgentCheckin
+        from app.schemas.agent_execution_trace_schema import CheckinTraceSchema
+
+        rows = (await db.execute(
+            select(AgentCheckin).where(
+                AgentCheckin.report_id == report_id,
+                AgentCheckin.organization_id == str(organization.id),
+                AgentCheckin.deleted_at.is_(None),
+            ).order_by(AgentCheckin.created_at.asc())
+        )).scalars().all()
+        if not rows:
+            return []
+        ids = [str(r.id) for r in rows]
+        usage: dict = {}
+        uq = (
+            select(
+                LLMUsageRecord.scope_ref_id,
+                LLMUsageRecord.scope,
+                func.coalesce(func.sum(_row_total_tokens_expr()), 0),
+                func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
+            )
+            .where(
+                LLMUsageRecord.scope.in_(("checkin_planner", "checkin_judge")),
+                LLMUsageRecord.scope_ref_id.in_(ids),
+            )
+            .group_by(LLMUsageRecord.scope_ref_id, LLMUsageRecord.scope)
+        )
+        for ref_id, scope, tokens, cost in (await db.execute(uq)).all():
+            usage[(str(ref_id), scope)] = (int(tokens or 0) or None, round(float(cost or 0), 6) or None)
+        out = []
+        for r in rows:
+            p_tok, p_cost = usage.get((str(r.id), "checkin_planner"), (None, None))
+            j_tok, j_cost = usage.get((str(r.id), "checkin_judge"), (None, None))
+            out.append(CheckinTraceSchema(
+                id=str(r.id), status=r.status, status_reason=r.status_reason,
+                source_completion_id=r.source_completion_id, run_completion_id=r.run_completion_id,
+                note=r.note, plan_reason=r.plan_reason, due_at=r.due_at,
+                judge_decision=r.judge_decision, judge_reason=r.judge_reason, judge_focus=r.judge_focus,
+                judged_at=r.judged_at, notified=bool(r.notified), notify_subject=r.notify_subject,
+                sent_at=r.sent_at,
+                planner_llm_tokens=p_tok, planner_llm_cost_usd=p_cost,
+                judge_llm_tokens=j_tok, judge_llm_cost_usd=j_cost,
+                created_at=r.created_at,
+            ))
+        return out
 
     async def get_agent_execution_summaries(
         self,

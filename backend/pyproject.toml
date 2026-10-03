@@ -21,7 +21,7 @@ dependencies = [
     "argon2-cffi>=23.1.0,<23.2",
     "bcrypt>=4.3.0,<4.4",
     "pwdlib[argon2]>=0.3.0,<0.4",
-    "pyjwt>=2.13.0,<2.14",
+    "pyjwt>=2.15.1,<2.16",
     "httpx-oauth>=0.16.1,<0.17",
     "cryptography>=50.0.0,<51",
     "sqlalchemy>=2.0.51,<2.1",
@@ -54,7 +54,7 @@ dependencies = [
     "azure-identity>=1.25.3,<1.26",
     "databricks-sql-connector>=4.4.0,<4.5",
     "duckdb>=1.5.4,<1.6",
-    "pymongo>=4.17.0,<4.18",
+    "pymongo>=4.18.2,<4.19",
     "pyodbc>=5.3.0,<5.4",
     "oracledb>=3.4.2,<3.5",
     "vertica-python>=1.4.0,<1.5",
@@ -67,7 +67,7 @@ dependencies = [
     "ldap3>=2.9.1,<2.10",
     "lkml>=1.3.7,<1.4",
     "pbixray>=0.5.2,<0.6",
-    "pyarrow>=18.1.0,<18.2",
+    "pyarrow>=23.0.1,<24",
     "pandas>=2.3.3,<2.4",
     "numpy>=1.26.4,<1.27",
     "scikit-learn>=1.8.0,<1.9",
@@ -117,6 +117,7 @@ dependencies = [
     # connect()'s `extra_headers` to `additional_headers`.
     "websockets>=14.0,<17",
     "kubernetes>=36.0.3",
+    "python3-saml>=1.16.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -145,7 +146,12 @@ dev = [
 # Validation of Certificate with Host Mismatch) and SNYK-PYTHON-ANYIO-19958322
 # (High, Incorrect Privilege Assignment), both fixed in 4.14.2. anyio is pulled
 # in transitively (fastapi / starlette / httpx / anthropic / openai, ...).
-constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2"]
+# urllib3 < 2.8.0 is affected by SNYK-PYTHON-URLLIB3-20302844 (High, Improper
+# Certificate Validation) and SNYK-PYTHON-URLLIB3-20302846 (High, Allocation of
+# Resources Without Limits or Throttling), both fixed in 2.8.0. urllib3 is pulled
+# in transitively (requests / botocore / kubernetes / snowflake-connector, ...);
+# every current dependent allows 2.8.x (botocore caps < 3 on Python >= 3.10).
+constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0"]
 # Security override: force cryptography >= 50.0.0 to fix the PKCS#7 EnvelopedData
 # Bleichenbacher oracle (GHSA-g6cj-pr64-35w5 / SNYK-PYTHON-CRYPTOGRAPHY-18516621,
 # High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail

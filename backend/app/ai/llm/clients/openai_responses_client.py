@@ -1,6 +1,10 @@
 import asyncio
 import json
 
+from app.ai.llm.reasoning import (
+    capability_model, clamp_effort, client_mode, client_reasons, efforts_for_client, lightest_effort,
+    merge_raw_params, raw_params_for, selected_effort, supports_openai_summary,
+)
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -61,6 +65,7 @@ class OpenAIResponsesClient(LLMClient):
         enable_web_search: bool = False,
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, Any]] = None,
+        verify_ssl: bool = True,
     ):
         super().__init__()
         client_kwargs: dict[str, Any] = {"api_key": api_key}
@@ -68,8 +73,21 @@ class OpenAIResponsesClient(LLMClient):
             client_kwargs["base_url"] = base_url
         if default_headers:
             client_kwargs["default_headers"] = default_headers
-        self.client = OpenAI(**client_kwargs)
-        self.async_client = AsyncOpenAI(**client_kwargs)
+        # SSL verification stays on by default. It is only relaxed when an admin
+        # explicitly sets verify_ssl=False on a custom OpenAI-compatible provider
+        # (e.g. an internal gateway with a self-signed cert); the flag is plumbed
+        # through provider.additional_config in llm.py. Mirror the sibling
+        # OpenAi (Chat Completions) client: build an http_client only when we
+        # actually need to override a default, so the secure path keeps the SDK's
+        # own httpx defaults untouched.
+        if not verify_ssl:
+            import httpx
+            http_kwargs: dict[str, Any] = {"verify": False}
+            self.client = OpenAI(**client_kwargs, http_client=httpx.Client(**http_kwargs))
+            self.async_client = AsyncOpenAI(**client_kwargs, http_client=httpx.AsyncClient(**http_kwargs))
+        else:
+            self.client = OpenAI(**client_kwargs)
+            self.async_client = AsyncOpenAI(**client_kwargs)
         self.enable_web_search = enable_web_search
         # Admin-configured override; None keeps each path's historical default
         # (the legacy Chat Completions helpers send 0.3/1.0, the Responses path
@@ -85,7 +103,7 @@ class OpenAIResponsesClient(LLMClient):
         quality: Optional[str] = None,
         images: Optional[list[ImageInput]] = None,
     ) -> ImageOutput:
-        """Generate an image via the OpenAI Images API (e.g. gpt-image-1).
+        """Generate an image via the OpenAI Images API (e.g. gpt-image-2.5-sunburst).
 
         Image generation is a separate endpoint from the Responses API, so this
         mirrors the OpenAi client's implementation exactly.
@@ -352,26 +370,29 @@ class OpenAIResponsesClient(LLMClient):
                 disable_parallel_tools = False
             if tools and disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        is_reasoning_model = (
-            model_id.startswith(("o1", "o3", "o4", "gpt-5", "gpt-6"))
-            or model_id in {"o1", "o3"}
-        )
-        if thinking and is_reasoning_model:
-            effort = thinking.get("type")
-            budget = thinking.get("budget_tokens")
-            if effort == "adaptive" or not budget:
-                reasoning_effort = "medium"
-            elif budget >= 10000:
-                reasoning_effort = "high"
-            elif budget >= 3000:
-                reasoning_effort = "medium"
-            else:
-                reasoning_effort = "low"
-            request_kwargs["reasoning"] = {"effort": reasoning_effort, "summary": "auto"}
+        if client_reasons(self, model_id):
+            reasoning = {}
+            requested = selected_effort(thinking)
+            efforts = efforts_for_client(self, model_id)
+            effort = clamp_effort(requested, efforts)
+            if not requested and client_mode(self) in ("auto", "like"):
+                # Reasoning "off": without an effort the model reasons at its
+                # default (medium), so ask for none, or the least it allows.
+                effort = lightest_effort(efforts)
+            if effort != "none" and supports_openai_summary(capability_model(self, model_id)):
+                reasoning["summary"] = "auto"
+            if effort and client_mode(self) != "custom":
+                reasoning["effort"] = effort
+            if reasoning:
+                request_kwargs["reasoning"] = reasoning
+                request_kwargs.pop("temperature", None)
+            if requested:
+                merge_raw_params(request_kwargs, raw_params_for(self, requested, effort))
 
         # Track open tool calls: call_id → {name, args_buffer}
         open_calls: dict[str, dict] = {}
         reasoning_active = False
+        reasoning_tokens = 0
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
@@ -477,6 +498,8 @@ class OpenAIResponsesClient(LLMClient):
                 response = getattr(event, "response", None)
                 usage = getattr(response, "usage", None) if response else None
                 prompt_tokens, completion_tokens, cache_read_tokens = self._extract_usage(usage)
+                output_details = getattr(usage, "output_tokens_details", None)
+                reasoning_tokens = int(getattr(output_details, "reasoning_tokens", 0) or 0)
                 status = getattr(response, "status", None) if response else None
                 if status == "incomplete":
                     stop_reason = "max_tokens"
@@ -486,9 +509,11 @@ class OpenAIResponsesClient(LLMClient):
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         )
         self._set_last_usage(LLMUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         ))

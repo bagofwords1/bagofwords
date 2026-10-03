@@ -1,4 +1,4 @@
-"""Unit tests for image generation (gpt-image-1) support.
+"""Unit tests for image generation (GPT Image models) support.
 
 Covers the client generate_image method (both OpenAI clients), the LLM facade
 capability gate, the catalog entry, tool registration, the create_artifact
@@ -61,7 +61,9 @@ def test_facade_gate_rejects_non_image_model():
 
 def test_catalog_has_image_model():
     imgs = [m for m in LLM_MODEL_DETAILS if m.get("supports_image_generation")]
-    assert any(m["model_id"] == "gpt-image-1" for m in imgs)
+    ids = [m["model_id"] for m in imgs]
+    # gpt-image-1 shuts down 2026-12-01; the 2.5 models replace it.
+    assert ids == ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]
     for m in imgs:
         assert m["provider_type"] == "openai"
         assert not m.get("is_default") and not m.get("is_small_default")
@@ -185,3 +187,40 @@ def test_image_model_never_auto_default_in_catalog():
     for m in imgs:
         assert m.get("is_default") is not True
         assert m.get("is_small_default") is not True
+
+
+def test_catalog_sync_flags_image_models():
+    """Synced catalog image models must carry supports_image_generation, or the
+    generate_image tool never finds them and the chat picker lists them."""
+    from app.models.llm_model import LLMModel
+    from app.services.llm_service import LLMService
+    entry = next(m for m in LLM_MODEL_DETAILS if m["model_id"] == "gpt-image-2.5-sunburst")
+    model = LLMModel(name="x", model_id=entry["model_id"], is_preset=True, is_enabled=True)
+    LLMService._apply_catalog_model_details(model, entry)
+    assert model.supports_image_generation is True
+    # An admin un-marking it survives the sync.
+    model.supports_image_generation_override = False
+    LLMService._apply_catalog_model_details(model, entry)
+    assert model.supports_image_generation is False
+
+
+def test_image_tool_prefers_catalog_models_over_retired_ones():
+    """With several image models enabled, the pick is deterministic: catalog
+    order first, retired/custom ids (gpt-image-1) last."""
+    from unittest.mock import AsyncMock
+    from app.ai.tools.implementations.generate_image import GenerateImageTool
+
+    def _row(model_id):
+        return SimpleNamespace(model_id=model_id)
+
+    rows = [_row("gpt-image-1"), _row("gpt-image-2.5-flare"), _row("my-custom-image"), _row("gpt-image-2.5-sunburst")]
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
+        scalars=lambda: SimpleNamespace(all=lambda: rows))))
+    picked = asyncio.run(GenerateImageTool()._find_image_model(db, "org"))
+    assert picked.model_id == "gpt-image-2.5-sunburst"
+
+    rows[:] = [_row("gpt-image-1"), _row("gpt-image-2.5-flare")]
+    assert asyncio.run(GenerateImageTool()._find_image_model(db, "org")).model_id == "gpt-image-2.5-flare"
+
+    rows[:] = []
+    assert asyncio.run(GenerateImageTool()._find_image_model(db, "org")) is None

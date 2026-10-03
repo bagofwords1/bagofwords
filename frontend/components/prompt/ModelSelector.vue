@@ -7,53 +7,38 @@
       >
         <Icon name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
         <span class="ms-1 truncate">{{ selectedLabel }}</span>
+        <span v-if="effort" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-[10px] leading-4 flex-shrink-0">{{ $t(`prompt.effort.levels.${effort}`) }}</span>
       </button>
     </UTooltip>
     <template #panel="{ close }">
-      <div class="p-2 text-xs max-h-64 overflow-y-auto w-[220px]">
-        <!-- Default (let the system pick) -->
-        <div
-          class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center"
-          @click="() => { select(null); close(); }"
-        >
-          <div class="me-2"><Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400" /></div>
-          <div class="flex flex-col flex-1 text-start min-w-0">
-            <span>{{ $t('prompts.modelDefault') }}</span>
-            <span v-if="routingOn" class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ $t('prompts.modelDefaultAuto') }}</span>
-          </div>
-          <Icon v-if="!modelValue" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
-        </div>
-        <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
-        <div
-          v-for="m in models"
-          :key="m.id"
-          class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center"
-          @click="() => { select(m.id); close(); }"
-        >
-          <div class="me-2">
-            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4" />
-          </div>
-          <div class="flex flex-col flex-1 text-start min-w-0">
-            <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
-            <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name }}</span>
-          </div>
-          <Icon v-if="modelValue === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
-        </div>
-      </div>
+      <ModelPickerPanel
+        :models="models"
+        :model-value="modelValue"
+        :effort="effort"
+        :show-default="true"
+        :default-label="$t('prompts.modelDefault')"
+        :default-hint="routingOn ? $t('prompts.modelDefaultAuto') : ''"
+        @update:model-value="select"
+        @update:effort="(v) => emit('update:effort', v)"
+        @close="close"
+      />
     </template>
   </UPopover>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
+import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string | null
-}>()
+  // Reasoning level paired with the model (v-model:effort); null = Default.
+  effort?: string | null
+}>(), { effort: null })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: string | null): void
+  (e: 'update:effort', v: string | null): void
 }>()
 
 const { t } = useI18n()
@@ -65,7 +50,7 @@ const models = ref<any[]>([])
 async function loadModels() {
   try {
     const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
-    // Exclude image-generation models (e.g. gpt-image-1) — they aren't chat models.
+    // Exclude image-generation models (e.g. gpt-image-2.5-sunburst) — they aren't chat models.
     if (Array.isArray(data.value)) {
       models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
     }

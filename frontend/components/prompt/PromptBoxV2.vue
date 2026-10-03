@@ -512,40 +512,26 @@
                         </button>
                     </UTooltip>
 
-                    <!-- Model selector -->
+                    <!-- Model selector: search, provider groups, effort -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
-                        <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
-                            <button class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 py-1 text-xs flex items-center max-w-[180px]">
+                        <UTooltip :text="selectedModelTooltip" :popper="{ strategy: 'fixed', placement: 'top' }">
+                            <button data-testid="model-picker-button" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 py-1 text-xs flex items-center max-w-[220px]">
                                 <LLMProviderIcon v-if="selectedModelProvider" :provider="selectedModelProvider" :model="selectedModelLabel" :icon="true" class="w-4 h-4 flex-shrink-0" />
                                 <Icon v-else name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
                                 <span v-if="!isCompactPrompt" class="ms-1 truncate">{{ selectedModelLabel }}</span>
+                                <span v-if="selectedEffort" data-testid="effort-badge" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-[10px] leading-4 flex-shrink-0">{{ $t(`prompt.effort.levels.${selectedEffort}`) }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
-                            <div class="p-2 text-xs max-h-64 overflow-y-auto w-[220px]">
-                                <!-- Auto (router picks the model) — only when the org router is on -->
-                                <template v-if="routingOn">
-                                    <div class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel('auto'); close(); }">
-                                        <div class="me-2"><Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400" /></div>
-                                        <div class="flex flex-col flex-1 text-start min-w-0">
-                                            <span class="font-medium">{{ $t('prompt.modelAuto') }}</span>
-                                            <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ $t('prompt.modelAutoHint') }}</span>
-                                        </div>
-                                        <Icon v-if="selectedModel === 'auto'" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
-                                    </div>
-                                    <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
-                                </template>
-                                <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel(m.id); close(); }">
-                                    <div class="me-2">
-                                        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4" />
-                                    </div>
-                                    <div class="flex flex-col flex-1 text-start min-w-0">
-                                        <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
-                                        <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name }}</span>
-                                    </div>
-                                    <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
-                                </div>
-                            </div>
+                            <ModelPickerPanel
+                                :models="models"
+                                :model-value="selectedModel"
+                                :effort="selectedEffort"
+                                :show-auto="routingOn"
+                                @update:model-value="(v) => selectModel(v || AUTO)"
+                                @update:effort="selectEffort"
+                                @close="close"
+                            />
                         </template>
                     </UPopover>
 
@@ -601,6 +587,7 @@ import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
+import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
@@ -684,7 +671,13 @@ const props = defineProps({
     // component and read back with getProject() instead of moving a report.
     projectSelectable: { type: Boolean, default: false },
     // Initial model to pre-select
-    initialModel: { type: String, default: '' }
+    initialModel: { type: String, default: '' },
+    // Initial reasoning level (report.reasoning_effort); '' = Default
+    initialEffort: { type: String, default: '' },
+    // Save model / effort picks onto the report. Off where the box edits
+    // something else that has its own model (a scheduled task), so
+    // configuring the task never changes the conversation's model.
+    persistSelection: { type: Boolean, default: true }
 })
 
 const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged'])
@@ -1113,6 +1106,14 @@ const selectedModelLabel = computed(() => {
     const model = models.value.find(m => m.id === selectedModel.value)
     return model?.name || t('prompt.selectModel')
 })
+// Reasoning level picked with the model (null = Default). Stored on the report
+// beside model_id and sent with every turn.
+const selectedEffort = ref<string | null>(props.initialEffort || null)
+const selectedModelTooltip = computed(() =>
+    selectedEffort.value
+        ? `${selectedModelLabel.value} · ${t('prompt.effort.title')}: ${t(`prompt.effort.levels.${selectedEffort.value}`)}`
+        : selectedModelLabel.value
+)
 const selectedModelProvider = computed(() => {
     if (selectedModel.value === AUTO) return null
     const model = models.value.find(m => m.id === selectedModel.value)
@@ -1141,7 +1142,7 @@ async function loadModels() {
         await loadRouting()
         const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
         if (data.value && Array.isArray(data.value)) {
-            // Exclude image-generation models (e.g. gpt-image-1) — not chat models.
+            // Exclude image-generation models (e.g. gpt-image-2.5-sunburst) — not chat models.
             models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
             // Set the default model as selected, or fall back to first enabled model
             if (!selectedModel.value && models.value.length > 0) {
@@ -1270,7 +1271,7 @@ async function persistModel() {
     // landing page (report_id is empty there). Sends the backend model id;
     // resolution precedence at run time is
     // prompt.model_id > report.model_id > user default > org default.
-    if (!props.report_id) return
+    if (!props.report_id || !props.persistSelection) return
     try {
         await useMyFetch(`/reports/${props.report_id}`, {
             method: 'PUT',
@@ -1281,6 +1282,25 @@ async function persistModel() {
         window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.report_id, kind: 'model' } }))
     } catch (e) {
         console.error('Failed to persist model:', e)
+    }
+}
+
+function selectEffort(effort: string | null) {
+    selectedEffort.value = effort
+    persistEffort()
+}
+
+async function persistEffort() {
+    // Stored beside the report's model override; "" clears back to Default.
+    if (!props.report_id || !props.persistSelection) return
+    try {
+        await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reasoning_effort: selectedEffort.value || '' })
+        })
+    } catch (e) {
+        console.error('Failed to persist reasoning effort:', e)
     }
 }
 
@@ -1410,6 +1430,7 @@ function buildSubmitPayload() {
         ],
         mode: mode.value,                 // 'chat' | 'training'
         model_id: modelIdForPayload.value,    // backend model id ('auto' → null → router engages)
+        reasoning_effort: selectedEffort.value,  // null = Default
         files: imageFiles                 // image files for immediate display in chat
     }
 }
@@ -1692,6 +1713,8 @@ defineExpose({
     // (triggers, saved/scheduled prompts) POST model_id='auto', which the
     // server rejects with "Model not found".
     getModel: () => modelIdForPayload.value,
+    // Reasoning level paired with the model (null = Default).
+    getEffort: () => selectedEffort.value,
     getMentions: () => inlineMentions.value,
     getDataSources: () => selectedDataSources.value,
     // Toggle one agent through the selector itself, so an external picker gets
@@ -1720,6 +1743,13 @@ watch(() => props.initialMode, (newVal) => {
         mode.value = newVal
     }
 }, { immediate: true })
+
+// Adopt the report's saved reasoning level when it arrives (same rule as the
+// model below: hydrate the ref directly so it never persists back).
+watch(() => props.initialEffort, (v) => {
+    const next = v || null
+    if (next !== selectedEffort.value) selectedEffort.value = next
+})
 
 // Adopt the report's saved model when it arrives (report data often loads
 // after loadModels() has already picked a user/org default). Only apply a
@@ -1768,6 +1798,7 @@ async function createReport() {
         // than sending an empty string, which is the update route's "clear it"
         // sentinel and means nothing on create.
         if (payload.model_id) body.model_id = payload.model_id
+        if (payload.reasoning_effort) body.reasoning_effort = payload.reasoning_effort
         if (projectExplicitlyPicked.value) {
             if (currentProject.value?.id) body.project_id = currentProject.value.id
             else delete body.project_id
@@ -1799,6 +1830,7 @@ async function createReport() {
                     // so the backend router engages; sending the raw 'auto' string
                     // is not a real model id and 400s the first completion.
                     model_id: payload.model_id || '',
+                    reasoning_effort: payload.reasoning_effort || '',
                     mentions: encodeURIComponent(JSON.stringify(payload.mentions)),
                     // Attached images, so the first user bubble renders its chips
                     // the way every later turn does. They are already on the

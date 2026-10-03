@@ -19,7 +19,6 @@ from app.schemas.user_profile_schema import UserProfileSchema
 from app.schemas.organization_schema import (
     OrganizationAndRoleSchema,
     MEMBERSHIP_NOTE_MAX_LENGTH,
-    MEMBERSHIP_MEMORY_MAX_LENGTH,
 )
 from app.services.organization_service import OrganizationService
 from app.services.llm_service import LLMService
@@ -35,9 +34,6 @@ class UserInstructionsSchema(BaseModel):
     # The current user's per-organization note (membership.note). Surfaced to
     # the AI planner, so we reuse the same length cap as the members admin UI.
     note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
-    # The agent-curated per-org memory (membership.memory). Normally written by
-    # the update_user_memory tool, but the user can view/prune it here.
-    memory: Optional[str] = Field(default=None, max_length=MEMBERSHIP_MEMORY_MAX_LENGTH)
     # Read-only: job info synced from the org's identity provider (Entra ID).
     # Shown to the user so they can see what the agent knows about them. Written
     # only by the login-time sync, never editable here.
@@ -81,11 +77,10 @@ async def get_my_instructions(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Return the current user's custom instructions (their membership note)
-    and agent memory for the active organization."""
+    for the active organization. Memory lives at /users/me/memory."""
     membership = await _get_current_membership(db, current_user, organization)
     return UserInstructionsSchema(
         note=membership.note if membership else None,
-        memory=membership.memory if membership else None,
         profile_attributes=(membership.profile_attributes if membership else None) or None,
     )
 
@@ -97,21 +92,17 @@ async def update_my_instructions(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Update the current user's custom instructions and agent memory for the
-    active organization. Self-service: a user can always edit their own note
-    and prune their own memory regardless of role. The client sends both
-    fields (loaded together in the profile tab); each is set from the payload,
-    with an empty value clearing it."""
+    """Update the current user's custom instructions for the active
+    organization. Self-service: a user can always edit their own note
+    regardless of role; an empty value clears it."""
     membership = await _get_current_membership(db, current_user, organization)
     if not membership:
         raise HTTPException(status_code=404, detail="Membership not found")
 
     note = (payload.note or "").strip()
     membership.note = note or None
-    memory = (payload.memory or "").strip()
-    membership.memory = memory or None
     await db.commit()
-    return UserInstructionsSchema(note=membership.note, memory=membership.memory)
+    return UserInstructionsSchema(note=membership.note)
 
 
 # Hard cap on group names in the viewer payload. The payload rides into every
@@ -246,6 +237,61 @@ async def update_my_default_model(
     Self-service, but the model must be one the user is allowed to use."""
     model_id = await llm_service.set_user_default_model(db, organization, current_user, payload.model_id)
     return UserDefaultModelSchema(model_id=model_id)
+
+
+class UserCheckinsSchema(BaseModel):
+    # True = the agent may follow up with this user on its own (check-ins).
+    enabled: bool = True
+    # Read-only: whether the org has agent check-ins turned on at all. The
+    # personal toggle only matters (and is only shown) while this is true.
+    available: bool = False
+
+
+async def _checkins_available(db: AsyncSession, organization: Organization) -> bool:
+    from app.services.checkin_policy import feature_enabled, load_org_settings
+    return feature_enabled(await load_org_settings(db, str(organization.id)))
+
+
+@router.get("/users/me/checkins", response_model=UserCheckinsSchema)
+async def get_my_checkins(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """The current user's agent check-in preference in the active org."""
+    membership = await _get_current_membership(db, current_user, organization)
+    return UserCheckinsSchema(
+        enabled=not bool(getattr(membership, "checkins_opt_out", False)),
+        available=await _checkins_available(db, organization),
+    )
+
+
+@router.put("/users/me/checkins", response_model=UserCheckinsSchema)
+async def update_my_checkins(
+    payload: UserCheckinsSchema,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Opt in/out of agent check-ins for yourself. Opting out also cancels
+    your pending check-ins in this org right away."""
+    membership = await _get_current_membership(db, current_user, organization)
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    membership.checkins_opt_out = not payload.enabled
+    await db.commit()
+    if not payload.enabled:
+        from app.models.agent_checkin import AgentCheckin, REASON_OPTED_OUT
+        from app.services.checkin_service import checkin_service
+        await checkin_service._cancel_where(
+            db, REASON_OPTED_OUT,
+            AgentCheckin.organization_id == str(organization.id),
+            AgentCheckin.user_id == str(current_user.id),
+        )
+    return UserCheckinsSchema(
+        enabled=payload.enabled,
+        available=await _checkins_available(db, organization),
+    )
 
 
 class UserDefaultAgentsSchema(BaseModel):

@@ -1,6 +1,6 @@
 <template>
   <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }">
-    <div class="grid grid-cols-[210px_1fr] min-h-[480px] bg-white dark:bg-gray-900 rounded-lg overflow-hidden">
+    <div class="grid grid-cols-[210px_1fr] min-h-[480px] max-h-[85vh] bg-white dark:bg-gray-900 rounded-lg overflow-hidden">
       <!-- Left column (smaller): user header + section nav -->
       <aside class="border-e border-gray-200/80 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 flex flex-col">
         <div class="px-4 pt-5 pb-4 flex flex-col items-center text-center gap-2">
@@ -39,7 +39,7 @@
       </aside>
 
       <!-- Right column: content -->
-      <section class="relative flex flex-col min-w-0">
+      <section class="relative flex flex-col min-w-0 min-h-0">
         <UButton
           class="absolute top-3 end-3 z-10"
           color="gray"
@@ -177,6 +177,22 @@
               </UPopover>
             </div>
 
+            <!-- Agent check-ins: personal opt-out (only while the org has them on) -->
+            <div v-if="checkins.available" class="pt-2 border-t border-gray-100 dark:border-gray-800" data-testid="profile-checkins">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('profile.general.checkinsTitle') }}</div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.general.checkinsSubtitle') }}</p>
+                </div>
+                <UToggle
+                  :model-value="checkins.enabled"
+                  :disabled="savingCheckins"
+                  data-testid="profile-checkins-toggle"
+                  @update:model-value="saveCheckins"
+                />
+              </div>
+            </div>
+
             <!-- External platforms summary -->
             <div class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-3">
               <div>
@@ -229,7 +245,7 @@
             </div>
           </div>
 
-          <!-- Custom Instructions & Memory -->
+          <!-- Custom Instructions (membership note) -->
           <div v-else-if="activeTab === 'instructions'" class="space-y-4">
             <div>
               <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('profile.instructions.title') }}</h3>
@@ -248,22 +264,9 @@
                 :placeholder="$t('profile.instructions.placeholder')"
                 autoresize
               />
-              <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ noteInput.length }}/500</div>
 
-              <!-- Agent memory (membership.memory): AI-curated, user can prune -->
-              <div class="pt-2 border-t border-gray-150 dark:border-gray-800">
-                <h4 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('profile.memory.title') }}</h4>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.memory.subtitle') }}</p>
-              </div>
-              <UTextarea
-                v-model="memoryInput"
-                :rows="6"
-                :maxlength="MEMORY_MAX"
-                :placeholder="$t('profile.memory.placeholder')"
-                autoresize
-              />
               <div class="flex items-center justify-between">
-                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ memoryInput.length }}/{{ MEMORY_MAX }}</span>
+                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ noteInput.length }}/500</span>
                 <UButton
                   color="blue"
                   size="sm"
@@ -276,6 +279,9 @@
               </div>
             </template>
           </div>
+
+          <!-- Memory: the agent's per-user memory entries (gated by enable_user_memory) -->
+          <UserMemoryPanel v-else-if="activeTab === 'memory' && isUserMemoryEnabled" @open-instructions="activeTab = 'instructions'" />
 
           <!-- Usage -->
           <div v-else-if="activeTab === 'usage'" class="space-y-4">
@@ -550,6 +556,7 @@ import { markRaw } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
+import UserMemoryPanel from '~/components/profile/UserMemoryPanel.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
@@ -563,18 +570,23 @@ const { t } = useI18n()
 const toast = useToast()
 const { data: currentUser, getSession } = useAuth()
 const { organization } = useOrganization()
-const { isMcpEnabled } = useOrgSettings()
+const { isMcpEnabled, isUserMemoryEnabled } = useOrgSettings()
 const colorMode = useColorMode()
 
-const activeTab = ref<'general' | 'instructions' | 'usage' | 'apiKeys' | 'mcp' | 'appearance'>('general')
+const activeTab = ref<'general' | 'instructions' | 'memory' | 'usage' | 'apiKeys' | 'mcp' | 'appearance'>('general')
 
 const navItems = computed(() => {
   const items: any[] = [
     { key: 'general', label: t('profile.nav.general'), icon: 'i-heroicons-user-circle' },
     { key: 'instructions', label: t('profile.nav.instructions'), icon: 'i-heroicons-sparkles' },
+  ]
+  if (isUserMemoryEnabled.value) {
+    items.push({ key: 'memory', label: t('profile.nav.memory'), icon: 'i-heroicons-bookmark' })
+  }
+  items.push(
     { key: 'usage', label: t('profile.nav.usage'), icon: 'i-heroicons-chart-bar' },
     { key: 'apiKeys', label: t('profile.nav.apiKeys'), icon: 'i-heroicons-key' },
-  ]
+  )
   if (isMcpEnabled.value) {
     items.push({ key: 'mcp', label: t('nav.mcpServer'), iconComponent: markRaw(McpIcon) })
   }
@@ -725,6 +737,39 @@ async function saveDefaultModel(modelId: string | null) {
   }
 }
 
+// --- General: agent check-ins (personal opt-out) ---
+const checkins = ref<{ enabled: boolean; available: boolean }>({ enabled: true, available: false })
+const savingCheckins = ref(false)
+
+async function loadCheckins() {
+  try {
+    const res = await useMyFetch('/users/me/checkins')
+    if (res.status.value === 'success' && res.data.value) checkins.value = res.data.value as any
+  } catch {
+    // non-fatal; the section stays hidden
+  }
+}
+
+async function saveCheckins(enabled: boolean) {
+  const previous = checkins.value.enabled
+  checkins.value = { ...checkins.value, enabled }
+  savingCheckins.value = true
+  try {
+    const res = await useMyFetch('/users/me/checkins', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+    if (res.status.value !== 'success') throw new Error(t('profile.general.checkinsFailed'))
+    toast.add({ title: t('profile.general.checkinsSaved'), color: 'green' })
+  } catch (e: any) {
+    checkins.value = { ...checkins.value, enabled: previous }
+    toast.add({ title: e?.message || t('profile.general.checkinsFailed'), color: 'red' })
+  } finally {
+    savingCheckins.value = false
+  }
+}
+
 // --- General: external platforms ---
 const externalPlatforms = computed<any[]>(() => (currentUser.value as any)?.external_user_mappings || [])
 
@@ -740,15 +785,12 @@ function platformMeta(type: string): { label: string; icon: string } {
   return map[type] || { label: type, icon: 'i-heroicons-puzzle-piece' }
 }
 
-// --- Custom instructions (membership note) + agent memory (membership.memory) ---
-const MEMORY_MAX = 2000
+// --- Custom instructions (membership note). Memory lives in its own tab
+// (UserMemoryPanel, /users/me/memory entries). ---
 const noteInput = ref('')
 const noteOriginal = ref('')
-const memoryInput = ref('')
-const memoryOriginal = ref('')
 const noteDirty = computed(() => noteInput.value.trim() !== noteOriginal.value.trim())
-const memoryDirty = computed(() => memoryInput.value.trim() !== memoryOriginal.value.trim())
-const instructionsDirty = computed(() => noteDirty.value || memoryDirty.value)
+const instructionsDirty = computed(() => noteDirty.value)
 const instructionsLoading = ref(false)
 const savingNote = ref(false)
 const instructionsLoaded = ref(false)
@@ -759,11 +801,8 @@ async function loadInstructions() {
   try {
     const res = await useMyFetch('/users/me/instructions')
     const note = (res.data?.value as any)?.note || ''
-    const memory = (res.data?.value as any)?.memory || ''
     noteInput.value = note
     noteOriginal.value = note
-    memoryInput.value = memory
-    memoryOriginal.value = memory
     profileAttributes.value = (res.data?.value as any)?.profile_attributes || {}
     instructionsLoaded.value = true
   } catch {
@@ -810,23 +849,16 @@ async function loadProfileAttributes() {
 async function saveNote() {
   savingNote.value = true
   try {
-    // Both fields are sent together — the endpoint sets each from the payload,
-    // so we always include the current value of the other to avoid clearing it.
     const res = await useMyFetch('/users/me/instructions', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        note: noteInput.value.trim() || null,
-        memory: memoryInput.value.trim() || null,
-      }),
+      body: JSON.stringify({ note: noteInput.value.trim() || null }),
     })
     if (res.status.value !== 'success') {
       throw new Error((res.error?.value as any)?.data?.detail || t('profile.instructions.saveFailed'))
     }
     noteOriginal.value = (res.data?.value as any)?.note || ''
     noteInput.value = noteOriginal.value
-    memoryOriginal.value = (res.data?.value as any)?.memory || ''
-    memoryInput.value = memoryOriginal.value
     toast.add({ title: t('profile.instructions.saved'), color: 'green' })
   } catch (e: any) {
     toast.add({ title: e?.message || t('profile.instructions.saveFailed'), color: 'red' })
@@ -1162,6 +1194,7 @@ watch(isOpen, (open) => {
     syncNameInput()
     loadOrgLocale()
     loadModels()
+    loadCheckins()
     loadProfileAttributes()
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()

@@ -1,5 +1,54 @@
 # Release Notes
 
+## Version 0.0.574 (October 3, 2026)
+- Added SAML single sign-on with any SAML 2.0 identity provider (#1219) — configured under `saml_providers` in `bow-config.yaml`
+- Replaced the reasoning effort buttons with a Faster ↔ Smarter slider in the model picker (#1223)
+- Fixed the fastest effort still running OpenAI models at medium reasoning (#1223)
+
+## Version 0.0.573 (September 29, 2026)
+- Added Claude Sonnet 5.5 (`claude-sonnet-5-5`) as an Anthropic preset — the new Anthropic default for new providers
+- Added GPT-6.1 Sol (`gpt-6.1-sol`) as an OpenAI preset
+- Replaced GPT Image 1 with GPT Image 2.5 Sunburst and Flare for image generation — GPT Image 1 shuts down December 1, 2026
+- Fixed new image models reaching existing organizations unusable by image generation and listed in the chat model picker
+- Fixed cached-token cost for GPT-6 Sol and GPT-6.1 Sol being overstated
+
+## Version 0.0.572 (September 29, 2026)
+- Removed the "User overnight learning" setting — overnight memory upkeep now follows the User memory setting
+- Agent check-ins are now on by default — turn off with the `enable_agent_checkins` org setting
+
+## Version 0.0.571 (September 28, 2026)
+- Added agent check-ins: the agent schedules its own follow-up and notifies you only when something changed (#1200) — `enable_agent_checkins` org setting (default off)
+- Added per-user memory: the agent saves, edits and searches personal facts, managed from a new Memory tab in your profile (#1201) — `enable_user_memory` org setting (default on)
+- Added Agent Lists: typed tables an agent fills in from documents, emails or query results, with evidence, row history and CSV export (#1203)
+- Added overnight learning: agents merge repeated suggestions into one nightly suggestion, and each user's memory and follow-up check-ins are kept current overnight (#1205) — `enable_agent_dreaming` and `enable_user_dreaming` org settings (default on)
+- Added an expiry for unreviewed instruction suggestions (#1205) — `ai_suggestion_expiry_days` org setting (default 30, `0` = never)
+- Added reasoning effort (Default, Low, Medium, High, Max) and search to the model picker, saved per conversation, scheduled task, trigger, prompt and eval case (#1206)
+- Fixed Bedrock Sonnet 5 rejecting thinking requests, Azure GPT-6 failing tool calls on Chat Completions, and Gemini ignoring the reasoning level (#1206)
+- Fixed connector-backed agents showing a generic icon in the agent header and settings instead of their brand logo (#1204)
+- Fixed BOW monitoring queries and dashboards failing with "BOW history is still indexing" (#1202)
+- Fixed a hardcoded SSL verification bypass in the OpenAI Responses client flagged by Snyk (#1199)
+
+## Version 0.0.570 (September 24, 2026)
+- Added a member's own usage quota under their name in the sidebar, with the full breakdown in the account menu (#1196)
+- Added Infor EPM (Application Engine) connector (#1178)
+- Added default model setting for dashboard chat (#1180)
+- Fixed connection timestamps shown in the wrong timezone (#1179)
+- Fixed transcript rendering, artifact caching, default reasoning effort, and "Thought for" showing tool run time instead of reasoning time (#1181)
+- Fixed parallel data steps failing with "greenlet_spawn" errors (#1182)
+- Fixed revoked columns and unchecked @table mentions reaching the agent prompt (#1183)
+- Faster agent runs: lighter step saves, context refreshes, and token streaming (#1184, #1185, #1186, #1187)
+- Fixed deleting an agent linked to a project wiping its content before failing (#1193)
+- Fixed generated code hidden in monitoring traces for users with code access (#1194)
+- Fixed unlinking a connection from an agent failing on PostgreSQL (#1195)
+- Fixed a reached org usage quota being reported as a provider failure (#1197)
+
+## Version 0.0.569 (September 22, 2026)
+- Added GPT-6 Sol and GPT-6 Luna as OpenAI presets — GPT-6 Luna is the new small default
+
+## Version 0.0.568 (September 22, 2026)
+- Added Claude Opus 5.5 (`claude-opus-5-5`) as an Anthropic preset: 1M context, 128K max output, $4/$20 per million tokens
+- Fixed Claude Opus 5 failing at low, medium or high effort — it was sent a fixed thinking budget the model rejects
+
 ## Version 0.0.567 (September 20, 2026)
 - Fixed report titles never being generated on PostgreSQL deployments — every report stayed "untitled report". Generating the title at prompt time (#1160) made it the first LLM call of a run, and that call's quota pre-check, which runs in a worker thread, was executing on an event loop of its own; the first check of a run reads the database, and asyncpg refuses a connection borrowed across loops. The agent now binds the usage context to the run's loop before any threaded call, so the check comes back to the right loop (SQLite deployments were unaffected — its driver tolerated the cross-loop access, which is why this slipped through)
 

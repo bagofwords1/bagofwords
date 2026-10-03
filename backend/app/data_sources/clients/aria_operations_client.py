@@ -255,10 +255,11 @@ class AriaOperationsClient(DataSourceClient):
 
     @property
     def _verify(self):
-        # A CA bundle path doubles as `verify=True` with that trust store.
-        if self.ca_bundle:
-            return self.ca_bundle
-        return self.verify_ssl
+        # verify_ssl decides whether to verify; a CA bundle path is only the
+        # trust store used when it is on.
+        if not self.verify_ssl:
+            return False
+        return self.ca_bundle or True
 
     @property
     def description(self):

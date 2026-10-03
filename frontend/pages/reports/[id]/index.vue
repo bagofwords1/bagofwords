@@ -171,6 +171,13 @@
 							<!-- collapsed -->
 						</template>
 
+						<!-- Agent check-in that ran quietly (did not notify): the reply
+						     stays in the report, collapsed under its "Checked back:
+						     nothing new" strip until expanded. -->
+						<template v-else-if="m.role === 'system' && (m as any).trigger_source === 'checkin' && isQuietCheckinReplyCollapsed(m)">
+							<!-- collapsed -->
+						</template>
+
 						<!-- Machine event entry (eval run finished, wait resumed): a
 						     borderless, compact line aligned into the agent column —
 						     same gutter as system messages, styled like a tool card. -->
@@ -178,9 +185,15 @@
 							<!-- avatar-width spacer so the line lines up with agent content -->
 							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
 							<div class="w-full ms-0 md:ms-4 max-w-2xl">
-								<div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+								<div
+									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
+									:class="isQuietCheckinStrip(m) ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
+									:data-testid="(m as any).trigger_source === 'checkin' ? `checkin-strip-${m.id}` : undefined"
+									@click="isQuietCheckinStrip(m) && toggleCheckinExpand(m.id)"
+								>
 									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
 									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
+									<Icon v-if="isQuietCheckinStrip(m)" :name="expandedCheckinIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 flex-shrink-0" />
 									<span v-if="m.created_at" class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
 								</div>
 							</div>
@@ -365,7 +378,7 @@
 													>
 														<template v-if="block.plan_decision?.reasoning || block.reasoning">
 															<MarkdownRender
-																:content="block.plan_decision?.reasoning || block.reasoning || ''"
+																:content="block.reasoning || block.plan_decision?.reasoning || ''"
 																:final="isBlockFinalized(block)"
 																:typewriter="!isBlockFinalized(block)"
 																:render-code-blocks-as-pre="true"
@@ -714,6 +727,7 @@
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
+					:initialEffort="report?.reasoning_effort || ''"
 					:textareaContent="prefillText"
 					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt } : undefined"
 					:isStopping="false"
@@ -1017,8 +1031,9 @@ import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import CreateDocTool from '~/components/tools/CreateDocTool.vue'
 import EditDocTool from '~/components/tools/EditDocTool.vue'
 import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
+import SubmitListTool from '~/components/tools/SubmitListTool.vue'
 import EditNoteTool from '~/components/tools/EditNoteTool.vue'
-import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+import MemoryTool from '~/components/tools/MemoryTool.vue'
 import RouteModelTool from '~/components/tools/RouteModelTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -1872,6 +1887,60 @@ function visibleInstructions(m: ChatMessage) {
 	return m._loaded_instructions || []
 }
 
+// ---- Agent check-in (trigger_source='checkin') strip helpers ----
+// The strip's prompt.meta carries {checkin_id, outcome, run_completion_id,
+// notify_subject}; outcome is stamped after the follow-up run finishes.
+const expandedCheckinIds = ref<Set<string>>(new Set())
+function checkinMeta(m: any): any {
+	return (m as any)?.trigger_source === 'checkin' ? (m?.prompt?.meta || {}) : null
+}
+// The run's reply for a strip: linked by meta once stamped, else the next
+// check-in system message after the strip.
+function checkinReply(strip: any): any {
+	const id = checkinMeta(strip)?.run_completion_id
+	if (id) return messages.value.find((x: any) => x.id === id) || null
+	const i = messages.value.indexOf(strip)
+	for (let j = i + 1; j < messages.value.length; j++) {
+		const x: any = messages.value[j]
+		if (x.role === 'external') break
+		if (x.role === 'system' && x.trigger_source === 'checkin') return x
+	}
+	return null
+}
+// Outcome of a check-in strip. The server stamps meta.outcome just after the
+// run ends — which can land after the page's end-of-run refresh — so derive it
+// from the reply itself until then (a successful notify call ⇒ sent).
+function checkinOutcome(strip: any): string {
+	const meta = checkinMeta(strip) || {}
+	if (meta.outcome) return meta.outcome
+	if (strip?.status === 'in_progress') return 'running'
+	const reply = checkinReply(strip)
+	if (!reply || reply.status === 'in_progress') return strip?.status === 'error' ? 'failed' : 'running'
+	const notified = (reply.completion_blocks || []).some((b: any) => {
+		const te = b?.tool_execution
+		if (!te || te.tool_name !== 'notify') return false
+		return te.status ? te.status === 'success' : te.success !== false
+	})
+	if (notified) return 'sent'
+	if (reply.status === 'error' || strip?.status === 'error') return 'failed'
+	return 'ran_quiet'
+}
+function isQuietCheckinStrip(m: any): boolean {
+	return m?.role === 'external' && (m as any)?.trigger_source === 'checkin' && checkinOutcome(m) === 'ran_quiet'
+}
+function toggleCheckinExpand(id: string) {
+	const next = new Set(expandedCheckinIds.value)
+	if (next.has(id)) next.delete(id)
+	else next.add(id)
+	expandedCheckinIds.value = next
+}
+function isQuietCheckinReplyCollapsed(msg: any): boolean {
+	const strip = messages.value.find((x: any) =>
+		x.role === 'external' && (x as any).trigger_source === 'checkin' && checkinReply(x)?.id === msg.id)
+	if (!strip || checkinOutcome(strip) !== 'ran_quiet') return false
+	return !expandedCheckinIds.value.has(strip.id)
+}
+
 function isScheduledSystemExpanded(msg: ChatMessage): boolean {
 	// Find the preceding user message with the same scheduled_prompt_id
 	const idx = messages.value.indexOf(msg)
@@ -1951,6 +2020,7 @@ function webhookSourceIcon(source?: string): string {
 		// Machine-turn events (trigger_source doubles as external_platform)
 		case 'eval_run': return 'heroicons-beaker'
 		case 'wait': return 'heroicons-clock'
+		case 'checkin': return 'heroicons-arrow-path-rounded-square'
 		default: return 'heroicons-bolt'
 	}
 }
@@ -1968,6 +2038,18 @@ function machineEventLabel(m: any): string {
 	}
 	if (meta && src === 'wait') {
 		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return t('events.checkin.running')
+		if (outcome === 'failed') return t('events.checkin.failed')
+		if (outcome === 'sent') {
+			return meta?.notify_subject
+				? t('events.checkin.sentWithSubject', { subject: meta.notify_subject })
+				: t('events.checkin.sent')
+		}
+		if (outcome === 'ran_quiet') return t('events.checkin.quiet')
+		return t('events.checkin.label')
 	}
 	return m.prompt?.summary || m.prompt?.content
 }
@@ -2009,11 +2091,23 @@ function machineEventIcon(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'heroicons-arrow-path'
+		if (outcome === 'failed') return 'heroicons-x-circle'
+		return outcome === 'sent' ? 'heroicons-bell-alert' : 'heroicons-arrow-path-rounded-square'
+	}
 	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
 }
 function machineEventIconClass(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'text-blue-400 animate-spin'
+		if (outcome === 'failed') return 'text-red-400'
+		if (outcome === 'sent') return 'text-blue-500'
+	}
 	return 'text-gray-400 dark:text-gray-500'
 }
 // Inbound webhook events expand to show the delivery that caused the run —
@@ -2379,6 +2473,9 @@ const panelFile = ref<{
 	imageFileIds?: string[] | null
 	name?: string
 } | null>(null)
+// Same return-path bookkeeping as the data pane below.
+const filePanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'data'>('artifact')
+const filePanelOpenedSplit = ref(false)
 
 function openFilePreview(payload: any) {
 	if (!payload?.fileId) return
@@ -2386,7 +2483,11 @@ function openFilePreview(payload: any) {
 	// Mobile keeps the inline/modal behaviour — mobileView is a separate closed
 	// union and opening a second surface there is its own piece of work.
 	if (isMobile.value) return
-	if (!isSplitScreen.value) toggleSplitScreen()
+	if (rightPanelView.value !== 'file') filePanelReturnView.value = rightPanelView.value
+	if (!isSplitScreen.value) {
+		filePanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
 	rightPanelView.value = 'file'
 }
 
@@ -2408,7 +2509,15 @@ function leftWidthFor(view: string): number {
 
 function closeFilePanel() {
 	panelFile.value = null
-	if (rightPanelView.value === 'file') rightPanelView.value = 'artifact'
+	const openedSplit = filePanelOpenedSplit.value
+	filePanelOpenedSplit.value = false
+	if (rightPanelView.value !== 'file') return
+	// A data view only exists while its result is open.
+	const back = filePanelReturnView.value
+	rightPanelView.value = back === 'data' && !panelData.value ? 'artifact' : back
+	// Opening the file is what opened the panel, so closing it closes the
+	// panel too instead of landing on whatever tab sat underneath.
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
 
 // A query result (create_data / read_query / …) opened from its inline card
@@ -2424,6 +2533,9 @@ const panelData = ref<{
 // The view that was showing when the data pane opened, so closing it goes
 // back there (dashboard, agent, summary…) rather than always to the dashboard.
 const dataPanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+// Whether opening the data pane is what opened the side panel. If so, closing
+// it closes the panel too — there was no view underneath to go back to.
+const dataPanelOpenedSplit = ref(false)
 
 function openDataPanel(payload: { toolExecution: any; title?: string; visual?: boolean }) {
 	const te = payload?.toolExecution
@@ -2436,16 +2548,22 @@ function openDataPanel(payload: { toolExecution: any; title?: string; visual?: b
 	}
 	if (isMobile.value) return
 	if (rightPanelView.value !== 'data') dataPanelReturnView.value = rightPanelView.value
-	if (!isSplitScreen.value) toggleSplitScreen()
+	if (!isSplitScreen.value) {
+		dataPanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
 	rightPanelView.value = 'data'
 }
 
 function closeDataPanel() {
 	panelData.value = null
+	const openedSplit = dataPanelOpenedSplit.value
+	dataPanelOpenedSplit.value = false
 	if (rightPanelView.value !== 'data') return
 	// A file view only exists while its file is open.
 	const back = dataPanelReturnView.value
 	rightPanelView.value = back === 'file' && !panelFile.value ? 'artifact' : back
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
 
 // Mobile view mode (full-screen single section on narrow screens)
@@ -2537,6 +2655,9 @@ function hasClarifyBlock(m: ChatMessage): boolean {
 }
 
 function getToolComponent(toolName: string) {
+	// Native per-list tools (submit_<list>) stream under their own name
+	// before the gateway rewrite to submit_list.
+	if (toolName?.startsWith('submit_')) return SubmitListTool
 	switch (toolName) {
     // 'create_data_model' removed
 		case 'create_widget':
@@ -2571,10 +2692,14 @@ function getToolComponent(toolName: string) {
 			return EditDocTool
 		case 'create_note':
 			return CreateNoteTool
+		case 'submit_list':
+			return SubmitListTool
 		case 'edit_note':
 			return EditNoteTool
-		case 'update_user_memory':
-			return UpdateUserMemoryTool
+		case 'create_memory':
+		case 'edit_memory':
+		case 'search_memory':
+			return MemoryTool
 		case 'route_model':
 			return RouteModelTool
 		case 'read_resources':
@@ -2781,11 +2906,13 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 		return t('reportView.thoughtProcess')
 	}
 
-	// Prefer planner-provided reasoning duration when available
+	// Measured reasoning time. A tool's code generation (create_data,
+	// inspect_data) streams its reasoning into this same block, so the two add.
 	const metricsAny: any = (block.plan_decision as any)?.metrics || (block.plan_decision as any)?.metrics_json
-	const thinkingMs: number | undefined = metricsAny?.thinking_ms
-	if (typeof thinkingMs === 'number' && isFinite(thinkingMs) && thinkingMs >= 0) {
-		const secs = Math.max(0, Math.round(thinkingMs / 1000))
+	const measured = [metricsAny?.thinking_ms, (block.tool_execution as any)?.sub_timings_json?.codegen_reasoning_ms]
+		.filter((ms): ms is number => typeof ms === 'number' && isFinite(ms) && ms >= 0)
+	if (measured.length) {
+		const secs = Math.max(0, Math.round(measured.reduce((a, b) => a + b, 0) / 1000))
 		return t('reportView.thoughtForSeconds', { seconds: secs })
 	}
 
@@ -2804,11 +2931,8 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
 	}
 
-	// Fallback to duration from tool execution if available
-	if (block.tool_execution?.duration_ms) {
-		const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
-		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
-	}
+	// No reasoning time recorded. The tool's own duration is not one — it covers
+	// code generation and execution, and already shows on the tool row.
 
 	// Default fallback
 	return t('reportView.thoughtProcess')
@@ -2843,7 +2967,13 @@ watch(
 
 // Split screen toggles reflow the chat column; keep the bottom pinned only
 // when the reader was already following.
-watch(() => isSplitScreen.value, () => {
+watch(() => isSplitScreen.value, (open) => {
+    // Once the user closes the panel themselves, a later close of the data /
+    // file tab must not collapse a panel they reopened some other way.
+    if (!open) {
+        dataPanelOpenedSplit.value = false
+        filePanelOpenedSplit.value = false
+    }
     nextTick(() => setTimeout(followScrollToBottom, 80))
 })
 
@@ -3665,6 +3795,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.duration_ms !== undefined) {
 						blockWithTool.tool_execution.duration_ms = payload.duration_ms
 					}
+					if (payload.sub_timings_json) {
+						;(blockWithTool.tool_execution as any).sub_timings_json = payload.sub_timings_json
+					}
 					if (payload.created_widget_id) {
 						blockWithTool.tool_execution.created_widget_id = payload.created_widget_id
 					}
@@ -3964,6 +4097,8 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 					result_json: b.tool_execution.result_json,
 					arguments_json: b.tool_execution.arguments_json,
 					duration_ms: b.tool_execution.duration_ms,
+					// Split of duration_ms (codegen, its reasoning, execution) for the thought label
+					sub_timings_json: b.tool_execution.sub_timings_json,
 					created_widget_id: b.tool_execution.created_widget_id,
 					created_step_id: b.tool_execution.created_step_id,
 					created_widget: b.tool_execution.created_widget,
@@ -4194,6 +4329,8 @@ async function loadPreviousCompletions() {
                     result_json: b.tool_execution.result_json,
                     arguments_json: b.tool_execution.arguments_json,
                     duration_ms: b.tool_execution.duration_ms,
+                    // Split of duration_ms (codegen, its reasoning, execution) for the thought label
+                    sub_timings_json: b.tool_execution.sub_timings_json,
                     created_widget_id: b.tool_execution.created_widget_id,
                     created_step_id: b.tool_execution.created_step_id,
                     created_widget: b.tool_execution.created_widget,
@@ -4730,7 +4867,7 @@ function resolveRunningSystemId(): string | undefined {
 
 // Queue a prompt while a completion runs. The backend persists it as a
 // status='queued' user row; the dispatcher starts it when the run finishes.
-async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
 	const text = data.text.trim()
 	if (!text) return
 	try {
@@ -4743,6 +4880,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					mentions: data.mentions || [],
 					mode: data.mode || 'chat',
 					model_id: data.model_id || null,
+					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
 				},
 				queue: true
@@ -4880,7 +5018,7 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
-function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; files?: { id: string; filename: string; content_type: string }[] }) {
+function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
 
@@ -4929,6 +5067,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			mentions: data.mentions || [],
 			mode: data.mode || 'chat',
 			model_id: data.model_id || null,
+			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
@@ -5481,6 +5620,7 @@ onMounted(async () => {
 		} catch {}
 		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
 		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
+		const reasoning_effort = typeof route.query.reasoning_effort === 'string' ? route.query.reasoning_effort : null
 		// Images attached in the composer before this report existed. They are
 		// already on the report row; this only lets the first user bubble show
 		// its chips instead of appearing bare until a reload.
@@ -5489,7 +5629,7 @@ onMounted(async () => {
 			const rawFiles = typeof route.query.files === 'string' ? decodeURIComponent(route.query.files) : ''
 			if (rawFiles) files = JSON.parse(rawFiles)
 		} catch {}
-		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, files })
+		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, reasoning_effort: reasoning_effort || null, files })
 	} else if (route.query.prompt && messages.value.length == 0) {
 		// Pre-fill the prompt box without submitting (e.g. a training session draft).
 		prefillText.value = route.query.prompt as string

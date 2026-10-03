@@ -21,8 +21,8 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        # Selectable, but not the default: Astra is ~4x Terra's input price and
-        # 3.3x its output price, so switching every org's default on upgrade is
+        # Selectable, but not the default: Astra is 5x Terra's input price and
+        # ~4x its output price, so switching every org's default on upgrade is
         # a cost decision, not a catalog one.
         "is_default": False,
         "supports_vision": True,
@@ -30,6 +30,57 @@ LLM_MODEL_DETAILS = [
         "max_output_tokens": 128000,
         "input_cost_per_million_tokens_usd": 10.00,
         "output_cost_per_million_tokens_usd": 50.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-6-sol
+        # GPT-6 ships Astra, Sol and Luna only — there is no gpt-6-terra, so
+        # GPT-5.6 Terra keeps the provider default.
+        "name": "GPT-6 Sol",
+        "model_id": "gpt-6-sol",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-6.1-sol
+        # Successor to GPT-6 Sol at the same $2/$10 and 1.05M window; GPT-6 Sol
+        # stays because it is still served and not deprecated. Unlike GPT-6 Sol
+        # it has no reasoning effort "none" (reasoning._FAMILIES), and cached
+        # input is $0.10 — 0.05x (pricing._OPENAI_READ_RATE_OVERRIDES).
+        "name": "GPT-6.1 Sol",
+        "model_id": "gpt-6.1-sol",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-6-luna
+        # Small default: half GPT-5.6 Luna's input price and under half its
+        # output price, for the same 1.05M window.
+        "name": "GPT-6 Luna",
+        "model_id": "gpt-6-luna",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 0.10,
+        "output_cost_per_million_tokens_usd": 0.50
     },
     {
         "name": "GPT-5.6 Sol",
@@ -41,8 +92,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 5.00,
-        "output_cost_per_million_tokens_usd": 30.00
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
     },
     {
         "name": "GPT-5.6 Terra",
@@ -54,8 +105,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 2.50,
-        "output_cost_per_million_tokens_usd": 15.00
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 12.00
     },
     {
         "name": "GPT-5.6 Luna",
@@ -64,12 +115,12 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_default": False,
-        "is_small_default": True,
+        "is_small_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 1.00,
-        "output_cost_per_million_tokens_usd": 6.00
+        "input_cost_per_million_tokens_usd": 0.20,
+        "output_cost_per_million_tokens_usd": 1.20
     },
     {
         "name": "GPT-5.5",
@@ -125,7 +176,7 @@ LLM_MODEL_DETAILS = [
         # Anthropic's most capable widely released model. Same tier, price and
         # 1M window as Claude Fable 5, which stays in the catalog because it is
         # still served. Selectable but not a default: at $10/$50 per million it
-        # is 2x Opus 5 and ~3.3x the Sonnet 5 default, so moving an org onto it
+        # is 2x Opus 5 and 5x the Sonnet 5.5 default, so moving an org onto it
         # is a cost decision for the admin, not a catalog one.
         #
         # No client changes were needed for it: the ``fable-5`` substring tags
@@ -160,16 +211,62 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 50.00
     },
     {
-        "name": "Claude Sonnet 5",
-        "model_id": "claude-sonnet-5",
+        # Successor to Claude Sonnet 5 and the Anthropic default: same 1M
+        # window and 128K output, $2/$10 per million. Cache reads are the
+        # standard 0.1x, so no pricing._ANTHROPIC_READ_RATE_OVERRIDES entry.
+        #
+        # Client handling rides on the existing ``sonnet-5`` substring tags:
+        # _NO_SAMPLING_PARAM_TAGS drops temperature (non-default values 400),
+        # and _effort_to_thinking_config sends adaptive thinking. We never send
+        # ``{type: "disabled"}`` (a 400 here) — effort "off" omits thinking and
+        # the client lowers effort instead. Forced tool_choice also 400s, but
+        # we only send auto.
+        "name": "Claude Sonnet 5.5",
+        "model_id": "claude-sonnet-5-5",
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
         "is_default": True,
         "supports_vision": True,
         "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
+        "name": "Claude Sonnet 5",
+        "model_id": "claude-sonnet-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 3.00,
         "output_cost_per_million_tokens_usd": 15.00
+    },
+    {
+        # Successor to Claude Opus 5, cheaper per token ($4/$20) with the same
+        # 1M window and 128K output. Selectable but not a default, like Fable
+        # 5.1: moving an org's default is the admin's call.
+        #
+        # Client handling rides on existing substring tags: ``opus-5`` in
+        # _NO_SAMPLING_PARAM_TAGS drops temperature, and in agent_v2's
+        # _effort_to_thinking_config it gets adaptive thinking (budget_tokens
+        # and ``disabled`` both 400 here; effort "off" omits the param, which
+        # runs adaptive). Forced tool_choice also 400s, but we only send auto.
+        # Its 0.05x cache-read rate lives in pricing._ANTHROPIC_READ_RATE_OVERRIDES.
+        "name": "Claude Opus 5.5",
+        "model_id": "claude-opus-5-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
     },
     {
         "name": "Claude Opus 5",
@@ -307,6 +404,19 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 12.00
     },
     {
+        "name": "Claude Sonnet 5.5",
+        "model_id": "claude-sonnet-5-5",
+        "provider_type": "vertex",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
         "name": "Claude Sonnet 5",
         "model_id": "claude-sonnet-5",
         "provider_type": "vertex",
@@ -323,13 +433,17 @@ LLM_MODEL_DETAILS = [
     # enablement before it resolves at all, and they carry no list price we can
     # report. The OpenAI-compatible transport that serves them is still wired
     # (see LLM._build_vertex_client) — add one as a custom model to use it.
+    # Image-generation models (produce images), not chat models. Gated by
+    # supports_image_generation; consumed by LLM.generate_image / the
+    # generate_image tool, which prefers them in this order. They replace
+    # gpt-image-1, which OpenAI shuts down on 2026-12-01; dropping it from the
+    # catalog disables it on preset providers at the next sync.
+    # Priced per token: text input $5/M, image output $30/M (image input, $8/M,
+    # only applies to edits, which are not wired). Same price for both.
     {
-        # Image-generation model (produces images), not a chat model. Gated by
-        # supports_image_generation; consumed by LLM.generate_image / the
-        # generate_image tool. Pricing is per token: text input $5/M, image
-        # output tokens $40/M (OpenAI Images API, gpt-image-1).
-        "name": "GPT Image 1",
-        "model_id": "gpt-image-1",
+        # https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
+        "name": "GPT Image 2.5 Sunburst",
+        "model_id": "gpt-image-2.5-sunburst",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
@@ -338,7 +452,21 @@ LLM_MODEL_DETAILS = [
         "supports_vision": False,
         "supports_image_generation": True,
         "input_cost_per_million_tokens_usd": 5.00,
-        "output_cost_per_million_tokens_usd": 40.00
+        "output_cost_per_million_tokens_usd": 30.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-image-2.5-flare
+        "name": "GPT Image 2.5 Flare",
+        "model_id": "gpt-image-2.5-flare",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": False,
+        "supports_image_generation": True,
+        "input_cost_per_million_tokens_usd": 5.00,
+        "output_cost_per_million_tokens_usd": 30.00
     }
 ]
 
@@ -358,7 +486,7 @@ class LLMModel(BaseSchema):
     # Manual admin override for vision. NULL = follow the catalog (LLM_MODEL_DETAILS); True/False = admin-set,
     # persisted across catalog re-syncs. `supports_vision` above is the resolved value inference reads.
     supports_vision_override = Column(Boolean, nullable=True)
-    # Whether the model *produces* images (image-generation models like gpt-image-1),
+    # Whether the model *produces* images (image-generation models like gpt-image-2.5-sunburst),
     # as opposed to supports_vision which is about accepting image *inputs*. Resolved
     # from the catalog on sync; gates LLM.generate_image and the generate_image tool.
     supports_image_generation = Column(Boolean, default=False, nullable=False)

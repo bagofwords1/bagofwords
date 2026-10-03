@@ -162,7 +162,30 @@ def resolve_family(provider_type: Optional[str], model_id: Optional[str] = None)
 # base input price. All other models use the standard 0.1x multiplier."
 _ANTHROPIC_READ_RATE_OVERRIDES = (
     (("fable-5-1", "mythos-5-1"), 0.025),
+    # Claude Opus 5.5: $0.20/MTok cache reads against a $4 base. Tagged
+    # "opus-5-5" so Claude Opus 5 (0.1x) is not swept in.
+    (("opus-5-5",), 0.05),
 )
+
+
+# OpenAI-family counterpart: here `read` is the cached price as a fraction of
+# base input (the family default is 0.5). GPT-6 Sol lists cached input at
+# $0.20 against $2 and GPT-6.1 Sol at $0.10 against $2. Matched on the id
+# prefix; ids not listed keep the family rate until someone prices them.
+# https://developers.openai.com/api/docs/models/gpt-6-sol
+# https://developers.openai.com/api/docs/models/gpt-6.1-sol
+_OPENAI_READ_RATE_OVERRIDES = (
+    (("gpt-6.1-sol",), 0.05),
+    (("gpt-6-sol",), 0.10),
+)
+
+
+def _openai_read_rate_override(model_id: Optional[str]) -> Optional[float]:
+    name = (model_id or "").strip().lower().rsplit("/", 1)[-1]
+    for prefixes, rate in _OPENAI_READ_RATE_OVERRIDES:
+        if name.startswith(prefixes):
+            return rate
+    return None
 
 
 def _anthropic_read_rate_override(model_id: Optional[str]) -> Optional[float]:
@@ -182,6 +205,10 @@ def rates_for(provider_type: Optional[str], model_id: Optional[str] = None) -> C
     # calculation would silently compute a 97.5% refund.
     if family == ANTHROPIC:
         override = _anthropic_read_rate_override(model_id)
+        if override is not None:
+            return replace(rates, read=override)
+    if family == OPENAI:
+        override = _openai_read_rate_override(model_id)
         if override is not None:
             return replace(rates, read=override)
     return rates

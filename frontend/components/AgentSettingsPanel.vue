@@ -40,6 +40,7 @@
                 <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Icon</label>
                 <AgentIconPicker
                     :model-value="form.icon"
+                    :icon-token="integration?.icon_token"
                     :type="integration?.type || integration?.connections?.[0]?.type"
                     :connector-key="integration?.connections?.[0]?.connector_key"
                     :connections="integration?.connections || []"
@@ -900,11 +901,13 @@ async function addSelected() {
 
 async function updateDataSource(payload: Record<string, any>) {
     const id = props.agentId
-    const { error } = await useMyFetch(`/data_sources/${id}`, {
+    const { data, error } = await useMyFetch<any>(`/data_sources/${id}`, {
         method: 'PUT',
         body: payload,
     })
     if (!error?.value) {
+        // Keep the server-resolved icon in sync (it changes with `icon`).
+        if (integration.value && data.value && 'icon_token' in data.value) integration.value.icon_token = data.value.icon_token
         toast?.add?.({ title: 'Saved', description: 'Settings updated' })
         return true
     } else {
@@ -928,7 +931,10 @@ async function saveName() {
 async function saveIcon(token: string | null) {
     if (!ready.value || saving.icon) return
     const prev = form.icon
+    const prevToken = integration.value?.icon_token ?? null
     form.icon = token
+    // Drop the stale resolved token so a reset doesn't keep showing the old override.
+    if (integration.value) integration.value.icon_token = token
     saving.icon = true
     // Send an explicit null to clear the override (the backend/service treats
     // null as "reset to the default icon"); a token to set it.
@@ -938,6 +944,7 @@ async function saveIcon(token: string | null) {
         emit('updated')
     } else {
         form.icon = prev
+        if (integration.value) integration.value.icon_token = prevToken
     }
     saving.icon = false
 }
@@ -954,6 +961,8 @@ async function onTogglePublic(value: boolean) {
     saving.public = false
 }
 
+const { getErrorMessage } = useErrorMessage()
+
 async function confirmDelete() {
     if (deleting.value) return
     deleting.value = true
@@ -965,7 +974,9 @@ async function confirmDelete() {
         showDelete.value = false
         emit('deleted')
     } else {
-        toast?.add?.({ title: 'Failed to delete', description: String(error.value), color: 'red' })
+        // Typed server errors (e.g. data_source.in_use) arrive localized; a
+        // refused delete has changed nothing, and the message says so.
+        toast?.add?.({ title: 'Failed to delete', description: getErrorMessage(error.value, String(error.value)), color: 'red' })
     }
 }
 </script>

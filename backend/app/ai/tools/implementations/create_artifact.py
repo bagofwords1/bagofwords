@@ -1144,18 +1144,19 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             included_viz_ids.append(str(viz.id))
 
         # Resolve any embedded files (generated images / uploaded images or PDFs).
-        # Scoped to the org; stored on the artifact content so the frontend can
-        # fetch + inject them into the sandbox for the <BowFile> component.
+        # Only files the run's user may see: embedding a file makes it readable
+        # by everyone who can view the artifact. Stored on the artifact content
+        # so the frontend can fetch + inject them for the <BowFile> component.
         included_files: List[Dict[str, Any]] = []
         requested_file_ids = getattr(data, "file_ids", None) or []
         if requested_file_ids:
             try:
-                file_result = await db.execute(
-                    select(File).where(
-                        File.id.in_([str(f) for f in requested_file_ids]),
-                        File.organization_id == str(organization.id) if organization else File.organization_id.is_(None),
-                    )
+                from app.services.file_access_service import run_viewable_file_ids
+                allowed = await run_viewable_file_ids(
+                    db, user=user, report=report, organization=organization,
+                    file_ids=[str(f) for f in requested_file_ids],
                 )
+                file_result = await db.execute(select(File).where(File.id.in_(list(allowed))))
                 fetched_files = {str(f.id): f for f in file_result.scalars().all()}
             except Exception as e:
                 logger.warning(f"create_artifact: failed to fetch files: {e}")
@@ -1163,7 +1164,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             for fid in requested_file_ids:
                 f = fetched_files.get(str(fid))
                 if f is None:
-                    warnings.append(f"File {fid} not found or not in this organization")
+                    warnings.append(f"File {fid} not found or not accessible")
                     continue
                 included_files.append({
                     "id": str(f.id),

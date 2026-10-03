@@ -1587,6 +1587,17 @@ class StreamingCodeExecutor:
             info_dict["column_info"][column] = column_info
         return info_dict
 
+    async def format_df_for_widget_async(self, df: pd.DataFrame, max_rows: Optional[int] = None) -> Dict:
+        """format_df_for_widget on the code-execution pool.
+
+        It runs pandas over the FULL result (describe(), deep memory usage,
+        nunique) — ~200ms for a 200k-row frame — and awaited inline it held
+        the event loop for that long, stalling parallel sibling tools and
+        every token stream. Same function, same output; only the thread moves.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_CODE_EXEC_POOL, lambda: self.format_df_for_widget(df, max_rows))
+
     def format_df_for_widget(self, df: pd.DataFrame, max_rows: Optional[int] = None) -> Dict:
         """Format a DataFrame into a widget-compatible structure.
 
@@ -2098,7 +2109,7 @@ class StreamingCodeExecutor:
         # Check if the DataFrame has columns, which indicates success even if empty
         if len(df.columns) > 0:
             # Format the data for widget display
-            widget_data = self.format_df_for_widget(df)
+            widget_data = await self.format_df_for_widget_async(df)
             
             # Update step with data
             try:

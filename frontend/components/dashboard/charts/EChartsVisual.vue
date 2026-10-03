@@ -153,7 +153,24 @@ function resolveColorInput(input: any): any {
   return input
 }
 
-function getAxisLabelConfig(numCategories: number): { interval: number; rotate: number; hideOverlap: boolean } {
+// Tilted category labels are capped in length. With containLabel the grid
+// reserves room for the longest label, so one 60-character name tilted 45°
+// takes ~250px and squashes the plot into a sliver of a 340px chat card. The
+// full name stays in the tooltip.
+const ROTATED_LABEL_MAX_WIDTH = 110
+
+type AxisLabelConfig = { interval: number; rotate: number; hideOverlap: boolean; width?: number; overflow?: 'truncate' }
+
+function capRotatedLabel<T extends { rotate?: number }>(config: T): T & { width?: number; overflow?: 'truncate' } {
+  if (!config.rotate) return config
+  return { ...config, width: ROTATED_LABEL_MAX_WIDTH, overflow: 'truncate' }
+}
+
+function getAxisLabelConfig(numCategories: number): AxisLabelConfig {
+  return capRotatedLabel(baseAxisLabelConfig(numCategories))
+}
+
+function baseAxisLabelConfig(numCategories: number): AxisLabelConfig {
   // Check view.view (new v2 schema)
   const viewV2 = props.view?.view
   if (viewV2?.axisX) {
@@ -300,7 +317,7 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
   if (!categoryKey) return {}
   
   const categories = Array.from(new Set(rows.map((r: any) => String(r[categoryKey] ?? ''))))
-  const { interval, rotate, hideOverlap } = getAxisLabelConfig(categories.length)
+  const xLabelConfig = getAxisLabelConfig(categories.length)
   const colors = getColors()
   const axisColors = { ...(tokens.value?.axis || {}), ...((props.view?.style as any)?.axis || {}) }
   const xVisible = props.view?.xAxisVisible ?? viewV2?.axisX?.show ?? true
@@ -444,7 +461,7 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
     show: xVisible,
     axisLabel: isHorizontal
       ? { interval: 0, rotate: 0, hideOverlap: false, color: axisColors.yLabelColor }
-      : { interval, rotate, hideOverlap, color: axisColors.xLabelColor },
+      : { ...xLabelConfig, color: axisColors.xLabelColor },
     axisLine: { lineStyle: { color: isHorizontal ? axisColors.yLineColor : axisColors.xLineColor } },
     splitLine: { show: false }
   }
@@ -646,11 +663,11 @@ function buildHeatmapOptions(rows: any[], dm: any): EChartsOption {
       data: xCats,
       show: xVisible,
       name: xAxisConfig?.label || undefined,
-      axisLabel: {
+      axisLabel: capRotatedLabel({
         interval: xAxisConfig?.interval ?? defaultInterval,
         rotate: xAxisConfig?.rotate ?? defaultRotate,
         hideOverlap
-      }
+      })
     },
     yAxis: {
       type: 'category',

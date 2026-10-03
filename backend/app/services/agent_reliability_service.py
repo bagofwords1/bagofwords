@@ -819,17 +819,48 @@ class AgentReliabilityService:
         from app.models.build_content import BuildContent
         from app.models.instruction import instruction_data_source_association
 
-        instr_ids = [r[0] for r in (await db.execute(
-            select(BuildContent.instruction_id).where(BuildContent.build_id == str(build_id))
-        )).all()]
+        # Only what the build actually CHANGES counts: suggestion builds are
+        # full snapshots copied from main, and counting the copied, unchanged
+        # rows made any org with a global instruction look like every
+        # suggestion affected every agent. Changed = rows flagged is_change;
+        # removed = instructions in main that the build no longer contains.
+        rows = (await db.execute(
+            select(BuildContent.instruction_id, BuildContent.is_change).where(
+                BuildContent.build_id == str(build_id)
+            )
+        )).all()
+        present = {str(r[0]) for r in rows}
+        changed = {str(r[0]) for r in rows if r[1]}
+        removed: set = set()
+        try:
+            from app.services.build_service import BuildService
+            main = await BuildService().get_main_build(db, str(organization_id))
+            if main is not None and str(main.id) != str(build_id):
+                main_ids = {str(r[0]) for r in (await db.execute(
+                    select(BuildContent.instruction_id).where(BuildContent.build_id == str(main.id))
+                )).all()}
+                removed = main_ids - present
+        except Exception:
+            removed = set()
+        instr_ids = list(changed | removed)
+        if not instr_ids:
+            # Nothing flagged (e.g. a build written before is_change existed):
+            # fall back to every row so nothing is silently skipped.
+            instr_ids = list(present)
         if not instr_ids:
             return []
-        scoped_ds = {r[0] for r in (await db.execute(
-            select(instruction_data_source_association.c.data_source_id).where(
-                instruction_data_source_association.c.instruction_id.in_(instr_ids)
-            )
-        )).all()}
-        has_global = len(scoped_ds) < len(instr_ids) or not scoped_ds
+        assoc = (await db.execute(
+            select(
+                instruction_data_source_association.c.instruction_id,
+                instruction_data_source_association.c.data_source_id,
+            ).where(instruction_data_source_association.c.instruction_id.in_(instr_ids))
+        )).all()
+        scoped_ds = {r[1] for r in assoc}
+        # Global = at least one affected instruction has no agent association.
+        # (Comparing the number of agents with the number of instructions
+        # mislabelled several instructions on ONE agent as global.)
+        scoped_instr = {str(r[0]) for r in assoc}
+        has_global = any(str(i) not in scoped_instr for i in instr_ids)
         if has_global:
             return list((await db.execute(
                 select(DataSource).where(
@@ -868,6 +899,7 @@ class AgentReliabilityService:
 
     async def run_for_suggestion(
         self, db, organization, build_id: str, *, user: Optional[User] = None,
+        trigger: str = TRIGGER_SUGGESTION,
     ) -> List[AgentAutomationRun]:
         """Apply each affected agent's Self-Learning policy to a new suggestion
         build. Returns the AgentAutomationRun rows recorded (one per agent that
@@ -954,7 +986,7 @@ class AgentReliabilityService:
                 # Wanted to measure but nothing to measure — leave for a human.
                 for ds, _pol in eval_agents:
                     records.append(await self._record(
-                        db, org_id, str(ds.id), TRIGGER_SUGGESTION, STATUS_NO_EVALS, user=user,
+                        db, org_id, str(ds.id), trigger, STATUS_NO_EVALS, user=user,
                         detail={"reason": "auto_run_eval on but no active evals scoped to this agent",
                                 "build_id": str(build_id)},
                     ))
@@ -963,7 +995,7 @@ class AgentReliabilityService:
             # Evaluate the SUGGESTION build itself (pinned snapshot).
             result = await self._evaluate(
                 db, organization, actor, case_ids, build_id=str(build_id),
-                trigger=TRIGGER_SUGGESTION,
+                trigger=trigger,
             )
             test_run_ids = result.get("run_ids") or ([result["run_id"]] if result.get("run_id") else [])
             green = result["failed"] == 0 and result["errored"] == 0
@@ -1009,7 +1041,7 @@ class AgentReliabilityService:
 
             for ds, _pol in eval_agents:
                 records.append(await self._record(
-                    db, org_id, str(ds.id), TRIGGER_SUGGESTION, status, user=user,
+                    db, org_id, str(ds.id), trigger, status, user=user,
                     detail={"reason": reason, "build_id": str(build_id),
                             "eval": result["summary"], "test_run_ids": test_run_ids},
                 ))
@@ -1031,7 +1063,7 @@ class AgentReliabilityService:
             )
             for ds, _pol in approve_agents:
                 records.append(await self._record(
-                    db, org_id, str(ds.id), TRIGGER_SUGGESTION, status, user=user,
+                    db, org_id, str(ds.id), trigger, status, user=user,
                     detail={"reason": reason, "build_id": str(build_id)},
                 ))
             return records
@@ -1047,7 +1079,7 @@ class AgentReliabilityService:
             status, reason = STATUS_PASSED_PENDING, f"auto-approve failed: {e}; left for review"
         for ds, _pol in approve_agents:
             records.append(await self._record(
-                db, org_id, str(ds.id), TRIGGER_SUGGESTION, status, user=user,
+                db, org_id, str(ds.id), trigger, status, user=user,
                 detail={"reason": reason, "build_id": str(build_id)},
             ))
         return records
