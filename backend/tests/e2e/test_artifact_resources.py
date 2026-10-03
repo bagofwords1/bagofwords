@@ -33,6 +33,12 @@ def artifact_api(monkeypatch, test_client, create_user, login_user, whoami, crea
 
     artifact = asyncio.run(seed())
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org}
+    settings = test_client.get('/api/organization/settings', headers=headers)
+    assert settings.status_code == 200
+    assert settings.json()['config']['enable_artifact_resources']['value'] is False
+    assert test_client.get(f'/api/artifacts/{artifact}/runtime/resources', headers=headers).status_code == 404
+    assert test_client.put('/api/organization/settings', headers=headers, json={
+        'config': {'enable_artifact_resources': {'value': True}}}).status_code == 200
     return test_client, f"/api/artifacts/{artifact}/runtime", headers, report["id"]
 
 
@@ -915,7 +921,7 @@ def test_deleted_resources_release_live_capacity_without_rebinding_names(artifac
 
 
 @pytest.mark.e2e
-def test_org_resource_switch_defaults_on_and_preserves_data(artifact_api, monkeypatch):
+def test_org_resource_switch_explicit_opt_in_preserves_data(artifact_api, monkeypatch):
     client, base, headers, _ = artifact_api
     monkeypatch.delenv('BOW_ARTIFACT_RESOURCES_ENABLED', raising=False)
     settings = client.get('/api/organization/settings', headers=headers)
@@ -944,6 +950,8 @@ def test_resource_setting_is_admin_only_and_tenant_scoped(artifact_api, invite_u
     from app.settings.config import settings
     monkeypatch.setattr(settings.bow_config.features, 'allow_multiple_organizations', True)
     other_org = create_organization(user_token=headers['Authorization'].split()[1])
+    assert client.put('/api/organization/settings', headers={**headers, 'X-Organization-Id': other_org},
+                      json={'config': {'enable_artifact_resources': {'value': True}}}).status_code == 200
     assert client.put('/api/organization/settings', headers=headers, json=payload).status_code == 200
 
     async def verify():

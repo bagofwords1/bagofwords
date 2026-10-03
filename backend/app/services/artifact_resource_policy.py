@@ -6,7 +6,7 @@ from app.models.organization_settings import OrganizationSettings
 async def artifact_resources_enabled(db, organization_id):
     config = await db.scalar(select(OrganizationSettings.config).where(
         OrganizationSettings.organization_id == str(organization_id)))
-    value = (config or {}).get('enable_artifact_resources', True)
+    value = (config or {}).get('enable_artifact_resources', False)
     if isinstance(value, dict):
         if value.get('state') == 'locked':
             return False
