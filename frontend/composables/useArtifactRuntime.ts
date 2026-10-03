@@ -70,7 +70,7 @@ export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElemen
       } catch(error:any) { send({error:{code:error.name==='AbortError'?'ABORTED':error.code || 'UNAVAILABLE',message:error.message || 'Request failed'}}) }
       finally { active.delete(message.id);controllers.delete(controller) }
     }
-    fetch(base+'/context',{headers:headers(),credentials:'omit'}).then(r=>r.ok?r.json():null).then(value=>{if(value)channel.port1.postMessage({context:value})}).catch(()=>{})
+    if (!context.readOnly) fetch(base+'/context',{headers:headers(),credentials:'omit'}).then(r=>r.ok?r.json():null).then(value=>{if(value)channel.port1.postMessage({context:value})}).catch(()=>{})
     channel.port1.start();source.postMessage({type:'BOW_RUNTIME_PORT',nonce:match[1]},'*',[channel.port2])
     if (!context.readOnly) {
       let initialized = false

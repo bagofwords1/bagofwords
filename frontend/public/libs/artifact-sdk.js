@@ -113,7 +113,16 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
     version: 1, data: data,
     context: { get: function () { return contextValue || {viewer: (window.ARTIFACT_DATA || {}).current_user || null, mode: window.__BOW_RUNTIME_NONCE__ ? 'live' : 'preview', resources: window.__BOW_FIXTURE_MODE__ ? fixtureDefinitions().map(function(d){return {name:d.name,kind:d.kind,operations:['read','create','update','delete']};}) : []}; }, subscribe: function(fn){contextListeners.push(fn);return function(){var i=contextListeners.indexOf(fn);if(i>=0)contextListeners.splice(i,1);};} },
     records: {collection: function (resource) { return {
-      list: function (opts) { opts = opts || {}; return recordRequest(resource,'list',{filter:opts.filter || {},limit:opts.limit || 50,cursor:opts.cursor || null,order_by:opts.orderBy || '-created_at'},opts); },
+      list: function (opts) {
+        opts = opts || {};
+        var limit = opts.limit === undefined ? 50 : opts.limit;
+        var order = opts.orderBy === undefined ? '-created_at' : opts.orderBy;
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+          return Promise.reject(sdkError({code:'VALIDATION',message:'Record list limit must be an integer between 1 and 100. Use nextCursor to load more records.'}));
+        if (['id','-id','created_at','-created_at'].indexOf(order) === -1)
+          return Promise.reject(sdkError({code:'VALIDATION',message:'Record list orderBy must be id, -id, created_at or -created_at.'}));
+        return recordRequest(resource,'list',{filter:opts.filter || {},limit:limit,cursor:opts.cursor || null,order_by:order},opts);
+      },
       get: function (id, opts) { return recordRequest(resource,'get',{id:id},opts); },
       create: function (value, opts) { return recordRequest(resource,'create',{data:value},opts); },
       update: function (id, value, opts) { return recordRequest(resource,'update',{id:id,data:value},opts); },

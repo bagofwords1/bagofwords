@@ -677,6 +677,7 @@
     "failed": "Export failed"
   },
   "reports": {
+    "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
     "title": "Reports",
     "subtitle": "Browse and manage your reports",
     "newReport": "New report",

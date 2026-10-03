@@ -636,6 +636,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "Impossible de charger le tableau de bord. Actualisez la page pour réessayer.",
     "title": "Rapports",
     "subtitle": "Parcourez et gérez vos rapports",
     "newReport": "Nouveau rapport",

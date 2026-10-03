@@ -307,6 +307,10 @@ def test_retired_publication_pins_do_not_restrict_shared_history(artifact_api):
             return [a.id for a in await ReportService().get_public_artifacts(db, report_id)]
 
     assert set(asyncio.run(shared())) == {first, second}
+    for version_id in (first, second):
+        response = client.get(f"/api/r/{report_id}/artifacts/{version_id}")
+        assert response.status_code == 200, response.text
+        assert response.json()["id"] == version_id
     assert client.post(base + "/publication", headers=headers, json={}).status_code == 404
     from app.ai.tools.mcp import list_mcp_tools
     assert 'publish_artifact' not in {t['name'] for t in list_mcp_tools()}

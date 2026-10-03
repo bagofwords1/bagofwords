@@ -38,3 +38,18 @@ const post=await posts.create({title:'Preview title'},{idempotencyKey:'new-title
 assert.equal((await posts.get(post.id)).data.status,'draft');
 assert.equal(bow.context.get().resources[0].name,'posts');
 console.log('PASS: verifier fixtures expose declared capabilities and validate defaults/required fields');
+
+// The same request contract applies before any preview or live transport.
+for (const mode of ['offline', 'fixture', 'live']) {
+  context.window.__BOW_FIXTURE_MODE__=mode==='fixture';
+  if(mode==='live') context.window.__BOW_RUNTIME_NONCE__='live-transport';
+  else delete context.window.__BOW_RUNTIME_NONCE__;
+  for (const opts of [{limit:0},{limit:101},{limit:1.5},{orderBy:'-updated_at'},{orderBy:'unknown'}]) {
+    await assert.rejects(bow.records.collection('entries').list(opts),e=>e.code==='VALIDATION');
+  }
+  delete context.window.__BOW_RUNTIME_NONCE__;
+  for (const orderBy of ['id','-id','created_at','-created_at']) {
+    assert.ok(Array.isArray((await bow.records.collection('entries').list({limit:100,orderBy})).items));
+  }
+}
+console.log('PASS: preview and SDK list options enforce backend bounds and sort contract');

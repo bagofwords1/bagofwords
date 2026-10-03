@@ -636,6 +636,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "Não foi possível carregar o painel. Atualize a página para tentar novamente.",
     "title": "Relatórios",
     "subtitle": "Navegue e gerencie seus relatórios",
     "newReport": "Novo relatório",

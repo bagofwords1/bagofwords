@@ -22,4 +22,4 @@ These existing tests cover catalog parsing, discovery, default installation, cus
 
 ## Rollout
 
-Deploy the catalog file and authoring guidance together. Existing organization skill copies are not automatically overwritten. Administrators use the existing catalog update action and review customization warnings; missing default installations receive the current version through the existing default installer. No new migration, auto-update policy, or changes to organization instructions are included. This follow-up has not been deployed to bow.
+Deploy the catalog file and authoring guidance together. Existing organization skill copies are not automatically overwritten. Administrators use the existing catalog update action and review customization warnings; missing default installations receive the current version through the existing default installer. No new migration, auto-update policy, or changes to organization instructions are included. Catalog source and authoring guidance were deployed to bow with the shared-artifact loading fix on 2026-10-03. Existing installed copies still require an explicit catalog update.

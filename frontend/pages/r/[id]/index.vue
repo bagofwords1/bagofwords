@@ -233,6 +233,10 @@
                     </div>
                 </div>
 
+                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-gray-500">
+                    <p>{{ $t('reports.artifactLoadFailed') }}</p>
+                </div>
+
                 <!-- Empty state (no artifacts, no legacy layout) -->
                 <div v-else class="absolute inset-0 flex items-center justify-center text-gray-400">
                     <div class="text-center">
@@ -313,6 +317,7 @@ async function fetchViewerContext() {
 const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
+const artifactLoadFailed = ref(false);
 const hasLegacyLayout = ref(false);
 const reportLoaded = ref(false);
 const dataReady = ref(false);
@@ -734,9 +739,11 @@ async function loadReport() {
 
 // Fetch the latest artifact for this report (using public endpoints)
 async function loadArtifact() {
+    artifactLoadFailed.value = false;
     try {
         // Use public endpoint - no auth required
-        const { data } = await useMyFetch(`/api/r/${report_id}/artifacts`);
+        const { data, error } = await useMyFetch(`/api/r/${report_id}/artifacts`);
+        if (error.value) throw error.value;
         if (data.value && Array.isArray(data.value) && data.value.length > 0) {
             hasArtifacts.value = true;
             // Prefer the newest dashboard/deck (the list is created_at desc):
@@ -745,7 +752,8 @@ async function loadArtifact() {
             const rows = data.value as any[];
             const latestArtifactId = (rows.find(a => a.mode !== 'doc') || rows[0]).id;
             // Use public artifact endpoint
-            const { data: fullArtifact } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
+            const { data: fullArtifact, error: detailError } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
+            if (detailError.value || !fullArtifact.value) throw detailError.value || new Error("Missing artifact response");
             if (fullArtifact.value) {
                 artifact.value = fullArtifact.value;
                 await loadArtifactFiles();
@@ -755,7 +763,8 @@ async function loadArtifact() {
         }
     } catch (e) {
         hasArtifacts.value = false;
-        console.log('[PublicArtifact] No artifact found, will check for legacy layout');
+        artifactLoadFailed.value = true;
+        console.error('[PublicArtifact] Failed to load artifact');
     }
 }
 

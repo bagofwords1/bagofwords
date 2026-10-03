@@ -636,6 +636,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen.",
     "title": "Rapporter",
     "subtitle": "Bläddra och hantera dina rapporter",
     "newReport": "Ny rapport",

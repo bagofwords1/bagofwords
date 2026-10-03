@@ -30,6 +30,7 @@ const unsubscribe = bow.context.subscribe(onContext); // call on unmount
 const entries = bow.records.collection(resourceName);
 await entries.list({filter: {indexedField: value}, limit: 20, cursor});
 // {items:[{id,data,revision,createdAt,updatedAt}],nextCursor}; equality filters.
+// limit is an integer 1..100. Follow nextCursor for more rows; never silently truncate.
 // Optional orderBy: created_at, -created_at (default/newest first), id, -id.
 await entries.get(id); // one record, with the same envelope
 await entries.create(data,{idempotencyKey:key}); // {id,revision}

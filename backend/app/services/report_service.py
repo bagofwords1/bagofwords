@@ -2416,7 +2416,7 @@ class ReportService:
         from app.models.artifact import ArtifactVersion
         artifact_result = await db.execute(
             select(ArtifactVersion).options(lazyload("*"))
-            .where(published_version_clause()).where(
+            .where(
                 ArtifactVersion.id == artifact_id,
                 ArtifactVersion.report_id == report_id,
                 ArtifactVersion.deleted_at.is_(None)

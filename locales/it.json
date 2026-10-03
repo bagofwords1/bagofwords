@@ -636,6 +636,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare.",
     "title": "Report",
     "subtitle": "Sfoglia e gestisci i tuoi report",
     "newReport": "Nuovo report",

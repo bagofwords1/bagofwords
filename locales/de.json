@@ -636,6 +636,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "Das Dashboard konnte nicht geladen werden. Bitte lade die Seite erneut.",
     "title": "Berichte",
     "subtitle": "Berichte durchsuchen und verwalten",
     "newReport": "Neuer Bericht",
