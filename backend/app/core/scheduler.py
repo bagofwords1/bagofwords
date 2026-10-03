@@ -19,7 +19,31 @@ jobstore = SQLAlchemyJobStore(
     tablename='apscheduler_jobs'
 )
 
-scheduler = AsyncIOScheduler(
+class ResilientAsyncIOScheduler(AsyncIOScheduler):
+    """AsyncIOScheduler whose wakeup loop survives a failing job-store write.
+
+    APScheduler 3.x guards ``get_due_jobs`` but not the ``update_job`` /
+    ``get_next_run_time`` calls later in ``_process_jobs``. When one of them
+    raises (SQLite "database is locked" under write contention, a dropped
+    Postgres connection), the exception escapes ``wakeup()``, the timer is never
+    re-armed, and every scheduled job in this process stops until restart,
+    with nothing logged by APScheduler itself. Here a failed pass is logged
+    and retried after ``jobstore_retry_interval``; a job whose next run time
+    could not be saved may fire again, which scheduled jobs already tolerate
+    (claim_scheduled_run).
+    """
+
+    def _process_jobs(self):
+        try:
+            return super()._process_jobs()
+        except Exception:
+            logger.exception(
+                "Scheduler pass failed; retrying in %ss", self.jobstore_retry_interval
+            )
+            return self.jobstore_retry_interval
+
+
+scheduler = ResilientAsyncIOScheduler(
     jobstores={
         'default': jobstore
     }

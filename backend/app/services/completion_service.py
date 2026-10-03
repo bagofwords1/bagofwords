@@ -2061,12 +2061,28 @@ class CompletionService:
             logging.error(f"Failed to mark report images for {report_id}: {e}")
             # Don't raise - marking failure shouldn't break the completion flow
 
-    async def get_completion_plans(self, db: AsyncSession, current_user: User, organization: Organization, completion_id: str):
-        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
-        completion = completion.scalars().first()
-
-        if not completion:
+    async def _get_completion_for_run_owner(
+        self, db: AsyncSession, completion_id: str, current_user: User, organization: Organization
+    ) -> Completion:
+        """Load a completion the caller may control: it must belong to a report
+        in the caller's organization, and the caller must own that report or
+        have started the run. 404 otherwise, so ids from elsewhere don't leak."""
+        completion = (await db.execute(
+            select(Completion).where(Completion.id == completion_id)
+        )).scalars().first()
+        report = await db.get(Report, completion.report_id) if completion else None
+        if (
+            not completion
+            or not report
+            or organization is None
+            or str(report.organization_id) != str(organization.id)
+            or str(current_user.id) not in {str(completion.user_id), str(report.user_id)}
+        ):
             raise HTTPException(status_code=404, detail="Completion not found")
+        return completion
+
+    async def get_completion_plans(self, db: AsyncSession, current_user: User, organization: Organization, completion_id: str):
+        await self._get_completion_for_run_owner(db, completion_id, current_user, organization)
 
         plans = await db.execute(select(Plan).where(Plan.completion_id == completion_id))
         plans = plans.scalars().all()
@@ -3109,12 +3125,18 @@ class CompletionService:
         await db.commit()
         return {"ok": True, "removed": removed, "result_json": merged}
 
-    async def update_completion_sigkill(self, db: AsyncSession, completion_id: str, current_user: User = None, organization: Organization = None):
-        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
-        completion = completion.scalars().first()
-
-        if not completion:
-            raise HTTPException(status_code=404, detail="Completion not found")
+    async def update_completion_sigkill(
+        self, db: AsyncSession, completion_id: str, current_user: User, organization: Organization,
+        *, authorize: bool = True,
+    ):
+        # authorize=False is for internal callers that already enforced their
+        # own access rule (e.g. stopping an eval run the caller manages).
+        if authorize:
+            completion = await self._get_completion_for_run_owner(db, completion_id, current_user, organization)
+        else:
+            completion = (await db.execute(select(Completion).where(Completion.id == completion_id))).scalars().first()
+            if not completion:
+                raise HTTPException(status_code=404, detail="Completion not found")
 
         # If the main analysis has already left 'in_progress' (success/error/stopped or
         # any future terminal state), the user-facing result is final — the agent may

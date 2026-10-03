@@ -366,8 +366,8 @@ class ModelReasoningUpdate(BaseModel):
     def _default_effort(cls, v):
         from app.utils.reasoning_effort import USER_EFFORTS, normalize_effort
         e = normalize_effort(v)
-        if e is not None and e not in USER_EFFORTS:
-            raise ValueError(f"default_effort must be one of: default, {', '.join(USER_EFFORTS)}")
+        if e is not None and e not in (*USER_EFFORTS, "off"):
+            raise ValueError(f"default_effort must be one of: default, off, {', '.join(USER_EFFORTS)}")
         return e
 
     @validator("params")
@@ -377,8 +377,8 @@ class ModelReasoningUpdate(BaseModel):
             return None
         cleaned: Dict[str, Dict[str, Any]] = {}
         for level, fields in v.items():
-            if level not in USER_EFFORTS:
-                raise ValueError(f"params keys must be levels: {', '.join(USER_EFFORTS)}")
+            if level not in (*USER_EFFORTS, "off"):
+                raise ValueError(f"params keys must be levels: off, {', '.join(USER_EFFORTS)}")
             if not isinstance(fields, dict):
                 raise ValueError(f"params.{level} must be a JSON object")
             bad = sorted(k for k in fields if str(k).lower() in _RESERVED_RAW_KEYS)
@@ -398,6 +398,6 @@ class ModelReasoningTest(BaseModel):
     def _effort(cls, v):
         from app.utils.reasoning_effort import USER_EFFORTS, normalize_effort
         e = normalize_effort(v)
-        if e not in USER_EFFORTS:
-            raise ValueError(f"effort must be one of: {', '.join(USER_EFFORTS)}")
+        if e not in (*USER_EFFORTS, "off"):
+            raise ValueError(f"effort must be one of: off, {', '.join(USER_EFFORTS)}")
         return e

@@ -34,6 +34,7 @@ def _e2e_force_enterprise_license():
         org_name="e2e-tests",
         features=[
             "audit_logs",
+            "audit_log_streams",
             "step_retention_config",
             "scim",
             "custom_roles",

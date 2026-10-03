@@ -545,7 +545,15 @@ async def get_domain_connections(
     # tables selector can prompt "Connect your account" for delegated (OBO)
     # connections instead of rendering an unexplained empty list.
     from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+    from app.schemas.data_source_registry import get_entry
     _status_svc = UserDataSourceCredentialsService()
+
+    def _catalog_shape(conn):
+        try:
+            entry = get_entry(conn.type)
+            return {"data_shape": entry.data_shape, "catalog_ownership": entry.catalog_ownership}
+        except Exception:
+            return {"data_shape": "tables", "catalog_ownership": "shared"}
 
     async def _user_status(conn):
         if (conn.auth_policy or "system_only") != "user_required":
@@ -563,6 +571,7 @@ async def get_domain_connections(
             "id": str(conn.id),
             "name": conn.name,
             "type": conn.type,
+            **_catalog_shape(conn),
             "is_active": conn.is_active,
             "config": _safe_config(conn),
             "auth_policy": conn.auth_policy,
