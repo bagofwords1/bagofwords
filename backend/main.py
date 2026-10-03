@@ -459,6 +459,19 @@ async def startup_event():
     if not is_scheduler_leader:
         logger.info("Scheduler leader lock not acquired — skipping job registration in this worker")
 
+    # Tool-audit events that could not reach the database before a previous
+    # shutdown were spilled to disk; put them into audit_logs now. Leader-only
+    # so a multi-worker start does not race the same files (each file is also
+    # claimed by atomic rename). Background task: a large spill never delays
+    # serving.
+    if is_scheduler_leader:
+        try:
+            import asyncio as _asyncio
+            from app.ee.audit.tool_audit import replay_spilled_tool_audit_events
+            app.state.tool_audit_replay_task = _asyncio.create_task(replay_spilled_tool_audit_events())
+        except Exception as e:
+            logger.error(f"Failed to start tool audit spill replay: {e}")
+
     # Organizations created before a pre-built skill was flagged
     # default_enabled get it installed once, here. Leader-only so multiple
     # workers do not race the same check-then-install; a background task so a
