@@ -3650,6 +3650,8 @@
     "copyClipboardFailed": "Failed to copy to clipboard"
   },
   "errors": {
+    "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
+    "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
     "generic": "Something went wrong. Please try again.",
     "network": "Network error. Check your connection.",
     "unauthorized": "You are not authorized to do that.",
