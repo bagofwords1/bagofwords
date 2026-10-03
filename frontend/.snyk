@@ -132,3 +132,26 @@ ignore:
           in this deployment, so ioredis is never loaded at runtime. Only fix is
           a pre-release (6.0.0-beta.1). Re-review on expiry.
         expires: 2026-12-21T00:00:00.000Z
+  # Infinite loop in uri-js (High). Reached ONLY through dev/build-time
+  # TypeScript checking tooling, never the shipped browser bundle or the
+  # production server:
+  #   @nuxt/typescript-build > fork-ts-checker-webpack-plugin >
+  #     schema-utils > ajv > uri-js
+  # ajv is pinned to 6.15.0 here (resolutions) to clear SNYK-JS-AJV-15274295,
+  # but ajv 6.x still depends on uri-js ^4.2.2 and 4.4.1 is the latest 4.x —
+  # every uri-js version is flagged (fixedIn: []), so no upgrade remediates it.
+  # fork-ts-checker runs only during `nuxt dev`/type-check on developer and CI
+  # machines; it is NOT part of the production `.output` runtime, and the only
+  # inputs uri-js parses here are the project's own TS config / schema URIs,
+  # never attacker-controlled request data. Dropped when @nuxt/typescript-build
+  # is removed in favour of the Nuxt 4 / vue-tsc type-check path. Time-boxed.
+  SNYK-JS-URIJS-19963963:
+    - '*':
+        reason: >-
+          Dev/build-time-only transitive (TypeScript checking via
+          @nuxt/typescript-build > fork-ts-checker-webpack-plugin >
+          schema-utils > ajv); not in the production .output runtime. No fixed
+          uri-js version exists (all versions affected; ajv 6.x requires
+          uri-js 4.x). Re-review on expiry or when the typescript-build chain is
+          dropped.
+        expires: 2026-12-21T00:00:00.000Z
