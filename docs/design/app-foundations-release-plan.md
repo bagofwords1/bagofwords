@@ -49,11 +49,11 @@ Schema/configuration and permissions live together on the resource definition, w
 
 Keep one UI source entry for now. A versioned manifest can later describe multiple assets without changing identity or storage. Do not make a project editor or a separate database per artifact prerequisites.
 
-### Publication without breaking legacy behavior
+### Existing sharing and version behavior
 
-Existing artifacts continue their current newest-version behavior. New resource-backed sites can opt into explicit publication: edits create drafts, and publishing atomically selects a compatible existing `ArtifactVersion`. Enabling this mode on an existing artifact must deliberately preserve its currently visible version.
+All artifacts retain the existing newest-version sharing behavior. There is no separate app-publication tool or pinning mechanism. Historical publication rows are retained inertly for database compatibility and do not filter shared versions.
 
-Publishing UI and publishing blog content are distinct. A post becoming public is a record transition checked by backend policy. Reverting UI does not restore permissions, remove records or change which posts are published.
+Publishing blog content is a record transition checked by backend policy. Reverting UI does not restore permissions, remove records or change which posts are published.
 
 Resource policy never comes from whichever UI version happens to be latest. Declarations in code are requirements, not permission grants.
 
@@ -79,7 +79,6 @@ The resource-authoring tool does **not** create or edit individual blog entries.
 | `read_artifact` — extend | Return code/version and bounded resource definitions, bindings, effective permissions and schema revisions. No private records or secrets by default. |
 | `manage_artifact_resources` — new | Explicit `create`, `update`, `delete` actions on collection, file or approved operation definitions. Updates include an expected revision; deletion reports data/dependency impact. This replaces the broad `configure_artifact_resources` proposal. |
 | Existing sharing operation — unchanged | Use supported product sharing actions as they are. Resource authoring never creates a new audience or bypasses artifact visibility. |
-| `publish_artifact` — for opted-in publication | Validate requirements and select the UI version through the same service as the UI. |
 
 Resource rules reference existing users, groups and permission conventions. The resource tool updates schema/configuration and permissions together on that resource. Sharing controls who can open the artifact; resource rules control what those viewers can read/change. Both checks must pass. The server validates references and the caller's authority; there are no new artifact roles or group memberships.
 
@@ -163,7 +162,7 @@ Proposed API family: `/api/artifacts/{artifact_id}/resources`, `/collections/{co
 
 | Existing seam | Planned changes |
 | --- | --- |
-| `backend/app/models/artifact.py`, `backend/app/services/artifact_service.py` | Extend settings/publication and version requirements; preserve constructors, history and identity. |
+| `backend/app/models/artifact.py`, `backend/app/services/artifact_service.py` | Extend settings and version requirements; preserve constructors, history and identity. |
 | `backend/app/ai/tools/schemas/create_artifact.py`, `backend/app/ai/tools/schemas/edit_artifact.py` | Add backward-compatible optional fields and resource/verification results. |
 | `backend/app/ai/tools/implementations/create_artifact.py`, `backend/app/ai/tools/implementations/edit_artifact.py` | Use shared resource validation and fixture verification; preserve current exact-edit behavior. Update all tool exposure paths consistently. |
 | `frontend/components/dashboard/ArtifactFrame.vue`, `frontend/utils/artifactIframe.ts`, `frontend/public/libs/artifact-globals.js` | SDK bootstrap, safe transport, identity changes, streams and legacy adapters across embedded/shared/full-screen views. |
@@ -184,7 +183,7 @@ The following is the proposed public contract, not an implemented library. Expos
 | `files` | `upload(resource, file, options)`, `get(fileId, options)`, `download(fileId, options)`, `delete(fileId, options)` | Ready file reference, authorized metadata/content or deleted-binding acknowledgement. |
 | `ai` | `stream(operation, input, { signal })` | Async iterator of text deltas and one completion event; typed errors reject iteration. No saved execution, resume or history API. |
 
-The host binds artifact/organization and authenticates the request. Names resolve to stable resource IDs within the current artifact; no method accepts an arbitrary acting user or group. Renaming a resource preserves its ID; keep existing declared aliases until dependent UI versions migrate, or reject incompatible publication. Do not resolve an old alias to a new resource with different data.
+The host binds artifact/organization and authenticates the request. Names resolve to stable resource IDs within the current artifact; no method accepts an arbitrary acting user or group. Renaming a resource preserves its ID; keep existing declared aliases until dependent UI versions migrate, or reject incompatible UI requirements. Do not resolve an old alias to a new resource with different data.
 
 #### Records
 
@@ -244,7 +243,7 @@ New SDK errors use `{ code, message, requestId, details? }`, with safe bounded d
 
 Subscriptions return cleanup functions; UI hooks unsubscribe on unmount. Changing artifact, viewer or mode clears scoped caches and closes old channels; logout stops delivery and aborts active requests best-effort. Keep capabilities current, but treat them as display guidance: the server always enforces policy. Fixture mode uses identical signatures and deterministic streams selected by the trusted host, never a caller-controlled live/test flag.
 
-Store a separate SDK contract version on new artifact versions, without repurposing the existing visual runtime version. Older artifacts with no SDK metadata use their existing helpers. Version the host and runtime together, validate compatibility at preview/publication, retain supported old contracts, and return a clear unsupported-version state rather than silently reinterpreting calls. Publish types and general examples from the same contract used by service validation; include them in Luna's ordinary reference, not scenario-specific prompts.
+Store a separate SDK contract version on new artifact versions, without repurposing the existing visual runtime version. Older artifacts with no SDK metadata use their existing helpers. Version the host and runtime together, validate compatibility at preview, retain supported old contracts, and return a clear unsupported-version state rather than silently reinterpreting calls. Publish types and general examples from the same contract used by service validation; include them in Luna's ordinary reference, not scenario-specific prompts.
 
 ### Data compatibility: an additive facade, not a rewrite
 
@@ -343,7 +342,7 @@ The trusted host records a view after a published site becomes visible and initi
 
 Store artifact/version, time, surface and minimal pseudonymous subject/session information where permitted. Do not store record contents, prompts, filenames, full URLs or sensitive referrers. Anonymous sessions are not unique people; avoid fingerprinting.
 
-Validate/rate-limit ingestion and deduplicate aggregation. Analytics failure must not block rendering. Proposed retention: 30 days of events and 13 months of daily aggregates, configurable. Separate product views from operational usage and security audits. Audit permission/schema/publication changes and mutations without copying sensitive payloads.
+Validate/rate-limit ingestion and deduplicate aggregation. Analytics failure must not block rendering. Proposed retention: 30 days of events and 13 months of daily aggregates, configurable. Separate product views from operational usage and security audits. Audit permission/schema changes and mutations without copying sensitive payloads.
 
 ## 8. Compatibility, lifecycle and future independence
 
@@ -379,7 +378,7 @@ Example user ask: “I need a page where I can upload a document and get a summa
 
 ### C. Create a blog site through chat
 
-Example user ask: “Make a blog for our team with pictures. We should be able to work on drafts before readers see them.” The agent creates Blog posts and cover resources, list/detail pages and editing controls. Author a draft, upload a cover, publish it, then visit its stable post URL anonymously in a fresh browser. Refresh/deep linking works. Draft body, internal fields and unpublished cover are denied even by direct ID. Concurrent attempts to create the same slug produce a useful conflict. Public rich content is sanitized and cannot execute scripts. Post publication is independent of UI publication.
+Example user ask: “Make a blog for our team with pictures. We should be able to work on drafts before readers see them.” The agent creates Blog posts and cover resources, list/detail pages and editing controls. Author a draft, upload a cover, publish it, then visit its stable post URL anonymously in a fresh browser. Refresh/deep linking works. Draft body, internal fields and unpublished cover are denied even by direct ID. Concurrent attempts to create the same slug produce a useful conflict. Public rich content is sanitized and cannot execute scripts. Post publication is enforced through record permissions, independent of UI versions.
 
 ### D. Add permissions to the blog
 
@@ -459,7 +458,7 @@ This is a large feature even with model reuse. Keep one coherent release branch,
 | Stage | Deliverable |
 | --- | --- |
 | 1. Contracts and baseline | Reconcile main, historical artifact fixtures, existing auth/sharing, deployed records, storage topology and supported limits. Agree schema-management tool/API contracts, existing group integration, the actual sharing support matrix and Luna evaluation budgets. |
-| 2. Artifact foundation | Access resolver, optional publication/settings, isolated host, legacy adapters and additive migrations. |
+| 2. Artifact foundation | Access resolver, organization settings, isolated host, legacy adapters and additive migrations. |
 | 3. AI authoring and records | Tool extensions, schema/resource management, records/policies/indexing, fixture validation/repair and read-only Data explorer. |
 | 4. Files and execution | Documents/images, storage lifecycle, request-scoped handlers/streaming, explicit result saving and existing usage accounting. |
 | 5. Sharing and inspection | Resource-local row/file permissions, unchanged sharing integration, read-only Data explorer and basic Analytics view. No analytical catalog integration in this release. |

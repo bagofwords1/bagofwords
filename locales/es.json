@@ -1095,6 +1095,18 @@
     "loopRetryNotice": "Se produjo un error interno: reintentando desde el contexto más reciente (intento {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Error al cambiar el recurso",
+      "create": "Recurso creado",
+      "update": "Recurso actualizado",
+      "delete": "Recurso eliminado",
+      "working": "Configurando recurso",
+      "stopped": "Detenido",
+      "unchanged": "Recurso sin cambios",
+      "preserved": "Se conservaron los registros existentes.",
+      "changed": "Cambios",
+      "noChanges": "No se aplicaron cambios."
+    },
     "common": {
       "input": "Entrada",
       "output": "Salida",

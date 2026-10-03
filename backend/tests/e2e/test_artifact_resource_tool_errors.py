@@ -1,7 +1,7 @@
 """A rejected resource change is a tool result, never a crashed agent turn.
 
 Authoring tools share the agent's database session. A rejected schema change,
-publication or rebuild must roll back only its own work: the agent's loaded
+rebuild must roll back only its own work: the agent's loaded
 objects stay usable, the error reaches the model as an observation, and the
 next tool call in the same turn succeeds. (Live E5 eval: a session-wide
 rollback expired the agent's execution row and every later step raised
@@ -110,27 +110,14 @@ def test_rejected_schema_change_keeps_the_turn_alive(report_ctx, rejected):
     ]))
 
     assert "error" not in created["observation"], created
-    assert refused["output"] == {"success": False}
+    assert refused["output"]["success"] is False
+    assert refused["output"]["committed"] is False
+    assert refused["observation"]["error_code"].startswith("ARTIFACT_RESOURCE_")
     assert refused["observation"]["error"], "the rejection must reach the model as an observation"
     assert "error" not in recovered["observation"], "a later call in the same turn must still work"
     assert asyncio.run(_live_names(artifact_id)) == {first, later}
 
 
-@pytest.mark.e2e
-def test_rejected_publication_keeps_the_turn_alive(report_ctx):
-    from app.ai.tools.implementations.publish_artifact import PublishArtifactTool
-
-    ids, artifact_id, version_id = report_ctx
-    later = f"notes_{uuid.uuid4().hex[:6]}"
-    refused, recovered = asyncio.run(_turn(ids, [
-        (PublishArtifactTool(), {"artifact_id": artifact_id, "version_id": version_id,
-                             "expected_revision": 7, "idempotency_key": "k-" + uuid.uuid4().hex}),
-        _manage(artifact_id, action="create", definition=_definition(later)),
-    ]))
-
-    assert refused["output"] == {"success": False} and refused["observation"]["error"]
-    assert "error" not in recovered["observation"]
-    assert asyncio.run(_live_names(artifact_id)) == {later}
 
 
 @pytest.fixture

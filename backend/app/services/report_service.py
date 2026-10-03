@@ -2390,12 +2390,8 @@ class ReportService:
 
         # Fetch artifacts for this report
         from app.models.artifact import ArtifactVersion
-        from app.models.artifact_resource import ArtifactPublication
-        from app.services.artifact_publication import published_version_clause
         artifacts_result = await db.execute(
             select(ArtifactVersion).options(lazyload("*"))
-            .outerjoin(ArtifactPublication, ArtifactPublication.artifact_id == ArtifactVersion.artifact_id)
-            .where(published_version_clause())
             .where(ArtifactVersion.report_id == report_id, ArtifactVersion.deleted_at.is_(None))
             .order_by(ArtifactVersion.created_at.desc())
         )
@@ -2418,11 +2414,8 @@ class ReportService:
 
         # Fetch the artifact and verify it belongs to this report
         from app.models.artifact import ArtifactVersion
-        from app.models.artifact_resource import ArtifactPublication
-        from app.services.artifact_publication import published_version_clause
         artifact_result = await db.execute(
             select(ArtifactVersion).options(lazyload("*"))
-            .outerjoin(ArtifactPublication, ArtifactPublication.artifact_id == ArtifactVersion.artifact_id)
             .where(published_version_clause()).where(
                 ArtifactVersion.id == artifact_id,
                 ArtifactVersion.report_id == report_id,

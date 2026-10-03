@@ -1095,6 +1095,18 @@
     "loopRetryNotice": "אירעה שגיאה פנימית — מנסה שוב מההקשר העדכני (ניסיון {attempt} מתוך {max})"
   },
   "tools": {
+    "resource": {
+      "failed": "שינוי המשאב נכשל",
+      "create": "משאב נוצר",
+      "update": "משאב עודכן",
+      "delete": "משאב נמחק",
+      "working": "הגדרת משאב",
+      "stopped": "נעצר",
+      "unchanged": "המשאב ללא שינוי",
+      "preserved": "הרשומות הקיימות נשמרו.",
+      "changed": "שינויים",
+      "noChanges": "לא הוחלו שינויים."
+    },
     "common": {
       "input": "קלט",
       "output": "פלט",

@@ -278,7 +278,7 @@ def test_views_deduplicate_and_request_sizes_are_bounded(artifact_api):
 
 
 @pytest.mark.e2e
-def test_explicit_publication_pins_shared_ui_without_changing_legacy_history(artifact_api):
+def test_retired_publication_pins_do_not_restrict_shared_history(artifact_api):
     client, base, headers, report_id = artifact_api
 
     async def versions():
@@ -291,6 +291,9 @@ def test_explicit_publication_pins_shared_ui_without_changing_legacy_history(art
             draft = await new_version(db, row, user_id=row.user_id, content={"code": "draft"})
             report = await db.get(Report, report_id)
             report.artifact_visibility = "public"
+            # A retired pin cannot be produced through the API anymore.
+            from app.models.artifact_resource import ArtifactPublication
+            db.add(ArtifactPublication(artifact_id=row.artifact_id, version_id=row.id, revision=1))
             await db.commit()
             return row.id, draft.id
 
@@ -304,16 +307,9 @@ def test_explicit_publication_pins_shared_ui_without_changing_legacy_history(art
             return [a.id for a in await ReportService().get_public_artifacts(db, report_id)]
 
     assert set(asyncio.run(shared())) == {first, second}
-    payload = {"version_id": first, "expected_revision": 0, "idempotency_key": str(uuid.uuid4())}
-    response = client.post(base + "/publication", headers=headers, json=payload)
-    assert response.status_code == 200, response.text
-    assert asyncio.run(shared()) == [first]
-    assert client.post(base + "/publication", headers=headers, json=payload).json() == response.json()
-    payload.update(version_id=second, idempotency_key=str(uuid.uuid4()))
-    assert client.post(base + "/publication", headers=headers, json=payload).status_code == 409
-    payload["expected_revision"] = 1
-    assert client.post(base + "/publication", headers=headers, json=payload).status_code == 200
-    assert asyncio.run(shared()) == [second]
+    assert client.post(base + "/publication", headers=headers, json={}).status_code == 404
+    from app.ai.tools.mcp import list_mcp_tools
+    assert 'publish_artifact' not in {t['name'] for t in list_mcp_tools()}
 
 
 @pytest.mark.e2e
@@ -970,3 +966,23 @@ def test_resource_setting_is_admin_only_and_tenant_scoped(artifact_api, invite_u
     assert client.put('/api/organization/settings', headers=headers,
                       json={'config': {'enable_artifact_resources': {'value': True}}}).status_code == 200
     assert client.get(base + '/resources', headers=headers).status_code == 200
+
+
+@pytest.mark.e2e
+def test_resource_changes_describe_committed_schema_and_permissions(artifact_api):
+    client, base, headers, _ = artifact_api
+    created = make_collection(client, base, headers)
+    assert created['action'] == 'create' and created['committed'] is True
+    assert created['name'] == 'entries' and created['definition']['fields']['title']['required']
+    definition = created['definition']
+    definition['permissions']['read'] = {'audience': 'public'}
+    response = client.post(base+'/resources', headers=headers, json={
+        'action':'update', 'resource':'entries','definition':definition,
+        'expected_revision':created['revision'],'idempotency_key':str(uuid.uuid4())})
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated['resource_artifact_id'] == base.split('/')[3]
+    assert updated['revision'] > created['revision'] and updated['records_preserved'] is True
+    assert updated['changes']['permissions']['after']['read']['audience'] == 'public'
+    assert updated['changes']['permissions']['before']['read']['audience'] != 'public'
+    assert 'records' not in updated and 'files' not in updated

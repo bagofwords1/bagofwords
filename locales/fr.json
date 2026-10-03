@@ -1080,6 +1080,18 @@
     "loopRetryNotice": "Erreur interne rencontrée — nouvelle tentative à partir du contexte le plus récent (tentative {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Échec de la modification",
+      "create": "Ressource créée",
+      "update": "Ressource mise à jour",
+      "delete": "Ressource supprimée",
+      "working": "Configuration de la ressource",
+      "stopped": "Arrêté",
+      "unchanged": "Ressource inchangée",
+      "preserved": "Les enregistrements existants sont conservés.",
+      "changed": "Modifications",
+      "noChanges": "Aucune modification appliquée."
+    },
     "common": {
       "input": "Entrée",
       "output": "Sortie",

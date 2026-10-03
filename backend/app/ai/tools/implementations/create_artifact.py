@@ -1690,7 +1690,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "artifact_id": str(artifact.id),
                 "resource_artifact_id": str(artifact.artifact_id),
                 "mode": data.mode,
-                "visualization_count": len(visualizations),
+                "resources": await resource_service.definitions() if data.resources and data.mode == "page" and render_clean else [],
+            "visualization_count": len(visualizations),
                 "visualization_ids": included_viz_ids,
                 "render_errors": [_error_msg],
             }
@@ -1749,7 +1750,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "artifact_id": str(artifact.id),
                 "resource_artifact_id": str(artifact.artifact_id),
                 "mode": data.mode,
-                "visualization_count": len(visualizations),
+                "resources": await resource_service.definitions() if data.resources and data.mode == "page" and render_clean else [],
+            "visualization_count": len(visualizations),
                 "visualization_ids": included_viz_ids,
                 "render_errors": render_errors,
             }
@@ -1813,6 +1815,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "lines": code_lines,
             },
             "visualization_ids": included_viz_ids,
+            "resources": await resource_service.definitions() if data.resources and data.mode == "page" and render_clean else [],
             "visualization_count": len(visualizations),
         }
         # Code for collapsible toggle (collapsed by default in UI)
@@ -1869,6 +1872,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             "artifact_id": str(artifact.id),
                 "resource_artifact_id": str(artifact.artifact_id),
             "mode": data.mode,
+            "resources": await resource_service.definitions() if data.resources and data.mode == "page" and render_clean else [],
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
         }

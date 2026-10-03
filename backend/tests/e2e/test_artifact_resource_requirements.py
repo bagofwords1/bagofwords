@@ -1,15 +1,4 @@
-"""A UI version's resource requirements track the code it actually runs.
-
-Publication refuses a version whose code needs a resource that no longer
-matches, so the requirements must cover every resource the code names,
-including ones added after the first build (live E5 eval: a collection added
-with manage_artifact_resources and wired in by edit_artifact was missing, and
-the version published after that collection was deleted).
-
-Run:
-    cd backend
-    TESTING=true uv run pytest tests/e2e/test_artifact_resource_requirements.py --db=sqlite
-"""
+"""Resource requirements and reserved-name compatibility."""
 import asyncio
 import uuid
 
@@ -53,10 +42,6 @@ def _configure(client, base, headers, **change):
                        json={"idempotency_key": "k-" + uuid.uuid4().hex, **change})
 
 
-def _publish(client, base, headers, version_id):
-    revision = client.get(base + "/publication", headers=headers).json()["revision"]
-    return client.post(base + "/publication", headers=headers, json={
-        "version_id": version_id, "expected_revision": revision, "idempotency_key": "k-" + uuid.uuid4().hex})
 
 
 @pytest.mark.e2e
@@ -81,22 +66,6 @@ def test_requirements_cover_every_named_resource_and_only_those(app_ctx):
     assert requirements[added] == {"kind": "collection", "fields": {"title": "string", "done": "boolean"}}
 
 
-@pytest.mark.e2e
-def test_publishing_a_version_whose_resource_was_deleted_is_refused(app_ctx):
-    client, headers, report_id, org = app_ctx
-    name = f"checklist_{uuid.uuid4().hex[:6]}"
-    requirement = {name: {"kind": "collection", "fields": {"title": "string", "done": "boolean"}}}
-    artifact_id, version_id = _seed(report_id, org, f"collection('{name}')", requirement)
-    base = f"/api/artifacts/{artifact_id}/runtime"
-    created = _configure(client, base, headers, action="create", definition=_collection(name)).json()
-
-    assert _publish(client, base, headers, version_id).status_code == 200
-    deleted = _configure(client, base, headers, action="delete", resource=name, expected_revision=created["revision"])
-    assert deleted.status_code == 200, deleted.text
-
-    refused = _publish(client, base, headers, version_id)
-    assert refused.status_code == 409, refused.text
-    assert refused.json()["error_code"] == "ARTIFACT_RESOURCE_CONFLICT"
 
 
 @pytest.mark.e2e

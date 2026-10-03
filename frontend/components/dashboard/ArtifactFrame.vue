@@ -177,9 +177,6 @@
         <!-- View as (page artifacts only): preview the dashboard as another
              viewer — anonymous or any org member, searchable by name/email.
              Identity-only — data is unaffected. -->
-        <button v-if="resourcesAvailable && selectedArtifact?.artifact_id && !verificationPreview" type="button"
-          class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700"
-          @click="resourceInspectorOpen = true">{{ $t('artifactResources.inspect') }}</button>
         <USelectMenu
           v-if="canViewAs"
           v-model="viewAsMode"
@@ -1610,6 +1607,9 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
   }
 
+  if (resourcesAvailable.value && selectedArtifact.value?.artifact_id && !props.verificationPreview) {
+    view.unshift({ label: t('artifactResources.inspect'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorOpen.value = true; } });
+  }
   return [edit, exports, view].filter(g => g.length > 0);
 });
 

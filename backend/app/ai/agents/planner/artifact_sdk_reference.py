@@ -11,7 +11,7 @@ Artifact resources are enabled by default and controlled by the organization set
 
 Declare optional resources on create_artifact. For existing artifacts use
 read_artifact, then manage_artifact_resources for schema/configuration changes,
-then edit_artifact for UI changes. Optional publish_artifact selects a completed UI version for shared viewers; use the publication revision from read_artifact. Until explicitly enabled, existing latest-version sharing remains unchanged. Resource IDs belong to the stable artifact,
+then edit_artifact for UI changes. Existing sharing shows the latest artifact version; there is no separate app-publication step. Resource IDs belong to the stable artifact,
 not its UI version. Do not manufacture IDs or infer permission from UI code.
 Collections define named fields with type string/number/boolean/file, required,
 default, enum, indexed and unique (unique requires indexed). Collection names

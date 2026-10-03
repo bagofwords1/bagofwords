@@ -1121,6 +1121,18 @@
     "loopRetryNotice": "Hit an internal error — retrying from the latest context (attempt {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Resource change failed",
+      "create": "Created resource",
+      "update": "Updated resource",
+      "delete": "Deleted resource",
+      "working": "Configuring resource",
+      "stopped": "Stopped",
+      "unchanged": "Resource unchanged",
+      "preserved": "Existing records preserved.",
+      "changed": "Changed",
+      "noChanges": "No changes applied."
+    },
     "common": {
       "input": "Input",
       "output": "Output",

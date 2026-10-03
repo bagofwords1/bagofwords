@@ -1080,6 +1080,18 @@
     "loopRetryNotice": "Interner Fehler aufgetreten — neuer Versuch mit dem aktuellsten Kontext (Versuch {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Ressourcenänderung fehlgeschlagen",
+      "create": "Ressource erstellt",
+      "update": "Ressource aktualisiert",
+      "delete": "Ressource gelöscht",
+      "working": "Ressource wird konfiguriert",
+      "stopped": "Gestoppt",
+      "unchanged": "Ressource unverändert",
+      "preserved": "Bestehende Datensätze bleiben erhalten.",
+      "changed": "Änderungen",
+      "noChanges": "Keine Änderungen vorgenommen."
+    },
     "common": {
       "input": "Eingabe",
       "output": "Ausgabe",

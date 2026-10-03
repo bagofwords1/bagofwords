@@ -34,7 +34,7 @@
         <div v-if="selected" class="rounded-lg bg-gray-50 dark:bg-gray-800 p-4"><div class="flex justify-between"><h3 class="text-sm font-medium">{{ t('artifactResources.details') }}</h3><UButton size="xs" variant="ghost" @click="selected = null">{{ t('common.close') }}</UButton></div><pre class="text-xs whitespace-pre-wrap break-words mt-2 max-h-48 overflow-auto">{{ JSON.stringify(selected.data, null, 2) }}</pre></div>
       </div>
       <div v-else class="space-y-5">
-        <USelect v-model="days" :options="ranges" option-attribute="label" value-attribute="value" />
+        <USelectMenu v-model="days" :options="ranges" option-attribute="label" value-attribute="value" class="w-44" :aria-label="t('artifactResources.analytics')" :popper="{ placement: 'bottom-start' }" />
         <div class="grid grid-cols-2 gap-4"><div class="border rounded-lg p-4"><p class="text-sm text-gray-500">{{ t('artifactResources.views') }}</p><p class="text-3xl font-semibold mt-2">{{ analytics?.views ?? '—' }}</p></div><div class="border rounded-lg p-4"><p class="text-sm text-gray-500">{{ t('artifactResources.viewers') }}</p><p class="text-3xl font-semibold mt-2">{{ analytics?.authenticatedViewers ?? '—' }}</p></div></div>
         <p class="text-xs text-gray-500">{{ t('artifactResources.anonymousNote') }}</p>
         <div v-if="analytics?.daily?.length" class="space-y-2"><div v-for="day in analytics.daily" :key="day.date" class="flex items-center gap-3 text-xs"><span class="w-24">{{ day.date }}</span><div class="bg-blue-500 rounded h-4" :style="{width: `${Math.max(1, day.views / maxViews * 65)}%`}"/><span>{{ day.views }}</span></div></div>

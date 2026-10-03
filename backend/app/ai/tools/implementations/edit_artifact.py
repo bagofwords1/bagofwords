@@ -397,6 +397,7 @@ class EditArtifactTool(Tool):
                     "success": True,
                     "verification_hint": verification_hint,
                     "artifact_id": str(new_artifact.id),
+                    "resource_artifact_id": str(new_artifact.artifact_id),
                     "title": new_artifact.title,
                     "mode": new_artifact.mode,
                     "version": new_artifact.version,
@@ -416,6 +417,7 @@ class EditArtifactTool(Tool):
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
                     "artifact_id": str(new_artifact.id),
+                    "resource_artifact_id": str(new_artifact.artifact_id),
                     "mode": new_artifact.mode,
                     "version": new_artifact.version,
                     "diff_applied": True,

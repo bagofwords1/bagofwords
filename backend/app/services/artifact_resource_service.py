@@ -294,6 +294,7 @@ class ArtifactResources:
         old_response = await self.replay(change.idempotency_key, fingerprint)
         if old_response is not None:
             return old_response
+        before = None
         if change.action == "create":
             if change.definition is None:
                 fail()
@@ -341,6 +342,7 @@ class ArtifactResources:
             self.db.add(row)
         else:
             row, previous = await self.resource(change.resource, lock=True)
+            before = previous.model_dump()
             if change.expected_revision != row.revision:
                 fail("CONFLICT", "Resource changed; read its current definition", 409)
             if change.action == "delete":
@@ -429,7 +431,18 @@ class ArtifactResources:
                 if found != ids:
                     fail("VALIDATION", "Unknown group in this organization")
         await self.db.flush()
-        response = {"id": row.id, "revision": row.revision, "deleted": row.deleted_at is not None}
+        definition = ResourceDefinition.model_validate(row.definition).model_dump()
+        changes = [k for k in definition if before is None or before.get(k) != definition[k]]
+        response = {
+            "success": True, "committed": True, "action": change.action,
+            "resource_artifact_id": str(self.artifact.id), "id": row.id,
+            "name": row.name, "kind": row.kind, "revision": row.revision,
+            "deleted": row.deleted_at is not None, "definition": definition,
+            "changed_sections": changes if change.action != "delete" else ["deleted"],
+            "changes": {k: {"before": (before or {}).get(k), "after": definition[k]} for k in changes} if change.action != "delete" else {"deleted": {"before": False, "after": True}},
+            "previous_revision": None if before is None else change.expected_revision,
+            "records_preserved": True,
+        }
         await self.audit("artifact.resource." + change.action, row.id, revision=row.revision)
         self.remember(change.idempotency_key, fingerprint, response)
         return response

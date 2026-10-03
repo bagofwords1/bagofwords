@@ -93,6 +93,7 @@ class ArtifactRateBucket(BaseSchema):
 
 
 class ArtifactPublication(BaseSchema):
+    # Retired: retained solely for existing database compatibility; pins are ignored.
     """Optional pointer. Absence preserves historical newest-version behavior."""
 
     __tablename__ = "artifact_publications"

@@ -1080,6 +1080,18 @@
     "loopRetryNotice": "Ocorreu um erro interno — tentando novamente a partir do contexto mais recente (tentativa {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Falha ao alterar o recurso",
+      "create": "Recurso criado",
+      "update": "Recurso atualizado",
+      "delete": "Recurso excluído",
+      "working": "Configurando recurso",
+      "stopped": "Interrompido",
+      "unchanged": "Recurso inalterado",
+      "preserved": "Registros existentes preservados.",
+      "changed": "Alterações",
+      "noChanges": "Nenhuma alteração aplicada."
+    },
     "common": {
       "input": "Entrada",
       "output": "Saída",

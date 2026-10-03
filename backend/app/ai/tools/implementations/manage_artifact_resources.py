@@ -58,7 +58,7 @@ class ManageArtifactResources(Tool):
                 else "Resource change could not be applied; refresh the definition and check for conflicts."
             )
             yield ToolEndEvent(
-                type="tool.end", payload={"output": {"success": False}, "observation": {"error": message}}
+                type="tool.end", payload={"output": {"success": False, "committed": False}, "observation": {"success": False, "committed": False, "action": data.action, "resource_artifact_id": data.artifact_id, "name": data.resource or (data.definition.name if data.definition else None), "error": message, "error_code": getattr(exc, "error_code", "ARTIFACT_RESOURCE_ERROR")}}
             )
             return
         await db.commit()
@@ -67,9 +67,9 @@ class ManageArtifactResources(Tool):
             payload={
                 "output": result,
                 "observation": {
-                    "summary": "Resource definition updated",
-                    "resource": result,
-                    "resources": await service.definitions(),
+                    "summary": f"{dict(create='Created', update='Updated', delete='Deleted')[data.action]} {result.get('kind', 'resource')} {result.get('name', data.resource or '')} at revision {result['revision']}; change committed.",
+                    **result,
+                    "next_step": "Read the current definition before further changes. Update the artifact UI if needed; sharing is unchanged.",
                 },
             },
         )

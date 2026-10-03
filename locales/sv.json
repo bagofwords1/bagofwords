@@ -1080,6 +1080,18 @@
     "loopRetryNotice": "Ett internt fel uppstod — försöker igen från den senaste kontexten (försök {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Resursändringen misslyckades",
+      "create": "Resurs skapad",
+      "update": "Resurs uppdaterad",
+      "delete": "Resurs borttagen",
+      "working": "Konfigurerar resurs",
+      "stopped": "Stoppad",
+      "unchanged": "Resurs oförändrad",
+      "preserved": "Befintliga poster bevarade.",
+      "changed": "Ändringar",
+      "noChanges": "Inga ändringar tillämpades."
+    },
     "common": {
       "input": "Indata",
       "output": "Utdata",

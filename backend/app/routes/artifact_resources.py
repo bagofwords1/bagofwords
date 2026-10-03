@@ -399,33 +399,6 @@ async def analytics(days: int = Query(default=30, ge=1, le=366), service=Depends
     }
 
 
-class PublicationInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    version_id: str = Field(max_length=36)
-    expected_revision: int = Field(ge=0)
-    idempotency_key: str = Field(min_length=8, max_length=100)
-
-
-@router.get("/publication")
-async def publication(service=Depends(access)):
-    from app.models.artifact_resource import ArtifactPublication
-
-    row = await service.db.scalar(
-        select(ArtifactPublication).where(ArtifactPublication.artifact_id == service.artifact.id)
-    )
-    return {"versionId": row.version_id if row else None, "revision": row.revision if row else 0}
-
-
-@router.post("/publication")
-async def publish_version(payload: PublicationInput, service=Depends(access)):
-    from app.services.artifact_publication import publish
-
-    service = await ArtifactResources.open(service.db, service.artifact.id, service.user, manage=True)
-    result = await publish(service, payload.version_id, payload.expected_revision, payload.idempotency_key)
-    await commit(service.db)
-    return result
-
-
 @router.get("/context")
 async def context(service=Depends(access)):
     from app.models.artifact_resource import ArtifactResource

@@ -117,8 +117,8 @@ proves create/edit behavior through the real browser validator.
   a connection deadline and periodic authorization checks even during stalls.
   Provider support requires an asynchronous bounded streaming implementation.
   Usage accounting is retained; output and execution status are not stored.
-- Optional publication pins a completed UI version for existing shared routes.
-  Legacy artifacts retain their version-list behavior until opted in.
+- Sharing retains existing latest-version behavior. The optional publication
+  mechanism was removed; historical pins are ignored without deleting data.
 - Views use expiring deduplication tokens, 30-day event retention and 400-day
   daily counters keyed by a pseudonymous authenticated viewer. Anonymous views
   do not claim unique people. Audit events omit user record/file content.
@@ -160,7 +160,7 @@ Production capacity/failover qualification must use the intended database,
 worker count, storage volume and ingress configuration. Local bounded-load
 results above are evidence of behavior, not a substitute for that deployment
 check. Apply migrations and deploy this code to **every** worker before enabling
-the feature; old workers do not know the optional publication pointer.
+the feature so every worker applies the same resource policy.
 
 The existing report DELETE endpoint archives rather than destroys a report.
 Archiving retains records/files and suspends the new resource runtime. It does
@@ -215,5 +215,5 @@ synthetic. Their temporary authentication files stay outside the repository.
 
 Publication selects UI versions on the existing shared-site routes. Existing
 internal report access, code history and administrator visibility remain as on
-main; publication is not a new confidentiality boundary for internal source code.
+main; resource permissions are not a new confidentiality boundary for internal source code.
 Resources independently enforce data/file permissions on every request.
