@@ -5450,6 +5450,12 @@
     "expiredTip": "Stängd efter att ha legat ogranskad längre än organisationens gräns. Räknas fortfarande som belägg om mönstret återkommer."
   },
   "artifactResources": {
+    "readOnlyLabel": "Skrivskyddad",
+    "sort": "Sortera poster",
+    "applyFilter": "Tillämpa",
+    "clearFilter": "Rensa filter",
+    "true": "Sant",
+    "false": "Falskt",
     "inspect": "Resurser",
     "readOnly": "Skrivskyddad artefaktöversikt",
     "data": "Datautforskare",
@@ -5461,7 +5467,7 @@
     "filterValue": "Lika med",
     "filter": "Filtrera",
     "empty": "Inga data att visa",
-    "pageRows": "{count} poster på den här sidan",
+    "pageRows": "{count} post på sidan | {count} poster på sidan",
     "next": "Nästa sida",
     "details": "Postinformation",
     "views": "Visningar",

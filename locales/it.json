@@ -5450,6 +5450,12 @@
     "expiredTip": "Chiusa dopo essere rimasta non revisionata oltre la scadenza dell'organizzazione. Conta ancora come prova se lo schema ritorna."
   },
   "artifactResources": {
+    "readOnlyLabel": "Sola lettura",
+    "sort": "Ordina record",
+    "applyFilter": "Applica",
+    "clearFilter": "Rimuovi filtro",
+    "true": "Vero",
+    "false": "Falso",
     "inspect": "Risorse",
     "readOnly": "Informazioni sull’artefatto in sola lettura",
     "data": "Esplora dati",

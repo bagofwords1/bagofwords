@@ -5630,6 +5630,12 @@
     "toastRowsDeleted": "שורה אחת נמחקה | {n} שורות נמחקו"
   },
   "artifactResources": {
+    "readOnlyLabel": "לקריאה בלבד",
+    "sort": "מיון רשומות",
+    "applyFilter": "החלה",
+    "clearFilter": "ניקוי המסנן",
+    "true": "נכון",
+    "false": "לא נכון",
     "inspect": "משאבים",
     "readOnly": "נתוני התוצר לצפייה בלבד",
     "data": "סייר נתונים",
@@ -5641,7 +5647,7 @@
     "filterValue": "שווה ל",
     "filter": "סינון",
     "empty": "אין נתונים להצגה",
-    "pageRows": "{count} רשומות בעמוד",
+    "pageRows": "רשומה אחת בעמוד | {count} רשומות בעמוד",
     "next": "לעמוד הבא",
     "details": "פרטי הרשומה",
     "views": "צפיות",

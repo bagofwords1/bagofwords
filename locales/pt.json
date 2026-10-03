@@ -5450,6 +5450,12 @@
     "expiredTip": "Fechada após ficar sem revisão além do prazo da organização. Continua contando como evidência se o padrão voltar."
   },
   "artifactResources": {
+    "readOnlyLabel": "Somente leitura",
+    "sort": "Ordenar registros",
+    "applyFilter": "Aplicar",
+    "clearFilter": "Limpar filtro",
+    "true": "Verdadeiro",
+    "false": "Falso",
     "inspect": "Recursos",
     "readOnly": "Informações do artefato somente para leitura",
     "data": "Explorador de dados",
@@ -5461,7 +5467,7 @@
     "filterValue": "Igual a",
     "filter": "Filtrar",
     "empty": "Nenhum dado para exibir",
-    "pageRows": "{count} registros nesta página",
+    "pageRows": "{count} registro nesta página | {count} registros nesta página",
     "next": "Próxima página",
     "details": "Detalhes do registro",
     "views": "Visualizações",

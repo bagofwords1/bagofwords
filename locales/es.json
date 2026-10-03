@@ -5610,6 +5610,12 @@
     "toastRowsDeleted": "{n} fila eliminada | {n} filas eliminadas"
   },
   "artifactResources": {
+    "readOnlyLabel": "Solo lectura",
+    "sort": "Ordenar registros",
+    "applyFilter": "Aplicar",
+    "clearFilter": "Borrar filtro",
+    "true": "Verdadero",
+    "false": "Falso",
     "inspect": "Recursos",
     "readOnly": "Información del artefacto de solo lectura",
     "data": "Explorador de datos",
@@ -5621,7 +5627,7 @@
     "filterValue": "Igual a",
     "filter": "Filtrar",
     "empty": "No hay datos para mostrar",
-    "pageRows": "{count} registros en esta página",
+    "pageRows": "{count} registro en esta página | {count} registros en esta página",
     "next": "Página siguiente",
     "details": "Detalles del registro",
     "views": "Vistas",

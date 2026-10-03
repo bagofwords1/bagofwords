@@ -5450,6 +5450,12 @@
     "expiredTip": "Geschlossen, weil er über die Frist der Organisation hinaus ungeprüft blieb. Zählt weiter als Beleg, wenn das Muster wiederkehrt."
   },
   "artifactResources": {
+    "readOnlyLabel": "Schreibgeschützt",
+    "sort": "Einträge sortieren",
+    "applyFilter": "Anwenden",
+    "clearFilter": "Filter löschen",
+    "true": "Wahr",
+    "false": "Falsch",
     "inspect": "Ressourcen",
     "readOnly": "Schreibgeschützte Artefaktübersicht",
     "data": "Datenübersicht",
@@ -5461,7 +5467,7 @@
     "filterValue": "Ist gleich",
     "filter": "Filtern",
     "empty": "Keine Daten vorhanden",
-    "pageRows": "{count} Datensätze auf dieser Seite",
+    "pageRows": "{count} Eintrag auf dieser Seite | {count} Einträge auf dieser Seite",
     "next": "Nächste Seite",
     "details": "Datensatzdetails",
     "views": "Aufrufe",

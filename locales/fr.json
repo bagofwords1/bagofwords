@@ -5450,6 +5450,12 @@
     "expiredTip": "Fermée après être restée non examinée au-delà du délai de l'organisation. Compte toujours comme preuve si le schéma revient."
   },
   "artifactResources": {
+    "readOnlyLabel": "Lecture seule",
+    "sort": "Trier les enregistrements",
+    "applyFilter": "Appliquer",
+    "clearFilter": "Effacer le filtre",
+    "true": "Vrai",
+    "false": "Faux",
     "inspect": "Ressources",
     "readOnly": "Informations sur l’artefact en lecture seule",
     "data": "Explorateur de données",
@@ -5461,7 +5467,7 @@
     "filterValue": "Égal à",
     "filter": "Filtrer",
     "empty": "Aucune donnée à afficher",
-    "pageRows": "{count} enregistrements sur cette page",
+    "pageRows": "{count} enregistrement sur cette page | {count} enregistrements sur cette page",
     "next": "Page suivante",
     "details": "Détails de l’enregistrement",
     "views": "Vues",

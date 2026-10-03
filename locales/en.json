@@ -5639,6 +5639,12 @@
     "toastRowsDeleted": "{n} row deleted | {n} rows deleted"
   },
   "artifactResources": {
+    "readOnlyLabel": "Read only",
+    "sort": "Sort records",
+    "applyFilter": "Apply",
+    "clearFilter": "Clear filter",
+    "true": "True",
+    "false": "False",
     "inspect": "Resources",
     "readOnly": "Read-only artifact insights",
     "data": "Data explorer",
@@ -5650,7 +5656,7 @@
     "filterValue": "Equals",
     "filter": "Filter",
     "empty": "No data to display",
-    "pageRows": "{count} records on this page",
+    "pageRows": "{count} record on this page | {count} records on this page",
     "next": "Next page",
     "details": "Record details",
     "views": "Views",
