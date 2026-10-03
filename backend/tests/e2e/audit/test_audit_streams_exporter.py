@@ -404,3 +404,81 @@ def test_stamping_survives_a_locked_database_and_releases_its_lease(test_client,
     _tick(now + timedelta(seconds=1))
     stats = siem.state.stats("https", _db_ids(test_client, admin))
     assert stats["missing"] == [] and stats["duplicates"] == 0
+
+
+def _change_after_first_send(monkeypatch, change):
+    """Run ``change()`` (a real API call) right after the first batch of a
+    delivery is accepted — i.e. while that delivery is still in progress."""
+    real_send = HttpsDestination.send
+    calls = {"n": 0}
+
+    async def send(self, events):
+        res = await real_send(self, events)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            change()
+        return res
+
+    monkeypatch.setattr(HttpsDestination, "send", send)
+    monkeypatch.setattr(HttpsDestination, "max_batch", 2)
+
+
+def test_pausing_mid_delivery_stops_further_batches(test_client, bootstrap_admin, siem, monkeypatch):
+    admin = bootstrap_admin()
+    _api_key_events(test_client, admin, 7)
+    s = _stream(test_client, admin, siem)
+
+    def pause():
+        r = test_client.patch(f"/api/enterprise/audit/streams/{s['id']}", json={"state": "inactive"},
+                              headers=h(admin["token"], admin["org_id"]))
+        assert r.status_code == 200
+
+    _change_after_first_send(monkeypatch, pause)
+    _tick(_later())
+
+    assert len(_delivered_ids(siem)) == 2  # only the batch already in flight
+    st = _get(test_client, admin, s["id"])
+    assert st["state"] == "inactive"
+
+    monkeypatch.undo()
+    r = test_client.patch(f"/api/enterprise/audit/streams/{s['id']}", json={"state": "active"},
+                          headers=h(admin["token"], admin["org_id"]))
+    assert r.status_code == 200
+    _tick(_later(300))
+    stats = siem.state.stats("https", _db_ids(test_client, admin))
+    assert stats["missing"] == [] and stats["duplicates"] == 0
+
+
+def test_editing_the_destination_mid_delivery_sends_the_rest_only_to_the_new_one(
+    test_client, bootstrap_admin, siem, monkeypatch
+):
+    from tests.mocks.siem_consumer import MockSiem
+
+    new = MockSiem(port=0, syslog_port=None).start()
+    try:
+        admin = bootstrap_admin()
+        _api_key_events(test_client, admin, 7)
+        s = _stream(test_client, admin, siem)
+
+        def repoint():
+            r = test_client.patch(f"/api/enterprise/audit/streams/{s['id']}",
+                                  json={"config": {"url": f"{new.url}/https/hook"}, "secrets": {"hmac_secret": "demo-hmac-secret"}},
+                                  headers=h(admin["token"], admin["org_id"]))
+            assert r.status_code == 200
+
+        _change_after_first_send(monkeypatch, repoint)
+        _tick(_later())
+        old_got = _delivered_ids(siem)
+        assert len(old_got) == 2  # nothing after the edit reached the old endpoint
+
+        monkeypatch.undo()
+        _tick(_later(300))
+        everything = set(_db_ids(test_client, admin))
+        new_got = set(e["id"] for e in new.state.envelopes("https"))
+        # The new endpoint gets everything not confirmed by the old one before
+        # the edit; the in-flight batch is resent rather than skipped.
+        assert everything - set(old_got) <= new_got
+        assert new.state.stats("https")["duplicates"] == 0
+        assert _get(test_client, admin, s["id"])["status"]["pending"] == 0
+    finally:
+        new.stop()

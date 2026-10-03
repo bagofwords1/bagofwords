@@ -121,13 +121,12 @@ def test_json_export_is_envelope_v1_and_matches_the_list(test_client, cast):
 
 def test_csv_export_has_documented_header_and_same_rows(test_client, cast):
     admin = cast["admin"]
+    listed, total = _list(test_client, admin)  # what exists when the export starts
     r = _export(test_client, admin, "csv")
     rows = list(csv.reader(io.StringIO(r.text)))
     assert rows[0] == ["id", "occurred_at", "action", "actor_type", "actor_email", "actor_id",
                        "resource_type", "resource_id", "title", "ip_address", "user_agent", "details_json"]
-    listed, total = _list(test_client, admin)
-    # The export itself is audited after the count, so it is not in the file.
-    assert len(rows) - 1 == total
+    assert len(rows) - 1 == total == int(r.headers["x-total-count"])
     assert {row[0] for row in rows[1:]} == {i["id"] for i in listed}
 
 
@@ -154,6 +153,26 @@ def test_export_and_resource_types_are_gated_like_viewing(test_client, cast, inv
     mh = h(member["token"], admin["org_id"])
     assert test_client.get(f"{BASE}/export", headers=mh).status_code == 403
     assert test_client.get(f"{BASE}/resource-types", headers=mh).status_code == 403
+
+
+@pytest.mark.parametrize("fmt", ["json", "csv"])
+def test_export_at_the_cap_holds_exactly_the_snapshot(test_client, cast, monkeypatch, fmt):
+    """Counted rows are the file: the export's own audit_log.exported event
+    (written after the count) never pushes it past the cap."""
+    import app.ee.audit.routes as routes
+
+    admin = cast["admin"]
+    before, total = _list(test_client, admin)
+    monkeypatch.setattr(routes, "EXPORT_MAX_ROWS", total)
+    r = _export(test_client, admin, fmt)
+    if fmt == "json":
+        ids = [json.loads(line)["id"] for line in r.text.splitlines() if line.strip()]
+    else:
+        ids = [row[0] for row in list(csv.reader(io.StringIO(r.text)))[1:]]
+    assert len(ids) == total == int(r.headers["x-total-count"])
+    assert set(ids) == {i["id"] for i in before}
+    exported, _ = _list(test_client, admin, action="audit_log.exported")
+    assert exported and exported[0]["id"] not in ids
 
 
 def test_export_over_the_cap_is_refused(test_client, cast, monkeypatch):

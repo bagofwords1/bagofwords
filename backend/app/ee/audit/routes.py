@@ -161,7 +161,10 @@ async def export_audit_logs(
         start_date=start_date, end_date=end_date, search=search,
     )
     org_id = str(organization.id)
-    total = await audit_service.count_logs(db, org_id, filters)
+    # Snapshot before writing the audit_log.exported row: the file holds
+    # exactly the counted rows — not this export's own event, not rows
+    # written while it streams — and therefore never exceeds the cap.
+    total, upper = await audit_service.export_snapshot(db, org_id, filters)
     if total > EXPORT_MAX_ROWS:
         raise AppError.bad_request(
             ErrorCode.AUDIT_EXPORT_TOO_LARGE,
@@ -189,7 +192,7 @@ async def export_audit_logs(
                 w = csv.writer(buf)
                 w.writerow(CSV_COLUMNS)
                 yield buf.getvalue()
-            async for rows in audit_service.iter_logs_ascending(s, org_id, filters):
+            async for rows in audit_service.iter_logs_ascending(s, org_id, filters, upper=upper, limit=total):
                 envs = [build_envelope(log, user_email=email, organization_name=org_name) for log, email in rows]
                 if format == "csv":
                     buf = io.StringIO()

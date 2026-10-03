@@ -164,3 +164,58 @@ async def test_events_without_an_organization_are_skipped_not_counted_as_lost(db
         await ta.stop_tool_audit_worker(timeout=10)
     stats = ta.get_tool_audit_queue_stats()
     assert stats["enqueued"] == 0 and stats["dropped"] == 0
+
+
+async def _wait_for(pred, timeout=15.0):
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if await pred():
+            return True
+        await asyncio.sleep(0.05)
+    return await pred()
+
+
+@pytest.mark.asyncio
+async def test_spill_is_replayed_without_a_restart_once_the_db_recovers(db_ctl, monkeypatch):
+    """An outage spills events to disk; when the database comes back while
+    the service keeps running, they reach the table — no restart needed."""
+    monkeypatch.setattr(ta, "_RETRY_DELAYS_SECONDS", (0.01,))
+    monkeypatch.setattr(ta, "_REPLAY_MIN_INTERVAL_SECONDS", 0.0)
+    org_id = await _org_id()
+    await ta.start_tool_audit_worker()
+    try:
+        db_ctl.fail_remaining = -1
+        await _burst(org_id, 3)
+        assert await _wait_for(lambda: _stat_at_least("spilled", 3))
+        assert await _count(org_id) == 0
+
+        db_ctl.fail_remaining = 0  # recovers; the process keeps running
+        await ta.log_tool_audit(_ctx(org_id), "tool.data_queried", "data_source", None, {"after": True})
+        assert await _wait_for(lambda: _count_is(org_id, 4))
+    finally:
+        await ta.stop_tool_audit_worker(timeout=10)
+    assert ta.get_tool_audit_queue_stats()["replayed"] == 3
+
+
+@pytest.mark.asyncio
+async def test_scheduled_replay_recovers_spill_with_no_new_traffic(db_ctl, monkeypatch):
+    org_id = await _org_id()
+    db_ctl.fail_remaining = -1
+    await ta.start_tool_audit_worker()
+    await _burst(org_id, 2)
+    await ta.stop_tool_audit_worker(timeout=2)
+    assert await _count(org_id) == 0
+
+    db_ctl.fail_remaining = 0
+    await ta.scheduled_spill_replay()  # the periodic job; no restart, no new events
+    assert await _count(org_id) == 2
+    await ta.scheduled_spill_replay()  # nothing left: no double writes
+    assert await _count(org_id) == 2
+
+
+async def _stat_at_least(key, n):
+    return ta.get_tool_audit_queue_stats()[key] >= n
+
+
+async def _count_is(org_id, n):
+    return await _count(org_id) == n

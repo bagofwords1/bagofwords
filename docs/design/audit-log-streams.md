@@ -54,7 +54,9 @@ the table schema.
     never returned by the API.
   - `action_filter` (list of prefixes), `state`
     (`active | inactive | error | invalid`), and `start_from` with `start_after`.
-  - `cursor_seq`, the last delivered `export_seq`.
+  - `cursor_seq`, the last delivered `export_seq`, and `config_version`. The
+    version is bumped by every change to config, secrets or filter; it is not
+    `updated_at`, which the exporter's own progress writes also change.
   - Status fields: `delivered_count`, `last_delivered_at`, `last_attempt_at`,
     `last_error`, `consecutive_failures`, `next_attempt_at` (backoff and lease).
 - **`audit_logs.export_seq`**: a visibility-ordered sequence, stamped by the
@@ -90,6 +92,14 @@ is not used, because SQLite ignores it. Then, within a 20 s budget per stream:
 - send the batch, and move `cursor_seq` only if the destination accepted it.
 
 Rows excluded by the filter still advance the cursor.
+
+Before each batch, the stream is re-read. A pause, edit or delete stops the
+delivery: nothing more goes to the destination as it was configured at claim
+time. Progress is saved only if `config_version` still matches. A batch sent
+just before an edit therefore does not advance the cursor, and the new
+settings resend it. A pause keeps the batch already sent, because it reached
+the still-configured destination. An edit also releases the lease, so the new
+settings apply on the next tick.
 
 | Send result | Effect |
 |---|---|
@@ -136,8 +146,10 @@ the exporter alone owns retry and backoff.
   inline. Nothing is discarded.
 - **Disk spill:** what still cannot reach the database (an outage, or a shutdown
   that times out) is appended to `BOW_AUDIT_SPILL_DIR` (default
-  `backend/data/audit-spill`). The scheduler leader replays it on the next
-  start; each file is claimed by atomic rename.
+  `backend/data/audit-spill`). It is replayed while the service runs, after the
+  worker's next successful write (at most every 30 s) and by the
+  `tool_audit_spill_replay` job (every 60 s), as well as on startup. Each file
+  is claimed by atomic rename, so concurrent replays are safe.
 - **No duplicates:** event ids are assigned at enqueue, so retries and replays
   skip rows that are already written.
 - **`created_at`** is stamped when the row is written. A write delayed more than
@@ -157,7 +169,7 @@ is now logged and retried after `jobstore_retry_interval`.
 |---|---|
 | `GET /enterprise/audit` — list, now with `resource_type` (comma list), `user_id`, `start_date`, `end_date`; `search` also matches actor email and `details.title` | `view_audit_logs` |
 | `GET /enterprise/audit/resource-types` | `view_audit_logs` |
-| `GET /enterprise/audit/export?format=json\|csv&<filters>` — streamed, oldest first, capped at 100,000 rows (`audit_log.export_too_large`); emits `audit_log.exported`; CSV cells are guarded against formula injection | `view_audit_logs` |
+| `GET /enterprise/audit/export?format=json\|csv&<filters>` — streamed, oldest first, capped at 100,000 rows (`audit_log.export_too_large`). The file is the snapshot counted before `audit_log.exported` is written: bounded by the last matching key and the count, so it excludes its own event and rows written while it streams. CSV cells are guarded against formula injection | `view_audit_logs` |
 | `GET /enterprise/audit/streams`, `/{id}`, `/destinations` | `view_audit_logs` |
 | `POST /enterprise/audit/streams`, `PATCH /{id}`, `DELETE /{id}`, `POST /test` | `manage_settings` |
 

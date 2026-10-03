@@ -255,17 +255,48 @@ class AuditService:
         stmt = stmt.where(and_(*self.build_conditions(organization_id, filters)))
         return (await db.execute(stmt)).scalar() or 0
 
+    async def export_snapshot(
+        self, db: AsyncSession, organization_id: str, filters: Optional[AuditLogFilters]
+    ) -> Tuple[int, Optional[Tuple[datetime, str]]]:
+        """Row count and the last (created_at, id) key matching the filters,
+        taken before an export starts so it can stop at that point."""
+        total = await self.count_logs(db, organization_id, filters)
+        if not total:
+            return 0, None
+        stmt = select(AuditLog.created_at, AuditLog.id)
+        if filters and filters.search:
+            stmt = stmt.outerjoin(User, User.id == AuditLog.user_id)
+        stmt = (
+            stmt.where(and_(*self.build_conditions(organization_id, filters)))
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .limit(1)
+        )
+        last = (await db.execute(stmt)).first()
+        return total, ((last[0], last[1]) if last else None)
+
     async def iter_logs_ascending(
         self,
         db: AsyncSession,
         organization_id: str,
         filters: Optional[AuditLogFilters],
         page_size: int = 1000,
+        upper: Optional[Tuple[datetime, str]] = None,
+        limit: Optional[int] = None,
     ):
         """Yield (AuditLog, user_email) pages oldest-first by keyset, never
-        loading the whole result into memory."""
+        loading the whole result into memory. ``upper`` (inclusive) and
+        ``limit`` bound the scan to a snapshot taken by export_snapshot, so
+        rows written while the export streams are not included."""
+        if limit is not None and limit <= 0:
+            return
         cursor = (None, None)
+        emitted = 0
         base = self.build_conditions(organization_id, filters)
+        if upper is not None:
+            base.append(or_(
+                AuditLog.created_at < upper[0],
+                and_(AuditLog.created_at == upper[0], AuditLog.id <= upper[1]),
+            ))
         while True:
             stmt = select(AuditLog, User.email).outerjoin(User, User.id == AuditLog.user_id).where(and_(*base))
             if cursor[0] is not None:
@@ -273,14 +304,16 @@ class AuditService:
                     AuditLog.created_at > cursor[0],
                     and_(AuditLog.created_at == cursor[0], AuditLog.id > cursor[1]),
                 ))
-            stmt = stmt.order_by(AuditLog.created_at, AuditLog.id).limit(page_size)
+            size = page_size if limit is None else min(page_size, limit - emitted)
+            stmt = stmt.order_by(AuditLog.created_at, AuditLog.id).limit(size)
             rows = (await db.execute(stmt)).all()
             if not rows:
                 return
             yield rows
+            emitted += len(rows)
             last = rows[-1][0]
             cursor = (last.created_at, last.id)
-            if len(rows) < page_size:
+            if len(rows) < size or (limit is not None and emitted >= limit):
                 return
 
     async def get_resource_types(self, db: AsyncSession, organization_id: str) -> List[str]:

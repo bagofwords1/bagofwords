@@ -22,6 +22,9 @@ Every loop below was run in a fresh sandbox. Each was seen failing on the old co
 | U2 | `ee/audit/service.py` (old :119) | `search` matched only `action` and `resource_type`, so an email or a report title returned 0 rows. |
 | E1 | new exporter, draft 1 | The stream claim was `SELECT … FOR UPDATE SKIP LOCKED`. SQLite ignores `FOR UPDATE`, so racing exporters all sent the same batch (4 of 4). Replaced with a compare-and-set lease. |
 | E2 | new exporter, draft 2 | Streams cursored on `(created_at, id)` with a lag window. A row that commits after newer rows were sent lands behind the cursor and is never delivered. Loop B4 hit this twice: queue rows stamped at enqueue time, then SQLite lock waits longer than the window (≈4,940 events lost per stream). Replaced by a visibility-ordered `audit_logs.export_seq`, stamped once a row is committed. |
+| R1 | exporter (found in review) | Pausing or editing a stream did not stop a delivery already in progress: up to 20 s of batches kept going to the old destination, and their progress was saved, so after an edit the new destination never got them. Fixed with `config_version` plus a state check before every batch; progress is saved only if the version still matches. |
+| R2 | `tool_audit.py` (found in review) | Spill files were replayed only at startup, so after a recovered outage the events stayed missing until a restart. Now also replayed after the worker's next successful write and by a 60 s job. |
+| R3 | export route (found in review) | Rows were counted, then the export event was written, then the scan ran unbounded. An export at the cap returned cap + 1 rows, including its own event. The scan is now bounded by a snapshot key and the count. |
 | S1 | `app/core/scheduler.py` (pre-existing) | APScheduler 3.11 does not guard `jobstore.update_job` in `_process_jobs`. One SQLite "database is locked" there escaped `wakeup()` and silently stopped every scheduled job in the worker until restart (12 occurrences during Loop B). Now `ResilientAsyncIOScheduler` logs the failed pass and retries. |
 
 ## Environment
@@ -46,7 +49,8 @@ export BOW_DATABASE_URL="sqlite:///db/app.db" TESTING=true
 | A4 API + RBAC | `tests/e2e/audit/test_audit_streams_api.py` | — (new) | **11 passed**: admin lifecycle, secrets masked and encrypted at rest, typed validation errors, member 403 on every route, `view_audit_logs`-only role reads but can't manage, license gate 402 |
 | A5 row formatting | `frontend/tests/unit/auditActionFormat.mjs` (`node …`) | old `formatAction` / `getActionClass` produced the full action and the `record` colour for 3-segment actions (screenshot below) | passes for **224 action shapes**, including **all 218 actions the backend emits** (discovered by scanning `backend/app`) |
 | A5 layout spec | `frontend/tests/settings/audit-log.spec.ts` | — | en + he; skips on unlicensed CI (the licensed run is the UI flow below) |
-| A6 filters / search / export | `tests/e2e/audit/test_audit_log_query.py` | search-by-email **fails on the old search** (`assert 0 > 0`) | **12 passed** |
+| A6 filters / search / export | `tests/e2e/audit/test_audit_log_query.py` | search-by-email **fails on the old search** (`assert 0 > 0`); export at the cap **fails on the old route** (cap + 1 rows, own event included) | **14 passed** |
+| R1–R2 regressions | `test_audit_streams_exporter.py` (pause or edit mid-delivery), `test_tool_audit_queue.py` (spill replayed without restart; periodic job) | **both mid-delivery tests fail on the old exporter**; the old queue never writes the spilled rows | pass |
 
 ```bash
 uv run pytest tests/unit/test_tool_audit_queue.py tests/unit/test_audit_stream_envelope.py \

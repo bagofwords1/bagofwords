@@ -38,6 +38,11 @@ class AuditLogStream(BaseSchema):
 
     cursor_seq = Column(BigInteger, nullable=True)
     start_after = Column(DateTime, nullable=True)
+    # Bumped by every admin change to where or what the stream sends (config,
+    # secrets, action filter). An exporter mid-delivery stops and does not
+    # move the cursor once it no longer matches its snapshot.
+    # Not updated_at: the exporter's own progress writes bump that.
+    config_version = Column(Integer, nullable=False, default=0)
 
     delivered_count = Column(BigInteger, nullable=False, default=0)
     last_delivered_at = Column(DateTime, nullable=True)

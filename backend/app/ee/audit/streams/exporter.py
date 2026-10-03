@@ -32,7 +32,7 @@ from sqlalchemy.orm import selectinload
 
 from app.ee.audit.models import AuditLog
 from app.ee.audit.streams.destinations import build_destination
-from app.ee.audit.streams.destinations.base import FATAL, INVALID, OK, RETRYABLE, SendResult
+from app.ee.audit.streams.destinations.base import INVALID, OK, RETRYABLE, SendResult
 from app.ee.audit.streams.envelope import build_envelope
 from app.ee.audit.streams.models import AuditExportState, AuditLogStream
 
@@ -206,8 +206,28 @@ async def _claim(stream_id: str, now: datetime) -> Optional[dict]:
             "cursor": st.cursor_seq,
             "start_after": st.start_after,
             "failures": st.consecutive_failures or 0,
+            "version": st.config_version or 0,
         }
         return snap
+
+
+def _same_config(snap: dict):
+    """SQL predicate: the stream still exists with the config version this
+    delivery started with (same destination, credentials and filter)."""
+    return (
+        (AuditLogStream.id == snap["id"])
+        & AuditLogStream.deleted_at.is_(None)
+        & (AuditLogStream.config_version == snap["version"])
+    )
+
+
+async def _still_current(snap: dict) -> bool:
+    """May the next batch be sent? Not once the stream was paused, edited or
+    deleted after the claim."""
+    maker = _session_maker()
+    async with maker() as db:
+        q = select(AuditLogStream.id).where(_same_config(snap), AuditLogStream.state == "active")
+        return (await db.execute(q)).first() is not None
 
 
 async def _retry_locked(fn, attempts: int = 6):
@@ -222,21 +242,29 @@ async def _retry_locked(fn, attempts: int = 6):
             await asyncio.sleep(0.2 * (attempt + 1))
 
 
-async def _save_progress(stream_id: str, cursor: int, delivered: int, now: datetime) -> None:
-    await _retry_locked(lambda: _save_progress_once(stream_id, cursor, delivered, now))
+async def _save_progress(snap: dict, cursor: int, delivered: int, now: datetime) -> bool:
+    """Advance the cursor past a batch the destination accepted. False when the
+    stream was edited or deleted meanwhile: the batch went to the old settings,
+    so the cursor stays put for the new ones to resend it. A pause does not
+    block this (the batch reached the still-configured destination)."""
+    return await _retry_locked(lambda: _save_progress_once(snap, cursor, delivered, now))
 
 
-async def _save_progress_once(stream_id: str, cursor: int, delivered: int, now: datetime) -> None:
+async def _save_progress_once(snap: dict, cursor: int, delivered: int, now: datetime) -> bool:
     maker = _session_maker()
+    values = {
+        "cursor_seq": cursor,
+        "delivered_count": func.coalesce(AuditLogStream.delivered_count, 0) + delivered,
+    }
+    if delivered:
+        values["last_delivered_at"] = now
     async with maker() as db:
-        st = await db.get(AuditLogStream, stream_id)
-        if st is None:
-            return
-        st.cursor_seq = cursor
-        st.delivered_count = (st.delivered_count or 0) + delivered
-        if delivered:
-            st.last_delivered_at = now
+        res = await db.execute(
+            update(AuditLogStream).where(_same_config(snap)).values(**values)
+            .execution_options(synchronize_session=False)
+        )
         await db.commit()
+        return res.rowcount == 1
 
 
 async def _finish(snap: dict, result: SendResult, now: datetime) -> Optional[str]:
@@ -249,7 +277,9 @@ async def _finish_once(snap: dict, result: SendResult, now: datetime) -> Optiona
     transitioned = None
     async with maker() as db:
         st = await db.get(AuditLogStream, snap["id"])
-        if st is None:
+        if st is None or (st.config_version or 0) != snap["version"]:
+            # Deleted or edited mid-delivery: this outcome belongs to the old
+            # settings, so it must not mark the new ones failed or healthy.
             return None
         if result.kind == OK:
             st.consecutive_failures = 0
@@ -301,6 +331,10 @@ async def deliver_stream(stream_id: str, now: Optional[datetime] = None) -> int:
                 for log, email in rows
                 if matches_filter(log.action, snap["action_filter"])
             ]
+            if not await _still_current(snap):
+                # Paused, edited or deleted since the claim: send nothing more
+                # to the destination as it was configured at claim time.
+                break
             if envelopes:
                 try:
                     result = await dest.send(envelopes)
@@ -310,7 +344,8 @@ async def deliver_stream(stream_id: str, now: Optional[datetime] = None) -> int:
                 if not result.ok:
                     break
             cursor = rows[-1][0].export_seq
-            await _save_progress(stream_id, cursor, len(envelopes), now)
+            if not await _save_progress(snap, cursor, len(envelopes), now):
+                break  # edited or deleted mid-delivery
             delivered += len(envelopes)
             if len(rows) < dest.max_batch:
                 break

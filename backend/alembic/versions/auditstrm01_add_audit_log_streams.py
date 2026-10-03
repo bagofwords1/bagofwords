@@ -36,6 +36,7 @@ def upgrade():
         sa.Column("start_from", sa.String(16), nullable=False, server_default="now"),
         sa.Column("cursor_seq", sa.BigInteger()),
         sa.Column("start_after", sa.DateTime()),
+        sa.Column("config_version", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("delivered_count", sa.BigInteger(), nullable=False, server_default="0"),
         sa.Column("last_delivered_at", sa.DateTime()),
         sa.Column("last_attempt_at", sa.DateTime()),

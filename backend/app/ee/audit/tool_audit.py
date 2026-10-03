@@ -45,6 +45,10 @@ _ENQUEUE_WAIT_SECONDS = 2.0
 _SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 5.0
 _SLOW_AUDIT_WRITE_MS = 1000.0
 _LATE_WRITE_SECONDS = 5.0
+# A spill left by an outage is replayed while the service keeps running: after
+# the worker's next successful write (at most this often) and by a periodic
+# scheduler job (scheduled_spill_replay), not only on the next start.
+_REPLAY_MIN_INTERVAL_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,8 @@ class ToolAuditEvent:
 
 _audit_queue: Optional[asyncio.Queue] = None
 _audit_worker_task: Optional[asyncio.Task] = None
+_replay_task: Optional[asyncio.Task] = None
+_last_replay_attempt = 0.0
 _stats = {
     "enqueued": 0,
     "written": 0,
@@ -84,8 +90,10 @@ _stats = {
 
 
 def _reset_stats_for_tests() -> None:
+    global _last_replay_attempt
     for k in _stats:
         _stats[k] = 0
+    _last_replay_attempt = 0.0
 
 
 def _truncate_queries(queries: list) -> list:
@@ -247,6 +255,33 @@ def _spill(events: List[ToolAuditEvent]) -> None:
         logger.error("Could not spill %d tool audit events (path=%s); they are lost", len(events), path, exc_info=True)
 
 
+def _has_spill() -> bool:
+    d = _spill_dir()
+    try:
+        return any(n.endswith(".jsonl") for n in os.listdir(d))
+    except OSError:
+        return False
+
+
+def _maybe_replay_spill() -> None:
+    """Start a background replay when spill files exist, at most every
+    _REPLAY_MIN_INTERVAL_SECONDS and never two at once in this process."""
+    global _replay_task, _last_replay_attempt
+    if _replay_task is not None and not _replay_task.done():
+        return
+    now = _time.monotonic()
+    if now - _last_replay_attempt < _REPLAY_MIN_INTERVAL_SECONDS or not _has_spill():
+        return
+    _last_replay_attempt = now
+    _replay_task = asyncio.create_task(replay_spilled_tool_audit_events(), name="bow_tool_audit_replay")
+
+
+async def scheduled_spill_replay() -> None:
+    """Scheduler entry point: replay spill files this host still holds."""
+    if _has_spill():
+        await replay_spilled_tool_audit_events()
+
+
 async def replay_spilled_tool_audit_events() -> int:
     """Write every spilled event into audit_logs; return rows inserted.
 
@@ -276,7 +311,7 @@ async def replay_spilled_tool_audit_events() -> int:
                 _stats["replayed"] += n
             os.remove(claimed)
         except Exception:
-            logger.warning("Replaying spilled audit file %s failed; will retry on next start", name, exc_info=True)
+            logger.warning("Replaying spilled audit file %s failed; will retry", name, exc_info=True)
             with contextlib.suppress(OSError):
                 os.rename(claimed, src)
     if inserted:
@@ -297,7 +332,10 @@ async def _audit_worker(queue: asyncio.Queue) -> None:
             except asyncio.QueueEmpty:
                 break
         try:
-            _spill(await _persist(batch))
+            remaining = await _persist(batch)
+            _spill(remaining)
+            if not remaining:
+                _maybe_replay_spill()  # the database is reachable again
         except asyncio.CancelledError:
             # Shutdown interrupted an in-flight batch: keep it on disk.
             _spill(batch)

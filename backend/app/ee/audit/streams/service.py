@@ -182,8 +182,10 @@ class AuditStreamService:
                 changed["secrets"] = sorted(secrets.keys())  # names only, never values
             st.set_secrets(secrets)
         if data.action_filter is not None:
-            st.action_filter = [p for p in data.action_filter if p] or None
-            changed["action_filter"] = st.action_filter
+            new_filter = [p for p in data.action_filter if p] or None
+            if new_filter != st.action_filter:
+                changed["action_filter"] = new_filter
+            st.action_filter = new_filter
         action = "audit_stream.updated"
         if data.state == "active" and st.state != "active":
             _activate(st, datetime.utcnow())
@@ -194,6 +196,16 @@ class AuditStreamService:
             st.state = "inactive"
             st.next_attempt_at = None
             action = "audit_stream.paused"
+        if changed.keys() & {"config", "secrets", "action_filter"}:
+            # Where or what it sends changed: a delivery in flight stops
+            # before its next batch and does not advance the cursor, so the
+            # new settings resend from there; the lease is released so they
+            # apply on the next tick. (A pause stops the next batch through
+            # the state check alone; the batch already sent went to the
+            # still-configured destination and is kept.)
+            st.config_version = (st.config_version or 0) + 1
+            if st.state == "active":
+                st.next_attempt_at = None
         await audit_service.log(
             db=db, organization_id=organization_id, action=action, user_id=user_id,
             resource_type="audit_log_stream", resource_id=st.id,

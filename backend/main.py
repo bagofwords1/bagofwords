@@ -615,6 +615,26 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule schema reindex sweep job: {e}")
 
+    # Tool-audit spill files left by a database outage: replay them while the
+    # service runs, not only at startup. Every worker's scheduler fires it
+    # (shared job store); files are claimed by atomic rename, so that is safe.
+    if is_scheduler_leader:
+        try:
+            from app.ee.audit.tool_audit import scheduled_spill_replay
+            scheduler.add_job(
+                scheduled_spill_replay,
+                trigger="interval",
+                seconds=60,
+                id="tool_audit_spill_replay",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=60,
+            )
+            logger.info("Scheduled job: tool_audit_spill_replay every 60 seconds")
+        except Exception as e:
+            logger.error(f"Failed to schedule tool audit spill replay job: {e}")
+
     # Audit log streams: deliver new audit events to each org's SIEM/bucket.
     # Leader-only; each stream is additionally claimed with a row lease so
     # multiple hosts never double-send. No-ops without the license feature.
