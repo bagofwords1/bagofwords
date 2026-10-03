@@ -29,6 +29,7 @@ import Spinner from '~/components/Spinner.vue'
 interface AuthProvider {
   name: string
   enabled?: boolean
+  protocol?: 'saml' | 'oidc'
   // Derived server-side in /api/settings so the raw issuer (which can carry a
   // tenant id) never reaches an unauthenticated page.
   label?: string
@@ -117,7 +118,9 @@ async function start(name: string) {
   try {
     loadingProvider.value = name
     persistRedirectForOAuth()
-    const response = await $fetch(`/api/auth/${name}/authorize`, {
+    const provider = allProviders.value.find((p) => p.name === name)
+    const path = provider?.protocol === 'saml' ? `saml/${name}` : name
+    const response = await $fetch(`/api/auth/${path}/authorize`, {
       method: 'GET',
       query: props.loginHint ? { login_hint: props.loginHint } : undefined,
     })
