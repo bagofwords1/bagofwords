@@ -639,6 +639,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "Das Dashboard konnte nicht geladen werden. Bitte lade die Seite erneut.",
     "title": "Berichte",
     "subtitle": "Berichte durchsuchen und verwalten",
     "newReport": "Neuer Bericht",
@@ -1083,6 +1084,18 @@
     "loopRetryNotice": "Interner Fehler aufgetreten — neuer Versuch mit dem aktuellsten Kontext (Versuch {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Ressourcenänderung fehlgeschlagen",
+      "create": "Ressource erstellt",
+      "update": "Ressource aktualisiert",
+      "delete": "Ressource gelöscht",
+      "working": "Ressource wird konfiguriert",
+      "stopped": "Gestoppt",
+      "unchanged": "Ressource unverändert",
+      "preserved": "Bestehende Datensätze bleiben erhalten.",
+      "changed": "Änderungen",
+      "noChanges": "Keine Änderungen vorgenommen."
+    },
     "common": {
       "input": "Eingabe",
       "output": "Ausgabe",
@@ -2519,6 +2532,10 @@
           "name": "LLM darf Daten sehen",
           "description": "Erlaubt dem LLM, Daten im Rahmen der Analyse und der Nutzeranfragen zu sehen"
         },
+        "enable_artifact_resources": {
+          "name": "Artefaktressourcen",
+          "description": "Artefakten dauerhafte Datensätze, private Dateien und genehmigte KI-Operationen erlauben. Bestehende Freigabe- und Ressourcenberechtigungen gelten weiterhin."
+        },
         "enable_artifact_verification": {
           "name": "Daten-Apps überprüfen",
           "description": "Der Agent kann interaktive Seiten mit Browserwerkzeugen prüfen. Erfordert, dass das LLM Daten sehen darf."
@@ -3532,7 +3549,18 @@
     "memory.sensitive": "Das Gedächtnis darf keine Geheimnisse, Passwörter oder sensiblen persönlichen Daten enthalten.",
     "memory.looks_like_rule": "Das ist eine Regel dafür, wie geantwortet wird – füge sie deinen benutzerdefinierten Anweisungen hinzu. Das Gedächtnis speichert Fakten über dich.",
     "memory.full": "Das Gedächtnis ist voll. Lösche zuerst einige Einträge.",
-    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen."
+    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Ungültige Ressourcenanfrage",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Ressource nicht gefunden",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Zugriff verweigert",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Zum Fortfahren anmelden",
+    "ARTIFACT_RESOURCE_CONFLICT": "Ressource geändert; aktualisieren und erneut versuchen",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Ressourcenlimit erreicht",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Zu viele Anfragen; später erneut versuchen",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource nicht verfügbar",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Anfrage unterbrochen",
+    "ARTIFACT_RESOURCE_ABORTED": "Anfrage abgebrochen",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Nicht unterstützte SDK-Version"
   },
   "email": {
     "dashboardShare": {
@@ -5425,5 +5453,36 @@
     "expired": "Verfallen",
     "mergedTip": "In einen Vorschlag des nächtlichen Lernens übernommen. Keine Ablehnung durch Prüfende.",
     "expiredTip": "Geschlossen, weil er über die Frist der Organisation hinaus ungeprüft blieb. Zählt weiter als Beleg, wenn das Muster wiederkehrt."
+  },
+  "artifactResources": {
+    "readOnlyLabel": "Schreibgeschützt",
+    "sort": "Einträge sortieren",
+    "applyFilter": "Anwenden",
+    "clearFilter": "Filter löschen",
+    "true": "Wahr",
+    "false": "Falsch",
+    "inspect": "Ressourcen",
+    "readOnly": "Schreibgeschützte Artefaktübersicht",
+    "data": "Datenübersicht",
+    "analytics": "Analysen",
+    "collection": "Sammlung auswählen",
+    "refresh": "Aktualisieren",
+    "schema": "Sammlungsschema",
+    "filterField": "Filterfeld",
+    "filterValue": "Ist gleich",
+    "filter": "Filtern",
+    "empty": "Keine Daten vorhanden",
+    "pageRows": "{count} Eintrag auf dieser Seite | {count} Einträge auf dieser Seite",
+    "next": "Nächste Seite",
+    "details": "Datensatzdetails",
+    "views": "Aufrufe",
+    "viewers": "Eindeutige angemeldete Besucher",
+    "anonymousNote": "Anonyme Besuche zählen als Aufrufe, nicht als eindeutige Personen.",
+    "embedded": "Eingebettet",
+    "standalone": "Geteilte Seite",
+    "days": "Letzte {count} Tage",
+    "failed": "Artefaktdaten konnten nicht geladen werden",
+    "newest": "Neueste zuerst",
+    "oldest": "Älteste zuerst"
   }
 }

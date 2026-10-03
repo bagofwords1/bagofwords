@@ -152,6 +152,15 @@ class MCPTool(ABC):
             raise HTTPException(status_code=404, detail="Report not found")
         return report
 
+    async def _authorize_artifact_authoring(self, db, user, organization, report):
+        """Authorize before building any source/model context for artifact writes."""
+        if (str(report.organization_id) != str(organization.id)
+                or str(report.user_id) != str(user.id)
+                or report.deleted_at is not None or report.status == 'archived'):
+            raise HTTPException(status_code=404, detail='Report not found or access denied')
+        from app.core.permissions_decorator import require_org_permission
+        await require_org_permission(db, str(user.id), str(organization.id), 'update_reports')
+
     # ==================== Tracking Helpers ====================
     
     async def _get_or_create_mcp_platform(

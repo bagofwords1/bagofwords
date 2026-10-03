@@ -4,7 +4,7 @@
     <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'success'" name="heroicons-document-text" class="w-3 h-3 me-1.5 text-blue-500" />
+      <Icon v-else-if="status === 'success'" name="heroicons-photo" class="w-3 h-3 me-1.5 text-blue-500" />
       <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 

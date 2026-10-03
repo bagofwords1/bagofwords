@@ -654,6 +654,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "לא ניתן לטעון את הגלריה. יש לרענן את הדף ולנסות שוב.",
     "title": "דוחות",
     "subtitle": "עיון וניהול הדוחות שלכם",
     "newReport": "דוח חדש",
@@ -1098,6 +1099,18 @@
     "loopRetryNotice": "אירעה שגיאה פנימית — מנסה שוב מההקשר העדכני (ניסיון {attempt} מתוך {max})"
   },
   "tools": {
+    "resource": {
+      "failed": "שינוי המשאב נכשל",
+      "create": "משאב נוצר",
+      "update": "משאב עודכן",
+      "delete": "משאב נמחק",
+      "working": "הגדרת משאב",
+      "stopped": "נעצר",
+      "unchanged": "המשאב ללא שינוי",
+      "preserved": "הרשומות הקיימות נשמרו.",
+      "changed": "שינויים",
+      "noChanges": "לא הוחלו שינויים."
+    },
     "common": {
       "input": "קלט",
       "output": "פלט",
@@ -2635,6 +2648,10 @@
           "name": "אפשר ל-LLM לראות נתונים",
           "description": "מאפשר ל-LLM לראות נתונים כחלק מהניתוח ומשאילתות המשתמשים"
         },
+        "enable_artifact_resources": {
+          "name": "משאבי תוצרים",
+          "description": "אפשרו לתוצרים להשתמש ברשומות שמורות, בקבצים פרטיים ובפעולות AI מאושרות. הרשאות השיתוף והמשאבים הקיימות עדיין חלות."
+        },
         "enable_artifact_verification": {
           "name": "אימות אפליקציות נתונים",
           "description": "מאפשר לסוכן לבדוק דפים אינטראקטיביים באמצעות כלי דפדפן. נדרש להפעיל גישה של מודל השפה לנתונים."
@@ -3646,7 +3663,18 @@
     "memory.sensitive": "הזיכרון לא יכול להכיל סודות, סיסמאות או פרטים אישיים רגישים.",
     "memory.looks_like_rule": "זה כלל לגבי אופן המענה — הוסיפו אותו להנחיות האישיות שלכם. הזיכרון שומר עובדות עליכם.",
     "memory.full": "הזיכרון מלא. מחקו קודם כמה רשומות.",
-    "memory.not_active": "הרשומה הזו כבר שונתה או נשכחה."
+    "memory.not_active": "הרשומה הזו כבר שונתה או נשכחה.",
+    "ARTIFACT_RESOURCE_VALIDATION": "בקשת משאב לא תקינה",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "המשאב לא נמצא",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "אין הרשאה לגשת למשאב",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "יש להתחבר כדי להמשיך",
+    "ARTIFACT_RESOURCE_CONFLICT": "המשאב השתנה; יש לרענן ולנסות שוב",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "הגעת למגבלת המשאב",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "יותר מדי בקשות; יש לנסות שוב מאוחר יותר",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "המשאב אינו זמין",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "הבקשה נקטעה",
+    "ARTIFACT_RESOURCE_ABORTED": "הבקשה בוטלה",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "גרסת SDK אינה נתמכת"
   },
   "email": {
     "dashboardShare": {
@@ -5606,5 +5634,36 @@
     "selectAll": "בחירת כל השורות",
     "selectRow": "בחירת שורה",
     "toastRowsDeleted": "שורה אחת נמחקה | {n} שורות נמחקו"
+  },
+  "artifactResources": {
+    "readOnlyLabel": "לקריאה בלבד",
+    "sort": "מיון רשומות",
+    "applyFilter": "החלה",
+    "clearFilter": "ניקוי המסנן",
+    "true": "נכון",
+    "false": "לא נכון",
+    "inspect": "משאבים",
+    "readOnly": "נתוני התוצר לצפייה בלבד",
+    "data": "סייר נתונים",
+    "analytics": "ניתוח שימוש",
+    "collection": "בחירת אוסף",
+    "refresh": "רענון",
+    "schema": "מבנה האוסף",
+    "filterField": "שדה לסינון",
+    "filterValue": "שווה ל",
+    "filter": "סינון",
+    "empty": "אין נתונים להצגה",
+    "pageRows": "רשומה אחת בעמוד | {count} רשומות בעמוד",
+    "next": "לעמוד הבא",
+    "details": "פרטי הרשומה",
+    "views": "צפיות",
+    "viewers": "צופים מזוהים ייחודיים",
+    "anonymousNote": "ביקורים אנונימיים נספרים כצפיות, לא כאנשים ייחודיים.",
+    "embedded": "מוטמע",
+    "standalone": "עמוד משותף",
+    "days": "{count} הימים האחרונים",
+    "failed": "לא ניתן לטעון את נתוני התוצר",
+    "newest": "החדשים ביותר תחילה",
+    "oldest": "הישנים ביותר תחילה"
   }
 }
