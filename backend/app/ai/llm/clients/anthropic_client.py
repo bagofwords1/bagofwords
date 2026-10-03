@@ -200,12 +200,13 @@ class Anthropic(LLMClient):
         return LLMResponse(text=text, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None
     ) -> AsyncGenerator[str, None]:
         kwargs: dict[str, Any] = {}
         if _accepts_temperature(model_id):
             kwargs["temperature"] = self.temperature
-        stream = await self.async_client.messages.create(
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        stream = await client.messages.create(
             model=model_id,
             messages=[
                 {
@@ -213,27 +214,32 @@ class Anthropic(LLMClient):
                     "content": self._build_content(prompt, images),
                 }
             ],
-            max_tokens=self.max_tokens,
+            max_tokens=min(self.max_tokens,max_output_tokens) if max_output_tokens is not None else self.max_tokens,
             stream=True,
             **kwargs,
         )
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if chunk.type == "content_block_delta" and chunk.delta.text:
-                yield chunk.delta.text
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
+        try:
+            async for chunk in stream:
+                if max_output_tokens is not None and getattr(getattr(chunk, "delta", None), "stop_reason", None) == "max_tokens":
+                    raise ValueError("Model output limit reached")
+                if chunk.type == "content_block_delta" and getattr(chunk.delta, "text", None):
+                    yield chunk.delta.text
+                usage = self._extract_usage(getattr(chunk, "usage", None))
+                if usage.prompt_tokens or usage.completion_tokens:
+                    prompt_tokens = usage.prompt_tokens or prompt_tokens
+                    completion_tokens = usage.completion_tokens or completion_tokens
 
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await (getattr(stream, "aclose", None) or stream.close)()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _extract_usage(raw: Any) -> LLMUsage:

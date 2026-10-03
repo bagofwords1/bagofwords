@@ -153,3 +153,16 @@ tests:
       - equal:
           path: data.BOW_DB_MAX_OVERFLOW
           value: "5"
+
+  - it: leaves proxy trust to start.sh (loopback) unless forwardedAllowIps is set
+    asserts:
+      - notExists:
+          path: data.FORWARDED_ALLOW_IPS
+
+  - it: passes forwardedAllowIps through as FORWARDED_ALLOW_IPS
+    set:
+      config.forwardedAllowIps: "10.0.0.0/8,192.168.1.5"
+    asserts:
+      - equal:
+          path: data.FORWARDED_ALLOW_IPS
+          value: "10.0.0.0/8,192.168.1.5"

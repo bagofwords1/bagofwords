@@ -1,0 +1,13 @@
+import {createRequire} from 'node:module';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
+const {chromium}=createRequire(new URL('../../../frontend/package.json',import.meta.url))('playwright');
+const fixture=JSON.parse(await fs.readFile('/tmp/artifact-blog-fixture.json','utf8'));
+const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+await page.goto('http://127.0.0.1:3118/r/'+fixture.report.id);
+const frame=page.frameLocator('iframe').first();
+await frame.getByText('A better weekly rhythm',{exact:true}).waitFor({timeout:60000});
+assert.equal(await frame.getByText('Next month’s experiment',{exact:true}).count(),0);
+assert.equal(await frame.getByRole('button',{name:'Save draft',exact:true}).count(),0);
+assert.equal(await frame.getByText('Not visible to public readers',{exact:true}).count(),0);
+await page.screenshot({path:'media/pr/artifact-resources/public-blog.png'});
+assert.deepEqual(errors,[]);await browser.close();console.log('PASS: fresh anonymous browser sees published posts, no drafts, no private fields or editing controls');

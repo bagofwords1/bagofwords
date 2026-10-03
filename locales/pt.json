@@ -639,6 +639,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "Não foi possível carregar o painel. Atualize a página para tentar novamente.",
     "title": "Relatórios",
     "subtitle": "Navegue e gerencie seus relatórios",
     "newReport": "Novo relatório",
@@ -1083,6 +1084,18 @@
     "loopRetryNotice": "Ocorreu um erro interno — tentando novamente a partir do contexto mais recente (tentativa {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Falha ao alterar o recurso",
+      "create": "Recurso criado",
+      "update": "Recurso atualizado",
+      "delete": "Recurso excluído",
+      "working": "Configurando recurso",
+      "stopped": "Interrompido",
+      "unchanged": "Recurso inalterado",
+      "preserved": "Registros existentes preservados.",
+      "changed": "Alterações",
+      "noChanges": "Nenhuma alteração aplicada."
+    },
     "common": {
       "input": "Entrada",
       "output": "Saída",
@@ -2519,6 +2532,10 @@
           "name": "Permitir que o LLM veja os dados",
           "description": "Permite que o LLM veja os dados como parte da análise e das consultas dos usuários"
         },
+        "enable_artifact_resources": {
+          "name": "Recursos de artefatos",
+          "description": "Permitir registros persistentes, arquivos privados e operações de IA aprovadas nos artefatos. As permissões existentes de compartilhamento e recursos continuam válidas."
+        },
         "enable_artifact_verification": {
           "name": "Verificar aplicações de dados",
           "description": "Permite que o agente verifique páginas interativas com ferramentas do navegador. Requer permissão para o LLM ver os dados."
@@ -3532,7 +3549,18 @@
     "memory.sensitive": "A memória não pode guardar segredos, senhas ou dados pessoais sensíveis.",
     "memory.looks_like_rule": "Isso é uma regra de como responder — adicione às suas instruções personalizadas. A memória guarda fatos sobre você.",
     "memory.full": "A memória está cheia. Exclua algumas entradas primeiro.",
-    "memory.not_active": "Essa entrada já foi alterada ou esquecida."
+    "memory.not_active": "Essa entrada já foi alterada ou esquecida.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Solicitação inválida",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Recurso não encontrado",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Acesso negado",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Entre para continuar",
+    "ARTIFACT_RESOURCE_CONFLICT": "O recurso mudou; atualize e tente novamente",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Limite do recurso atingido",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Muitas solicitações; tente mais tarde",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso indisponível",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitação interrompida",
+    "ARTIFACT_RESOURCE_ABORTED": "Solicitação cancelada",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível"
   },
   "email": {
     "dashboardShare": {
@@ -5444,5 +5472,36 @@
     "partial": "Alguns modelos não puderam ser atualizados. Suas colunas anteriores foram mantidas.",
     "failed": "A atualização do esquema não foi concluída. Tente novamente.",
     "connectRequired": "Conecte sua conta para ver suas tabelas."
+  },
+"artifactResources": {
+    "readOnlyLabel": "Somente leitura",
+    "sort": "Ordenar registros",
+    "applyFilter": "Aplicar",
+    "clearFilter": "Limpar filtro",
+    "true": "Verdadeiro",
+    "false": "Falso",
+    "inspect": "Recursos",
+    "readOnly": "Informações do artefato somente para leitura",
+    "data": "Explorador de dados",
+    "analytics": "Análises",
+    "collection": "Selecionar coleção",
+    "refresh": "Atualizar",
+    "schema": "Esquema da coleção",
+    "filterField": "Campo do filtro",
+    "filterValue": "Igual a",
+    "filter": "Filtrar",
+    "empty": "Nenhum dado para exibir",
+    "pageRows": "{count} registro nesta página | {count} registros nesta página",
+    "next": "Próxima página",
+    "details": "Detalhes do registro",
+    "views": "Visualizações",
+    "viewers": "Visitantes autenticados únicos",
+    "anonymousNote": "Visitas anônimas contam como visualizações, não como pessoas únicas.",
+    "embedded": "Incorporado",
+    "standalone": "Página compartilhada",
+    "days": "Últimos {count} dias",
+    "failed": "Não foi possível carregar os dados do artefato",
+    "newest": "Mais recentes primeiro",
+    "oldest": "Mais antigos primeiro"
   }
 }

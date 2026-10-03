@@ -1,3 +1,4 @@
+from app.schemas.artifact_resource_schema import ResourceDefinition
 """MCP API schemas - request/response models for MCP endpoints."""
 
 from dataclasses import dataclass, field
@@ -281,7 +282,10 @@ class MCPCreateArtifactInput(BaseModel):
     Creates a dashboard or slide presentation from existing visualizations.
     Automatically selects all successful visualizations in the report (up to 10).
     """
-    report_id: str = Field(..., description="Report ID (required). Must have visualizations created via create_data.")
+    resources: Optional[List[ResourceDefinition]] = Field(default=None, max_length=50, description='Optional artifact resource definitions, configured through the same policy service as in-app authoring.')
+    code: Optional[str] = Field(default=None, description='Optional complete artifact source; supplied code is validated by the standard authoring tool.')
+    visualization_ids: List[str] = Field(default_factory=list)
+    report_id: str = Field(..., description="Report ID (required). Visualizations are optional for static pages and resource-backed apps.")
     prompt: str = Field(..., description="Goal for the dashboard/presentation. Describe what insights to highlight, layout preferences, or specific visualizations to feature.")
     title: Optional[str] = Field(default=None, description="Title for the artifact. If not provided, one will be generated.")
     mode: str = Field(default="page", description="Artifact mode: 'page' for interactive dashboards, 'slides' for presentation decks (exportable to PPTX).")
@@ -291,6 +295,7 @@ class MCPCreateArtifactOutput(BaseModel):
     """Output for create_artifact MCP tool."""
     report_id: str
     artifact_id: Optional[str] = None
+    resource_artifact_id: Optional[str] = None
     success: bool
     visualization_count: Optional[int] = Field(default=None, description="Number of visualizations included in the artifact.")
     visualization_ids: Optional[List[str]] = Field(default=None, description="IDs of visualizations included.")
@@ -309,7 +314,9 @@ class MCPEditArtifactInput(BaseModel):
     """
     report_id: str = Field(..., description="Report ID containing the artifact.")
     artifact_id: str = Field(..., description="ID of the existing artifact to edit.")
-    edit_instruction: str = Field(..., description="Natural language description of the change. E.g., 'Remove the filter bar', 'Make the revenue chart blue'.")
+    edits: Optional[List[Dict[str, str]]] = Field(default=None, description='Optional exact find/replace edits, using the standard validated editing tool.')
+    expected_latest_version: Optional[int] = Field(default=None, ge=1)
+    edit_instruction: str = Field(default='', description="Natural language description of the change. E.g., 'Remove the filter bar', 'Make the revenue chart blue'.")
     visualization_ids: Optional[List[str]] = Field(default=None, description="Optional list of NEW visualization IDs to add. Existing ones are kept automatically.")
     title: Optional[str] = Field(default=None, description="Updated title. If not provided, existing title is kept.")
 
@@ -317,6 +324,7 @@ class MCPEditArtifactInput(BaseModel):
 class MCPEditArtifactOutput(BaseModel):
     """Output for edit_artifact MCP tool."""
     report_id: str
+    resource_artifact_id: Optional[str] = None
     artifact_id: Optional[str] = None
     success: bool
     version: Optional[int] = Field(default=None, description="New version number after edit.")
