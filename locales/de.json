@@ -620,6 +620,7 @@
       "title": "Aufwand",
       "default": "Standard",
       "levels": {
+        "off": "Schnell",
         "low": "Niedrig",
         "medium": "Mittel",
         "high": "Hoch",
@@ -632,7 +633,9 @@
       "notSupported": "Dieses Modell hat keine Aufwandseinstellung",
       "providerDefault": "Standard des Modells",
       "modelDefault": "Admin-Standard: {level}",
-      "runsAs": "Läuft auf diesem Modell als {level}"
+      "runsAs": "Läuft auf diesem Modell als {level}",
+      "faster": "Schneller",
+      "smarter": "Intelligenter"
     }
   },
   "reports": {

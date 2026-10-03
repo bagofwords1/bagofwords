@@ -620,6 +620,7 @@
       "title": "Ansträngning",
       "default": "Standard",
       "levels": {
+        "off": "Snabb",
         "low": "Låg",
         "medium": "Medel",
         "high": "Hög",
@@ -632,7 +633,9 @@
       "notSupported": "Den här modellen har ingen ansträngningsinställning",
       "providerDefault": "Modellens standard",
       "modelDefault": "Administratörens standard: {level}",
-      "runsAs": "Körs som {level} på den här modellen"
+      "runsAs": "Körs som {level} på den här modellen",
+      "faster": "Snabbare",
+      "smarter": "Smartare"
     }
   },
   "reports": {
