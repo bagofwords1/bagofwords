@@ -312,6 +312,8 @@ app.include_router(agent_yaml.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
+from app.routes import artifact_resources
+app.include_router(artifact_resources.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 
@@ -823,3 +825,7 @@ if __name__ == "__main__":
         reload_excludes=["uploads/*", "**/uploads/*", "*.parquet", "*.pbix", "*.qvd"],
         workers=20
     )
+
+# Bound new resource payloads without changing legacy upload contracts.
+from app.services.artifact_body_limit import ArtifactBodyLimit
+app.add_middleware(ArtifactBodyLimit)

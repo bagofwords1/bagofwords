@@ -8,3 +8,5 @@
 # Vendored fonts (+ the generated @font-face sheet) are downloaded too.
 fonts/
 artifact-fonts.css
+
+!artifact-sdk.js

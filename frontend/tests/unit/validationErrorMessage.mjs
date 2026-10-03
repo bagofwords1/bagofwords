@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+const source=fs.readFileSync(new URL('../../composables/useErrorMessage.ts',import.meta.url),'utf8');
+const sandbox={exports:{},useI18n:()=>({t:key=>key,te:()=>false})};
+vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,sandbox);
+const {getErrorMessage}=sandbox.exports.useErrorMessage();
+const message=getErrorMessage({data:{detail:[{loc:['body','limit'],msg:'Must be at most 100',input:'private value'},{loc:['body','order_by'],msg:'Unsupported sort'}]}});
+assert.match(message,/limit.*100/);assert.match(message,/order_by.*Unsupported sort/);assert.ok(!message.includes('private value'));
+assert.equal(getErrorMessage({data:{detail:'Permission denied'}}),'Permission denied');
+assert.equal(getErrorMessage({data:{detail:[null,{}]}}),'errors.generic');
+console.log('PASS: validation details retain actionable fields without echoing inputs; string and generic fallbacks preserved');

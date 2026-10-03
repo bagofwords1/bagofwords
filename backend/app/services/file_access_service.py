@@ -78,8 +78,9 @@ async def visible_files_clause(
 ):
     """WHERE clause for the files a user may list (rules 1-3), or None for a
     full admin, who may list every file in the org."""
+    ordinary = or_(File.source_kind.is_(None), File.source_kind != 'artifact_resource')
     if await is_full_admin(db, user, organization):
-        return None
+        return ordinary
 
     conditions = [File.user_id == str(user.id)]
 
@@ -99,7 +100,7 @@ async def visible_files_clause(
             )
         ))
 
-    return or_(*conditions)
+    return ordinary & or_(*conditions)
 
 
 CONVERSATION = ("conversation_visibility",)
@@ -160,6 +161,8 @@ async def user_can_view_file(
 ) -> bool:
     if file is None or str(file.organization_id) != str(organization.id):
         return False
+    if file.source_kind == 'artifact_resource':
+        return False  # Only artifact-scoped services can authorize/decrypt these bytes.
     # 1. Their own upload.
     if str(file.user_id or "") == str(user.id):
         return True
