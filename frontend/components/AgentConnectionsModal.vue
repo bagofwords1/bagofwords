@@ -82,11 +82,10 @@
                                 v-if="canManageConnection(conn)"
                                 @click="testConnection(conn.id)"
                                 :disabled="testingConnectionId === conn.id"
-                                class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                                :title="$t('data.testConnection')" :aria-label="$t('data.testConnection')"
+                                class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                             >
-                                <Spinner v-if="testingConnectionId === conn.id" class="w-4 h-4" />
-                                <UIcon v-else name="heroicons-beaker" class="w-4 h-4 text-gray-400" />
+                                <Spinner v-if="testingConnectionId === conn.id" class="h-3 w-3" />
+                                {{ $t('data.testConnection') }}
                             </button>
                             <UButton
                                 v-if="canManageConnection(conn)"

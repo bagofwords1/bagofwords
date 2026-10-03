@@ -27,7 +27,7 @@ Evidence: `media/pr/powerbi-schema-identity/after-refresh-menu-mixed.png` shows 
 
 ## Implementation
 
-- `frontend/components/AgentConnectionsModal.vue` shows a small account toggle for a delegated connection when the user may manage it. Switching refreshes the parent view. Its connection-test control uses a distinct icon and accessible label.
+- `frontend/components/AgentConnectionsModal.vue` shows a small account toggle for a delegated connection when the user may manage it. Switching refreshes the parent view. Its connection-test control is labeled “Test connection” so it cannot be mistaken for schema refresh.
 - `frontend/components/datasources/SchemaIdentityStatus.vue` remains mounted as a headless refresh controller. It starts a personal or shared background job, polls the matching scope, and reports success, partial results or failure through a toast. Completion reloads the displayed tables.
 - `backend/app/routes/data_source.py` includes registry data shape and catalog ownership in the existing agent-connections response.
 - `frontend/components/datasources/TablesSelector.vue` has a split Reload control. The main button rereads the existing catalog without invoking discovery. The chevron opens connection-specific schema refresh actions with icons and scope labels; this is consistent when one or many actions are available. `Spinner.vue` appears in the chevron while a schema job runs.

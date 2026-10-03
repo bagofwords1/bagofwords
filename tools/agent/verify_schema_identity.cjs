@@ -89,6 +89,7 @@ usePermissionsLoaded().value = true
       if (scenario === 'personal') {
         await page.getByTestId('connections-button').click();
         await expect(page.getByRole('button', { name: 'Change query identity' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Test connection' })).toBeVisible();
         await page.waitForTimeout(350);
         await page.screenshot({ path: path.join(evidence, 'after-connections-toggle.png') });
         await page.keyboard.press('Escape');
