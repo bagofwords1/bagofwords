@@ -2539,7 +2539,7 @@
       "llmImpactInspectTool": "Inspecter les données",
       "llmImpactAccuracy": "Précision et performance d'analyse réduites",
       "llmImpactColumns": "L'IA ne verra que les noms de colonnes et les statistiques, pas les valeurs réelles",
-      "llmFileUploadsNote": "Les téléversements de fichiers ne sont pas affectés par ce paramètre et resteront visibles par l'IA (vous pouvez désactiver les téléversements séparément).",
+      "llmFileUploadsNote": "Les téléversements de fichiers ne sont pas affectés par ce paramètre et resteront visibles par l'IA.",
       "llmConfirmLabel": "Tapez {phrase} pour confirmer",
       "llmConfirmPhrase": "JE SUIS SÛR",
       "llmConfirmPlaceholder": "JE SUIS SÛR",
@@ -2665,6 +2665,10 @@
         "mcp_result_inline_chars": {
           "name": "Taille en ligne du résultat MCP",
           "description": "Quelle part du résultat d'un outil MCP ou d'API personnalisée l'agent voit directement dans son contexte, en caractères. La réponse complète est toujours enregistrée dans un fichier quelle que soit cette valeur ; ce réglage détermine seulement ce que le modèle peut lire sans ouvrir ce fichier. Augmentez-le pour que l'agent réponde à partir d'un jeu de résultats complet plutôt que d'un échantillon ; diminuez-le pour dépenser moins de tokens par appel. Mettez 0 pour un échantillon de 3 enregistrements. Borné entre 0 et 500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "Lignes d'aperçu des données MCP",
+          "description": "Nombre de lignes de résultat que create_data renvoie à un client MCP externe (Claude, Cursor, etc.) dans sa réponse. Le résultat complet est toujours enregistré dans le rapport ; ce réglage décide seulement de la quantité que le modèle du client reçoit directement. Un client peut demander moins de lignes, jamais plus. Également limité par « Limiter le nombre de lignes ». Borné entre 1 et 10000."
         },
         "enable_web_fetch": {
           "name": "Récupération web",

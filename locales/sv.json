@@ -2539,7 +2539,7 @@
       "llmImpactInspectTool": "Inspektera data",
       "llmImpactAccuracy": "Minskad analyskvalitet och prestanda",
       "llmImpactColumns": "AI:n kommer endast att se kolumnnamn och statistik, inte faktiska värden",
-      "llmFileUploadsNote": "Filuppladdningar påverkas inte av den här inställningen och kommer fortfarande att vara synliga för AI:n (du kan inaktivera filuppladdningar separat).",
+      "llmFileUploadsNote": "Filuppladdningar påverkas inte av den här inställningen och kommer fortfarande att vara synliga för AI:n.",
       "llmConfirmLabel": "Skriv {phrase} för att bekräfta",
       "llmConfirmPhrase": "JAG ÄR SÄKER",
       "llmConfirmPlaceholder": "JAG ÄR SÄKER",
@@ -2665,6 +2665,10 @@
         "mcp_result_inline_chars": {
           "name": "Inbäddad storlek på MCP-resultat",
           "description": "Hur mycket av ett resultat från ett MCP- eller eget API-verktyg som agenten ser direkt i sin kontext, i tecken. Hela svaret sparas alltid till en fil oavsett detta värde; inställningen avgör bara hur mycket modellen kan läsa utan att öppna den filen. Höj värdet så att agenten kan svara utifrån en hel resultatmängd i stället för ett stickprov; sänk det för att förbruka färre tokens per anrop. Ange 0 för ett stickprov på 3 poster. Begränsat till 0-500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "Förhandsgranskningsrader för MCP-data",
+          "description": "Hur många resultatrader create_data returnerar till en extern MCP-klient (Claude, Cursor m.fl.) i sitt svar. Hela resultatet sparas alltid i rapporten; detta avgör bara hur mycket klientens modell får direkt. En klient kan be om färre rader, aldrig fler. Begränsas även av 'Begränsa antalet rader'. Begränsat till 1-10000."
         },
         "enable_web_fetch": {
           "name": "Webbhämtning",

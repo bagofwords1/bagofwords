@@ -2539,7 +2539,7 @@
       "llmImpactInspectTool": "Ispeziona dati",
       "llmImpactAccuracy": "Riduzione dell'accuratezza e delle prestazioni dell'analisi",
       "llmImpactColumns": "L'IA vedrà solo i nomi delle colonne e le statistiche, non i valori effettivi",
-      "llmFileUploadsNote": "I caricamenti dei file non sono influenzati da questa impostazione e saranno comunque visibili all'IA (puoi disabilitare i caricamenti dei file separatamente).",
+      "llmFileUploadsNote": "I caricamenti dei file non sono influenzati da questa impostazione e saranno comunque visibili all'IA.",
       "llmConfirmLabel": "Digita {phrase} per confermare",
       "llmConfirmPhrase": "SONO SICURO",
       "llmConfirmPlaceholder": "SONO SICURO",
@@ -2665,6 +2665,10 @@
         "mcp_result_inline_chars": {
           "name": "Dimensione inline del risultato MCP",
           "description": "Quanta parte del risultato di uno strumento MCP o API personalizzata l'agente vede direttamente nel proprio contesto, in caratteri. La risposta completa viene sempre salvata su file qualunque sia questo valore; l'impostazione decide solo quanto il modello può leggere senza aprire quel file. Aumentalo perché l'agente risponda a partire da un intero insieme di risultati anziché da un campione; riducilo per consumare meno token per chiamata. Imposta 0 per un campione di 3 record. Limitato a 0-500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "Righe di anteprima dati MCP",
+          "description": "Quante righe di risultato create_data restituisce a un client MCP esterno (Claude, Cursor, ecc.) nella risposta. Il risultato completo viene sempre salvato nel report; questo decide solo quanto riceve direttamente il modello del client. Un client può chiedere meno righe, mai di più. Limitato anche da 'Limita il numero di righe'. Compreso tra 1 e 10000."
         },
         "enable_web_fetch": {
           "name": "Recupero dal web",

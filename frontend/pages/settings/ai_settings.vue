@@ -234,8 +234,8 @@ const FEATURE_PARENT: Record<string, string> = {
 // Dependents (FEATURE_PARENT) are placed automatically after their parent.
 // A backend setting not listed here lands in "other" so it never disappears.
 const SECTIONS: { id: string, keys: string[] }[] = [
-    { id: 'data', keys: ['allow_llm_see_data', 'enable_file_upload', 'enable_web_fetch'] },
-    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_load_step', 'enable_ml_training', 'enable_custom_queries', 'enable_follow_ups'] },
+    { id: 'data', keys: ['allow_llm_see_data', 'enable_web_fetch'] },
+    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_load_step', 'enable_ml_training', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups'] },
     { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
     { id: 'tools', keys: ['enable_mcp_tools', 'enable_mcp_native_tools', 'mcp_result_inline_chars'] },
     { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'top_k_schema', 'top_k_metadata_resources', 'agent_roster_top_k'] },
@@ -247,13 +247,18 @@ const SECTIONS: { id: string, keys: string[] }[] = [
 // add-in). Not repeated here so there is one place to change each.
 const MANAGED_ELSEWHERE = new Set(['model_routing', 'llm_fallback', 'mcp_enabled', 'enable_excel_addin'])
 
+// Settings with no UI for now. enable_file_upload is not enforced yet (the
+// upload routes and the attach button ignore it), so a switch here would
+// promise a control it does not provide.
+const HIDDEN = new Set(['enable_file_upload'])
+
 const configFeatures = ref<Record<string, Feature>>({})
 
 interface Section { id: string, keys: string[], total: number, on: number, booleans: number, hasLocked: boolean }
 
 const visibleSections = computed<Section[]>(() => {
     const cfg = configFeatures.value
-    const placed = new Set<string>([...MANAGED_ELSEWHERE, ...Object.keys(FEATURE_PARENT)])
+    const placed = new Set<string>([...MANAGED_ELSEWHERE, ...HIDDEN, ...Object.keys(FEATURE_PARENT)])
     const groups = SECTIONS.map(s => ({ id: s.id, keys: s.keys.filter(k => cfg[k]) }))
     for (const g of groups) g.keys.forEach(k => placed.add(k))
     const other = Object.keys(cfg).filter(k => !placed.has(k))

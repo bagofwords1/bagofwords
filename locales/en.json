@@ -2735,7 +2735,7 @@
       "llmImpactInspectTool": "Inspect Data",
       "llmImpactAccuracy": "Reduced analysis accuracy and performance",
       "llmImpactColumns": "AI will only see column names and statistics, not actual values",
-      "llmFileUploadsNote": "File uploads are unaffected by this setting and will still be visible to the AI (you can disable file uploads separately).",
+      "llmFileUploadsNote": "File uploads are unaffected by this setting and will still be visible to the AI.",
       "llmConfirmLabel": "Type {phrase} to confirm",
       "llmConfirmPhrase": "I AM SURE",
       "llmConfirmPlaceholder": "I AM SURE",
@@ -2861,6 +2861,10 @@
         "mcp_result_inline_chars": {
           "name": "MCP result inline size",
           "description": "How much of an MCP / custom API tool result the agent sees directly in its context, in characters. The complete response is always saved to a file whatever this is set to; this only decides how much the model can read without opening that file. Raise it so the agent can answer from a whole result set instead of a sample; lower it to spend fewer tokens per call. Set to 0 for a 3-record sample. Clamped to 0-500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "MCP data preview rows",
+          "description": "How many result rows create_data returns to an external MCP client (Claude, Cursor, etc.) in its response. The full result is always saved in the report; this only decides how much the client's model receives inline. A client may ask for fewer rows, never more. Also bounded by 'Limit row count'. Clamped to 1-10000."
         },
         "enable_web_fetch": {
           "name": "Web Fetch",

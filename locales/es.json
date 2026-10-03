@@ -2655,7 +2655,7 @@
       "llmImpactInspectTool": "Inspeccionar datos",
       "llmImpactAccuracy": "Precisión y rendimiento de análisis reducidos",
       "llmImpactColumns": "La IA solo verá nombres de columnas y estadísticas, no valores reales",
-      "llmFileUploadsNote": "Las subidas de archivos no se ven afectadas por este ajuste y seguirán siendo visibles para la IA (puedes deshabilitar las subidas de archivos por separado).",
+      "llmFileUploadsNote": "Las subidas de archivos no se ven afectadas por este ajuste y seguirán siendo visibles para la IA.",
       "llmConfirmLabel": "Escribe {phrase} para confirmar",
       "llmConfirmPhrase": "ESTOY SEGURO",
       "llmConfirmPlaceholder": "ESTOY SEGURO",
@@ -2781,6 +2781,10 @@
         "mcp_result_inline_chars": {
           "name": "Tamaño en línea del resultado MCP",
           "description": "Cuánto del resultado de una herramienta MCP o de API personalizada ve el agente directamente en su contexto, en caracteres. La respuesta completa siempre se guarda en un archivo, sea cual sea este valor; este ajuste solo decide cuánto puede leer el modelo sin abrir ese archivo. Súbelo para que el agente responda a partir de un conjunto de resultados completo en lugar de una muestra; bájalo para gastar menos tokens por llamada. Ponlo en 0 para obtener una muestra de 3 registros. Limitado a 0-500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "Filas de vista previa de datos MCP",
+          "description": "Cuántas filas de resultado devuelve create_data a un cliente MCP externo (Claude, Cursor, etc.) en su respuesta. El resultado completo siempre se guarda en el informe; esto solo decide cuánto recibe directamente el modelo del cliente. Un cliente puede pedir menos filas, nunca más. También limitado por 'Limitar el número de filas'. Restringido a 1-10000."
         },
         "enable_web_fetch": {
           "name": "Descarga web",
