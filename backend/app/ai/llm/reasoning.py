@@ -1,7 +1,10 @@
 """Shared effort policy; adapters translate this configuration to their API."""
+import logging
 from typing import Optional, Sequence, Tuple
 
 from app.utils.reasoning_effort import EFFORT_ORDER, USER_EFFORTS, normalize_effort  # noqa: F401 (re-exported)
+
+logger = logging.getLogger(__name__)
 
 # Substring triggers that bump a completion's reasoning_effort to "high".
 # Matched case-insensitive against the user-submitted prompt text only —
@@ -18,11 +21,6 @@ THINKING_TRIGGERS = (
     "be thorough",
 )
 
-# Effort sent when reasoning is "off" to a model that cannot stop thinking
-# (Sonnet 5, Opus 4.7+, Fable 5). Omitting it leaves the provider default,
-# which is high — the opposite of what "off" asks for.
-OFF_EFFORT_FOR_ALWAYS_THINKING = "low"
-
 # Token budgets for models that take a thinking budget instead of an effort
 # (Claude <= 4.5, Gemini 2.5). xhigh/max share the largest budget: 31,999 is the
 # biggest Anthropic accepts without streaming-only constraints, and adapters cap
@@ -36,16 +34,13 @@ THINKING_BUDGETS = {
     "max": 31999,
 }
 
-# Shared configuration retains legacy budget fields for existing adapters.
-# ``effort`` is metadata: adapters must not put it inside API thinking objects.
-# "off" returns None (no thinking sent). Anthropic 4.6+ supports
-# ``adaptive`` (model decides budget); older 4.x needs an explicit
-# budget_tokens. On Sonnet 5 / Opus 4.7+ / Fable 5, budget_tokens is removed
-# from the API (400 if sent) — adaptive is the only thinking mode, so those
-# models must always get adaptive regardless of effort.
+# Keep an explicit disable distinct from an unspecified configuration. Each
+# adapter translates this marker to its own API; it is never a token budget.
 def _effort_to_thinking_config(effort: Optional[str], model_id: Optional[str]) -> Optional[dict]:
-    if not effort or str(effort).lower() in ("off", "none"):
+    if not effort:
         return None
+    if str(effort).lower() in ("off", "none"):
+        return {"type": "disabled"}
     e = str(effort).lower()
     if e not in {"minimal", "low", "medium", "high", "xhigh", "max"}:
         return None
@@ -86,8 +81,10 @@ def _resolve_reasoning_effort(
 
 def selected_effort(thinking: Optional[dict]) -> Optional[str]:
     """Accept both explicit effort and legacy budget-based callers."""
-    if not thinking or thinking.get("type") == "disabled":
+    if not thinking:
         return None
+    if thinking.get("type") == "disabled":
+        return "off"
     if thinking.get("effort") in {"minimal", "low", "medium", "high", "xhigh", "max"}:
         return thinking["effort"]
     budget = thinking.get("budget_tokens")
@@ -201,7 +198,7 @@ def reasoning_params(config: Optional[dict]) -> dict:
     params = cfg.get("reasoning_params")
     if not isinstance(params, dict):
         return {}
-    return {k: v for k, v in params.items() if k in USER_EFFORTS and isinstance(v, dict) and v}
+    return {k: v for k, v in params.items() if k in (*USER_EFFORTS, "off") and isinstance(v, dict) and v}
 
 
 def _efforts(model_id: Optional[str], mode: str, like_id: Optional[str], params: dict) -> Optional[Tuple[str, ...]]:
@@ -229,13 +226,16 @@ def clamp_effort(effort: Optional[str], efforts: Optional[Sequence[str]]) -> Opt
 
     "max" means the strongest the model has (max, else xhigh, else its top
     level). Any other level snaps to the nearest accepted one (ties go up).
-    Returns None when nothing should be sent: no effort, "off", or a model that
-    does not reason. With ``efforts`` unknown (None) the request passes through.
+    Explicit off becomes "none" only when the model advertises it. Unsupported
+    disable requests remain omitted; never guess that an unknown API accepts
+    "none". Other efforts pass through when capabilities are unknown.
     """
     if not effort:
         return None
     e = str(effort).lower()
     if e in ("off", "none"):
+        if efforts is not None and "none" in efforts:
+            return "none"
         return None
     if efforts is None:
         return e
@@ -268,6 +268,8 @@ def lightest_effort(efforts: Optional[Sequence[str]]) -> Optional[str]:
     if "none" in efforts:
         return "none"
     usable = [x for x in EFFORT_ORDER if x in efforts]
+    if usable:
+        logger.warning("Reasoning off is unsupported; using minimum accepted effort %s", usable[0])
     return usable[0] if usable else None
 
 
@@ -392,3 +394,25 @@ def merge_raw_params(request_kwargs: dict, raw: dict, passthrough_key: Optional[
             extra[key] = deep_merge(extra[key], value) if isinstance(extra.get(key), dict) and isinstance(value, dict) else value
             request_kwargs[passthrough_key] = extra
     return request_kwargs
+
+
+def claude_off_params(model_id: Optional[str]) -> dict:
+    """Translate explicit off for Claude Messages/Converse, not display settings.
+
+    https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting
+    Unknown and non-thinking families keep their historical omitted parameter.
+    """
+    key = _capability_key(model_id)
+    if not native_efforts(key) or "claude-" not in key:
+        return {}
+    if "claude-sonnet-5-5" in key:
+        logger.warning("model=%s cannot fully disable reasoning; disabling upfront thinking only", model_id)
+        return {"thinking": {"type": "between_tools"}, "output_config": {"effort": "low"}}
+    if any(tag in key for tag in ("claude-fable", "claude-mythos", "claude-opus-5-5")):
+        logger.warning("model=%s cannot disable reasoning; using adaptive low effort", model_id)
+        return {"thinking": {"type": "adaptive", "display": "summarized"}, "output_config": {"effort": "low"}}
+    fields = {"thinking": {"type": "disabled"}}
+    if "claude-opus-5" in key:
+        # Disabled is accepted only at high or below; override any higher default.
+        fields["output_config"] = {"effort": "low"}
+    return fields

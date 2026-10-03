@@ -5812,7 +5812,26 @@
     "selectRow": "בחירת שורה",
     "toastRowsDeleted": "שורה אחת נמחקה | {n} שורות נמחקו"
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "תצוגה:",
+    "myAccount": "החשבון שלי",
+    "serviceAccount": "חשבון שירות",
+    "sharedConnection": "חיבור משותף",
+    "sharedSchema": "סכמה משותפת",
+    "changeIdentity": "שינוי זהות לשאילתות",
+    "refresh": "רענון סכימה",
+    "refreshMyFor": "רענון {name} · החשבון שלי",
+    "refreshSharedFor": "רענון {name} · סכימה משותפת",
+    "refreshing": "מרענן…",
+    "unknown": "רענון הסכימה האחרון: לא ידוע",
+    "refreshedAt": "רענון הסכימה האחרון: {time}",
+    "attemptedAt": "ניסיון הרענון האחרון: {time}",
+    "updated": "הסכימה עודכנה.",
+    "partial": "לא ניתן היה לרענן חלק מהמודלים. העמודות הקודמות שלהם נשמרו.",
+    "failed": "רענון הסכימה לא הושלם. נסו שוב.",
+    "connectRequired": "חברו את החשבון כדי לראות את הטבלאות שלו."
+  },
+"artifactResources": {
     "readOnlyLabel": "לקריאה בלבד",
     "sort": "מיון רשומות",
     "applyFilter": "החלה",

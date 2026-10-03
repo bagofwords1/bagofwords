@@ -5631,7 +5631,26 @@
     "mergedTip": "Incorporada a uma sugestão do aprendizado noturno. Não é uma rejeição de um revisor.",
     "expiredTip": "Fechada após ficar sem revisão além do prazo da organização. Continua contando como evidência se o padrão voltar."
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "Visualizando:",
+    "myAccount": "Minha conta",
+    "serviceAccount": "Conta de serviço",
+    "sharedConnection": "Conexão compartilhada",
+    "sharedSchema": "Esquema compartilhado",
+    "changeIdentity": "Alterar identidade das consultas",
+    "refresh": "Atualizar esquema",
+    "refreshMyFor": "Atualizar {name} · Minha conta",
+    "refreshSharedFor": "Atualizar {name} · Esquema compartilhado",
+    "refreshing": "Atualizando…",
+    "unknown": "Última atualização do esquema: desconhecida",
+    "refreshedAt": "Última atualização do esquema: {time}",
+    "attemptedAt": "Última tentativa: {time}",
+    "updated": "Esquema atualizado.",
+    "partial": "Alguns modelos não puderam ser atualizados. Suas colunas anteriores foram mantidas.",
+    "failed": "A atualização do esquema não foi concluída. Tente novamente.",
+    "connectRequired": "Conecte sua conta para ver suas tabelas."
+  },
+"artifactResources": {
     "readOnlyLabel": "Somente leitura",
     "sort": "Ordenar registros",
     "applyFilter": "Aplicar",

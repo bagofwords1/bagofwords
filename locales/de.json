@@ -5631,7 +5631,26 @@
     "mergedTip": "In einen Vorschlag des nächtlichen Lernens übernommen. Keine Ablehnung durch Prüfende.",
     "expiredTip": "Geschlossen, weil er über die Frist der Organisation hinaus ungeprüft blieb. Zählt weiter als Beleg, wenn das Muster wiederkehrt."
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "Ansicht:",
+    "myAccount": "Mein Konto",
+    "serviceAccount": "Dienstkonto",
+    "sharedConnection": "Gemeinsame Verbindung",
+    "sharedSchema": "Gemeinsames Schema",
+    "changeIdentity": "Abfrageidentität ändern",
+    "refresh": "Schema aktualisieren",
+    "refreshMyFor": "{name} aktualisieren · Mein Konto",
+    "refreshSharedFor": "{name} aktualisieren · Gemeinsames Schema",
+    "refreshing": "Wird aktualisiert…",
+    "unknown": "Schema zuletzt aktualisiert: unbekannt",
+    "refreshedAt": "Schema zuletzt aktualisiert: {time}",
+    "attemptedAt": "Letzter Aktualisierungsversuch: {time}",
+    "updated": "Schema aktualisiert.",
+    "partial": "Einige Modelle konnten nicht aktualisiert werden. Ihre bisherigen Spalten wurden beibehalten.",
+    "failed": "Die Schemaaktualisierung wurde nicht abgeschlossen. Versuchen Sie es erneut.",
+    "connectRequired": "Verbinden Sie Ihr Konto, um dessen Tabellen zu sehen."
+  },
+"artifactResources": {
     "readOnlyLabel": "Schreibgeschützt",
     "sort": "Einträge sortieren",
     "applyFilter": "Anwenden",

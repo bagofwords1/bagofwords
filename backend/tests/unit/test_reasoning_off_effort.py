@@ -1,16 +1,4 @@
-"""Reasoning "off" (the picker's Fast stop, and the default) means the least
-reasoning the model allows.
-
-Leaving the effort out of the request does not do that: Sonnet 5 / Opus 4.7+ /
-Fable 5 cannot turn thinking off and run at the provider default (high), and
-OpenAI reasoning models run at theirs (medium, verified live on GPT-5.6). "Off"
-must ask for "none" where the model accepts it and its lightest level where it
-does not, while any explicit effort — a trigger phrase, the per-completion
-setting, the model default — still decides.
-
-The provider SDK is the mocked boundary; the request it receives is the
-contract.
-"""
+"""Explicit effort overrides triggers/defaults and reaches the provider SDK."""
 import asyncio
 
 import pytest
@@ -63,32 +51,32 @@ def _effort(request: dict):
     return ((request.get("extra_body") or {}).get("output_config") or {}).get("effort")
 
 
-ALWAYS_THINKING = ["claude-sonnet-5-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5-1"]
+CLAUDE_MODELS = ["claude-sonnet-5-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5-1"]
 
 
-@pytest.mark.parametrize("model_id", ALWAYS_THINKING)
-def test_off_asks_always_thinking_models_for_low_effort(model_id):
+@pytest.mark.parametrize("model_id", ["claude-fable-5-1", "claude-mythos-5", "claude-opus-5-5"])
+def test_off_uses_low_when_model_cannot_disable_thinking(model_id):
     request = _request_for(model_id)
     assert request["extra_body"]["thinking"]["type"] == "adaptive"
     assert _effort(request) == "low"
 
 
-@pytest.mark.parametrize("model_id", ALWAYS_THINKING)
+@pytest.mark.parametrize("model_id", CLAUDE_MODELS)
 @pytest.mark.parametrize("prompt", ["think hard about churn", "please be thorough here"])
 def test_trigger_phrase_still_raises_effort(model_id, prompt):
     assert _effort(_request_for(model_id, prompt=prompt)) == "high"
 
 
-@pytest.mark.parametrize("model_id", ALWAYS_THINKING)
+@pytest.mark.parametrize("model_id", CLAUDE_MODELS)
 @pytest.mark.parametrize("source", ["per_completion", "model_default"])
 def test_an_explicit_effort_is_never_lowered(model_id, source):
     assert _effort(_request_for(model_id, **{source: "medium"})) == "medium"
 
 
 @pytest.mark.parametrize("model_id", ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"])
-def test_models_that_can_stop_thinking_still_send_none(model_id):
+def test_models_that_can_stop_thinking_receive_explicit_disable(model_id):
     request = _request_for(model_id)
-    assert "thinking" not in (request.get("extra_body") or {})
+    assert request["extra_body"]["thinking"] == {"type": "disabled"}
     assert _effort(request) is None
 
 
@@ -175,3 +163,7 @@ def test_trigger_phrase_still_raises_openai_effort(api):
 def test_off_leaves_admin_configured_endpoints_alone(api, attrs):
     # Generic/custom endpoints only get what the admin configured for a level.
     assert _openai_effort(api, _openai_request(api, "my-gateway-model", **attrs)) is None
+@pytest.mark.parametrize("model_id", ["claude-sonnet-5", "claude-opus-4-8"])
+def test_explicit_off_overrides_trigger_and_model_default(model_id):
+    request = _request_for(model_id, per_completion="off", prompt="think hard about revenue", model_default="high")
+    assert request["extra_body"]["thinking"] == {"type": "disabled"}

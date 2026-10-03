@@ -42,8 +42,8 @@ def apply_chat_reasoning(client, model_id: str, request_kwargs: dict[str, Any], 
     efforts = chat_completions_efforts(efforts_for_client(client, model_id))
     requested = selected_effort(thinking)
     effort = clamp_effort(requested, efforts)
-    if not requested and client_mode(client) in ("auto", "like"):
-        # Reasoning "off": no effort means the provider default (medium).
+    if requested == "off" and client_mode(client) in ("auto", "like"):
+        # Explicit off uses the lightest supported effort; unset inherits.
         effort = lightest_effort(efforts)
     if effort and client_mode(client) != "custom":
         request_kwargs["reasoning_effort"] = effort

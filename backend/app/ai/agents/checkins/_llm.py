@@ -44,7 +44,7 @@ async def call_small_model(
     # The check-in judge is often the first LLM call in a scheduler fire; bind
     # the loop so its usage (priced on the TraceModal card) is not dropped.
     bind_usage_loop()
-    llm = LLM(model, usage_session_maker=async_session_maker)
+    llm = LLM(model, reasoning_effort="off", usage_session_maker=async_session_maker)
     # LLM.inference is sync (see Reporter.generate_report_title) — off-load it.
     return await asyncio.to_thread(
         functools.partial(

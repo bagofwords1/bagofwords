@@ -5631,7 +5631,26 @@
     "mergedTip": "أُدمج في اقتراح من التعلّم الليلي. ليس رفضًا من مراجع.",
     "expiredTip": "أُغلق بعد بقائه دون مراجعة بعد المهلة المحددة للمؤسسة. يظل دليلًا إذا عاد النمط."
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "عرض:",
+    "myAccount": "حسابي",
+    "serviceAccount": "حساب الخدمة",
+    "sharedConnection": "اتصال مشترك",
+    "sharedSchema": "المخطط المشترك",
+    "changeIdentity": "تغيير هوية الاستعلام",
+    "refresh": "تحديث المخطط",
+    "refreshMyFor": "تحديث {name} · حسابي",
+    "refreshSharedFor": "تحديث {name} · المخطط المشترك",
+    "refreshing": "جارٍ التحديث…",
+    "unknown": "آخر تحديث للمخطط: غير معروف",
+    "refreshedAt": "آخر تحديث للمخطط: {time}",
+    "attemptedAt": "آخر محاولة تحديث: {time}",
+    "updated": "تم تحديث المخطط.",
+    "partial": "تعذر تحديث بعض النماذج. تم الاحتفاظ بأعمدتها السابقة.",
+    "failed": "لم يكتمل تحديث المخطط. حاول مرة أخرى.",
+    "connectRequired": "اربط حسابك لعرض جداوله."
+  },
+"artifactResources": {
     "readOnlyLabel": "للقراءة فقط",
     "sort": "ترتيب السجلات",
     "applyFilter": "تطبيق",

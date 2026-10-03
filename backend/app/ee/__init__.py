@@ -10,7 +10,7 @@ from app.ee.license import (
     get_max_users,
     get_max_agents,
     LicenseInfo,
-    ENTERPRISE_DATASOURCES,
+    enterprise_datasources,
 )
 
 __all__ = [
@@ -21,5 +21,5 @@ __all__ = [
     "get_max_users",
     "get_max_agents",
     "LicenseInfo",
-    "ENTERPRISE_DATASOURCES",
+    "enterprise_datasources",
 ]

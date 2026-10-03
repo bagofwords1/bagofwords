@@ -5,6 +5,13 @@
       <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
       <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
+    <div v-if="schemaConnections.length" class="hidden" aria-hidden="true">
+      <SchemaIdentityStatus v-for="connection in schemaConnections" :key="connection.id" headless
+        :ref="el => setSchemaStatusRef(connection.id, el)" :connection="connection"
+        :disabled="loading || refreshing || hasPendingChanges" @refreshed="reloadKnownCatalog"
+        @busy-change="onSchemaBusyChange(connection.id, $event)"
+        @finished="onSchemaRefreshFinished" />
+    </div>
     <div class="shrink-0 mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
       <div class="flex items-center gap-4">
         <slot name="reload-left" />
@@ -28,13 +35,41 @@
           class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
           {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
-        <button v-if="showRefresh" @click="onRefresh" :disabled="loading || refreshing"
-          :aria-label="t('tableErd.reload')"
-          class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-          <Spinner v-if="loading || refreshing" class="w-3 h-3" />
-          <UIcon v-else name="i-heroicons-arrow-path" class="w-3 h-3" />
-          <span v-if="!refreshIconOnly">{{ t('tableErd.reload') }}</span>
-        </button>
+        <div v-if="showRefresh" class="relative inline-flex rounded-md border border-gray-200 text-[11px] text-gray-600 dark:border-gray-700 dark:text-gray-300">
+          <button type="button" :disabled="loading || refreshing || hasPendingChanges" @click="onRefresh"
+            class="inline-flex items-center gap-1.5 rounded-s-md px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-50 dark:hover:bg-gray-800">
+            <Spinner v-if="refreshing" class="h-3 w-3" />
+            <UIcon v-else name="i-heroicons-arrow-path" class="h-3 w-3" />
+            {{ t('tableErd.reload') }}
+          </button>
+          <button v-if="refreshActions.length" ref="refreshButtonRef" type="button"
+            :disabled="loading || refreshing || hasPendingChanges"
+            aria-haspopup="menu" :aria-expanded="refreshMenuOpen"
+            :aria-label="t('schemaIdentity.refresh')" @click="toggleRefreshMenu"
+            class="inline-flex items-center rounded-e-md border-s border-gray-200 px-2 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800">
+            <Spinner v-if="anySchemaRefreshBusy" data-testid="schema-refresh-spinner" class="h-3 w-3" />
+            <UIcon v-else name="i-heroicons-chevron-down" class="h-3 w-3" />
+          </button>
+          <div v-if="refreshMenuOpen && refreshActions.length" ref="refreshMenuRef" role="menu"
+            class="absolute end-0 top-full z-30 mt-1 w-64 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            <div class="px-3 py-1.5 text-[10px] font-medium text-gray-400">{{ t('schemaIdentity.refresh') }}</div>
+            <button v-for="(action, index) in refreshActions" :key="`${action.connection.id}:${action.scope}`" type="button" role="menuitem"
+              :aria-label="t(action.scope === 'user' ? 'schemaIdentity.refreshMyFor' : 'schemaIdentity.refreshSharedFor', { name: action.connection.name })"
+              :disabled="busyConnectionIds.has(action.connection.id)"
+              class="flex w-full items-center gap-2.5 px-3 py-2 text-start text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              :class="index > 0 && refreshActions[index - 1].connection.id !== action.connection.id ? 'border-t border-gray-100 dark:border-gray-800' : ''"
+              @click="runSchemaRefresh(action)">
+              <DataSourceIcon :type="action.connection.type" class="h-4 w-4 shrink-0" />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate font-medium">{{ action.connection.name }}</span>
+                <span class="block text-[10px]" :class="action.scope === 'user' ? 'text-blue-600 dark:text-blue-400' : 'text-violet-600 dark:text-violet-400'">
+                  {{ t(action.scope === 'user' ? 'schemaIdentity.myAccount' : 'schemaIdentity.sharedSchema') }}
+                </span>
+              </span>
+              <Spinner v-if="busyConnectionIds.has(action.connection.id)" class="h-3 w-3 shrink-0 text-blue-500" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -584,6 +619,8 @@
 <script setup lang="ts">
 import { useScrollLock, useEventListener } from '@vueuse/core'
 import Spinner from '@/components/Spinner.vue'
+import SchemaIdentityStatus from './SchemaIdentityStatus.vue'
+import { useCan } from '~/composables/usePermissions'
 const TablesCanvas = defineAsyncComponent(() => import('./TablesCanvas.vue'))
 import { tableId, matchesTable } from '~/utils/tableGraph'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
@@ -791,7 +828,54 @@ const bulkUpdating = ref(false)
 // connections instead of an unexplained empty list.
 const authConnections = ref<any[]>([])
 const signingIn = ref(false)
-
+// Keep one status per table connection, regardless of connector type.
+const schemaConnections = computed(() => {
+  const ids = props.connectionFilter.split(',').filter(Boolean)
+  return authConnections.value.filter(c =>
+    (!ids.length || ids.includes(c.id))
+    && ['tables', 'objects'].includes(c.data_shape || 'tables')
+    && c.catalog_ownership !== 'none')
+})
+type SchemaRefreshAction = { connection: any; scope: 'user' | 'org' }
+const refreshActions = computed<SchemaRefreshAction[]>(() => {
+  const actions: SchemaRefreshAction[] = []
+  for (const connection of schemaConnections.value) {
+    const identity = connection.user_status?.effective_auth
+    if (identity === 'user') actions.push({ connection, scope: 'user' })
+    if ((connection.auth_policy !== 'user_required' || identity === 'system' || identity === 'user')
+        && connection.catalog_ownership !== 'per_user'
+        && useCan('manage_connection', { type: 'connection', id: connection.id })) {
+      actions.push({ connection, scope: 'org' })
+    }
+  }
+  return actions
+})
+const schemaStatusRefs = new Map<string, any>()
+const busyConnectionIds = ref<Set<string>>(new Set())
+const anySchemaRefreshBusy = computed(() => busyConnectionIds.value.size > 0)
+function onSchemaBusyChange(id: string, active: boolean) {
+  const next = new Set(busyConnectionIds.value)
+  if (active) next.add(id)
+  else next.delete(id)
+  busyConnectionIds.value = next
+}
+function onSchemaRefreshFinished(result: { message: string; warning: boolean }) {
+  toast.add({ title: result.message, color: result.warning ? 'amber' : 'green' })
+}
+function setSchemaStatusRef(id: string, el: any) {
+  if (el) schemaStatusRefs.set(id, el)
+  else schemaStatusRefs.delete(id)
+}
+const refreshMenuOpen = ref(false)
+const refreshMenuRef = ref<HTMLElement | null>(null)
+const refreshButtonRef = ref<HTMLElement | null>(null)
+function toggleRefreshMenu() {
+  refreshMenuOpen.value = !refreshMenuOpen.value
+}
+function runSchemaRefresh(action: SchemaRefreshAction) {
+  refreshMenuOpen.value = false
+  schemaStatusRefs.get(action.connection.id)?.refreshSchema(action.scope)
+}
 const connectRequiredConn = computed(() => {
   return authConnections.value.find((c: any) =>
     c?.auth_policy === 'user_required'
@@ -1285,6 +1369,9 @@ function clearAllFilters() {
 
 function onGlobalClick(e: MouseEvent) {
   const target = e.target as Node
+  if (refreshMenuOpen.value && !refreshMenuRef.value?.contains(target) && !refreshButtonRef.value?.contains(target)) {
+    refreshMenuOpen.value = false
+  }
   if (filterMenuOpen.value) {
     const inside = (filterMenuRef.value?.contains(target)) || (filterButtonRef.value?.contains(target))
     if (!inside) filterMenuOpen.value = false
@@ -1507,31 +1594,12 @@ async function onSave() {
 
 async function onRefresh() {
   if (loading.value || refreshing.value) return
+  refreshMenuOpen.value = false
   refreshing.value = true
 
   try {
-    if (endpointForSchema() === 'full_schema') {
-      const res = await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
-      if (res.error?.value) {
-        // Surface the real reason (e.g. 403 "Connect required: this connection
-        // runs queries with your own credentials…") — a silent no-op here left
-        // users staring at an empty list with no explanation.
-        const err: any = res.error.value
-        const detail = err?.data?.detail || err?.message || 'Failed to reload'
-        toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: String(detail), color: 'red' })
-      }
-    }
-
-    invalidateCatalog()
-    // Clear all tracking on refresh
-    originalActiveState.value.clear()
-    currentActiveState.value.clear()
-    selectedConnections.value = []
-    page.value = 1
-
-    await fetchTables()
+    await reloadKnownCatalog()
     await loadAuthConnections()
-    if (tableView.value === 'erd') await loadCatalog()
   } catch (e: any) {
     toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: e?.message || String(e), color: 'red' })
   } finally {

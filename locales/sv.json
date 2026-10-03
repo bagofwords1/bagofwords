@@ -5631,7 +5631,26 @@
     "mergedTip": "Uppgick i ett förslag från den nattliga inlärningen. Inte ett avslag från en granskare.",
     "expiredTip": "Stängd efter att ha legat ogranskad längre än organisationens gräns. Räknas fortfarande som belägg om mönstret återkommer."
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "Visar:",
+    "myAccount": "Mitt konto",
+    "serviceAccount": "Tjänstekonto",
+    "sharedConnection": "Delad anslutning",
+    "sharedSchema": "Gemensamt schema",
+    "changeIdentity": "Byt frågeidentitet",
+    "refresh": "Uppdatera schema",
+    "refreshMyFor": "Uppdatera {name} · Mitt konto",
+    "refreshSharedFor": "Uppdatera {name} · Delat schema",
+    "refreshing": "Uppdaterar…",
+    "unknown": "Schemat uppdaterades senast: okänt",
+    "refreshedAt": "Schemat uppdaterades senast: {time}",
+    "attemptedAt": "Senaste uppdateringsförsök: {time}",
+    "updated": "Schemat uppdaterat.",
+    "partial": "Vissa modeller kunde inte uppdateras. Deras tidigare kolumner behölls.",
+    "failed": "Schemauppdateringen slutfördes inte. Försök igen.",
+    "connectRequired": "Anslut ditt konto för att se dess tabeller."
+  },
+"artifactResources": {
     "readOnlyLabel": "Skrivskyddad",
     "sort": "Sortera poster",
     "applyFilter": "Tillämpa",
