@@ -9,9 +9,14 @@ Two routers:
   - router: mounted at /api for /api/oauth/* endpoints
 """
 
+import base64
+import binascii
 import logging
+import threading
+import time
+from collections import defaultdict, deque
 from typing import Optional
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -23,7 +28,14 @@ from app.dependencies import get_async_db, get_current_organization
 from app.ee.audit.service import audit_service
 from app.models.organization import Organization
 from app.models.user import User
-from app.services.oauth_server_service import OAuthServerService
+from app.services.oauth_server_service import (
+    DYNAMIC_AUTH_METHODS,
+    MAX_DYNAMIC_REDIRECT_URIS,
+    OAuthAuthorizationError,
+    OAuthServerService,
+    dynamic_registration_enabled,
+)
+from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -69,16 +81,19 @@ async def app_protected_resource_metadata(request: Request):
 async def authorization_server_metadata(request: Request):
     """RFC 8414 - Authorization Server Metadata."""
     base = _base_url(request)
-    return JSONResponse({
+    metadata = {
         "issuer": base,
         "authorization_endpoint": f"{base}/authorize",
         "token_endpoint": f"{base}/api/oauth/token",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["client_secret_post", "none"],
+        "token_endpoint_auth_methods_supported": list(DYNAMIC_AUTH_METHODS),
         "scopes_supported": list(SUPPORTED_SCOPES),
-    })
+    }
+    if dynamic_registration_enabled():
+        metadata["registration_endpoint"] = f"{base}/api/oauth/register"
+    return JSONResponse(metadata)
 
 
 # ── OAuth API routes (mounted at /api) ─────────────────────────────
@@ -192,13 +207,14 @@ async def authorize_approve(
     # On multi-org deployments a user can be active in org A while approving a
     # client registered under org B; binding to the header would issue a token
     # scoped to the wrong tenant. Gate on membership so a user can only approve
-    # clients belonging to an org they're actually in.
-    organization_id = client.organization_id
-    if not await service.user_is_member_of_org(db, user.id, organization_id):
-        raise HTTPException(
-            status_code=403,
-            detail="You are not a member of this application's organization",
+    # clients belonging to an org they're actually in. A self-registered client
+    # has no org: the user picks one explicitly in the consent body.
+    try:
+        organization_id = await service.resolve_consent_organization(
+            db, client, user, body.get("organization_id"),
         )
+    except OAuthAuthorizationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.code)
 
     # Validate requested scope: must be a non-empty subset of both the server's
     # SUPPORTED_SCOPES and the client's registered scopes.
@@ -226,12 +242,29 @@ async def authorize_approve(
     return {"redirect_url": callback}
 
 
+def _basic_client_credentials(request: Request) -> Optional[tuple[str, str]]:
+    """client_secret_basic (RFC 6749 §2.3.1): form-urlencoded id:secret."""
+    header = request.headers.get("authorization") or ""
+    scheme, _, value = header.partition(" ")
+    if scheme.lower() != "basic" or not value:
+        return None
+    try:
+        decoded = base64.b64decode(value.strip(), validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return None
+    client_id, sep, client_secret = decoded.partition(":")
+    if not sep:
+        return None
+    return unquote(client_id.replace("+", " ")), unquote(client_secret.replace("+", " "))
+
+
 @router.post("/token")
 async def token_endpoint(
+    request: Request,
     grant_type: str = Form(...),
     code: Optional[str] = Form(None),
     redirect_uri: Optional[str] = Form(None),
-    client_id: str = Form(...),
+    client_id: Optional[str] = Form(None),
     client_secret: Optional[str] = Form(None),
     code_verifier: Optional[str] = Form(None),
     refresh_token: Optional[str] = Form(None),
@@ -240,7 +273,24 @@ async def token_endpoint(
     """OAuth token endpoint.
 
     Supports grant_type=authorization_code and grant_type=refresh_token.
+    Clients authenticate with client_secret_post, client_secret_basic, or
+    (public clients) just client_id.
     """
+    basic = _basic_client_credentials(request)
+    if basic:
+        basic_id, basic_secret = basic
+        if (client_id and client_id != basic_id) or client_secret:
+            return JSONResponse(
+                {"error": "invalid_request", "error_description": "Use one client authentication method"},
+                status_code=400,
+            )
+        client_id, client_secret = basic_id, basic_secret
+    if not client_id:
+        return JSONResponse(
+            {"error": "invalid_client", "error_description": "Missing client_id"},
+            status_code=401,
+        )
+
     service = OAuthServerService()
 
     if grant_type == "authorization_code":
@@ -297,6 +347,144 @@ async def token_endpoint(
             {"error": "unsupported_grant_type"},
             status_code=400,
         )
+
+
+# ── Dynamic Client Registration (RFC 7591) ─────────────────────────
+
+class _RegistrationRateLimiter:
+    """Sliding one-hour window per client IP.
+
+    In-process, so each worker counts separately; it bounds abuse of an
+    unauthenticated endpoint, it is not an exact quota.
+    """
+
+    def __init__(self):
+        self._hits: dict[str, deque] = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def allow(self, key: str, limit: int, window_seconds: float = 3600.0) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            hits = self._hits[key]
+            while hits and now - hits[0] > window_seconds:
+                hits.popleft()
+            if len(hits) >= limit:
+                return False
+            hits.append(now)
+            if len(self._hits) > 10_000:
+                for stale in [k for k, v in self._hits.items() if not v]:
+                    del self._hits[stale]
+            return True
+
+
+_registration_limiter = _RegistrationRateLimiter()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _registration_error(description: str, error: str = "invalid_client_metadata", status_code: int = 400):
+    return JSONResponse({"error": error, "error_description": description}, status_code=status_code)
+
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _valid_dynamic_redirect_uri(uri) -> bool:
+    if not isinstance(uri, str) or not uri or len(uri) > 2048:
+        return False
+    try:
+        parts = urlsplit(uri)
+    except ValueError:
+        return False
+    if parts.fragment or not parts.hostname:
+        return False
+    if parts.scheme == "https":
+        return True
+    # Native/desktop clients may listen on loopback over plain http.
+    return parts.scheme == "http" and parts.hostname in _LOOPBACK_HOSTS
+
+
+@router.post("/register")
+async def register_client(
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
+):
+    """RFC 7591 Dynamic Client Registration.
+
+    Unauthenticated by design: this is how MCP connectors (ChatGPT, Claude)
+    obtain a client_id without an admin. What it can register is narrow: the
+    MCP scope only, never trusted (consent is always shown), no org until a
+    member approves and picks one.
+    """
+    if not dynamic_registration_enabled():
+        return _registration_error(
+            "Dynamic client registration is disabled on this server",
+            error="access_denied",
+            status_code=403,
+        )
+    limit = settings.bow_config.oauth_server.dynamic_registrations_per_ip_per_hour
+    if not _registration_limiter.allow(_client_ip(request), limit):
+        return _registration_error("Too many registrations", error="slow_down", status_code=429)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return _registration_error("Body must be a JSON object")
+    if not isinstance(body, dict):
+        return _registration_error("Body must be a JSON object")
+
+    redirect_uris = body.get("redirect_uris")
+    if not isinstance(redirect_uris, list) or not redirect_uris:
+        return _registration_error("redirect_uris is required", error="invalid_redirect_uri")
+    if len(redirect_uris) > MAX_DYNAMIC_REDIRECT_URIS:
+        return _registration_error("Too many redirect_uris", error="invalid_redirect_uri")
+    if not all(_valid_dynamic_redirect_uri(uri) for uri in redirect_uris):
+        return _registration_error(
+            "redirect_uris must be https URLs (http is allowed only for localhost)",
+            error="invalid_redirect_uri",
+        )
+    redirect_uris = list(dict.fromkeys(redirect_uris))
+
+    auth_method = body.get("token_endpoint_auth_method") or "client_secret_basic"
+    if auth_method not in DYNAMIC_AUTH_METHODS:
+        return _registration_error(f"Unsupported token_endpoint_auth_method: {auth_method}")
+
+    # Unsupported grant/response types are dropped rather than rejected (the
+    # server may narrow requested metadata, RFC 7591 §3.2.1); the response
+    # states what was actually registered.
+    grant_types = body.get("grant_types") or ["authorization_code"]
+    if not isinstance(grant_types, list) or "authorization_code" not in grant_types:
+        return _registration_error("The authorization_code grant is required")
+    response_types = body.get("response_types") or ["code"]
+    if not isinstance(response_types, list) or "code" not in response_types:
+        return _registration_error("The code response type is required")
+
+    raw_name = body.get("client_name")
+    name = " ".join(raw_name.split())[:255] if isinstance(raw_name, str) else ""
+    if not name:
+        name = urlsplit(redirect_uris[0]).hostname or "MCP client"
+
+    # Requested scopes are advisory (RFC 7591 §2): self-registered clients
+    # are granted the MCP scope whatever they ask for.
+    service = OAuthServerService()
+    registered = await service.register_dynamic_client(
+        db,
+        client_name=name,
+        redirect_uris=redirect_uris,
+        token_endpoint_auth_method=auth_method,
+    )
+    logger.info(
+        "Dynamic client registered: client_id=%s name=%r redirect_hosts=%s",
+        registered["client_id"],
+        name,
+        sorted({urlsplit(uri).hostname for uri in redirect_uris}),
+    )
+    return JSONResponse(registered, status_code=201, headers={"Cache-Control": "no-store"})
 
 
 # ── Client CRUD ────────────────────────────────────────────────────
@@ -509,3 +697,33 @@ async def rotate_client_secret(
     except Exception:
         pass
     return result
+
+
+@router.post("/clients/{client_db_id}/revoke")
+@requires_permission("manage_settings")
+async def revoke_client_access(
+    client_db_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Sign every user of this org out of a client, keeping the client.
+
+    The only removal available for a self-registered client, which no single
+    org owns. Members can reconnect it, unless the org turns self-registered
+    apps off.
+    """
+    service = OAuthServerService()
+    revoked = await service.revoke_client_access(db, client_db_id, organization.id)
+    if not revoked:
+        raise HTTPException(status_code=404, detail="Client not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="oauth_client.access_revoked",
+            user_id=current_user.id, resource_type="oauth_client", resource_id=client_db_id,
+            request=request,
+        )
+    except Exception:
+        pass
+    return {"ok": True}

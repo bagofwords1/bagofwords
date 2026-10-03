@@ -2298,7 +2298,18 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "unverifiedApp": "Непроверенное приложение",
+          "unverifiedHelp": "Это приложение зарегистрировалось само, поэтому его название не проверял администратор. Продолжайте, только если вы сами начали это подключение. Вы вернётесь на {host}.",
+          "chooseOrganization": "Подключить к организации",
+          "dynamicClientsDisabled": "Ваша организация не разрешает самостоятельно зарегистрированные приложения. Попросите администратора включить «Самостоятельно зарегистрированные MCP-приложения» или зарегистрировать это приложение.",
+          "selfRegistered": "Самостоятельная регистрация",
+          "selfRegisteredHelp": "Это приложение зарегистрировалось само, и участник подключил его к этой организации. Вы можете отозвать его доступ, но не редактировать его.",
+          "registrationEndpoint": "Регистрация клиентов",
+          "revokeAccess": "Отозвать доступ",
+          "confirmRevoke": "Отключить «{name}» для всех в этой организации? Участники смогут подключить его снова, если самостоятельно зарегистрированные приложения не отключены.",
+          "revokedToast": "Доступ отозван",
+          "failedRevoke": "Не удалось отозвать доступ"
         },
         "excel": {
           "title": "Надстройка Excel",
@@ -2595,6 +2606,10 @@
         "mcp_enabled": {
           "name": "MCP",
           "description": "Включает конечную точку Model Context Protocol (MCP) для интеграции с ИИ-помощниками, такими как Cursor, Claude и другими"
+        },
+        "allow_dynamic_oauth_clients": {
+          "name": "Самостоятельно зарегистрированные MCP-приложения",
+          "description": "Позволяет MCP-приложениям, например коннекторам ChatGPT и Claude, самостоятельно регистрироваться в BOW (динамическая регистрация клиентов OAuth), чтобы участники могли подключать их без предварительного создания OAuth-приложения администратором. Каждый участник по-прежнему подтверждает подключение и выбирает эту организацию. Отключение сразу закрывает доступ всем самостоятельно зарегистрированным приложениям в этой организации."
         },
         "enable_mcp_tools": {
           "name": "Инструменты MCP и пользовательских API",

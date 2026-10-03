@@ -2520,7 +2520,18 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "unverifiedApp": "Unverified app",
+          "unverifiedHelp": "This app registered itself, so its name was not checked by an administrator. Only continue if you started this connection yourself. You will be sent back to {host}.",
+          "chooseOrganization": "Connect to organization",
+          "dynamicClientsDisabled": "Your organization does not allow self-registered apps. Ask an administrator to turn on \"Self-registered MCP apps\" or to register this app.",
+          "selfRegistered": "Self-registered",
+          "selfRegisteredHelp": "This app registered itself and a member connected it to this organization. You can revoke its access, but not edit it.",
+          "registrationEndpoint": "Client registration",
+          "revokeAccess": "Revoke access",
+          "confirmRevoke": "Disconnect \"{name}\" for everyone in this organization? Members can reconnect it unless self-registered apps are turned off.",
+          "revokedToast": "Access revoked",
+          "failedRevoke": "Failed to revoke access"
         },
         "excel": {
           "title": "Excel Add-in",
@@ -2791,6 +2802,10 @@
         "mcp_enabled": {
           "name": "MCP",
           "description": "Enable Model Context Protocol (MCP) endpoint for integration with AI assistants like Cursor, Claude, or others"
+        },
+        "allow_dynamic_oauth_clients": {
+          "name": "Self-registered MCP apps",
+          "description": "Let MCP apps such as ChatGPT and Claude connectors register themselves with BOW (OAuth Dynamic Client Registration) so members can connect them without an admin creating an OAuth app first. Each member still approves the connection and picks this organization. Turning this off immediately cuts off every self-registered app in this organization."
         },
         "enable_mcp_tools": {
           "name": "MCP & Custom API Tools",

@@ -2298,7 +2298,18 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "unverifiedApp": "Aplicativo não verificado",
+          "unverifiedHelp": "Este aplicativo se registrou sozinho, então nenhum administrador verificou o nome dele. Continue apenas se você mesmo iniciou esta conexão. Você será enviado de volta para {host}.",
+          "chooseOrganization": "Conectar à organização",
+          "dynamicClientsDisabled": "Sua organização não permite aplicativos autorregistrados. Peça a um administrador para ativar \"Aplicativos MCP autorregistrados\" ou para registrar este aplicativo.",
+          "selfRegistered": "Autorregistrado",
+          "selfRegisteredHelp": "Este aplicativo se registrou sozinho e um membro o conectou a esta organização. Você pode revogar o acesso dele, mas não editá-lo.",
+          "registrationEndpoint": "Registro de clientes",
+          "revokeAccess": "Revogar acesso",
+          "confirmRevoke": "Desconectar \"{name}\" para todos nesta organização? Os membros poderão conectá-lo novamente, a menos que os aplicativos autorregistrados sejam desativados.",
+          "revokedToast": "Acesso revogado",
+          "failedRevoke": "Falha ao revogar o acesso"
         },
         "excel": {
           "title": "Suplemento do Excel",
@@ -2595,6 +2606,10 @@
         "mcp_enabled": {
           "name": "MCP",
           "description": "Ativa o endpoint do Model Context Protocol (MCP) para integração com assistentes de IA como Cursor, Claude e outros"
+        },
+        "allow_dynamic_oauth_clients": {
+          "name": "Aplicativos MCP autorregistrados",
+          "description": "Permite que aplicativos MCP, como os conectores do ChatGPT e do Claude, se registrem sozinhos no BOW (registro dinâmico de clientes OAuth), para que os membros possam conectá-los sem que um administrador crie antes um aplicativo OAuth. Cada membro ainda aprova a conexão e escolhe esta organização. Desativar corta imediatamente o acesso de todos os aplicativos autorregistrados desta organização."
         },
         "enable_mcp_tools": {
           "name": "Ferramentas MCP e de API personalizada",

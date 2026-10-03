@@ -276,6 +276,7 @@ const FEATURE_PARENT: Record<string, string> = {
     checkins_max_per_user_per_week: 'enable_agent_checkins',
     checkins_max_runs_per_org_per_day: 'enable_agent_checkins',
     ai_suggestion_expiry_days: 'enable_agent_dreaming',
+    allow_dynamic_oauth_clients: 'mcp_enabled',
 }
 
 // Computed property to exclude allow_llm_see_data from regular features

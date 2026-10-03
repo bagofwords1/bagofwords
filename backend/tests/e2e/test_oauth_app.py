@@ -117,6 +117,7 @@ def test_create_and_inspect_trusted_app_client(
         "scopes": ["app"],
         "requested_scopes": ["app"],
         "trusted": True,
+        "dynamic": False,
     }
 
 
@@ -345,16 +346,8 @@ def test_app_refresh_rotates_both_credentials_and_preserves_scope(
     )
     assert old_access.status_code == 401
 
-    reused_refresh = test_client.post(
-        "/api/oauth/token",
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": original["refresh_token"],
-            "client_id": client["client_id"],
-        },
-    )
-    assert reused_refresh.status_code == 400
-
+    # Re-presenting the rotated refresh token is covered by
+    # test_oauth_refresh_rotation.py (grace-window retry vs. replay).
     current_access = test_client.get(
         "/api/reports?filter=my&limit=1",
         headers={"Authorization": f"Bearer {refreshed['access_token']}"},

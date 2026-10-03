@@ -33,9 +33,31 @@
           <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
             {{ $t('settings.integrations.channels.oauth.wantsAccess', { name: clientName }) }}
           </p>
+          <div v-if="isDynamic" class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-start text-xs leading-5 text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">
+            <div class="flex items-center gap-1.5 font-medium">
+              <UIcon name="i-heroicons-shield-exclamation" class="h-4 w-4 shrink-0" />
+              {{ $t('settings.integrations.channels.oauth.unverifiedApp') }}
+            </div>
+            <p class="mt-1">
+              {{ $t('settings.integrations.channels.oauth.unverifiedHelp', { host: redirectHost }) }}
+            </p>
+          </div>
         </div>
 
         <div class="px-6 py-5">
+          <div v-if="isDynamic && organizations.length > 1" class="mb-5">
+            <label for="oauth-org" class="text-xs font-medium uppercase tracking-wide text-gray-400">
+              {{ $t('settings.integrations.channels.oauth.chooseOrganization') }}
+            </label>
+            <select
+              id="oauth-org"
+              v-model="selectedOrgId"
+              class="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-blue-950"
+            >
+              <option v-for="org in organizations" :key="org.id" :value="org.id">{{ org.name }}</option>
+            </select>
+          </div>
+
           <div class="text-xs font-medium uppercase tracking-wide text-gray-400">{{ $t('settings.integrations.channels.oauth.permissionsRequested') }}</div>
           <div class="mt-3 space-y-3">
             <div v-for="requestedScope in requestedScopes" :key="requestedScope" class="flex gap-3 rounded-xl bg-gray-50 p-3 dark:bg-gray-950/60">
@@ -53,7 +75,7 @@
             <UButton color="gray" variant="outline" size="lg" class="min-w-0 flex-1 justify-center" @click="deny">
               {{ $t('settings.integrations.channels.oauth.deny') }}
             </UButton>
-            <UButton color="blue" size="lg" class="min-w-0 flex-1 justify-center" :loading="approving" @click="approve">
+            <UButton color="blue" size="lg" class="min-w-0 flex-1 justify-center" :loading="approving" :disabled="isDynamic && !selectedOrgId" @click="approve">
               {{ approving ? $t('settings.integrations.channels.oauth.authorizing') : $t('settings.integrations.channels.oauth.approve') }}
             </UButton>
           </div>
@@ -73,7 +95,7 @@ import Spinner from '~/components/Spinner.vue'
 definePageMeta({ layout: 'users' })
 
 const route = useRoute()
-const { status, getSession } = useAuth()
+const { status, getSession, data: sessionData } = useAuth()
 const { rawToken } = useAuthState()
 const { t } = useI18n()
 const config = useRuntimeConfig()
@@ -85,6 +107,11 @@ const errorMessage = ref('')
 const clientName = ref('')
 const requestedScopes = ref<string[]>([])
 const approving = ref(false)
+// Self-registered (RFC 7591) clients have no org of their own: the user
+// picks which of their orgs the connection is for.
+const isDynamic = ref(false)
+const selectedOrgId = ref('')
+const organizations = computed<{ id: string, name: string }[]>(() => (sessionData.value as any)?.organizations || [])
 
 const clientId = route.query.client_id as string
 const redirectUri = route.query.redirect_uri as string
@@ -95,6 +122,9 @@ const codeChallengeMethod = (route.query.code_challenge_method as string) || 'S2
 const responseType = (route.query.response_type as string) || 'code'
 const loginHint = route.query.login_hint as string | undefined
 
+const redirectHost = computed(() => {
+  try { return new URL(redirectUri).host } catch { return redirectUri || '' }
+})
 const clientInitials = computed(() => clientName.value.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'OA')
 
 function scopeTitle(value: string) {
@@ -139,9 +169,15 @@ onMounted(async () => {
     }) as any
     clientName.value = data.name
     requestedScopes.value = data.requested_scopes || scope.split(' ')
+    isDynamic.value = Boolean(data.dynamic)
+    if (isDynamic.value) {
+      const { organization } = useOrganization()
+      const ids = organizations.value.map(org => org.id)
+      selectedOrgId.value = ids.includes(organization.value?.id || '') ? organization.value.id! : (ids[0] || '')
+    }
     requestValidated.value = true
     pageLoading.value = false
-    if (data.trusted) {
+    if (data.trusted && !isDynamic.value) {
       trustedAutoApprove.value = true
       await nextTick()
       await approve()
@@ -171,13 +207,16 @@ async function approve() {
         scope,
         code_challenge: codeChallenge,
         code_challenge_method: codeChallengeMethod,
+        ...(isDynamic.value ? { organization_id: selectedOrgId.value } : {}),
       },
     }) as any
     if (!data.redirect_url) throw new Error('missing_redirect')
     window.location.assign(data.redirect_url)
-  } catch {
+  } catch (e: any) {
     trustedAutoApprove.value = false
-    errorMessage.value = t('settings.integrations.channels.oauth.authorizationFailed')
+    errorMessage.value = e?.data?.detail === 'dynamic_clients_disabled'
+      ? t('settings.integrations.channels.oauth.dynamicClientsDisabled')
+      : t('settings.integrations.channels.oauth.authorizationFailed')
     approving.value = false
   }
 }

@@ -89,6 +89,28 @@ class OTELConfig(BaseModel):
                 headers[key.strip()] = value.strip()
         return headers
 
+class OAuthServerConfig(BaseModel):
+    """BOW as an OAuth 2.1 authorization server (MCP / app connectors)."""
+    # Access tokens are short-lived; clients stay signed in by refreshing.
+    mcp_access_token_ttl_seconds: int = Field(default=3600, ge=60)
+    app_access_token_ttl_seconds: int = Field(default=8 * 3600, ge=60)
+    # Each refresh slides the refresh token's expiry forward by this much...
+    refresh_token_ttl_days: int = Field(default=90, ge=1)
+    # ...but never past this long after the user approved the connection.
+    refresh_session_max_days: int = Field(default=365, ge=1)
+    # A rotated refresh token presented again within this window (a client
+    # retry, or two refreshes racing) gets a fresh pair instead of being
+    # treated as theft and revoking the session.
+    refresh_reuse_grace_seconds: int = Field(default=60, ge=0)
+    # RFC 7591 Dynamic Client Registration, used by ChatGPT and Claude
+    # connectors to register themselves without an admin creating a client.
+    allow_dynamic_client_registration: bool = True
+    dynamic_registrations_per_ip_per_hour: int = Field(default=60, ge=1)
+    # Self-registered clients that never completed a sign-in are removed
+    # after this many days.
+    dynamic_client_unused_ttl_days: int = Field(default=7, ge=1)
+
+
 class AuthConfig(BaseModel):
     # local_only | sso_only | hybrid
     mode: str = "hybrid"
@@ -331,6 +353,7 @@ class BowConfig(BaseModel):
     mcp_public_url: Optional[str] = None
     features: FeatureFlags = FeatureFlags()
     auth: AuthConfig = AuthConfig()
+    oauth_server: OAuthServerConfig = OAuthServerConfig()
     google_oauth: GoogleOAuth = GoogleOAuth()
     ldap: LDAPConfig = LDAPConfig()
     oidc_providers: List[OIDCProvider] = []

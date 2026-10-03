@@ -2298,7 +2298,18 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "unverifiedApp": "Nicht verifizierte App",
+          "unverifiedHelp": "Diese App hat sich selbst registriert, ihr Name wurde also von keinem Administrator geprüft. Fahre nur fort, wenn du diese Verbindung selbst gestartet hast. Du wirst zu {host} zurückgeleitet.",
+          "chooseOrganization": "Mit Organisation verbinden",
+          "dynamicClientsDisabled": "Deine Organisation erlaubt keine selbstregistrierten Apps. Bitte einen Administrator, „Selbstregistrierte MCP-Apps“ zu aktivieren oder diese App zu registrieren.",
+          "selfRegistered": "Selbstregistriert",
+          "selfRegisteredHelp": "Diese App hat sich selbst registriert und ein Mitglied hat sie mit dieser Organisation verbunden. Du kannst ihren Zugriff widerrufen, sie aber nicht bearbeiten.",
+          "registrationEndpoint": "Client-Registrierung",
+          "revokeAccess": "Zugriff widerrufen",
+          "confirmRevoke": "„{name}“ für alle in dieser Organisation trennen? Mitglieder können sie erneut verbinden, solange selbstregistrierte Apps erlaubt sind.",
+          "revokedToast": "Zugriff widerrufen",
+          "failedRevoke": "Zugriff konnte nicht widerrufen werden"
         },
         "excel": {
           "title": "Excel-Add-in",
@@ -2595,6 +2606,10 @@
         "mcp_enabled": {
           "name": "MCP",
           "description": "Aktiviert den Model-Context-Protocol-Endpunkt (MCP) für die Integration mit KI-Assistenten wie Cursor, Claude und anderen"
+        },
+        "allow_dynamic_oauth_clients": {
+          "name": "Selbstregistrierte MCP-Apps",
+          "description": "Erlaubt MCP-Apps wie den Connectors von ChatGPT und Claude, sich selbst bei BOW zu registrieren (OAuth Dynamic Client Registration), damit Mitglieder sie verbinden können, ohne dass ein Administrator zuerst eine OAuth-App anlegt. Jedes Mitglied bestätigt die Verbindung weiterhin und wählt diese Organisation. Beim Deaktivieren verlieren alle selbstregistrierten Apps dieser Organisation sofort den Zugriff."
         },
         "enable_mcp_tools": {
           "name": "MCP- und benutzerdefinierte API-Tools",

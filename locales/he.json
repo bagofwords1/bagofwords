@@ -2414,7 +2414,18 @@
           "invalidAuthorizationRequest": "חסר מידע נדרש בבקשת האישור הזו.",
           "unsupportedAuthorizationRequest": "האפליקציה חייבת להשתמש ב-Authorization Code עם PKCE S256.",
           "unknownAuthorizationClient": "האפליקציה או כתובת ה-callback אינן רשומות.",
-          "authorizationFailed": "האישור נכשל. נסה שוב או פנה למנהל סביבת העבודה."
+          "authorizationFailed": "האישור נכשל. נסה שוב או פנה למנהל סביבת העבודה.",
+          "unverifiedApp": "אפליקציה לא מאומתת",
+          "unverifiedHelp": "האפליקציה הזו רשמה את עצמה, ולכן מנהל לא בדק את שמה. המשיכו רק אם אתם התחלתם את החיבור הזה. בסיום תוחזרו אל {host}.",
+          "chooseOrganization": "חיבור לארגון",
+          "dynamicClientsDisabled": "הארגון שלכם לא מאפשר אפליקציות שרשמו את עצמן. בקשו ממנהל להפעיל את \"אפליקציות MCP ברישום עצמי\" או לרשום את האפליקציה הזו.",
+          "selfRegistered": "רישום עצמי",
+          "selfRegisteredHelp": "האפליקציה הזו רשמה את עצמה וחבר בארגון חיבר אותה לארגון הזה. אפשר לבטל את הגישה שלה, אבל לא לערוך אותה.",
+          "registrationEndpoint": "רישום לקוחות",
+          "revokeAccess": "ביטול גישה",
+          "confirmRevoke": "לנתק את \"{name}\" עבור כל חברי הארגון? חברים יוכלו לחבר אותה מחדש, אלא אם אפליקציות ברישום עצמי מושבתות.",
+          "revokedToast": "הגישה בוטלה",
+          "failedRevoke": "ביטול הגישה נכשל"
         },
         "excel": {
           "title": "תוסף Excel",
@@ -2711,6 +2722,10 @@
         "mcp_enabled": {
           "name": "MCP",
           "description": "מפעיל נקודת קצה של Model Context Protocol‏ (MCP) לשילוב עם עוזרי בינה מלאכותית כמו Cursor, Claude ואחרים"
+        },
+        "allow_dynamic_oauth_clients": {
+          "name": "אפליקציות MCP ברישום עצמי",
+          "description": "מאפשר לאפליקציות MCP כמו המחברים של ChatGPT ו-Claude לרשום את עצמן ב-BOW (רישום לקוחות דינמי של OAuth), כך שחברי הארגון יוכלו לחבר אותן בלי שמנהל ייצור קודם אפליקציית OAuth. כל חבר עדיין מאשר את החיבור ובוחר בארגון הזה. השבתה מנתקת מיד את כל האפליקציות ברישום עצמי בארגון."
         },
         "enable_mcp_tools": {
           "name": "כלי MCP ו-API מותאם",

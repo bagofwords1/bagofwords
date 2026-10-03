@@ -76,6 +76,10 @@
               >
                 {{ scopeLabel(scopeName) }}
               </span>
+              <span v-if="client.dynamic" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-gray-600 ring-1 ring-gray-200 dark:text-gray-300 dark:ring-gray-700" :title="$t('settings.integrations.channels.oauth.selfRegisteredHelp')">
+                <UIcon name="i-heroicons-globe-alt" class="h-3 w-3" />
+                {{ $t('settings.integrations.channels.oauth.selfRegistered') }}
+              </span>
               <span v-if="client.trusted" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200 dark:text-amber-300 dark:ring-amber-900">
                 <UIcon name="i-heroicons-bolt" class="h-3 w-3" />
                 {{ $t('settings.integrations.channels.oauth.trusted') }}
@@ -300,6 +304,7 @@ interface OAuthClient {
   redirect_uris: string[]
   scopes: string[]
   trusted: boolean
+  dynamic?: boolean
   active_token_count: number
   last_used_at: string | null
   last_issued_at: string | null
@@ -350,11 +355,20 @@ const endpoints = computed(() => [
   { label: t('settings.integrations.channels.oauth.authorizationEndpoint'), value: `${endpointRoot.value}/api/oauth/authorize` },
   { label: t('settings.integrations.channels.oauth.tokenEndpoint'), value: `${endpointRoot.value}/api/oauth/token` },
   { label: t('settings.integrations.channels.oauth.discoveryEndpoint'), value: `${endpointRoot.value}/.well-known/oauth-authorization-server` },
+  { label: t('settings.integrations.channels.oauth.registrationEndpoint'), value: `${endpointRoot.value}/api/oauth/register` },
 ])
 
 const clientActionItems = computed<Record<string, any[][]>>(() => {
   const items: Record<string, any[][]> = {}
   for (const client of clients.value) {
+    // A self-registered app belongs to no org; an admin can only disconnect
+    // it from this one.
+    if (client.dynamic) {
+      items[client.id] = [[
+        { label: t('settings.integrations.channels.oauth.revokeAccess'), icon: 'i-heroicons-no-symbol', danger: true, click: () => revokeAccess(client) },
+      ]]
+      continue
+    }
     items[client.id] = [
       [
         { label: t('settings.integrations.channels.oauth.editApp'), icon: 'i-heroicons-pencil-square', click: () => openEdit(client) },
@@ -503,6 +517,18 @@ async function remove(client: OAuthClient) {
   }
   clients.value = clients.value.filter(item => item.id !== client.id)
   toast.add({ title: t('settings.integrations.channels.oauth.deletedToast'), description: t('settings.integrations.channels.oauth.deleteImpact'), icon: 'i-heroicons-check-circle', color: 'green' })
+  emit('updated')
+}
+
+async function revokeAccess(client: OAuthClient) {
+  if (!confirm(t('settings.integrations.channels.oauth.confirmRevoke', { name: client.name }))) return
+  const response = await useMyFetch(`/api/oauth/clients/${client.id}/revoke`, { method: 'POST' })
+  if (response.error.value) {
+    toast.add({ title: t('settings.integrations.channels.oauth.failedRevoke'), icon: 'i-heroicons-x-circle', color: 'red' })
+    return
+  }
+  clients.value = clients.value.filter(item => item.id !== client.id)
+  toast.add({ title: t('settings.integrations.channels.oauth.revokedToast'), icon: 'i-heroicons-check-circle', color: 'green' })
   emit('updated')
 }
 

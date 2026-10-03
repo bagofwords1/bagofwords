@@ -2298,7 +2298,18 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "unverifiedApp": "تطبيق غير موثّق",
+          "unverifiedHelp": "سجّل هذا التطبيق نفسه، لذلك لم يتحقق أي مسؤول من اسمه. تابع فقط إذا كنت أنت من بدأ هذا الاتصال. ستتم إعادتك إلى {host}.",
+          "chooseOrganization": "الاتصال بالمؤسسة",
+          "dynamicClientsDisabled": "لا تسمح مؤسستك بالتطبيقات ذاتية التسجيل. اطلب من أحد المسؤولين تفعيل \"تطبيقات MCP ذاتية التسجيل\" أو تسجيل هذا التطبيق.",
+          "selfRegistered": "تسجيل ذاتي",
+          "selfRegisteredHelp": "سجّل هذا التطبيق نفسه وقام أحد الأعضاء بربطه بهذه المؤسسة. يمكنك إلغاء وصوله، لكن لا يمكنك تعديله.",
+          "registrationEndpoint": "تسجيل العملاء",
+          "revokeAccess": "إلغاء الوصول",
+          "confirmRevoke": "هل تريد فصل \"{name}\" لجميع أعضاء هذه المؤسسة؟ يمكن للأعضاء إعادة ربطه ما لم يتم تعطيل التطبيقات ذاتية التسجيل.",
+          "revokedToast": "تم إلغاء الوصول",
+          "failedRevoke": "تعذّر إلغاء الوصول"
         },
         "excel": {
           "title": "وظيفة Excel الإضافية",
@@ -2595,6 +2606,10 @@
         "mcp_enabled": {
           "name": "MCP",
           "description": "يفعّل نقطة نهاية Model Context Protocol‏ (MCP) للتكامل مع مساعدي الذكاء الاصطناعي مثل Cursor وClaude وغيرهما"
+        },
+        "allow_dynamic_oauth_clients": {
+          "name": "تطبيقات MCP ذاتية التسجيل",
+          "description": "السماح لتطبيقات MCP مثل موصلات ChatGPT وClaude بتسجيل نفسها في BOW (التسجيل الديناميكي لعملاء OAuth) ليتمكن الأعضاء من ربطها دون أن يُنشئ مسؤول تطبيق OAuth أولاً. لا يزال كل عضو يوافق على الاتصال ويختار هذه المؤسسة. يؤدي التعطيل إلى قطع وصول جميع التطبيقات ذاتية التسجيل في هذه المؤسسة فوراً."
         },
         "enable_mcp_tools": {
           "name": "أدوات MCP وواجهات API المخصصة",

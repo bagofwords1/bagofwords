@@ -2414,7 +2414,18 @@
           "invalidAuthorizationRequest": "A esta solicitud de autorización le falta información obligatoria.",
           "unsupportedAuthorizationRequest": "Esta aplicación debe usar Authorization Code con PKCE S256.",
           "unknownAuthorizationClient": "La aplicación o la URL de callback no está registrada.",
-          "authorizationFailed": "La autorización falló. Inténtalo de nuevo o contacta al administrador del espacio de trabajo."
+          "authorizationFailed": "La autorización falló. Inténtalo de nuevo o contacta al administrador del espacio de trabajo.",
+          "unverifiedApp": "Aplicación no verificada",
+          "unverifiedHelp": "Esta aplicación se registró por sí misma, por lo que ningún administrador ha comprobado su nombre. Continúa solo si iniciaste tú esta conexión. Volverás a {host}.",
+          "chooseOrganization": "Conectar a la organización",
+          "dynamicClientsDisabled": "Tu organización no permite aplicaciones autorregistradas. Pide a un administrador que active \"Aplicaciones MCP autorregistradas\" o que registre esta aplicación.",
+          "selfRegistered": "Autorregistrada",
+          "selfRegisteredHelp": "Esta aplicación se registró por sí misma y un miembro la conectó a esta organización. Puedes revocar su acceso, pero no editarla.",
+          "registrationEndpoint": "Registro de clientes",
+          "revokeAccess": "Revocar acceso",
+          "confirmRevoke": "¿Desconectar \"{name}\" para todos en esta organización? Los miembros pueden volver a conectarla a menos que se desactiven las aplicaciones autorregistradas.",
+          "revokedToast": "Acceso revocado",
+          "failedRevoke": "No se pudo revocar el acceso"
         },
         "excel": {
           "title": "Complemento de Excel",
@@ -2711,6 +2722,10 @@
         "mcp_enabled": {
           "name": "MCP",
           "description": "Activa el punto final de Model Context Protocol (MCP) para la integración con asistentes de IA como Cursor, Claude u otros"
+        },
+        "allow_dynamic_oauth_clients": {
+          "name": "Aplicaciones MCP autorregistradas",
+          "description": "Permite que aplicaciones MCP como los conectores de ChatGPT y Claude se registren por sí mismas en BOW (registro dinámico de clientes OAuth), para que los miembros puedan conectarlas sin que un administrador cree antes una aplicación OAuth. Cada miembro sigue aprobando la conexión y eligiendo esta organización. Desactivarlo corta de inmediato el acceso de todas las aplicaciones autorregistradas de esta organización."
         },
         "enable_mcp_tools": {
           "name": "Herramientas MCP y de API personalizada",
