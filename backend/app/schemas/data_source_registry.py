@@ -898,7 +898,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ],
         client_path="app.data_sources.clients.kubernetes_client.KubernetesClient",
         version="beta",
-        requires_license="enterprise",
     ),
     "brocade": DataSourceRegistryEntry(
         type="brocade",
@@ -969,7 +968,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.splunk_client.SplunkClient",
-        requires_license="enterprise",
         version="beta",
     ),
     "MSSQL": DataSourceRegistryEntry(
@@ -1695,7 +1693,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
-        requires_license="enterprise",
     ),
     "onenote": DataSourceRegistryEntry(
         type="onenote",
@@ -1768,7 +1765,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        requires_license="enterprise",
     ),
     "gmail_mail": DataSourceRegistryEntry(
         type="gmail_mail",
@@ -1797,7 +1793,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        requires_license="enterprise",
     ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
@@ -1825,7 +1820,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
-        requires_license="enterprise",
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
