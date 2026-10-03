@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field, validator, ConfigDict, AliasGenerator
+from pydantic import BaseModel, Field, validator, field_validator, ConfigDict, AliasGenerator, model_validator
 from pydantic.alias_generators import to_camel
 import os
 import secrets
@@ -160,6 +160,70 @@ class OIDCProvider(BaseModel):
         if brand == "google":
             return "Google"
         return (self.name or "").replace("_", " ").replace("-", " ").strip().title() or self.name
+
+
+class SAMLIdP(BaseModel):
+    """Trust material supplied by the operator, never by a login response."""
+    metadata_url: Optional[str] = None
+    metadata_file: Optional[str] = None
+    entity_id: Optional[str] = None
+    sso_url: Optional[str] = None
+    certificates: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        from urllib.parse import urlsplit
+        if self.metadata_url and self.metadata_file:
+            raise ValueError("Choose one SAML metadata source")
+        if not (self.metadata_url or self.metadata_file or
+                (self.entity_id and self.sso_url and self.certificates)):
+            raise ValueError("SAML requires metadata or an issuer, SSO URL and certificates")
+        for url in (self.metadata_url, self.sso_url):
+            if url:
+                parsed = urlsplit(url)
+                if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+                    raise ValueError("SAML URLs must use HTTPS without credentials or fragments")
+        return self
+
+
+class SAMLSP(BaseModel):
+    entity_id: Optional[str] = None
+    certificate_file: Optional[str] = None
+    private_key_file: Optional[str] = None
+    sign_requests: bool = False
+    want_assertions_encrypted: bool = False
+    name_id_format: str = "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"
+
+    @model_validator(mode="after")
+    def validate_key_pair(self):
+        if bool(self.certificate_file) != bool(self.private_key_file):
+            raise ValueError("SAML SP certificate and private key must be supplied together")
+        if (self.sign_requests or self.want_assertions_encrypted) and not self.private_key_file:
+            raise ValueError("Signed requests/encrypted assertions require an SP key pair")
+        return self
+
+
+class SAMLAttributes(BaseModel):
+    # Use full attribute Names from the assertion; short names work for IdPs
+    # that emit them. name_id is a reserved selector for the SAML NameID.
+    subject: str = "name_id"
+    email: str = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+    name: Optional[str] = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+
+
+class SAMLProvider(BaseModel):
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,47}$")
+    enabled: bool = False
+    label: Optional[str] = None
+    organization_id: str = Field(min_length=1)
+    idp: SAMLIdP
+    sp: SAMLSP = Field(default_factory=SAMLSP)
+    attributes: SAMLAttributes = Field(default_factory=SAMLAttributes)
+    auto_provision_users: bool = False
+    # Explicit operator-approved links for existing organization members.
+    # Key = immutable SAML subject; value = existing BOW email. Never auto-link
+    # merely because an assertion's email matches an existing account.
+    account_links: dict[str, str] = Field(default_factory=dict)
 
 
 class LDAPConfig(BaseModel):
@@ -334,12 +398,16 @@ class BowConfig(BaseModel):
     google_oauth: GoogleOAuth = GoogleOAuth()
     ldap: LDAPConfig = LDAPConfig()
     oidc_providers: List[OIDCProvider] = []
+    saml_providers: List[SAMLProvider] = Field(default_factory=list)
     default_llm: List[LLMProvider] = []
     smtp_settings: SMTPSettings = None
+    # Resolved by ``validate_encryption_key`` below (env var, then generated).
+    # ``validate_default=True`` so an omitted key goes through the same path as
+    # an empty or placeholder one instead of silently minting a per-process key.
     encryption_key: str = Field(
-        default_factory=generate_fernet_key,
+        default="",
+        validate_default=True,
         description="Encryption key for sensitive data",
-        env="BOW_ENCRYPTION_KEY"
     )
     data_encryption: DataEncryptionConfig = DataEncryptionConfig()
     stripe: Stripe = Stripe()
@@ -351,23 +419,46 @@ class BowConfig(BaseModel):
     otel: OTELConfig = OTELConfig()
     i18n: I18nConfig = I18nConfig()
 
-    @validator('encryption_key')
+    @model_validator(mode="after")
+    def validate_saml_providers(self):
+        from urllib.parse import urlsplit
+        names = [p.name for p in self.saml_providers]
+        if len(names) != len(set(names)) or set(names) & ({"google"} | {p.name for p in self.oidc_providers}):
+            raise ValueError("SAML provider names must be unique across login providers")
+        if any(p.enabled for p in self.saml_providers):
+            url = urlsplit(self.base_url or "")
+            if url.scheme != "https" or not url.hostname or url.query or url.fragment or url.username or url.password or url.path not in ("", "/"):
+                raise ValueError("Enabled SAML requires an HTTPS base_url origin")
+        return self
+
+    @field_validator('encryption_key', mode='before')
+    @classmethod
     def validate_encryption_key(cls, v):
-        # If the value is empty or still the placeholder, generate a valid key.
+        # Resolution order:
+        #   1. an explicit literal in bow-config.yaml
+        #   2. the BOW_ENCRYPTION_KEY env var (what start.sh / k8s Secrets set)
+        #   3. a freshly generated key, with a loud warning
+        # The env var lookup lives here (not only in the ``${VAR}`` substitution
+        # done by the config loader) so a bow-config.yaml that omits
+        # ``encryption_key`` entirely still honors the key the operator provided.
         # An ephemeral, process-local key is fine for a throwaway run but is a
-        # footgun in any persistent deployment: it changes on every restart, so
-        # everything encrypted with it (LLM provider keys, data-source
-        # credentials) becomes permanently undecryptable after a restart. Warn
-        # loudly so operators pin BOW_ENCRYPTION_KEY instead of silently
-        # bricking their stored secrets.
-        if not v or v.strip() in {"", "${BOW_ENCRYPTION_KEY}"}:
-            import logging
-            logging.getLogger(__name__).warning(
-                "BOW_ENCRYPTION_KEY is not set — generating a random, in-memory "
-                "encryption key. It will change on the next restart, making all "
-                "currently-encrypted credentials undecryptable. Set a stable "
-                "BOW_ENCRYPTION_KEY for any non-throwaway deployment."
-            )
-            mark_encryption_key_ephemeral()
-            return generate_fernet_key()
-        return v
+        # footgun in any persistent deployment: it changes on every restart (and
+        # differs per uvicorn worker), so everything encrypted with it (LLM
+        # provider keys, data-source credentials) becomes undecryptable.
+        if isinstance(v, str) and v.strip() not in {"", "${BOW_ENCRYPTION_KEY}"}:
+            return v
+        from_env = os.environ.get("BOW_ENCRYPTION_KEY", "").strip()
+        if from_env and from_env != "${BOW_ENCRYPTION_KEY}":
+            return from_env
+        import logging
+        logging.getLogger(__name__).warning(
+            "BOW_ENCRYPTION_KEY is not set — generating a random, in-memory "
+            "encryption key. It will change on the next restart, making all "
+            "currently-encrypted credentials undecryptable. Set a stable "
+            "BOW_ENCRYPTION_KEY for any non-throwaway deployment."
+        )
+        # Invented here, so it changes on the next restart. Flagged so payload
+        # encryption stays off rather than writing data that this process alone
+        # can read (see app/ee/encryption/types.py).
+        mark_encryption_key_ephemeral()
+        return generate_fernet_key()

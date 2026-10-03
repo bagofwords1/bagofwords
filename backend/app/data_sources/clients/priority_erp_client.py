@@ -31,6 +31,7 @@ Design notes
   limiter is configurable rather than hardcoded.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress, discovery_items
 
 import base64
 import re
@@ -227,7 +228,7 @@ class PriorityErpClient(DataSourceClient):
         root = ET.fromstring(xml_text)
         tables: Dict[str, Table] = {}
 
-        for entity in root.iter():
+        for entity in discovery_items((node for node in root.iter() if node.tag.endswith('}EntityType')), 'entities', label=lambda entity: entity.get('Name')):
             if not entity.tag.endswith("}EntityType"):
                 continue
             form = entity.get("Name")
@@ -353,8 +354,9 @@ class PriorityErpClient(DataSourceClient):
         except Exception as e:
             return {"success": False, "message": f"Connection failed: {e}"}
 
+    @discovery_progress
     def get_schemas(self, force_refresh: bool = False,
-                    prior_tables: Optional[Dict[str, Dict]] = None) -> List[Table]:
+                    prior_tables: Optional[Dict[str, Dict]] = None, progress_callback=None) -> List[Table]:
         """Build one `Table` per Priority form from `$metadata`.
 
         `prior_tables` enables incremental discovery: forms already indexed are
@@ -375,7 +377,7 @@ class PriorityErpClient(DataSourceClient):
         # Reuse prior definitions for forms whose schema we already have, so an
         # interactive reload doesn't discard curated catalog state.
         if prior_tables:
-            for t in tables:
+            for t in discovery_items(tables, 'tables', label=lambda table: table.name):
                 prior = prior_tables.get(t.name)
                 if prior and prior.get("columns") and not t.columns:
                     t.columns = prior["columns"]

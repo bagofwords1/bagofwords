@@ -1,7 +1,7 @@
 /**
- * Identifying BOW custom queries ("cached" relations) in tool output.
+ * Identifying BOW custom tables ("cached" relations) in tool output.
  *
- * A custom query is materialized to a local artifact and served by the
+ * A custom table is materialized to a local artifact and served by the
  * connection's `::fast` sibling client, so a tool call that reads one never
  * touched the source database. Badging it tells the user why an answer was
  * instant — and, when a figure looks surprising, that they are looking at a

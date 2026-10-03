@@ -346,3 +346,23 @@ class GlobScopeError(ValueError):
     include-globs. A ValueError subclass so existing `except ValueError` paths
     in the tools surface it as a clean error, while callers that care can
     distinguish scope-denials from other resolution failures."""
+
+
+class ScopeEscapeError(GlobScopeError):
+    """The requested path or key climbs OUT of the connection's root / prefix
+    (`..`, an absolute path). A GlobScopeError so every caller that audits
+    scope denials (read_file, attach_file, write_file, the preview endpoint)
+    audits this one too — it is the more hostile of the two, and used to
+    surface as a plain ValueError that nobody audited."""
+
+
+class FileTooLargeError(ValueError):
+    """The file exceeds the caller's byte budget. Raised from the size the
+    source reports, BEFORE downloading, so an oversize file is never pulled
+    into memory just to be rejected."""
+
+
+def byte_limit(*caps: Optional[int]) -> Optional[int]:
+    """The tightest of several byte caps; None/0 means "no cap"."""
+    real = [c for c in caps if c]
+    return min(real) if real else None

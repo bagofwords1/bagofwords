@@ -1,4 +1,19 @@
 {
+  "agentLanding": {
+    "actions": "Agent actions",
+    "countTasks": "{n} task | {n} tasks",
+    "editStarters": "Edit conversation starters",
+    "download": "Download agent data",
+    "addInstruction": "Add instruction",
+    "chooseExisting": "Choose existing",
+    "readMore": "Read more",
+    "readLess": "Read less"
+  },
+  "agentCard": {
+    "signedIn": "Signed in",
+    "countBoards": "{n} board | {n} boards",
+    "configuredCountsHint": "Counts before sign-in reflect the shared catalog, not your personal access."
+  },
   "changelog": {
     "menuItem": "Changelog",
     "title": "What's New",
@@ -30,6 +45,9 @@
     "newAgent": "Agent",
     "newAgentDesc": "Connect data, tools and tables",
     "searchPlaceholder": "Search everything…",
+    "clearSearch": "Clear search",
+    "searchAgentInstructions": "Search instructions…",
+    "noResults": "No results.",
     "filters": "Filters",
     "filterStatus": "Status",
     "filterLoading": "Loading",
@@ -110,6 +128,23 @@
     "connect": "Connect",
     "manageConnections": "Manage connections",
     "loadingFiles": "Loading files from the source…",
+    "fileBrowserRoot": "All files",
+    "fileBrowserSearch": "Search files…",
+    "fileBrowserRefresh": "Refresh",
+    "fileBrowserConnectRequired": "Connect your account to browse — this connection reads files with each user's own credentials.",
+    "fileBrowserError": "Couldn't list files from the source.",
+    "fileBrowserRetry": "Try again",
+    "fileBrowserEmpty": "No files match this connection's scope.",
+    "fileBrowserNoResults": "No files match “{q}”.",
+    "fileBrowserSummary": "{n} files in scope · the agent reads only these · denials are audited",
+    "fileBrowserTruncated": "Showing the first {shown} of {total} files — narrow the connection's scope to browse the rest.",
+    "fileBrowserOpenInSource": "Open in source",
+    "fileBrowserClosePreview": "Close preview",
+    "fileBrowserPreviewLoading": "Loading preview…",
+    "fileBrowserPreviewError": "Couldn't load the preview.",
+    "fileBrowserPreviewUnsupported": "Preview isn't available for this file type.",
+    "fileBrowserPreviewTooLarge": "This file is too large to preview ({size}).",
+    "fileBrowserPreviewTextTruncated": "Showing the first {n} characters.",
     "countTables": "{n} table | {n} tables",
     "countTools": "{n} tool | {n} tools",
     "countFiles": "{n} file | {n} files",
@@ -293,7 +328,8 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Run this suite",
-    "runSuiteFailed": "Failed to run suite"
+    "runSuiteFailed": "Failed to run suite",
+    "lists": "Lists"
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -443,6 +479,11 @@
         "title": "⚡ \"{name}\" fired — {summary}",
         "body": "The investigation completed — open the session for the findings."
       }
+    },
+    "checkin": {
+      "badge": "Follow-up",
+      "openReport": "Open report",
+      "assistantFallback": "AI Analyst"
     }
   },
   "auth": {
@@ -548,6 +589,7 @@
     "training": "Training",
     "schedulePrompt": "Schedule a prompt",
     "selectModel": "Select Model",
+    "createReportFailed": "Couldn't create the report",
     "untitled": "Untitled",
     "estimating": "Estimating…",
     "estimateUnavailable": "Estimate unavailable",
@@ -605,7 +647,28 @@
     "modelAutoHint": "Router picks the best model",
     "autoAgentsHint": "Any agent you can access",
     "loadingDataSources": "Loading data sources…",
-    "noDataSources": "No data sources found"
+    "noDataSources": "No data sources found",
+    "effort": {
+      "title": "Effort",
+      "default": "Default",
+      "levels": {
+        "off": "Fast",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "max": "Max"
+      },
+      "searchModels": "Search models…",
+      "noMatches": "No models match",
+      "otherProvider": "Other",
+      "anyModel": "Applies to whichever model runs",
+      "notSupported": "This model has no effort setting",
+      "providerDefault": "Model's own default",
+      "modelDefault": "Admin default: {level}",
+      "runsAs": "Runs as {level} on this model",
+      "faster": "Faster",
+      "smarter": "Smarter"
+    }
   },
   "exports": {
     "label": "Export",
@@ -770,7 +833,8 @@
       "newActivity": "New activity",
       "errorNew": "Finished with an error"
     },
-    "inProject": "In {name}"
+    "inProject": "In {name}",
+    "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again."
   },
   "projects": {
     "title": "Projects",
@@ -889,6 +953,11 @@
     "llm": "LLM",
     "exec": "Exec",
     "selectItem": "Select an item from the tree to view details",
+    "tabs": {
+      "conversation": "Conversation",
+      "timeline": "Timeline",
+      "details": "Details"
+    },
     "userPrompt": "User Prompt",
     "instructionsCount": "{count} instructions",
     "alwaysCount": "{count} always",
@@ -923,7 +992,96 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM usage for this conversation",
     "turnTokensTooltip": "Planner LLM tokens for this turn",
-    "turnUsageTooltip": "LLM usage for this turn"
+    "turnUsageTooltip": "LLM usage for this turn",
+    "setup": "Setup",
+    "setupTooltip": "Time from run start until the first step began (context building, etc.)",
+    "overhead": "Other",
+    "overheadTooltip": "Time not attributed to any step: persistence, context refresh between steps, finalization",
+    "segment_planner": "Planner LLM",
+    "segment_tool_llm": "Tool LLM",
+    "segment_tool_exec": "Tool execution",
+    "segment_setup": "Setup",
+    "plannerShort": "Plan",
+    "toolShort": "Tool",
+    "stepTiming": "Step timing",
+    "stepTotal": "Step total",
+    "firstToken": "Time to first token",
+    "thinking": "Thinking",
+    "tool": "Tool",
+    "machineTurn": "Machine turn ({source})",
+    "checkin": {
+      "title": "Agent check-in",
+      "runTurn": "Follow-up run (agent check-in)",
+      "noFollowUp": "No follow-up planned",
+      "noReason": "The planner gave no reason.",
+      "due": "due {when}",
+      "note": "Note to future self",
+      "planReason": "Why follow up",
+      "judge": "Judge",
+      "focus": "Focus",
+      "whyRun": "Why the judge ran this follow-up",
+      "plannerUsage": "Planner",
+      "judgeUsage": "Judge",
+      "status": {
+        "not_proposed": "not proposed",
+        "rejected": "rejected",
+        "planned": "planned",
+        "cancelled": "cancelled",
+        "skipped": "skipped",
+        "running": "running",
+        "ran_quiet": "ran quietly",
+        "sent": "notified",
+        "failed": "failed"
+      },
+      "decision": {
+        "run": "run",
+        "skip": "skip"
+      },
+      "reason": {
+        "disabled": "setting off",
+        "pending_exists_user": "user already has one pending",
+        "pending_exists_report": "report already has one pending",
+        "weekly_cap": "weekly limit reached",
+        "org_daily_cap": "org daily limit reached",
+        "report_deleted": "report deleted",
+        "access_lost": "access lost",
+        "judge_skip": "judge skipped",
+        "run_failed": "run failed",
+        "invalid_judge_output": "invalid judge output",
+        "opted_out": "opted out",
+        "fire_error": "error during the check",
+        "stale_running": "left running (restart)"
+      },
+      "outcome": {
+        "sent": "Notified the user",
+        "sentWithSubject": "Notified the user: {subject}",
+        "ran_quiet": "Ran quietly — nothing worth notifying",
+        "planned": "Waiting for its due time",
+        "running": "Running now",
+        "skipped": "Skipped by the judge — nothing ran",
+        "failed": "The follow-up run failed — nothing was sent",
+        "rejected": "Not armed: {reason}",
+        "cancelled": "Cancelled: {reason}"
+      }
+    },
+    "memory": {
+      "title": "Memory",
+      "summary": "{injected} of {total} entries injected · {chars} chars",
+      "privateNote": "Memory is private to its owner — only handles and sections are shown.",
+      "refused": "Refused",
+      "tier": {
+        "always": "always",
+        "matched": "matched"
+      }
+    },
+    "export": {
+      "button": "Export",
+      "turnJson": "Download this turn (JSON)",
+      "conversationJson": "Download conversation (JSON)",
+      "copyTurn": "Copy this turn as JSON",
+      "copied": "Trace JSON copied to clipboard",
+      "failed": "Couldn't export the trace"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1003,6 +1161,16 @@
       "retrying": "Retrying · attempt {n}",
       "visualizing": "Visualizing"
     },
+    "runQuery": {
+      "running": "Running \"{title}\"…",
+      "runningWith": "Running \"{title}\" with {params}…",
+      "ran": "Ran \"{title}\"",
+      "ranWith": "Ran \"{title}\" with {params}",
+      "failed": "Failed to run \"{title}\"",
+      "needsInput": "\"{title}\" needs parameter values",
+      "needsValues": "Waiting on values for:",
+      "cachedHint": "Served from your cached result for these values — the source was not re-queried"
+    },
     "webFetch": {
       "fetching": "Fetching",
       "fetched": "Fetched",
@@ -1023,7 +1191,26 @@
       "failed": "Browser action failed",
       "capturing": "Taking a screenshot",
       "screenshot": "Screenshot",
-      "snapshot": "Page structure"
+      "snapshot": "Page structure",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "The date filter returned no rows. Correctness is not yet verified.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "clarify": {
       "clarifying": "Clarifying questions for user",
@@ -1521,10 +1708,11 @@
       "rewrite": "rewrite",
       "failed": "Edit failed"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Updating memory…",
-      "updated": "Updated memory",
-      "failed": "Memory update failed"
+      "checking": "Checking memory…",
+      "updated": "Memory updated",
+      "checked": "Checked memory"
     },
     "routeModel": {
       "routedTo": "Routed to",
@@ -1555,6 +1743,41 @@
       "pathLabel": "Path:",
       "attachedAsSessionFile": "Attached to this conversation as session file",
       "showPagePreviews": "Show page previews ({n})"
+    },
+    "submitList": {
+      "saving": "Saving to list…",
+      "saved": "Saved to {name}",
+      "added": "{n} added",
+      "updated": "{n} updated",
+      "unchanged": "{n} unchanged",
+      "failed": "Not saved to {name}",
+      "retry": "the agent was asked to fix it",
+      "open": "Open list",
+      "downloadCsv": "Download CSV",
+      "list": "list",
+      "savingTo": "Saving to {name}…",
+      "writing": "{n} record | {n} records",
+      "kept": "{n} edit kept | {n} edits kept",
+      "keptEdit": "A person edited this value, so the agent's value was not applied",
+      "errorsCount": "{n} error | {n} errors",
+      "openRow": "Open row",
+      "action": {
+        "inserted": "added",
+        "updated": "updated",
+        "unchanged": "unchanged"
+      }
+    },
+    "resource": {
+      "failed": "Resource change failed",
+      "create": "Created resource",
+      "update": "Updated resource",
+      "delete": "Deleted resource",
+      "working": "Configuring resource",
+      "stopped": "Stopped",
+      "unchanged": "Resource unchanged",
+      "preserved": "Existing records preserved.",
+      "changed": "Changed",
+      "noChanges": "No changes applied."
     }
   },
   "entityCreate": {
@@ -1653,6 +1876,8 @@
       "manage_instructions": "Manage instructions",
       "manage_entities": "Manage entities",
       "manage_evals": "Manage evals",
+      "view_code": "View generated code",
+      "run_custom_code": "Edit and run custom code",
       "view_members": "View members",
       "manage_members": "Manage members",
       "manage_service_accounts": "Manage service accounts",
@@ -2460,7 +2685,191 @@
       "daysAbbr": "{n}d",
       "rangeCount": "{start}–{end} of {total}",
       "prev": "‹ Prev",
-      "next": "Next ›"
+      "next": "Next ›",
+      "tabs": {
+        "activity": "Activity",
+        "streams": "Streams"
+      },
+      "actorAgent": "via agent",
+      "actorSystem": "system",
+      "searchPlaceholder": "Search actions, users, titles…",
+      "filters": {
+        "user": "User",
+        "allUsers": "All users",
+        "resource": "Resource",
+        "allResources": "All resources",
+        "range": "Time",
+        "rangeAll": "All time",
+        "range24h": "Last 24 hours",
+        "range7d": "Last 7 days",
+        "range30d": "Last 30 days",
+        "filterActions": "Filter actions…",
+        "noOptions": "No matches"
+      },
+      "export": {
+        "button": "Export",
+        "json": "Download JSON (NDJSON)",
+        "csv": "Download CSV",
+        "hint": "Exports the current filtered view, oldest first.",
+        "failed": "Export failed"
+      },
+      "drawer": {
+        "title": "Event details",
+        "close": "Close",
+        "who": "Who",
+        "when": "When",
+        "where": "Where",
+        "what": "What",
+        "details": "Details",
+        "rawJson": "Raw JSON",
+        "copy": "Copy",
+        "copied": "Copied",
+        "actor": "Actor",
+        "actorType": "Actor type",
+        "timeUtc": "UTC",
+        "timeLocal": "Local",
+        "relative": "Relative",
+        "ip": "IP address",
+        "userAgent": "User agent",
+        "action": "Action",
+        "resourceType": "Resource type",
+        "resourceId": "Resource ID",
+        "open": "Open",
+        "agentRun": "Agent run",
+        "executionMode": "Execution mode",
+        "none": "—",
+        "noDetails": "No additional details",
+        "fields": {
+          "title": "Title",
+          "tool": "Tool",
+          "data_source": "Data source",
+          "connection": "Connection",
+          "queries": "Queries",
+          "row_count": "Rows",
+          "reason": "Reason",
+          "error": "Error",
+          "changed": "Changes",
+          "state": "State",
+          "destination": "Destination",
+          "format": "Format"
+        },
+        "actorKinds": {
+          "user": "User",
+          "agent": "Agent (on behalf of user)",
+          "system": "System"
+        }
+      },
+      "streams": {
+        "title": "Log streams",
+        "subtitle": "Deliver every audit event to your SIEM or storage bucket. After any outage, delivery resumes from the last event sent.",
+        "empty": "No log streams yet",
+        "emptyHint": "Add a stream to send audit events to Datadog, Splunk, Microsoft Sentinel, S3, Google Cloud Storage, a webhook or syslog.",
+        "add": "Add stream",
+        "edit": "Edit",
+        "delete": "Delete",
+        "deleteConfirm": "Delete stream \"{name}\"? Events stop being delivered to it.",
+        "pause": "Pause",
+        "resume": "Resume",
+        "state": {
+          "active": "Active",
+          "inactive": "Paused",
+          "error": "Error",
+          "invalid": "Invalid credentials"
+        },
+        "delivered": "{n} delivered",
+        "pending": "{n} pending",
+        "lag": "behind by {time}",
+        "lastDelivered": "Last delivered {time}",
+        "never": "never",
+        "lastError": "Last error",
+        "nextAttempt": "Retrying {time}",
+        "manageRequired": "Only members with Manage settings can change log streams.",
+        "form": {
+          "titleNew": "Add log stream",
+          "titleEdit": "Edit log stream",
+          "name": "Name",
+          "namePlaceholder": "e.g. Splunk production",
+          "destination": "Destination",
+          "chooseDestination": "Choose where to send events",
+          "startFrom": "Start from",
+          "startNow": "New events only",
+          "startBeginning": "Include all history",
+          "actionFilter": "Only actions starting with",
+          "actionFilterHint": "Comma-separated prefixes such as tool., member. — leave empty to send everything.",
+          "advanced": "Advanced settings",
+          "test": "Send test event",
+          "testing": "Sending…",
+          "testOk": "Test event delivered",
+          "testFailed": "Test failed: {error}",
+          "save": "Save stream",
+          "saving": "Saving…",
+          "cancel": "Cancel",
+          "back": "Back",
+          "secretStored": "Stored — leave as is to keep",
+          "externalIdHint": "Put this External ID in the IAM role's trust policy.",
+          "required": "Required"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "HTTPS webhook",
+          "syslog": "Syslog over TLS"
+        },
+        "destinationHints": {
+          "datadog": "Logs intake API",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "Logs Ingestion API (DCR)",
+          "s3": "NDJSON objects per batch",
+          "gcs": "NDJSON objects via HMAC keys",
+          "https": "Signed JSON POST",
+          "syslog": "RFC 5424, JSON or CEF"
+        },
+        "fields": {
+          "url": "Endpoint URL",
+          "auth_header_name": "Auth header name",
+          "auth_header_value": "Auth header value",
+          "hmac_secret": "Signing secret (HMAC)",
+          "headers": "Extra headers (JSON object)",
+          "verify_tls": "Verify TLS certificate",
+          "site": "Datadog site",
+          "api_key": "API key",
+          "service": "Service",
+          "tags": "Tags",
+          "intake_url": "Custom intake URL",
+          "hec_url": "HEC URL",
+          "token": "HEC token",
+          "index": "Index",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "Tenant ID",
+          "client_id": "Client ID",
+          "client_secret": "Client secret",
+          "dce_url": "Data collection endpoint",
+          "dcr_immutable_id": "DCR immutable ID",
+          "stream_name": "Stream name",
+          "authority_url": "Authority URL",
+          "bucket": "Bucket",
+          "region": "Region",
+          "prefix": "Key prefix",
+          "role_arn": "Role ARN",
+          "external_id": "External ID",
+          "access_key_id": "Access key ID",
+          "secret_access_key": "Secret access key",
+          "gzip": "Gzip objects",
+          "endpoint_url": "Custom endpoint URL",
+          "sts_endpoint_url": "Custom STS endpoint",
+          "host": "Host",
+          "port": "Port",
+          "tls": "Use TLS",
+          "format": "Message format",
+          "ca_cert": "CA certificate (PEM)",
+          "app_name": "App name",
+          "client_cert": "Client certificate (PEM)",
+          "client_key": "Client key (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "AI Settings",
@@ -2468,9 +2877,39 @@
       "beta": "Beta feature",
       "locked": "This setting is locked and cannot be changed.",
       "notEditable": "(Not directly editable)",
-      "aiAgentsTitle": "AI Agents",
-      "aiAgentsSubtitle": "Configure AI agents and capabilities available to your organization's members.",
       "noSettings": "No AI settings available.",
+      "sectionSummary": "{n} settings",
+      "sectionSummaryOn": "{n} settings · {on} on",
+      "sections": {
+        "data": {
+          "title": "Data access & privacy",
+          "description": "What the AI can see and bring into a conversation"
+        },
+        "capabilities": {
+          "title": "Agent capabilities",
+          "description": "What the agent can do while answering"
+        },
+        "learning": {
+          "title": "Learning & memory",
+          "description": "How the AI learns from users, feedback and usage"
+        },
+        "tools": {
+          "title": "Tools & MCP",
+          "description": "External MCP servers and custom API tools"
+        },
+        "limits": {
+          "title": "Limits",
+          "description": "Row caps, timeouts, retries and context sizes"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "description": "Webhooks, forks and data retention"
+        },
+        "other": {
+          "title": "Other",
+          "description": "Settings not yet assigned to a section"
+        }
+      },
       "llmAccessWarning": "Changing this setting affects data privacy. A confirmation will be required.",
       "llmModalTitleEnable": "Enable LLM Data Access",
       "llmModalTitleDisable": "Disable LLM Data Access",
@@ -2480,7 +2919,7 @@
       "llmImpactInspectTool": "Inspect Data",
       "llmImpactAccuracy": "Reduced analysis accuracy and performance",
       "llmImpactColumns": "AI will only see column names and statistics, not actual values",
-      "llmFileUploadsNote": "File uploads are unaffected by this setting and will still be visible to the AI (you can disable file uploads separately).",
+      "llmFileUploadsNote": "File uploads are unaffected by this setting and will still be visible to the AI.",
       "llmConfirmLabel": "Type {phrase} to confirm",
       "llmConfirmPhrase": "I AM SURE",
       "llmConfirmPlaceholder": "I AM SURE",
@@ -2502,6 +2941,10 @@
         "allow_llm_see_data": {
           "name": "Allow LLM to see data",
           "description": "Enable LLM to see data as part of the analysis and user queries"
+        },
+        "enable_artifact_verification": {
+          "name": "Verify data apps",
+          "description": "Let the agent check interactive page artifacts with browser tools. Requires Allow LLM to see data."
         },
         "enable_training_mode": {
           "name": "Training Mode",
@@ -2599,6 +3042,10 @@
           "name": "MCP result inline size",
           "description": "How much of an MCP / custom API tool result the agent sees directly in its context, in characters. The complete response is always saved to a file whatever this is set to; this only decides how much the model can read without opening that file. Raise it so the agent can answer from a whole result set instead of a sample; lower it to spend fewer tokens per call. Set to 0 for a 3-record sample. Clamped to 0-500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "MCP data preview rows",
+          "description": "How many result rows create_data returns to an external MCP client (Claude, Cursor, etc.) in its response. The full result is always saved in the report; this only decides how much the client's model receives inline. A client may ask for fewer rows, never more. Also bounded by 'Limit row count'. Clamped to 1-10000."
+        },
         "enable_web_fetch": {
           "name": "Web Fetch",
           "description": "Allow the agent to fetch the contents of public HTTP and HTTPS URLs. Only text-like responses are returned and large bodies are truncated."
@@ -2616,12 +3063,24 @@
           "description": "Maximum number of rows generated code should train a model on. Larger sources are sampled down to this size before fitting. Minimum 1000."
         },
         "enable_custom_queries": {
-          "name": "Custom queries (beta)",
-          "description": "Let connection admins define SQL that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default."
+          "name": "Custom tables (beta)",
+          "description": "Let connection admins define a query (SQL, or DAX on Power BI) that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default."
         },
         "enable_agent_notes": {
           "name": "Agent Notes",
           "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."
+        },
+        "enable_user_memory": {
+          "name": "User memory",
+          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory. It is kept up to date overnight."
+        },
+        "enable_agent_dreaming": {
+          "name": "Agent overnight learning",
+          "description": "Each night, agents review their pending suggestions, feedback and usage and propose one consolidated improvement per agent. What happens to it follows each agent's Self-Learning setting."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Expire unreviewed AI suggestions after (days)",
+          "description": "AI-suggested instructions still pending after this many days are closed as expired (not rejected) by the nightly agent learning. Expired suggestions still count as evidence if the same pattern comes back. 0 keeps them open forever."
         },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
@@ -2654,6 +3113,22 @@
         "llm_fallback": {
           "name": "LLM fallback",
           "description": "Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable."
+        },
+        "enable_agent_checkins": {
+          "name": "Agent check-ins",
+          "description": "Let the agent follow up on its own after a conversation when something is worth revisiting (e.g. after a data refresh). Follow-ups run as the user in the same report and notify them only when something meaningful changed."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Check-ins per user per week",
+          "description": "Maximum follow-up runs a single user can receive in 7 days."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Check-in runs per day",
+          "description": "Upper bound on follow-up runs across the organization per day (cost cap)."
+        },
+        "enable_artifact_resources": {
+          "name": "Artifact resources",
+          "description": "Allow artifacts to use persistent records, private files and approved AI operations. Existing sharing and resource permissions still apply."
         }
       }
     },
@@ -2676,7 +3151,7 @@
       "manageProvider": "Provider Settings",
       "smallDefaultTooltip": "Used for LLM Judge, tests, and other small tasks",
       "visionTooltip": "Whether this model accepts image inputs. Controls what the app sends to the provider — it does not change the model's real capability.",
-      "imageGenTooltip": "Whether this model generates images (e.g. gpt-image-1). Enables it for the generate_image tool and to embed generated images in artifacts. Image models are excluded from the chat model picker and can't be a default.",
+      "imageGenTooltip": "Whether this model generates images (e.g. gpt-image-2.5-sunburst). Enables it for the generate_image tool and to embed generated images in artifacts. Image models are excluded from the chat model picker and can't be a default.",
       "colContext": "Context",
       "contextTooltip": "Maximum tokens (prompt + output) the app budgets for this model. Lower it to match provider limits — for example Bedrock deployments capped at 100k.",
       "contextPlaceholder": "e.g. 100000",
@@ -2752,7 +3227,36 @@
       "modelsCount": "{count} models",
       "dangerZone": "Danger Zone",
       "modelSettings": "Model Settings",
-      "imageGenDefaultBlocked": "Default models can't be image-generation models. Make another model the default first."
+      "imageGenDefaultBlocked": "Default models can't be image-generation models. Make another model the default first.",
+      "reasoning": {
+        "title": "Reasoning",
+        "tooltip": "How this model receives the effort users pick (Low / Medium / High / Max).",
+        "modes": {
+          "auto": "Automatic (from model catalog)",
+          "like": "Behaves like another model",
+          "generic": "Generic (reasoning_effort)",
+          "custom": "Custom request fields only",
+          "off": "Off"
+        },
+        "likeLabel": "Behaves like",
+        "likePlaceholder": "e.g. gpt-6-luna",
+        "defaultLevel": "Default level",
+        "unsupported": "Effort does not apply to this model",
+        "savedSettings": "saved settings",
+        "rawTitle": "Raw request fields per level (advanced)",
+        "rawHelp": "JSON merged into the provider request when that level is used. Keys already in the request are merged; others are passed through as-is.",
+        "ranAs": "ran as {level}",
+        "tokens": "reasoning tokens",
+        "saveToTest": "Save to test your changes",
+        "testTooltip": "Send one tool-calling request at this level",
+        "test": "Test",
+        "rawNotObject": "Must be a JSON object",
+        "rawInvalid": "Invalid JSON",
+        "fixRaw": "Fix the invalid raw request fields first",
+        "likeRequired": "Enter the model this one behaves like",
+        "customRequired": "Custom mode needs raw fields for at least one level",
+        "saveFailed": "Could not save reasoning settings"
+      }
     },
     "licensePage": {
       "title": "License",
@@ -2881,6 +3385,88 @@
     }
   },
   "data": {
+    "keepSavedSecret": "Leave blank to keep saved secret",
+    "settingsNeedTest": "Settings changed — test again",
+    "queryAccess": "Query access",
+    "sharedSchema": "Shared schema",
+    "refreshSharedSchema": "Refresh shared schema",
+    "refreshMySchema": "Refresh my schema",
+    "manageConnection": "Manage connection",
+    "connectionSettings": "Connection settings",
+    "editSettings": "Edit settings",
+    "savedSecret": "Saved",
+    "testAgain": "Test again",
+    "setupSaved": "Connection saved",
+    "setupSavedDiscoveryFailed": "Connection saved. Schema discovery failed. You can correct the settings and retry.",
+    "setupDone": "Done",
+    "setupPhases": {
+      "schema": "Processing schema",
+      "catalog": "Processing catalog",
+      "columns": "Processing columns",
+      "tables": "Processing tables",
+      "models": "Processing models",
+      "workspaces": "Processing workspaces",
+      "reports": "Processing reports",
+      "applications": "Processing applications",
+      "datasets": "Processing datasets",
+      "universes": "Processing universes",
+      "indices": "Processing indices",
+      "aliases": "Processing aliases",
+      "files": "Processing files",
+      "collections": "Processing collections",
+      "subject_areas": "Processing subject areas",
+      "assets": "Processing assets",
+      "databases": "Processing databases",
+      "concepts": "Processing concepts",
+      "cubes": "Processing cubes",
+      "entities": "Processing entities",
+      "lists": "Processing lists",
+      "metrics": "Processing metrics",
+      "services": "Processing services",
+      "boards": "Processing boards",
+      "relationship_schemas": "Processing relationship schemas",
+      "semantic_views": "Processing semantic views",
+      "catalog_pages": "Processing catalog pages",
+      "dashboard_spaces": "Processing dashboard spaces",
+      "saved-search_spaces": "Processing saved-search spaces",
+      "discovering_schema": "Discovering schema",
+      "catalog_ready": "Catalog ready",
+      "reading_semantic_views": "Reading semantic views",
+      "admin_scan": "Scanning workspace metadata",
+      "listing_workspaces": "Listing workspaces",
+      "workspace_models": "Listing models",
+      "workspace_reports": "Listing reports",
+      "model_metadata": "Reading models",
+      "model_introspection": "Processing models",
+      "assembling_models": "Assembling models",
+      "reused_models": "Reused models",
+      "inspected_models": "Inspected models",
+      "unreadable_models": "Unreadable models",
+      "dataset_schemas": "Reading datasets",
+      "listing_files": "Listing files",
+      "log_groups": "Log groups",
+      "saved_search_spaces": "Processing saved-search spaces",
+      "reading_columns": "Reading columns",
+      "processing_columns": "Processing columns",
+      "materialized_views": "Reading materialized views",
+      "relationships": "Reading relationships",
+      "metadata_fallback": "Reading basic metadata",
+      "discovering": "Discovering data",
+      "connecting": "Connecting to source",
+      "saving": "Saving catalog",
+      "warming": "Preparing data cache",
+      "syncing_agents": "Syncing to agents"
+    },
+    "setupStatus": "Connection status",
+    "setupReadyHint": "Enter your connection details. We’ll check access and discover the available data.",
+    "setupConnection": "Check connection",
+    "setupConnecting": "Connecting…",
+    "setupCurrentStage": "Current stage",
+    "setupElapsed": "Elapsed: {time}",
+    "setupLastActivity": "Last activity: {time} ago",
+    "setupNoActivity": "No activity for {time} — indexing may be stuck",
+    "setupQueued": "Queued — waiting for other indexing runs to finish",
+    "setupPreviousStages": "Previous stages",
     "title": "Connections",
     "subtitle": "Manage your database connections.",
     "addConnection": "Add Connection",
@@ -2969,6 +3555,7 @@
     "provideCredentials": "Provide your credentials to enable access for you.",
     "authMethod": "Authentication Method",
     "signIn": "Sign in",
+    "signInRequired": "Sign in required",
     "testConnection": "Test connection",
     "cancel": "Cancel",
     "save": "Save",
@@ -3057,7 +3644,7 @@
     "retry": "Retry",
     "reindex": "Reindex",
     "lastIndexed": "Last indexed",
-    "customQueries": "Custom queries",
+    "customQueries": "Custom tables",
     "schemaDiscovery": "Schema discovery",
     "stop": "Stop",
     "stopping": "Stopping…",
@@ -3159,6 +3746,14 @@
     "mcpAuthOauthApp": "OAuth (admin-registered app)",
     "mcpDcrHintA": "This connector registers itself automatically (DCR) — no client credentials to enter.",
     "mcpDcrHintB": "Each user signs in with their own account the first time they use it.",
+    "mcpDcrScopesLabel": "Scopes (optional override)",
+    "mcpDcrScopesPlaceholder": "Detected automatically — run Verify",
+    "mcpDcrScopesHint": "Leave empty to request the scopes the server advertises. Verify shows what was detected.",
+    "mcpDcrDetectedScopes": "Detected: {scopes}",
+    "mcpDcrDetectedNone": "The server advertises no scopes; sign-in will request none.",
+    "mcpDcrScopesSourceChallenge": "from the server's sign-in challenge",
+    "mcpDcrScopesSourceResource": "from the server's resource metadata",
+    "mcpDcrScopesSourceAs": "from the authorization server (the MCP server advertises none)",
     "mcpTokenSharedHint": "This token is shared by everyone who uses this connection.",
     "mcpOauthAppHint": "You're registering an OAuth app for your whole org. After you save, each user signs in individually — their tokens are stored encrypted and sent on every tool call.",
     "mcpOauthPrefilledHint": "The provider endpoints are pre-filled (see Advanced) — you only need the Client ID and Secret.",
@@ -3205,7 +3800,28 @@
         }
       ]
     },
-    "setupGuideCopyFailed": "Copy failed — select the text"
+    "setupGuideCopyFailed": "Copy failed — select the text",
+    "schemaRefreshFailed": "Schema refresh failed",
+    "detailsAndLogs": "Details and logs ({n})",
+    "lastConnectionTestPassed": "Last connection test passed",
+    "myAccount": "My account",
+    "accessDataUsing": "Access data using",
+    "organizationAccount": "Organization account",
+    "personalAccessDescription": "Use your own permissions.",
+    "organizationAccessDescription": "Use the shared access configured by your admin.",
+    "signInToProvider": "Sign in to {name}",
+    "lastCheckedRelative": "Last checked {time}",
+    "personalPermissions": "Using your account’s permissions",
+    "contactConnectionAdmin": "Contact your administrator to restore this connection.",
+    "refreshAvailable": "Refresh available tables",
+    "signOut": "Sign out",
+    "usedBy": "Used by",
+    "noAccessibleAgents": "No agents available to you",
+    "accountLabel": "Account",
+    "refreshAccess": "Refresh access",
+    "yourAccount": "Your account",
+    "managementOrganizationHint": "Tests and schema refreshes use the organization’s saved credentials.",
+    "managementPersonalHint": "This connector requires your sign-in. Tests and refreshes use your account."
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -3245,7 +3861,14 @@
     "chatScopeAgentsDesc": "Chat may run live read-only queries against the selected agents",
     "chatScopeDataOnly": "Dashboard data only",
     "chatScopeDataOnlyDesc": "Chat answers only from the data already on this dashboard",
-    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only."
+    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only.",
+    "chatModel": "Default model",
+    "chatModelDesc": "The model chat uses for viewers. Viewers without access to it fall back to their own default.",
+    "chatModelOrgDefault": "Organization default ({name})",
+    "chatModelOrgDefaultPlain": "Organization default",
+    "chatModelReport": "Same as report ({name})",
+    "chatModelReportPlain": "Same as report",
+    "chatModelUnavailable": "Unavailable model — using default"
   },
   "publish": {
     "published": "Published",
@@ -3265,6 +3888,8 @@
     "copyClipboardFailed": "Failed to copy to clipboard"
   },
   "errors": {
+    "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
+    "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
     "generic": "Something went wrong. Please try again.",
     "network": "Network error. Check your connection.",
     "unauthorized": "You are not authorized to do that.",
@@ -3304,7 +3929,35 @@
       "model_id_required": "Model ID cannot be empty",
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
-    }
+    },
+    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
+    "memory.disabled": "User memory is turned off for this organization.",
+    "memory.not_found": "That memory entry doesn't exist.",
+    "memory.text_required": "Write the thing to remember.",
+    "memory.text_too_long": "Keep it to 280 characters.",
+    "memory.too_many_tags": "Use at most 4 tags.",
+    "memory.tags_required": "Add at least one tag.",
+    "memory.invalid_date": "That date isn't valid.",
+    "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
+    "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
+    "memory.full": "Memory is full. Delete some entries first.",
+    "memory.not_active": "That entry was already changed or forgotten.",
+    "audit_stream.not_found": "Audit log stream not found.",
+    "audit_stream.invalid_destination": "Unknown log stream destination.",
+    "audit_stream.missing_field": "A required field is missing: {field}.",
+    "audit_stream.invalid_field": "Invalid value for {field}.",
+    "audit_log.export_too_large": "Export is limited to {limit} events and this filter matches {total}. Narrow the filter or use a log stream.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Invalid resource request",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Resource not found",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Resource access denied",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Sign in to continue",
+    "ARTIFACT_RESOURCE_CONFLICT": "Resource changed; refresh and try again",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Resource limit reached",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Too many requests; try again later",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Resource unavailable",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Request interrupted",
+    "ARTIFACT_RESOURCE_ABORTED": "Request cancelled",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Unsupported SDK version"
   },
   "email": {
     "dashboardShare": {
@@ -3498,16 +4151,6 @@
     "menuData": "Data"
   },
   "toolbar": {
-    "collapse": "Collapse",
-    "switchToArtifact": "Switch to Artifact view",
-    "dashboard": "Dashboard",
-    "addComponent": "Add Component",
-    "addText": "Add Text",
-    "theme": "Theme",
-    "rerun": "Rerun report",
-    "openInNewTab": "Open dashboard in a new tab",
-    "fullscreen": "Full screen",
-    "shareDashboard": "Share Dashboard",
     "polishDashboard": "Polish Dashboard"
   },
   "artifactFrame": {
@@ -3567,47 +4210,14 @@
     "renameFailed": "Could not rename the dashboard.",
     "more": "More",
     "schedule": "Schedule refresh",
-    "exportAs": "Export as {format}"
+    "exportAs": "Export as {format}",
+    "partialNoAccess": "You don't have access to the data for: {charts}",
+    "partialFailed": "Couldn't load: {charts}",
+    "partialRenderFailed": "Part of this dashboard uses data you don't have access to, so it couldn't be displayed. Ask the dashboard's owner for access."
   },
   "filter": {
-    "addFilters": "Add Filters",
-    "title": "Filters",
-    "clear": "Clear",
-    "loading": "Loading…",
-    "noData": "No data available to filter",
-    "refresh": "Refresh",
-    "noFilters": "No filters applied",
-    "addFilter": "Add filter",
-    "columnPlaceholder": "Column",
-    "searchPlaceholder": "Search…",
-    "valuePlaceholder": "Value",
     "selectColumn": "Select column",
-    "visualization": "Visualization",
-    "orDivider": "OR",
-    "andDivider": "AND",
-    "rowsCount": "{shown} of {total} rows",
-    "apply": "Apply",
-    "op": {
-      "equals": "equals",
-      "notEquals": "not equals",
-      "contains": "contains",
-      "notContains": "not contains",
-      "startsWith": "starts with",
-      "endsWith": "ends with",
-      "isEmpty": "is empty",
-      "isNotEmpty": "is not empty",
-      "in": "in",
-      "notIn": "not in",
-      "greaterThan": "greater than",
-      "lessThan": "less than",
-      "greaterOrEqual": "greater or equal",
-      "lessOrEqual": "less or equal",
-      "between": "between",
-      "before": "before",
-      "after": "after",
-      "isTrue": "is true",
-      "isFalse": "is false"
-    }
+    "visualization": "Visualization"
   },
   "slideViewer": {
     "loading": "Loading slides...",
@@ -3811,7 +4421,18 @@
       "connectionFailed": "Connection failed",
       "requestFailed": "Request failed",
       "newProvider": "New Provider",
-      "providerFallback": "Provider"
+      "providerFallback": "Provider",
+      "projectId": "Project ID",
+      "projectIdPlaceholder": "e.g. my-project-123456",
+      "vertexLocation": "Location",
+      "vertexLocationPlaceholder": "global",
+      "vertexLocationHint": "Leave as global unless you need a specific region — newer Gemini models and all third-party models are served only there.",
+      "vertexAdc": "Default Credentials",
+      "vertexServiceAccount": "Service Account Key",
+      "vertexAdcHint": "Uses Application Default Credentials (Workload Identity, GCE metadata, GOOGLE_APPLICATION_CREDENTIALS)",
+      "vertexServiceAccountJson": "Service Account Key JSON",
+      "vertexServiceAccountJsonPlaceholder": "Paste the whole service account key file",
+      "vertexServiceAccountJsonHint": "Needs the roles/aiplatform.user role. Project ID is taken from the key if left blank."
     }
   },
   "evals": {
@@ -3981,6 +4602,7 @@
       "chip_slow": "Slow",
       "chip_expensive": "Expensive",
       "chip_retried": "Retried",
+      "rangeAll": "All time",
       "range24h": "Last 24 hours",
       "range7d": "Last 7 days",
       "range30d": "Last 30 days",
@@ -4474,6 +5096,7 @@
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "Page not found",
+    "notFoundHint": "The page you're looking for doesn't exist or you don't have access to it.",
     "genericTitle": "Something went wrong",
     "unknownError": "Unknown error",
     "goHome": "Go home"
@@ -4482,7 +5105,8 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Instructions & Memory",
+      "instructions": "Custom instructions",
+      "memory": "Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -4510,7 +5134,11 @@
       "defaultModelSubtitle": "The model used by default when you start a new chat. Only models you have access to are listed.",
       "orgDefault": "Organization default",
       "defaultModelSaved": "Default model updated",
-      "defaultModelFailed": "Failed to update default model"
+      "defaultModelFailed": "Failed to update default model",
+      "checkinsTitle": "Agent follow-ups",
+      "checkinsSubtitle": "Let the agent check back on its own after a conversation when something is worth revisiting (for example after a data refresh). It notifies you only when something meaningful changed.",
+      "checkinsSaved": "Follow-up preference saved",
+      "checkinsFailed": "Could not save your follow-up preference"
     },
     "instructions": {
       "title": "Custom Instructions",
@@ -4562,8 +5190,36 @@
     },
     "memory": {
       "title": "Memory",
-      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
-      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
+      "subtitle": "Facts the AI remembers about you in this organization — your work, projects, dates, what you follow, your own shorthand. Only you can see them.",
+      "vsInstructions": "How the AI should answer you (format, units, length) isn't memory — that's your custom instructions.",
+      "instructionsLink": "Custom instructions",
+      "count": "{count} of {cap} entries",
+      "forgetAll": "Forget everything",
+      "forgetAllTitle": "Forget everything?",
+      "forgetAllBody": "The AI will forget all {count} entries it remembers about you in this organization. This can't be undone.",
+      "forgetAllConfirm": "Forget everything",
+      "empty": "Nothing remembered yet. As you work, the AI keeps facts here — like your projects, deadlines or upcoming meetings.",
+      "add": "Add",
+      "past": "Past",
+      "fromReport": "from {title}",
+      "untitledReport": "a report",
+      "loadFailed": "Couldn't load your memory",
+      "saveFailed": "Couldn't save the change",
+      "saved": "Memory saved",
+      "forgotten": "Forgotten",
+      "forgotAll": "Everything forgotten",
+      "source": {
+        "user": "Added by you",
+        "agent": "Saved by the AI",
+        "dream": "Noted overnight"
+      },
+      "form": {
+        "placeholder": "A fact about you, e.g. Leading the Q3 churn project",
+        "tags": "Tags, comma-separated",
+        "dateHint": "Add a date if it's tied to one"
+      },
+      "searchPlaceholder": "Search memory…",
+      "noMatches": "No memories match."
     }
   },
   "agentPage": {
@@ -4826,7 +5482,15 @@
   },
   "events": {
     "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
-    "waitResumed": "Wait elapsed — resuming: {reason}"
+    "waitResumed": "Wait elapsed — resuming: {reason}",
+    "checkin": {
+      "label": "Follow-up",
+      "running": "Following up on this conversation…",
+      "sent": "Follow-up — notified you",
+      "sentWithSubject": "Follow-up — notified you: {subject}",
+      "quiet": "Checked back: nothing new",
+      "failed": "Follow-up failed"
+    }
   },
   "sessionEvents": {
     "run_stopped": "Run was stopped",
@@ -4968,8 +5632,8 @@
     "loadingPrompts": "Loading prompts…",
     "selectedCount": "{count} selected",
     "selectTables": "Select tables",
-    "customQuery": "Custom query",
-    "customQueriesOff": "Custom queries off",
+    "customQuery": "Custom table",
+    "customQueriesOff": "Custom tables off",
     "enableCustomQueries": "Enable in AI settings",
     "reload": "Reload",
     "editQuery": "Edit {name}",
@@ -5027,5 +5691,184 @@
     "searchColumns": "Search columns…",
     "noColumns": "No matching columns",
     "centrality": "Centrality"
+  },
+  "fork": {
+    "preparing": "Preparing your copy…",
+    "preparingDetail": "Running the queries with your own credentials. This usually takes a few seconds.",
+    "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
+  },
+  "quota": {
+    "resetsOn": "resets {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Learn overnight",
+    "nightlyDescription": "Each night, turn repeated corrections, feedback and usage into one consolidated suggestion for this agent. It follows the setting above like any other suggestion.",
+    "nightlyOrgOff": "Overnight learning is off for this organization (AI settings)."
+  },
+  "nightlyBuild": {
+    "merged": "Merged",
+    "expired": "Expired",
+    "mergedTip": "Folded into a nightly learning suggestion. Not a reviewer's rejection.",
+    "expiredTip": "Closed after staying unreviewed past the org's expiry. Still counts as evidence if the pattern returns."
+  },
+  "lists": {
+    "title": "Lists",
+    "newList": "New list",
+    "empty": "No lists yet",
+    "emptyHint": "A list is a table your agent fills in. Define its fields, then ask the agent to extract them from documents, emails or query results.",
+    "emptyViewer": "This agent has no lists yet.",
+    "fieldsCount": "{n} field | {n} fields",
+    "rowsCount": "{n} row | {n} rows",
+    "loading": "Loading…",
+    "back": "Lists",
+    "exportCsv": "Export CSV",
+    "exportWithEvidence": "Export with sources",
+    "editFields": "Edit fields",
+    "deleteList": "Delete list",
+    "deleteConfirmTitle": "Delete “{name}”?",
+    "deleteConfirmBody": "The list and its rows will be removed, and agents will stop saving to it.",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "create": "Create list",
+    "more": "More actions",
+    "noRows": "No rows yet",
+    "noRowsHint": "Ask the agent in a new report, for example “Extract all contracts into {name}”.",
+    "saveHint": "Agents save here with",
+    "queryHint": "Query as",
+    "updated": "Updated",
+    "editor": {
+      "newTitle": "New list",
+      "editTitle": "Edit list",
+      "name": "Name",
+      "namePlaceholder": "e.g. Contracts",
+      "description": "Description",
+      "descriptionPlaceholder": "What each row represents, and anything the agent should know",
+      "fields": "Fields",
+      "fieldName": "field_name",
+      "fieldDescription": "Describe the value. This is the agent's instruction.",
+      "type": "Type",
+      "required": "Required",
+      "key": "Key",
+      "keyHint": "Rows with the same key are updated instead of added",
+      "enumValues": "Allowed values, comma-separated",
+      "addField": "Add field",
+      "removeField": "Remove field",
+      "requireEvidence": "Require a source quote for extracted values",
+      "nameRule": "Field names use lowercase letters, digits and _",
+      "types": {
+        "string": "Text",
+        "number": "Number",
+        "integer": "Whole number",
+        "boolean": "Yes / No",
+        "date": "Date",
+        "enum": "Choice"
+      },
+      "breakingSaved": "Saved as version {v}. Existing rows are marked outdated until re-extracted.",
+      "saved": "List saved",
+      "created": "List created",
+      "saveFailed": "Couldn't save the list",
+      "allowViewerSubmissions": "Anyone who can use this agent can save rows from chat (otherwise only agent managers)",
+      "keepHumanEdits": "Keep people’s edits: the agent won’t overwrite a value someone changed by hand"
+    },
+    "row": {
+      "status": {
+        "found": "Found",
+        "not_found": "Not found",
+        "ambiguous": "Ambiguous",
+        "inferred": "Inferred"
+      },
+      "source": "Source",
+      "page": "p. {n}",
+      "verified": "Quote found in the source",
+      "unverified": "Quote not matched to the source",
+      "edited": "Edited by a person. The agent won't overwrite it.",
+      "unlock": "Let the agent update",
+      "history": "History",
+      "revert": "Revert",
+      "deleteRow": "Delete row",
+      "saveChanges": "Save changes",
+      "conflict": "This row changed since you opened it, so it was reloaded.",
+      "saved": "Row updated",
+      "deleted": "Row deleted",
+      "stale": "Extracted with an older version of the fields",
+      "openReport": "Open report",
+      "agent": "Agent",
+      "action": {
+        "insert": "added",
+        "update": "updated",
+        "revert": "reverted",
+        "unlock": "unlocked"
+      },
+      "yes": "Yes",
+      "no": "No",
+      "noHistory": "No changes yet"
+    },
+    "toastDeleted": "List deleted",
+    "toastError": "Something went wrong",
+    "loadMore": "Load more",
+    "justNow": "just now",
+    "clearRows": "Clear all rows",
+    "clearConfirmTitle": "Clear all rows from “{name}”?",
+    "clearConfirmBody": "All {n} rows and their history will be deleted. The list’s fields, its save tool and its table stay, so the agent can fill it again.",
+    "clear": "Clear rows",
+    "deleteRowsTitle": "Delete {n} row? | Delete {n} rows?",
+    "deleteRowsBody": "The selected rows and their history will be deleted. This can’t be undone.",
+    "selectedCount": "{n} selected",
+    "clearSelection": "Clear selection",
+    "selectAll": "Select all rows",
+    "selectRow": "Select row",
+    "toastRowsDeleted": "{n} row deleted | {n} rows deleted"
+  },
+  "schemaIdentity": {
+    "viewing": "Viewing:",
+    "myAccount": "My account",
+    "serviceAccount": "Service account",
+    "sharedConnection": "Shared connection",
+    "sharedSchema": "Shared schema",
+    "changeIdentity": "Change query identity",
+    "refresh": "Refresh schema",
+    "refreshMyFor": "Refresh {name} · My account",
+    "refreshSharedFor": "Refresh {name} · Shared schema",
+    "refreshing": "Refreshing…",
+    "unknown": "Schema last refreshed: unknown",
+    "refreshedAt": "Schema last refreshed: {time}",
+    "attemptedAt": "Last refresh attempt: {time}",
+    "updated": "Schema updated.",
+    "partial": "Some models could not be refreshed. Their previous columns were retained.",
+    "failed": "Schema refresh did not complete. Try again.",
+    "connectRequired": "Connect your account to view its tables."
+  },
+"artifactResources": {
+    "readOnlyLabel": "Read only",
+    "sort": "Sort records",
+    "applyFilter": "Apply",
+    "clearFilter": "Clear filter",
+    "true": "True",
+    "false": "False",
+    "inspect": "Resources",
+    "readOnly": "Read-only artifact insights",
+    "data": "Data explorer",
+    "analytics": "Analytics",
+    "collection": "Select collection",
+    "refresh": "Refresh",
+    "schema": "Collection schema",
+    "filterField": "Filter field",
+    "filterValue": "Equals",
+    "filter": "Filter",
+    "empty": "No data to display",
+    "pageRows": "{count} record on this page | {count} records on this page",
+    "next": "Next page",
+    "details": "Record details",
+    "views": "Views",
+    "viewers": "Authenticated unique viewers",
+    "anonymousNote": "Anonymous visits are included in views, not unique people.",
+    "embedded": "Embedded",
+    "standalone": "Shared page",
+    "days": "Last {count} days",
+    "failed": "Unable to load artifact data",
+    "newest": "Newest first",
+    "oldest": "Oldest first"
   }
 }

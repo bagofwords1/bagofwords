@@ -329,3 +329,26 @@ class TestRegistryWiring:
         assert client.is_document_based is False
         from app.data_sources.clients.base import Capability
         assert client.capabilities == {Capability.QUERY}
+
+
+def test_discovery_reports_list_names_at_the_http_boundary():
+    import httpx
+    client = make_client()
+    urls = []
+    def respond(request):
+        urls.append(str(request.url))
+        if request.url.path.endswith('/lists'):
+            payload = LISTS_RESPONSE
+        elif request.url.path.endswith('/columns'):
+            payload = EXPENSE_COLUMNS
+        else:
+            raise AssertionError(f'Unexpected Graph URL: {request.url}')
+        return httpx.Response(200, json=payload)
+    events = []
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client._http = http
+        tables = client.get_schemas(progress_callback=lambda *e: events.append(e))
+    assert len(tables) == 2
+    assert len(urls) == 3  # one list request, one columns request per included list
+    assert {e[1] for e in events if e[1]} == {t.name for t in tables}
+    assert events[-1][2:] == (len(tables), len(tables))

@@ -21,7 +21,8 @@ from fastapi_users.db import SQLAlchemyUserDatabase
 from sqlalchemy import select, and_, func
 from httpx_oauth.oauth2 import BaseOAuth2
 
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
+# fastapi-mail is no longer used here: account email goes through
+# notification_service so it honours the organization's own SMTP server.
 
 from app.schemas.user_schema import UserCreate
 from app.models.organization import Organization
@@ -716,28 +717,16 @@ class UserManager(BaseUserManager[User, str]):
             await bump_session_epoch(user.id)
 
     async def _send_reset_password_email(self, user: User, token: str, request: Optional[Request] = None):
-        import asyncio
-        
         base_url = settings.bow_config.base_url
-            
         reset_url = f"{base_url}/users/reset-password?token={token}"
-        
-        message = MessageSchema(
-            subject="Reset your password",
-            recipients=[user.email],
-            body=f"Hello {user.name},<br /><br />You have requested to reset your password for Bag of words. Click the link below to reset your password:<br /><br /> <a href='{reset_url}'>{reset_url}</a><br /><br />If you didn't request this, please ignore this email.<br /><br />Best regards,<br />Bag of words team",
-            subtype="html"
+        body = (
+            f"Hello {user.name},<br /><br />You have requested to reset your password for Bag of words. "
+            f"Click the link below to reset your password:<br /><br /> "
+            f"<a href='{reset_url}'>{reset_url}</a><br /><br />"
+            f"If you didn't request this, please ignore this email.<br /><br />"
+            f"Best regards,<br />Bag of words team"
         )
-        fm = settings.email_client
-        
-        async def send_email():
-            try:
-                await fm.send_message(message)
-            except Exception as e:
-                print(f"Error sending reset password email: {e}")
-        
-        # Create task without awaiting it
-        asyncio.create_task(send_email())
+        await self._send_account_email(user, "Reset your password", body, "reset password")
 
     async def on_after_request_verify(
         self, user: User, token: str, request: Optional[Request] = None
@@ -745,28 +734,65 @@ class UserManager(BaseUserManager[User, str]):
         await self._send_verification_email(user, token, request)
 
     async def _send_verification_email(self, user: User, token: str, request: Optional[Request] = None):
-        import asyncio
-        
         base_url = settings.bow_config.base_url
-            
         verification_url = f"{base_url}/users/verify?token={token}"
-        
-        message = MessageSchema(
-            subject="Verify your email",
-            recipients=[user.email],
-            body=f"Welcome to Bag of words! You are almost ready to start using our platform. Click to verify your email: <br /> {verification_url}",
-            subtype="html"
+        body = (
+            "Welcome to Bag of words! You are almost ready to start using our platform. "
+            f"Click to verify your email: <br /> {verification_url}"
         )
-        fm = settings.email_client
-        
-        async def send_email():
+        await self._send_account_email(user, "Verify your email", body, "verification")
+
+    async def _send_account_email(self, user: User, subject: str, body: str, kind: str) -> None:
+        """Send an account email (reset / verification) via the resolved transport.
+
+        Account mail has no organization in scope — fastapi-users knows the user,
+        not the tenant — so the org is derived from the user's membership when
+        that is unambiguous. Without this these two emails always left through
+        the global bow-config SMTP, ignoring whatever the organization had
+        configured, and simply vanished when no global SMTP existed.
+
+        Fire-and-forget by design (the caller is an auth flow that must not block
+        or leak whether an address exists), but the outcome is logged rather than
+        printed, and a missing transport no longer raises inside the task.
+        """
+        import asyncio
+
+        from app.services.email_client_resolver import sole_organization_id
+        from app.services.notification_service import notification_service
+
+        # Read the ORM instance now, while its session is still open. The task
+        # below outlives the request, and touching a detached User there raises
+        # DetachedInstanceError instead of sending the mail.
+        user_id = str(user.id)
+        recipient = user.email
+
+        async def _send() -> None:
             try:
-                await fm.send_message(message)
-            except Exception as e:
-                print(f"Error sending verification email: {e}")
-        
-        # Create task without awaiting it
-        asyncio.create_task(send_email())
+                from app.dependencies import async_session_maker
+
+                async with async_session_maker() as db:
+                    organization_id = await sole_organization_id(db, user_id)
+                    result = await notification_service.send_custom_email(
+                        recipients=[recipient],
+                        subject=subject,
+                        body=body,
+                        subtype="html",
+                        retries=2,
+                        timeout=15,
+                        db=db,
+                        organization_id=organization_id,
+                        purpose="system",
+                    )
+                if result.status == "sent":
+                    logger.info("Sent %s email to %s via %s", kind, recipient, result.source)
+                else:
+                    logger.error(
+                        "Failed to send %s email to %s: %s", kind, recipient, result.error
+                    )
+            except Exception as e:  # noqa: BLE001 — must never break the auth flow
+                logger.error("Error sending %s email to %s: %s", kind, recipient, e)
+
+        asyncio.create_task(_send())
 
     async def create(
         self,
@@ -1046,6 +1072,7 @@ class SessionEpochJWTStrategy(JWTStrategy):
         from fastapi_users.jwt import generate_jwt
 
         data = {
+            "saml_identity": getattr(user, "_saml_identity_hash", None),
             "sub": str(user.id),
             "aud": self.token_audience,
             SESSION_EPOCH_CLAIM: _session_epoch_of(user),
@@ -1075,6 +1102,28 @@ class SessionEpochJWTStrategy(JWTStrategy):
                 user.id,
             )
             return None
+
+        if claims.get("saml_identity"):
+            from app.models.saml import SAMLIdentity
+            async with user_manager.user_db.session as session:
+                identity = (await session.execute(select(SAMLIdentity).where(
+                    SAMLIdentity.identity_hash == claims["saml_identity"],
+                    SAMLIdentity.user_id == user.id, SAMLIdentity.deleted_at.is_(None),
+                ))).scalar_one_or_none()
+                if identity is None:
+                    return None
+                cfg = next((p for p in settings.bow_config.saml_providers
+                            if p.enabled and p.name == identity.provider
+                            and p.organization_id == identity.organization_id), None)
+                if cfg is None:
+                    return None
+                member = (await session.execute(select(Membership.id).where(
+                    Membership.user_id == user.id,
+                    Membership.organization_id == identity.organization_id,
+                    Membership.deleted_at.is_(None),
+                ))).first()
+                if member is None:
+                    return None
 
         if user.ldap_subject:
             if claims.get("directory_subject") != user.ldap_subject or not settings.bow_config.ldap.enabled:

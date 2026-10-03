@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user as current_user_dep
@@ -8,12 +10,32 @@ from app.core.permissions_decorator import requires_permission
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.query import Query
+from app.models.report import Report
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest, QueryLastRunSchema
 from app.services.query_service import QueryService
 
 
 router = APIRouter(prefix="/queries", tags=["queries"])
 service = QueryService()
+
+
+async def _require_run_custom_code(db, current_user, organization) -> None:
+    """Gate caller-supplied code execution behind ``run_custom_code``.
+
+    This is the check the removed ``enable_code_editing`` org setting never
+    performed: it lived only in two Vue components, so the API accepted
+    arbitrary caller-supplied SQL/Python from any member regardless of the
+    toggle. Hiding an editor is not a permission check.
+    """
+    from app.core.permission_resolver import resolve_permissions
+    from app.core.code_visibility import can_run_custom_code
+
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    if not can_run_custom_code(resolved):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to edit and run custom code",
+        )
 
 
 @router.get("", response_model=list[QuerySchema])
@@ -64,6 +86,25 @@ async def create_query(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
+    # report_id / widget_id come from the body, so the decorator can't scope
+    # them: the target report must be in this org and owned by the caller,
+    # and a given widget must belong to that report.
+    if payload.report_id:
+        report = (await db.execute(
+            select(Report).options(lazyload("*")).where(
+                Report.id == str(payload.report_id),
+                Report.organization_id == str(organization.id),
+            )
+        )).scalar_one_or_none()
+        if report is None or str(report.user_id) != str(current_user.id):
+            raise HTTPException(status_code=404, detail="Report not found")
+    if payload.widget_id:
+        from app.models.widget import Widget
+        widget_report_id = (await db.execute(
+            select(Widget.report_id).where(Widget.id == str(payload.widget_id))
+        )).scalar_one_or_none()
+        if widget_report_id is None or not payload.report_id or str(widget_report_id) != str(payload.report_id):
+            raise HTTPException(status_code=404, detail="Widget not found")
     try:
         q = await service.create_query(
             db,
@@ -129,6 +170,12 @@ async def run_query_new_step(
     db: AsyncSession = Depends(get_async_db),
 ):
     try:
+        if (payload.mode or "builder") != "viewer":
+            # Builder mode executes caller-supplied `code`. Viewer mode runs the
+            # query's already-stored step with parameter values only, which is
+            # ordinary report usage and stays open to every member.
+            await _require_run_custom_code(db, current_user, organization)
+
         if (payload.mode or "builder") == "viewer":
             # Viewer-execute: run the default step's code with param values,
             # cached per (step, viewer, values). No new Step is created.
@@ -204,6 +251,9 @@ async def preview_query_code(
     db: AsyncSession = Depends(get_async_db),
 ):
     try:
+        # Previewing runs caller-supplied code against the source, same trust
+        # boundary as a builder-mode run.
+        await _require_run_custom_code(db, current_user, organization)
         result = await service.preview_query_code(
             db,
             query_id,

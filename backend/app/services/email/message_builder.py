@@ -57,6 +57,12 @@ def build_email(
     root should be first. When ``in_reply_to`` is set the subject is prefixed
     with ``Re:`` if it isn't already.
     """
+    if not from_address:
+        # ``msg["From"] = None`` yields a message every relay rejects, and the
+        # failure surfaces far from its cause. An unset From address is a
+        # configuration error — name it here.
+        raise ValueError("from_address is required to build an email")
+
     msg = EmailMessage()
     msg["Message-ID"] = message_id or make_message_id()
     msg["Date"] = formatdate(localtime=True)

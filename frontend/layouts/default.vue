@@ -46,9 +46,8 @@
     <button @click="router.push('/')" class="flex items-center gap-2 min-w-0">
       <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-6 max-w-[84px] object-contain" />
     </button>
-    <button @click="createNewReport" :disabled="creatingReport" class="flex items-center justify-center w-9 h-9 -me-1 rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-50" aria-label="New report">
-      <Spinner v-if="creatingReport" class="animate-spin w-5 h-5" />
-      <UIcon v-else name="heroicons-plus-circle" class="w-6 h-6" />
+    <button @click="createNewReport" class="flex items-center justify-center w-9 h-9 -me-1 rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" aria-label="New report">
+      <UIcon name="heroicons-plus-circle" class="w-6 h-6" />
     </button>
   </div>
 
@@ -129,23 +128,20 @@
              <button
                name="create-report"
                @click="createNewReport"
-               :disabled="creatingReport"
                :class="[
-                 'flex items-center px-2.5 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-50 disabled:cursor-not-allowed',
+                 'flex items-center px-2.5 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70',
                  isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
-              <UTooltip v-if="isCollapsed" :text="creatingReport ? $t('common.loading') : $t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
+              <UTooltip v-if="isCollapsed" :text="$t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
                 <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
-                  <Spinner v-if="creatingReport" class="animate-spin" />
-                  <UIcon v-else name="heroicons-plus-circle" />
+                  <UIcon name="heroicons-plus-circle" />
                 </span>
               </UTooltip>
               <template v-else>
                 <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
-                  <Spinner v-if="creatingReport" class="animate-spin" />
-                  <UIcon v-else name="heroicons-plus-circle" />
+                  <UIcon name="heroicons-plus-circle" />
                 </span>
-                <span v-if="showText" class="font-medium">{{ creatingReport ? $t('common.loading') : $t('nav.newReport') }}</span>
+                <span v-if="showText" class="font-medium">{{ $t('nav.newReport') }}</span>
               </template>
             </button>
         </li>
@@ -302,6 +298,18 @@
         </div>
         <div v-show="reportsOpen" class="-me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
           <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
+            <!-- The draft being composed at /reports/new. There is no report
+                 yet, so this row is a placeholder that keeps the rail from
+                 looking like the user is nowhere; it disappears the moment the
+                 first prompt creates the real report and we navigate to it. -->
+            <li v-if="isDraftReportRoute" data-testid="draft-report-row" class="relative rounded-md">
+              <div class="flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium">
+                <span class="inline-flex items-center shrink-0">
+                  <span class="w-1.5 h-1.5 rounded-full border border-gray-400 dark:border-gray-500"></span>
+                </span>
+                <span class="flex-1 truncate italic text-gray-500 dark:text-gray-400">{{ $t('reports.newReport') }}</span>
+              </div>
+            </li>
             <!-- Draggable onto a project row above. The row keeps its place in
                  this list after the move — a project is a label on the report,
                  not a folder it disappears into — and gains the accent strip. -->
@@ -326,7 +334,7 @@
                 </span>
                 <span
                   class="flex-1 truncate"
-                  :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
+                  :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
                 >{{ report.title || $t('reports.untitled') }}</span>
               </NuxtLink>
               <!-- Project membership: a thin color rule at the leading edge
@@ -412,14 +420,46 @@
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full"
             :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-4 h-4' } } }">
             <template #item="{ item }">
-              <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span v-else class="w-4 h-4 shrink-0"></span>
-              <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              <template v-if="item.kind === 'quota' && myQuota">
+                <span class="flex flex-col gap-2 w-full py-0.5 text-start">
+                  <span v-for="row in myQuota.rows" :key="row.key" class="flex flex-col gap-1">
+                    <span class="flex items-baseline justify-between gap-2">
+                      <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ row.label }}</span>
+                      <span
+                        class="text-[11px] tabular-nums"
+                        :class="row.blocked ? 'font-semibold text-red-600 dark:text-red-400'
+                          : row.near ? 'font-medium text-amber-700 dark:text-amber-400'
+                          : 'text-gray-700 dark:text-gray-200'"
+                      >{{ row.usedLabel }} / {{ row.limitLabel }}</span>
+                    </span>
+                    <span class="h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <span
+                        class="block h-full rounded-full"
+                        :class="row.blocked ? 'bg-red-500'
+                          : row.near ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'"
+                        :style="{ width: row.barWidth }"
+                      ></span>
+                    </span>
+                  </span>
+                  <span class="text-[10px] text-gray-400 dark:text-gray-500">{{ myQuotaResetLabel }}</span>
+                </span>
+              </template>
+              <template v-else>
+                <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span v-else class="w-4 h-4 shrink-0"></span>
+                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              </template>
             </template>
              <button :class="[
-               'flex items-center px-2.5 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
-               isCollapsed ? 'justify-center' : 'gap-2.5'
+               'flex px-2.5 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+               isCollapsed ? 'flex-col items-center justify-center gap-1' : 'gap-2.5',
+               // With a quota the row is two lines tall, and centring would sink
+               // the avatar and the chevron to the middle of both. Aligning to
+               // the top keeps all three on the name's line, where they read as
+               // one row with the bar tucked underneath.
+               !isCollapsed && myQuota ? 'items-start' : '',
+               !isCollapsed && !myQuota ? 'items-center' : ''
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
                 <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
@@ -427,13 +467,56 @@
                   {{ userInitial }}
                 </div>
               </UTooltip>
-              <template v-else>
-                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
-                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
+              <!-- Collapsed rail: no room for the number, but the bar still
+                   fits under the avatar, so a blocked member is not left
+                   without any signal at all. -->
+              <span
+                v-if="isCollapsed && myQuota"
+                class="block w-5 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden"
+              >
+                <span
+                  class="block h-full rounded-full"
+                  :class="myQuota.blocked
+                    ? 'bg-red-500'
+                    : myQuota.near ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'"
+                  :style="{ width: myQuota.barWidth }"
+                ></span>
+              </span>
+              <template v-else-if="!isCollapsed">
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100 shrink-0" />
+                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full shrink-0">
                   {{ userInitial }}
                 </div>
-                <span v-if="showText" class="truncate">{{ currentUserName }}</span>
-                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="ml-auto w-4 h-4 text-gray-400 shrink-0" />
+                <!-- Name, and under it the member's own quota. Inside this
+                     button rather than on a row of its own: the quota belongs
+                     to the person named right above it, and the pairing says
+                     so without a label. Members without a quota see only the
+                     name, exactly as before. -->
+                <!-- text-start is load-bearing: a <button> centres its text by
+                     default, which went unnoticed while the name was a plain
+                     flex item sized to its content. As a stretched column child
+                     it fills the width, and the centring became visible. -->
+                <span v-if="showText" class="flex flex-col min-w-0 flex-1 gap-1 text-start">
+                  <span class="truncate">{{ currentUserName }}</span>
+                  <span v-if="myQuota" class="flex items-center gap-1.5">
+                    <span class="flex-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <span
+                        class="block h-full rounded-full transition-all duration-500"
+                        :class="myQuota.blocked
+                          ? 'bg-red-500'
+                          : myQuota.near ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'"
+                        :style="{ width: myQuota.barWidth }"
+                      ></span>
+                    </span>
+                    <span
+                      class="text-[10px] shrink-0 whitespace-nowrap tabular-nums"
+                      :class="myQuota.blocked ? 'font-semibold text-red-600 dark:text-red-400'
+                        : myQuota.near ? 'font-medium text-amber-700 dark:text-amber-400'
+                        : 'text-gray-400 dark:text-gray-500'"
+                    >{{ myQuota.percentLabel }}</span>
+                  </span>
+                </span>
+                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="ms-auto w-4 h-4 text-gray-400 shrink-0" />
               </template>
             </button>
           </UDropdown>
@@ -454,7 +537,9 @@
             <UTooltip :text="$t('changelog.title')" :popper="{ placement: tooltipPlacement }">
               <span>v{{ version }}</span>
             </UTooltip>
+
           </button>
+
         </li>
       </ul>
     </div>
@@ -771,12 +856,12 @@
     return items
   })
   
-  // Agent management - use selectedAgentObjects for new report creation
-  const { initAgent, initAgentPreference, selectedAgentObjects, agents, hasAgents } = useAgent()
+  // Agent management
+  const { initAgent, initAgentPreference, agents, hasAgents } = useAgent()
 
   // Projects (shared folders) shown above the recent reports list.
   const { projects, fetchProjects, createProject, updateProject, deleteProject, moveReport } = useProjects()
-  const { activeProjectId, newReportPayload } = useNewReportProjectContext()
+  const { activeProjectId } = useNewReportProjectContext()
   const { fetchActivity, sortByActivity, openStream } = useReportActivity()
 
 
@@ -879,12 +964,13 @@
   const { isCollapsed: rawCollapsed, showText: rawShowText, toggle: toggleSidebar, mobileOpen, openMobile, closeMobile } = useSidebar()
   const isCollapsed = computed(() => mobileOpen.value ? false : rawCollapsed.value)
   const showText = computed(() => mobileOpen.value ? true : rawShowText.value)
-  const creatingReport = ref(false)
 
   // Mobile chrome. The report-detail page is full-height (h-dvh) and ships its
   // own ReportHeader, so we suppress the global mobile bar there to avoid a
   // double header and the extra top padding that would make it overflow.
   const isReportDetail = computed(() => /^\/reports\/[^/]+$/.test(route.path))
+  // The draft page shares the report layout but has no report behind it.
+  const isDraftReportRoute = computed(() => route.path === '/reports/new')
   const showMobileBar = computed(() => !isReportDetail.value)
   // Top padding for the content wrapper. Desktop only needs to clear the
   // banner; mobile also needs to clear the 48px mobile bar when it is shown.
@@ -1181,10 +1267,15 @@
   }
 
   // Live title updates: the open report page (pages/reports/[id]) dispatches
-  // `report:updated` after it reloads, which is when the server-generated title
-  // first becomes available. Patch the matching sidebar item in place — no route
-  // change happens, so the route watcher above wouldn't catch it — and fade the
-  // new title in. ids in `titledReportIds` get the `.report-title-fade` class.
+  // `report:updated` when the server streams the generated title in — seconds
+  // after the prompt is sent, while the run is still going — and again after a
+  // rename. Patch the matching sidebar item in place; no route change happens,
+  // so the route watcher above wouldn't catch it.
+  //
+  // `detail.generated` marks the streamed title: only that one plays the reveal
+  // (ids in `titledReportIds` get `.report-title-reveal`). A rename is the
+  // user's own edit echoing back, and animating it would just look like a
+  // glitch.
   const titledReportIds = ref<Set<string>>(new Set())
   const onReportUpdated = (e: Event) => {
     const detail = (e as CustomEvent).detail || {}
@@ -1197,19 +1288,18 @@
       fetchRecentReports()
       return
     }
-    // Only animate when the title actually changed (e.g. placeholder → real title).
-    if (title && item.title !== title) {
-      item.title = title
-      const next = new Set(titledReportIds.value)
-      next.add(id)
-      titledReportIds.value = next
-      // Clear after the animation so a later list re-render doesn't replay it.
-      setTimeout(() => {
-        const after = new Set(titledReportIds.value)
-        after.delete(id)
-        titledReportIds.value = after
-      }, 800)
-    }
+    if (!title || item.title === title) return
+    item.title = title
+    if (!detail.generated) return
+    const next = new Set(titledReportIds.value)
+    next.add(id)
+    titledReportIds.value = next
+    // Clear after the animation so a later list re-render doesn't replay it.
+    setTimeout(() => {
+      const after = new Set(titledReportIds.value)
+      after.delete(id)
+      titledReportIds.value = after
+    }, 1200)
   }
   onMounted(() => window.addEventListener('report:updated', onReportUpdated))
   onBeforeUnmount(() => window.removeEventListener('report:updated', onReportUpdated))
@@ -1344,7 +1434,107 @@
 
   const userImageUrl = computed<string | null>(() => (currentUser.value as any)?.image_url || null)
 
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+
+  // ── The member's own quota, on the version row ──────────────────────────
+  // Read straight off the session summary the composable already exposes, so
+  // this costs no request. Members without a quota (most of them) get nothing
+  // at all — no row, no placeholder.
+  const { usageQuota } = useUsageQuota()
+
+  const QUOTA_NEAR = 75
+  const QUOTA_FULL = 100
+
+  function formatQuotaUsd(value: number): string {
+    return new Intl.NumberFormat(locale.value, {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0)
+  }
+
+  function formatQuotaCount(value: number): string {
+    return new Intl.NumberFormat(locale.value).format(Math.round(Number(value) || 0))
+  }
+
+  function formatQuotaBytes(value: number): string {
+    const bytes = Number(value) || 0
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+  }
+
+  const QUOTA_METRICS = [
+    { key: 'spend', label: () => t('quotaPolicies.spendShort'), format: formatQuotaUsd },
+    { key: 'tokens', label: () => t('quotaPolicies.tokensShort'), format: formatQuotaCount },
+    { key: 'queries', label: () => t('quotaPolicies.queriesShort'), format: formatQuotaCount },
+    { key: 'data_bytes', label: () => t('quotaPolicies.dataShort'), format: formatQuotaBytes },
+  ] as const
+
+  const myQuota = computed(() => {
+    const summary: any = usageQuota.value
+    if (!summary || summary.enabled !== true) return null
+
+    const capped = QUOTA_METRICS
+      .map(metric => ({ metric, value: summary[metric.key] }))
+      .filter(row => row.value && row.value.limit !== null && row.value.limit !== undefined)
+    if (!capped.length) return null  // metered but uncapped — nothing to show a share of
+
+    // Money leads: it is what members and their admins actually ask about.
+    // Only when spend is uncapped does the metric closest to its ceiling stand
+    // in, so a token-only policy still says something true.
+    const spend = capped.find(row => row.metric.key === 'spend')
+    const chosen = spend || capped.reduce((worst, row) =>
+      Number(row.value.percent ?? 0) > Number(worst.value.percent ?? 0) ? row : worst
+    )
+
+    // Every capped metric, for the menu. A policy can cap any combination of
+    // the four, and the one that leads the sidebar row is rarely the only one
+    // a member wants to see — the data ceiling is often the one that bites.
+    // Uncapped metrics stay out: there is no share to draw for them.
+    const rows = capped.map((row) => {
+      const rowPercent = Number(row.value.percent ?? 0)
+      return {
+        key: row.metric.key,
+        label: row.metric.label(),
+        usedLabel: row.metric.format(row.value.used ?? 0),
+        limitLabel: row.metric.format(row.value.limit),
+        near: rowPercent >= QUOTA_NEAR,
+        blocked: rowPercent >= QUOTA_FULL,
+        barWidth: `${Math.min(Math.max(rowPercent, 0), 100)}%`,
+      }
+    })
+
+    const percent = Number(chosen.value.percent ?? 0)
+    return {
+      percent,
+      rows,
+      near: percent >= QUOTA_NEAR,
+      blocked: percent >= QUOTA_FULL,
+      barWidth: `${Math.min(Math.max(percent, 0), 100)}%`,
+      // The row shows the share, not the amount: "$78" says nothing about how
+      // close the ceiling is, and closeness is the only thing worth a glance.
+      // Held at 100 once the ceiling is reached — "190%" invites arithmetic
+      // about an overage that changes nothing, where "100%" simply reads as
+      // full. The real figures are in the account menu.
+      percentLabel: `${Math.min(Math.round(percent), 100)}%`,
+      usedLabel: chosen.metric.format(chosen.value.used ?? 0),
+      limitLabel: chosen.metric.format(chosen.value.limit),
+      metricLabel: chosen.metric.label(),
+    }
+  })
+
+  // When the window rolls over — the one fact the menu adds that the row
+  // cannot carry.
+  const myQuotaResetLabel = computed<string>(() => {
+    const summary: any = usageQuota.value
+    const end = summary?.window_end ? new Date(summary.window_end) : null
+    if (!end || Number.isNaN(end.getTime())) return ''
+    return t('quota.resetsOn', {
+      date: end.toLocaleDateString(locale.value, { day: 'numeric', month: 'long' }),
+    })
+  })
   const userOrganizations = computed<any[]>(() => {
     return ((currentUser.value as any)?.organizations || []) as any[]
   })
@@ -1420,12 +1610,23 @@
       icon: 'heroicons-arrow-left',
       click: signOff
     }])
+
+    // Last, under the actions: the usage detail opens with the menu rather
+    // than on a hover of its own — one gesture, one surface. It is a readout,
+    // so it sits below everything there is to do, and the menu opens upwards,
+    // which leaves it resting against the bar it explains. Disabled so it
+    // never reads as something to click.
+    if (myQuota.value) {
+      // The class undoes Nuxt UI's disabled look (opacity-50, not-allowed
+      // cursor), which would wash out the red/amber rows of a readout.
+      groups.push([{ kind: 'quota', label: '', disabled: true, class: 'opacity-100 cursor-default' }])
+    }
     return groups
   })
 
   const isAdmin = computed<boolean>(() => useCan('full_admin_access'))
  
-  if (environment === 'production' && intercom) {
+  if (environment === 'production' && intercom?.enabled) {
     const hideLauncher = computed<boolean>(() => isExcel.value || isMobile.value)
     $intercom.boot({
       hide_default_launcher: hideLauncher.value,
@@ -1457,41 +1658,16 @@
     })
   }
 
-const createNewReport = async () => {
-  if (creatingReport.value) return
-  creatingReport.value = true
-  
-  try {
-    // Inside a project, hand the choice of agents to the project's defaults
-    // (see useNewReportProjectContext). Outside one, use the agents pinned in
-    // AgentSelector — empty when the selection is Auto, which is exactly how
-    // the backend encodes Auto (it resolves the scope per run instead of
-    // freezing today's roster onto the report).
-    const dataSourceIds = activeProjectId.value
-      ? []
-      : selectedAgentObjects.value.map((a: any) => a.id)
-
-    const response = await useMyFetch('/reports', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: 'untitled report',
-          files: [],
-          ...newReportPayload(dataSourceIds),
-        })
-    });
-
-    if ((response as any).error?.value) {
-        throw new Error('Report creation failed');
-    }
-
-    const data = ((response as any).data?.value) as any;
-    fetchRecentReports()
-    await router.push({
-        path: `/reports/${data.id}`
-    })
-  } finally {
-    creatingReport.value = false
-  }
+// "New report" opens a draft page — no row is written until the user actually
+// sends a prompt, at which point PromptBoxV2 creates the report and navigates
+// to it. Inside a project the folder rides along in the query string, since a
+// draft has no report to carry a project_id on (see useNewReportProjectContext,
+// which reads both). Agents are resolved by the draft page the same way this
+// used to build its payload: the project's defaults inside one, the pinned
+// AgentSelector scope outside.
+const createNewReport = () => {
+  const query = activeProjectId.value ? { project: activeProjectId.value } : undefined
+  return router.push({ path: '/reports/new', query })
 }
 
   async function signOff() {
@@ -1504,16 +1680,44 @@ const createNewReport = async () => {
   </script>
 
 <style scoped>
-/* Fade the report title in when it transitions from the "untitled report"
-   placeholder to the server-generated title (see onReportUpdated). */
-@keyframes report-title-fade {
-  from { opacity: 0; transform: translateY(-2px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Reveal the report title when the server-generated one streams in over the
+   "untitled report" placeholder (see onReportUpdated). Two passes: the text
+   rises out of a slight blur, and a single light sheen runs across it so the
+   eye catches the row even when the sidebar isn't where the user is looking.
+   The sheen is painted through background-clip, so it leaves no layout trace
+   once the class is dropped. */
+@keyframes report-title-reveal {
+  0% { opacity: 0; transform: translateY(-3px); filter: blur(2px); }
+  55% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: none; filter: none; }
 }
-.report-title-fade {
-  animation: report-title-fade 0.45s ease-out;
+@keyframes report-title-sheen {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
+}
+.report-title-reveal {
+  background-image: linear-gradient(
+    100deg,
+    currentColor 0%,
+    currentColor 38%,
+    rgb(59 130 246) 50%,
+    currentColor 62%,
+    currentColor 100%
+  );
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation:
+    report-title-reveal 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    report-title-sheen 1s ease-out 0.1s;
 }
 @media (prefers-reduced-motion: reduce) {
-  .report-title-fade { animation: none; }
+  /* No motion, and no transparent fill — the text must stay readable. */
+  .report-title-reveal {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
 }
 </style>

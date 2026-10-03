@@ -52,6 +52,7 @@ from app.schemas.custom_query_schema import (
     CustomQueryRlsUpdate,
     CustomQuerySchema,
     RlsPrincipal,
+    CustomQueryTarget,
 )
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
 
@@ -62,10 +63,10 @@ indexing_service = ConnectionIndexingService()
 
 
 def _iso_utc(dt) -> "str | None":
-    """Serialize an indexing timestamp as an ISO string the browser will parse
-    as UTC. These columns are stored as naive `datetime.utcnow()`; a bare
-    `.isoformat()` (no offset) is parsed as *local* time by `new Date()`, which
-    skews the "Last indexed X ago" label by the viewer's timezone offset. Append
+    """Serialize a connection/indexing timestamp as an ISO string the browser
+    will parse as UTC. These columns are stored as naive `datetime.utcnow()`; a
+    bare `.isoformat()` (no offset) is parsed as *local* time by `new Date()`,
+    which skews labels like "Last checked" by the viewer's timezone offset. Append
     a `Z` for naive values (matching the event-log timestamps), and normalize
     any tz-aware value to a `Z`-suffixed UTC string.
     """
@@ -98,6 +99,7 @@ def _indexing_to_progress(row, include_events: bool = True) -> "ConnectionIndexi
         progress_total=row.progress_total or 0,
         started_at=_iso_utc(row.started_at),
         finished_at=_iso_utc(row.finished_at),
+        last_activity_at=_iso_utc(getattr(row, "last_activity_at", None)),
         error=row.error,
         stats=row.stats_json,
         events=(row.events_json or []) if include_events else [],
@@ -187,7 +189,7 @@ async def list_connections(
     conn_ids = [str(c.id) for c in connections]
 
     # Catalog table count per connection (all available tables in the database).
-    # Scoped to introspected, live rows: BOW custom queries are counted
+    # Scoped to introspected, live rows: BOW custom tables are counted
     # separately below, and soft-deleted rows must not inflate either count.
     catalog_count_by_conn: dict = {}
     custom_query_count_by_conn: dict = {}
@@ -347,7 +349,7 @@ async def list_connections(
             is_active=conn.is_active,
             auth_policy=conn.auth_policy,
             allowed_user_auth_modes=conn.allowed_user_auth_modes,
-            last_synced_at=conn.last_synced_at.isoformat() if conn.last_synced_at else None,
+            last_synced_at=_iso_utc(conn.last_synced_at),
             organization_id=str(conn.organization_id),
             table_count=0 if conn.type in _TOOL_PROVIDER_TYPES else table_count,
             tool_count=tool_count,
@@ -413,7 +415,7 @@ async def create_connection(
         # what was stored — omitting it made API-driven setup look like it had
         # silently failed (the list endpoint returns it, create/update did not).
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,
@@ -465,12 +467,19 @@ async def get_connection(
         allowed_user_auth_modes = connection.allowed_user_auth_modes
         has_credentials = bool(connection.credentials)
         # Expose only the NON-secret credential fields so the edit form can
-        # pre-fill them (OAuth endpoints/client_id/scopes). Secrets are excluded
+        # pre-fill identity fields and OAuth settings. Secrets are excluded
         # by allowlist — client_secret / token / api_key never leave the server.
         if connection.credentials:
             try:
                 _creds = connection.decrypt_credentials()
-                _NON_SECRET = ("authorize_url", "token_url", "client_id", "scopes", "audience", "api_key_header", "token_endpoint_auth_method")
+                _NON_SECRET = (
+                    "authorize_url", "token_url", "client_id", "scopes", "audience",
+                    "api_key_header", "token_endpoint_auth_method", "tenant_id",
+                    "user", "username", "oauth_tenant_id", "oauth_client_id",
+                    # What DCR discovery derived from the server, so the edit
+                    # form can show "Detected: …" next to the override field.
+                    "discovered_scopes", "scopes_source",
+                )
                 _meta = {k: _creds[k] for k in _NON_SECRET if _creds.get(k) not in (None, "")}
                 credentials_meta = _meta or None
             except Exception:
@@ -484,6 +493,8 @@ async def get_connection(
     _catalog_tables, _catalog_custom_queries = await connection_service.count_catalog_rows(
         db, str(connection.id)
     )
+    from app.services.connection_identity import management_requires_user_auth
+    personal_management = management_requires_user_auth(connection)
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -492,7 +503,7 @@ async def get_connection(
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=allowed_user_auth_modes,
         config=config or {},
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,
@@ -504,13 +515,16 @@ async def get_connection(
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
         has_credentials=has_credentials,
+        management_auth="user" if personal_management else "system",
+        last_connection_status=None if personal_management else connection.last_connection_status,
+        last_connection_checked_at=(None if personal_management else _iso_utc(connection.last_connection_checked_at)),
         credentials_meta=credentials_meta,
         auto_reindex_enabled=bool(connection.auto_reindex_enabled),
         reindex_interval_hours=connection.reindex_interval_hours,
         reindex_schedule_mode=connection.reindex_schedule_mode or "interval",
         reindex_interval_minutes=connection.reindex_interval_minutes,
         reindex_at_time=connection.reindex_at_time,
-        next_retry_at=connection.next_retry_at.isoformat() if connection.next_retry_at else None,
+        next_retry_at=_iso_utc(connection.next_retry_at),
         last_reindex_error=connection.last_reindex_error,
         rate_limit_enabled=bool(connection.rate_limit_enabled),
         rate_limit_per_minute=connection.rate_limit_per_minute,
@@ -554,7 +568,7 @@ async def update_connection(
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,
@@ -643,12 +657,14 @@ async def test_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Test a connection, optionally with override credentials/config."""
+    """Test management credentials independently of the caller's query identity."""
+    from app.services.connection_identity import management_requires_user_auth
+    connection = await connection_service.get_connection(db, connection_id, organization)
     result = await connection_service.test_connection(
         db=db,
         connection_id=connection_id,
         organization=organization,
-        current_user=current_user,
+        current_user=current_user if management_requires_user_auth(connection, overrides.config if overrides else None) else None,
         config_overrides=overrides.config if overrides else None,
         credential_overrides=overrides.credentials if overrides else None,
     )
@@ -922,6 +938,7 @@ async def reindex_connection(
 @router.post("/{connection_id}/my-schema/refresh")
 async def refresh_my_connection_schema(
     connection_id: str,
+    background: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -939,14 +956,23 @@ async def refresh_my_connection_schema(
     connection = await connection_service.get_connection(db, connection_id, organization)
     await _ensure_can_read_connection(db, organization, current_user, connection)
 
+    if background:
+        row = await indexing_service.start(
+            db=db, connection=connection, user_id=str(current_user.id), force_refresh=True,
+        )
+        progress = _indexing_to_progress(row)
+        return {"indexing": progress.model_dump() if progress else None}
+
     from app.services.data_source_service import DataSourceService
     from app.models.user_data_source_overlay import UserDataSourceTable
     ds_service = DataSourceService()
+    unreadable = []
     for ds in (connection.data_sources or []):
         try:
             # Live fetch with the user's creds + upsert their overlay (same path
             # the OAuth callback runs after sign-in).
-            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user)
+            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user, force_refresh=True)
+            unreadable.extend(getattr(ds_service, "last_discovery_diagnostics", []) or [])
         except Exception as e:
             logger.warning(f"Per-user schema refresh failed for data source {ds.id}: {e}")
 
@@ -963,7 +989,7 @@ async def refresh_my_connection_schema(
             )
         )
         table_count = result.scalar() or 0
-    return {"message": "Schema refreshed", "table_count": table_count}
+    return {"message": "Schema refreshed", "table_count": table_count, "unreadable_datasets": unreadable}
 
 
 @router.get("/{connection_id}/indexing", response_model=ConnectionIndexingProgress)
@@ -1046,6 +1072,30 @@ async def _ensure_can_read_connection(db, organization, current_user, connection
     raise HTTPException(status_code=403, detail="Access denied to this connection")
 
 
+@router.get("/{connection_id}/accessible-agents")
+async def get_connection_accessible_agents(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Linked agents visible to this viewer, without exposing hidden agent names."""
+    from app.core.permission_resolver import get_accessible_data_source_ids
+
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+    all_access, accessible_ids = await get_accessible_data_source_ids(
+        db, str(current_user.id), str(organization.id)
+    )
+    allowed = set(map(str, accessible_ids))
+    agents = [
+        {"id": str(agent.id), "name": agent.name, "icon": agent.icon}
+        for agent in (connection.data_sources or [])
+        if all_access or agent.is_public or str(agent.id) in allowed
+    ]
+    return sorted(agents, key=lambda agent: (agent["name"].casefold(), agent["id"]))
+
+
 @router.get("/{connection_id}/tables", response_model=List[ConnectionTableSchema])
 async def get_connection_tables(
     connection_id: str,
@@ -1063,7 +1113,7 @@ async def get_connection_tables(
 
     result = []
     for table in (connection.connection_tables or []):
-        # BOW custom queries are served by their own endpoint; they are not
+        # BOW custom tables are served by their own endpoint; they are not
         # introspected source tables and must not appear here. Soft-deleted
         # rows must not appear either.
         if table.kind == KIND_BOW or table.deleted_at is not None:
@@ -1076,9 +1126,9 @@ async def get_connection_tables(
     return result
 
 
-# ==================== Custom Queries (BOW-managed, materialized) ====================
+# ==================== Custom Tables (BOW-managed, materialized) ====================
 #
-# A custom query is admin-authored SQL on a connection, materialized to an
+# A custom table is admin-authored SQL on a connection, materialized to an
 # encrypted local artifact on a schedule and served to agents from there instead
 # of the source. Connection-scoped by ownership (one artifact shared by every
 # agent that activates it), gated on `manage_connection`.
@@ -1128,8 +1178,23 @@ async def preview_custom_query(
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await custom_query_service.preview(
-        db, connection, payload.definition_sql, current_user
+        db, connection, payload.definition_sql, current_user, target=payload.target
     )
+
+
+@router.get("/{connection_id}/custom-queries/targets", response_model=List[CustomQueryTarget])
+@requires_resource_permission('connection', 'manage_connection')
+async def list_custom_query_targets(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Where a custom table on this connection can run — Power BI semantic
+    models from the indexed catalog. Empty for connectors that need no target."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await custom_query_service.list_targets(db, connection)
 
 
 @router.post("/{connection_id}/custom-queries", response_model=CustomQuerySchema)
@@ -1154,6 +1219,7 @@ async def create_custom_query(
         current_user=current_user,
         organization=organization,
         activate_for_datasource_id=payload.activate_for_datasource_id,
+        target=payload.target,
     )
     try:
         await audit_service.log(
@@ -1193,6 +1259,7 @@ async def update_custom_query(
         refresh_at_time=payload.refresh_at_time,
         current_user=current_user,
         organization_timezone=await custom_query_service._org_timezone(db, organization),
+        **({"target": payload.target} if "target" in payload.model_fields_set else {}),
     )
     try:
         await audit_service.log(
@@ -1254,7 +1321,7 @@ async def delete_custom_query(
     return res
 
 
-# ==================== Custom Query RLS ====================
+# ==================== Custom Table RLS ====================
 
 @router.get("/{connection_id}/custom-queries/rls-options", response_model=CustomQueryRlsOptions)
 @requires_resource_permission('connection', 'manage_connection')

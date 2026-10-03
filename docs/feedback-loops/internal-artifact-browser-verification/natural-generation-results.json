@@ -1,0 +1,560 @@
+{
+  "report_id": "11f757c3-33b8-430b-9513-934e63883861",
+  "execution_id": "20c4f7c5-d36a-4696-8595-77f142090973",
+  "model": "gpt-5.6-luna",
+  "prompt": "I run the music store and want a sales workspace for my weekly review. Show me how sales are doing over time and which countries and genres are driving them. I should be able to narrow it down by country, genre, and date range, browse the matching sales, and open a sale to see what the customer bought. Make it easy to get back to the full picture. I'd like something polished that I can actually use in our team meeting.",
+  "follow_up_prompts": 0,
+  "status": "success",
+  "browser_call_count": 7,
+  "tool_sequence": [
+    "read_instruction",
+    "read_instruction",
+    "describe_tables",
+    "create_note",
+    "describe_entity",
+    "create_data",
+    "create_data",
+    "create_artifact",
+    "create_artifact",
+    "browser_navigate",
+    "browser_act",
+    "browser_act",
+    "browser_act",
+    "browser_act",
+    "browser_act",
+    "browser_act"
+  ],
+  "checks": [
+    {
+      "tool": "browser_navigate",
+      "title": "Opening the sales workspace",
+      "expect_query_update": null,
+      "success": true,
+      "datasets": [
+        {
+          "query_id": "32108ac7-11c7-466c-967b-a15f1cd46362",
+          "title": "Country options",
+          "returned_rows": 24,
+          "total_rows": 24,
+          "result_truncated": false
+        },
+        {
+          "query_id": "a46ab86a-5da5-4d4f-ad01-e86cfe83888d",
+          "title": "Weekly sales workspace data",
+          "returned_rows": 1000,
+          "total_rows": 2240,
+          "result_truncated": true
+        },
+        {
+          "query_id": "f3e6135f-7435-4cb5-8bda-16ecb7ea2c07",
+          "title": "Genre options",
+          "returned_rows": 25,
+          "total_rows": 25,
+          "result_truncated": false
+        }
+      ],
+      "evidence": {
+        "warnings": [
+          {
+            "cursor": 1,
+            "kind": "warning",
+            "action_id": null,
+            "source": "console",
+            "message": "[vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:3000/_nuxt/ <--[HTTP]--> localhost:5173/_nuxt/ (server)\n  (browser) localhost:3000/_nuxt/ <--[WebSocket (failing)]--> localhost:5173/_nuxt/ (server)\nCheck out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr ."
+          },
+          {
+            "cursor": 2,
+            "kind": "warning",
+            "action_id": null,
+            "source": "console",
+            "message": "Warning: Each child in a list should have a unique \"key\" prop.%s%s See https://reactjs.org/link/warning-keys for more information.%s \n\nCheck the top-level render call using <div>.  \n    at div\n    at window.EChart (http://localhost:3000/libs/artifact-globals.js?v=11&revision=verification-1:1811:21)\n    at div\n    at section\n    at div\n    at div\n    at div\n    at App (<anonymous>:15:14)"
+          }
+        ],
+        "queries": [],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 3,
+            "kind": "data_sent",
+            "action_id": null,
+            "data_revision": 1,
+            "request_ids": []
+          },
+          {
+            "cursor": 4,
+            "kind": "data_sent",
+            "action_id": null,
+            "data_revision": 2,
+            "request_ids": []
+          },
+          {
+            "cursor": 5,
+            "kind": "data_received",
+            "action_id": null,
+            "data_revision": 1
+          },
+          {
+            "cursor": 6,
+            "kind": "data_received",
+            "action_id": null,
+            "data_revision": 2
+          }
+        ],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "visible_amounts": [
+        "- paragraph [ref=f1e36]: $1,040.97",
+        "- paragraph [ref=f1e53]: $1,038.00",
+        "- paragraph [ref=f1e69]: $5.66"
+      ]
+    },
+    {
+      "tool": "browser_act",
+      "title": "Testing country filter",
+      "expect_query_update": {
+        "params": {
+          "country": "USA"
+        }
+      },
+      "success": true,
+      "datasets": null,
+      "evidence": {
+        "warnings": [],
+        "queries": [
+          {
+            "cursor": 10,
+            "kind": "query",
+            "action_id": "e5256d8e-2d75-4f22-b4bd-a65c13aa02a5",
+            "query_id": "a46ab86a-5da5-4d4f-ad01-e86cfe83888d",
+            "request_id": "232e5868-8658-497f-af1c-f1fb2405ba4e",
+            "operation_kind": "query",
+            "execution_mode": "viewer_query",
+            "submitted_params": {
+              "country": "USA"
+            },
+            "applied_params": {
+              "country": "USA",
+              "genre_id": null,
+              "date_range": null
+            },
+            "status": "success",
+            "http_status": 200,
+            "cached": false,
+            "step_id": "783498fb-f83e-42d9-90a5-47640c2a10ce",
+            "returned_rows": 494,
+            "total_rows": 494,
+            "result_truncated": false,
+            "duration_ms": 155,
+            "error": null
+          }
+        ],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 7,
+            "kind": "params_commit",
+            "action_id": "e5256d8e-2d75-4f22-b4bd-a65c13aa02a5",
+            "changes": {
+              "country": "USA"
+            },
+            "targets": null,
+            "commit_seq": 1
+          },
+          {
+            "cursor": 8,
+            "kind": "params_status",
+            "action_id": "e5256d8e-2d75-4f22-b4bd-a65c13aa02a5",
+            "loading": true,
+            "message": null
+          },
+          {
+            "cursor": 11,
+            "kind": "params_status",
+            "action_id": "e5256d8e-2d75-4f22-b4bd-a65c13aa02a5",
+            "loading": false,
+            "message": null
+          },
+          {
+            "cursor": 12,
+            "kind": "data_sent",
+            "action_id": "e5256d8e-2d75-4f22-b4bd-a65c13aa02a5",
+            "data_revision": 3,
+            "request_ids": [
+              "232e5868-8658-497f-af1c-f1fb2405ba4e"
+            ]
+          },
+          {
+            "cursor": 13,
+            "kind": "data_received",
+            "action_id": "e5256d8e-2d75-4f22-b4bd-a65c13aa02a5",
+            "data_revision": 3
+          }
+        ],
+        "pending": [],
+        "update_status": "data_received",
+        "truncated": false
+      },
+      "visible_amounts": [
+        "- paragraph [ref=f1e36]: $523.06",
+        "- paragraph [ref=f1e53]: $523.06",
+        "- paragraph [ref=f1e69]: $5.75"
+      ]
+    },
+    {
+      "tool": "browser_act",
+      "title": "Testing genre filter",
+      "expect_query_update": {
+        "params": {
+          "genre_id": 1
+        }
+      },
+      "success": true,
+      "datasets": null,
+      "evidence": {
+        "warnings": [],
+        "queries": [
+          {
+            "cursor": 17,
+            "kind": "query",
+            "action_id": "ef452041-ab15-4dec-82d6-65cc144eca6f",
+            "query_id": "a46ab86a-5da5-4d4f-ad01-e86cfe83888d",
+            "request_id": "6d87f0e9-7749-473d-b6ae-a79b5459c7d5",
+            "operation_kind": "query",
+            "execution_mode": "viewer_query",
+            "submitted_params": {
+              "country": "USA",
+              "genre_id": 1
+            },
+            "applied_params": {
+              "country": "USA",
+              "genre_id": "1",
+              "date_range": null
+            },
+            "status": "success",
+            "http_status": 200,
+            "cached": false,
+            "step_id": "783498fb-f83e-42d9-90a5-47640c2a10ce",
+            "returned_rows": 157,
+            "total_rows": 157,
+            "result_truncated": false,
+            "duration_ms": 72,
+            "error": null
+          }
+        ],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 14,
+            "kind": "params_commit",
+            "action_id": "ef452041-ab15-4dec-82d6-65cc144eca6f",
+            "changes": {
+              "genre_id": 1
+            },
+            "targets": null,
+            "commit_seq": 2
+          },
+          {
+            "cursor": 15,
+            "kind": "params_status",
+            "action_id": "ef452041-ab15-4dec-82d6-65cc144eca6f",
+            "loading": true,
+            "message": null
+          },
+          {
+            "cursor": 18,
+            "kind": "params_status",
+            "action_id": "ef452041-ab15-4dec-82d6-65cc144eca6f",
+            "loading": false,
+            "message": null
+          },
+          {
+            "cursor": 19,
+            "kind": "data_sent",
+            "action_id": "ef452041-ab15-4dec-82d6-65cc144eca6f",
+            "data_revision": 4,
+            "request_ids": [
+              "232e5868-8658-497f-af1c-f1fb2405ba4e",
+              "6d87f0e9-7749-473d-b6ae-a79b5459c7d5"
+            ]
+          },
+          {
+            "cursor": 20,
+            "kind": "data_received",
+            "action_id": "ef452041-ab15-4dec-82d6-65cc144eca6f",
+            "data_revision": 4
+          }
+        ],
+        "pending": [],
+        "update_status": "parameter_mismatch",
+        "truncated": false
+      },
+      "visible_amounts": [
+        "- paragraph [ref=f1e36]: $317.94",
+        "- paragraph [ref=f1e53]: $155.43",
+        "- paragraph [ref=f1e69]: $8.15"
+      ]
+    },
+    {
+      "tool": "browser_act",
+      "title": "Testing date filter",
+      "expect_query_update": {
+        "params": {
+          "date_range": {
+            "from": "2025-01-01",
+            "to": null
+          }
+        }
+      },
+      "success": true,
+      "datasets": null,
+      "evidence": {
+        "warnings": [],
+        "queries": [
+          {
+            "cursor": 24,
+            "kind": "query",
+            "action_id": "d9bde424-3cbc-4574-8d16-520e691ada9e",
+            "query_id": "a46ab86a-5da5-4d4f-ad01-e86cfe83888d",
+            "request_id": "66f9a5bd-1ba1-43d6-9384-eab829f5b3bb",
+            "operation_kind": "query",
+            "execution_mode": "viewer_query",
+            "submitted_params": {
+              "country": "USA",
+              "genre_id": 1,
+              "date_range": {
+                "from": "2025-01-01",
+                "to": null
+              }
+            },
+            "applied_params": {
+              "country": "USA",
+              "genre_id": "1",
+              "date_range": {
+                "from": "2025-01-01"
+              }
+            },
+            "status": "success",
+            "http_status": 200,
+            "cached": false,
+            "step_id": "783498fb-f83e-42d9-90a5-47640c2a10ce",
+            "returned_rows": 0,
+            "total_rows": 0,
+            "result_truncated": false,
+            "duration_ms": 110,
+            "error": null
+          }
+        ],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 21,
+            "kind": "params_commit",
+            "action_id": "d9bde424-3cbc-4574-8d16-520e691ada9e",
+            "changes": {
+              "date_range": {
+                "from": "2025-01-01",
+                "to": null
+              }
+            },
+            "targets": null,
+            "commit_seq": 3
+          },
+          {
+            "cursor": 22,
+            "kind": "params_status",
+            "action_id": "d9bde424-3cbc-4574-8d16-520e691ada9e",
+            "loading": true,
+            "message": null
+          },
+          {
+            "cursor": 25,
+            "kind": "params_status",
+            "action_id": "d9bde424-3cbc-4574-8d16-520e691ada9e",
+            "loading": false,
+            "message": null
+          },
+          {
+            "cursor": 26,
+            "kind": "data_sent",
+            "action_id": "d9bde424-3cbc-4574-8d16-520e691ada9e",
+            "data_revision": 5,
+            "request_ids": [
+              "232e5868-8658-497f-af1c-f1fb2405ba4e",
+              "6d87f0e9-7749-473d-b6ae-a79b5459c7d5",
+              "66f9a5bd-1ba1-43d6-9384-eab829f5b3bb"
+            ]
+          },
+          {
+            "cursor": 27,
+            "kind": "data_received",
+            "action_id": "d9bde424-3cbc-4574-8d16-520e691ada9e",
+            "data_revision": 5
+          }
+        ],
+        "pending": [],
+        "update_status": "parameter_mismatch",
+        "truncated": false
+      },
+      "visible_amounts": [
+        "- paragraph [ref=f1e36]: $0.00",
+        "- paragraph [ref=f1e53]: $0.00",
+        "- paragraph [ref=f1e69]: $0.00"
+      ]
+    },
+    {
+      "tool": "browser_act",
+      "title": "Opening a sale detail",
+      "expect_query_update": {
+        "params": {
+          "country": null,
+          "genre_id": null,
+          "date_range": null
+        }
+      },
+      "success": true,
+      "datasets": null,
+      "evidence": {
+        "warnings": [],
+        "queries": [
+          {
+            "cursor": 31,
+            "kind": "query",
+            "action_id": "adf4a791-75b3-4999-8493-43760c216524",
+            "query_id": "a46ab86a-5da5-4d4f-ad01-e86cfe83888d",
+            "request_id": "af6cb9a7-c233-449b-a461-3ca1064d8ae1",
+            "operation_kind": "query",
+            "execution_mode": "viewer_query",
+            "submitted_params": {
+              "country": null,
+              "genre_id": null,
+              "date_range": null
+            },
+            "applied_params": {
+              "country": null,
+              "genre_id": null,
+              "date_range": null
+            },
+            "status": "success",
+            "http_status": 200,
+            "cached": false,
+            "step_id": "783498fb-f83e-42d9-90a5-47640c2a10ce",
+            "returned_rows": 1000,
+            "total_rows": 2240,
+            "result_truncated": true,
+            "duration_ms": 138,
+            "error": null
+          }
+        ],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 28,
+            "kind": "params_commit",
+            "action_id": "adf4a791-75b3-4999-8493-43760c216524",
+            "changes": {
+              "country": null,
+              "genre_id": null,
+              "date_range": null
+            },
+            "targets": null,
+            "commit_seq": 4
+          },
+          {
+            "cursor": 29,
+            "kind": "params_status",
+            "action_id": "adf4a791-75b3-4999-8493-43760c216524",
+            "loading": true,
+            "message": null
+          },
+          {
+            "cursor": 32,
+            "kind": "params_status",
+            "action_id": "adf4a791-75b3-4999-8493-43760c216524",
+            "loading": false,
+            "message": null
+          },
+          {
+            "cursor": 33,
+            "kind": "data_sent",
+            "action_id": "adf4a791-75b3-4999-8493-43760c216524",
+            "data_revision": 6,
+            "request_ids": [
+              "232e5868-8658-497f-af1c-f1fb2405ba4e",
+              "6d87f0e9-7749-473d-b6ae-a79b5459c7d5",
+              "66f9a5bd-1ba1-43d6-9384-eab829f5b3bb",
+              "af6cb9a7-c233-449b-a461-3ca1064d8ae1"
+            ]
+          },
+          {
+            "cursor": 34,
+            "kind": "data_received",
+            "action_id": "adf4a791-75b3-4999-8493-43760c216524",
+            "data_revision": 6
+          }
+        ],
+        "pending": [],
+        "update_status": "data_received",
+        "truncated": false
+      },
+      "visible_amounts": [
+        "- paragraph [ref=f1e36]: $1,040.97",
+        "- paragraph [ref=f1e53]: $1,038.00",
+        "- paragraph [ref=f1e69]: $5.66"
+      ]
+    },
+    {
+      "tool": "browser_act",
+      "title": "Selecting a sale",
+      "expect_query_update": null,
+      "success": true,
+      "datasets": null,
+      "evidence": {
+        "warnings": [],
+        "queries": [],
+        "errors": [],
+        "runtime": [],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "visible_amounts": [
+        "- paragraph [ref=f1e36]: $1,040.97",
+        "- paragraph [ref=f1e53]: $1,038.00",
+        "- paragraph [ref=f1e69]: $5.66"
+      ]
+    },
+    {
+      "tool": "browser_act",
+      "title": "Opening invoice contents",
+      "expect_query_update": null,
+      "success": true,
+      "datasets": null,
+      "evidence": {
+        "warnings": [],
+        "queries": [],
+        "errors": [],
+        "runtime": [],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "visible_amounts": [
+        "- paragraph [ref=f1e36]: $1,040.97",
+        "- paragraph [ref=f1e53]: $1,038.00",
+        "- paragraph [ref=f1e69]: $5.66"
+      ]
+    }
+  ],
+  "assessment": {
+    "autonomous_verification": true,
+    "business_correctness": "failed",
+    "findings": [
+      "All-time KPI calculations use 1000 of 2240 line items. Agent discloses limitation in chat but does not repair app or label KPI as partial.",
+      "Date control submits from/to; generated query reads start/end. Both one-sided and complete ranges yield zero rows. Agent incorrectly calls empty result correct.",
+      "Evidence compares raw expected values against normalized applied values: numeric ID 1 versus string 1 and omitted null date bounds produce false mismatches.",
+      "Sale detail interaction independently confirmed for invoices 412 and 411."
+    ]
+  }
+}

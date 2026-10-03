@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from google.cloud import storage, compute_v1, bigquery, functions_v1, pubsub_v1
@@ -29,7 +30,8 @@ class GCPClient(DataSourceClient):
     def test_connection(self):
         return self.connect()
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Define static schemas for the demo."""
         schemas = [
             Table(name="Compute Instances", columns=[

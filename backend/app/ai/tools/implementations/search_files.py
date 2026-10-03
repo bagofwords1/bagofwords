@@ -73,6 +73,7 @@ def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:
             mime_type=sub.get("mime_type"),
             size=sub.get("size"),
             modified_at=sub.get("modified_at"),
+            sender=sub.get("sender") or sub.get("from"),
             web_url=sub.get("web_url"),
         ).model_dump())
     return out
@@ -233,7 +234,9 @@ class SearchFilesTool(Tool):
                 id=f.get("id"), name=f.get("name"),
                 path=f.get("path") if isinstance(f.get("path"), str) else None,
                 mime_type=f.get("mime_type"), size=f.get("size"),
-                modified_at=f.get("modified_at"), web_url=f.get("web_url"),
+                modified_at=f.get("modified_at"),
+                sender=f.get("sender") or f.get("from"),
+                web_url=f.get("web_url"),
             ).model_dump() for f in files]
             used_index = False
 
@@ -242,6 +245,14 @@ class SearchFilesTool(Tool):
     #: Max hit rows rendered into the model-facing observation (the planner
     #: never sees the output — names/ids must live here or the model re-searches).
     _OBS_HITS_MAX_ROWS = 30
+
+    def _inventory_row(self, e: dict) -> str:
+        """One line of the model-facing hit list. Overridden by SearchEmailsTool
+        so mailbox hits carry sender + received date (see list_files)."""
+        bits = [str(e.get("name") or "?")]
+        if e.get("path") and e.get("path") != e.get("name"):
+            bits.append(str(e["path"]))
+        return " — ".join(bits) + f" [id={e.get('id')}]"
 
     def _done(self, data, entries, used_index, runtime_ctx=None) -> ToolEndEvent:
         how = "keyword index" if used_index else "live scan"
@@ -261,12 +272,9 @@ class SearchFilesTool(Tool):
             "success": True,
         }
         if entries:
-            rows = []
-            for e in entries[: self._OBS_HITS_MAX_ROWS]:
-                bits = [str(e.get("name") or "?")]
-                if e.get("path") and e.get("path") != e.get("name"):
-                    bits.append(str(e["path"]))
-                rows.append(" — ".join(bits) + f" [id={e.get('id')}]")
+            rows = [
+                self._inventory_row(e) for e in entries[: self._OBS_HITS_MAX_ROWS]
+            ]
             if len(entries) > self._OBS_HITS_MAX_ROWS:
                 rows.append(f"… +{len(entries) - self._OBS_HITS_MAX_ROWS} more matches")
             observation["details"] = "\n".join(rows)

@@ -31,7 +31,7 @@
         <span class="text-xs text-gray-800 dark:text-gray-200 min-w-0 truncate flex items-center gap-1">
           <span>Add</span>
           <template v-for="a in confAgents" :key="a.id">
-            <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="w-3.5 h-3.5 flex-shrink-0" />
+            <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon-token="a.icon_token" :icon="a.icon" class="w-3.5 h-3.5 flex-shrink-0" />
             <span class="font-medium">{{ a.name }}</span>
           </template>
           <span v-if="!confAgents.length" class="font-medium">{{ confAgentNames.join(', ') }}</span>

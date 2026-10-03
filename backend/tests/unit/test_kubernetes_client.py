@@ -492,8 +492,9 @@ class TestCatalog:
 
     def test_discovery_reports_progress_and_survives_crd_errors(self, fake_api):
         seen = []
-        make_client().get_schemas(progress_callback=lambda phase, item, done, total: seen.append((phase, item)))
-        assert seen and all(p == "custom resources" for p, _ in seen)
+        tables = make_client().get_schemas(progress_callback=lambda phase, item, done, total: seen.append((phase, item)))
+        names = {table.name for table in tables}
+        assert any(phase == "custom resources" and item in names for phase, item in seen)
         fake_api.overrides["/apis/apiextensions.k8s.io/v1/customresourcedefinitions"] = api_error(403, "forbidden")
         names = {t.name for t in make_client().get_schemas()}
         assert set(_CATALOG) <= names                       # the fixed catalog never depends on CRD access
@@ -845,7 +846,7 @@ class TestRegistry:
         assert resolve_client_class("kubernetes") is KubernetesClient
         assert list(entry.credentials_auth.by_auth) == ["access_file"]
         assert entry.credentials_auth.by_auth["access_file"].scopes == ["system"]
-        assert entry.category == "infra" and entry.requires_license == "enterprise" and entry.is_connection
+        assert entry.category == "infra" and entry.requires_license is None and entry.is_connection
 
     def test_setup_guide_has_three_steps_and_pins_the_script(self):
         from app.schemas.data_source_registry import (
@@ -878,7 +879,7 @@ class TestRegistry:
         assert supports_user_auth("postgresql") is True      # the toggle still shows where it applies
         assert supports_user_auth("no-such-type") is True     # unknown → never hide by accident
 
-    def test_enterprise_gated(self):
-        from app.ee.license import ENTERPRISE_DATASOURCES
+    def test_community_tier(self):
+        from app.ee.license import enterprise_datasources
 
-        assert "kubernetes" in ENTERPRISE_DATASOURCES
+        assert "kubernetes" not in enterprise_datasources()

@@ -80,7 +80,7 @@
                 </span>
                 <span class="inline-flex items-center gap-1">
                   <UIcon name="heroicons-cpu-chip" class="w-3 h-3" />
-                  {{ modelName(trig.model_id) }}
+                  {{ modelName(trig.model_id, trig.reasoning_effort) }}
                 </span>
                 <NuxtLink v-if="trig.project_id" :to="`/projects/${trig.project_id}`" class="inline-flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300" @click.stop>
                   <UIcon name="heroicons-folder" class="w-3 h-3" />
@@ -278,7 +278,7 @@
             </div>
             <div class="flex items-start gap-2">
               <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.model') }}</dt>
-              <dd class="text-xs text-gray-700 dark:text-gray-300">{{ modelName(current?.model_id) }}</dd>
+              <dd class="text-xs text-gray-700 dark:text-gray-300">{{ modelName(current?.model_id, current?.reasoning_effort) }}</dd>
             </div>
             <div class="flex items-start gap-2">
             </div>
@@ -325,6 +325,7 @@
             :initialSelectedDataSources="initialDataSources"
             :initialMode="current?.mode || 'chat'"
             :initialModel="current?.model_id || ''"
+            :initialEffort="current?.reasoning_effort || ''"
             :textareaContent="current?.task_template || ''"
             :hideScheduleButton="true"
             :hideSubmitButton="true"
@@ -573,10 +574,10 @@ const prettyPayload = computed(() => {
   try { return typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2) } catch { return String(raw) }
 })
 
-function modelName(id: string | null): string {
-  if (!id) return t('triggers.defaultModel')
-  const m = models.value.find((m: any) => m.id === id)
-  return m?.name || t('triggers.defaultModel')
+function modelName(id: string | null, effort?: string | null): string {
+  const m = id ? models.value.find((m: any) => m.id === id) : null
+  const name = m?.name || t('triggers.defaultModel')
+  return effort ? `${name} · ${t(`prompt.effort.levels.${effort}`)}` : name
 }
 
 const { relativeTime: formatRelativeTime } = useRelativeTime()
@@ -732,6 +733,8 @@ function readRunSpec() {
     // null. Use `??` (not `||`) so a deliberate Auto (null) is preserved
     // instead of falling back to the previously-saved model on edit.
     model_id: box ? (box.getModel?.() ?? null) : (fallback.model_id ?? null),
+    // Paired with the model; null clears back to Default.
+    reasoning_effort: box ? (box.getEffort?.() ?? null) : (fallback.reasoning_effort ?? null),
     // "" clears the binding server-side; the box returns null for "no project".
     project_id: box ? (box.getProject?.() ?? '') : (fallback.project_id ?? ''),
     data_source_ids: ((box?.getDataSources?.() as any[]) || fallback.data_sources || [])

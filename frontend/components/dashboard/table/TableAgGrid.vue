@@ -13,7 +13,7 @@
       :style="agGridStyles"
     >
       <AgGridComponent 
-        class="text-[9px] h-full" 
+        class="text-xs h-full"
         :columnDefs="columns" 
         :rowData="rows" 
       />
@@ -70,7 +70,7 @@ const agGridStyles = computed(() => {
     '--ag-odd-row-background-color': tokens.value.cardBackground || tokens.value.background,
     '--ag-even-row-background-color': tokens.value.cardBackground || tokens.value.background,
     '--ag-font-family': tokens.value.fontFamily,
-    '--ag-font-size': '9px',
+    '--ag-font-size': '12px',
     fontFamily: tokens.value.fontFamily,
   }
 })
@@ -218,5 +218,3 @@ watch(tokens, updateData)
   border: 1px solid var(--ag-border-color) !important;
 }
 </style>
-
-

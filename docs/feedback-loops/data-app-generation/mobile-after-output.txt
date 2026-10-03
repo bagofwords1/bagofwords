@@ -1,0 +1,12 @@
+[
+  {
+    "slug": "catalog",
+    "detailTop": 76,
+    "pass": true
+  },
+  {
+    "slug": "reps",
+    "detailTop": 40,
+    "pass": true
+  }
+]

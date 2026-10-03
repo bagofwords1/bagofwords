@@ -9,6 +9,7 @@ stable across calls so provider-side prompt caching absorbs its size.
 """
 
 from functools import lru_cache
+from app.ai.tools.artifact_verification import ARTIFACT_VERIFICATION_POLICY
 
 
 _SLIDES_CONTRACT = """
@@ -41,6 +42,9 @@ MECHANICAL EDITS (edit_artifact) — op authoring rules
 - Adding a viz: pass its id in visualization_ids AND add a section rendering
   vizById("<uuid>") in your ops. Removing one: pass remove_visualization_ids AND
   delete every reference in your ops. The viz-reference gate enforces both.
+- Preserve the saved artifact's runtime version and visual design on ordinary edits.
+  Themes and kit components are optional; custom CSS and React markup are supported.
+  Do not add a theme or redesign a legacy dashboard unless requested.
 - Syntax is gated before anything renders: code that fails to parse fails the
   call (with the parser's line:col and a bracket-balance hint) and persists
   nothing. Write one statement per line and avoid deeply nested one-liners —
@@ -58,15 +62,17 @@ typed, hovered or focused, and the viewer is anonymous.
   image. That is EXPECTED, never a defect. NEVER edit an artifact because a
   filter's options, a menu's items or a hover state are "missing" from the
   screenshot — the image cannot show interaction at all.
-- To check an interactive control, read the CODE: does it map over its option
-  rows and set state / a param on change? If yes, it works — say so and stop.
+- A static screenshot cannot certify an interactive control. Code inspection can
+  identify likely wiring problems but is not proof of working query execution.
+  Do not claim interaction testing unless a browser actually exercised the flow.
+
 - The viewer is ANONYMOUS (current_user = null), so greetings, viewer names and
   group-conditional sections correctly show their neutral fallbacks. A missing
   name in the screenshot is EXPECTED — at view time each signed-in viewer sees
   their own identity. NEVER "fix" absent personalization by hardcoding a
   person's name, and never satisfy "make it dynamic" by deleting the greeting:
   bind it (`{{u?.name ? u.name + "'s " : ''}}Catalog`).
-- What the screenshot DOES prove: layout breakage, wrong or missing values,
+- What the screenshot can reveal: layout breakage, missing content,
   unreadable contrast, and visible error text. Diagnose only those from it.
 Inventing a defect you cannot observe wastes your artifact-call budget and
 ships churn to the user. When unsure whether something is broken, ask the user
@@ -94,6 +100,17 @@ def build_artifact_authoring_reference() -> str:
         "fix the code/ops and call again. The reference below (written for a code\n"
         "author) is YOUR reference — 'the user message' there corresponds to the data\n"
         "and design intent you have in context.\n\n"
+        + VISUAL_REVIEW_POLICY + "\n\n" + ARTIFACT_VERIFICATION_POLICY + "\n\n"
         + page_reference
         + _SLIDES_CONTRACT
     )
+
+
+# The planner receives this alongside the static screenshot contract above.
+VISUAL_REVIEW_POLICY = """
+After a successful page create/edit, review the attached screenshot if present
+and permitted. Check the task's working surface, hierarchy, density, alignment,
+legibility and visible states. If a material issue is visible, make at most one
+focused aesthetic edit with purpose="visual_refinement" per user request. Do not redesign an existing
+dashboard on an ordinary edit. Without a screenshot, skip aesthetic review; use verification_hint for interaction checks.
+""".strip()

@@ -35,6 +35,15 @@ PERMISSION_CATEGORIES = {
     "Evals": [
         "manage_evals",
     ],
+    # Generated code (SQL/Python) produced by the agent. `view_code` gates
+    # SEEING it anywhere it is rendered; `run_custom_code` gates editing and
+    # executing caller-supplied code and implies `view_code` (see
+    # permission_resolver.ORG_PERM_IMPLIES_ORG). Both are granted to `member`
+    # by default, so withholding them is the admin's deliberate act.
+    "Code": [
+        "view_code",
+        "run_custom_code",
+    ],
     "Members": [
         "manage_members",
         "manage_service_accounts",
@@ -137,7 +146,7 @@ RESOURCE_PERMISSIONS = {
 # Groups related categories into fewer rows for a cleaner modal.
 
 MERGED_CATEGORIES = {
-    "Data & Knowledge": ["Data & Connections", "Instructions", "Entities", "Evals"],
+    "Data & Knowledge": ["Data & Connections", "Instructions", "Entities", "Evals", "Code"],
     "Members & Access": ["Members"],
     "Settings & Admin": ["Settings", "Enterprise"],
 }
@@ -168,11 +177,28 @@ RESOURCE_SCOPED_GROUPS = {
 # ── Default Role Permission Sets ─────────────────────────────────────────
 # These define what the system-seeded admin and member roles contain.
 
-# Member: exactly the baseline set, nothing more. Seeded explicitly so the
-# `member` role row is self-describing in the database (and so service accounts,
-# which default to this role and get no baseline grant, still hold it), even
-# though the resolver grants the same strings to every member regardless of role.
-DEFAULT_MEMBER_PERMISSIONS = list(BASELINE_PERMISSIONS)
+# ── Default-on, withholdable permissions ─────────────────────────────────
+# Granted to `member` (and backfilled onto every pre-existing role) so that
+# adding them changed nobody's access, while an admin can now take them away.
+#
+# They are deliberately NOT baseline: a baseline permission is granted to every
+# member by the resolver and so cannot be withheld by any role, which is exactly
+# what this feature needs to be able to do. The cost of that choice is that they
+# must be seeded and backfilled explicitly (see the alembic backfill migration),
+# because a user whose only role is a custom one gets baseline and nothing else.
+DEFAULT_ON_PERMISSIONS = [
+    "view_code",
+    "run_custom_code",
+]
+
+# Member: the baseline set plus the default-on permissions. Seeded explicitly so
+# the `member` role row is self-describing in the database (and so service
+# accounts, which default to this role and get no baseline grant, still hold it).
+#
+# This is deliberately a strict SUPERSET of BASELINE_PERMISSIONS. The two were
+# identical until code visibility became withholdable; keeping them equal would
+# have forced `view_code` to be baseline, i.e. ungrantable-and-unwithholdable.
+DEFAULT_MEMBER_PERMISSIONS = sorted(set(BASELINE_PERMISSIONS) | set(DEFAULT_ON_PERMISSIONS))
 
 # Admin: gets all org perms via full_admin_access wildcard.
 DEFAULT_ADMIN_PERMISSIONS = ["full_admin_access"]

@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import re
@@ -62,6 +63,8 @@ class PinotClient(DataSourceClient):
             if conn is not None:
                 try:
                     conn.close()
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
 
@@ -94,6 +97,8 @@ class PinotClient(DataSourceClient):
                 r.raise_for_status()
                 payload = r.json()
                 table_names = payload.get("tables", []) if isinstance(payload, dict) else list(payload or [])
+            except IndexingCancelled:
+                raise
             except Exception:
                 table_names = []
 
@@ -108,10 +113,12 @@ class PinotClient(DataSourceClient):
                         cursor.execute(list_sql)
                     table_names = [row[0] for row in cursor.fetchall()]
                     cursor.close()
+            except IndexingCancelled:
+                raise
             except Exception:
                 return []
 
-        for t in table_names:
+        for t in discovery_items(table_names, 'tables', label=str):
             columns: List[TableColumn] = []
             # Pinot doesn't parameterize table names; only schema-discovered
             # identifiers (letters/digits/_/.) are eligible to be probed.
@@ -130,6 +137,8 @@ class PinotClient(DataSourceClient):
                     cursor.close()
                     for c in inferred:
                         columns.append(TableColumn(name=c, dtype="STRING"))
+            except IndexingCancelled:
+                raise
             except Exception:
                 pass
             tables[t] = Table(name=t, columns=columns, pks=[], fks=[], metadata_json={})
@@ -138,7 +147,8 @@ class PinotClient(DataSourceClient):
     def get_schema(self, table: str) -> Table:
         raise NotImplementedError("get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         return self.get_tables()
 
     def prompt_schema(self):

@@ -1,5 +1,7 @@
 from typing import List, Optional, Set, Tuple, Dict
 import re
+
+from app.ai.context import keyword_match as _km
 import logging
 
 from sqlalchemy import select, and_, or_, func, exists
@@ -1421,25 +1423,68 @@ class InstructionContextBuilder:
             usage_count=usage_count,
         )
     
-    async def _get_user_inaccessible_table_ids(self) -> Set[str]:
-        """Return datasource_table IDs the current user explicitly cannot access.
+    async def _get_user_inaccessible_table_ids(self, candidate_ids: Set[str]) -> Set[str]:
+        """Of `candidate_ids`, the datasource_table IDs this user may NOT see.
 
-        Only applies when user_data_source_tables rows exist (i.e. the connection
-        uses auth_policy='user_required' and an overlay sync has run).  If there
-        are no overlay rows for the user, returns an empty set (= no filtering).
+        An ALLOW-list, evaluated per connection. This used to be a deny-list —
+        it collected only the rows a per-user overlay had explicitly marked
+        `is_accessible=False`, so a table the user had no overlay row for at
+        all counted as accessible. On a delegated connection that is precisely
+        the table they cannot reach: one user's Power BI models are absent from
+        another user's overlay rather than present-and-denied. Instructions
+        written against them therefore leaked into the other user's prompt.
+
+        Scoped through DataSourceService._resolve_catalog_scope, the same
+        predicate the tables selector and the schema context use, so an
+        instruction can only ride on a table the agent itself would show.
+        Bounded by the tables actually referenced, so it costs one query per
+        data source those references span (typically one).
         """
-        if not self.current_user:
+        if not self.current_user or not candidate_ids:
             return set()
 
-        result = await self.db.execute(
-            select(UserDataSourceTable.data_source_table_id)
-            .where(
-                UserDataSourceTable.user_id == str(self.current_user.id),
-                UserDataSourceTable.is_accessible == False,
-                UserDataSourceTable.data_source_table_id.isnot(None),
-            )
-        )
-        return {row[0] for row in result.all()}
+        from app.models.datasource_table import DataSourceTable
+        from app.models.data_source import DataSource
+        from app.services.data_source_service import DataSourceService
+        from sqlalchemy.orm import selectinload
+
+        ids = list(candidate_ids)
+        rows = (await self.db.execute(
+            select(DataSourceTable.id, DataSourceTable.datasource_id)
+            .where(DataSourceTable.id.in_(ids))
+        )).all()
+        by_ds: Dict[str, Set[str]] = {}
+        for tid, ds_id in rows:
+            by_ds.setdefault(str(ds_id), set()).add(str(tid))
+
+        # A reference whose table no longer exists is NOT treated as
+        # inaccessible. "Deleted" is not a per-user access fact, and counting it
+        # as one would newly hide instructions whose only reference happens to
+        # point at a pruned table — a behaviour change unrelated to the leak
+        # this closes. Unknown ids simply drop out of the calculation, exactly
+        # as they did under the deny-list.
+        inaccessible: Set[str] = set()
+
+        svc = DataSourceService()
+        for ds_id, table_ids in by_ds.items():
+            ds = (await self.db.execute(
+                select(DataSource)
+                .options(selectinload(DataSource.connections))
+                .where(DataSource.id == ds_id)
+            )).scalar_one_or_none()
+            if ds is None:
+                inaccessible |= table_ids
+                continue
+            scope = await svc._resolve_catalog_scope(self.db, ds, self.current_user)
+            visible = {
+                str(r) for r in (await self.db.execute(
+                    scope(select(DataSourceTable.id).where(
+                        DataSourceTable.id.in_(list(table_ids))
+                    ))
+                )).scalars().all()
+            }
+            inaccessible |= (table_ids - visible)
+        return inaccessible
 
     async def _filter_instructions_by_table_accessibility(
         self,
@@ -1453,8 +1498,7 @@ class InstructionContextBuilder:
         - At least one referenced table accessible → keep
         - No current_user → keep all (system/admin context)
         """
-        inaccessible = await self._get_user_inaccessible_table_ids()
-        if not inaccessible:
+        if not self.current_user:
             return instructions
 
         # Batch-load table references for all candidate instructions
@@ -1473,7 +1517,15 @@ class InstructionContextBuilder:
         # Build map: instruction_id -> set of referenced table IDs
         refs_by_instruction: Dict[str, Set[str]] = {}
         for inst_id, table_id in ref_result.all():
-            refs_by_instruction.setdefault(inst_id, set()).add(table_id)
+            refs_by_instruction.setdefault(inst_id, set()).add(str(table_id))
+
+        # Evaluate access over exactly the tables referenced. The allow-list
+        # needs the candidates up front, so this runs AFTER the references are
+        # loaded rather than before.
+        candidates = {t for refs in refs_by_instruction.values() for t in refs}
+        inaccessible = await self._get_user_inaccessible_table_ids(candidates)
+        if not inaccessible:
+            return instructions
 
         filtered = []
         for inst in instructions:
@@ -1500,8 +1552,7 @@ class InstructionContextBuilder:
 
         Used in build-based loading where we have InstructionItem (not ORM Instruction).
         """
-        inaccessible = await self._get_user_inaccessible_table_ids()
-        if not inaccessible:
+        if not self.current_user:
             return items
 
         item_ids = [item.id for item in items]
@@ -1518,7 +1569,14 @@ class InstructionContextBuilder:
 
         refs_by_instruction: Dict[str, Set[str]] = {}
         for inst_id, table_id in ref_result.all():
-            refs_by_instruction.setdefault(inst_id, set()).add(table_id)
+            refs_by_instruction.setdefault(inst_id, set()).add(str(table_id))
+
+        # Allow-list over exactly the referenced tables (see
+        # _get_user_inaccessible_table_ids).
+        candidates = {t for refs in refs_by_instruction.values() for t in refs}
+        inaccessible = await self._get_user_inaccessible_table_ids(candidates)
+        if not inaccessible:
+            return items
 
         filtered = []
         for item in items:
@@ -1535,43 +1593,12 @@ class InstructionContextBuilder:
 
     def _extract_keywords(self, text: str) -> Set[str]:
         """Extract meaningful keywords from text."""
-        # Lowercase and split on non-alphanumeric (including underscores for better matching)
-        words = re.split(r'[^a-z0-9]+', text.lower())
-        # Filter out stopwords and short words
-        keywords = {
-            w for w in words
-            if w and len(w) >= 2 and w not in self.STOPWORDS
-        }
-        return keywords
+        return _km.extract_keywords(text, self.STOPWORDS)
 
     @staticmethod
     def _stem(word: str) -> str:
-        """Very light suffix stripper so morphological variants map to the same
-        stem (revenues/revenue, churned/churn, cancelling/cancel, matches/match).
-
-        Both query and document keywords go through this, so the only thing
-        that matters is consistency — not linguistic correctness.
-        """
-        if len(word) <= 3:
-            return word
-        if word.endswith("ies") and len(word) > 4:
-            return word[:-3] + "y"
-        stemmed = word
-        if word.endswith("es") and len(word) - 2 >= 3 and (
-            word[-3] in "sxz" or word.endswith(("ches", "shes"))
-        ):
-            stemmed = word[:-2]          # matches -> match, boxes -> box
-        elif word.endswith("s") and not word.endswith("ss") and len(word) - 1 >= 3:
-            stemmed = word[:-1]          # revenues -> revenue, sales -> sale
-        else:
-            for suffix in ("ing", "ed"):
-                if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-                    stemmed = word[: -len(suffix)]
-                    break
-        # Collapse a trailing double consonant (cancell -> cancel, plann -> plan)
-        if len(stemmed) >= 4 and stemmed[-1] == stemmed[-2] and stemmed[-1] not in "aeiou":
-            stemmed = stemmed[:-1]
-        return stemmed
+        """Light suffix stripper (see app.ai.context.keyword_match.stem)."""
+        return _km.stem(word)
 
     def _score_instruction(
         self,
@@ -1633,43 +1660,9 @@ class InstructionContextBuilder:
         return min(1.0, body_score + 0.5 * priority_score)
 
     def _score_text(self, searchable: str, keywords: Set[str]) -> float:
-        """
-        Score text by query-keyword coverage: what fraction of the query's
-        keywords appear in the text (exactly, stem-equal, or as a substring in
-        either direction). Returns a score between 0 and 1.
-
-        Unlike Jaccard (intersection / union of both vocabularies), coverage
-        does not penalize long instructions — only unmatched *query* words
-        lower the score.
-        """
-        if not keywords:
-            return 0.0
-        searchable_lower = searchable.lower()
-        searchable_keywords = self._extract_keywords(searchable)
-        if not searchable_keywords and not searchable_lower.strip():
-            return 0.0
-
-        stemmed_searchable = {self._stem(w) for w in searchable_keywords}
-
-        matched = 0.0
-        for kw in keywords:
-            if kw in searchable_keywords:
-                matched += 1.0
-                continue
-            if self._stem(kw) in stemmed_searchable:
-                matched += 0.9
-                continue
-            # Substring in the raw text (helps joined words: "invoiceline")
-            if len(kw) >= 3 and kw in searchable_lower:
-                matched += 0.8
-                continue
-            # Symmetric containment between keywords ("churn" ~ "churned",
-            # "cancellation" query vs "cancel" in text)
-            if len(kw) >= 4 and any(
-                len(sk) >= 4 and (kw in sk or sk in kw) for sk in searchable_keywords
-            ):
-                matched += 0.7
-        return matched / len(keywords)
+        """Query-keyword coverage of ``searchable`` (0..1). Shared with the
+        memory context builder — see app.ai.context.keyword_match.score_text."""
+        return _km.score_text(searchable, keywords, self.STOPWORDS)
 
     def _build_searchable_text(self, instruction: Instruction) -> str:
         """Build searchable text from instruction fields."""

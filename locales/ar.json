@@ -1,4 +1,19 @@
 {
+  "agentLanding": {
+    "actions": "إجراءات الوكيل",
+    "countTasks": "لا مهام | مهمة واحدة | مهمتان | {n} مهام | {n} مهمة | {n} مهمة",
+    "editStarters": "تعديل اقتراحات المحادثة",
+    "download": "تنزيل بيانات الوكيل",
+    "addInstruction": "إضافة تعليمات",
+    "chooseExisting": "اختيار تعليمات موجودة",
+    "readMore": "قراءة المزيد",
+    "readLess": "عرض أقل"
+  },
+  "agentCard": {
+    "signedIn": "تم تسجيل الدخول",
+    "countBoards": "{n} لوحة | {n} لوحات",
+    "configuredCountsHint": "تعكس الأعداد قبل تسجيل الدخول الكتالوج المشترك، وليس صلاحيات وصولك الشخصية."
+  },
   "agentsPage": {
     "title": "الوكلاء",
     "subtitle": "اضبط وكلاءك والبيانات والأدوات والمهارات والتعليمات التي يستندون إليها في التفكير.",
@@ -18,6 +33,9 @@
     "newAgent": "وكيل",
     "newAgentDesc": "اربط البيانات والأدوات والجداول",
     "searchPlaceholder": "ابحث في كل شيء…",
+    "clearSearch": "مسح البحث",
+    "searchAgentInstructions": "ابحث في التعليمات…",
+    "noResults": "لا توجد نتائج.",
     "filters": "عوامل التصفية",
     "filterStatus": "الحالة",
     "filterLoading": "التحميل",
@@ -94,6 +112,23 @@
     "connect": "اتصال",
     "manageConnections": "إدارة الاتصالات",
     "loadingFiles": "جارٍ تحميل الملفات من المصدر…",
+    "fileBrowserRoot": "كل الملفات",
+    "fileBrowserSearch": "البحث في الملفات…",
+    "fileBrowserRefresh": "تحديث",
+    "fileBrowserConnectRequired": "اربط حسابك للتصفح — يقرأ هذا الاتصال الملفات باستخدام بيانات اعتماد كل مستخدم.",
+    "fileBrowserError": "تعذّر عرض الملفات من المصدر.",
+    "fileBrowserRetry": "إعادة المحاولة",
+    "fileBrowserEmpty": "لا توجد ملفات ضمن نطاق هذا الاتصال.",
+    "fileBrowserNoResults": "لا توجد ملفات تطابق “{q}”.",
+    "fileBrowserSummary": "{n} ملفات ضمن النطاق · يقرأ الوكيل هذه الملفات فقط · تُسجَّل محاولات الوصول المرفوضة",
+    "fileBrowserTruncated": "يتم عرض أول {shown} من أصل {total} ملف — ضيّق نطاق الاتصال لتصفح الباقي.",
+    "fileBrowserOpenInSource": "فتح في المصدر",
+    "fileBrowserClosePreview": "إغلاق المعاينة",
+    "fileBrowserPreviewLoading": "جارٍ تحميل المعاينة…",
+    "fileBrowserPreviewError": "تعذّر تحميل المعاينة.",
+    "fileBrowserPreviewUnsupported": "المعاينة غير متاحة لهذا النوع من الملفات.",
+    "fileBrowserPreviewTooLarge": "هذا الملف كبير جدًا للمعاينة ({size}).",
+    "fileBrowserPreviewTextTruncated": "يتم عرض أول {n} حرف.",
     "countTables": "{n} جدول | {n} جداول",
     "countTools": "{n} أداة | {n} أدوات",
     "countFiles": "{n} ملف | {n} ملفات",
@@ -412,6 +447,11 @@
         "title": "⚡ تم تفعيل \"{name}\" — {summary}",
         "body": "اكتمل التحقيق — افتح الجلسة للاطلاع على النتائج."
       }
+    },
+    "checkin": {
+      "badge": "متابعة",
+      "openReport": "فتح التقرير",
+      "assistantFallback": "محلل الذكاء الاصطناعي"
     }
   },
   "auth": {
@@ -517,6 +557,7 @@
     "training": "تدريب",
     "schedulePrompt": "جدولة طلب",
     "selectModel": "اختر نموذجًا",
+    "createReportFailed": "تعذّر إنشاء التقرير",
     "untitled": "بدون عنوان",
     "estimating": "جارٍ التقدير…",
     "estimateUnavailable": "التقدير غير متاح",
@@ -574,7 +615,28 @@
     "modelAutoHint": "يختار الموجّه أفضل نموذج",
     "autoAgentsHint": "أي وكيل يمكنك الوصول إليه",
     "loadingDataSources": "جارٍ تحميل مصادر البيانات…",
-    "noDataSources": "لم يتم العثور على مصادر بيانات"
+    "noDataSources": "لم يتم العثور على مصادر بيانات",
+    "effort": {
+      "title": "الجهد",
+      "default": "افتراضي",
+      "levels": {
+        "off": "سريع",
+        "low": "منخفض",
+        "medium": "متوسط",
+        "high": "مرتفع",
+        "max": "أقصى"
+      },
+      "searchModels": "البحث في النماذج…",
+      "noMatches": "لا توجد نماذج مطابقة",
+      "otherProvider": "أخرى",
+      "anyModel": "ينطبق على النموذج الذي يعمل",
+      "notSupported": "لا يوجد إعداد جهد لهذا النموذج",
+      "providerDefault": "الإعداد الافتراضي للنموذج",
+      "modelDefault": "افتراضي المسؤول: {level}",
+      "runsAs": "يعمل كـ {level} على هذا النموذج",
+      "faster": "أسرع",
+      "smarter": "أذكى"
+    }
   },
   "reports": {
     "title": "التقارير",
@@ -730,7 +792,8 @@
         "title": "عرض الإجابات ذات التقييم السلبي",
         "prompt": "راجع الإجابات التي تلقّت ملاحظات سلبية من المستخدمين لتحديد الأنماط ومجالات التحسين."
       }
-    ]
+    ],
+    "artifactLoadFailed": "تعذر تحميل لوحة المعلومات. حدّث الصفحة للمحاولة مرة أخرى."
   },
   "projects": {
     "title": "المشاريع",
@@ -849,6 +912,11 @@
     "llm": "نموذج اللغة",
     "exec": "تنفيذ",
     "selectItem": "اختر عنصرًا من الشجرة لعرض التفاصيل",
+    "tabs": {
+      "conversation": "المحادثة",
+      "timeline": "الخط الزمني",
+      "details": "التفاصيل"
+    },
     "userPrompt": "طلب المستخدم",
     "instructionsCount": "{count} تعليمة",
     "alwaysCount": "{count} دائمة",
@@ -883,7 +951,96 @@
     "tokensCount": "{count} رمز",
     "llmUsageTooltip": "استخدام LLM في هذه المحادثة",
     "turnTokensTooltip": "رموز LLM للمخطط في هذا الدور",
-    "turnUsageTooltip": "استخدام LLM في هذا الدور"
+    "turnUsageTooltip": "استخدام LLM في هذا الدور",
+    "setup": "التحضير",
+    "setupTooltip": "الوقت من بدء التشغيل حتى بدء الخطوة الأولى (بناء السياق وغيره)",
+    "overhead": "أخرى",
+    "overheadTooltip": "وقت غير منسوب لأي خطوة: الحفظ، تحديث السياق بين الخطوات، الإنهاء",
+    "segment_planner": "LLM المخطِّط",
+    "segment_tool_llm": "LLM الأداة",
+    "segment_tool_exec": "تنفيذ الأداة",
+    "segment_setup": "التحضير",
+    "plannerShort": "تخطيط",
+    "toolShort": "أداة",
+    "stepTiming": "توقيت الخطوة",
+    "stepTotal": "إجمالي الخطوة",
+    "firstToken": "الوقت حتى أول رمز",
+    "thinking": "التفكير",
+    "tool": "الأداة",
+    "machineTurn": "دور آلي ({source})",
+    "checkin": {
+      "title": "متابعة الوكيل",
+      "runTurn": "تشغيل المتابعة (متابعة الوكيل)",
+      "noFollowUp": "لم يُخطَّط لأي متابعة",
+      "noReason": "لم يذكر المخطِّط سببًا.",
+      "due": "موعدها {when}",
+      "note": "ملاحظة للمستقبل",
+      "planReason": "لماذا المتابعة",
+      "judge": "الحَكَم",
+      "focus": "التركيز",
+      "whyRun": "لماذا شغّل الحَكَم هذه المتابعة",
+      "plannerUsage": "المخطِّط",
+      "judgeUsage": "الحَكَم",
+      "status": {
+        "not_proposed": "لم تُقترح",
+        "rejected": "مرفوضة",
+        "planned": "مخطَّط لها",
+        "cancelled": "ملغاة",
+        "skipped": "تم تخطيها",
+        "running": "قيد التشغيل",
+        "ran_quiet": "اكتملت دون إشعار",
+        "sent": "تم الإشعار",
+        "failed": "فشلت"
+      },
+      "decision": {
+        "run": "تشغيل",
+        "skip": "تخطٍّ"
+      },
+      "reason": {
+        "disabled": "الإعداد متوقف",
+        "pending_exists_user": "لدى المستخدم متابعة معلّقة بالفعل",
+        "pending_exists_report": "لدى التقرير متابعة معلّقة بالفعل",
+        "weekly_cap": "تم بلوغ الحد الأسبوعي",
+        "org_daily_cap": "تم بلوغ الحد اليومي للمؤسسة",
+        "report_deleted": "تم حذف التقرير",
+        "access_lost": "فُقد الوصول",
+        "judge_skip": "تخطاها الحَكَم",
+        "run_failed": "فشل التشغيل",
+        "invalid_judge_output": "رد الحَكَم غير صالح",
+        "opted_out": "ألغى المستخدم الاشتراك",
+        "fire_error": "خطأ أثناء الفحص",
+        "stale_running": "بقيت قيد التشغيل (إعادة تشغيل)"
+      },
+      "outcome": {
+        "sent": "تم إشعار المستخدم",
+        "sentWithSubject": "تم إشعار المستخدم: {subject}",
+        "ran_quiet": "اكتملت دون إشعار — لا شيء يستحق الإبلاغ",
+        "planned": "بانتظار موعدها",
+        "running": "قيد التشغيل الآن",
+        "skipped": "تخطاها الحَكَم — لم يُشغَّل شيء",
+        "failed": "فشل تشغيل المتابعة — لم يُرسَل شيء",
+        "rejected": "لم تُجدوَل: {reason}",
+        "cancelled": "أُلغيت: {reason}"
+      }
+    },
+    "memory": {
+      "title": "الذاكرة",
+      "summary": "تم تضمين {injected} من {total} إدخالات · {chars} حرفًا",
+      "privateNote": "الذاكرة خاصة بمالكها — تُعرض المعرّفات والأقسام فقط.",
+      "refused": "مرفوض",
+      "tier": {
+        "always": "دائمًا",
+        "matched": "مطابق"
+      }
+    },
+    "export": {
+      "button": "تصدير",
+      "turnJson": "تنزيل هذا الدور (JSON)",
+      "conversationJson": "تنزيل المحادثة (JSON)",
+      "copyTurn": "نسخ هذا الدور كـ JSON",
+      "copied": "تم نسخ JSON التتبع إلى الحافظة",
+      "failed": "تعذّر تصدير التتبع"
+    }
   },
   "reportView": {
     "tabChat": "محادثة",
@@ -962,6 +1119,16 @@
       "executionSucceeded": "نجح التنفيذ",
       "retrying": "إعادة المحاولة · المحاولة {n}",
       "visualizing": "جارٍ التصور المرئي"
+    },
+    "runQuery": {
+      "running": "جارٍ تشغيل \"{title}\"…",
+      "runningWith": "جارٍ تشغيل \"{title}\" بـ {params}…",
+      "ran": "تم تشغيل \"{title}\"",
+      "ranWith": "تم تشغيل \"{title}\" بـ {params}",
+      "failed": "تعذّر تشغيل \"{title}\"",
+      "needsInput": "\"{title}\" يحتاج إلى قيم للمعاملات",
+      "needsValues": "في انتظار قيم لـ:",
+      "cachedHint": "تم التقديم من نتيجتك المخزّنة مؤقتًا لهذه القيم — لم يُستعلم المصدر مجددًا"
     },
     "createArtifact": {
       "creating": "جارٍ إنشاء العنصر",
@@ -1435,10 +1602,11 @@
       "cancelledPlural": "تم إلغاء {count} حالات انتظار معلّقة",
       "nothingPending": "لا توجد حالات انتظار معلّقة"
     },
-    "updateUserMemory": {
-      "updating": "تحديث الذاكرة…",
+    "memory": {
+      "updating": "جارٍ تحديث الذاكرة…",
+      "checking": "جارٍ البحث في الذاكرة…",
       "updated": "تم تحديث الذاكرة",
-      "failed": "فشل تحديث الذاكرة"
+      "checked": "تم البحث في الذاكرة"
     },
     "routeModel": {
       "routedTo": "تم التوجيه إلى",
@@ -1499,7 +1667,26 @@
       "snapshot": "بنية الصفحة",
       "snapshotted": "تمت قراءة الصفحة",
       "snapshotting": "جارٍ قراءة الصفحة",
-      "working": "جارٍ التصفح"
+      "working": "جارٍ التصفح",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "لم يُرجع عامل تصفية التاريخ أي صفوف. لم يتم التحقق من صحة عمله بعد.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "جارٍ قراءة {name}…",
@@ -1511,6 +1698,18 @@
       "pathLabel": "المسار:",
       "attachedAsSessionFile": "مُرفق بهذه المحادثة كملف جلسة",
       "showPagePreviews": "عرض معاينات الصفحات ({n})"
+    },
+    "resource": {
+      "failed": "تعذر تغيير المورد",
+      "create": "تم إنشاء المورد",
+      "update": "تم تحديث المورد",
+      "delete": "تم حذف المورد",
+      "working": "جارٍ إعداد المورد",
+      "stopped": "متوقف",
+      "unchanged": "المورد دون تغيير",
+      "preserved": "تم الاحتفاظ بالسجلات الحالية.",
+      "changed": "التغييرات",
+      "noChanges": "لم يتم تطبيق أي تغييرات."
     }
   },
   "entityCreate": {
@@ -2290,7 +2489,191 @@
       "daysAbbr": "{n} ي",
       "rangeCount": "{start}–{end} من إجمالي {total}",
       "prev": "‹ السابق",
-      "next": "التالي ›"
+      "next": "التالي ›",
+      "tabs": {
+        "activity": "النشاط",
+        "streams": "التدفقات"
+      },
+      "actorAgent": "عبر وكيل",
+      "actorSystem": "النظام",
+      "searchPlaceholder": "ابحث في الإجراءات والمستخدمين والعناوين…",
+      "filters": {
+        "user": "المستخدم",
+        "allUsers": "كل المستخدمين",
+        "resource": "المورد",
+        "allResources": "كل الموارد",
+        "range": "الوقت",
+        "rangeAll": "كل الأوقات",
+        "range24h": "آخر 24 ساعة",
+        "range7d": "آخر 7 أيام",
+        "range30d": "آخر 30 يومًا",
+        "filterActions": "تصفية الإجراءات…",
+        "noOptions": "لا توجد نتائج"
+      },
+      "export": {
+        "button": "تصدير",
+        "json": "تنزيل JSON ‏(NDJSON)",
+        "csv": "تنزيل CSV",
+        "hint": "يصدّر العرض المصفّى الحالي، من الأقدم إلى الأحدث.",
+        "failed": "فشل التصدير"
+      },
+      "drawer": {
+        "title": "تفاصيل الحدث",
+        "close": "إغلاق",
+        "who": "من",
+        "when": "متى",
+        "where": "من أين",
+        "what": "ماذا",
+        "details": "التفاصيل",
+        "rawJson": "JSON الخام",
+        "copy": "نسخ",
+        "copied": "تم النسخ",
+        "actor": "المنفّذ",
+        "actorType": "نوع المنفّذ",
+        "timeUtc": "UTC",
+        "timeLocal": "التوقيت المحلي",
+        "relative": "نسبي",
+        "ip": "عنوان IP",
+        "userAgent": "وكيل المستخدم",
+        "action": "الإجراء",
+        "resourceType": "نوع المورد",
+        "resourceId": "معرّف المورد",
+        "open": "فتح",
+        "agentRun": "تشغيل الوكيل",
+        "executionMode": "وضع التنفيذ",
+        "none": "—",
+        "noDetails": "لا توجد تفاصيل إضافية",
+        "fields": {
+          "title": "العنوان",
+          "tool": "الأداة",
+          "data_source": "مصدر البيانات",
+          "connection": "الاتصال",
+          "queries": "الاستعلامات",
+          "row_count": "الصفوف",
+          "reason": "السبب",
+          "error": "الخطأ",
+          "changed": "التغييرات",
+          "state": "الحالة",
+          "destination": "الوجهة",
+          "format": "التنسيق"
+        },
+        "actorKinds": {
+          "user": "مستخدم",
+          "agent": "وكيل (نيابةً عن المستخدم)",
+          "system": "النظام"
+        }
+      },
+      "streams": {
+        "title": "تدفقات السجل",
+        "subtitle": "سلّم كل حدث تدقيق إلى نظام SIEM أو حاوية التخزين لديك. بعد أي انقطاع، يُستأنف التسليم من آخر حدث مُرسَل.",
+        "empty": "لا توجد تدفقات سجل بعد",
+        "emptyHint": "أضف تدفقًا لإرسال أحداث التدقيق إلى Datadog أو Splunk أو Microsoft Sentinel أو S3 أو Google Cloud Storage أو webhook أو syslog.",
+        "add": "إضافة تدفق",
+        "edit": "تعديل",
+        "delete": "حذف",
+        "deleteConfirm": "حذف التدفق \"{name}\"؟ سيتوقف تسليم الأحداث إليه.",
+        "pause": "إيقاف مؤقت",
+        "resume": "استئناف",
+        "state": {
+          "active": "نشط",
+          "inactive": "متوقف مؤقتًا",
+          "error": "خطأ",
+          "invalid": "بيانات اعتماد غير صالحة"
+        },
+        "delivered": "تم تسليم {n}",
+        "pending": "{n} قيد الانتظار",
+        "lag": "متأخر بمقدار {time}",
+        "lastDelivered": "آخر تسليم {time}",
+        "never": "أبدًا",
+        "lastError": "آخر خطأ",
+        "nextAttempt": "إعادة المحاولة {time}",
+        "manageRequired": "يمكن فقط للأعضاء الذين لديهم صلاحية إدارة الإعدادات تغيير تدفقات السجل.",
+        "form": {
+          "titleNew": "إضافة تدفق سجل",
+          "titleEdit": "تعديل تدفق السجل",
+          "name": "الاسم",
+          "namePlaceholder": "مثل Splunk الإنتاج",
+          "destination": "الوجهة",
+          "chooseDestination": "اختر وجهة إرسال الأحداث",
+          "startFrom": "البدء من",
+          "startNow": "الأحداث الجديدة فقط",
+          "startBeginning": "تضمين كل السجل",
+          "actionFilter": "فقط الإجراءات التي تبدأ بـ",
+          "actionFilterHint": "بادئات مفصولة بفواصل مثل tool., member. — اتركه فارغًا لإرسال كل شيء.",
+          "advanced": "إعدادات متقدمة",
+          "test": "إرسال حدث تجريبي",
+          "testing": "جارٍ الإرسال…",
+          "testOk": "تم تسليم الحدث التجريبي",
+          "testFailed": "فشل الاختبار: {error}",
+          "save": "حفظ التدفق",
+          "saving": "جارٍ الحفظ…",
+          "cancel": "إلغاء",
+          "back": "رجوع",
+          "secretStored": "محفوظ — اتركه كما هو للاحتفاظ به",
+          "externalIdHint": "ضع هذا External ID في سياسة الثقة لدور IAM.",
+          "required": "مطلوب"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "Webhook عبر HTTPS",
+          "syslog": "Syslog عبر TLS"
+        },
+        "destinationHints": {
+          "datadog": "واجهة استيعاب السجلات",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "Logs Ingestion API ‏(DCR)",
+          "s3": "كائنات NDJSON لكل دفعة",
+          "gcs": "كائنات NDJSON عبر مفاتيح HMAC",
+          "https": "طلب POST بصيغة JSON موقّع",
+          "syslog": "RFC 5424، ‏JSON أو CEF"
+        },
+        "fields": {
+          "url": "عنوان نقطة النهاية",
+          "auth_header_name": "اسم ترويسة المصادقة",
+          "auth_header_value": "قيمة ترويسة المصادقة",
+          "hmac_secret": "سر التوقيع (HMAC)",
+          "headers": "ترويسات إضافية (كائن JSON)",
+          "verify_tls": "التحقق من شهادة TLS",
+          "site": "موقع Datadog",
+          "api_key": "مفتاح API",
+          "service": "الخدمة",
+          "tags": "الوسوم",
+          "intake_url": "عنوان استيعاب مخصص",
+          "hec_url": "عنوان HEC",
+          "token": "رمز HEC",
+          "index": "الفهرس",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "معرّف المستأجر",
+          "client_id": "معرّف العميل",
+          "client_secret": "سر العميل",
+          "dce_url": "نقطة نهاية جمع البيانات",
+          "dcr_immutable_id": "المعرّف الثابت لـ DCR",
+          "stream_name": "اسم التدفق",
+          "authority_url": "عنوان جهة المصادقة",
+          "bucket": "الحاوية (Bucket)",
+          "region": "المنطقة",
+          "prefix": "بادئة المفتاح",
+          "role_arn": "ARN الدور",
+          "external_id": "External ID",
+          "access_key_id": "معرّف مفتاح الوصول",
+          "secret_access_key": "مفتاح الوصول السري",
+          "gzip": "ضغط الكائنات بـ gzip",
+          "endpoint_url": "عنوان نقطة نهاية مخصص",
+          "sts_endpoint_url": "نقطة نهاية STS مخصصة",
+          "host": "المضيف",
+          "port": "المنفذ",
+          "tls": "استخدام TLS",
+          "format": "تنسيق الرسالة",
+          "ca_cert": "شهادة CA ‏(PEM)",
+          "app_name": "اسم التطبيق",
+          "client_cert": "شهادة العميل (PEM)",
+          "client_key": "مفتاح العميل (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "إعدادات الذكاء الاصطناعي",
@@ -2298,9 +2681,39 @@
       "beta": "ميزة تجريبية",
       "locked": "هذا الإعداد مقفل ولا يمكن تغييره.",
       "notEditable": "(لا يمكن تعديله مباشرة)",
-      "aiAgentsTitle": "وكلاء الذكاء الاصطناعي",
-      "aiAgentsSubtitle": "اضبط وكلاء الذكاء الاصطناعي والقدرات المتاحة لأعضاء مؤسستك.",
       "noSettings": "لا توجد إعدادات للذكاء الاصطناعي.",
+      "sectionSummary": "{n} إعدادات",
+      "sectionSummaryOn": "{n} إعدادات · {on} مفعّلة",
+      "sections": {
+        "data": {
+          "title": "الوصول إلى البيانات والخصوصية",
+          "description": "ما يمكن للذكاء الاصطناعي رؤيته وإدخاله في المحادثة"
+        },
+        "capabilities": {
+          "title": "قدرات الوكيل",
+          "description": "ما يمكن للوكيل فعله أثناء الإجابة"
+        },
+        "learning": {
+          "title": "التعلّم والذاكرة",
+          "description": "كيف يتعلّم الذكاء الاصطناعي من المستخدمين والملاحظات والاستخدام"
+        },
+        "tools": {
+          "title": "الأدوات وMCP",
+          "description": "خوادم MCP الخارجية وأدوات API المخصصة"
+        },
+        "limits": {
+          "title": "الحدود",
+          "description": "حدود الصفوف والمهلات وإعادة المحاولات وأحجام السياق"
+        },
+        "workspace": {
+          "title": "مساحة العمل",
+          "description": "خطافات الويب والتفرعات والاحتفاظ بالبيانات"
+        },
+        "other": {
+          "title": "أخرى",
+          "description": "إعدادات لم تُعيَّن لقسم بعد"
+        }
+      },
       "llmAccessWarning": "تغيير هذا الإعداد يؤثر على خصوصية البيانات. سيُطلب تأكيد.",
       "llmModalTitleEnable": "تفعيل وصول نموذج اللغة إلى البيانات",
       "llmModalTitleDisable": "إيقاف وصول نموذج اللغة إلى البيانات",
@@ -2310,7 +2723,7 @@
       "llmImpactInspectTool": "فحص البيانات",
       "llmImpactAccuracy": "انخفاض دقة التحليل والأداء",
       "llmImpactColumns": "سيرى الذكاء الاصطناعي أسماء الأعمدة والإحصائيات فقط، دون القيم الفعلية",
-      "llmFileUploadsNote": "لا يتأثر رفع الملفات بهذا الإعداد وسيظل مرئيًا للذكاء الاصطناعي (يمكنك إيقاف رفع الملفات بشكل منفصل).",
+      "llmFileUploadsNote": "لا يتأثر رفع الملفات بهذا الإعداد وسيظل مرئيًا للذكاء الاصطناعي.",
       "llmConfirmLabel": "اكتب {phrase} للتأكيد",
       "llmConfirmPhrase": "أنا متأكد",
       "llmConfirmPlaceholder": "أنا متأكد",
@@ -2332,6 +2745,10 @@
         "allow_llm_see_data": {
           "name": "السماح لنموذج اللغة برؤية البيانات",
           "description": "يتيح لنموذج اللغة رؤية البيانات كجزء من التحليل واستعلامات المستخدمين"
+        },
+        "enable_artifact_verification": {
+          "name": "التحقق من تطبيقات البيانات",
+          "description": "السماح للوكيل بفحص الصفحات التفاعلية باستخدام أدوات المتصفح. يتطلب السماح للنموذج اللغوي برؤية البيانات."
         },
         "enable_training_mode": {
           "name": "وضع التدريب",
@@ -2429,6 +2846,10 @@
           "name": "حجم نتيجة MCP المضمّنة",
           "description": "مقدار ما يراه الوكيل مباشرة في سياقه من نتيجة أداة MCP / API مخصصة، بالأحرف. تُحفظ الاستجابة الكاملة في ملف دائماً أياً كانت هذه القيمة؛ وهذا الإعداد يحدد فقط ما يمكن للنموذج قراءته دون فتح ذلك الملف. ارفعه ليجيب الوكيل من مجموعة نتائج كاملة بدل عينة؛ واخفضه لإنفاق عدد أقل من الرموز لكل استدعاء. اضبطه على 0 للحصول على عينة من 3 سجلات. محصور بين 0 و500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "صفوف معاينة بيانات MCP",
+          "description": "عدد صفوف النتائج التي تُرجعها create_data إلى عميل MCP خارجي (Claude وCursor وغيرهما) في استجابتها. تُحفظ النتيجة الكاملة دائمًا في التقرير؛ هذا يحدد فقط مقدار ما يستلمه نموذج العميل مباشرة. يمكن للعميل طلب صفوف أقل، وليس أكثر أبدًا. مقيد أيضًا بـ'تحديد عدد الصفوف'. محصور بين 1 و10000."
+        },
         "enable_web_fetch": {
           "name": "جلب من الويب",
           "description": "يتيح للوكيل جلب محتوى روابط HTTP وHTTPS العامة. تُعاد الاستجابات النصية فقط، وتُقتطع الأجسام الكبيرة."
@@ -2446,12 +2867,24 @@
           "description": "الحد الأقصى لعدد الصفوف التي يجب أن يدرّب الكود المولَّد النموذج عليها. تُؤخذ عينة من المصادر الأكبر حتى هذا الحجم قبل التدريب. الحد الأدنى 1000."
         },
         "enable_custom_queries": {
-          "name": "استعلامات مخصصة (تجريبي)",
+          "name": "جداول مخصصة (تجريبي)",
           "description": "يتيح لمسؤولي الاتصالات تعريف SQL يقوم BOW بتجسيده إلى نسخة محلية مشفَّرة وفق جدول زمني، فيجيب الوكلاء من النتيجة المخزَّنة بدل الاستعلام من المصدر في كل دور. تجريبي: معطَّل افتراضياً."
         },
         "enable_agent_notes": {
           "name": "ملاحظات الوكيل",
           "description": "يتيح للوكيل الاحتفاظ بملاحظات عمل لكل تقرير (مسودة) يكتبها ويقرأها أثناء الإجابة — خطط ونتائج ومهام. تظهر الملاحظات في التقرير لكنها ليست معرفة مشتركة. عند الإيقاف، تُخفى أدوات الملاحظات ولا تُدرج الملاحظات في السياق."
+        },
+        "enable_user_memory": {
+          "name": "ذاكرة المستخدم",
+          "description": "السماح للوكيل بتذكر حقائق عن كل مستخدم عبر الجلسات — عمله ومشاريعه ومواعيده النهائية وأحداثه وما يتابعه واختصاراته الخاصة. تبقى قواعد طريقة الإجابة في التعليمات. يستطيع كل مستخدم عرض ذاكرته وتعديلها وحذفها."
+        },
+        "enable_agent_dreaming": {
+          "name": "التعلّم الليلي للوكلاء",
+          "description": "كل ليلة يراجع الوكلاء اقتراحاتهم المعلّقة والملاحظات والاستخدام، ويقترحون تحسينًا موحّدًا واحدًا لكل وكيل. ما يحدث له يتبع إعداد التعلّم الذاتي لكل وكيل."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "انتهاء صلاحية اقتراحات الذكاء الاصطناعي غير المراجعة بعد (أيام)",
+          "description": "تُغلق التعليمات المقترحة من الذكاء الاصطناعي التي تبقى معلّقة بعد هذا العدد من الأيام كمنتهية الصلاحية (وليست مرفوضة) في التعلّم الليلي. تظل الاقتراحات المنتهية دليلًا إذا عاد النمط نفسه. 0 يُبقيها مفتوحة دائمًا."
         },
         "max_instructions_in_context": {
           "name": "الحد الأقصى للتعليمات في السياق",
@@ -2484,6 +2917,22 @@
         "llm_fallback": {
           "name": "بديل نموذج اللغة",
           "description": "للمؤسسات. عندما يفشل النموذج النشط بسبب حد المعدل أو ضغط المزوّد أو خطأ في الشبكة، يُعاد إرسال الطلب تلقائياً إلى النموذج التالي في ترتيب البدائل (المضبوط في صفحة LLM) لبقية التشغيل. يُفصح دائماً عن الاستبدال في المحادثة. معطَّل افتراضياً؛ ويتطلب تفعيله ترخيصاً مؤسسياً."
+        },
+        "enable_agent_checkins": {
+          "name": "متابعات الوكيل",
+          "description": "يتيح للوكيل المتابعة من تلقاء نفسه بعد المحادثة عندما يستحق أمر ما إعادة النظر (مثلًا بعد تحديث البيانات). تُشغَّل المتابعات باسم المستخدم في التقرير نفسه ولا تُشعره إلا عند حدوث تغيير مهم."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "المتابعات لكل مستخدم أسبوعيًا",
+          "description": "الحد الأقصى لعدد المتابعات التي يمكن أن يتلقاها مستخدم واحد خلال 7 أيام."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "المتابعات يوميًا",
+          "description": "الحد الأعلى للمتابعات على مستوى المؤسسة يوميًا (سقف التكلفة)."
+        },
+        "enable_artifact_resources": {
+          "name": "موارد العناصر",
+          "description": "السماح للعناصر باستخدام سجلات دائمة وملفات خاصة وعمليات ذكاء اصطناعي معتمدة. تظل أذونات المشاركة والموارد الحالية سارية."
         }
       }
     },
@@ -2574,7 +3023,7 @@
       "fallbackOn": "النماذج البديلة مفعّلة",
       "fallbackPrimary": "أساسي",
       "imageGenDefaultBlocked": "لا يمكن أن تكون النماذج الافتراضية نماذج توليد صور. اجعل نموذجًا آخر افتراضيًا أولًا.",
-      "imageGenTooltip": "ما إذا كان هذا النموذج يولّد صورًا (مثل gpt-image-1). يفعّله لأداة generate_image ولتضمين الصور المولّدة في المخرجات. تُستبعد نماذج الصور من قائمة اختيار النموذج في المحادثة ولا يمكن أن تكون افتراضية.",
+      "imageGenTooltip": "ما إذا كان هذا النموذج يولّد صورًا (مثل gpt-image-2.5-sunburst). يفعّله لأداة generate_image ولتضمين الصور المولّدة في المخرجات. تُستبعد نماذج الصور من قائمة اختيار النموذج في المحادثة ولا يمكن أن تكون افتراضية.",
       "modelAdded": "تمت إضافة النموذج",
       "modelCardHint": "انقر على صف النموذج لفتح إعداداته",
       "modelDeleted": "تم حذف النموذج",
@@ -2582,7 +3031,36 @@
       "modelsCount": "{count} نماذج",
       "providerLabel": "المزوّد",
       "providerSettingsTooltip": "إعدادات المزوّد",
-      "save": "حفظ"
+      "save": "حفظ",
+      "reasoning": {
+        "title": "الاستدلال",
+        "tooltip": "كيف يتلقى هذا النموذج مستوى الجهد الذي يختاره المستخدمون (منخفض / متوسط / مرتفع / أقصى).",
+        "modes": {
+          "auto": "تلقائي (من كتالوج النماذج)",
+          "like": "يتصرف مثل نموذج آخر",
+          "generic": "عام (reasoning_effort)",
+          "custom": "حقول طلب مخصصة فقط",
+          "off": "إيقاف"
+        },
+        "likeLabel": "يتصرف مثل",
+        "likePlaceholder": "مثل gpt-6-luna",
+        "defaultLevel": "المستوى الافتراضي",
+        "unsupported": "الجهد لا ينطبق على هذا النموذج",
+        "savedSettings": "الإعدادات المحفوظة",
+        "rawTitle": "حقول الطلب الخام لكل مستوى (متقدم)",
+        "rawHelp": "JSON يُدمج في الطلب إلى المزوّد عند استخدام هذا المستوى. تُدمج المفاتيح الموجودة، وتُمرَّر البقية كما هي.",
+        "ranAs": "عمل كـ {level}",
+        "tokens": "رموز استدلال",
+        "saveToTest": "احفظ لاختبار تغييراتك",
+        "testTooltip": "إرسال طلب واحد مع أدوات بهذا المستوى",
+        "test": "اختبار",
+        "rawNotObject": "يجب أن يكون كائن JSON",
+        "rawInvalid": "JSON غير صالح",
+        "fixRaw": "أصلح الحقول غير الصالحة أولاً",
+        "likeRequired": "أدخل النموذج الذي يشبهه",
+        "customRequired": "يتطلب الوضع المخصص حقولاً لمستوى واحد على الأقل",
+        "saveFailed": "تعذّر حفظ إعدادات الاستدلال"
+      }
     },
     "licensePage": {
       "title": "الترخيص",
@@ -2729,6 +3207,88 @@
     "piiTab": "البيانات الشخصية"
   },
   "data": {
+    "keepSavedSecret": "اتركه فارغًا للاحتفاظ بالسر المحفوظ",
+    "settingsNeedTest": "تغيّرت الإعدادات — اختبر مجددًا",
+    "queryAccess": "الوصول إلى الاستعلامات",
+    "sharedSchema": "المخطط المشترك",
+    "refreshSharedSchema": "تحديث المخطط المشترك",
+    "refreshMySchema": "تحديث مخططي",
+    "manageConnection": "إدارة الاتصال",
+    "connectionSettings": "إعدادات الاتصال",
+    "editSettings": "تعديل الإعدادات",
+    "savedSecret": "محفوظ",
+    "testAgain": "اختبار مجددًا",
+    "setupSaved": "تم حفظ الاتصال",
+    "setupSavedDiscoveryFailed": "تم حفظ الاتصال. فشل اكتشاف المخطط. يمكنك تصحيح الإعدادات وإعادة المحاولة.",
+    "setupDone": "تم",
+    "setupPhases": {
+      "schema": "معالجة: المخطط",
+      "catalog": "معالجة: الكتالوج",
+      "columns": "معالجة: الأعمدة",
+      "tables": "معالجة: الجداول",
+      "models": "معالجة: النماذج",
+      "workspaces": "معالجة: مساحات العمل",
+      "reports": "معالجة: التقارير",
+      "applications": "معالجة: التطبيقات",
+      "datasets": "معالجة: مجموعات البيانات",
+      "universes": "معالجة: العوالم",
+      "indices": "معالجة: الفهارس",
+      "aliases": "معالجة: الأسماء البديلة",
+      "files": "معالجة: الملفات",
+      "collections": "معالجة: المجموعات",
+      "subject_areas": "معالجة: المجالات الموضوعية",
+      "assets": "معالجة: الموارد",
+      "databases": "معالجة: قواعد البيانات",
+      "concepts": "معالجة: المفاهيم",
+      "cubes": "معالجة: المكعبات",
+      "entities": "معالجة: الكيانات",
+      "lists": "معالجة: القوائم",
+      "metrics": "معالجة: المقاييس",
+      "services": "معالجة: الخدمات",
+      "boards": "معالجة: اللوحات",
+      "relationship_schemas": "معالجة: مخططات العلاقات",
+      "semantic_views": "معالجة: طرق العرض الدلالية",
+      "catalog_pages": "معالجة: صفحات الكتالوج",
+      "dashboard_spaces": "معالجة: مساحات لوحات المعلومات",
+      "saved-search_spaces": "معالجة: مساحات عمليات البحث المحفوظة",
+      "discovering_schema": "اكتشاف: المخطط",
+      "catalog_ready": "جاهز: الكتالوج",
+      "reading_semantic_views": "قراءة: طرق العرض الدلالية",
+      "admin_scan": "فحص إداري: مساحات العمل",
+      "listing_workspaces": "سرد: مساحات العمل",
+      "workspace_models": "سرد: النماذج",
+      "workspace_reports": "سرد: التقارير",
+      "model_metadata": "قراءة: النماذج",
+      "model_introspection": "معالجة: النماذج",
+      "assembling_models": "تجميع: النماذج",
+      "reused_models": "أُعيد استخدامها: النماذج",
+      "inspected_models": "تم فحصها: النماذج",
+      "unreadable_models": "غير قابلة للقراءة: النماذج",
+      "dataset_schemas": "قراءة: مجموعات البيانات",
+      "listing_files": "سرد: الملفات",
+      "log_groups": "مجموعات السجلات",
+      "saved_search_spaces": "معالجة: مساحات عمليات البحث المحفوظة",
+      "reading_columns": "قراءة الأعمدة",
+      "processing_columns": "معالجة الأعمدة",
+      "materialized_views": "قراءة العروض المادية",
+      "relationships": "قراءة العلاقات",
+      "metadata_fallback": "قراءة البيانات الوصفية الأساسية",
+      "discovering": "اكتشاف البيانات",
+      "connecting": "جارٍ الاتصال بالمصدر",
+      "saving": "جارٍ حفظ الكتالوج",
+      "warming": "جارٍ تجهيز ذاكرة البيانات المؤقتة",
+      "syncing_agents": "جارٍ المزامنة مع الوكلاء"
+    },
+    "setupStatus": "حالة الاتصال",
+    "setupReadyHint": "أدخل تفاصيل الاتصال. سنتحقق من الوصول ونكتشف البيانات المتاحة.",
+    "setupConnection": "التحقق من الاتصال",
+    "setupConnecting": "جارٍ الاتصال…",
+    "setupCurrentStage": "المرحلة الحالية",
+    "setupElapsed": "الوقت المنقضي: {time}",
+    "setupLastActivity": "آخر نشاط: منذ {time}",
+    "setupNoActivity": "لا يوجد نشاط منذ {time} — قد تكون الفهرسة متوقفة",
+    "setupQueued": "في قائمة الانتظار — بانتظار انتهاء عمليات فهرسة أخرى",
+    "setupPreviousStages": "المراحل السابقة",
     "title": "الاتصالات",
     "subtitle": "إدارة اتصالات قواعد البيانات.",
     "addConnection": "إضافة اتصال",
@@ -2784,6 +3344,7 @@
     "provideCredentials": "قدّم بيانات الاعتماد لتفعيل الوصول.",
     "authMethod": "طريقة المصادقة",
     "signIn": "تسجيل الدخول",
+    "signInRequired": "يلزم تسجيل الدخول",
     "testConnection": "اختبار الاتصال",
     "cancel": "إلغاء",
     "save": "حفظ",
@@ -2838,7 +3399,7 @@
     "retry": "إعادة المحاولة",
     "reindex": "إعادة الفهرسة",
     "lastIndexed": "آخر فهرسة",
-    "customQueries": "استعلامات مخصصة",
+    "customQueries": "جداول مخصصة",
     "schemaDiscovery": "اكتشاف المخطط",
     "stop": "إيقاف",
     "stopping": "جارٍ الإيقاف…",
@@ -2940,6 +3501,14 @@
     "mcpAuthOauthApp": "OAuth (تطبيق مسجّل من المسؤول)",
     "mcpDcrHintA": "يسجّل هذا الموصل نفسه تلقائيًا (DCR) — لا حاجة لإدخال بيانات اعتماد عميل.",
     "mcpDcrHintB": "يسجّل كل مستخدم دخوله بحسابه الخاص عند أول استخدام.",
+    "mcpDcrScopesLabel": "النطاقات (Scopes، تجاوز اختياري)",
+    "mcpDcrScopesPlaceholder": "تُكتشف تلقائيًا — شغّل التحقق",
+    "mcpDcrScopesHint": "اتركه فارغًا لطلب النطاقات التي يعلنها الخادم. يعرض التحقق ما تم اكتشافه.",
+    "mcpDcrDetectedScopes": "تم الاكتشاف: {scopes}",
+    "mcpDcrDetectedNone": "الخادم لا يعلن أي نطاقات؛ لن يطلب تسجيل الدخول أيًا منها.",
+    "mcpDcrScopesSourceChallenge": "من تحدي تسجيل الدخول للخادم",
+    "mcpDcrScopesSourceResource": "من بيانات تعريف المورد للخادم",
+    "mcpDcrScopesSourceAs": "من خادم التفويض (خادم MCP لا يعلن أي نطاقات)",
     "mcpTokenSharedHint": "هذا الرمز مشترك بين كل من يستخدم هذا الاتصال.",
     "mcpOauthAppHint": "أنت تسجّل تطبيق OAuth لمؤسستك بأكملها. بعد الحفظ، يسجّل كل مستخدم دخوله بشكل فردي — تُخزَّن رموزه مشفّرة وتُرسل مع كل استدعاء أداة.",
     "mcpOauthPrefilledHint": "نقاط نهاية المزوّد معبأة مسبقًا (انظر متقدم) — تحتاج فقط إلى Client ID وSecret.",
@@ -3055,7 +3624,28 @@
         }
       ]
     },
-    "setupGuideCopyFailed": "فشل النسخ — حدد النص"
+    "setupGuideCopyFailed": "فشل النسخ — حدد النص",
+    "schemaRefreshFailed": "فشل تحديث المخطط",
+    "detailsAndLogs": "التفاصيل والسجلات ({n})",
+    "lastConnectionTestPassed": "نجح آخر اختبار للاتصال",
+    "myAccount": "حسابي",
+    "accessDataUsing": "الوصول إلى البيانات باستخدام",
+    "organizationAccount": "حساب المؤسسة",
+    "personalAccessDescription": "استخدم أذوناتك الخاصة.",
+    "organizationAccessDescription": "استخدم الوصول المشترك الذي أعدّه المسؤول.",
+    "signInToProvider": "تسجيل الدخول إلى {name}",
+    "lastCheckedRelative": "آخر تحقق: {time}",
+    "personalPermissions": "يستخدم أذونات حسابك",
+    "contactConnectionAdmin": "اتصل بالمسؤول لاستعادة هذا الاتصال.",
+    "refreshAvailable": "تحديث الجداول المتاحة",
+    "signOut": "تسجيل الخروج",
+    "usedBy": "يُستخدم بواسطة",
+    "noAccessibleAgents": "لا توجد وكلاء متاحة لك",
+    "accountLabel": "الحساب",
+    "refreshAccess": "تحديث الوصول",
+    "yourAccount": "حسابك",
+    "managementOrganizationHint": "تستخدم الاختبارات وتحديثات المخطط بيانات الاعتماد المحفوظة للمؤسسة.",
+    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك."
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -3087,7 +3677,22 @@
     "userNotFound": "المستخدم غير موجود في المؤسسة",
     "copyFailed": "تعذّر النسخ",
     "includeDataTab": "تضمين علامة تبويب البيانات",
-    "includeDataTabDesc": "سيرى المستلمون سجل البيانات الكامل والعملية المستخدمة لإنشاء هذا التقرير"
+    "includeDataTabDesc": "سيرى المستلمون سجل البيانات الكامل والعملية المستخدمة لإنشاء هذا التقرير",
+    "allowChat": "السماح بالدردشة",
+    "allowChatDesc": "يمكن لأعضاء مساحة العمل الذين سجّلوا الدخول طرح أسئلة حول لوحة المعلومات هذه",
+    "chatScope": "يمكن للدردشة استخدام",
+    "chatScopeAgents": "وكلاء التقرير",
+    "chatScopeAgentsDesc": "يمكن للدردشة تشغيل استعلامات مباشرة للقراءة فقط على الوكلاء المحددين",
+    "chatScopeDataOnly": "بيانات لوحة المعلومات فقط",
+    "chatScopeDataOnlyDesc": "تجيب الدردشة فقط من البيانات الموجودة بالفعل في لوحة المعلومات هذه",
+    "chatNoAgents": "لا يوجد وكلاء مرتبطون بهذا التقرير — ستجيب الدردشة من بيانات لوحة المعلومات فقط.",
+    "chatModel": "النموذج الافتراضي",
+    "chatModelDesc": "النموذج الذي تستخدمه الدردشة للمشاهدين. يعود المشاهدون الذين لا يملكون حق الوصول إليه إلى نموذجهم الافتراضي.",
+    "chatModelOrgDefault": "الافتراضي للمؤسسة ({name})",
+    "chatModelOrgDefaultPlain": "الافتراضي للمؤسسة",
+    "chatModelReport": "كما في التقرير ({name})",
+    "chatModelReportPlain": "كما في التقرير",
+    "chatModelUnavailable": "النموذج غير متاح — يتم استخدام الافتراضي"
   },
   "publish": {
     "published": "منشورة",
@@ -3107,6 +3712,8 @@
     "copyClipboardFailed": "تعذّر النسخ إلى الحافظة"
   },
   "errors": {
+    "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
+    "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",
     "generic": "حدث خطأ. يُرجى المحاولة مجددًا.",
     "network": "خطأ في الشبكة. تحقق من اتصالك.",
     "unauthorized": "ليس لديك صلاحية لذلك.",
@@ -3148,7 +3755,35 @@
       "model_id_required": "لا يمكن أن يكون معرّف النموذج فارغًا",
       "model_id_not_editable": "لا يمكن تعديل معرّف النموذج إلا للنماذج المخصّصة لدى مزوّدي Azure أو AWS Bedrock أو المزوّدين المخصّصين (المتوافقين مع OpenAI)",
       "model_id_duplicate": "النموذج '{model_id}' موجود بالفعل لدى هذا المزوّد"
-    }
+    },
+    "data_source.in_use": "الوكيل \"{agent}\" لا يزال قيد الاستخدام ({reference})، لذا لا يمكن حذفه. لم يُحذف أي شيء.",
+    "memory.disabled": "ذاكرة المستخدم متوقفة في هذه المؤسسة.",
+    "memory.not_found": "إدخال الذاكرة هذا غير موجود.",
+    "memory.text_required": "اكتب ما يجب تذكره.",
+    "memory.text_too_long": "بحد أقصى 280 حرفًا.",
+    "memory.too_many_tags": "استخدم 4 وسوم على الأكثر.",
+    "memory.tags_required": "أضف وسمًا واحدًا على الأقل.",
+    "memory.invalid_date": "هذا التاريخ غير صالح.",
+    "memory.sensitive": "لا يمكن للذاكرة أن تحتوي على أسرار أو كلمات مرور أو بيانات شخصية حساسة.",
+    "memory.looks_like_rule": "هذه قاعدة لطريقة الإجابة — أضفها إلى تعليماتك المخصصة. الذاكرة تحفظ حقائق عنك.",
+    "memory.full": "الذاكرة ممتلئة. احذف بعض الإدخالات أولًا.",
+    "memory.not_active": "تم تغيير هذا الإدخال أو نسيانه بالفعل.",
+    "audit_stream.not_found": "لم يتم العثور على تدفق السجل.",
+    "audit_stream.invalid_destination": "وجهة تدفق غير معروفة.",
+    "audit_stream.missing_field": "حقل مطلوب مفقود: {field}.",
+    "audit_stream.invalid_field": "قيمة غير صالحة لـ {field}.",
+    "audit_log.export_too_large": "التصدير محدود بـ {limit} حدثًا وهذا التصفية تطابق {total}. ضيّق التصفية أو استخدم تدفق سجل.",
+    "ARTIFACT_RESOURCE_VALIDATION": "طلب مورد غير صالح",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "المورد غير موجود",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "الوصول مرفوض",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "سجّل الدخول للمتابعة",
+    "ARTIFACT_RESOURCE_CONFLICT": "تغير المورد؛ حدّث وحاول مجددًا",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "تم بلوغ حد المورد",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "طلبات كثيرة؛ حاول لاحقًا",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "المورد غير متاح",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "انقطع الطلب",
+    "ARTIFACT_RESOURCE_ABORTED": "أُلغي الطلب",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم"
   },
   "email": {
     "dashboardShare": {
@@ -3313,16 +3948,6 @@
     "menuData": "البيانات"
   },
   "toolbar": {
-    "collapse": "طيّ",
-    "switchToArtifact": "التبديل إلى عرض العنصر",
-    "dashboard": "لوحة تحكم",
-    "addComponent": "إضافة مكوّن",
-    "addText": "إضافة نص",
-    "theme": "السمة",
-    "rerun": "إعادة تشغيل التقرير",
-    "openInNewTab": "فتح لوحة التحكم في علامة تبويب جديدة",
-    "fullscreen": "ملء الشاشة",
-    "shareDashboard": "مشاركة لوحة التحكم",
     "polishDashboard": "تحسين لوحة التحكم"
   },
   "artifactFrame": {
@@ -3382,47 +4007,14 @@
     "renameFailed": "تعذّر إعادة تسمية لوحة المعلومات.",
     "more": "المزيد",
     "schedule": "جدولة التحديث",
-    "exportAs": "تصدير بصيغة {format}"
+    "exportAs": "تصدير بصيغة {format}",
+    "partialNoAccess": "ليس لديك صلاحية الوصول إلى بيانات: {charts}",
+    "partialFailed": "تعذّر تحميل: {charts}",
+    "partialRenderFailed": "يعتمد جزء من لوحة المعلومات هذه على بيانات لا تملك صلاحية الوصول إليها، لذا تعذّر عرضها. اطلب الوصول من مالك لوحة المعلومات."
   },
   "filter": {
-    "addFilters": "إضافة عوامل تصفية",
-    "title": "عوامل التصفية",
-    "clear": "مسح",
-    "loading": "جارٍ التحميل…",
-    "noData": "لا توجد بيانات للتصفية",
-    "refresh": "تحديث",
-    "noFilters": "لم يتم تطبيق عوامل تصفية",
-    "addFilter": "إضافة عامل تصفية",
-    "columnPlaceholder": "العمود",
-    "searchPlaceholder": "بحث…",
-    "valuePlaceholder": "القيمة",
     "selectColumn": "اختر عمودًا",
-    "visualization": "التصور المرئي",
-    "orDivider": "أو",
-    "andDivider": "و",
-    "rowsCount": "{shown} من {total} صف",
-    "apply": "تطبيق",
-    "op": {
-      "equals": "يساوي",
-      "notEquals": "لا يساوي",
-      "contains": "يحتوي على",
-      "notContains": "لا يحتوي على",
-      "startsWith": "يبدأ بـ",
-      "endsWith": "ينتهي بـ",
-      "isEmpty": "فارغ",
-      "isNotEmpty": "ليس فارغًا",
-      "in": "ضمن",
-      "notIn": "ليس ضمن",
-      "greaterThan": "أكبر من",
-      "lessThan": "أصغر من",
-      "greaterOrEqual": "أكبر من أو يساوي",
-      "lessOrEqual": "أصغر من أو يساوي",
-      "between": "بين",
-      "before": "قبل",
-      "after": "بعد",
-      "isTrue": "صحيح",
-      "isFalse": "خاطئ"
-    }
+    "visualization": "التصور المرئي"
   },
   "slideViewer": {
     "loading": "جارٍ تحميل الشرائح...",
@@ -3796,6 +4388,7 @@
       "chip_slow": "بطيئة",
       "chip_expensive": "مكلفة",
       "chip_retried": "أعيدت المحاولة",
+      "rangeAll": "كل الوقت",
       "range24h": "آخر 24 ساعة",
       "range7d": "آخر 7 أيام",
       "range30d": "آخر 30 يومًا",
@@ -4298,6 +4891,7 @@
     "nav": {
       "general": "عام",
       "instructions": "تعليمات مخصصة",
+      "memory": "الذاكرة",
       "usage": "الاستخدام",
       "apiKeys": "مفاتيح API",
       "appearance": "المظهر"
@@ -4325,7 +4919,11 @@
       "defaultModelSaved": "تم تحديث النموذج الافتراضي",
       "defaultModelFailed": "فشل تحديث النموذج الافتراضي",
       "directorySubtitle": "بيانات وظيفية مُزامَنة من موفّر الهوية في مؤسستك. مرئية للذكاء الاصطناعي كسياق.",
-      "directoryTitle": "ملف الدليل التنظيمي"
+      "directoryTitle": "ملف الدليل التنظيمي",
+      "checkinsTitle": "متابعات الوكيل",
+      "checkinsSubtitle": "يتيح للوكيل العودة من تلقاء نفسه بعد المحادثة عندما يستحق أمر ما إعادة النظر (مثلًا بعد تحديث البيانات). لن يُشعرك إلا عند حدوث تغيير مهم.",
+      "checkinsSaved": "تم حفظ تفضيل المتابعة",
+      "checkinsFailed": "تعذّر حفظ تفضيل المتابعة"
     },
     "instructions": {
       "title": "تعليمات مخصصة",
@@ -4377,8 +4975,36 @@
     },
     "memory": {
       "title": "الذاكرة",
-      "subtitle": "ما تعلّمه الذكاء الاصطناعي وتذكّره عنك في هذه المؤسسة — تفضيلاتك وأسلوبك والتحليلات التي أعجبتك. يحدّث ذلك أثناء عملك؛ ويمكنك تحريره أو مسحه هنا.",
-      "placeholder": "لم يحفظ الذكاء الاصطناعي أي شيء في الذاكرة بعد. كلما أخبرته بتفضيلاتك، سيتذكّرها هنا."
+      "subtitle": "حقائق يتذكرها الذكاء الاصطناعي عنك في هذه المؤسسة — عملك ومشاريعك وتواريخك وما تتابعه واختصاراتك الخاصة. لا يراها أحد غيرك.",
+      "vsInstructions": "طريقة إجابة الذكاء الاصطناعي لك (التنسيق، الوحدات، الطول) ليست ذاكرة — إنها تعليماتك المخصصة.",
+      "instructionsLink": "التعليمات المخصصة",
+      "count": "{count} من {cap} إدخالات",
+      "forgetAll": "نسيان كل شيء",
+      "forgetAllTitle": "نسيان كل شيء؟",
+      "forgetAllBody": "سينسى الذكاء الاصطناعي جميع الإدخالات البالغ عددها {count} التي يتذكرها عنك في هذه المؤسسة. لا يمكن التراجع عن ذلك.",
+      "forgetAllConfirm": "نسيان كل شيء",
+      "empty": "لم يُحفظ شيء بعد. أثناء عملك، يحفظ الذكاء الاصطناعي هنا حقائق مثل مشاريعك أو مواعيدك النهائية أو اجتماعاتك القادمة.",
+      "add": "إضافة",
+      "past": "سابق",
+      "fromReport": "من {title}",
+      "untitledReport": "تقرير",
+      "loadFailed": "تعذّر تحميل ذاكرتك",
+      "saveFailed": "تعذّر حفظ التغيير",
+      "saved": "تم حفظ الذاكرة",
+      "forgotten": "تم النسيان",
+      "forgotAll": "تم نسيان كل شيء",
+      "source": {
+        "user": "أضفته أنت",
+        "agent": "حفظه الذكاء الاصطناعي",
+        "dream": "دُوّن خلال الليل"
+      },
+      "form": {
+        "placeholder": "حقيقة عنك، مثال: أقود مشروع فقدان العملاء للربع الثالث",
+        "tags": "الوسوم، مفصولة بفواصل",
+        "dateHint": "أضف تاريخًا إذا كان مرتبطًا بتاريخ"
+      },
+      "searchPlaceholder": "البحث في الذاكرة…",
+      "noMatches": "لا توجد ذكريات مطابقة."
     }
   },
   "commandPalette": {
@@ -4643,7 +5269,15 @@
   },
   "events": {
     "evalRunFinished": "انتهى تشغيل التقييم '{title}' — نجحت {passed}/{total} ({status})",
-    "waitResumed": "انقضى الانتظار — استئناف: {reason}"
+    "waitResumed": "انقضى الانتظار — استئناف: {reason}",
+    "checkin": {
+      "label": "متابعة",
+      "running": "أتابع هذه المحادثة…",
+      "sent": "متابعة — تم إشعارك",
+      "sentWithSubject": "متابعة — تم إشعارك: {subject}",
+      "quiet": "تمت إعادة الفحص: لا جديد",
+      "failed": "فشلت المتابعة"
+    }
   },
   "chatSummary": {
     "empty": "لا توجد عناصر بعد",
@@ -4918,8 +5552,8 @@
     "loadingPrompts": "جارٍ تحميل الطلبات…",
     "selectedCount": "تم اختيار {count}",
     "selectTables": "اختيار الجداول",
-    "customQuery": "استعلام مخصص",
-    "customQueriesOff": "الاستعلامات المخصصة معطلة",
+    "customQuery": "جدول مخصص",
+    "customQueriesOff": "الجداول المخصصة معطلة",
     "enableCustomQueries": "التفعيل في إعدادات الذكاء الاصطناعي",
     "reload": "تحديث",
     "editQuery": "تعديل {name}",
@@ -4977,5 +5611,74 @@
     "searchColumns": "البحث في الأعمدة…",
     "noColumns": "لا توجد أعمدة مطابقة",
     "centrality": "المركزية"
+  },
+  "fork": {
+    "preparing": "جارٍ تجهيز نسختك…",
+    "preparingDetail": "يتم تشغيل الاستعلامات ببيانات اعتمادك الخاصة. يستغرق ذلك عادةً بضع ثوانٍ.",
+    "nothingRan": "تعذّر إنشاء نسختك: لم يمكن تشغيل أي من استعلاماتها ببيانات اعتمادك."
+  },
+  "quota": {
+    "resetsOn": "تتم إعادة التعيين في {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "التعلّم خلال الليل",
+    "nightlyDescription": "كل ليلة، يحوّل التصحيحات المتكرّرة والملاحظات والاستخدام إلى اقتراح موحّد واحد لهذا الوكيل. يتبع الإعداد أعلاه مثل أي اقتراح آخر.",
+    "nightlyOrgOff": "التعلّم الليلي متوقف لهذه المؤسسة (إعدادات الذكاء الاصطناعي)."
+  },
+  "nightlyBuild": {
+    "merged": "مدمج",
+    "expired": "منتهي الصلاحية",
+    "mergedTip": "أُدمج في اقتراح من التعلّم الليلي. ليس رفضًا من مراجع.",
+    "expiredTip": "أُغلق بعد بقائه دون مراجعة بعد المهلة المحددة للمؤسسة. يظل دليلًا إذا عاد النمط."
+  },
+  "schemaIdentity": {
+    "viewing": "عرض:",
+    "myAccount": "حسابي",
+    "serviceAccount": "حساب الخدمة",
+    "sharedConnection": "اتصال مشترك",
+    "sharedSchema": "المخطط المشترك",
+    "changeIdentity": "تغيير هوية الاستعلام",
+    "refresh": "تحديث المخطط",
+    "refreshMyFor": "تحديث {name} · حسابي",
+    "refreshSharedFor": "تحديث {name} · المخطط المشترك",
+    "refreshing": "جارٍ التحديث…",
+    "unknown": "آخر تحديث للمخطط: غير معروف",
+    "refreshedAt": "آخر تحديث للمخطط: {time}",
+    "attemptedAt": "آخر محاولة تحديث: {time}",
+    "updated": "تم تحديث المخطط.",
+    "partial": "تعذر تحديث بعض النماذج. تم الاحتفاظ بأعمدتها السابقة.",
+    "failed": "لم يكتمل تحديث المخطط. حاول مرة أخرى.",
+    "connectRequired": "اربط حسابك لعرض جداوله."
+  },
+"artifactResources": {
+    "readOnlyLabel": "للقراءة فقط",
+    "sort": "ترتيب السجلات",
+    "applyFilter": "تطبيق",
+    "clearFilter": "مسح عامل التصفية",
+    "true": "صحيح",
+    "false": "خطأ",
+    "inspect": "الموارد",
+    "readOnly": "معلومات العنصر للقراءة فقط",
+    "data": "مستكشف البيانات",
+    "analytics": "التحليلات",
+    "collection": "اختر مجموعة",
+    "refresh": "تحديث",
+    "schema": "مخطط المجموعة",
+    "filterField": "حقل التصفية",
+    "filterValue": "يساوي",
+    "filter": "تصفية",
+    "empty": "لا توجد بيانات لعرضها",
+    "pageRows": "عدد السجلات في هذه الصفحة: {count}",
+    "next": "الصفحة التالية",
+    "details": "تفاصيل السجل",
+    "views": "المشاهدات",
+    "viewers": "الزوار الفريدون المسجلون",
+    "anonymousNote": "تُحتسب الزيارات المجهولة كمشاهدات، وليس كأشخاص فريدين.",
+    "embedded": "مضمّن",
+    "standalone": "صفحة مشتركة",
+    "days": "آخر {count} يوم",
+    "failed": "تعذر تحميل بيانات العنصر",
+    "newest": "الأحدث أولاً",
+    "oldest": "الأقدم أولاً"
   }
 }

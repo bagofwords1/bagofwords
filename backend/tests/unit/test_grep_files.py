@@ -315,10 +315,13 @@ class TestNetworkDirGrep:
         r = c.grep_files("ERR_TIMEOUT_504")
         assert {m["file_id"] for m in r["matches"]} == {"app/web.log", "app/worker.log"}
 
-    def test_traversal_rejected_as_not_found(self, logs):
+    def test_traversal_rejected_as_access_denied(self, logs):
+        # A root escape is a scope denial (ScopeEscapeError), not a missing
+        # file — so grep_files audits it like an off-glob id, instead of
+        # letting the most hostile input pass as a quiet "not_found".
         c = _client(logs)
         r = c.grep_files("x", file_ids=["../outside.txt"])
-        assert r["skipped_files"] == [{"file_id": "../outside.txt", "reason": "not_found"}]
+        assert r["skipped_files"] == [{"file_id": "../outside.txt", "reason": "access_denied"}]
 
     def test_cursor_pages_through_corpus(self, logs):
         c = _client(logs)

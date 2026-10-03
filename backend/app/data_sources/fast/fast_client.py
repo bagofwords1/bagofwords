@@ -1,6 +1,6 @@
-"""FastQueryClient — serves materialized custom queries to the agent.
+"""FastQueryClient — serves materialized custom tables to the agent.
 
-Built per request from the custom queries a given agent has **activated**. Each
+Built per request from the custom tables a given agent has **activated**. Each
 call to `connect()` creates a throwaway in-memory DuckDB, attaches the relevant
 encrypted artifacts read-only, registers one view per relation, and then locks
 the session down before any agent-generated SQL runs.
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class FastRelation:
-    """One activated custom query, resolved to a readable artifact."""
+    """One activated custom table, resolved to a readable artifact."""
 
     def __init__(
         self,

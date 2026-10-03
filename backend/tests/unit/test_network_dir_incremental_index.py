@@ -153,7 +153,11 @@ class TestProgressAndCancel:
 
         client = _client(tree)
         client.get_schemas(progress_callback=cb)
-        assert events[0] == ("indexing files", None, 0, 3)
+        # The discovery decorator (clients/progress.py) wraps get_schemas and
+        # opens with its own bounded 'discovering_schema' phase, so the client's
+        # own phase is the second event, not the first.
+        assert events[0] == ("discovering_schema", None, 0, 0)
+        assert events[1] == ("indexing files", None, 0, 3)
         item_events = [e for e in events if e[1] is not None]
         assert len(item_events) == 3
         assert events[-1][2] == events[-1][3] == 3

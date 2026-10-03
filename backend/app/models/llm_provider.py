@@ -4,7 +4,7 @@ from app.models.base import BaseSchema
 import json
 from cryptography.fernet import Fernet
 from app.settings.config import settings
-from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials, CustomCredentials, BedrockCredentials
+from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials, CustomCredentials, BedrockCredentials, VertexCredentials
 
 # LLM Provider Classes
 
@@ -50,6 +50,13 @@ LLM_PROVIDER_DETAILS = [
          "description": "AWS Bedrock for accessing Claude and other foundation models. Supports API key, access keys, and IAM authentication.",
          "config": "BedrockConfig",
          "credentials": BedrockCredentials.schema()
+     },
+     {
+         "type": "vertex",
+         "name": "Google Vertex AI",
+         "description": "Google Cloud Vertex AI for accessing Claude, Gemini and third-party models (Grok, GLM, Llama). Supports Application Default Credentials and service account keys.",
+         "config": "VertexConfig",
+         "credentials": VertexCredentials.schema()
      }
 ]
 
@@ -63,10 +70,12 @@ BOW_PROVIDER_DETAILS = {
 
 # Provider types whose model ids are identifiers the admin owns rather than a
 # vendor catalog: Azure deployment names, Bedrock model/inference-profile ids,
-# and whatever an OpenAI-compatible server exposes. Those are routinely typo'd
-# or renamed on the provider side, so a custom model on one of these providers
-# may have its model_id edited in place instead of being deleted and re-added.
-EDITABLE_MODEL_ID_PROVIDER_TYPES = {"azure", "custom", "bedrock"}
+# Vertex publisher ids (which carry vendor prefixes like ``xai/`` and optional
+# ``@version`` suffixes, and differ per project), and whatever an
+# OpenAI-compatible server exposes. Those are routinely typo'd or renamed on
+# the provider side, so a custom model on one of these providers may have its
+# model_id edited in place instead of being deleted and re-added.
+EDITABLE_MODEL_ID_PROVIDER_TYPES = {"azure", "custom", "bedrock", "vertex"}
 
 
 

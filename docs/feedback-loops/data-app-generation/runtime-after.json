@@ -1,0 +1,126 @@
+{
+  "baseline": false,
+  "results": [
+    {
+      "version": 0,
+      "dark": false,
+      "label": "pendingRemainsVisible",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": false,
+      "label": "optimisticValue",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": false,
+      "label": "queryErrorRemainsVisible",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": false,
+      "label": "customHeading",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": false,
+      "label": "legacyChart",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "pendingRemainsVisible",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "optimisticValue",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "queryErrorRemainsVisible",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "customHeading",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "legacyChart",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "pendingRemainsVisible",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "optimisticValue",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "queryErrorRemainsVisible",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "customHeading",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "legacyChart",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "pendingRemainsVisible",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "optimisticValue",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "queryErrorRemainsVisible",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "customHeading",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "legacyChart",
+      "status": "PASS"
+    }
+  ],
+  "failures": []
+}

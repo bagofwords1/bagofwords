@@ -1,5 +1,8 @@
 """Run from backend: PYTHONPATH=. python tests/integrations/astra_smoke.py.
 
+Targets gpt-6-astra; set OPENAI_SMOKE_MODEL to smoke another GPT-6 model
+(gpt-6-sol, gpt-6-luna).
+
 Uses OPENAI_API_KEY from the environment, or a non-echoing terminal prompt.
 Only synthetic prompts are sent. Never prints credentials or raw API errors.
 """
@@ -16,7 +19,7 @@ async def main():
     client = OpenAIResponsesClient(api_key=key, temperature=0.7)
     client.client = client.client.with_options(timeout=60, max_retries=0)
     client.async_client = client.async_client.with_options(timeout=60, max_retries=0)
-    model = 'gpt-6-astra'
+    model = os.environ.get('OPENAI_SMOKE_MODEL', 'gpt-6-astra')
     try:
         result = await asyncio.to_thread(client.inference, model, 'Reply with OK only.')
         assert result.text.strip()

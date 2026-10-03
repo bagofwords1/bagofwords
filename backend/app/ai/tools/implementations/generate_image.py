@@ -17,12 +17,14 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.generate_image import GenerateImageInput, GenerateImageOutput
 from app.ai.llm import LLM
-from app.models.llm_model import LLMModel
+from app.models.llm_model import LLMModel, LLM_MODEL_DETAILS
 from app.models.llm_provider import LLMProvider
 from app.services.file_service import FileService
 from app.dependencies import async_session_maker
 
 logger = logging.getLogger(__name__)
+
+_CATALOG_IMAGE_MODELS = [m for m in LLM_MODEL_DETAILS if m.get("supports_image_generation")]
 
 
 def _slug(text: str, default: str = "generated-image") -> str:
@@ -44,7 +46,7 @@ class GenerateImageTool(Tool):
             description="""
 Purpose:
 Generate an image from a natural-language prompt using an image-generation
-model (e.g. gpt-image-1) and store it as a file in the report. Returns a
+model (e.g. gpt-image-2.5-sunburst) and store it as a file in the report. Returns a
 `file_id` you can embed in a dashboard.
 
 Use when:
@@ -78,7 +80,12 @@ Do not use when:
         return GenerateImageOutput
 
     async def _find_image_model(self, db, organization_id: str) -> Optional[LLMModel]:
-        """Pick an enabled image-generation model for the org (provider enabled)."""
+        """Pick an enabled image-generation model for the org (provider enabled).
+
+        Deterministic: catalog image models first, in catalog order, then
+        anything else (custom or retired ids like gpt-image-1) by model_id. An
+        unordered ``.first()`` let a retired model win over its replacement.
+        """
         result = await db.execute(
             select(LLMModel)
             .join(LLMProvider, LLMModel.provider_id == LLMProvider.id)
@@ -90,7 +97,11 @@ Do not use when:
                 LLMProvider.is_enabled == True,  # noqa: E712
             )
         )
-        return result.scalars().first()
+        models = list(result.scalars().all())
+        if not models:
+            return None
+        rank = {m["model_id"]: i for i, m in enumerate(_CATALOG_IMAGE_MODELS)}
+        return min(models, key=lambda m: (rank.get(m.model_id, len(rank)), m.model_id or ""))
 
     async def run_stream(
         self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]
@@ -128,7 +139,7 @@ Do not use when:
         if model is None:
             msg = (
                 "No image-generation model is enabled for this organization. "
-                "Enable an image model (e.g. gpt-image-1) in Settings → AI/LLMs."
+                "Enable an image model (e.g. gpt-image-2.5-sunburst) in Settings → AI/LLMs."
             )
             yield ToolEndEvent(
                 type="tool.end",

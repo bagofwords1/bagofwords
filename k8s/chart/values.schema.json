@@ -83,11 +83,21 @@
         "intercomEnabled": { "type": "boolean" },
         "telemetryEnabled": { "type": "boolean" },
         "baseUrl": { "type": "string" },
+        "forwardedAllowIps": { "type": "string" },
         "authMode": { "type": "string", "enum": ["hybrid", "local_only", "sso_only"] },
         "allowUninvitedSignups": { "type": "boolean" },
         "allowMultipleOrganizations": { "type": "boolean" },
         "verifyEmails": { "type": "boolean" },
         "uvicornWorkers": { "type": ["string", "integer"] },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "poolSize": { "type": ["string", "integer"] },
+            "maxOverflow": { "type": ["string", "integer"] },
+            "idleSessionTimeoutMs": { "type": ["string", "integer"] }
+          }
+        },
         "otel": {
           "type": "object",
           "additionalProperties": false,

@@ -45,7 +45,7 @@
                 <div class="flex items-center gap-1.5">
                   <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ group.latest.title || $t('prompt.untitled') }}</span>
                   <span v-if="group.latest.version" class="text-[10px] font-medium text-gray-400 flex-shrink-0">v{{ group.latest.version }}</span>
-                  <span v-if="group.latest.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
+                  <span v-if="group.latest.id === defaultArtifactId" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
                 </div>
                 <div v-if="group.latest.mode" class="text-[11px] text-gray-400 mt-0.5">{{ group.latest.mode === 'doc' ? $t('chatSummary.document') : group.latest.mode }}</div>
               </div>
@@ -274,23 +274,55 @@ defineExpose({ reloadNotes: loadNotes })
 
 const showAllArtifacts = ref(false)
 
-// One row per artifact KIND, not per version. The list arrives newest-first and
-// every regeneration adds its own row, so a repeatedly-rebuilt slide deck used
-// to push the other artifacts past the 3-row cut-off: a report with slides v1-v3
-// plus a doc buried its `page` dashboard at position 5, invisible until the user
-// expanded — and even then indistinguishable, since it shared the deck's title.
-// Grouping by mode keeps every kind on screen no matter how often one is rebuilt.
+// The artifact the report page actually opens by default: the newest
+// dashboard/deck row (docs never take the default slot — same rule as the
+// backend's get_latest_by_report and the public share page).
+const defaultArtifactId = computed(() => {
+  const rows = props.artifactList || []
+  return (rows.find((a: any) => a?.mode !== 'doc') || rows[0])?.id
+})
+
+// One row per ARTIFACT, not per version — and not per kind either. Grouping
+// by mode (the previous rule) merged two different dashboards of the same
+// report into one row with interleaved version numbers; grouping by version
+// would let a repeatedly-rebuilt deck push everything past the 3-row cut-off.
+// `artifact_id` (the parent identity every version carries) is the real key.
 const artifactGroups = computed(() => {
-  const byMode = new Map<string, any[]>()
-  for (const art of props.artifactList || []) {
-    const mode = String(art?.mode || 'unknown')
-    if (!byMode.has(mode)) byMode.set(mode, [])
-    byMode.get(mode)!.push(art)
+  // Pass 1: bucket by parent artifact id — versions of the same
+  // dashboard/deck/doc stay together whatever their titles say.
+  const rows = props.artifactList || []
+  const byArtifact = new Map<string, any[]>()
+  for (const art of rows) {
+    const key = String(art?.artifact_id || art?.id)
+    if (!byArtifact.has(key)) byArtifact.set(key, [])
+    byArtifact.get(key)!.push(art)
   }
-  // props.artifactList is already created_at DESC, so each bucket's first entry
-  // is that kind's newest version, and Map insertion order leaves the
-  // most-recently-touched kind first.
-  return Array.from(byMode.values()).map((versions) => ({
+  // Pass 2: pre-migration history has one parent PER VERSION (the backfill
+  // deliberately refused to guess lineage), so artifact_id alone would
+  // explode an old 7-edit dashboard into 7 rows. Backfilled parents reuse
+  // their original version's id (migration artver01) — new parents never do —
+  // so a group holding a version whose id IS the artifact_id is old history:
+  // those merge by kind+title, even after a post-migration edit has grown
+  // one of them into a chain. Everything else keeps its own identity, so two
+  // new dashboards that happen to share a title stay two rows.
+  const merged = new Map<string, any[]>()
+  for (const [artifactId, versions] of byArtifact) {
+    const backfilled = versions.some((v: any) => String(v?.id) === artifactId)
+    const key = backfilled
+      ? `legacy:${versions[0]?.mode || 'unknown'}::${versions[0]?.title || ''}`
+      : `artifact:${artifactId}`
+    if (!merged.has(key)) merged.set(key, [])
+    merged.get(key)!.push(...versions)
+  }
+  // props.artifactList is created_at DESC. Merging legacy groups can
+  // interleave their versions, so restore that order inside each bucket;
+  // its first entry is then its newest version, and Map insertion order
+  // leaves the most-recently-touched artifact first.
+  const position = new Map(rows.map((a: any, i: number) => [a, i]))
+  for (const versions of merged.values()) {
+    versions.sort((a, b) => position.get(a)! - position.get(b)!)
+  }
+  return Array.from(merged.values()).map((versions) => ({
     latest: versions[0],
     older: versions.slice(1),
   }))

@@ -30,6 +30,7 @@ Auth (Controller-native, both work on 21.4):
 
 Every request passes `output=JSON` (the API defaults to XML without it).
 """
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 import json
 import re
 import time
@@ -390,7 +391,8 @@ class AppDynamicsClient(DataSourceClient):
 
     # ── schema discovery ──────────────────────────────────────────────────────
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         tables = [self._build_table(name) for name in _CATALOG]
         # Best-effort enrichment: put the real estate into the catalog so the
         # agent sees actual app/tier names and the observed service map without
@@ -404,7 +406,7 @@ class AppDynamicsClient(DataSourceClient):
                 by_name["applications"].description += f" Present: {names}{more}."
             edges: List[dict] = []
             tier_names: List[str] = []
-            for app in apps:
+            for app in discovery_items(apps, 'applications', label=lambda app: app.get('name')):
                 tiers = self._get(f"rest/applications/{app['id']}/tiers") or []
                 tier_names.extend(f"{app['name']}/{t['name']}" for t in tiers)
                 edges.extend(self._flows_for_app(app, tiers))
@@ -421,6 +423,8 @@ class AppDynamicsClient(DataSourceClient):
                 by_name["service_flows"].description += (
                     " Observed flows: " + "; ".join(lines) + f".{more}"
                 )
+        except IndexingCancelled:
+            raise
         except Exception:
             pass
         return tables

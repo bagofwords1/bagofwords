@@ -96,6 +96,7 @@ onMounted(async () => {
 
 const rangeLabel = computed(() => {
     const r = dq.range.value
+    if (r.preset === 'all') return t('monitoring.diagnosis.rangeAll')
     if (r.preset === '24h') return t('monitoring.diagnosis.range24h')
     if (r.preset === '7d') return t('monitoring.diagnosis.range7d')
     if (r.preset === '30d') return t('monitoring.diagnosis.range30d')
@@ -110,8 +111,9 @@ const toggleChip = (chip: Chip) => dq.commit(chip.active ? removeTerms(dq.text.v
 const facetsForBar = (field: string, prefix: string, qWithoutTerm: string) => dq.facets(field, prefix, qWithoutTerm)
 
 const onBucket = (b: Bucket, granularity: string) => {
-    // A day bucket narrows to that day; an hour bucket to that hour; a week to its 7 days.
-    if (granularity === 'day') return addTerms(`created:${b.bucket}`)
+    // A day bucket narrows to that day; an hour bucket to that hour; a week to
+    // its 7 days; a month (all time on an old org) to that calendar month.
+    if (granularity === 'day' || granularity === 'month') return addTerms(`created:${b.bucket}`)
     if (granularity === 'week') {
         const end = new Date(b.bucket + 'T00:00:00')
         end.setDate(end.getDate() + 6)

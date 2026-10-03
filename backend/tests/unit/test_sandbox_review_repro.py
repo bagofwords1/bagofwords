@@ -43,6 +43,28 @@ def generate_df(ds_clients, excel_files):
         run_job(SandboxJob(mode="data", code=code))
 
 
+def test_calendar_date_bounds_is_available_inside_sandbox():
+    code = """
+def generate_df(ds_clients, excel_files, calendar_date_bounds):
+    start, exclusive_end = calendar_date_bounds({'from': '2024-06-01', 'to': '2024-06-02'})
+    return pd.DataFrame({'start': [start], 'end': [exclusive_end]})
+"""
+    df = run_job(SandboxJob(mode="data", code=code)).df
+    assert df.loc[0, "start"] == "2024-06-01"
+    assert df.loc[0, "end"] == "2024-06-03"
+
+
+def test_failed_sandbox_run_preserves_printed_diagnostics():
+    code = """
+def generate_df(ds_clients, excel_files):
+    print('columns: missing amount')
+    raise ValueError('bad input')
+"""
+    with pytest.raises(SandboxExecutionError, match="bad input") as caught:
+        run_job(SandboxJob(mode="data", code=code))
+    assert "columns: missing amount" in caught.value.captured_stdout
+
+
 @pytest.mark.skipif(platform.system() != "Linux", reason="seccomp is Linux-only")
 def test_generated_code_cannot_create_a_detached_process():
     code = """

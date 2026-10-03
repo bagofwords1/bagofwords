@@ -78,7 +78,7 @@
           <UIcon
             :name="row.instruction_id ? 'i-heroicons-arrow-up-right' : 'i-heroicons-chevron-right'"
             class="w-3 h-3 mt-1 shrink-0 text-gray-300 dark:text-gray-600 transition-transform"
-            :class="!row.instruction_id && expanded === row.uid ? 'rotate-90' : (row.instruction_id ? '' : 'rtl:rotate-180')"
+            :class="!row.instruction_id && expanded === row.uid ? 'rtl-own-transform rotate-90' : (row.instruction_id ? '' : 'rtl:rotate-180')"
           />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5 flex-wrap">

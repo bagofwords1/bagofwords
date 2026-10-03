@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import pyodbc
@@ -112,7 +113,7 @@ class SybaseClient(DataSourceClient):
                 rows = cursor.fetchall()
 
                 tables = {}
-                for row in rows:
+                for row in discovery_items(rows, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                     table_name, column_name, data_type = row
 
                     if table_name not in tables:
@@ -121,6 +122,8 @@ class SybaseClient(DataSourceClient):
                     tables[table_name].columns.append(
                         TableColumn(name=column_name, dtype=data_type))
                 return list(tables.values())
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
@@ -130,7 +133,8 @@ class SybaseClient(DataSourceClient):
         raise NotImplementedError(
             "get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Get schemas for all tables in the specified database."""
         return self.get_tables()
 

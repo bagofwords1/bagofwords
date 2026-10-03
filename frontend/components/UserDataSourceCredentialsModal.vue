@@ -66,6 +66,7 @@
 
 <script lang="ts" setup>
 import { computed, watch, ref } from 'vue'
+import { connectionSignInError } from '~/composables/useConnectionSignIn'
 
 const props = defineProps<{ modelValue: boolean, dataSource: any }>()
 const emit = defineEmits(['update:modelValue', 'saved'])
@@ -155,7 +156,7 @@ async function onOAuthSignIn() {
       window.location.href = result.authorization_url
     }
   } catch (e: any) {
-    testResult.value = { success: false, message: e?.message || t('data.oauthStartFailed') }
+    testResult.value = { success: false, message: connectionSignInError(e, t('data.oauthStartFailed')) }
   } finally {
     oauthLoading.value = false
   }

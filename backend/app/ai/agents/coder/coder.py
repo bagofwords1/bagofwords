@@ -1,11 +1,16 @@
-import asyncio
+import logging
+import time
 from typing import Callable, Optional
 
 from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm import LLM
-from app.ai.llm.types import Message, MessageStopEvent, TextDeltaEvent
+from app.ai.llm.reasoning import _effort_to_thinking_config, _resolve_reasoning_effort
+from app.ai.llm.types import (
+    Message, MessageStopEvent, TextDeltaEvent,
+    ReasoningStartEvent, ReasoningDeltaEvent, ReasoningCompleteEvent,
+)
 
 
 # Raised message when a codegen stream stops at the model's output-token cap.
@@ -34,6 +39,10 @@ from app.core.otel import get_tracer
 from app.ai.code_execution.code_execution import FORBIDDEN_BUILTINS, FORBIDDEN_MODULES, ml_training_settings
 
 tracer = get_tracer(__name__)
+
+# Past successful code longer than this is not shown as an example: the model
+# mirrors the length of what it is shown, and the goal is short functions.
+_MAX_EXAMPLE_SNIPPET_LINES = 40
 
 _BOW_DATAFRAME_RULES = """- BOW DataFrame contract: ds_clients["bow"].execute_query accepts a typed dict and returns the requested columns (including empty results), numeric metrics, and requested ordering. Use that DataFrame directly unless the user needs an additional transformation. Do not add missing-column fallbacks, numeric coercion, repeated sorting, column reordering, or reset_index when the query already supplies them. Do not import pandas when unused. Keep genuine display transformations, such as filling a missing agent label; never replace unknown costs with zero. Follow the standard logging instructions below."""
 
@@ -185,6 +194,26 @@ def _excel_files_mapping(excel_files) -> str:
     return "\n".join(lines)
 
 
+def _render_snippets(top_success) -> str:
+    """Render the successful-examples section. Past code is the style the model
+    copies, so a long example teaches long code: keep only short ones; none is
+    better than a bad reference."""
+    top_success = [
+        s for s in (top_success or [])
+        if isinstance(s, dict)
+        and (s.get("code") or "").count("\n") <= _MAX_EXAMPLE_SNIPPET_LINES
+    ]
+    if not top_success:
+        return ""
+    lines = ["=== SUCCESSFUL EXAMPLES (by targeted tables) ==="]
+    for idx, s in enumerate(top_success, start=1):
+        lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('success_rate')}")
+        code = s.get("code") or ""
+        lines.append(code)
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
 class Coder:
     def __init__(
         self,
@@ -194,13 +223,66 @@ class Coder:
         context_hub=None,
         usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
         usage_context: Optional[UsageLimitContext] = None,
+        reasoning_effort: Optional[str] = None,
+        reasoning_callback=None,
+        read_session_maker: Optional[Callable[[], AsyncSession]] = None,
     ) -> None:
         self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
+        # Short-lived session factory for read-only context lookups (code
+        # snippets). The context hub's session is the agent's shared one,
+        # which parallel tool calls must not use concurrently.
+        self.read_session_maker = read_session_maker
+        self._snippets_cache: dict = {}
+        self.reasoning_callback = reasoning_callback
+        self.reasoning_effort = reasoning_effort
+        self.model = model
         self.organization_settings = organization_settings
         self.enable_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
         # Back-compat: accept either legacy builder or new context hub
         self.instruction_context_builder = instruction_context_builder
         self.context_hub = context_hub
+
+    def _time_reasoning(self, event) -> None:
+        """Accumulate wall time spent inside reasoning blocks of the stream.
+
+        A block opens on its start (or first delta) and closes on its complete
+        event — or on the first non-reasoning event, for a stream that never
+        sends one. Read by callers as ``reasoning_ms`` after a generation.
+        """
+        now = time.monotonic()
+        opened = getattr(self, "_reasoning_opened_at", None)
+        if isinstance(event, (ReasoningStartEvent, ReasoningDeltaEvent)):
+            if opened is None:
+                self._reasoning_opened_at = now
+            return
+        if opened is not None:
+            self.reasoning_ms = round(
+                getattr(self, "reasoning_ms", 0.0) + (now - opened) * 1000.0, 1
+            )
+            self._reasoning_opened_at = None
+
+    def _reset_reasoning_clock(self) -> None:
+        self.reasoning_ms = 0.0
+        self._reasoning_opened_at = None
+
+    async def _forward_reasoning(self, event):
+        self._time_reasoning(event)
+        callback = getattr(self, "reasoning_callback", None)
+        if callback and isinstance(event, (ReasoningDeltaEvent, ReasoningCompleteEvent)):
+            try:
+                await callback(event)
+            except Exception:
+                logging.getLogger(__name__).exception("Could not stream coder reasoning")
+
+    def _thinking_for_prompt(self, prompt: str) -> Optional[dict]:
+        model = getattr(self, "model", None)
+        config = getattr(model, "config", None) or {}
+        effort = _resolve_reasoning_effort(
+            per_completion=getattr(self, "reasoning_effort", None),
+            prompt_text=prompt,
+            model_default=config.get("reasoning_effort") if isinstance(config, dict) else None,
+        )
+        return _effort_to_thinking_config(effort, getattr(model, "model_id", None))
 
     def _time_context(self) -> str:
         """Current-time line for codegen prompts, same clock the planner sees.
@@ -456,7 +538,7 @@ class Coder:
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
            - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
-           - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE Customers", "SalesModel/Customers")`. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
+           - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE TOPN(100, Customers)", "SalesModel/Customers")`. Keep DAX bounded (TOPN / SUMMARIZECOLUMNS); never `EVALUATE <table>` on a large table. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -510,9 +592,18 @@ class Coder:
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
         """
 
-        result = await asyncio.to_thread(
-            self.llm.inference, text, usage_scope="create_data.code_gen"
-        )
+        chunks = []
+        async for evt in self.llm.inference_stream_v2(
+            messages=[Message(role="user", content=text)],
+            usage_scope="create_data.code_gen",
+            thinking=self._thinking_for_prompt(prompt),
+        ):
+            await self._forward_reasoning(evt)
+            if isinstance(evt, TextDeltaEvent):
+                chunks.append(evt.text)
+            elif _is_truncation(evt):
+                raise RuntimeError(_TRUNCATION_ERROR)
+        result = "".join(chunks)
 
         # Remove markdown code fence (with optional language tag) if present
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
@@ -716,7 +807,7 @@ class Coder:
             # Override schemas/prompt with curated ones from context
             schemas = context.schemas_excerpt or schemas
             prompt = context.interpreted_prompt or context.user_prompt or prompt
-            data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+            data_preview_instruction = "; print(df.head())" if self.enable_llm_see_data else ""
             file_access_rules = _file_access_rules(" " * 15)
             # If the user is clearly referring to a step we can load, force reuse
             # via load_step instead of writing SQL from scratch. Detected here (not
@@ -736,7 +827,29 @@ class Coder:
             # Retrieve top successful snippets based on targeted tables if provided
             similar_successful_code_snippets = ""
             try:
-                if getattr(context, "tables_by_source", None):
+                _snip_key = None
+                try:
+                    _snip_key = json.dumps(context.tables_by_source, sort_keys=True, default=str)
+                except Exception:
+                    _snip_key = None
+                if _snip_key is not None and _snip_key in getattr(self, "_snippets_cache", {}):
+                    # Same tables on a retry: the lookup's result can't differ.
+                    similar_successful_code_snippets = self._snippets_cache[_snip_key]
+                elif getattr(context, "tables_by_source", None) and getattr(self, "read_session_maker", None) is not None and code_context_builder is None and self.context_hub is not None:
+                    from app.ai.context.builders.code_context_builder import CodeContextBuilder
+                    organization = getattr(self.context_hub, "organization", None)
+                    current_user = getattr(self.context_hub, "user", None)
+                    if organization is not None:
+                        try:
+                            async with self.read_session_maker() as _read_db:
+                                _builder = CodeContextBuilder(db=_read_db, organization=organization, current_user=current_user)
+                                top_success = await _builder.get_top_successful_snippets_for_tables(context.tables_by_source, top_k=2)
+                            similar_successful_code_snippets = _render_snippets(top_success)
+                        except Exception:
+                            similar_successful_code_snippets = ""
+                    if _snip_key is not None:
+                        self._snippets_cache[_snip_key] = similar_successful_code_snippets
+                elif getattr(context, "tables_by_source", None):
                     builder = None
                     try:
                         # Prefer explicit code_context_builder param when provided
@@ -755,32 +868,131 @@ class Coder:
                     if builder is not None and hasattr(builder, "get_top_successful_snippets_for_tables"):
                         try:
                             top_success = await builder.get_top_successful_snippets_for_tables(context.tables_by_source, top_k=2)
-                            if isinstance(top_success, list) and top_success:
-                                lines = ["=== SUCCESSFUL EXAMPLES (by targeted tables) ==="]
-                                for idx, s in enumerate(top_success, start=1):
-                                    lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('success_rate')}")
-                                    code = s.get("code") or ""
-                                    lines.append(code)
-                                    lines.append("")
-                                similar_successful_code_snippets = "\n".join(lines).strip()
+                            similar_successful_code_snippets = _render_snippets(top_success)
                         except Exception as e:
                             similar_successful_code_snippets = ""
             except Exception:
                 similar_successful_code_snippets = ""
-            text = f"""
+            # Split into a run-invariant system half and a per-call user half.
+            # Everything in `system_text` (role, org instructions, sandbox/ML/time
+            # rules, the guidelines) is identical for every create_data call in an
+            # organization, so it forms a stable prefix that inference_stream_v2's
+            # system cache breakpoint can reuse. Previously all of this rode in one
+            # user message with no system and no tools, so no cache_control was ever
+            # attached and ~85-97%% of each prompt was re-billed as fresh input.
+            # The per-call context blocks keep their original order and wording.
+            system_text = f"""
             Role: data engineer and data scientist working on the user's analytics request.
 
             Goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
             that produces a Pandas DataFrame grounded only in the provided schemas and resources.
-            {reuse_directive}
-            {viz_directive}
-
             **Organization Instructions** (authored by the user; apply them):
             {instructions_context}
 
+            {_sandbox_rules_section()}
+
+            {_ml_rules_section(*ml_training_settings(self.organization_settings))}
+
+            {_time_filter_rules()}
+
+            **Guidelines and Requirements**:
+
+            0. **Data Modeling**:
+                - The data structure should answer the user prompt and be feasible given the schemas and data sources.
+                - Slight master-table bias, bounded: besides the requested columns, include at most 2-3 slicing columns (a date, a category, a region) that are ALREADY in the tables you are querying. Never add a join, a subquery or a second query just to bring in an extra column, and never widen the grain — extra columns must not multiply rows.
+                - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
+                - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do not add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
+
+            0a. **Keep the code short** — the shortest correct function wins:
+                - Do the work in the query: one query per connection when the source can aggregate, filter, join and sort itself. Post-process in pandas only for what the source cannot do.
+                - No comments, no docstrings, no helper functions, no try/except, no type coercion or column-existence guards "just in case", no intermediate copies of the frame, no renaming unless the output needs it.
+                - A failing query or cast must raise: the error comes back to you with the output printed so far, which is more useful than a guarded empty result.
+
+            1. **Function Signature**: Implement either:
+               `def generate_df(ds_clients, excel_files):` — when no web fetching is needed.
+               `def generate_df(ds_clients, excel_files, http):` — when fetching URLs (see HTTP section below).
+               {signature_reuse_hint}
+               - The function should return the main dataframe that answers the user prompt.
+
+            1a. **HTTP client (when the task involves URLs)**:
+               - When fetching web pages, accept a third parameter `http` in your signature. It is a pre-built sync client; do NOT `import httpx`, `requests`, `urllib`, `asyncio`, `socket`, or `threading` (all forbidden by the sandbox).
+               - **Do NOT import `bs4`, `lxml`, `html.parser`, or any HTML parser.** The pages returned by `http.get`/`http.batch_get` are ALREADY parsed for you — see the field list below.
+               - `http.get(url, timeout=15) -> FetchedPage` for a single URL.
+               - `http.batch_get(urls, concurrency=20, timeout=15) -> list[FetchedPage]` for many URLs in parallel. Prefer this over a Python loop of `http.get` whenever you have more than ~5 URLs.
+               - **Access `FetchedPage` fields with dot notation directly — do NOT use `getattr` or `hasattr` (both are forbidden by the sandbox). The fields always exist; check truthiness (`if page.text:`) rather than presence.**
+               - `FetchedPage` is a dataclass with these pre-extracted fields — read them directly, don't re-parse:
+                 * `.url`, `.final_url`, `.status`, `.success`
+                 * `.title` — already extracted from `<title>` (or `og:title` via `.meta`)
+                 * `.description` — already extracted from meta description / `og:description`
+                 * `.text` — **already the visible text content** with `<script>`, `<style>`, `<nav>`, `<footer>` etc. stripped and whitespace collapsed. Use `len(page.text)` directly for "text length"; do NOT pipe it through BeautifulSoup.
+                 * `.meta` — dict of all meta tags (`og:*`, `twitter:*`, `product:price:amount`, etc.)
+                 * `.json_ld` — list of parsed JSON-LD dicts (common for Product/Offer/Article schemas on retail sites)
+                 * `.headings` — list of h1/h2 text
+                 * `.truncated` — bool; True if content was capped
+                 * `.error` — str when the fetch failed; `.success` is False in that case
+               - Failures never raise — they appear as pages with `.error` set. Filter them: `good = [p for p in pages if p.success and not p.error]`.
+               - For HTML pages, prefer structured fields in this order when extracting prices/ratings/stock/etc.: (1) `json_ld`, (2) `meta`, (3) regex on `.text`. Always fall back gracefully — write the value as `None` for rows you can't parse rather than crashing.
+               - For non-HTML responses (JSON, XML, plain text — check `.content_type`), `.text` contains the raw body; parse it directly (e.g. `json.loads(page.text)`).
+               - The `http` parameter will be `None` if the organization disabled web fetch. Guard with `if http is None: raise RuntimeError("web fetch is disabled for this organization")` and return an empty DataFrame.
+
+            2. **Data Source Usage**:
+               {_BOW_DATAFRAME_RULES}
+               - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
+                 * Use the exact `client_key` string from the <connection_clients> section — it is a literal string, not a variable.
+                 * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
+               - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
+               - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
+               - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE TOPN(100, Customers)", "SalesModel/Customers")`. Keep DAX bounded (TOPN / SUMMARIZECOLUMNS); never `EVALUATE <table>` on a large table. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
+               - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
+               {file_access_rules}
+                 * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
+               - Output schema contract: The final DataFrame should contain only primitives (str/int/float/bool/None). Do not return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
+               - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
+               - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
+
+            {reuse_section}
+
+            3. **Schema Adherence**:
+               - Use only columns and relationships that exist in the provided schemas.
+               - Do not invent columns that do not exist or cannot be derived.
+               - Use metadata resources for tables/cols enrichments, code examples, etc.
+               - Do not use tables/cols that exist in instructions but are not in the provided schemas.
+
+            4. **Handling Previous Code and Errors**:
+               - If the <code_and_error_messages> section in the request is not "None", review each failed attempt:
+                 * Understand the error and write code that cannot fail the same way.
+                 * If it's related to a missing column or invalid query, fix it by removing or correcting that column/query.
+                 * If it's a "Security violation" from the sandbox, rewrite the code without the forbidden construct (see the sandbox rules above).
+               - If `retries` ≥ 2 and still failing due to a specific column or measure, remove that problematic part and return a reduced but valid DataFrame.
+               - Ensure you produce some output even if reduced.
+               - If the error is related to size of the query, try to use partitions when available in context/metadata resources.
+
+            5. **Sorting and Final Output**:
+               - If not mentioned by user, sort by the most relevant key column.
+
+            6. **Data Formatting**:
+               - Ensure the DataFrame is two-dimensional and handle missing values.
+               - Keep numeric measures as numeric dtypes (int/float). Do not format numbers
+                 into display strings (no currency symbols or thousands separators inside
+                 values) — the visualization layer handles presentation formatting.
+
+            7. **No Extra Formatting**:
+               - Return ONLY the Python function code for `generate_df`.
+
+            8. **End of code** — the ONLY print in the function:
+               - Right before returning: print("Final df:", df.shape, list(df.columns)){data_preview_instruction}
+               - If the code fails later in the run, this line is what the retry gets to see, so do not print anywhere else.
+               - Return the df.
+
+                        """
+
+            text = f"""
+{reuse_directive}
+            {viz_directive}
+
             **Context and Inputs**:
             - Current Time: {self._time_context()}
-              Use this to understand what relative phrases ("today", "last week", "this month") refer to — but do NOT bake the resolved dates into the code as literals; follow the Time filters rules below.
+              Use this to understand what relative phrases ("today", "last week", "this month") refer to — but do NOT bake the resolved dates into the code as literals; follow the Time filters rules.
 
             - User Prompt:
             <user_prompt>
@@ -838,100 +1050,6 @@ class Coder:
             {similar_successful_code_snippets}
             </similar_successful_code_snippets>
 
-            {_sandbox_rules_section()}
-
-            {_ml_rules_section(*ml_training_settings(self.organization_settings))}
-
-            {_time_filter_rules()}
-
-            **Guidelines and Requirements**:
-
-            0. **Data Modeling**:
-                - The data structure should answer the user prompt and be feasible given the schemas and data sources.
-                - Bias for a master table: include additional columns that are relevant for filtering and slicing in the visualization layer, even if not explicitly requested by the user. For example, if the user asks for total sales by region, also include date and product category columns if available.
-                - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
-                - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do not add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
-
-            1. **Function Signature**: Implement either:
-               `def generate_df(ds_clients, excel_files):` — when no web fetching is needed.
-               `def generate_df(ds_clients, excel_files, http):` — when fetching URLs (see HTTP section below).
-               {signature_reuse_hint}
-               - The function should return the main dataframe that answers the user prompt.
-
-            1a. **HTTP client (when the task involves URLs)**:
-               - When fetching web pages, accept a third parameter `http` in your signature. It is a pre-built sync client; do NOT `import httpx`, `requests`, `urllib`, `asyncio`, `socket`, or `threading` (all forbidden by the sandbox).
-               - **Do NOT import `bs4`, `lxml`, `html.parser`, or any HTML parser.** The pages returned by `http.get`/`http.batch_get` are ALREADY parsed for you — see the field list below.
-               - `http.get(url, timeout=15) -> FetchedPage` for a single URL.
-               - `http.batch_get(urls, concurrency=20, timeout=15) -> list[FetchedPage]` for many URLs in parallel. Prefer this over a Python loop of `http.get` whenever you have more than ~5 URLs.
-               - **Access `FetchedPage` fields with dot notation directly — do NOT use `getattr` or `hasattr` (both are forbidden by the sandbox). The fields always exist; check truthiness (`if page.text:`) rather than presence.**
-               - `FetchedPage` is a dataclass with these pre-extracted fields — read them directly, don't re-parse:
-                 * `.url`, `.final_url`, `.status`, `.success`
-                 * `.title` — already extracted from `<title>` (or `og:title` via `.meta`)
-                 * `.description` — already extracted from meta description / `og:description`
-                 * `.text` — **already the visible text content** with `<script>`, `<style>`, `<nav>`, `<footer>` etc. stripped and whitespace collapsed. Use `len(page.text)` directly for "text length"; do NOT pipe it through BeautifulSoup.
-                 * `.meta` — dict of all meta tags (`og:*`, `twitter:*`, `product:price:amount`, etc.)
-                 * `.json_ld` — list of parsed JSON-LD dicts (common for Product/Offer/Article schemas on retail sites)
-                 * `.headings` — list of h1/h2 text
-                 * `.truncated` — bool; True if content was capped
-                 * `.error` — str when the fetch failed; `.success` is False in that case
-               - Failures never raise — they appear as pages with `.error` set. Filter them: `good = [p for p in pages if p.success and not p.error]`.
-               - For HTML pages, prefer structured fields in this order when extracting prices/ratings/stock/etc.: (1) `json_ld`, (2) `meta`, (3) regex on `.text`. Always fall back gracefully — write the value as `None` for rows you can't parse rather than crashing.
-               - For non-HTML responses (JSON, XML, plain text — check `.content_type`), `.text` contains the raw body; parse it directly (e.g. `json.loads(page.text)`).
-               - The `http` parameter will be `None` if the organization disabled web fetch. Guard with `if http is None: raise RuntimeError("web fetch is disabled for this organization")` and return an empty DataFrame.
-
-            2. **Data Source Usage**:
-               {_BOW_DATAFRAME_RULES}
-               - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
-                 * Use the exact `client_key` string from the <connection_clients> section — it is a literal string, not a variable.
-                 * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
-               - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
-               - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
-               - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE Customers", "SalesModel/Customers")`. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
-               - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
-               {data_preview_instruction}
-               - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
-               {file_access_rules}
-                 * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
-                 * Use prints to help validate indices and positions.
-               - After any operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
-               - Output schema contract: The final DataFrame should contain only primitives (str/int/float/bool/None). Do not return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
-               - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
-               - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
-
-            {reuse_section}
-
-            3. **Schema Adherence**:
-               - Use only columns and relationships that exist in the provided schemas.
-               - Do not invent columns that do not exist or cannot be derived.
-               - Use metadata resources for tables/cols enrichments, code examples, etc.
-               - Do not use tables/cols that exist in instructions but are not in the provided schemas.
-
-            4. **Handling Previous Code and Errors**:
-               - If the <code_and_error_messages> section above is not "None", review each failed attempt:
-                 * Understand the error and write code that cannot fail the same way.
-                 * If it's related to a missing column or invalid query, fix it by removing or correcting that column/query.
-                 * If it's a "Security violation" from the sandbox, rewrite the code without the forbidden construct (see the sandbox rules above).
-               - If `retries` ≥ 2 and still failing due to a specific column or measure, remove that problematic part and return a reduced but valid DataFrame.
-               - Ensure you produce some output even if reduced.
-               - If the error is related to size of the query, try to use partitions when available in context/metadata resources.
-
-            5. **Sorting and Final Output**:
-               - If not mentioned by user, sort by the most relevant key column.
-
-            6. **Data Formatting**:
-               - Ensure the DataFrame is two-dimensional and handle missing values.
-               - Keep numeric measures as numeric dtypes (int/float). Do not format numbers
-                 into display strings (no currency symbols or thousands separators inside
-                 values) — the visualization layer handles presentation formatting.
-
-            7. **No Extra Formatting**:
-               - Return ONLY the Python function code for `generate_df`.
-
-            8. **End of code**:
-               - Before returning the df — print("Final df Info:", df.info())
-               {data_preview_instruction}
-               - Return the df.
-
             Now produce ONLY the Python function code as described. No markdown or extra text.
             """
 
@@ -940,16 +1058,22 @@ class Coder:
             with tracer.start_as_current_span("coder.generate_code_stream") as span:
                 span.set_attribute("coder.retry", retries)
                 span.set_attribute("coder.prompt_chars", len(text))
+                span.set_attribute("coder.system_chars", len(system_text))
                 span.set_attribute("coder.has_typed_context", context is not None)
                 span.set_attribute("coder.allow_llm_see_data", bool(self.enable_llm_see_data))
+                self._reset_reasoning_clock()
                 async for evt in self.llm.inference_stream_v2(
                     messages=[Message(role="user", content=text)],
+                    system=system_text,
                     usage_scope="create_data.code_gen",
+                    thinking=self._thinking_for_prompt(prompt),
                 ):
+                    await self._forward_reasoning(evt)
                     if isinstance(evt, TextDeltaEvent):
                         chunks.append(evt.text)
                     elif _is_truncation(evt):
                         truncated = True
+                self._time_reasoning(None)  # close a block the stream never ended
                 span.set_attribute("coder.chunks", len(chunks))
                 span.set_attribute("coder.output_chars", sum(len(chunk) for chunk in chunks))
                 span.set_attribute("coder.truncated", truncated)
@@ -1096,14 +1220,18 @@ class Coder:
 
         chunks: list[str] = []
         truncated = False
+        self._reset_reasoning_clock()
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="create_data.inspection",
+            thinking=self._thinking_for_prompt(prompt),
         ):
+            await self._forward_reasoning(evt)
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
             elif _is_truncation(evt):
                 truncated = True
+        self._time_reasoning(None)  # close a block the stream never ended
         if truncated:
             raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
@@ -1245,14 +1373,18 @@ class Coder:
 
         chunks: list[str] = []
         truncated = False
+        self._reset_reasoning_clock()
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="write_csv.transform",
+            thinking=self._thinking_for_prompt(prompt),
         ):
+            await self._forward_reasoning(evt)
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
             elif _is_truncation(evt):
                 truncated = True
+        self._time_reasoning(None)  # close a block the stream never ended
         if truncated:
             raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)

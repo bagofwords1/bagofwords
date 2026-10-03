@@ -223,7 +223,9 @@ LOG_GROUPS = [
 
 def test_log_groups_become_prefixed_tables_with_builtin_columns(patch_boto):
     patch_boto(logs=_FakeLogs(log_groups=LOG_GROUPS))
-    tables = _client(max_sampled_log_groups=0).get_schemas()
+    events = []
+    tables = _client(max_sampled_log_groups=0).get_schemas(progress_callback=lambda *e: events.append(e))
+    assert any(e[0] == 'log_groups' and e[2] > 0 for e in events)
 
     assert {t.name for t in tables} == {
         f"{LOG_PREFIX}/aws/lambda/checkout",
@@ -311,7 +313,9 @@ METRICS = [
 
 def test_metric_variants_collapse_into_one_table_with_unioned_dimensions(patch_boto):
     patch_boto(cw=_FakeCloudWatch(metrics=METRICS))
-    tables = _client(metric_namespaces="AWS/RDS").get_schemas()
+    events = []
+    tables = _client(metric_namespaces="AWS/RDS").get_schemas(progress_callback=lambda *e: events.append(e))
+    assert {f"{METRIC_PREFIX}{e[1]}" for e in events if e[0] == "metrics"} == {t.name for t in tables if t.name.startswith(METRIC_PREFIX)}
 
     by_name = {t.name: t for t in tables}
     assert set(by_name) == {
@@ -335,7 +339,7 @@ def test_get_schemas_reports_progress(patch_boto):
     patch_boto(logs=_FakeLogs(log_groups=LOG_GROUPS))
     seen: list = []
     _client(max_sampled_log_groups=0).get_schemas(
-        progress_callback=lambda done, total, msg: seen.append((done, total))
+        progress_callback=lambda phase, item, done, total: seen.append((done, total))
     )
     assert seen[-1] == (3, 3)
 

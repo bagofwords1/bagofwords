@@ -64,8 +64,24 @@
           </select>
         </div>
 
-        <div v-if="form.auth_type === 'dcr'" class="text-xs text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
-          {{ $t('data.mcpDcrHintA') }} <strong>{{ $t('data.mcpDcrHintB') }}</strong>
+        <div v-if="form.auth_type === 'dcr'" class="space-y-3">
+          <div class="text-xs text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
+            {{ $t('data.mcpDcrHintA') }} <strong>{{ $t('data.mcpDcrHintB') }}</strong>
+          </div>
+          <!-- Scopes are discovered from the server (its 401 challenge, then its
+               resource metadata). The field is an override for servers whose
+               metadata is wrong or missing; Verify shows what was detected. -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.mcpDcrScopesLabel') }}</label>
+            <input v-model="form.scopes" type="text" data-test="mcp-dcr-scopes" :placeholder="detectedScopes || $t('data.mcpDcrScopesPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <p v-if="detectedScopes" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400" data-test="mcp-dcr-detected">
+              {{ $t('data.mcpDcrDetectedScopes', { scopes: detectedScopes }) }}<template v-if="scopesSourceLabel"> · {{ scopesSourceLabel }}</template>
+            </p>
+            <p v-else-if="scopesSource === 'none'" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400" data-test="mcp-dcr-detected">
+              {{ $t('data.mcpDcrDetectedNone') }}
+            </p>
+            <p v-else class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{{ $t('data.mcpDcrScopesHint') }}</p>
+          </div>
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
@@ -403,6 +419,10 @@ watch(() => props.editConnection, async (conn) => {
         form.scopes = meta.scopes || ''
         form.audience = meta.audience || ''
         form.token_endpoint_auth_method = meta.token_endpoint_auth_method || ''
+        // For DCR: what discovery derived from the server on the last
+        // registration / sign-in, shown as "Detected" next to the override.
+        detectedScopes.value = meta.discovered_scopes || ''
+        scopesSource.value = meta.scopes_source || ''
         hydrateForwarding(config)
         return
       }
@@ -467,6 +487,19 @@ const advancedOpen = ref(false)
 const testing = ref(false)
 const submitting = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
+// What DCR discovery derived from the server (from Verify, or from the stored
+// connection in edit mode) — shown next to the scopes override so the admin
+// sees what a sign-in will request instead of guessing.
+const detectedScopes = ref('')
+const scopesSource = ref('')
+const scopesSourceLabel = computed(() => {
+  switch (scopesSource.value) {
+    case 'challenge': return t('data.mcpDcrScopesSourceChallenge')
+    case 'resource_metadata': return t('data.mcpDcrScopesSourceResource')
+    case 'authorization_server': return t('data.mcpDcrScopesSourceAs')
+    default: return ''
+  }
+})
 const submitError = ref<string | null>(null)
 
 // Extract a human-readable message from a useMyFetch error (FetchError) or a
@@ -493,6 +526,13 @@ function buildCredentials(): Record<string, any> | undefined {
     if (form.audience) c.audience = form.audience
     if (form.token_endpoint_auth_method) c.token_endpoint_auth_method = form.token_endpoint_auth_method
     return Object.keys(c).length ? c : undefined
+  }
+  if (form.auth_type === 'dcr') {
+    // Optional override of the scopes discovery derives from the server. In
+    // edit mode it is sent even when empty so clearing the field clears the
+    // override (credentials merge on update; an empty override defers to the
+    // discovered scopes again).
+    if (form.scopes || isEditMode.value) return { scopes: form.scopes }
   }
   return undefined
 }
@@ -539,6 +579,12 @@ async function testConnection() {
       testResult.value = { success: false, message: errorMessage(response.error.value, t('settings.mcpModal.testFailed')) }
     } else {
       testResult.value = response.data.value as any
+      // DCR: Verify ran discovery — surface what a sign-in will request.
+      const detected = (response.data.value as any)?.detected
+      if (detected) {
+        detectedScopes.value = detected.scopes || ''
+        scopesSource.value = detected.scopes_source || ''
+      }
     }
   } catch (e: any) {
     testResult.value = { success: false, message: e?.data?.detail || t('settings.mcpModal.testFailed') }

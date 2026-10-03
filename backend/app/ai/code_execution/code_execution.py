@@ -13,6 +13,7 @@ import datetime
 import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+import contextlib
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
@@ -89,6 +90,37 @@ class _ThreadLocalStdoutRouter:
 
 
 _STDOUT_ROUTER_INSTALL_LOCK = threading.Lock()
+
+
+# Tail of the sandbox's stdout kept on a failed run and shown to the retry.
+# Enough for a couple of frame previews; bounded so a print-in-a-loop cannot
+# flood the codegen prompt.
+FAILURE_STDOUT_TAIL_CHARS = 2000
+
+
+def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
+    """Best-effort: stash the tail of what the failed code printed on the
+    exception as `captured_stdout`. Never raises — the original error is the
+    thing the caller cares about."""
+    try:
+        text = buffer.getvalue()
+    except ValueError:  # already closed
+        return
+    if not text:
+        return
+    with contextlib.suppress(Exception):
+        exc.captured_stdout = text[-FAILURE_STDOUT_TAIL_CHARS:]
+
+
+def format_execution_failure(exc: BaseException, message: str) -> str:
+    """The error text a retry sees for a failed execution: the message, then
+    the tail of what the code printed before it raised (when there is any).
+    Kept separate from the UI-facing message so the chat shows the error and
+    the codegen prompt gets the evidence."""
+    partial = getattr(exc, "captured_stdout", "") or ""
+    if not partial:
+        return message
+    return f"{message}\n<stdout_before_failure>\n{partial.rstrip()}\n</stdout_before_failure>"
 
 
 def _stdout_router() -> _ThreadLocalStdoutRouter:
@@ -354,6 +386,14 @@ FORBIDDEN_ATTRIBUTES = frozenset({
     '__cached__', '__annotations__',
 })
 
+# Private and dunder attributes are blocked wholesale below (an escape hides in
+# the ones nobody thought to enumerate), but a few are pure, safe reads that
+# generated code legitimately needs. `__name__` is one: FORBIDDEN_ATTRIBUTES
+# lists `__class__` and deliberately omits it, and the coder prompt mandates
+# `type(model).__name__` (never `model.__class__.__name__`) for branching on
+# estimator kind. It evaluates to a plain string and exposes no object graph.
+ALLOWED_PRIVATE_ATTRIBUTES = frozenset({'__name__'})
+
 
 # Modules that exist only to train models. They are not a security risk, so
 # they are NOT in FORBIDDEN_MODULES; they are gated by the organization's
@@ -464,12 +504,8 @@ class CodeSecurityVisitor(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute):
         # Check for direct access to forbidden attributes like obj.__class__
-        # Underscore-prefixed attributes are implementation surface (the
-        # `_bow_*` markers on clients and frames included). `__name__` is the
-        # one exception: it yields a plain string, and the coder prompt
-        # promotes `type(model).__name__` for reporting an estimator's class.
         if node.attr in FORBIDDEN_ATTRIBUTES or (
-            node.attr.startswith("_") and node.attr != "__name__"
+            node.attr.startswith("_") and node.attr not in ALLOWED_PRIVATE_ATTRIBUTES
         ):
             self.errors.append(f"Forbidden attribute access: '{node.attr}'")
         self.generic_visit(node)
@@ -768,7 +804,10 @@ class QueryCapturingClientWrapper:
             capture = _describe_keyword_call(kwargs)
         else:
             capture = query
-        if isinstance(capture, dict) and getattr(self._original, "_bow_source_id", None):
+        if isinstance(capture, dict) and (
+            getattr(self._original, "_bow_source_id", None)
+            or getattr(self._original, "capture_structured_queries", False)
+        ):
             capture = json.dumps(capture, sort_keys=True, default=str)
         if isinstance(capture, str):
             self._captured_queries.append(capture)
@@ -1046,9 +1085,15 @@ def wrap_clients_for_capture(
     invocation hitting multiple connections gets the right value for each
     underlying database.
     """
+    from app.data_sources.clients._unavailable_client import UnavailableConnectionClient
+
     wrapped = {}
     for key, client in (ds_clients or {}).items():
-        if client is not None and hasattr(client, 'execute_query'):
+        # A connection that could not be built never reaches its source, so it
+        # must not be metered (quota, rate limit) as if it had been queried.
+        if isinstance(client, UnavailableConnectionClient):
+            wrapped[key] = client
+        elif client is not None and hasattr(client, 'execute_query'):
             wrapped[key] = QueryCapturingClientWrapper(
                 client,
                 captured_queries,
@@ -1175,7 +1220,6 @@ class StreamingCodeExecutor:
 
             if self.logger:
                 self.logger.debug(f"Executing code:\n{code}")
-
             if sandbox_mode() == MODE_INPROCESS:
                 df, output_log = self._execute_inprocess(
                     code, wrapped_clients, excel_files, http_client,
@@ -1304,6 +1348,9 @@ class StreamingCodeExecutor:
                 )
                 output_log = stdout_capture.getvalue()
                 lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
+        except BaseException as exc:
+            _attach_partial_stdout(exc, stdout_capture)
+            raise
         finally:
             router.unbind()
             stdout_capture.close()
@@ -1532,6 +1579,17 @@ class StreamingCodeExecutor:
             info_dict["column_info"][column] = column_info
         return info_dict
 
+    async def format_df_for_widget_async(self, df: pd.DataFrame, max_rows: Optional[int] = None) -> Dict:
+        """format_df_for_widget on the code-execution pool.
+
+        It runs pandas over the FULL result (describe(), deep memory usage,
+        nunique) — ~200ms for a 200k-row frame — and awaited inline it held
+        the event loop for that long, stalling parallel sibling tools and
+        every token stream. Same function, same output; only the thread moves.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_CODE_EXEC_POOL, lambda: self.format_df_for_widget(df, max_rows))
+
     def format_df_for_widget(self, df: pd.DataFrame, max_rows: Optional[int] = None) -> Dict:
         """Format a DataFrame into a widget-compatible structure.
 
@@ -1689,7 +1747,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, msg))
+                code_and_error_messages.append((final_code, format_execution_failure(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
@@ -1758,6 +1816,7 @@ class StreamingCodeExecutor:
         sigkill_event=None,
         loadable_resolver_fn: Optional[Callable] = None,
         params: Optional[Dict] = None,
+        param_specs: Optional[List] = None,
     ):
         """
         V2: Typed context-based generator. Yields the same event shapes as v1.
@@ -1866,6 +1925,10 @@ class StreamingCodeExecutor:
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
+                from app.ai.code_execution.query_params import check_date_range_code, ParamError
+                date_errors = check_date_range_code(final_code, param_specs or [])
+                if date_errors:
+                    raise ParamError("; ".join(date_errors))
                 _t_exec = _time.monotonic()
                 # Fresh per-attempt capture — on success we keep these; on
                 # exception the wrapper's partial writes still reach the outer
@@ -1943,7 +2006,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, msg))
+                code_and_error_messages.append((final_code, format_execution_failure(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
@@ -2038,7 +2101,7 @@ class StreamingCodeExecutor:
         # Check if the DataFrame has columns, which indicates success even if empty
         if len(df.columns) > 0:
             # Format the data for widget display
-            widget_data = self.format_df_for_widget(df)
+            widget_data = await self.format_df_for_widget_async(df)
             
             # Update step with data
             try:

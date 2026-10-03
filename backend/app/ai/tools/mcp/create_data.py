@@ -20,7 +20,12 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.report import Report
 from app.project_manager import ProjectManager
-from app.schemas.mcp import MCPCreateDataInput, MCPCreateDataOutput
+from app.schemas.mcp import (
+    MCPCreateDataInput,
+    MCPCreateDataOutput,
+    MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS,
+    MCP_CREATE_DATA_MAX_PREVIEW_ROWS,
+)
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
 from app.ai.tools.implementations.create_data import (
@@ -29,6 +34,45 @@ from app.ai.tools.implementations.create_data import (
     ALLOWED_VIZ_TYPES,
     _infer_palette_theme,
 )
+
+
+def resolve_preview_limit(organization_settings: Any, requested: Optional[int]) -> int:
+    """Rows create_data returns inline: the org's `mcp_create_data_preview_rows`,
+    lowered to the caller's ``limit`` when one is given.
+
+    The org value is clamped to 1..MCP_CREATE_DATA_MAX_PREVIEW_ROWS so a bad
+    stored value can neither empty the preview nor flood the caller's context.
+    """
+    try:
+        cfg = organization_settings.get_config("mcp_create_data_preview_rows") if organization_settings else None
+        org_limit = int(getattr(cfg, "value", MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS))
+    except (TypeError, ValueError, AttributeError):
+        org_limit = MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS
+    org_limit = max(1, min(MCP_CREATE_DATA_MAX_PREVIEW_ROWS, org_limit))
+    if requested is None:
+        return org_limit
+    return max(1, min(org_limit, int(requested)))
+
+
+def build_data_preview(formatted: dict[str, Any], *, limit: int) -> dict[str, Any]:
+    """Inline preview of a query result for the MCP caller.
+
+    ``formatted`` is a ``format_df_for_widget`` dict (``rows``, ``columns``,
+    ``info``). Returns at most ``limit`` rows, the true ``total_rows`` and a
+    ``truncated`` flag so the caller can tell when it did not get everything.
+    """
+    rows = formatted.get("rows", []) or []
+    info = formatted.get("info", {}) or {}
+    total_rows = info.get("total_rows")
+    if not isinstance(total_rows, int):
+        total_rows = len(rows)
+    returned = rows[:limit]
+    return {
+        "columns": formatted.get("columns", []) or [],
+        "rows": returned,
+        "total_rows": total_rows,
+        "truncated": len(returned) < total_rows,
+    }
 
 
 class CreateDataMCPTool(MCPTool):
@@ -73,7 +117,7 @@ class CreateDataMCPTool(MCPTool):
         platform = await self._get_or_create_mcp_platform(db, organization)
 
         # Load report as ORM model (preserves Connection.get_credentials())
-        report = await self._load_report(db, input_data.report_id)
+        report = await self._load_report(db, input_data.report_id, user, organization)
         
         # Update report with external_platform_id if not set (direct DB update)
         if not report.external_platform:
@@ -351,11 +395,10 @@ class CreateDataMCPTool(MCPTool):
         )
         
         # Build data preview (limited rows)
-        data_preview = {
-            "columns": formatted.get("columns", []),
-            "rows": formatted.get("rows", [])[:20],
-            "total_rows": formatted.get("info", {}).get("total_rows", len(formatted.get("rows", []))),
-        }
+        data_preview = build_data_preview(
+            formatted,
+            limit=resolve_preview_limit(rich_ctx.org_settings, input_data.limit),
+        )
         
         # Audit: successful data query via MCP
         try:

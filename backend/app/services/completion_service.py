@@ -33,7 +33,12 @@ from app.schemas.completion_v2_schema import (
     CompletionsV2Response,
 )
 from app.services.llm_service import LLMService
-from app.serializers.completion_v2 import PREVIEW_ROWS, serialize_block_v2, serialize_block_v2_sync
+from app.serializers.completion_v2 import (
+    PREVIEW_ROWS,
+    resolve_data_sources_for_tool_executions,
+    serialize_block_v2,
+    serialize_block_v2_sync,
+)
 from app.models.visualization import Visualization
 from app.schemas.agent_execution_schema import PlanDecisionSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
@@ -296,6 +301,21 @@ class CompletionService:
         from app.core.main_build import resolve_main_build_id
         return await resolve_main_build_id(db, str(organization.id))
 
+    @staticmethod
+    def _inherit_report_reasoning_effort(prompt_dict: dict, report) -> None:
+        """A turn with no explicit level runs at the report's stored level.
+
+        Mirrors model_id precedence (per-message > report). Written onto the
+        stored prompt so each completion records the level it ran with; the
+        agent then resolves trigger words / the model default only when both
+        are unset.
+        """
+        if prompt_dict is None or prompt_dict.get('reasoning_effort'):
+            return
+        report_effort = getattr(report, 'reasoning_effort', None) if report is not None else None
+        if report_effort:
+            prompt_dict['reasoning_effort'] = report_effort
+
     async def _resolve_completion_models(
         self,
         db: AsyncSession,
@@ -431,6 +451,7 @@ class CompletionService:
             prompt_dict = completion_data.prompt.dict()
             if prompt_dict.get('widget_id'):
                 prompt_dict['widget_id'] = str(prompt_dict['widget_id'])
+            self._inherit_report_reasoning_effort(prompt_dict, report)
 
             head_stub = SimpleNamespace(
                 id=str(uuid4()),
@@ -659,6 +680,7 @@ class CompletionService:
             # Create user completion (head)
             prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
+            self._inherit_report_reasoning_effort(prompt_dict, report)
             last_completion = await self.get_last_completion(db, report.id)
             head_completion = Completion(
                 prompt=prompt_dict or None,
@@ -1231,6 +1253,12 @@ class CompletionService:
 
         span.add_event("batch_queries_done")
 
+        # The agents each tool execution references, resolved once for the page.
+        # The sync serializer can't query, and without this the completions list
+        # shipped no agents — leaving the data tools to infer an icon from a
+        # page-level prop that only the report page passes.
+        ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+
         # 5) Build per-completion block lists and compute aggregates using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in completion_ids}
         total_blocks = 0
@@ -1291,6 +1319,7 @@ class CompletionService:
                 widget_last_step=widget_last_step,
                 created_step=created_step,
                 created_visualizations=created_visualizations,
+                data_sources=ds_by_te.get(str(te.id)) if te else None,
             )
 
             completion_id_to_blocks[b.completion_id].append(block_schema)
@@ -1503,6 +1532,7 @@ class CompletionService:
                 report_id=c.report_id,
                 message_type=getattr(c, 'message_type', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
+                total_duration_ms=exec_obj.total_duration_ms if exec_obj else None,
                 prompt=_redact_prompt_display(c.prompt),
                 completion_blocks=c_blocks,
                 created_widgets=[],
@@ -1706,6 +1736,12 @@ class CompletionService:
             for v in vis_res.scalars().all():
                 visualization_map[v.id] = v
 
+        # The agents each tool execution references, resolved once for the page.
+        # The sync serializer can't query, and without this the completions list
+        # shipped no agents — leaving the data tools to infer an icon from a
+        # page-level prop that only the report page passes.
+        ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+
         # Build per-completion block lists using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in ids}
         latest_block_for_step = _latest_block_per_step(blocks, te_map, all_completions)
@@ -1746,6 +1782,7 @@ class CompletionService:
                 widget_last_step=widget_last_step,
                 created_step=created_step,
                 created_visualizations=created_visualizations,
+                data_sources=ds_by_te.get(str(te.id)) if te else None,
             )
             completion_id_to_blocks[b.completion_id].append(block_schema)
 
@@ -1926,6 +1963,7 @@ class CompletionService:
                 report_id=c.report_id,
                 message_type=getattr(c, 'message_type', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
+                total_duration_ms=exec_obj.total_duration_ms if exec_obj else None,
                 prompt=c.prompt,
                 completion=completion_data,
                 completion_blocks=c_blocks,
@@ -2023,12 +2061,28 @@ class CompletionService:
             logging.error(f"Failed to mark report images for {report_id}: {e}")
             # Don't raise - marking failure shouldn't break the completion flow
 
-    async def get_completion_plans(self, db: AsyncSession, current_user: User, organization: Organization, completion_id: str):
-        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
-        completion = completion.scalars().first()
-
-        if not completion:
+    async def _get_completion_for_run_owner(
+        self, db: AsyncSession, completion_id: str, current_user: User, organization: Organization
+    ) -> Completion:
+        """Load a completion the caller may control: it must belong to a report
+        in the caller's organization, and the caller must own that report or
+        have started the run. 404 otherwise, so ids from elsewhere don't leak."""
+        completion = (await db.execute(
+            select(Completion).where(Completion.id == completion_id)
+        )).scalars().first()
+        report = await db.get(Report, completion.report_id) if completion else None
+        if (
+            not completion
+            or not report
+            or organization is None
+            or str(report.organization_id) != str(organization.id)
+            or str(current_user.id) not in {str(completion.user_id), str(report.user_id)}
+        ):
             raise HTTPException(status_code=404, detail="Completion not found")
+        return completion
+
+    async def get_completion_plans(self, db: AsyncSession, current_user: User, organization: Organization, completion_id: str):
+        await self._get_completion_for_run_owner(db, completion_id, current_user, organization)
 
         plans = await db.execute(select(Plan).where(Plan.completion_id == completion_id))
         plans = plans.scalars().all()
@@ -2181,6 +2235,7 @@ class CompletionService:
             # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
+            self._inherit_report_reasoning_effort(prompt_dict, report)
             last_turn_index = (await db.execute(
                 select(Completion.turn_index)
                 .where(Completion.report_id == report.id)
@@ -3070,12 +3125,18 @@ class CompletionService:
         await db.commit()
         return {"ok": True, "removed": removed, "result_json": merged}
 
-    async def update_completion_sigkill(self, db: AsyncSession, completion_id: str, current_user: User = None, organization: Organization = None):
-        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
-        completion = completion.scalars().first()
-
-        if not completion:
-            raise HTTPException(status_code=404, detail="Completion not found")
+    async def update_completion_sigkill(
+        self, db: AsyncSession, completion_id: str, current_user: User, organization: Organization,
+        *, authorize: bool = True,
+    ):
+        # authorize=False is for internal callers that already enforced their
+        # own access rule (e.g. stopping an eval run the caller manages).
+        if authorize:
+            completion = await self._get_completion_for_run_owner(db, completion_id, current_user, organization)
+        else:
+            completion = (await db.execute(select(Completion).where(Completion.id == completion_id))).scalars().first()
+            if not completion:
+                raise HTTPException(status_code=404, detail="Completion not found")
 
         # If the main analysis has already left 'in_progress' (success/error/stopped or
         # any future terminal state), the user-facing result is final — the agent may
@@ -3190,6 +3251,7 @@ class CompletionService:
 
         prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
         prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
+        self._inherit_report_reasoning_effort(prompt_dict, report)
         last_completion = await self.get_last_completion(db, report.id)
         queued = Completion(
             prompt=prompt_dict or None,

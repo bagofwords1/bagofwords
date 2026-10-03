@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import logging
@@ -102,6 +103,8 @@ class TeradataClient(DataSourceClient):
         try:
             conn = teradatasql.connect(**conn_kwargs)
             yield conn
+        except IndexingCancelled:
+            raise
         except Exception as e:
             raise RuntimeError(f"{e}")
         finally:
@@ -156,7 +159,7 @@ class TeradataClient(DataSourceClient):
             rows = cursor.fetchall()
 
             tables = {}
-            for row in rows:
+            for row in discovery_items(rows, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 database_name, table_name, column_name, column_type, col_comment, tbl_comment = row
                 # System views often pad CHAR columns with trailing spaces.
                 database_name = (database_name or "").strip()
@@ -189,7 +192,8 @@ class TeradataClient(DataSourceClient):
         raise NotImplementedError(
             "get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Get schemas for all tables in the specified database(s)."""
         return self.get_tables()
 

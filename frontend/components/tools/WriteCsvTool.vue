@@ -94,8 +94,13 @@ const rj = computed(() => props.toolExecution?.result_json || {})
 
 const hasError = computed(() => rj.value.success === false)
 const errorMessage = computed(() => rj.value.error_message || '')
+// Gated on `view_code`; the server redacts the same fields server-side.
+// `arguments_json` is included deliberately: the tool CALL carries the code too,
+// so redacting only the result would leave it readable in the arguments.
+const canViewCode = useCanViewCode()
 const generatedCode = computed(() =>
-  rj.value.code
+  !canViewCode.value ? ''
+  : rj.value.code
   || props.toolExecution?.created_step?.code
   || props.toolExecution?.arguments_json?.code
   || ''

@@ -4,6 +4,7 @@ No Graph/Entra dependency. Paths are decoded server-relative ResourcePaths;
 credentials never follow redirects. Scope is enforced again on every read.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress, discovery_items
 
 import io
 import json
@@ -22,7 +23,7 @@ from app.data_sources.clients._document_text import (
     DOC_EXTS, doc_text_is_usable, extract_document_text_from_bytes,
 )
 from app.data_sources.clients._file_source_common import (
-    DocumentText, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
+    DocumentText, FileTooLargeError, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
 )
 from app.data_sources.clients.graph_drive_client import (
     TEXT_EXTS, _ext, _extract_pdf_pages_from_bytes, _trim_to_data,
@@ -277,6 +278,9 @@ class SharepointOnpremClient(DataSourceClient):
             if root.casefold() in seen:
                 continue
             seen.add(root.casefold())
+            if reporter:
+                reporter.set_total(len(seen) + len(queue))
+                reporter.item(root, done=len(seen) - 1)
             if len(seen) > self.max_catalog_objects:
                 raise ValueError("Folder traversal limit exceeded; narrow the folder scope.")
             endpoint = f"web/GetFolderByServerRelativePath(decodedurl={_literal(root)})"
@@ -339,7 +343,7 @@ class SharepointOnpremClient(DataSourceClient):
         self._scope(meta["ServerRelativeUrl"], libraries)
         limit = min(self._max_bytes, max_bytes) if max_bytes is not None else self._max_bytes
         if limit < 1 or int(meta.get("Length") or 0) > limit:
-            raise ValueError("File exceeds the configured byte limit; increase it explicitly to read this file.")
+            raise FileTooLargeError("File exceeds the configured byte limit; increase it explicitly to read this file.")
         content = self._request(endpoint + "/$value", binary=True, byte_limit=limit)
         return content, meta["Name"], mimetypes.guess_type(meta["Name"])[0]
 
@@ -423,6 +427,7 @@ class SharepointOnpremClient(DataSourceClient):
         except Exception as exc:
             return {"success": False, "message": str(exc)}
 
+    @discovery_progress
     def get_schemas(self, progress_callback=None):
         if self.index_mode == "none":
             return []
@@ -430,7 +435,7 @@ class SharepointOnpremClient(DataSourceClient):
                       columns=[], pks=[], fks=[], metadata_json={"sharepoint_onprem": {
                           "file_id": f["id"], "mime_type": f["mime_type"], "size": f["size"],
                           "modified_at": f["modified_at"], "web_url": f["web_url"],
-                      }}) for f in self.list_files(progress_callback=progress_callback)]
+                      }}) for f in discovery_items(self.list_files(progress_callback=progress_callback), "files", label=lambda f: f["path"])]
 
     def get_schema(self, table_name):
         return next((t for t in self.get_schemas() if t.name == table_name), None)

@@ -1,6 +1,6 @@
 
 from __future__ import annotations
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, model_validator
 from typing import Optional, Dict, Any, List
 import json
 
@@ -47,6 +47,7 @@ class LLMProviderCreate(LLMProviderBase):
             'azure': AzureCredentials,
             'custom': CustomCredentials,
             'bedrock': BedrockCredentials,
+            'vertex': VertexCredentials,
         }
         
         schema = credential_schemas.get(values['provider_type'])
@@ -74,6 +75,7 @@ class LLMProviderTestConnection(LLMProviderBase):
             'azure': AzureCredentials,
             'custom': CustomCredentials,
             'bedrock': BedrockCredentials,
+            'vertex': VertexCredentials,
         }
 
         schema = credential_schemas.get(values['provider_type'])
@@ -223,6 +225,46 @@ class BedrockConfig(BaseModel):
     max_tokens: Optional[int] = 4096
     temperature: Optional[float] = 0.7
 
+class VertexCredentials(ProviderHeadersMixin):
+    """Credentials for Google Cloud Vertex AI.
+
+    One provider serves all three Vertex model families — Claude (Anthropic
+    Messages API), Gemini (google-genai) and the third-party MaaS catalog
+    (Grok, GLM, Llama… over the OpenAI-compatible surface). Which transport a
+    model uses is derived from its model_id, not configured here (see
+    app.ai.llm.llm).
+    """
+    project_id: str = Field(..., title="Project ID", description="Google Cloud project ID (e.g. my-project-123456)")
+    # Vertex calls this a 'location'. 'global' is the default because the newer
+    # publisher models (Gemini 3.x, and every third-party MaaS model) are
+    # served there and nowhere else.
+    location: str = Field("global", description="Vertex location, e.g. global, us-east5, europe-west1")
+    # Authentication mode. 'adc' (default) uses Application Default Credentials
+    # from the environment — GKE Workload Identity, GCE metadata, a mounted
+    # GOOGLE_APPLICATION_CREDENTIALS key. 'service_account' authenticates with
+    # an explicit service-account key JSON, which is stored encrypted.
+    auth_mode: str = Field("adc", description="Authentication mode: 'adc' or 'service_account'")
+    service_account_json: Optional[str] = Field(
+        None, description="Service account key JSON (only for service_account auth mode)"
+    )
+
+    @validator('auth_mode')
+    def validate_auth_mode(cls, v):
+        allowed = {'adc', 'service_account'}
+        if v not in allowed:
+            raise ValueError(f"auth_mode must be one of: {', '.join(sorted(allowed))}")
+        return v
+
+    @validator('service_account_json', always=True)
+    def validate_mode_fields(cls, v, values):
+        if values.get('auth_mode') == 'service_account' and not v:
+            raise ValueError("service_account_json is required for service_account auth mode")
+        return v
+
+class VertexConfig(BaseModel):
+    max_tokens: Optional[int] = 4096
+    temperature: Optional[float] = 0.7
+
 # Model Classes
 class LLMModelBase(BaseModel):
     name: str = None
@@ -232,7 +274,7 @@ class LLMModelBase(BaseModel):
     supports_vision: bool = False
     # Manual admin override for vision. None = follow the catalog; True/False = explicit, survives catalog re-syncs.
     supports_vision_override: Optional[bool] = None
-    # Whether the model produces images (gpt-image-1). Such models are not chat
+    # Whether the model produces images (e.g. gpt-image-2.5-sunburst). Such models are not chat
     # models and are excluded from the chat/agent model picker.
     supports_image_generation: bool = False
     # Manual admin override for image generation. None = follow the catalog;
@@ -257,6 +299,18 @@ class LLMModelSchema(LLMModelBase):
     # Whether this model is the CALLER's personal default (memberships.default_llm_model_id).
     # Computed per-request in LLMService.get_models — not a column.
     is_user_default: bool = False
+    # Reasoning capability for the model picker and admin card: whether effort
+    # applies, what each level (low/medium/high/max) runs as on this model, the
+    # admin's mode / default / raw per-level fields. Derived from model_id +
+    # config, never stored.
+    reasoning: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def _derive_reasoning(self):
+        if self.reasoning is None and self.model_id:
+            from app.ai.llm.reasoning import reasoning_info
+            self.reasoning = reasoning_info(self.model_id, self.config)
+        return self
 
     class Config:
         from_attributes = True
@@ -277,3 +331,73 @@ class LLMModelUpdate(BaseModel):
     # deployment/ARN identifiers the admin owns (azure, custom, bedrock).
     model_id: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+
+
+# Request-body keys an admin's raw reasoning fields may not set: they would
+# replace the conversation, the tools or the model instead of tuning reasoning.
+_RESERVED_RAW_KEYS = {
+    "model", "modelid", "messages", "input", "contents", "tools", "toolconfig",
+    "tool_choice", "stream", "system", "instructions", "system_instruction",
+}
+_MAX_RAW_PARAMS_CHARS = 8000
+
+
+class ModelReasoningUpdate(BaseModel):
+    """Admin reasoning settings for one model. Omitted fields stay unchanged;
+    an explicit null clears that setting."""
+    mode: Optional[str] = None           # auto | like | generic | custom | off
+    like_model_id: Optional[str] = None  # the known model an opaque deployment behaves like
+    default_effort: Optional[str] = None  # the model's own default level
+    params: Optional[Dict[str, Dict[str, Any]]] = None  # raw request fields per level
+
+    @validator("mode")
+    def _mode(cls, v):
+        from app.ai.llm.reasoning import REASONING_MODES
+        if v is not None and v not in REASONING_MODES:
+            raise ValueError(f"mode must be one of: {', '.join(REASONING_MODES)}")
+        return v
+
+    @validator("like_model_id")
+    def _like(cls, v):
+        v = (v or "").strip()
+        return v[:200] or None
+
+    @validator("default_effort", pre=True)
+    def _default_effort(cls, v):
+        from app.utils.reasoning_effort import USER_EFFORTS, normalize_effort
+        e = normalize_effort(v)
+        if e is not None and e not in (*USER_EFFORTS, "off"):
+            raise ValueError(f"default_effort must be one of: default, off, {', '.join(USER_EFFORTS)}")
+        return e
+
+    @validator("params")
+    def _params(cls, v):
+        from app.utils.reasoning_effort import USER_EFFORTS
+        if v is None:
+            return None
+        cleaned: Dict[str, Dict[str, Any]] = {}
+        for level, fields in v.items():
+            if level not in (*USER_EFFORTS, "off"):
+                raise ValueError(f"params keys must be levels: off, {', '.join(USER_EFFORTS)}")
+            if not isinstance(fields, dict):
+                raise ValueError(f"params.{level} must be a JSON object")
+            bad = sorted(k for k in fields if str(k).lower() in _RESERVED_RAW_KEYS)
+            if bad:
+                raise ValueError(f"params.{level} may not set {', '.join(bad)}")
+            if fields:
+                cleaned[level] = fields
+        if len(json.dumps(cleaned)) > _MAX_RAW_PARAMS_CHARS:
+            raise ValueError(f"params must be under {_MAX_RAW_PARAMS_CHARS} characters of JSON")
+        return cleaned or None
+
+
+class ModelReasoningTest(BaseModel):
+    effort: str = "high"
+
+    @validator("effort", pre=True)
+    def _effort(cls, v):
+        from app.utils.reasoning_effort import USER_EFFORTS, normalize_effort
+        e = normalize_effort(v)
+        if e not in (*USER_EFFORTS, "off"):
+            raise ValueError(f"effort must be one of: off, {', '.join(USER_EFFORTS)}")
+        return e

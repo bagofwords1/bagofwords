@@ -1,0 +1,25 @@
+Compact captured test output; repeated migration logs and warnings omitted.
+
+=================================== FAILURES ===================================
+E       Failed: DID NOT RAISE <class 'app.ai.code_execution.query_params.ParamError'>
+tests/unit/test_query_params.py:425: Failed
+E       Failed: DID NOT RAISE <class 'app.ai.code_execution.query_params.ParamError'>
+tests/unit/test_query_params.py:425: Failed
+E       AssertionError: assert not True
+E        +  where True = <function param_values_equal at 0x103a98360>(ParamSpec(name='instant', type='date', label=None, description=None, default=None, required=False, source='input', identity_binding=None, options=None, options_source=None, strict_options=False), '2024-02-29T12:00:00.12345678901234567890123456789Z', '2024-02-29T12:00:00.12345678901234567890123456788Z')
+tests/unit/test_query_params.py:436: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+tests/unit/test_query_params.py: 20 warnings
+=========================== short test summary info ============================
+FAILED tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[+01:60]
+FAILED tests/unit/test_query_params.py::test_timestamp_parameters_reject_invalid_offset_components[-0160]
+FAILED tests/unit/test_query_params.py::test_timestamp_comparison_preserves_fractional_precision_across_offsets[12345678901234567890123456789]
+3 failed, 2 passed, 60 deselected, 255 warnings in 5.59s

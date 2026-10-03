@@ -34,6 +34,7 @@ literals, and the `kubectl.kubernetes.io/last-applied-configuration`
 annotation is dropped everywhere (it embeds the full spec, env included).
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 
 import base64
 import binascii
@@ -1077,6 +1078,8 @@ class KubernetesClient(DataSourceClient):
         finally:
             try:
                 api.close()
+            except IndexingCancelled:
+                raise
             except Exception:
                 pass
 
@@ -1125,6 +1128,8 @@ class KubernetesClient(DataSourceClient):
             )
         except ApiException as e:
             raise RuntimeError(self._describe_api_error(e, path)) from None
+        except IndexingCancelled:
+            raise
         except Exception as e:  # urllib3 transport errors surface here
             name = type(e).__name__
             msg = str(e)
@@ -1231,6 +1236,8 @@ class KubernetesClient(DataSourceClient):
                 "message": (f"Connected to Kubernetes {server_version}: {len(nodes)} nodes, "
                             f"{len(namespaces)} namespaces{visible}; {usage}."),
             }
+        except IndexingCancelled:
+            raise
         except Exception as e:
             return {"success": False, "message": str(e)}
 
@@ -1243,6 +1250,7 @@ class KubernetesClient(DataSourceClient):
 
     # ── schema discovery ──────────────────────────────────────────────────────
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         tables = [self._build_fixed(name) for name in _CATALOG]
         with self.connect() as api:
@@ -1259,6 +1267,8 @@ class KubernetesClient(DataSourceClient):
             if self.discover_crds and self.max_crd_tables > 0:
                 try:
                     tables.extend(self._discover_crd_tables(api, tables, progress_callback))
+                except IndexingCancelled:
+                    raise
                 except Exception as e:  # never fail the whole catalog on CRD trouble
                     logger.warning("kubernetes: CRD discovery failed: %s", e)
         return tables

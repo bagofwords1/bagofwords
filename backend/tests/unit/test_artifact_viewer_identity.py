@@ -149,13 +149,11 @@ def test_preview_notes_attached_wherever_a_screenshot_is():
     for token in ("multi-select", "dropdown", "CLOSED", "NEVER"):
         assert token in STATIC_PREVIEW_NOTE
 
-    for module in (ca, ra, eal):
+    for module in (ca, ra, eal, ea):
         src = inspect.getsource(module)
         assert "ANON_PREVIEW_NOTE" in src, f"{module.__name__} attaches an unlabeled screenshot"
         assert "STATIC_PREVIEW_NOTE" in src, f"{module.__name__} attaches an unlabeled screenshot"
 
-    # Exemption is real, not an oversight: assert it attaches no image at all.
-    assert '"images"' not in inspect.getsource(ea)
 
 
 def test_screenshot_limits_documented_in_authoring_reference():

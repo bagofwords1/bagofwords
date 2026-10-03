@@ -10,7 +10,7 @@ from typing import List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
-from sqlalchemy import delete, update, func
+from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
@@ -26,7 +26,6 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
-from app.models.webhook_data_source_association import webhook_data_source_association
 from app.models.domain_connection import domain_connection
 from app.schemas.data_source_registry import (
     resolve_client_class,
@@ -265,6 +264,18 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
     return None
 
 
+def _dialect_insert(db: AsyncSession):
+    """INSERT construct with ON CONFLICT support for the app database."""
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        raise ValueError(f"Unsupported application database: {dialect}")
+    return insert
+
+
 class ConnectionService:
     """Service for managing database connections."""
 
@@ -455,7 +466,7 @@ class ConnectionService:
         """Return (introspected table count, BOW custom-query count) for a
         connection in ONE grouped aggregate, instead of materializing the whole
         catalog to call len() on it. Soft-deleted rows are excluded from both:
-        the relationship is unfiltered, so a deleted custom query would
+        the relationship is unfiltered, so a deleted custom table would
         otherwise keep inflating the count after the admin removed it."""
         rows = (await db.execute(
             select(ConnectionTable.kind, func.count(ConnectionTable.id))
@@ -612,24 +623,15 @@ class ConnectionService:
 
         if "credentials" in updates:
             new_credentials = updates.pop("credentials")
-            if new_credentials and not any(v is None for v in new_credentials.values()):
-                # The edit form never re-sends secret fields the admin left
-                # blank (client_secret / bearer token / api_key are write-only
-                # placeholders). Carry those forward from the stored blob so an
-                # endpoint/scope edit doesn't wipe the secret. This is the bug
-                # that broke X OAuth: editing the connection dropped
-                # client_secret, and the next token exchange failed with
-                # "client_secret_basic requires a client_secret".
-                _SECRET_KEYS = ("client_secret", "oauth_client_secret", "token", "api_key")
-                try:
-                    existing = connection.decrypt_credentials() or {}
-                except Exception:
-                    existing = {}
-                for k in _SECRET_KEYS:
-                    if k not in new_credentials and existing.get(k):
-                        new_credentials[k] = existing[k]
-                connection.encrypt_credentials(new_credentials)
-                connection_changed = True
+            if new_credentials:
+                # Credential edits are partial updates, like test overrides:
+                # omitted/blank values keep the saved value. Never replace the
+                # entire blob when rotating a single secret or identifier.
+                existing = connection.decrypt_credentials() or {}
+                changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
+                if changes:
+                    connection.encrypt_credentials({**existing, **changes})
+                    connection_changed = True
 
         if connection_changed:
             # Drop pooled engines for the PREVIOUS config while it is still on
@@ -749,7 +751,7 @@ class ConnectionService:
                     extra={"connection_id": str(connection_id)},
                 )
 
-        async def _load_and_delete(org: Organization) -> tuple[str, int, list]:
+        async def _load_and_delete(org: Organization) -> str:
             connection = await self.get_connection(db, connection_id, org)
             connection_name = connection.name
 
@@ -762,44 +764,48 @@ class ConnectionService:
             # function on a concurrent-write FK violation.
             _invalidate_engine_pool(connection)
 
-            agent_count = len(connection.data_sources) if connection.data_sources else 0
-            deleted_agent_names: list = []
-            if agent_count > 0:
-                agent_names = [ds.name for ds in connection.data_sources]
-                logger.info(f"Deleting connection {connection.name} ({connection_id}) which is linked to {agent_count} agent(s): {agent_names}")
-
-                # Delete data sources that only have this connection
-                for ds in connection.data_sources:
-                    if len(ds.connections) == 1:
-                        deleted_agent_names.append(ds.name)
-                        logger.info(f"Deleting data source {ds.name} ({ds.id}) as it only has this connection")
-                        # Detach from trigger webhooks first. The M2M lives only
-                        # on Webhook.data_sources, so the ORM cascade below never
-                        # clears these rows and Postgres rejects the DELETE on
-                        # webhook_data_source_association_data_source_id_fkey.
-                        await db.execute(
-                            delete(webhook_data_source_association).where(
-                                webhook_data_source_association.c.data_source_id == ds.id
-                            )
-                        )
-                        # Preserve per-agent Drafts suites and their cases. The
-                        # suite link is a home only, so removing the sole-linked
-                        # agent turns it back into an org-level suite.
-                        from app.models.eval import TestSuite
-                        await db.execute(
-                            update(TestSuite)
-                            .where(TestSuite.data_source_id == ds.id)
-                            .values(data_source_id=None)
-                        )
-                        await db.delete(ds)
-
+            # Agents that existed only through this connection were deleted
+            # above, through the agent delete; any left here share another
+            # connection and only lose this link (domain_connection cascade).
             await db.delete(connection)
             await db.commit()
-            return connection_name, agent_count, deleted_agent_names
+            return connection_name
 
         await _drain()
+
+        # Agents that exist only through this connection go with it — through
+        # the full agent delete (DataSourceService.delete_data_source), the one
+        # place that knows every reference to an agent: content scoped to it,
+        # project / webhook / instruction links, folders, repositories, audit.
+        # A hand-rolled `db.delete(ds)` here used to skip most of that and fail
+        # on Postgres foreign keys. Every such agent is checked first, so one
+        # that cannot be deleted stops the connection delete before anything is
+        # removed.
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        connection = await self.get_connection(db, connection_id, organization)
+        linked = list(connection.data_sources or [])
+        agent_count = len(linked)
+        sole = [(str(ds.id), ds.name) for ds in linked if len(ds.connections) == 1]
+        if agent_count:
+            logger.info(
+                f"Deleting connection {connection.name} ({connection_id}) which is linked to "
+                f"{agent_count} agent(s): {[ds.name for ds in linked]}"
+            )
+        for ds_id, ds_name in sole:
+            await ds_service._assert_nothing_blocks_agent_delete(db, ds_id, ds_name)
+        deleted_agent_names: list = []
+        for ds_id, ds_name in sole:
+            logger.info(f"Deleting data source {ds_name} ({ds_id}) as it only has this connection")
+            await ds_service.delete_data_source(db, ds_id, organization, current_user)
+            deleted_agent_names.append(ds_name)
+        # The loaded connection still lists the agents just deleted; drop the
+        # stale state so the connection delete below re-reads what remains.
+        db.expire_all()
+        organization = await db.get(Organization, organization_id)
+
         try:
-            connection_name, agent_count, deleted_agent_names = await _load_and_delete(organization)
+            connection_name = await _load_and_delete(organization)
         except IntegrityError:
             # Safety net for the (now narrow) window where a concurrent writer
             # committed a child row after our eager load. Roll back, drain the
@@ -815,7 +821,7 @@ class ConnectionService:
             )
             organization = await db.get(Organization, organization_id)
             await _drain()
-            connection_name, agent_count, deleted_agent_names = await _load_and_delete(organization)
+            connection_name = await _load_and_delete(organization)
 
         # Audit log
         try:
@@ -885,6 +891,59 @@ class ConnectionService:
                 "truncated": False,
             }
 
+    async def _verify_dcr_discovery(self, config: dict, credentials: dict, result: dict) -> dict:
+        """Run OAuth discovery for a DCR connection at Verify time.
+
+        Reachability alone used to pass Verify for DCR — the server answering
+        401 *is* the healthy state — and then Sign in failed on discovery, the
+        one step that could have said what was wrong. Discovery is a few GETs,
+        so run it here: report what a sign-in will actually request (so the
+        admin sees it before anyone clicks Sign in), or fail now with the reason.
+        """
+        from app.services.mcp_dcr_service import discover_mcp_oauth
+
+        server_url = (config or {}).get("server_url") or ""
+        try:
+            meta = await discover_mcp_oauth(server_url)
+        except Exception as e:
+            return {
+                **result,
+                "success": False,
+                "message": f"Server reachable, but OAuth discovery failed: {e}",
+            }
+        if not meta.get("registration_endpoint"):
+            return {
+                **result,
+                "success": False,
+                "message": (
+                    f"Server reachable, but its authorization server ({meta.get('issuer')}) does "
+                    "not advertise a registration_endpoint, so a client cannot be registered "
+                    "automatically. Choose the admin-registered OAuth app option and supply a client ID."
+                ),
+            }
+        override = (credentials or {}).get("scopes") or ""
+        effective = override or meta.get("scopes") or ""
+        detected = {
+            "authorize_url": meta["authorize_url"],
+            "token_url": meta["token_url"],
+            "registration_endpoint": meta["registration_endpoint"],
+            "resource": meta.get("resource"),
+            "scopes": meta.get("scopes") or "",
+            "scopes_source": meta.get("scopes_source"),
+            "effective_scopes": effective,
+        }
+        if effective:
+            message = (
+                "Server reachable — sign-in required (as configured). "
+                f"Sign-in will request: {effective}."
+            )
+        else:
+            message = (
+                "Server reachable — sign-in required (as configured). "
+                "The server advertises no scopes; sign-in will request none."
+            )
+        return {**result, "message": message, "detected": detected}
+
     async def test_connection_params(
         self,
         data_source_type: str,
@@ -914,13 +973,16 @@ class ConnectionService:
             connection_status = await client.atest_connection()
             if not connection_status.get("success"):
                 if oauth_user_mode and _looks_like_auth_challenge(connection_status.get("message")):
-                    return {
+                    result = {
                         "success": True,
                         "message": "Server reachable — sign-in required (as configured). Tools load after each user signs in.",
                         "connectivity": True,
                         "schema_access": False,
                         "requires_user_auth": True,
                     }
+                    if (config or {}).get("auth_type") == "dcr":
+                        result = await self._verify_dcr_discovery(config, credentials, result)
+                    return result
                 return connection_status
 
             # For tool providers (MCP/API), list tools instead of schema access
@@ -1012,8 +1074,9 @@ class ConnectionService:
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
             # Cache the test result
-            connection.last_connection_status = "success" if success else "not_connected"
-            connection.last_connection_checked_at = datetime.utcnow()
+            if current_user is None:
+                connection.last_connection_status = "success" if success else "not_connected"
+                connection.last_connection_checked_at = datetime.utcnow()
 
             # Update is_active for system_only connections
             if connection.auth_policy == "system_only":
@@ -1032,8 +1095,9 @@ class ConnectionService:
             return connection_status
 
         except Exception as e:
-            connection.last_connection_status = "not_connected"
-            connection.last_connection_checked_at = datetime.utcnow()
+            if current_user is None:
+                connection.last_connection_status = "not_connected"
+                connection.last_connection_checked_at = datetime.utcnow()
 
             if connection.auth_policy == "system_only":
                 connection.is_active = False
@@ -1306,9 +1370,8 @@ class ConnectionService:
           - "full" (default): every dataset is introspected — required for
             scheduled/background reindexing to pick up column-level drift.
           - "incremental": already-indexed tables are passed to the client as
-            `prior_tables`, so it only introspects NEW datasets. Used by the
-            interactive Reload path, where per-dataset introspection is
-            rate-limited to minutes-scale on large tenants.
+            `prior_tables`, so it only introspects NEW datasets. Explicit
+            reloads use full discovery; routine sign-in may reuse definitions.
 
         After a successful run, the freshly fetched schema list and the
         identity it was fetched with are stashed on the instance
@@ -1411,11 +1474,11 @@ class ConnectionService:
             # for unchanged files instead of re-extracting every document
             # (base.aget_schemas only forwards the kwarg to clients that take it).
             connection_id_str = str(connection.id)
-            # Introspected rows ONLY. BOW-managed custom queries (kind='bow')
+            # Introspected rows ONLY. BOW-managed custom tables (kind='bow')
             # must be invisible to this whole upsert/diff/delete pass: they have
             # no counterpart in the source catalog, so they would show up in the
             # `missing` set on every run and get deleted — silently destroying
-            # every custom query on the next scheduled reindex.
+            # every custom table on the next scheduled reindex.
             existing_q = await db.execute(
                 select(ConnectionTable)
                 .filter(
@@ -1430,7 +1493,7 @@ class ConnectionService:
             }
 
             prior_tables_arg = None
-            if introspection == "incremental" and existing_tables:
+            if (introspection == "incremental" or connection.type == "powerbi") and existing_tables:
                 prior_tables_arg = {
                     name: {
                         "columns": t.columns or [],
@@ -1448,6 +1511,8 @@ class ConnectionService:
             _extra = {}
             if prior_tables_arg and _accepts_kwarg(client.aget_schemas, "prior_tables"):
                 _extra["prior_tables"] = prior_tables_arg
+            if introspection == "full" and _accepts_kwarg(client.aget_schemas, "force_refresh"):
+                _extra["force_refresh"] = True
             fresh_tables = await client.aget_schemas(
                 progress_callback=progress_callback,
                 prior_catalog=prior_catalog,
@@ -1527,6 +1592,18 @@ class ConnectionService:
                 logger.warning(f"refresh_schema: No tables returned from get_schemas()")
                 return []
 
+            # Discovery may be slow. Serialize only the catalog write phase,
+            # then re-read: another identity may have indexed while we crawled.
+            from app.services.powerbi_catalog_service import prepare_powerbi_catalog
+            await prepare_powerbi_catalog(db, connection)
+            existing_q = await db.execute(
+                select(ConnectionTable).where(
+                    ConnectionTable.connection_id == connection_id_str,
+                    ConnectionTable.kind == KIND_TABLE,
+                ).execution_options(populate_existing=True)
+            )
+            existing_tables = {t.name: t for t in existing_q.scalars().all()}
+
             # Normalize incoming tables
             from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
@@ -1566,9 +1643,29 @@ class ConnectionService:
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
 
+            if progress_callback is not None:
+                # Discovery is done; upsert + commit report nothing of their
+                # own, so mark the stage for the indexing log and UI.
+                # None counts: keep discovery's done/total on the run.
+                progress_callback("saving", None, None, None)
+
             # Existing tables were loaded before schema discovery (they also
             # feed `prior_catalog` for incremental file indexing).
             logger.info(f"refresh_schema: Found {len(existing_tables)} existing ConnectionTable records")
+
+            from app.utils.powerbi_catalog import powerbi_identity, reconcile_powerbi_names
+            incoming = reconcile_powerbi_names(incoming, existing_tables)
+            by_identity = {
+                powerbi_identity(t.metadata_json): t for t in existing_tables.values()
+                if powerbi_identity(t.metadata_json) is not None
+            }
+            for name, payload in incoming.items():
+                row = by_identity.get(powerbi_identity(payload.get("metadata_json")))
+                if row is not None and row.name != name:
+                    if authoritative:
+                        existing_tables.pop(row.name, None)
+                        row.name = name
+                    existing_tables[name] = row
 
             # Upsert tables
             created_count = 0
@@ -1582,7 +1679,7 @@ class ConnectionService:
                         # visibility is recorded in their overlay
                         # (user_connection_tables / user_data_source_tables),
                         # which is refreshed right after this by
-                        # DataSourceService._refresh_shared_user_overlay.
+                        # DataSourceService._reloaded_schema_for.
                         skipped_count += 1
                         continue
                     # Update existing
@@ -1720,7 +1817,7 @@ class ConnectionService:
         ClientClass = resolve_client_class(connection.type)
         logger.info(f"construct_client: Resolved ClientClass={ClientClass.__name__}")
 
-        config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+        config = json.loads(connection.config) if isinstance(connection.config, str) else dict(connection.config or {})
         # Merge config overrides (non-empty values win)
         if config_overrides:
             for k, v in config_overrides.items():
@@ -1859,6 +1956,7 @@ class ConnectionService:
             get_user_conn_cred_row,
             is_admin_or_owner,
             QUERY_IDENTITY_SERVICE,
+            management_requires_user_auth,
         )
 
         row = await get_user_conn_cred_row(db, connection, current_user)
@@ -1871,7 +1969,7 @@ class ConnectionService:
             admin_or_owner = await is_admin_or_owner(db, connection, current_user)
             pref = identity_pref_from_row(row)
 
-            if pref == QUERY_IDENTITY_SERVICE and admin_or_owner:
+            if pref == QUERY_IDENTITY_SERVICE and admin_or_owner and not management_requires_user_auth(connection):
                 return connection.decrypt_credentials() or {}
 
             if row_has_token(row):
@@ -2227,6 +2325,7 @@ class ConnectionService:
             # Upsert tools
             created_count = 0
             updated_count = 0
+            new_tools = []
             for name, payload in incoming.items():
                 if name in existing_tools:
                     tool = existing_tools[name]
@@ -2239,7 +2338,7 @@ class ConnectionService:
                         tool.policy = payload["explicit_policy"]
                     updated_count += 1
                 else:
-                    tool = ConnectionTool(
+                    new_tools.append(dict(
                         name=name,
                         connection_id=connection_id_str,
                         description=payload["description"],
@@ -2252,9 +2351,21 @@ class ConnectionService:
                         # allow. Auto-policied tools keep whatever an admin
                         # sets later (only new rows are seeded).
                         policy=payload.get("explicit_policy") or payload.get("default_policy") or "allow",
-                    )
-                    db.add(tool)
+                    ))
                     created_count += 1
+
+            # Two discoveries of one connection can overlap: agent create runs
+            # one in the request and one in background indexing, and a manual
+            # refresh can meet a scheduled reindex. Both see a new tool as
+            # missing, so a plain INSERT made the later one fail on
+            # uq_connection_tool_name. The first to land wins; the rows match.
+            if new_tools:
+                insert = _dialect_insert(db)
+                for values in new_tools:
+                    await db.execute(
+                        insert(ConnectionTool).values(**values)
+                        .on_conflict_do_nothing(index_elements=["connection_id", "name"])
+                    )
 
             # Delete stale tools — but never on an empty discovery result. A
             # flaky/misconfigured server returning zero tools would otherwise
@@ -2262,10 +2373,19 @@ class ConnectionService:
             # overlays and per-user policy preferences hanging off them.
             deleted_count = 0
             if incoming:
-                for existing_name, existing_tool in existing_tools.items():
-                    if existing_name not in incoming:
-                        await db.delete(existing_tool)
-                        deleted_count += 1
+                stale = [t for n, t in existing_tools.items() if n not in incoming]
+                if stale:
+                    # Statement deletes: an overlapping run may already have
+                    # removed these rows, and an ORM delete of a vanished row
+                    # raises StaleDataError. user_connection_tools has no ON
+                    # DELETE rule, so clear it first (the ORM cascade did).
+                    stale_ids = [str(t.id) for t in stale]
+                    await db.execute(delete(UserConnectionTool).where(
+                        UserConnectionTool.connection_tool_id.in_(stale_ids)))
+                    await db.execute(delete(ConnectionTool).where(ConnectionTool.id.in_(stale_ids)))
+                    for t in stale:
+                        db.expunge(t)
+                    deleted_count = len(stale_ids)
             elif existing_tools:
                 logger.warning(
                     f"refresh_tools: provider returned no tools for connection {connection.id}; "

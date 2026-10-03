@@ -178,6 +178,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | PostHog | Business app |
 | Priority ERP | Business app |
 | Outlook Mail | Business app |
+| Gmail | Business app |
 | Elasticsearch | Search and observability |
 | OpenSearch | Search and observability |
 | Splunk | Search and observability |
@@ -187,6 +188,9 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | AWS CloudWatch | Monitoring and observability |
 | VMware Aria Operations | Monitoring and observability |
 | Jaeger | Tracing and observability |
+| Kubernetes | Infrastructure |
+| NetApp ONTAP | Infrastructure |
+| Brocade Fabric OS | Infrastructure |
 | Tableau | BI tool |
 | Power BI | BI tool |
 | Power BI Report Server | BI tool |
@@ -210,6 +214,8 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | SharePoint | Files |
 | SharePoint Server (on-prem) | Files |
 | SharePoint Lists | Business app |
+| Google Drive | Files |
+| OpenText Documentum | Files |
 
 ### Connect Tools Through MCP
 
@@ -223,8 +229,8 @@ Bag of Words can connect to any MCP server or custom API. Ready-to-connect MCP i
 | Linear | Issues, projects, and cycles |
 | Sentry | Errors, issues, releases, and diagnostics |
 | GitHub | Repositories, issues, and pull requests |
+| HubSpot | CRM contacts, companies, deals, and tickets |
 | Google Drive | File search and content access |
-| Gmail | Messages, threads, labels, and drafts |
 | X | Posts, users, search, and trends |
 | X (Write) | Create and delete posts through a custom API |
 | Custom MCP server | Any compatible remote or self-hosted MCP server |

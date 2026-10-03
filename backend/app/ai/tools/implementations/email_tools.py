@@ -33,7 +33,19 @@ from .read_file import ReadFileTool
 from .search_files import SearchFilesTool
 
 
-class ListEmailsTool(ListFilesTool):
+class _MailInventoryRow:
+    """Renders mailbox rows with sender + received date.
+
+    Mixed into both mailbox tools so `list_emails` and `search_email` render the
+    same shape, and so the generic file renderers stay untouched.
+    """
+
+    def _inventory_row(self, e: dict) -> str:
+        from app.ai.tools.implementations._file_tool_common import email_inventory_row
+        return email_inventory_row(e)
+
+
+class ListEmailsTool(_MailInventoryRow, ListFilesTool):
     """List recent messages in a Gmail or Outlook mailbox connection."""
 
     _required_capability = Capability.LIST_EMAILS
@@ -96,7 +108,7 @@ class ReadEmailTool(ReadFileTool):
         )
 
 
-class SearchEmailsTool(SearchFilesTool):
+class SearchEmailsTool(_MailInventoryRow, SearchFilesTool):
     """Search a Gmail or Outlook mailbox using its provider-native query."""
 
     _required_capability = Capability.SEARCH_EMAILS

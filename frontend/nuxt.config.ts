@@ -69,6 +69,7 @@ export default defineNuxtConfig({
   ],
 
   css: [
+    '~/assets/css/instruction-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
     '~/assets/css/mobile.css',
@@ -133,12 +134,18 @@ export default defineNuxtConfig({
             rewrite: (path) => `/api${path}`
         },
         '/api': {
+            xfwd: true, // Append the actual client address; backend trusts only configured proxy peers.
             target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => path,
             headers: {
-                'Connection': 'keep-alive'
+                'Connection': 'keep-alive',
+                // changeOrigin rewrites Host to the upstream, so the backend
+                // would otherwise derive OAuth redirect_uri from 127.0.0.1:8000.
+                // NGINX sets these in production; mirror that in dev.
+                'X-Forwarded-Host': 'localhost:3000',
+                'X-Forwarded-Proto': 'http'
             }
         }
     }
@@ -223,6 +230,8 @@ export default defineNuxtConfig({
       exclude: [
         '@tiptap/extension-mention',
         '@tiptap/suggestion',
+        '@tiptap/extension-link',
+        '@tiptap/extension-image',
         '@tiptap/extension-table',
         '@tiptap/extension-table-row',
         '@tiptap/extension-table-cell',
@@ -252,6 +261,7 @@ export default defineNuxtConfig({
   },
 
   routeRules: {
+    '/libs/fonts/**': { headers: { 'Access-Control-Allow-Origin': '*' } },
     '/data': { redirect: '/agents' },
     '/data/**': { redirect: '/agents/**' },
     // The org-wide evals page is gone — evals live in the Agents explorer, under

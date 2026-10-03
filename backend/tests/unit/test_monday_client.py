@@ -216,7 +216,9 @@ def test_no_credentials():
 
 def test_get_schemas_shape(monkeypatch):
     fake_post(monkeypatch, boards_responder(ALL_BOARDS))
-    tables = MondayClient(api_token="t").get_schemas()
+    events = []
+    tables = MondayClient(api_token="t").get_schemas(progress_callback=lambda *e: events.append(e))
+    assert any(e[0] == 'boards' and e[2] > 0 for e in events)
     names = {t.name for t in tables}
     # subitem board dropped; duplicate names disambiguated with the board id
     assert names == {"Sales Pipeline", "Accounts", "Tasks [444]", "Tasks [555]"}

@@ -153,7 +153,7 @@ class SearchReportsTool(Tool):
                     slug=r.slug,
                     status=r.status,
                     mode=r.mode,
-                    has_artifacts=bool(r.artifacts),
+                    has_artifacts=any(a.deleted_at is None for a in (r.artifacts or [])),
                     created_at=str(r.created_at) if r.created_at else None,
                     updated_at=str(r.updated_at) if r.updated_at else None,
                 )

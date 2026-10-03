@@ -67,7 +67,7 @@
                                         data-testid="agent-chip"
                                         @click.stop="$emit('pivot', `agent:${quote(a.name)}`)"
                                     >
-                                        <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="h-3.5 w-3.5 flex-shrink-0" />
+                                        <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon-token="a.icon_token" :icon="a.icon" class="h-3.5 w-3.5 flex-shrink-0" />
                                         <span class="truncate">{{ a.name }}</span>
                                     </button>
                                 </div>

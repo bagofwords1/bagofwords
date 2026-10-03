@@ -29,10 +29,43 @@
 
               <!-- Existing provider form -->
               <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
-                <div v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock'">
+                <div v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock' && selectedProvider?.provider_type !== 'vertex' && selectedProvider?.type !== 'vertex'">
                   <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.apiKey') }}</label>
                   <input v-model="selectedProvider.credentials.api_key" type="text" :placeholder="$t('onboarding.llm.apiKeyPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                 </div>
+
+                <!-- Vertex: existing provider edit -->
+                <template v-if="selectedProvider?.provider_type === 'vertex' || selectedProvider?.type === 'vertex'">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.projectId') }} <span class="text-red-500">*</span></label>
+                    <input v-model="selectedProvider.credentials.project_id" type="text" :placeholder="$t('onboarding.llm.projectIdPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                  </div>
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.vertexLocation') }}</label>
+                    <input v-model="selectedProvider.credentials.location" type="text" :placeholder="$t('onboarding.llm.vertexLocationPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                  </div>
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.authentication') }}</label>
+                    <div class="flex gap-2 mt-2">
+                      <button type="button" @click="selectedProvider.credentials.auth_mode = 'adc'; clearTestResult()"
+                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'adc') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                        {{ $t('onboarding.llm.vertexAdc') }}
+                      </button>
+                      <button type="button" @click="selectedProvider.credentials.auth_mode = 'service_account'; clearTestResult()"
+                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'service_account' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                        {{ $t('onboarding.llm.vertexServiceAccount') }}
+                      </button>
+                    </div>
+                    <p v-if="!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'adc'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">{{ $t('onboarding.llm.vertexAdcHint') }}</p>
+                  </div>
+                  <template v-if="selectedProvider.credentials.auth_mode === 'service_account'">
+                    <div>
+                      <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.vertexServiceAccountJson') }} <span class="text-red-500">*</span></label>
+                      <textarea v-model="selectedProvider.credentials.service_account_json" rows="4" :placeholder="$t('onboarding.llm.apiKeyPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full text-xs font-mono focus:outline-none focus:border-blue-500" @change="clearTestResult()"></textarea>
+                      <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ $t('onboarding.llm.vertexServiceAccountJsonHint') }}</p>
+                    </div>
+                  </template>
+                </template>
 
                 <!-- Bedrock: existing provider edit -->
                 <template v-if="selectedProvider?.provider_type === 'bedrock' || selectedProvider?.type === 'bedrock'">
@@ -129,6 +162,30 @@
                     <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 mt-2">{{ field.title }}</label>
                     <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required" :placeholder="field.description || ''" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
+                  <!-- Vertex: auth mode for new provider -->
+                  <template v-if="providerForm.provider_type === 'vertex'">
+                    <div class="mt-3">
+                      <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.authentication') }}</label>
+                      <div class="flex gap-2 mt-2">
+                        <button type="button" @click="providerForm.credentials.auth_mode = 'adc'; clearTestResult()"
+                          :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'adc') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                          {{ $t('onboarding.llm.vertexAdc') }}
+                        </button>
+                        <button type="button" @click="providerForm.credentials.auth_mode = 'service_account'; clearTestResult()"
+                          :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'service_account' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                          {{ $t('onboarding.llm.vertexServiceAccount') }}
+                        </button>
+                      </div>
+                      <p v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'adc'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">{{ $t('onboarding.llm.vertexAdcHint') }}</p>
+                    </div>
+                    <template v-if="providerForm.credentials.auth_mode === 'service_account'">
+                      <div class="mt-3">
+                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.vertexServiceAccountJson') }} <span class="text-red-500">*</span></label>
+                        <textarea v-model="providerForm.credentials.service_account_json" rows="4" :placeholder="$t('onboarding.llm.vertexServiceAccountJsonPlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full text-xs font-mono focus:outline-none focus:border-blue-500" @change="clearTestResult()"></textarea>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ $t('onboarding.llm.vertexServiceAccountJsonHint') }}</p>
+                      </div>
+                    </template>
+                  </template>
                   <!-- Bedrock: auth info for new provider -->
                   <template v-if="providerForm.provider_type === 'bedrock'">
                     <div class="mt-3">
@@ -359,6 +416,7 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
   let filtered = all.filter(f => !['verify_ssl', 'enable_web_search', 'use_responses_api', 'headers', 'header_injection'].includes(f.key))
   if (providerType === 'openai') return filtered.filter(f => f.key !== 'base_url')
   if (providerType === 'bedrock') return filtered.filter(f => f.key === 'region')
+  if (providerType === 'vertex') return filtered.filter(f => f.key === 'project_id' || f.key === 'location')
   return filtered
 })
 
@@ -390,6 +448,12 @@ const filteredModels = computed<AvailableModel[]>(() => {
 const canTestConnection = computed(() => {
   if (selectedProvider.value && selectedProvider.value.type !== 'new_provider') {
     return !!selectedProvider.value.provider_type
+  }
+  // Vertex: ADC needs no stored credential at all, only a project
+  if (providerForm.value.provider_type === 'vertex') {
+    const creds = providerForm.value.credentials
+    if (creds?.auth_mode === 'service_account') return !!creds.service_account_json
+    return !!creds?.project_id
   }
   // Bedrock with IAM auth doesn't require api_key
   if (providerForm.value.provider_type === 'bedrock') {
@@ -446,6 +510,14 @@ watch(selectedProvider, (newValue) => {
         (newValue.credentials as any).endpoint_url = existingEndpoint
       }
       if (newValue.credentials.endpoint_url === undefined) (newValue.credentials as any).endpoint_url = null
+    }
+    // Hydrate Vertex project/location/auth_mode (blank key JSON = keep stored)
+    if ((newValue.provider_type === 'vertex' || newValue.type === 'vertex')) {
+      const vcfg = (newValue as any)?.additional_config || {}
+      if (vcfg.project_id) (newValue.credentials as any).project_id = vcfg.project_id;
+      (newValue.credentials as any).location = vcfg.location || 'global';
+      (newValue.credentials as any).auth_mode = vcfg.auth_mode || 'adc';
+      (newValue.credentials as any).service_account_json = null
     }
     // Hydrate Bedrock region and auth_mode
     if ((newValue.provider_type === 'bedrock' || newValue.type === 'bedrock')) {

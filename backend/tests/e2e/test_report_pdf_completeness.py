@@ -38,7 +38,8 @@ from pathlib import Path
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
+from tests.fixtures.artifact import seed_artifact
 from app.models.file import File
 from app.models.organization import Organization
 from app.models.query import Query
@@ -204,12 +205,11 @@ async def _seed(mode: str = "page", code: str = DASHBOARD_CODE, files=None):
         if files is not None:
             content["files"] = files
 
-        artifact = Artifact(
+        artifact = await seed_artifact(
+            db,
             report_id=report.id, user_id=user.id, organization_id=org.id,
-            title="Dashboard", mode=mode, content=content,
+            mode=mode, title="Dashboard", content=content,
         )
-        db.add(artifact)
-        await db.flush()
         await db.commit()
         return str(report.id), str(artifact.id), org, user
 
@@ -322,7 +322,7 @@ async def test_doc_artifact_renders_through_the_paper_page(monkeypatch, tmp_path
     visualizations a dashboard export would collect."""
     _, artifact_id, _, _ = await _seed(mode="doc", code="")
     async with async_session_maker() as db:
-        artifact = await db.get(Artifact, artifact_id)
+        artifact = await db.get(ArtifactVersion, artifact_id)
         artifact.content = {
             "markdown": "# Title\n\nBody\n\n{{viz:%s}}" % artifact.content["visualization_ids"][0],
             "visualization_ids": artifact.content["visualization_ids"],
@@ -352,7 +352,7 @@ async def test_doc_artifact_without_markdown_is_refused():
     """An empty document would print a blank sheet; refuse instead."""
     _, artifact_id, _, _ = await _seed(mode="doc", code="")
     async with async_session_maker() as db:
-        artifact = await db.get(Artifact, artifact_id)
+        artifact = await db.get(ArtifactVersion, artifact_id)
         artifact.content = {"markdown": "   ", "visualization_ids": []}
         await db.commit()
 

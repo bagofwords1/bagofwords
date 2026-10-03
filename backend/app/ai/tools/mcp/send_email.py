@@ -33,8 +33,10 @@ class SendEmailMCPTool(MCPTool):
         "of your organization via 'recipients' (their email addresses; outside addresses "
         "are rejected). You are always included, and every recipient also gets an in-app "
         "notification. Use it when the user asks to be emailed — or to notify a teammate — "
-        "something (a summary, a result, an export). Keep the body short and natural; "
-        "default to plain text. Attachments (optional, up to 5) are generated from objects "
+        "something (a summary, a result, an export). Keep the body short and natural, and "
+        "write it as an email: plain text, NO MARKDOWN ('**bold**', '# headers' and "
+        "'| col |' tables arrive as literal punctuation) — see the 'body' field for the "
+        "full rules. Attachments (optional, up to 5) are generated from objects "
         "in a report — reference a visualization_id / query_id (CSV/XLSX), artifact_id "
         "(PPTX/PDF), or file_id, and pass the owning report_id."
     )
@@ -49,10 +51,14 @@ class SendEmailMCPTool(MCPTool):
     async def is_available_for_org(self, db, organization) -> bool:
         """Whether outbound email resolves for this org (AI mailbox / org SMTP /
         global), mirroring the analyst send path."""
+        from app.services.email_client_resolver import (
+            global_smtp_configured,
+            is_outbound_available,
+        )
+
         org_id = getattr(organization, "id", None)
         if not db or not org_id:
-            return settings.email_client is not None
-        from app.services.email_client_resolver import is_outbound_available
+            return global_smtp_configured()
         return await is_outbound_available(db, str(org_id), purpose="analyst")
 
     @property
@@ -84,9 +90,8 @@ class SendEmailMCPTool(MCPTool):
                 error="Could not resolve your email address.",
             ).model_dump()
 
-        # Attachments are scoped to a report. Require report_id and verify the
-        # report belongs to the caller's org before trusting it for scoping —
-        # _load_report alone does not check ownership.
+        # Attachments are scoped to a report. Require report_id; _load_report
+        # only resolves reports the caller owns in this organization.
         report = None
         if input_data.attachments:
             if not input_data.report_id:
@@ -95,7 +100,7 @@ class SendEmailMCPTool(MCPTool):
                     error="report_id is required when sending attachments.",
                 ).model_dump()
             try:
-                report = await self._load_report(db, input_data.report_id)
+                report = await self._load_report(db, input_data.report_id, user, organization)
             except Exception:
                 return MCPSendEmailOutput(
                     success=False, subject=input_data.subject,
@@ -110,7 +115,7 @@ class SendEmailMCPTool(MCPTool):
             # No attachments but a report was named — used only for the in-app
             # deep link; still verify org ownership before trusting it.
             try:
-                report = await self._load_report(db, input_data.report_id)
+                report = await self._load_report(db, input_data.report_id, user, organization)
                 if str(report.organization_id) != str(organization.id):
                     report = None
             except Exception:

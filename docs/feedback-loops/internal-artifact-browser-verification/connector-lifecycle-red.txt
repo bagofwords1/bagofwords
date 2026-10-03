@@ -1,0 +1,277 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_connector_browser_session_survives_a_turn_for_the_same_authorized_user __
+
+    @pytest.mark.asyncio
+    async def test_connector_browser_session_survives_a_turn_for_the_same_authorized_user():
+        from pathlib import Path
+        from playwright.async_api import async_playwright
+        from app.ai.tools.implementations._browser_common import BrowserSessionManager
+        async with async_playwright() as p:
+            if not Path(p.chromium.executable_path).exists():
+                pytest.skip('Preprovisioned Chromium is required for the session contract')
+        manager = BrowserSessionManager()
+        ctx = {'organization': SimpleNamespace(id='tenant-connector'), 'user': SimpleNamespace(id='member-a'),
+               'report': SimpleNamespace(id='report-connector'), 'agent_execution_id': 'first-turn'}
+        try:
+            session = await manager.open('report-connector', ['https://example.test/*'], False, runtime_ctx=ctx)
+            await manager.close_execution('first-turn')
+            following = {**ctx, 'agent_execution_id': 'following-turn'}
+>           assert manager.get(session.session_id, following) is session
+E           AssertionError: assert None is <app.ai.tools.implementations._browser_common.BrowserSession object at 0x17db02ab0>
+E            +  where None = get('363a844a-1480-4bfd-8c4a-94f0ed3ae4b0', {'agent_execution_id': 'following-turn', 'organization': namespace(id='tenant-connector'), 'report': namespace(id='report-connector'), 'user': namespace(id='member-a')})
+E            +    where get = <app.ai.tools.implementations._browser_common.BrowserSessionManager object at 0x17d796c00>.get
+E            +    and   '363a844a-1480-4bfd-8c4a-94f0ed3ae4b0' = <app.ai.tools.implementations._browser_common.BrowserSession object at 0x17db02ab0>.session_id
+
+tests/unit/test_artifact_browser_verification.py:527: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+Using test database URL: sqlite:///db/test_28987_d1023425.db (backend: sqlite)
+No historical completions found that need agent executions.
+[evsuite0002] homed 0 of 0 org-wide suites
+---------------------------- Captured stderr setup -----------------------------
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 0c42ed0cd805, Initial migration
+INFO  [alembic.runtime.migration] Running upgrade 0c42ed0cd805 -> a2d893ef9090, rels migration
+INFO  [alembic.runtime.migration] Running upgrade a2d893ef9090 -> d09c74cbca11, rels migration
+INFO  [alembic.runtime.migration] Running upgrade d09c74cbca11 -> 222b03221e2c, rels migration
+INFO  [alembic.runtime.migration] Running upgrade 222b03221e2c -> bab1312c9d43, more
+INFO  [alembic.runtime.migration] Running upgrade bab1312c9d43 -> 952ae269bd2c, more
+INFO  [alembic.runtime.migration] Running upgrade 952ae269bd2c -> 000c405d972c, completions
+INFO  [alembic.runtime.migration] Running upgrade 000c405d972c -> eb06fbd98645, step- description
+INFO  [alembic.runtime.migration] Running upgrade eb06fbd98645 -> d2b570e7bbe0, step - type
+INFO  [alembic.runtime.migration] Running upgrade d2b570e7bbe0 -> 53b26b0d0176, files
+- type
+INFO  [alembic.runtime.migration] Running upgrade 53b26b0d0176 -> 8bd357a4b435, files
+- type
+INFO  [alembic.runtime.migration] Running upgrade 8bd357a4b435 -> 161909d75fe3, files
+- type
+INFO  [alembic.runtime.migration] Running upgrade 161909d75fe3 -> 21952d7521e4, users
+- type
+INFO  [alembic.runtime.migration] Running upgrade 21952d7521e4 -> a6f685fea35c, user name not unique
+- type
+INFO  [alembic.runtime.migration] Running upgrade a6f685fea35c -> 4ad4807cbb69, user organization
+- type
+INFO  [alembic.runtime.migration] Running upgrade 4ad4807cbb69 -> 42823eea6256
+INFO  [alembic.runtime.migration] Running upgrade 42823eea6256 -> 6883ef8e3d7c, users in completions and files
+INFO  [alembic.runtime.migration] Running upgrade 6883ef8e3d7c -> 8f06b9c7f785, organizations and memberships
+INFO  [alembic.runtime.migration] Running upgrade 8f06b9c7f785 -> 6ffcc2857942, datasources
+INFO  [alembic.runtime.migration] Running upgrade 6ffcc2857942 -> 905a08bb2ca7, report-data source association
+INFO  [alembic.runtime.migration] Running upgrade 905a08bb2ca7 -> 04c2c1e3b151, excel sheets
+INFO  [alembic.runtime.migration] Running upgrade 04c2c1e3b151 -> d9f81f7079ab, data model in step
+INFO  [alembic.runtime.migration] Running upgrade d9f81f7079ab -> 2e14945501c2, completion main router
+INFO  [alembic.runtime.migration] Running upgrade 2e14945501c2 -> 6ca8f6939a3d, add prompts
+INFO  [alembic.runtime.migration] Running upgrade 6ca8f6939a3d -> 168fb2a83c58, add memories
+INFO  [alembic.runtime.migration] Running upgrade 168fb2a83c58 -> 42a7247575e0, add mentions
+INFO  [alembic.runtime.migration] Running upgrade 42a7247575e0 -> c6cef0b221cb, add file tags for pdf processing
+INFO  [alembic.runtime.migration] Running upgrade c6cef0b221cb -> c6a5ec8e9206, add memory-widget rel
+INFO  [alembic.runtime.migration] Running upgrade c6a5ec8e9206 -> 3422a3da5b2d, add text widget
+INFO  [alembic.runtime.migration] Running upgrade 3422a3da5b2d -> fd7dd5ccc203, add context to data source
+INFO  [alembic.runtime.migration] Running upgrade fd7dd5ccc203 -> 0996f318acf1, add description and summary to data source
+INFO  [alembic.runtime.migration] Running upgrade 0996f318acf1 -> 33775ce24806, add secured credentials field to data_soure
+INFO  [alembic.runtime.migration] Running upgrade 33775ce24806 -> 1281b867f169, add llm management
+INFO  [alembic.runtime.migration] Running upgrade 1281b867f169 -> c5d34a6b9d33, oauth
+INFO  [alembic.runtime.migration] Running upgrade c5d34a6b9d33 -> 1c75bfbc8d10, plans
+INFO  [alembic.runtime.migration] Running upgrade 1c75bfbc8d10 -> 30a368b87f58, datasource tables
+INFO  [alembic.runtime.migration] Running upgrade 30a368b87f58 -> 402e3481e1cb, git repos
+INFO  [alembic.runtime.migration] Running upgrade 402e3481e1cb -> f0dbe0e6e596, indexing job + dbt resources
+INFO  [alembic.runtime.migration] Running upgrade f0dbe0e6e596 -> 6b55dcdbf53f, add org settings
+INFO  [alembic.runtime.migration] Running upgrade 6b55dcdbf53f -> b619d8681865, upvotes
+INFO  [alembic.runtime.migration] Running upgrade b619d8681865 -> 5a283be8a36f, fix_orphaned_memberships
+INFO  [alembic.runtime.migration] Running upgrade b619d8681865 -> ef9ca851f6ea, external platform integrations
+INFO  [alembic.runtime.migration] Running upgrade ef9ca851f6ea, 5a283be8a36f -> 2ef912b5a237, merge migration branches
+INFO  [alembic.runtime.migration] Running upgrade 2ef912b5a237 -> c76b76a7869a, add external platform to report
+INFO  [alembic.runtime.migration] Running upgrade 6b55dcdbf53f -> 4e6982618f6e, Add detected_project_types to metadata_indexing_jobs
+INFO  [alembic.runtime.migration] Running upgrade 4e6982618f6e, c76b76a7869a -> c7a3a3c06220, merge multiple heads
+INFO  [alembic.runtime.migration] Running upgrade c7a3a3c06220 -> b4e1a2ebb2a3, instructions
+INFO  [alembic.runtime.migration] Running upgrade b4e1a2ebb2a3 -> 45f0bf1a0418, change_instruction_enums_to_strings
+INFO  [alembic.runtime.migration] Running upgrade 45f0bf1a0418 -> 569d24b5f050, instructions - more configs
+INFO  [alembic.runtime.migration] Running upgrade 569d24b5f050 -> 34420bdfc530, add_completion_feedbacks_table
+INFO  [alembic.runtime.migration] Running upgrade 34420bdfc530 -> 107fc9d42143, add ai judgement and step status reason
+INFO  [alembic.runtime.migration] Running upgrade 107fc9d42143 -> 874b2e21ffb7, add ds memberships and public ds
+INFO  [alembic.runtime.migration] Running upgrade 874b2e21ffb7 -> 37fe67baeb37, add instruction reference
+INFO  [alembic.runtime.migration] Running upgrade 37fe67baeb37 -> 8c1061a09336, table stats and usage metrics
+INFO  [alembic.runtime.migration] Running upgrade 8c1061a09336 -> 2c6238f56d1c, agent execution and tools data models
+INFO  [alembic.runtime.migration] Running upgrade 2c6238f56d1c -> 1576b701e34b, generate completion_blocks and wire to projectmgr
+INFO  [alembic.runtime.migration] Running upgrade 1576b701e34b -> ceefdc68b0dc, add_ae_and_reasoning_to_instructions
+INFO  [alembic.runtime.migration] Running upgrade ceefdc68b0dc -> 4e833275cd01, add_dashboard_versions
+INFO  [alembic.runtime.migration] Running upgrade 4e833275cd01 -> b05d701bf229, add query model
+INFO  [alembic.runtime.migration] Running upgrade b05d701bf229 -> ca84ec3273b7, add visualization model
+INFO  [alembic.runtime.migration] Running upgrade ca84ec3273b7 -> 9a4893c8b0ee, add llm sync to data sources
+INFO  [alembic.runtime.migration] Running upgrade 9a4893c8b0ee -> 34e743df9be9, add metadata json for datas source tables
+INFO  [alembic.runtime.migration] Running upgrade 34e743df9be9 -> 3ec67dfd9ae6, add user data source access
+INFO  [alembic.runtime.migration] Running upgrade 3ec67dfd9ae6 -> d2af7a7ec064, add user schema per ds
+INFO  [alembic.runtime.migration] Running upgrade d2af7a7ec064 -> 95de3b2ebc88, add catalog entities
+INFO  [alembic.runtime.migration] Running upgrade 95de3b2ebc88 -> 9479f7d83f08, add llm is_small_default and other params like context size
+INFO  [alembic.runtime.migration] Running upgrade 9479f7d83f08 -> da68823779da, add test models
+INFO  [alembic.runtime.migration] Running upgrade da68823779da -> 7e96b24b33ad, unique constaint for llms and data source
+INFO  [alembic.runtime.migration] Running upgrade da68823779da -> fa82623106ce, repair_reports_and_llm_models
+INFO  [alembic.runtime.migration] Running upgrade fa82623106ce, 7e96b24b33ad -> fb664b5328e0, merge heads after repair
+INFO  [alembic.runtime.migration] Running upgrade fb664b5328e0 -> 9e2b31aaa07e, instruction labels
+INFO  [alembic.runtime.migration] Running upgrade 9e2b31aaa07e -> 52668a7dca6d, llm usage record
+INFO  [alembic.runtime.migration] Running upgrade 52668a7dca6d -> 97757b1ff76f, indices update dec
+INFO  [alembic.runtime.migration] Running upgrade 97757b1ff76f -> e7769f2fca82, file preview
+INFO  [alembic.runtime.migration] Running upgrade e7769f2fca82 -> 6a23ec61f1d9, mentions-new-types
+INFO  [alembic.runtime.migration] Running upgrade 6a23ec61f1d9 -> a295ec7c4a5b, api key
+INFO  [alembic.runtime.migration] Running upgrade a295ec7c4a5b -> b8f3a2c91d4e, add unified instruction fields
+INFO  [alembic.runtime.migration] Running upgrade b8f3a2c91d4e -> c3d8f5a2b1e7, instruction usage tracking
+INFO  [alembic.runtime.migration] Running upgrade c3d8f5a2b1e7 -> d4e5f6a7b8c9, instruction file architecture
+INFO  [alembic.runtime.migration] Running upgrade d4e5f6a7b8c9 -> e5f6a7b8c9d0, instruction build system
+INFO  [alembic.runtime.migration] Running upgrade e5f6a7b8c9d0 -> f1a2b3c4d5e6, add git write support
+INFO  [alembic.runtime.migration] Running upgrade f1a2b3c4d5e6 -> g2h3i4j5k6l7, drop memories table
+INFO  [alembic.runtime.migration] Running upgrade g2h3i4j5k6l7 -> c07deb3aeac8, ae-build-id
+INFO  [alembic.runtime.migration] Running upgrade c07deb3aeac8 -> h3i4j5k6l7m8, add connection tables for domain-connection architecture
+INFO  [alembic.runtime.migration] Running upgrade h3i4j5k6l7m8 -> i4j5k6l7m8n9, data migration for connections
+INFO  [alembic.runtime.migration] Running upgrade i4j5k6l7m8n9 -> j5k6l7m8n9o0, add connection test cache columns
+INFO  [alembic.runtime.migration] Running upgrade j5k6l7m8n9o0 -> k6l7m8n9o0p1, add conversation share columns to reports
+INFO  [alembic.runtime.migration] Running upgrade k6l7m8n9o0p1 -> l7m8n9o0p1q2, add mode column to reports
+INFO  [alembic.runtime.migration] Running upgrade l7m8n9o0p1q2 -> m8n9o0p1q2r3, add slack thread columns to completions
+INFO  [alembic.runtime.migration] Running upgrade m8n9o0p1q2r3 -> n9o0p1q2r3s4, add artifacts table
+INFO  [alembic.runtime.migration] Running upgrade n9o0p1q2r3s4 -> o0p1q2r3s4t5, add last_run_at to reports
+INFO  [alembic.runtime.migration] Running upgrade o0p1q2r3s4t5 -> p1q2r3s4t5u6, add supports_vision to llm_models
+INFO  [alembic.runtime.migration] Running upgrade p1q2r3s4t5u6 -> q2r3s4t5u6v7, add audit logs table
+INFO  [alembic.runtime.migration] Running upgrade q2r3s4t5u6v7 -> r3s4t5u6v7w8, add thumbnail_path to artifacts
+INFO  [alembic.runtime.migration] Running upgrade r3s4t5u6v7w8 -> s4t5u6v7w8x9, add pptx_path to artifacts
+INFO  [alembic.runtime.migration] Running upgrade s4t5u6v7w8x9 -> t5u6v7w8x9y0, add completion_id to report_file_association
+INFO  [alembic.runtime.migration] Running upgrade t5u6v7w8x9y0 -> u6v7w8x9y0z1, add OAuth MCP server tables
+INFO  [alembic.runtime.migration] Running upgrade u6v7w8x9y0z1 -> v7w8x9y0z1a2, expand oauth token columns for large Entra ID JWT tokens
+INFO  [alembic.runtime.migration] Running upgrade v7w8x9y0z1a2 -> w8x9y0z1a2b3, add notification_subscribers column to reports
+INFO  [alembic.runtime.migration] Running upgrade w8x9y0z1a2b3 -> x9y0z1a2b3c4, make audit_logs.organization_id nullable for pre-org events like login
+INFO  [alembic.runtime.migration] Running upgrade x9y0z1a2b3c4 -> y0z1a2b3c4d5, add scim_tokens table and scim_external_id to users
+INFO  [alembic.runtime.migration] Running upgrade y0z1a2b3c4d5 -> z0a1b2c3d4e5, add fork report fields
+INFO  [alembic.runtime.migration] Running upgrade z0a1b2c3d4e5 -> a1b2c3d4e5f6, add connection tools tables for MCP and custom API support
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> z1a2b3c4d5e6, add sub_timings_json to tool_executions and duration_ms to completion_blocks
+INFO  [alembic.runtime.migration] Running upgrade z1a2b3c4d5e6 -> a2b3c4d5e6f7, add screenshot_base64 and render_errors to artifacts
+INFO  [alembic.runtime.migration] Running upgrade a2b3c4d5e6f7 -> b3c4d5e6f7g8, add scheduled_prompts table and scheduled_prompt_id to completions
+INFO  [alembic.runtime.migration] Running upgrade b3c4d5e6f7g8 -> c4d5e6f7g8h9, add phase column to plan_decisions
+INFO  [alembic.runtime.migration] Running upgrade c4d5e6f7g8h9 -> d5e6f7g8h9i0, add description column to instruction_builds
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6, d5e6f7g8h9i0 -> e6f7g8h9i0j1, rbac mvp: tables, system roles, membership + ds-membership backfill, ds creator grants
+INFO  [alembic.runtime.migration] Running upgrade e6f7g8h9i0j1 -> b2c3d4e5f6g7, add ldap_dn to users and index on groups.external_provider
+INFO  [alembic.runtime.migration] Running upgrade b2c3d4e5f6g7 -> e7f8g9h0i1j2, add report sharing visibility columns and report_shares table
+INFO  [alembic.runtime.migration] Running upgrade e7f8g9h0i1j2 -> a3b4c5d6e7f8, add additional_turns_json to test_cases
+INFO  [alembic.runtime.migration] Running upgrade a3b4c5d6e7f8 -> b4c5d6e7f8a9, add tags_json to test_cases
+INFO  [alembic.runtime.migration] Running upgrade b4c5d6e7f8a9 -> c5d6e7f8a9b0, add connection_indexings table
+INFO  [alembic.runtime.migration] Running upgrade c5d6e7f8a9b0 -> f1a2b3c4d5e7, add composite index on datasource_tables(datasource_id, is_active)
+INFO  [alembic.runtime.migration] Running upgrade f1a2b3c4d5e7 -> d6e7f8a9b0c1, add events_json to connection_indexings
+INFO  [alembic.runtime.migration] Running upgrade d6e7f8a9b0c1 -> e1f2d3c4b5a6, eval-as-tools: status + provenance on test_cases, is_eval_run on agent_executions
+INFO  [alembic.runtime.migration] Running upgrade e1f2d3c4b5a6 -> f2a3b4c5d6e7, add cache_read_tokens and cache_creation_tokens to llm_usage_records
+INFO  [alembic.runtime.migration] Running upgrade f2a3b4c5d6e7 -> b5c6d7e8f9a0, add last_seen to users
+INFO  [alembic.runtime.migration] Running upgrade b5c6d7e8f9a0 -> c6d7e8f9a0b1, add data_source_file_association
+INFO  [alembic.runtime.migration] Running upgrade c6d7e8f9a0b1 -> d7e8f9a0b1c2, add usage limit policies
+INFO  [alembic.runtime.migration] Running upgrade d7e8f9a0b1c2 -> e8f9a0b1c2d3, add note column to memberships
+INFO  [alembic.runtime.migration] Running upgrade e8f9a0b1c2d3 -> c5d6e7f8g9h0, add unique constraint on connections(organization_id, name)
+INFO  [alembic.runtime.migration] Running upgrade c5d6e7f8g9h0, d6e7f8a9b0c1 -> e9f0a1b2c3d4, add data_source_connection_tool per-agent tool overlay
+INFO  [alembic.runtime.migration] Running upgrade b4c5d6e7f8a9, e9f0a1b2c3d4 -> f9a0b1c2d3e4, add primary_instruction_id to data_sources
+INFO  [alembic.runtime.migration] Running upgrade f9a0b1c2d3e4 -> overlay_fk_ondelete, overlay FKs: ON DELETE CASCADE / SET NULL
+INFO  [alembic.runtime.migration] Running upgrade overlay_fk_ondelete -> f3a4b5c6d7e8, add report_stars table for per-user report starring
+INFO  [alembic.runtime.migration] Running upgrade f3a4b5c6d7e8 -> wh1a2b3c4d5e, add webhooks table and completions.webhook_id
+INFO  [alembic.runtime.migration] Running upgrade wh1a2b3c4d5e -> sc1d2e3f4a5b, add scheduled_job_runs table for scheduled-run claim dedup
+INFO  [alembic.runtime.migration] Running upgrade sc1d2e3f4a5b -> sd2e3f4a5b6c, Allow pending (unregistered) memberships in group_memberships
+INFO  [alembic.runtime.migration] Running upgrade sd2e3f4a5b6c -> se3f4a5b6c7d, Add invite_expires_at to memberships (invite link expiry)
+INFO  [alembic.runtime.migration] Running upgrade se3f4a5b6c7d -> sf4a5b6c7d8e, add per-connection scheduled auto-reindex columns
+INFO  [alembic.runtime.migration] Running upgrade sf4a5b6c7d8e -> d6d9a78b7b4a, add publish_status to data_sources
+INFO  [alembic.runtime.migration] Running upgrade d6d9a78b7b4a -> e7f0a1b2c3d4, add kind to instructions
+INFO  [alembic.runtime.migration] Running upgrade e7f0a1b2c3d4 -> rel1auto2mation, add agent reliability automation
+INFO  [alembic.runtime.migration] Running upgrade e7f0a1b2c3d4, g2h3i4j5k6l7 -> c4a1d2e3f4b5, add channel_availability to data sources
+INFO  [alembic.runtime.migration] Running upgrade c4a1d2e3f4b5, rel1auto2mation -> 52735eef8bf7, merge kind and eval migration heads
+INFO  [alembic.runtime.migration] Running upgrade 52735eef8bf7 -> 4607665ae190, drop FK on agent_automation_runs.build_id (soft/transient build ids)
+INFO  [alembic.runtime.migration] Running upgrade 4607665ae190 -> rev1ew0001, add review_items (admin Review feed)
+INFO  [alembic.runtime.migration] Running upgrade rev1ew0001 -> hunk0001, add rejected_hunks to instruction_builds
+INFO  [alembic.runtime.migration] Running upgrade hunk0001 -> judge0001, add judge_json to completions
+INFO  [alembic.runtime.migration] Running upgrade judge0001 -> bd5c1a7e9f02, add description to instructions and instruction_versions
+INFO  [alembic.runtime.migration] Running upgrade bd5c1a7e9f02 -> a1c2m0de9f01, add applicable_modes and applicable_channels to instructions
+INFO  [alembic.runtime.migration] Running upgrade a1c2m0de9f01 -> tz1a2b3c4d5e, add reindex schedule (interval-minutes / fixed time) columns
+INFO  [alembic.runtime.migration] Running upgrade tz1a2b3c4d5e -> usravatar01, add image_url to users
+INFO  [alembic.runtime.migration] Running upgrade judge0001, usravatar01 -> followups01, add follow_ups to completions (and merge heads)
+INFO  [alembic.runtime.migration] Running upgrade followups01 -> b1c2d3e4f5a6, add attribution columns to llm_usage_records
+INFO  [alembic.runtime.migration] Running upgrade b1c2d3e4f5a6 -> c3f1a9b2d4e7, add is_restricted to llm_models
+INFO  [alembic.runtime.migration] Running upgrade followups01, c3f1a9b2d4e7 -> notif0001, add notifications (per-user inbox delivery layer)
+INFO  [alembic.runtime.migration] Running upgrade c3f1a9b2d4e7 -> prompt0001, prompt model: completion-shaped, multi-agent, scoped
+INFO  [alembic.runtime.migration] Running upgrade prompt0001, notif0001 -> 6d171618ced8, merge prompt + notifications heads
+INFO  [alembic.runtime.migration] Running upgrade 6d171618ced8 -> f7a8b9c0d1e2, add INSTRUCTION value to mentiontype enum
+INFO  [alembic.runtime.migration] Running upgrade f7a8b9c0d1e2 -> c1d2e3f4a5b6, add prompt_runs table
+INFO  [alembic.runtime.migration] Running upgrade c1d2e3f4a5b6 -> la1a2b3c4d5e, add report.last_activity_at for activity-based list sorting
+INFO  [alembic.runtime.migration] Running upgrade la1a2b3c4d5e -> usdquota01, add monthly spend limit (USD) to usage policies
+INFO  [alembic.runtime.migration] Running upgrade usdquota01 -> c2d3e4f5a6b7, add service accounts
+INFO  [alembic.runtime.migration] Running upgrade c2d3e4f5a6b7 -> filesrc01, add files.source_kind (upload | connector)
+INFO  [alembic.runtime.migration] Running upgrade filesrc01 -> fileref01, file_references: durable pins to connector files (A3)
+INFO  [alembic.runtime.migration] Running upgrade fileref01 -> pendsweep01, pending sweep perf indexes
+INFO  [alembic.runtime.migration] Running upgrade pendsweep01 -> perfidx01, hot-path perf indexes (monitoring, list pages, rbac association)
+INFO  [alembic.runtime.migration] Running upgrade perfidx01 -> rbacbf01, backfill role_assignments for memberships that have none
+INFO  [alembic.runtime.migration] Running upgrade rbacbf01 -> ud1a2b3c4d5e, add default_llm_model_id to memberships
+INFO  [alembic.runtime.migration] Running upgrade rbacbf01 -> trig0001, trigger webhooks: spawn-mode run spec + report provenance
+INFO  [alembic.runtime.migration] Running upgrade trig0001 -> trig0002, scheduled prompts: report-per-run routing + report provenance
+INFO  [alembic.runtime.migration] Running upgrade trig0002 -> e7f8a9b0c1d2, add evidence to instruction_versions
+INFO  [alembic.runtime.migration] Running upgrade e7f8a9b0c1d2, ud1a2b3c4d5e -> m1e2r3g4e5f6, merge evidence and membership-default-llm heads
+INFO  [alembic.runtime.migration] Running upgrade m1e2r3g4e5f6 -> connratelimit01, add per-connection request rate limit (enterprise)
+INFO  [alembic.runtime.migration] Running upgrade connratelimit01 -> dsicon0001, add icon to data_sources
+INFO  [alembic.runtime.migration] Running upgrade dsicon0001 -> notes0001, add notes table (per-report agent scratchpad)
+INFO  [alembic.runtime.migration] Running upgrade notes0001 -> uctp0001, add user_connection_tool_preferences per-user tool policy
+INFO  [alembic.runtime.migration] Running upgrade uctp0001 -> v1s2v3o4t5g6, add supports_vision_override to llm_models
+INFO  [alembic.runtime.migration] Running upgrade v1s2v3o4t5g6 -> evalwake0001, add origin/wake columns to test_runs
+INFO  [alembic.runtime.migration] Running upgrade evalwake0001 -> evalwake0002, add trigger_source to completions
+INFO  [alembic.runtime.migration] Running upgrade v1s2v3o4t5g6 -> c1w2o3v4r5d6, add context_window_tokens_override to llm_models
+INFO  [alembic.runtime.migration] Running upgrade c1w2o3v4r5d6, evalwake0002 -> umbr0001, merge llm context-window and eval-wake migration heads
+INFO  [alembic.runtime.migration] Running upgrade umbr0001 -> ctxcomp01, Add report_context_states for rolling context compaction
+INFO  [alembic.runtime.migration] Running upgrade ctxcomp01 -> usermem01, add memory column to memberships
+INFO  [alembic.runtime.migration] Running upgrade v1s2v3o4t5g6 -> rptllm01, add model_id (report-level LLM override) to reports
+INFO  [alembic.runtime.migration] Running upgrade rptllm01, umbr0001 -> mrout0001, add routing columns to llm_usage_records (+ merge report-model and umbrella heads)
+INFO  [alembic.runtime.migration] Running upgrade mrout0001, usermem01 -> mrgheads02, merge auto-routing and per-user-memory heads
+INFO  [alembic.runtime.migration] Running upgrade mrgheads02 -> img1gen2col3, add supports_image_generation to llm_models
+INFO  [alembic.runtime.migration] Running upgrade img1gen2col3 -> img2gen3ovr4, add supports_image_generation_override to llm_models
+INFO  [alembic.runtime.migration] Running upgrade img2gen3ovr4 -> entraprof01, add profile_attributes to memberships
+INFO  [alembic.runtime.migration] Running upgrade entraprof01 -> toolconf01, add tool_confirmations
+INFO  [alembic.runtime.migration] Running upgrade v1s2v3o4t5g6 -> svr0001, add step_user_results table and reports.shared_run_identity
+INFO  [alembic.runtime.migration] Running upgrade entraprof01 -> mainbuild01, enforce a single main instruction build per organization
+INFO  [alembic.runtime.migration] Running upgrade entraprof01 -> idxuser01, connection_indexings: per-user scope for background catalog syncs
+INFO  [alembic.runtime.migration] Running upgrade idxuser01, mainbuild01, toolconf01 -> mrgheads03, merge connection-indexing-user-scope, one-main-build and tool-confirmations heads
+INFO  [alembic.runtime.migration] Running upgrade mrgheads03 -> rfv1o2n3v4w5, add refresh_on_view to reports
+INFO  [alembic.runtime.migration] Running upgrade rfv1o2n3v4w5 -> proj0001, add projects (shared folders for reports)
+INFO  [alembic.runtime.migration] Running upgrade proj0001 -> proj0002, add project instructions column
+INFO  [alembic.runtime.migration] Running upgrade proj0002 -> bc0001chg, mark real changes on build_contents (is_change)
+INFO  [alembic.runtime.migration] Running upgrade bc0001chg -> fastq001, add BOW custom queries (kind='bow') to connection_tables
+INFO  [alembic.runtime.migration] Running upgrade fastq001 -> fastq002, row-level security on custom queries
+INFO  [alembic.runtime.migration] Running upgrade mrgheads03, svr0001 -> 2a48698d312e, merge svr0001 (viewer-run) with main
+INFO  [alembic.runtime.migration] Running upgrade 2a48698d312e, rfv1o2n3v4w5 -> 573be7e86930, merge viewer-run branch with main (refresh_on_view)
+INFO  [alembic.runtime.migration] Running upgrade 573be7e86930, fastq002 -> fccfb9232670, merge viewer-run branch with main heads
+INFO  [alembic.runtime.migration] Running upgrade fccfb9232670 -> agnt1focus01, add focused_data_source_ids to reports
+INFO  [alembic.runtime.migration] Running upgrade agnt1focus01 -> evalfix001, add fixtures_json to test_cases
+INFO  [alembic.runtime.migration] Running upgrade fccfb9232670 -> rsgrp0001, allow sharing reports with groups
+INFO  [alembic.runtime.migration] Running upgrade rsgrp0001, evalfix001 -> 297905a87c8a, merge share groups and eval fixtures heads
+INFO  [alembic.runtime.migration] Running upgrade 297905a87c8a -> sptitle01, add title to scheduled_prompts
+INFO  [alembic.runtime.migration] Running upgrade sptitle01 -> whlastev01, add last_event capture to webhooks
+INFO  [alembic.runtime.migration] Running upgrade whlastev01 -> whproj01, bind standalone triggers to a project
+INFO  [alembic.runtime.migration] Running upgrade 297905a87c8a -> rptview01, add report_views table for per-user last-viewed watermarks
+INFO  [alembic.runtime.migration] Running upgrade rptview01, whproj01 -> mrgheads04, merge report_views and scheduled-task-title heads
+INFO  [alembic.runtime.migration] Running upgrade mrgheads04 -> sk1c2t3a4l5g, add catalog_key and catalog_version to instructions
+INFO  [alembic.runtime.migration] Running upgrade sk1c2t3a4l5g -> instrdir01, add instruction directories and placements
+INFO  [alembic.runtime.migration] Running upgrade instrdir01 -> licui0001, add instance_settings table (license key set from the UI)
+INFO  [alembic.runtime.migration] Running upgrade licui0001 -> connfile01, add source_connection_id / source_ref to files
+INFO  [alembic.runtime.migration] Running upgrade connfile01 -> bcbase001, Add build_contents.base_version_id — the baseline a pending change was written against
+INFO  [alembic.runtime.migration] Running upgrade bcbase001 -> dpanl0001, Remove deep analytics mode.
+INFO  [alembic.runtime.migration] Running upgrade dpanl0001 -> evsuite0001, Give a test suite an optional home agent (per-agent Drafts bucket)
+INFO  [alembic.runtime.migration] Running upgrade evsuite0001 -> evsuite0002, Backfill a home agent onto suites whose cases all agree on one
+INFO  [alembic.runtime.migration] Running upgrade evsuite0002 -> oidcgrp01, Relabel OIDC-synced groups whose name is just their raw directory GUID
+INFO  [alembic.runtime.migration] Running upgrade oidcgrp01 -> usrdsdef01, add default_data_source_ids to memberships
+INFO  [alembic.runtime.migration] Running upgrade usrdsdef01 -> ctxsum0001, add lightweight context summaries for steps and tool executions
+INFO  [alembic.runtime.migration] Running upgrade ctxsum0001 -> rptperf001, backfill bounded report payload summaries
+INFO  [alembic.runtime.migration] Running upgrade rptperf001 -> rptperf002, add report history lookup indexes
+INFO  [alembic.runtime.migration] Running upgrade rptperf002 -> oauthapp01, add OAuth app client trust
+INFO  [alembic.runtime.migration] Running upgrade oauthapp01 -> evalsuitefk01, Set suite home agent FK to ON DELETE SET NULL.
+INFO  [alembic.runtime.migration] Running upgrade evalsuitefk01 -> pricovr01, add pricing override columns to llm_models
+INFO  [alembic.runtime.migration] Running upgrade pricovr01 -> shrdata01, add reports.include_data_tab
+INFO  [alembic.runtime.migration] Running upgrade shrdata01 -> qparams01, add query parameters, step applied_params, per-params viewer results
+INFO  [alembic.runtime.migration] Running upgrade qparams01 -> qparams02, entity parameters + per-viewer entity results
+INFO  [alembic.runtime.migration] Running upgrade qparams02 -> rov01, Refresh-on-view becomes the default.
+INFO  [alembic.runtime.migration] Running upgrade rov01 -> durctx01, Add durable native identity and ordering to tool executions.
+INFO  [alembic.runtime.migration] Running upgrade durctx01 -> artchat01, add artifact chat settings to reports
+INFO  [alembic.runtime.migration] Running upgrade artchat01 -> officejs01, add officejs_pending_results
+INFO  [alembic.runtime.migration] Running upgrade officejs01 -> sessepoch01, session revocation: user.session_epoch + login_exchange_codes
+INFO  [alembic.runtime.migration] Running upgrade sessepoch01 -> ldapsecurity01, Persist verified directory identity without linking existing email matches.
+INFO  [alembic.runtime.migration] Running upgrade ldapsecurity01 -> diagrollup01, Diagnosis explorer: rollup columns on agent_executions, run attribution on
+llm_usage_records, and the indexes the query language filters on.
+INFO  [alembic.runtime.migration] Running upgrade diagrollup01 -> overlayconn01, Make the per-user table overlay connection-aware.
+INFO  [alembic.runtime.migration] Running upgrade overlayconn01 -> codeperm01, backfill view_code / run_custom_code onto every existing role
+=========================== short test summary info ============================
+FAILED tests/unit/test_artifact_browser_verification.py::test_connector_browser_session_survives_a_turn_for_the_same_authorized_user
+1 failed, 37 deselected, 255 warnings in 3.16s

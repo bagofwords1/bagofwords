@@ -19,6 +19,7 @@ Auth is Zabbix-native and version-dependent:
 Zabbix's SAML/OIDC SSO governs the *frontend* only; the API never accepts an
 external IdP token, so there is no on-behalf-of / delegated variant.
 """
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 import json
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -285,7 +286,8 @@ class ZabbixClient(DataSourceClient):
 
     # ── schema discovery ──────────────────────────────────────────────────────
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         tables = [self._build_table(name) for name in _CATALOG]
         # Best-effort enrichment: surface the value-types actually present so the
         # agent picks the right `history` type. Never fail discovery on this.
@@ -298,9 +300,11 @@ class ZabbixClient(DataSourceClient):
             present = sorted({int(i.get("value_type", 0)) for i in items})
             if present:
                 labels = ", ".join(f"{v}={_VALUE_TYPE.get(v, 'str')}" for v in present)
-                for t in tables:
+                for t in discovery_items(tables, 'tables', label=lambda table: table.name):
                     if t.name in ("history", "trends"):
                         t.description = (t.description or "") + f" Value-types present: {labels}."
+        except IndexingCancelled:
+            raise
         except Exception:
             pass
         return tables

@@ -22,12 +22,12 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
 from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
 from app.models.visualization import Visualization
 from app.models.widget import Widget
+from tests.fixtures.artifact import seed_artifact
 
 
 def _run(coro):
@@ -241,7 +241,8 @@ async def _seed_authored_artifact(report_id, viz_id, mode="page"):
     the section and must stub it."""
     async with async_session_maker() as db:
         report = await db.get(Report, report_id)
-        artifact = Artifact(
+        artifact = await seed_artifact(
+            db,
             report_id=report_id,
             user_id=report.user_id,
             organization_id=report.organization_id,
@@ -258,10 +259,7 @@ async def _seed_authored_artifact(report_id, viz_id, mode="page"):
                 ),
                 "visualization_ids": [viz_id],
             },
-            version=1,
-            status="completed",
         )
-        db.add(artifact)
         await db.commit()
         return str(artifact.id)
 
@@ -354,6 +352,10 @@ def test_add_targets_the_named_artifact_not_the_newest(
     )
     assert doc_rejected.status_code == 400
 
-    # The new version numbers past the report-wide max — not base.version+1 —
-    # so building on an older artifact cannot mint a duplicate number
+    # The new version joins the OLDER artifact's own chain — same parent
+    # identity, numbered within that chain (v1 -> v2), untouched by the newer
+    # dashboard beside it
+    older = test_client.get(f"/api/artifacts/{older_id}", headers=headers)
+    assert older.status_code == 200, older.json()
+    assert added.json()["artifact_id"] == older.json()["artifact_id"]
     assert added.json()["version"] == 2

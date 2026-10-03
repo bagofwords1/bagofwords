@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import boto3
@@ -31,7 +32,8 @@ class AwsCostClient(DataSourceClient):
             else:
                 return {"success": False, "message": "Failed to connect to AWS Cost Explorer"}
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Define schemas for AWS Cost Explorer."""
         schemas = [
             {

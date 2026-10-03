@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, discovery_summary, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional, Tuple
@@ -73,10 +74,21 @@ class PowerBIClient(DataSourceClient):
     AUTH_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
     SCOPE = "https://analysis.windows.net/powerbi/api/.default"
 
-    # Connection-test probe budget: enough to skip a few empty/system models
-    # without hammering large tenants.
-    MAX_PROBE_WORKSPACES = 5
-    MAX_PROBE_DATASETS = 5
+    # Connection-test probe budget: enough to walk past a run of models the
+    # caller cannot query (Viewer-only workspaces, live-connection or usage
+    # metrics models answer 404) without hammering large tenants. Each probe
+    # is one cheap DAX call, and the walk stops at the first success.
+    MAX_PROBE_WORKSPACES = 10
+    MAX_PROBE_DATASETS = 20
+
+    # Custom tables materialize through a native source rather than SQLAlchemy:
+    # there is no cursor and no planner here, only bounded executeQueries
+    # responses. See fast/powerbi_source.py for what the endpoint actually does.
+    @staticmethod
+    def EXTRACTION_SOURCE(client):
+        from app.data_sources.fast.powerbi_source import PowerBISource
+
+        return PowerBISource(client)
 
     def __init__(
         self,
@@ -118,6 +130,10 @@ class PowerBIClient(DataSourceClient):
         # dataset GUID as a dict lookup instead of re-crawling the tenant.
         self._table_metadata_map: Dict[str, Dict] = {}
         self._table_metadata_attached: bool = False
+        # The semantic model a custom table's DAX runs against, when the admin
+        # pinned one ({datasetId, workspaceId, datasetName}). None means the
+        # extraction source resolves it from the tables the DAX references.
+        self.extraction_target: Optional[Dict] = None
         self._blocked_tables_by_dataset: dict[str, dict[str, str]] = {}
         # Live-discovery cache: get_schemas() is a full tenant crawl (workspaces,
         # datasets, admin scan, COLUMNSTATISTICS) — run it at most once per
@@ -273,18 +289,17 @@ class PowerBIClient(DataSourceClient):
         if pbi:
             return pbi
         lowered = table_name.strip().lower()
-        for name, meta in self._table_metadata_map.items():
-            if name.strip().lower() == lowered:
-                return meta
-        for meta in self._table_metadata_map.values():
-            candidates = (
+        matches = [meta for name, meta in self._table_metadata_map.items()
+                   if name.strip().lower() == lowered]
+        if not matches:
+            matches = [meta for meta in self._table_metadata_map.values() if lowered and lowered in (
                 str(meta.get("tableName") or "").strip().lower(),
                 str(meta.get("datasetName") or "").strip().lower(),
                 str(meta.get("datasetId") or "").strip().lower(),
-            )
-            if lowered in candidates and lowered:
-                return meta
-        return None
+            )]
+        if len({(m.get("workspaceId"), m.get("datasetId")) for m in matches}) > 1:
+            raise ValueError(f"Ambiguous Power BI reference '{table_name}'; use the exact schema table name.")
+        return matches[0] if matches else None
 
     def connect(self):
         """
@@ -354,6 +369,8 @@ class PowerBIClient(DataSourceClient):
                 timeout=30, max_attempts=1,
             )
             return resp.status_code < 300
+        except IndexingCancelled:
+            raise
         except Exception:
             return False
 
@@ -423,7 +440,15 @@ class PowerBIClient(DataSourceClient):
         probed = 0
         datasets_seen = 0
         engine_details: List[str] = []   # engine answered, model unqueryable (empty, RLS, ...)
+        skipped: List[str] = []          # 404 on executeQueries: no Build, or not a queryable model
         permission_error: Optional[str] = None
+        # True when `permission_error` carries a cause Power BI named itself.
+        # The generic advice below is written for an unknown refusal, and on a
+        # model we KNOW is RLS-protected its first suggestion — make the
+        # identity a workspace Member — silently disables RLS (see
+        # docs/feedback-loops/powerbi-obo-rls.md). A named cause is reported
+        # as the fact it is, with nothing appended.
+        permission_error_named = False
         last_error: Optional[str] = None
 
         for ws in workspaces[: self.MAX_PROBE_WORKSPACES]:
@@ -461,10 +486,23 @@ class PowerBIClient(DataSourceClient):
                     # unqueryable (empty, OLS-hidden tables, RLS, ...).
                     engine_details.append(f"'{ds_name}' ({ws_name}): {detail}")
                 elif outcome == "forbidden":
-                    permission_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
+                    # A cause Power BI named outranks a later bare 401: probing
+                    # one more workspace must not overwrite the one refusal we
+                    # can actually explain.
+                    if not permission_error_named:
+                        permission_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
+                        permission_error_named = detail in self._NAMED_DENIALS.values()
                 elif outcome == "error":
                     last_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
-                # outcome == "skip" (404/stale) → try the next dataset
+                elif outcome == "skip":
+                    # 404 from executeQueries on a dataset the listing just
+                    # returned. Power BI hides a model behind 404 (not 403)
+                    # when a personal sign-in has no Build permission on it,
+                    # and answers 404 for models that endpoint cannot serve
+                    # (live connections, usage metrics, push datasets). Keep
+                    # the name: if nothing else is queryable it is the only
+                    # clue the user gets.
+                    skipped.append(f"'{ds_name}' ({ws_name})")
 
         if engine_details:
             # Query access verified — every probed model just had nothing to query.
@@ -490,6 +528,12 @@ class PowerBIClient(DataSourceClient):
                     "success": True,
                     "message": f"Connected to Power BI. Verified query access on {detail}.",
                 }
+            if permission_error_named:
+                return {
+                    "success": False,
+                    "message": f"Connected, but {permission_error}.",
+                    "connectivity": True,
+                }
             return {
                 "success": False,
                 "message": (
@@ -512,9 +556,39 @@ class PowerBIClient(DataSourceClient):
                 "connectivity": True,
             }
 
+        if last_error:
+            return {
+                "success": False,
+                "message": f"Connected but could not verify query access: {last_error}",
+                "connectivity": True,
+            }
+
+        # Every probed model answered 404. The identity can SEE workspaces
+        # (a Viewer role is enough for that) but cannot query anything it
+        # walked past. That says nothing about the models this connection is
+        # actually indexed on — a user holding Build on those alone is the
+        # normal delegated shape — so check the catalog before failing, the
+        # same way the no-workspace and forbidden branches do.
+        ok, detail = self._probe_known_catalog()
+        if ok:
+            return {
+                "success": True,
+                "message": f"Connected to Power BI. Verified query access on {detail}.",
+                "workspaces": len(workspaces),
+                "datasets": datasets_seen,
+            }
+        shown = "; ".join(skipped[:5])
+        more = f" and {len(skipped) - 5} more" if len(skipped) > 5 else ""
         return {
             "success": False,
-            "message": f"Connected but could not verify query access: {last_error or 'no dataset could be probed'}",
+            "message": (
+                f"Connected to {len(workspaces)} workspace(s), but none of the {len(skipped)} probed "
+                f"semantic model(s) could be queried with this identity (Power BI answered 404 for "
+                f"{shown}{more}). For a personal sign-in this usually means no Build permission: ask "
+                "an admin for Build on the semantic models this connection uses, or a Member/Contributor "
+                "role on their workspace (Viewer is not enough). Live-connection, usage-metrics and "
+                "push datasets cannot be queried through the REST API at all."
+            ),
             "connectivity": True,
         }
 
@@ -535,7 +609,8 @@ class PowerBIClient(DataSourceClient):
             if len(seen) >= limit:
                 break
         for ds_id, ds_name in seen.items():
-            if self._can_query_dataset(ds_id):
+            queryable, _cause = self._can_query_dataset(ds_id)
+            if queryable:
                 return True, f"semantic model '{ds_name}'"
         return False, ""
 
@@ -563,7 +638,11 @@ class PowerBIClient(DataSourceClient):
             if resp.status_code < 300:
                 return "ok", ""
             if resp.status_code in (401, 403):
-                return "forbidden", self._extract_pbi_error(resp) or f"HTTP {resp.status_code}"
+                return "forbidden", (
+                    self._named_denial(resp)
+                    or self._extract_pbi_error(resp)
+                    or f"HTTP {resp.status_code}"
+                )
             if resp.status_code == 404:
                 return "skip", "HTTP 404"
 
@@ -590,12 +669,47 @@ class PowerBIClient(DataSourceClient):
         except Exception:
             return ""
 
+    # Refusals Power BI names itself, and what to tell the user about each.
+    # Only codes the tenant actually returns belong here — the point of this
+    # map is that every sentence in it is something Power BI stated, not
+    # something we inferred from a status line. Measured live against a real
+    # tenant, see docs/feedback-loops/powerbi-obo-rls.md.
+    _NAMED_DENIALS = {
+        "RLSNotAuthorizedForModel": (
+            "blocked by row-level security (RLS) — this identity is not a member "
+            "of any row-level-security role on this model"
+        ),
+    }
+
+    @classmethod
+    def _named_denial(cls, resp) -> str:
+        """The refusal Power BI NAMED, or "" when it named none.
+
+        A denial under row-level security answers 401 carrying only
+        ``{"error": {"code": "RLSNotAuthorizedForModel"}}`` — no message, no
+        details — so every reader of ``message`` alone reported a bare
+        "HTTP 401" and sent the user to ask for Build permission they already
+        hold. The code is the one place the real cause is stated.
+
+        Deliberately returns "" for a bare 401: a service principal is refused
+        on an RLS model with no code at all (same doc), so naming RLS there
+        would be a guess dressed up as a diagnosis. Callers keep their existing
+        wording when this is empty.
+        """
+        try:
+            err = (resp.json() or {}).get("error", {})
+            code = err.get("code") or (err.get("pbi.error") or {}).get("code") or ""
+        except Exception:
+            return ""
+        return cls._NAMED_DENIALS.get(code, "")
+
     def list_workspaces(self, first_page_only: bool = False) -> List[Dict]:
         """
         List workspaces (groups) the service principal has access to,
         restricted to the configured `workspaces` filter when one is set
         (matches on workspace name or ID, case-insensitive).
         """
+        discovery_phase('listing_workspaces')
         self.connect()
         url = f"{self.BASE_URL}/groups"
 
@@ -829,8 +943,7 @@ class PowerBIClient(DataSourceClient):
         """
         msg = str(e)
         if "RLSNotAuthorizedForModel" in msg:
-            return ("not a member of any row-level-security role on this model "
-                    "(Build permission alone is not sufficient)")
+            return PowerBIClient._NAMED_DENIALS["RLSNotAuthorizedForModel"]
         if "PowerBIEntityNotFound" in msg:
             return "no access to this semantic model (not shared with this identity)"
         if "HTTP 401" in msg or "HTTP 403" in msg:
@@ -1038,6 +1151,8 @@ UNION(
 
         try:
             df = self._execute_dax_internal(workspace_id, dataset_id, self._RELATIONSHIPS_DAX)
+        except IndexingCancelled:
+            raise
         except Exception as e:
             msg = str(e)
             # 401/403/404 are about THIS dataset (no Build permission, RLS,
@@ -1255,6 +1370,7 @@ UNION(
         Batch admin scan: up to 100 workspaces per request.
         Returns dict keyed by dataset_id -> (tables, relationships) from _parse_admin_scan_tables.
         """
+        discovery_phase('admin_scan')
         import time
         import logging
 
@@ -1303,16 +1419,20 @@ UNION(
                         if ds_id:
                             results[ds_id] = self._parse_admin_scan_tables(ds)
 
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 logging.debug(f"Batch admin scan error: {e}")
                 continue
 
         return results
 
+    @discovery_progress
     def get_schemas(
         self,
         force_refresh: bool = False,
         prior_tables: Optional[Dict[str, Dict]] = None,
+        progress_callback=None,
     ) -> List[Table]:
         """
         Build Table objects representing all internal tables across all datasets.
@@ -1331,8 +1451,8 @@ UNION(
         COLUMNSTATISTICS is executeQueries-rate-limited (~120/user/min, i.e.
         minutes-scale on large tenants). Only NEW datasets pay the introspection
         cost; datasets that vanished from the listing are dropped as usual.
-        Callers that must detect column-level drift in known models (scheduled/
-        background reindexing) should NOT pass prior_tables.
+        force_refresh=True re-introspects known models as well; prior_tables
+        still supplies candidates for item-shared models absent from listings.
 
         Strategy:
         1. Fetch datasets and reports for all workspaces in parallel
@@ -1367,6 +1487,8 @@ UNION(
                 ds_id = meta.get("datasetId")
                 if ds_id and (entry.get("columns") or []):
                     prior_by_dataset.setdefault(str(ds_id), []).append((prior_name, entry))
+            except IndexingCancelled:
+                raise
             except Exception:
                 continue
 
@@ -1378,22 +1500,33 @@ UNION(
         ws_reports: Dict[str, List[Dict]] = {}    # ws_id -> reports
 
         with ThreadPoolExecutor(max_workers=10) as pool:
-            ds_futures = {pool.submit(self.list_datasets, ws["id"]): ws for ws in workspaces}
-            rpt_futures = {pool.submit(self.list_reports, ws["id"]): ws for ws in workspaces}
+            try:
+                ds_futures = {pool.submit(self.list_datasets, ws["id"]): ws for ws in workspaces}
+                rpt_futures = {pool.submit(self.list_reports, ws["id"]): ws for ws in workspaces}
 
-            for fut in as_completed(ds_futures):
-                ws = ds_futures[fut]
-                try:
-                    ws_datasets[ws["id"]] = fut.result()
-                except Exception:
-                    ws_datasets[ws["id"]] = []
+                for fut in discovery_items(as_completed(ds_futures), 'workspace_models', label=lambda fut: ds_futures[fut].get('name'), total=len(ds_futures)):
+                    ws = ds_futures[fut]
+                    try:
+                        ws_datasets[ws["id"]] = fut.result()
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        ws_datasets[ws["id"]] = []
 
-            for fut in as_completed(rpt_futures):
-                ws = rpt_futures[fut]
-                try:
-                    ws_reports[ws["id"]] = fut.result()
-                except Exception:
-                    ws_reports[ws["id"]] = []
+                for fut in discovery_items(as_completed(rpt_futures), 'workspace_reports', label=lambda fut: rpt_futures[fut].get('name'), total=len(rpt_futures)):
+                    ws = rpt_futures[fut]
+                    try:
+                        ws_reports[ws["id"]] = fut.result()
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        ws_reports[ws["id"]] = []
+            except IndexingCancelled:
+                for pending in ds_futures:
+                    pending.cancel()
+                for pending in rpt_futures:
+                    pending.cancel()
+                raise
 
         # Collect all (workspace, dataset) pairs. Every semantic model the
         # identity can list is discovered — including Fabric default semantic
@@ -1419,9 +1552,9 @@ UNION(
         # missed and keep the ones this identity can actually query.
         all_ds_tasks.extend(self._probe_unlisted_prior_datasets(prior_by_dataset, all_ds_tasks))
 
-        # Datasets already known from prior_tables skip introspection entirely —
-        # they are rebuilt from the stored definitions in Phase 4.
-        known_dataset_ids = set(prior_by_dataset)
+        # Routine discovery reuses known models. Explicit refresh still uses
+        # prior metadata to locate models, but reads their columns live.
+        known_dataset_ids = set() if force_refresh else set(prior_by_dataset)
         introspect_tasks = [
             t for t in all_ds_tasks if str(t[1].get("id")) not in known_dataset_ids
         ]
@@ -1439,6 +1572,8 @@ UNION(
         try:
             if ws_ids:
                 admin_scan_results = self._batch_admin_scan(ws_ids)
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logging.debug(f"Batch admin scan unavailable, falling back to COLUMNSTATISTICS: {e}")
 
@@ -1458,7 +1593,7 @@ UNION(
         # directly rather than indexing a join-less schema.
         rel_only_tasks: List[Tuple[str, str, str]] = []  # (ws_id, ds_id, key)
 
-        for ws, ds, ws_id in introspect_tasks:
+        for ws, ds, ws_id in discovery_items(introspect_tasks, 'model_metadata', label=lambda task: task[1].get('name')):
             ds_id = ds.get("id")
             key = f"{ws_id}:{ds_id}"
             scan_tables, scan_rels = admin_scan_results.get(ds_id, ([], []))
@@ -1471,21 +1606,28 @@ UNION(
 
         if fallback_tasks:
             with ThreadPoolExecutor(max_workers=10) as pool:
-                tbl_futures = {}
-                for ws, ds, ws_id, key in fallback_tasks:
-                    ds_id = ds.get("id")
-                    tbl_futures[pool.submit(self.get_dataset_tables_with_reason, ws_id, ds_id)] = key
+                try:
+                    tbl_futures = {}
+                    for ws, ds, ws_id, key in fallback_tasks:
+                        ds_id = ds.get("id")
+                        tbl_futures[pool.submit(self.get_dataset_tables_with_reason, ws_id, ds_id)] = key
 
-                for fut in as_completed(tbl_futures):
-                    key = tbl_futures[fut]
-                    try:
-                        tbls, rels, reason = fut.result()
-                        ds_table_results[key] = (tbls, rels)
-                        if not tbls and reason:
-                            ds_reasons[key] = reason
-                    except Exception as e:
-                        ds_table_results[key] = ([], [])
-                        ds_reasons[key] = f"introspection error: {self._short_error(e)}"
+                    for fut in discovery_items(as_completed(tbl_futures), 'model_introspection', label=lambda fut: tbl_futures[fut], total=len(tbl_futures)):
+                        key = tbl_futures[fut]
+                        try:
+                            tbls, rels, reason = fut.result()
+                            ds_table_results[key] = (tbls, rels)
+                            if not tbls and reason:
+                                ds_reasons[key] = reason
+                        except IndexingCancelled:
+                            raise
+                        except Exception as e:
+                            ds_table_results[key] = ([], [])
+                            ds_reasons[key] = f"introspection error: {self._short_error(e)}"
+                except IndexingCancelled:
+                    for pending in tbl_futures:
+                        pending.cancel()
+                    raise
 
         if rel_only_tasks:
             # Serial, and stops early: the FIRST dataset settles whether this
@@ -1493,7 +1635,7 @@ UNION(
             # nothing to gain from asking the rest (see
             # `_get_relationships_via_dax`). Costs one request per dataset when
             # supported, one request total when not.
-            for ws_id, ds_id, key in rel_only_tasks:
+            for ws_id, ds_id, key in discovery_items(rel_only_tasks, 'relationships', label=lambda task: task[1]):
                 if self._info_functions_supported is False:
                     break
                 rels = self._get_relationships_via_dax(ws_id, ds_id)
@@ -1503,7 +1645,7 @@ UNION(
                     ds_table_results[key] = (tbls, rels)
 
         # Phase 4: Assemble Table objects (CPU-only, no I/O)
-        for ws, ds, ws_id in all_ds_tasks:
+        for ws, ds, ws_id in discovery_items(all_ds_tasks, 'assembling_models', label=lambda task: task[1].get('name')):
             ws_name = ws.get("name") or ws_id
             ds_id = ds.get("id")
             ds_name = ds.get("name") or ds_id
@@ -1525,7 +1667,7 @@ UNION(
             # Incremental reuse: this dataset was not introspected — rebuild its
             # tables from the prior catalog, refreshed with the listing's
             # current dataset/workspace names and reports.
-            prior_entries = prior_by_dataset.get(str(ds_id))
+            prior_entries = prior_by_dataset.get(str(ds_id)) if not force_refresh else None
             if prior_entries is not None:
                 tables.extend(self._tables_from_prior(
                     prior_entries, ds, ws_id, ws_name,
@@ -1646,6 +1788,24 @@ UNION(
                     metadata_json=metadata_json,
                 ))
 
+        # A user's crawl may see namesakes the service principal cannot see.
+        # Disambiguate before any name-keyed normalization can discard a model.
+        from collections import Counter
+
+        from app.utils.powerbi_catalog import powerbi_identity, qualified_powerbi_name
+        counts = Counter(t.name for t in tables)
+        renames = {}
+        for table in tables:
+            identity = powerbi_identity(table.metadata_json)
+            old_name = table.name
+            if counts[old_name] > 1:
+                table.name = qualified_powerbi_name(old_name, table.metadata_json)
+            renames[(identity[:2], old_name)] = table.name
+        for table in tables:
+            identity = powerbi_identity(table.metadata_json)
+            for fk in table.fks or []:
+                fk.references_name = renames.get((identity[:2], fk.references_name), fk.references_name)
+
         # Relationship coverage is the difference between "the agent can join
         # these models" and "the agent tells users they can't", and it is
         # invisible in the table count — so state it explicitly.
@@ -1662,6 +1822,9 @@ UNION(
                 "PowerBI discovery: %d table(s), %d relationship(s)", len(tables), total_fks
             )
 
+        discovery_summary('reused_models', len(all_ds_tasks) - len(introspect_tasks))
+        discovery_summary('inspected_models', len(introspect_tasks))
+        discovery_summary('unreadable_models', len(self.discovery_diagnostics))
         self._schemas_cache = tables
         return tables
 
@@ -1703,25 +1866,50 @@ UNION(
 
         def _probe(ds_id: str):
             meta = (prior_by_dataset[ds_id][0][1].get("metadata_json") or {}).get("powerbi") or {}
-            return ds_id, meta, self._can_query_dataset(ds_id)
+            if self._workspace_filter and not (
+                str(meta.get("workspaceId") or "").lower() in self._workspace_filter
+                or str(meta.get("workspaceName") or "").lower() in self._workspace_filter
+            ):
+                return ds_id, meta, False, ""
+            queryable, cause = self._can_query_dataset(ds_id)
+            return ds_id, meta, queryable, cause
 
         out: List[Tuple[Dict, Dict, str]] = []
         with ThreadPoolExecutor(max_workers=10) as pool:
-            futures = [pool.submit(_probe, d) for d in probed]
-            for fut in as_completed(futures):
-                try:
-                    ds_id, meta, ok = fut.result()
-                except Exception:
-                    continue
-                if not ok:
-                    continue
-                ws_id = meta.get("workspaceId")
-                out.append((
-                    {"id": ws_id, "name": meta.get("workspaceName") or ws_id},
-                    {"id": ds_id, "name": meta.get("datasetName") or ds_id,
-                     "configuredBy": meta.get("configuredBy"), "webUrl": meta.get("webUrl")},
-                    ws_id,
-                ))
+            try:
+                futures = [pool.submit(_probe, d) for d in probed]
+                for fut in as_completed(futures):
+                    try:
+                        ds_id, meta, ok, cause = fut.result()
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        continue
+                    if not ok:
+                        # Report only a refusal Power BI named. The model is in
+                        # this identity's catalog, so a named cause is a fix the
+                        # user can act on; an unnamed one would be us guessing
+                        # at scale, once per model they simply do not hold.
+                        if cause:
+                            self.discovery_diagnostics.append({
+                                "datasetId": ds_id,
+                                "datasetName": meta.get("datasetName") or ds_id,
+                                "workspaceId": meta.get("workspaceId"),
+                                "workspaceName": meta.get("workspaceName") or meta.get("workspaceId"),
+                                "reason": cause,
+                            })
+                        continue
+                    ws_id = meta.get("workspaceId")
+                    out.append((
+                        {"id": ws_id, "name": meta.get("workspaceName") or ws_id},
+                        {"id": ds_id, "name": meta.get("datasetName") or ds_id,
+                         "configuredBy": meta.get("configuredBy"), "webUrl": meta.get("webUrl")},
+                        ws_id,
+                    ))
+            except IndexingCancelled:
+                for pending in futures:
+                    pending.cancel()
+                raise
         if out:
             logging.info(
                 "PowerBI discovery: %d/%d unlisted dataset(s) reachable item-level for this identity",
@@ -1729,13 +1917,19 @@ UNION(
             )
         return out
 
-    def _can_query_dataset(self, dataset_id: str) -> bool:
+    def _can_query_dataset(self, dataset_id: str) -> Tuple[bool, str]:
         """Can this identity execute DAX against the dataset right now?
 
         Deliberately tenant-level: the workspace-scoped endpoint needs a
         workspace role, which is exactly what these datasets lack. 200 means
         yes; 401 (no permission / RLS with no role) and 404 (invisible to this
         identity) both mean no.
+
+        Returns ``(queryable, named_cause)``. The cause is non-empty only when
+        Power BI named it (see ``_named_denial``) — every other refusal stays
+        the silent no it has always been, because a model the identity simply
+        does not hold is the normal shape of item-level access, not an
+        incident worth reporting.
         """
         try:
             resp = self._request(
@@ -1744,9 +1938,13 @@ UNION(
                            "serializerSettings": {"includeNulls": True}},
                 timeout=30,
             )
-            return resp.status_code < 300
+            if resp.status_code < 300:
+                return True, ""
+            return False, self._named_denial(resp)
+        except IndexingCancelled:
+            raise
         except Exception:
-            return False
+            return False, ""
 
     def _tables_from_prior(
         self,
@@ -1763,6 +1961,11 @@ UNION(
         ds_id = ds.get("id")
         ds_name = ds.get("name") or ds_id
         out: List[Table] = []
+        reference_names = {}
+        for name, entry in prior_entries:
+            pbi = ((entry.get("metadata_json") or {}).get("powerbi")) or {}
+            internal_name = pbi.get("tableName") or name.split("/", 1)[-1]
+            reference_names[name] = f"{ds_name}/{_clean_table_display_name(internal_name)}"
         for prior_name, entry in prior_entries:
             prior_pbi = ((entry.get("metadata_json") or {}).get("powerbi")) or {}
             tbl_name = prior_pbi.get("tableName") or prior_name.split("/", 1)[-1]
@@ -1808,7 +2011,11 @@ UNION(
             fks: List[ForeignKey] = []
             for fk in entry.get("fks") or []:
                 try:
-                    fks.append(fk if isinstance(fk, ForeignKey) else ForeignKey(**fk))
+                    rebuilt = fk.model_copy(deep=True) if isinstance(fk, ForeignKey) else ForeignKey(**fk)
+                    rebuilt.references_name = reference_names.get(rebuilt.references_name, rebuilt.references_name)
+                    fks.append(rebuilt)
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     continue
 
@@ -1855,7 +2062,7 @@ UNION(
 
         Accepts:
           - "Dataset/Table" name path (exact match)
-          - Internal table name only (first match)
+          - Internal table name only (when unambiguous)
           - Dataset ID (returns first table in that dataset)
         """
         all_tables = self.get_schemas()
@@ -1865,12 +2072,13 @@ UNION(
             if tbl.name == table_name:
                 return tbl
 
-        # Try by internal table name only (first match)
-        for tbl in all_tables:
-            metadata = tbl.metadata_json or {}
-            pbi = metadata.get("powerbi") or {}
-            if pbi.get("tableName") == table_name:
-                return tbl
+        # A bare table name must not silently choose a different model.
+        matches = [tbl for tbl in all_tables
+                   if ((tbl.metadata_json or {}).get("powerbi") or {}).get("tableName") == table_name]
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous Power BI reference '{table_name}'; use the exact schema table name.")
+        if matches:
+            return matches[0]
 
         # Try by dataset ID (returns first table in that dataset)
         for tbl in all_tables:
@@ -1996,6 +2204,49 @@ UNION(
             return f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/executeQueries"
         return f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
 
+    def execute_dax_rows(
+        self,
+        workspace_id: Optional[str],
+        dataset_id: str,
+        dax: str,
+    ) -> tuple:
+        """One executeQueries request, as the API answers it.
+
+        Returns (rows, response_bytes): the rows are dicts keyed by the API's
+        own column names ('Sales[Region]', '[Total]'), untouched. The
+        extraction source needs both — the raw names are valid DAX column
+        references it builds window filters from, and the byte size is one of
+        the three ceilings at which a response may have been truncated.
+        `_execute_dax_internal` frames the same result as a DataFrame for
+        everyone else.
+        """
+        self.connect()
+        url = self._dataset_query_url(workspace_id, dataset_id)
+
+        body = {
+            "queries": [{"query": dax}],
+            "serializerSettings": {"includeNulls": True},
+        }
+
+        resp = self._request("POST", url, json_body=body, timeout=120)
+        if resp.status_code in (401, 403) and workspace_id and workspace_id not in self._tenant_scoped_workspaces:
+            fallback = f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
+            retry = self._request("POST", fallback, json_body=body, timeout=120)
+            if retry.status_code < 300:
+                self._tenant_scoped_workspaces.add(workspace_id)
+                resp = retry
+        if resp.status_code >= 300:
+            detail = self._extract_pbi_error(resp)
+            raise RuntimeError(
+                f"DAX query failed: HTTP {resp.status_code} {detail or resp.text}"
+            )
+
+        payload = resp.json() or {}
+        results = payload.get("results") or []
+        tables = (results[0].get("tables") or []) if results else []
+        rows = (tables[0].get("rows") or []) if tables else []
+        return rows, len(resp.content or b"")
+
     def _execute_dax_internal(
         self,
         workspace_id: Optional[str],
@@ -2015,37 +2266,7 @@ UNION(
         "every query 401s". The fallback result is remembered per workspace so
         each workspace costs at most one wasted request per client instance.
         """
-        self.connect()
-        url = self._dataset_query_url(workspace_id, dataset_id)
-
-        body = {
-            "queries": [{"query": dax}],
-            "serializerSettings": {"includeNulls": True},
-        }
-
-        resp = self._request("POST", url, json_body=body, timeout=120)
-        if resp.status_code in (401, 403) and workspace_id and workspace_id not in self._tenant_scoped_workspaces:
-            fallback = f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
-            retry = self._request("POST", fallback, json_body=body, timeout=120)
-            if retry.status_code < 300:
-                self._tenant_scoped_workspaces.add(workspace_id)
-                resp = retry
-        if resp.status_code >= 300:
-            raise RuntimeError(f"DAX query failed: HTTP {resp.status_code} {resp.text}")
-
-        payload = resp.json() or {}
-        results = payload.get("results") or []
-
-        if not results:
-            return pd.DataFrame()
-
-        first_result = results[0]
-        tables = first_result.get("tables") or []
-
-        if not tables:
-            return pd.DataFrame()
-
-        rows = tables[0].get("rows") or []
+        rows, _nbytes = self.execute_dax_rows(workspace_id, dataset_id, dax)
 
         if not rows:
             return pd.DataFrame()
@@ -2097,13 +2318,13 @@ The DAX table name is also available in `metadata.powerbi.tableName`.
 ```python
 # Schema table name as 2nd arg, DAX table name in query
 df = db_clients['powerbi'].execute_query(
-    "EVALUATE Customers",           # DAX uses the table name (after /)
-    "SalesModel/Customers"          # Schema table name (REQUIRED)
+    "EVALUATE TOPN(100, Customers)",  # DAX uses the table name (after /); always bounded
+    "SalesModel/Customers"            # Schema table name (REQUIRED)
 )
 
 # Or with explicit IDs from the table's <powerbi datasetId=... workspaceId=.../> metadata:
 df = db_clients['powerbi'].execute_query(
-    "EVALUATE Customers",
+    "EVALUATE TOPN(100, Customers)",
     dataset_id="<datasetId>",
     workspace_id="<workspaceId>",
 )
@@ -2120,21 +2341,28 @@ EVALUATE <table_expression>
 ### Examples
 
 ```dax
--- Get all rows (quote table name if it has spaces)
-EVALUATE Customers
-EVALUATE 'Order Details'
-
--- Aggregate with grouping
+-- Aggregate at the grain the question needs (preferred)
 EVALUATE
 SUMMARIZECOLUMNS(
     Orders[Category],
     "Total", SUM(Orders[Amount])
 )
 
--- Filter data
+-- Invoke a model measure by name instead of re-deriving it
 EVALUATE
-FILTER(
-    Customers,
+SUMMARIZECOLUMNS(
+    Orders[Category],
+    "Revenue", [Total Revenue]
+)
+
+-- Preview rows: ALWAYS bound with TOPN (quote table name if it has spaces)
+EVALUATE TOPN(100, Customers)
+EVALUATE TOPN(100, 'Order Details')
+
+-- Filter and project inside the DAX, not in pandas
+EVALUATE
+CALCULATETABLE(
+    SELECTCOLUMNS(Customers, "Name", Customers[Name], "Status", Customers[Status]),
     Customers[Status] = "Active"
 )
 
@@ -2145,6 +2373,28 @@ TOPN(10,
     [Total], DESC
 )
 ```
+
+### Query Cost and Performance
+
+Every query is a LIVE evaluation on the semantic model over a REST endpoint
+that serializes the whole result to JSON. Row count and column count drive
+latency directly; an unbounded scan of a large table can take minutes.
+- NEVER `EVALUATE <table>` on a fact table or any table that may be large.
+  Aggregate with SUMMARIZECOLUMNS at the grain the question needs, or wrap
+  the table in TOPN with an explicit row limit.
+- Return only the columns you need (SELECTCOLUMNS / SUMMARIZECOLUMNS), not a
+  whole table.
+- Push filters into the DAX with CALCULATETABLE / FILTER. Never fetch
+  everything and filter in pandas.
+- The row cap applied to the returned DataFrame does NOT make the query
+  cheaper - the full result is fetched first. Bound the result in the DAX.
+- Measures are the model's OWN business logic. When one exists for what is
+  being asked (e.g. a total, a rate, an average), invoke it by name -
+  `[Measure Name]` - instead of re-deriving it from raw columns with
+  SUM/DIVIDE. A hand-rolled equivalent will not reproduce the measure's
+  filter context and will disagree with the customer's own reports.
+  `[measure -> Number]` shows what it returns; the definition is not always
+  readable, and you do not need it to call it.
 
 ### Key DAX Syntax Rules
 - Table names with spaces MUST use single quotes: 'Order Details'[Column]
@@ -2161,12 +2411,6 @@ TOPN(10,
   `EVALUATE SUMMARIZECOLUMNS(Dim[Attr], "Total", SUM(Fact[Value]))` resolves the
   join itself. Try the query; a wrong-grain result is the signal there is no
   usable relationship, and a `[hidden]` column is still fully queryable.
-- Measures are the model's OWN business logic. When one exists for what is being
-  asked (e.g. a total, a rate, an average), invoke it by name - `[Measure Name]`
-  - instead of re-deriving it from raw columns with SUM/DIVIDE. A hand-rolled
-  equivalent will not reproduce the measure's filter context and will disagree
-  with the customer's own reports. `[measure -> Number]` shows what it returns;
-  the definition is not always readable, and you do not need it to call it.
 - Row-level security may be filtering your results and you CANNOT tell. A
   row-filtered query returns HTTP 200 with fewer rows - indistinguishable from a
   genuinely small result - and whether a model is row-secured is not readable
@@ -2175,10 +2419,14 @@ TOPN(10,
   nothing. So never describe a Power BI total as organization-wide, company-wide
   or complete: report it as the data visible to the current user. If the
   distinction matters for the answer, say so explicitly.
-- Bare INFO.TABLES() / INFO.COLUMNS() / INFO.RELATIONSHIPS() do NOT work via the
-  REST API (HTTP 400). The INFO.VIEW.* family DOES work - INFO.VIEW.TABLES(),
-  INFO.VIEW.COLUMNS(), INFO.VIEW.MEASURES(), INFO.VIEW.RELATIONSHIPS() - so use
-  those to inspect the model when the indexed schema looks incomplete.
+- The schema context already in this prompt is the primary description of the
+  model. Do not spend queries re-discovering it. Bare INFO.TABLES() /
+  INFO.COLUMNS() / INFO.RELATIONSHIPS() do NOT work via the REST API (HTTP 400).
+  The INFO.VIEW.* family DOES work - INFO.VIEW.TABLES(), INFO.VIEW.COLUMNS(),
+  INFO.VIEW.MEASURES(), INFO.VIEW.RELATIONSHIPS() - but each is another live
+  request against the model, so use them ONLY when the indexed schema is
+  actually missing something you need (a table or column you have reason to
+  believe exists), never as a default exploration step.
 - NEVER reference columns named `RowNumber-<GUID>` even if they appear in the
   schema - they are internal engine columns and any query using them fails
 - In expression slots of SUMMARIZECOLUMNS / ADDCOLUMNS / ROW, a bare column

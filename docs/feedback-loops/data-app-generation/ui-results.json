@@ -1,0 +1,19 @@
+{
+  "results": [
+    "Commerce: four combined typed parameters rerun all three real queries with consistent totals; iframe state preserved",
+    "Commerce: empty backend results render safely",
+    "Catalog: selection survives a supported backend filter",
+    "Catalog: search, numeric filters, empty state and reset execute against the full backend",
+    "Catalog: backend type errors remain visible through data delivery and recover on valid input",
+    "Representative app: selection, weekly tab and backend filters work without remounting",
+    "Rapid dispatched parameter changes settle on the newest region",
+    "commerce: no horizontal page overflow at 960px",
+    "commerce: no horizontal page overflow at 400px",
+    "catalog: no horizontal page overflow at 960px",
+    "catalog: no horizontal page overflow at 400px",
+    "reps: no horizontal page overflow at 960px",
+    "reps: no horizontal page overflow at 400px"
+  ],
+  "requestCount": 35,
+  "errors": []
+}

@@ -209,6 +209,19 @@ The `Secret` is loaded after the ConfigMap via `envFrom`, so its values
 override any plaintext defaults from the ConfigMap. You only need to include
 the keys you want to set/override.
 
+Because the `Secret` can point `BOW_DATABASE_URL` at any server, the chart stops
+assuming the bundled PostgreSQL once `postgresql.auth.existingSecret` or
+`config.secretRef` is set, and leaves `config.database.idleSessionTimeoutMs`
+unset. That timeout lets the server close pooled connections a quiet worker is
+holding but not using, so they stop occupying `max_connections` slots. It needs
+**PostgreSQL 14+** — on older servers the parameter is rejected at connect time
+and every connection fails — so set it explicitly once you know your server's
+version:
+
+```bash
+--set config.database.idleSessionTimeoutMs=600000   # 10 minutes; PostgreSQL 14+
+```
+
 ### Microsoft Entra (Azure AD) with group sync
 
 ```yaml

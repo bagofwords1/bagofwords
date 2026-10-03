@@ -492,3 +492,23 @@ class TestTopLevel:
     def test_resolve_client_class(self):
         from app.schemas.data_source_registry import resolve_client_class
         assert resolve_client_class("analysis_services") is AnalysisServicesClient
+
+@pytest.mark.parametrize("catalog", [None, "Finance", "Warehouse"])
+@pytest.mark.parametrize("failure", ["timeout", "connection", "unauthorized"])
+def test_connection_requires_successful_live_transport(monkeypatch, catalog, failure):
+    import requests
+
+    def post(*args, **kwargs):
+        if failure == "timeout":
+            raise requests.exceptions.Timeout("Endpoint timed out")
+        if failure == "connection":
+            raise requests.exceptions.ConnectionError("Endpoint unreachable")
+        response = requests.Response()
+        response.status_code = 401
+        response._content = b"Unauthorized"
+        return response
+
+    monkeypatch.setattr(requests.Session, "post", post)
+    result = _client(catalog=catalog).test_connection()
+    assert result["success"] is False
+    assert result["message"]

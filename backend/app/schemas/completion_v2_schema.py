@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.utils.reasoning_effort import normalize_effort
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
@@ -12,10 +14,20 @@ from .file_schema import FileSchema
 
 
 class ToolExecutionDataSourceSchema(BaseModel):
-    """Lightweight data source info for display in tool execution UI."""
+    """Lightweight data source info for display in tool execution UI.
+
+    Rides along with every tool execution in every view — the report page, the
+    shared ``/c/{token}`` page and the report summary — which is why the data
+    tools read their icon from here rather than from a page-level prop the
+    shared views never passed.
+    """
     id: str
     name: Optional[str] = None
     type: Optional[str] = None  # connection type e.g. 'postgres', 'bigquery'
+    # Resolved display icon ("emoji:<grapheme>" | "type:<key>" | None), from
+    # app.schemas.agent_icon — the same token the agents list and report payload
+    # carry, so one agent draws one icon everywhere.
+    icon_token: Optional[str] = None
 
 
 class ToolExecutionUISchema(ToolExecutionSchema):
@@ -55,10 +67,15 @@ class PromptSchema(BaseModel):
     model_id: Optional[str] = None
     platform: Optional[str] = None  # 'excel', 'slack', 'teams', etc. None = web
     platform_context: Optional[Dict[str, Any]] = None  # Platform-specific context (e.g. Excel selection data)
-    # Per-completion override for extended-thinking effort. Resolution order:
-    #   per-completion > trigger words > LLMModel.config default > "off"
-    # Currently honored on Anthropic only; ignored on other providers.
-    reasoning_effort: Optional[str] = None  # off|low|medium|high
+    # Per-completion reasoning effort (the model picker's level). Resolution:
+    #   per-completion > report level > trigger words > LLMModel.config default > off
+    # None = Default. Each provider client clamps it to what the model accepts.
+    reasoning_effort: Optional[str] = None  # off|minimal|low|medium|high|xhigh|max
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
 
     class Config:
         from_attributes = True
@@ -146,6 +163,9 @@ class CompletionV2Schema(BaseModel):
     message_type: Optional[str] = None
 
     agent_execution_id: Optional[str] = None
+    # Wall-clock time of the agent execution behind this completion, stamped when
+    # the run finishes (AgentExecution.total_duration_ms). None while in progress.
+    total_duration_ms: Optional[float] = None
 
     prompt: Optional[Dict[str, Any]] = None
 

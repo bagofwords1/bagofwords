@@ -117,7 +117,7 @@ IDs to probe.
 | demo1 executes DAX on the RLS model | group-scoped 200, no fallback used |
 | demo2 end-to-end report through the chat UI | "total Amount per Region" → **EMEA 4,600 / US 9,000**, matching the seeded rows exactly |
 | demo1 asks for the same model (negative control) | agent replies "I don't see a table named `shared_orders/Orders`", lists only its own 6 tables — no leak, no mid-run 403 |
-| Regression suite | `tests/unit/test_powerbi_item_level_access.py` — 12 tests |
+| Regression suite | `tests/unit/test_powerbi_item_level_access.py` — 16 tests |
 | Pre-existing Power BI suites | 109 passed (2 unrelated `ms_fabric` OAuth-scope failures pre-date this branch) |
 
 Screenshots: `assets/powerbi-obo-rls-*.png`.

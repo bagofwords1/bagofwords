@@ -3,6 +3,7 @@ Schema Context Builder - builds TablesSchemaContext object for schemas
 """
 from typing import List, Optional, Dict, Any
 import re
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select, func, and_, or_
@@ -19,7 +20,7 @@ from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
 
 
-# A BOW custom query is materialized to a local artifact and served by the
+# A BOW custom table is materialized to a local artifact and served by the
 # connection's ``::fast`` sibling client, NOT by the source client. The coder is
 # told to map a table's <connection name> onto the client_key suffix
 # (coder.py "Connection-Table Mapping"), so attributing a cached relation to the
@@ -103,7 +104,7 @@ def _cached_meta_for(ct):
     """(is_cached, as_of, next_refresh, description) for a backing ConnectionTable.
 
     The description is admin-authored and is the only place the agent learns
-    what a custom query actually contains — the relation name alone rarely says
+    what a custom table actually contains — the relation name alone rarely says
     whether `revenue_summary` is per-order, per-region or per-month.
 
     `as_of` and `next_refresh` are the two halves of the same fact, and one
@@ -150,7 +151,7 @@ def _cached_first(tables):
 
     The composite score cannot do this on its own, and gets it backwards. It is
     built from usage history, feedback and FK-derived centrality/richness — a
-    freshly authored custom query has none of those (no usage, no feedback, no
+    freshly authored custom table has none of those (no usage, no feedback, no
     foreign keys), so it scores near zero and sorts BELOW the very tables it
     exists to replace. `prompt_builder_v3` tells the planner to prefer
     `cached="true"` tables; an instruction cannot help if the relation is
@@ -185,6 +186,9 @@ def _cap_keeping_cached(tables, top_k: int):
     return cached + rest[: max(0, top_k - len(cached))]
 
 
+
+logger = logging.getLogger(__name__)
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -213,6 +217,7 @@ class SchemaContextBuilder:
         name_patterns: Optional[List[str]] = None,
         active_only: bool = True,
         sort: str = "score",  # "score" | "usage" | "centrality" | "alpha"
+        split_file_scopes: bool = True,
     ) -> TablesSchemaContext:
         """Return TablesSchemaContext with optional filtering and sorting.
 
@@ -225,6 +230,9 @@ class SchemaContextBuilder:
             name_patterns: Filter tables by regex patterns.
             active_only: If True (default), only return active tables. If False, include inactive.
             sort: Sort order for tables.
+            split_file_scopes: If True (default), file-source connections render
+                as scope descriptors and their per-file rows leave `tables`.
+                False keeps them as tables (for callers resolving a table by id).
         """
         ds_sections: List[TablesSchemaContext.DataSource] = []
 
@@ -234,7 +242,7 @@ class SchemaContextBuilder:
                 continue
             # Stats keyed by the row they belong to, falling back to the
             # lowercased name only for rows written before `datasource_table_id`
-            # existed. Name alone is not an identity: a custom query `album`
+            # existed. Name alone is not an identity: a custom table `album`
             # and a source table `Album` are different relations that folded
             # into one bucket, so the planner was shown one relation's usage on
             # the other — and usage is an input it ranks tables by.
@@ -275,16 +283,56 @@ class SchemaContextBuilder:
             ds_tables = ds_tables_result.scalars().all()
             canonical_by_name: Dict[str, DataSourceTable] = {getattr(t, 'name', ''): t for t in ds_tables}
 
-            # Choose source based on the user's CURRENT access to this data source.
-            # auth_policy lives on the Connection (not the DataSource), so resolve
-            # it from the linked connection — reading it off `ds` would always
-            # default to 'system_only' and silently serve the full catalog.
-            #   'user'   → this user's per-user overlay (their visible subset)
-            #   'system' → owner/admin via service account → full canonical catalog
-            #   'none'   → no proven access → no tables (don't leak the catalog)
-            effective_auth = await self._resolve_user_access(ds)
-            use_overlay = (effective_auth == "user")
-            access_denied = (effective_auth == "none")
+            # Choose the source PER CONNECTION. auth_policy, the token and the
+            # catalog all belong to a connection, not to the agent, so one
+            # verdict for the whole data source is wrong on any agent with more
+            # than one connection — and `connections[0]` decided which way it
+            # was wrong. A delegated connection sorting first replaced the whole
+            # catalog with an overlay that describes only that connection, so
+            # the agent lost every other connection's tables and told users it
+            # had one connection when it had three. A delegated connection
+            # sorting second skipped scoping altogether, putting another user's
+            # delegated tables into this user's prompt.
+            #
+            #   overlay → this user's own token on that connection: their
+            #             per-user overlay rows (which also carry column masking)
+            #   open    → system_only, or service-account/admin: canonical rows
+            #   denied  → delegated with no proven access: nothing
+            #
+            # The classification is DataSourceService.classify_connection_access,
+            # the same one the tables selector scopes with, so the agent reasons
+            # over exactly the tables the user can see in the UI.
+            from app.services.data_source_service import DataSourceService as _DSS
+            open_conn_ids, overlay_conn_ids, denied_conn_ids = (
+                await _DSS().classify_connection_access(self.db, ds, self.user)
+            )
+            if connection_ids:
+                _requested = set(str(x) for x in connection_ids)
+                open_conn_ids = [c for c in open_conn_ids if c in _requested]
+                overlay_conn_ids = [c for c in overlay_conn_ids if c in _requested]
+                denied_conn_ids = [c for c in denied_conn_ids if c in _requested]
+            use_overlay = bool(overlay_conn_ids)
+            # Unlinked canonical rows have no connection to classify. Keep the
+            # historical allowance (they are legacy name-keyed rows) only while
+            # nothing is restricted; once a delegated connection is in play they
+            # are served through the overlay branch instead, so one user's
+            # discovered tables stop reaching another user's prompt.
+            _restricted = bool(overlay_conn_ids or denied_conn_ids)
+
+            def _row_is_open(t, _open=frozenset(open_conn_ids), _restricted=_restricted):
+                """Does this canonical row belong to a connection served
+                canonically (rather than through this user's overlay)?"""
+                ct = getattr(t, 'connection_table', None)
+                cid = str(ct.connection_id) if ct is not None and getattr(ct, 'connection_id', None) else None
+                if cid is not None:
+                    return cid in _open
+                meta = getattr(t, 'metadata_json', None)
+                discovered = meta.get('discovered_connection_id') if isinstance(meta, dict) else None
+                if discovered:
+                    # A delegated user's own discovery: served by the overlay
+                    # branch for that user, and withheld from everyone else.
+                    return str(discovered) in _open
+                return not _restricted
 
             # Normalize into a common shape for downstream rendering
             # Each entry: { name, columns: [{name,dtype}], pks: [{name,dtype}], fks: [fk], metadata_json, metrics, is_active }
@@ -295,16 +343,23 @@ class SchemaContextBuilder:
             # source silently vanishing when one of several connections is down.
             unhealthy_conns: Dict[str, Dict[str, Any]] = {}
 
-            if access_denied:
-                # User has no current access — emit the data source with no tables
-                # rather than the canonical catalog they can't actually query.
-                pass
-            elif use_overlay:
+            if use_overlay:
                 overlays_q = await self.db.execute(
                     select(UserDataSourceTable).where(
                         UserDataSourceTable.data_source_id == str(ds.id),
                         UserDataSourceTable.user_id == str(self.user.id),
                         UserDataSourceTable.is_accessible == True,
+                        # Only the connections this user actually runs delegated
+                        # on. A NULL connection_id predates connection-aware
+                        # overlays (or the migration could not attribute it):
+                        # unknown provenance, which is not permission. While a
+                        # connection on this agent is DENIED, such a row may be
+                        # that connection's, so being authorized on a different
+                        # one does not justify it — same rule as the tables
+                        # selector (`_overlay_connection_predicate`).
+                        _DSS._overlay_connection_predicate(
+                            overlay_conn_ids, denied_conn_ids
+                        ),
                     )
                 )
                 overlay_tables = overlays_q.scalars().all()
@@ -334,9 +389,14 @@ class SchemaContextBuilder:
                 visible_table_names = {
                     (getattr(ot, 'table_name', '') or '') for ot in overlay_tables
                 }
+                # Only columns this user can still reach. A sync keeps the row
+                # of a column the user lost (is_accessible=False) rather than
+                # deleting it, so an unfiltered read put revoked columns back in
+                # the prompt. Same rule as read_user_data_source_schema.
                 cols_q = await self.db.execute(
                     select(UserDataSourceColumn).where(
-                        UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids)
+                        UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids),
+                        UserDataSourceColumn.is_accessible.is_(True),
                     )
                 )
                 cols = cols_q.scalars().all()
@@ -556,8 +616,13 @@ class SchemaContextBuilder:
                         "cached_next_refresh": cached_next_refresh,
                         "description": cached_description,
                     })
-            else:
-                for t in ds_tables:
+            # Canonical rows for the OPEN connections. This runs ALONGSIDE the
+            # overlay branch above rather than instead of it — that either/or is
+            # exactly what dropped a mixed agent's warehouse tables the moment
+            # the caller had their own token on its Power BI connection.
+            _canonical_rows = [t for t in ds_tables if _row_is_open(t)]
+            if _canonical_rows:
+                for t in _canonical_rows:
                     table_is_active = bool(getattr(t, 'is_active', False))
                     # Skip inactive tables when active_only is True
                     if active_only and not table_is_active:
@@ -658,6 +723,7 @@ class SchemaContextBuilder:
                 ]
 
                 tbl = PromptTable(
+                    id=item.get("table_id"),
                     name=item.get("name", ""),
                     columns=columns,
                     pks=pks,
@@ -774,7 +840,10 @@ class SchemaContextBuilder:
             # Pull file-source connections OUT of the table pool: they render as
             # compact scope descriptors, not per-file <table> rows — so they
             # never consume the top_k budget or bloat the prompt.
-            file_scopes, tables = self._build_file_scopes(ds, tables)
+            if split_file_scopes:
+                file_scopes, tables = self._build_file_scopes(ds, tables)
+            else:
+                file_scopes = []
 
             tables = _cached_first(tables)
 
@@ -845,9 +914,55 @@ class SchemaContextBuilder:
                     tables=bow_tables,
                 ))
 
+        # Agent Lists: bow.<agent>.lists.<list> tables, in every mode, for lists
+        # on this report's agents that the user can view.
+        if self.user is not None and not connection_ids:
+            try:
+                await self._append_list_tables(ds_sections, ds_filter, table_names, name_patterns)
+            except Exception as exc:
+                logger.warning("agent list tables skipped: %s", exc)
+
         self._apply_native_mcp_decision(ds_sections)
 
         return TablesSchemaContext(data_sources=ds_sections)
+
+    async def _append_list_tables(self, ds_sections, ds_filter, table_names, name_patterns) -> None:
+        from app.schemas.bow_source_schema import SOURCE_ID
+        from app.services.agent_lists.bow_lists import describe_table, list_tables
+
+        if ds_filter and SOURCE_ID not in ds_filter:
+            return
+        ds_ids = [str(getattr(d, "id", "")) for d in (self.data_sources or [])]
+        entries = await list_tables(self.db, self.user, self.organization, ds_ids)
+        tables = []
+        for e in entries:
+            if table_names and e["name"] not in table_names:
+                continue
+            if name_patterns and not any(re.search(p, e["name"]) for p in name_patterns):
+                continue
+            tables.append(PromptTable(
+                name=e["name"],
+                columns=[PromptTableColumn(name=c, dtype=t) for c, t in e["columns"]],
+                pks=[PromptTableColumn(name="_row_id", dtype="string")], fks=[],
+                connection_name="bow", connection_type="bow",
+                description=describe_table(e),
+                is_active=True,
+            ))
+        if not tables:
+            return
+        existing = next((s for s in ds_sections if str(s.info.id) == SOURCE_ID), None)
+        if existing is not None:
+            existing.tables = list(existing.tables or []) + tables
+            return
+        ds_sections.append(TablesSchemaContext.DataSource(
+            info=DataSourceSummarySchema(
+                id=SOURCE_ID, name="BOW", type="bow",
+                context=("Built-in BOW source. Agent Lists (records the agents saved with their submit_* tools) "
+                         "are tables here. In create_data use tables_by_source=[{data_source_id:'builtin:bow', "
+                         "tables:['bow.<agent>.lists.<list>']}] and query via ds_clients['bow'] with the table's list_id."),
+            ),
+            tables=tables,
+        ))
 
     def _apply_native_mcp_decision(self, ds_sections) -> bool:
         """Tell each agent section where its MCP tools' schemas will live.
@@ -871,31 +986,6 @@ class SchemaContextBuilder:
         for s in ds_sections:
             s.native_mcp = native_on
         return native_on
-
-    async def _resolve_user_access(self, ds) -> str:
-        """Classify self.user's CURRENT access to data source `ds`.
-
-        Returns 'user' (own creds → overlay), 'system' (owner/admin via service
-        account → full catalog), or 'none' (no proven access → no tables).
-
-        For non-user_required connections, or when there is no user in context,
-        returns 'system' (the canonical catalog is the right thing to serve).
-        Fails closed to 'none' for user_required so a stale overlay can't keep
-        leaking tables after a user loses access.
-        """
-        conns = list(getattr(ds, 'connections', None) or [])
-        conn = conns[0] if conns else None
-        auth_policy = (getattr(conn, 'auth_policy', None) or 'system_only') if conn else 'system_only'
-        if auth_policy != 'user_required' or self.user is None or conn is None:
-            return 'system'
-        try:
-            from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
-            status = await UserDataSourceCredentialsService().build_user_status_for_connection(
-                self.db, conn, self.user, data_source=ds, live_test=False
-            )
-            return status.effective_auth or 'none'
-        except Exception:
-            return 'none'
 
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {

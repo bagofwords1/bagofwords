@@ -507,6 +507,7 @@ class TestDataSourceLicensing:
 
         assert is_datasource_allowed("powerbi") is False
         assert is_datasource_allowed("qvd") is False
+        assert is_datasource_allowed("brocade") is False
 
     def test_enterprise_datasource_allowed_with_license(self, test_client, patch_license_key):
         """Enterprise data sources allowed with valid license."""
@@ -528,6 +529,7 @@ class TestDataSourceLicensing:
 
         assert is_datasource_allowed("powerbi") is True
         assert is_datasource_allowed("qvd") is True
+        assert is_datasource_allowed("brocade") is True
 
     def test_enterprise_datasource_with_explicit_features(self, test_client, patch_license_key):
         """License with explicit ds_ features restricts to those only."""
@@ -551,6 +553,93 @@ class TestDataSourceLicensing:
 
         assert is_datasource_allowed("powerbi") is True
         assert is_datasource_allowed("qvd") is False  # Not in features
+        assert is_datasource_allowed("brocade") is False
+
+
+def _clear_license():
+    from app.ee.license import clear_license_cache
+    from app.settings.config import settings
+
+    os.environ.pop("BOW_LICENSE_KEY", None)
+    if hasattr(settings.bow_config, 'license') and settings.bow_config.license:
+        settings.bow_config.license.key = None
+    clear_license_cache()
+
+
+# Connectors that are free on the community tier by product decision. The UI
+# reads `requires_license` from the registry and the server gate must agree.
+COMMUNITY_CONNECTORS = ["kubernetes", "splunk", "onedrive", "google_drive", "outlook_mail", "gmail_mail"]
+# Of those, the ones users sign into personally (OAuth). Per-user auth on
+# files-shaped integrations is free, so this must not be gated either.
+COMMUNITY_PER_USER_CONNECTORS = ["onedrive", "google_drive", "outlook_mail", "gmail_mail"]
+
+
+@pytest.mark.e2e
+class TestDataSourceLicenseGateMatchesRegistry:
+    """The server-side gate and the UI lock both come from
+    `requires_license` in the data source registry — they must never drift."""
+
+    def test_unlicensed_gate_matches_registry_for_every_type(self, test_client, license_env_cleanup):
+        from app.ee.license import is_datasource_allowed
+        from app.schemas.data_source_registry import REGISTRY
+
+        _clear_license()
+
+        mismatched = {
+            ds_type: entry.requires_license
+            for ds_type, entry in REGISTRY.items()
+            if is_datasource_allowed(ds_type) != (entry.requires_license != "enterprise")
+        }
+        assert mismatched == {}
+
+    def test_enterprise_license_allows_every_type(self, test_client, patch_license_key):
+        from app.ee.license import clear_license_cache, is_datasource_allowed
+        from app.schemas.data_source_registry import REGISTRY
+        from app.settings.config import settings
+        from app.settings.bow_config import LicenseConfig
+
+        test_license = _create_test_license(org_name="Gate Corp", tier="enterprise")
+        if not hasattr(settings.bow_config, 'license') or not settings.bow_config.license:
+            settings.bow_config.license = LicenseConfig(key=test_license)
+        else:
+            settings.bow_config.license.key = test_license
+        clear_license_cache()
+
+        assert [t for t in REGISTRY if not is_datasource_allowed(t)] == []
+
+    def test_create_connection_unlicensed_402s_exactly_the_enterprise_types(
+        self, test_client, create_user, login_user, whoami, license_env_cleanup,
+    ):
+        from app.schemas.data_source_registry import REGISTRY
+
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        org_id = whoami(token)['organizations'][0]['id']
+        headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+        _clear_license()
+
+        def create(ds_type, auth_policy="system_only"):
+            return test_client.post(
+                "/api/connections",
+                json={"name": f"{ds_type}-gate", "type": ds_type, "config": {},
+                      "credentials": {}, "auth_policy": auth_policy},
+                headers=headers,
+            )
+
+        enterprise_types = [t for t, e in REGISTRY.items() if e.requires_license == "enterprise"]
+        assert enterprise_types, "registry should still gate some connectors"
+        for ds_type in enterprise_types:
+            resp = create(ds_type)
+            assert resp.status_code == 402, (ds_type, resp.status_code)
+
+        for ds_type in COMMUNITY_CONNECTORS:
+            assert REGISTRY[ds_type].requires_license is None, ds_type
+            resp = create(ds_type)
+            assert resp.status_code != 402, (ds_type, resp.json())
+
+        for ds_type in COMMUNITY_PER_USER_CONNECTORS:
+            resp = create(ds_type, auth_policy="user_required")
+            assert resp.status_code != 402, (ds_type, resp.json())
 
 
 @pytest.mark.e2e

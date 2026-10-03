@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
-from app.dependencies import get_async_db
+from app.dependencies import get_async_db, ensure_path_organization_matches
 from app.services.organization_service import OrganizationService
 from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema, OrganizationUpdate
 from app.schemas.organization_schema import MembershipCreate, MembershipSchema, MembershipUpdate
@@ -15,7 +15,7 @@ from app.core.permissions_decorator import requires_permission
 from app.schemas.user_schema import UserSchema
 from app.ee.audit.service import audit_service
 
-router = APIRouter(tags=["organizations"])
+router = APIRouter(tags=["organizations"], dependencies=[Depends(ensure_path_organization_matches)])
 organization_service = OrganizationService()
 
 @router.post("/organizations", response_model=OrganizationSchema)
@@ -226,7 +226,8 @@ async def import_members(
 async def get_organizations(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
     return await organization_service.get_user_organizations(db, current_user)
 
-@requires_permission('manage_members')
+# Member directory for share/recipient pickers: readable by any member of the
+# org (get_current_organization enforces membership). Intentionally ungated.
 @router.get("/organization/members", response_model=List[UserSchema])
 async def get_organization_members(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
     return await organization_service.get_organization_members(db, current_user, organization)

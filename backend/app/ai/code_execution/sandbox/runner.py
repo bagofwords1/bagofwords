@@ -685,12 +685,16 @@ def run_job(
                     # UnsafeSQLError / QueryTimeoutError / a quota error) and
                     # propagated unchanged: surface the real object so the
                     # retry loop keeps its type-based decisions.
-                    raise rpc_exceptions[int(rpc_id)]
-                raise SandboxExecutionError(
-                    str(header.get("exc_type") or ""),
-                    str(header.get("message") or ""),
-                    str(header.get("traceback") or ""),
-                )
+                    exc = rpc_exceptions[int(rpc_id)]
+                else:
+                    exc = SandboxExecutionError(
+                        str(header.get("exc_type") or ""),
+                        str(header.get("message") or ""),
+                        str(header.get("traceback") or ""),
+                    )
+                if result.stdout:
+                    exc.captured_stdout = result.stdout[-2000:]
+                raise exc
 
             raise SandboxError(f"unexpected sandbox message {kind!r}")
     except (SandboxTimeoutError, SandboxCancelled):

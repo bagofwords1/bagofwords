@@ -101,7 +101,7 @@
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <InstructionText
                                                     :text="m.prompt.content"
-                                                    :references="promptMentionsToRefs(m.prompt.mentions)"
+                                                    :references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
                                                     :prose="true"
                                                 />
                                             </div>
@@ -135,6 +135,10 @@
                                                     @toggle="toggleGroup(groupHeaderFor(m, block).id)"
                                                 />
                                             </Transition>
+                                            <!-- Keep prose visible when only this verification step is collapsed. -->
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto">
+                                                <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                            </div>
                                             <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
                                             <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
@@ -269,6 +273,7 @@ import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
+import RunQueryTool from '~/components/tools/RunQueryTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -283,6 +288,7 @@ import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import CreateDocTool from '~/components/tools/CreateDocTool.vue'
@@ -300,6 +306,7 @@ import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
 import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
+import SubmitListTool from '~/components/tools/SubmitListTool.vue'
 import EditNoteTool from '~/components/tools/EditNoteTool.vue'
 import RouteModelTool from '~/components/tools/RouteModelTool.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
@@ -316,7 +323,7 @@ import RunEvalTool from '~/components/tools/RunEvalTool.vue'
 import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
-import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+import MemoryTool from '~/components/tools/MemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import SendEmailTool from '~/components/tools/SendEmailTool.vue'
@@ -333,6 +340,22 @@ import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import { promptMentionsToRefs } from '~/utils/mentions'
+
+// A shared conversation never names the org's agents, but the tool cards do
+// carry each referenced agent's resolved icon. Reuse it so an @agent chip draws
+// the same icon as the tool card beneath it, rather than the one snapshotted
+// into the prompt when the message was sent.
+const agentIconTokens = computed<Record<string, string | null | undefined>>(() => {
+    const out: Record<string, string | null | undefined> = {}
+    for (const c of (conversation.value?.completions || []) as any[]) {
+        for (const b of c.completion_blocks || []) {
+            for (const ds of b.tool_execution?.data_sources || []) {
+                if (ds?.id && ds.icon_token) out[ds.id] = ds.icon_token
+            }
+        }
+    }
+    return out
+})
 // Same markdown pipeline as the report view. MDC (stock, no `mdc` config in
 // nuxt.config) renders a ```mermaid / ```d2 / ```infographic fence as a plain
 // code block and leaves $…$ math as literal text, so a shared answer degraded
@@ -424,10 +447,10 @@ function _groupingFor(m: any) {
     // sitting between two chip-class steps would otherwise break a run that
     // reads as continuous on screen.
     const blocks = timelineBlocks(m)
-    const key = `${blocks.length}`
+    const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}`).join(",")}`
     const hit = _groupingCache.get(String(m.id))
     if (hit && hit.key === key) return hit.grouping
-    const grouping = computeBlockGroups(blocks)
+    const grouping = computeBlockGroups(blocks, { executionStatus: m.status })
     _groupingCache.set(String(m.id), { key, grouping })
     return grouping
 }
@@ -519,6 +542,15 @@ function hasCompletedContent(block: any): boolean {
 function getThoughtProcessLabel(block: any): string {
     if (block.status === 'stopped') return 'Thought Process'
 
+    // Measured reasoning: the planner's plus the tool's code generation, which
+    // streams into this same block.
+    const pm = block.plan_decision?.metrics || block.plan_decision?.metrics_json
+    const measured = [pm?.thinking_ms, block.tool_execution?.sub_timings_json?.codegen_reasoning_ms]
+        .filter((ms: any) => typeof ms === 'number' && isFinite(ms) && ms >= 0)
+    if (measured.length) {
+        return `Thought for ${Math.round(measured.reduce((a: number, b: number) => a + b, 0) / 1000)}s`
+    }
+
     if (block.started_at && block.completed_at) {
         const startTime = new Date(block.started_at).getTime()
         const endTime = new Date(block.completed_at).getTime()
@@ -528,15 +560,14 @@ function getThoughtProcessLabel(block: any): string {
         return `Thought for ${durationSeconds}s`
     }
 
-    if (block.tool_execution?.duration_ms) {
-        const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
-        return `Thought for ${durationSeconds}s`
-    }
-
+    // The tool's own duration is not reasoning time; it already shows on the tool row.
     return 'Thought Process'
 }
 
 function getToolComponent(toolName: string) {
+    // Native per-list tools (submit_<list>) stream under their own name
+    // before the gateway rewrite to submit_list.
+    if (toolName?.startsWith('submit_')) return SubmitListTool
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
@@ -548,6 +579,8 @@ function getToolComponent(toolName: string) {
             return DescribeEntityTool
         case 'read_query':
             return ReadQueryTool
+        case 'run_query':
+            return RunQueryTool
         case 'read_resources':
             return ReadResourcesTool
         case 'inspect_data':
@@ -571,6 +604,8 @@ function getToolComponent(toolName: string) {
             return ReadFileTool
         case 'attach_file':
             return AttachFileTool
+        case 'manage_artifact_resources':
+            return ManageArtifactResourcesTool
         case 'create_artifact':
             return CreateArtifactTool
         case 'edit_artifact':
@@ -623,6 +658,8 @@ function getToolComponent(toolName: string) {
             return SetReportAgentsTool
         case 'create_note':
             return CreateNoteTool
+        case 'submit_list':
+            return SubmitListTool
         case 'edit_note':
             return EditNoteTool
         case 'route_model':
@@ -652,8 +689,10 @@ function getToolComponent(toolName: string) {
             return ClarifyTool
         case 'wait':
             return WaitTool
-        case 'update_user_memory':
-            return UpdateUserMemoryTool
+        case 'create_memory':
+        case 'edit_memory':
+        case 'search_memory':
+            return MemoryTool
         case 'create_dashboard':
             return CreateDashboardTool
         case 'send_email':

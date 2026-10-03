@@ -42,7 +42,8 @@ If asked for all history without a time window, request 366d and disclose that s
 10,000 rows / 1,000 aggregate groups maximum; aggregate or narrow on overflow. Unknown cost remains null.
 Permissions are enforced by the service and cannot be supplied or changed by code. Results are saved as normal data tables.'''
 
-    def __init__(self, session_factory, loop, organization_id, user_id, report_id, writer_db, writer_lock=None):
+    def __init__(self, session_factory, loop, organization_id, user_id, report_id, writer_db, writer_lock=None,
+                 allow_history=True):
         self._factory, self._loop = session_factory, loop
         self._organization_id, self._user_id, self._report_id = organization_id, user_id, report_id
         self._bow_client_key = "bow"
@@ -52,6 +53,9 @@ Permissions are enforced by the service and cannot be supplied or changed by cod
         self._bow_access = None
         self._writer_db, self._writer_lock = writer_db, writer_lock
         self._tasks = set()
+        # runs / tool_calls stay a training capability (plus saved BOW reports);
+        # Agent List datasets are available wherever the client is installed.
+        self._allow_history = allow_history
 
     def execute_query(self, request):
         parsed = BowQuery.model_validate(request)
@@ -84,6 +88,13 @@ Permissions are enforced by the service and cannot be supplied or changed by cod
                     org = await db.get(Organization, self._organization_id)
                     if not user or not org:
                         raise ValueError("BOW execution requires an authenticated organization member")
+                    if request.dataset == "list":
+                        # Agent Lists: access follows the owning agent and is
+                        # re-checked here on every execution (incl. refresh).
+                        from app.services.agent_lists.bow_lists import query_list
+                        return await query_list(db, org, user, request)
+                    if not self._allow_history:
+                        raise PermissionError("BOW run history (runs/tool_calls) is only available in training mode")
                     await assert_read(db, await report_access(db, self._report_id), user)
                     df = await BowSourceService().query(db, org, user, request, exclude_report_id=self._report_id)
                     access = dict(df.attrs["bow_source"])
@@ -107,12 +118,20 @@ async def install_bow_client(db, organization, user, report, clients, *, mode=No
     from app.services.bow_source_access import report_access
     from sqlalchemy.ext.asyncio import async_sessionmaker
     saved = await report_access(db, getattr(report, "id", None))
-    if (mode or getattr(report, "mode", None)) != "training" and not (saved and allow_saved):
-        return
     if user is None or organization is None:
         return
+    history = (mode or getattr(report, "mode", None)) == "training" or bool(saved and allow_saved)
+    if history:
+        try:
+            await resolve_console_scope(db, organization, user)
+        except Exception:
+            history = False
+    has_lists = False
     try:
-        await resolve_console_scope(db, organization, user)
+        from app.services.agent_lists.bow_lists import report_has_lists
+        has_lists = await report_has_lists(db, report, user, organization)
     except Exception:
+        has_lists = False
+    if not history and not has_lists:
         return
-    clients["bow"] = BowClient(async_sessionmaker(db.bind, expire_on_commit=False), asyncio.get_running_loop(), str(organization.id), str(user.id), str(report.id), db, writer_lock)
+    clients["bow"] = BowClient(async_sessionmaker(db.bind, expire_on_commit=False), asyncio.get_running_loop(), str(organization.id), str(user.id), str(report.id), db, writer_lock, allow_history=history)

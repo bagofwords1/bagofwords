@@ -131,18 +131,32 @@ async def console_scope(
     then answers the console's own question: org-wide, a specific set of agents,
     or 403.
     """
-    return await resolve_console_scope(db, organization, user)
+    scope, resolved = await _resolve_console_access(db, organization, user)
+
+    # Console routes skip ``@requires_permission``, which is what normally
+    # publishes the code-visibility decision; without it the serializers
+    # default to deny and redact code from every trace, even for admins.
+    # Set here, not in resolve_console_scope: that one also runs inside agent
+    # and query execution, where this request-scoped flag must not be touched.
+    from app.core.code_visibility import set_code_visibility, can_view_code
+    set_code_visibility(can_view_code(resolved))
+    return scope
 
 
 async def resolve_console_scope(db: AsyncSession, organization: Organization, user: User) -> ConsoleScope:
     """Authenticated scope shared by HTTP and built-in source execution."""
+    scope, _ = await _resolve_console_access(db, organization, user)
+    return scope
+
+
+async def _resolve_console_access(db: AsyncSession, organization: Organization, user: User):
     if not user.is_verified and settings.bow_config.features.verify_emails:
         raise HTTPException(status_code=403, detail="User is not verified")
     await assert_principal_belongs_to_org(db, user, organization.id)
 
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
     if any(resolved.has_org_permission(p) for p in CONSOLE_ADMIN_PERMISSIONS):
-        return ConsoleScope(None)
+        return ConsoleScope(None), resolved
 
     managed = sorted(
         rid
@@ -155,4 +169,4 @@ async def resolve_console_scope(db: AsyncSession, organization: Organization, us
             db, user, organization, CONSOLE_ADMIN_PERMISSIONS[0], "console"
         )
         raise HTTPException(status_code=403, detail="Permission denied")
-    return ConsoleScope(managed)
+    return ConsoleScope(managed), resolved

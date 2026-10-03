@@ -49,6 +49,9 @@ succeeded. The probe sent `SIGKILL` to that PID before exiting.
   filter or the mandatory resource limits cannot be installed.
 - On timeout or cancellation, `sandbox/runner.py` tells the parent-side query
   wrapper to request source cancellation for any in-flight query.
+- After merging the current `main`, generated code receives its new
+  `calendar_date_bounds` helper in both execution modes, and the sandbox
+  forwards printed diagnostics on failure to the retry loop.
 
 After the fix, the reproduction tests reported `4 passed, 2 skipped`. The full
 sandbox, query-timeout, and query-cancellation suites reported `71 passed,
@@ -60,6 +63,9 @@ A disposable Linux container verified that a full sandbox job returns a DataFram
 an ordinary Python thread still starts, and the memory limit raises a sandbox
 error. A 64-job, 8-worker macOS stress run reported `completed=64 correct=64`;
 a 16-job, 4-worker Linux fork-server run reported `completed 16 correct 16`.
+After integrating current `main`, the sandbox, query timeout, query
+cancellation, and query parameter suites reported `144 passed, 4 skipped`,
+including new date-helper and failed-run diagnostic checks.
 
 ## What this proves / regression notes
 

@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
@@ -65,6 +66,8 @@ class DatabricksSqlClient(DataSourceClient):
                 catalog=self._catalogs[0] if self._catalogs else self.catalog,
             )
             yield conn
+        except IndexingCancelled:
+            raise
         except Exception as e:
             raise RuntimeError(f"Error connecting to Databricks SQL: {e}")
         finally:
@@ -91,11 +94,14 @@ class DatabricksSqlClient(DataSourceClient):
         """Get tables with graceful fallback if enriched query fails."""
         try:
             return self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table comments. May fail on some Databricks configurations."""
+        discovery_phase('reading_columns')
         tables = {}
         with self.connect() as conn:
             cursor = conn.cursor()
@@ -132,7 +138,7 @@ class DatabricksSqlClient(DataSourceClient):
             results = cursor.fetchall()
             cursor.close()
 
-            for row in results:
+            for row in discovery_items(results, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_catalog, table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
                 key = (table_catalog, table_schema, table_name)
                 fqn = f"{table_catalog}.{table_schema}.{table_name}"
@@ -155,6 +161,7 @@ class DatabricksSqlClient(DataSourceClient):
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (original query - always works)."""
+        discovery_phase('metadata_fallback')
         tables = {}
         with self.connect() as conn:
             cursor = conn.cursor()
@@ -180,7 +187,7 @@ class DatabricksSqlClient(DataSourceClient):
             results = cursor.fetchall()
             cursor.close()
 
-            for row in results:
+            for row in discovery_items(results, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_catalog, table_schema, table_name, column_name, data_type = row
                 key = (table_catalog, table_schema, table_name)
                 fqn = f"{table_catalog}.{table_schema}.{table_name}"
@@ -200,7 +207,8 @@ class DatabricksSqlClient(DataSourceClient):
         """Get schema for a specific table. Deprecated - use get_tables() instead."""
         raise NotImplementedError("get_schema() is deprecated. Use get_tables() instead.")
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         """Get all table schemas. Wrapper for get_tables()."""
         return self.get_tables()
 

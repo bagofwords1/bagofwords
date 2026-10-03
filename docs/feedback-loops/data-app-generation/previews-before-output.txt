@@ -1,0 +1,46 @@
+[
+  {
+    "renderer": "preview",
+    "version": 0,
+    "expected": "0.4%",
+    "actual": "0.4%",
+    "pass": true
+  },
+  {
+    "renderer": "thumbnail",
+    "version": 0,
+    "expected": "0.4%",
+    "actual": "0.4%",
+    "pass": true
+  },
+  {
+    "renderer": "preview",
+    "version": 11,
+    "expected": "37.0%",
+    "actual": "0.4%",
+    "pass": false
+  },
+  {
+    "renderer": "thumbnail",
+    "version": 11,
+    "expected": "37.0%",
+    "actual": "0.4%",
+    "pass": false
+  }
+]
+Traceback (most recent call last):
+  File "/private/tmp/bow-pr1129/backend/../tools/agent/verify_data_app_previews.py", line 24, in <module>
+    asyncio.run(run())
+  File "/opt/homebrew/Cellar/python@3.12/3.12.8/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.8/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.8/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/base_events.py", line 686, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/private/tmp/bow-pr1129/backend/../tools/agent/verify_data_app_previews.py", line 23, in run
+    print(json.dumps(results,indent=2));assert all(r['pass'] for r in results),'Version metadata must precede shared runtime initialization'
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Version metadata must precede shared runtime initialization

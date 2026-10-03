@@ -22,11 +22,20 @@ from unittest.mock import patch
 
 import pytest
 
+from app.data_sources.clients import graph_drive_client as gdc
 from app.data_sources.clients.graph_drive_client import (
     GraphDriveClient,
     OnedriveClient,
     SharepointClient,
 )
+
+
+@pytest.fixture(autouse=True)
+def _folder_walk_only(monkeypatch):
+    """These tests pin the folder-by-folder walk (concurrency, per-folder cost,
+    progress). Recursive enumeration of the scoped root normally goes through
+    `/delta` first (tests/unit/test_graph_throttling.py); force the walk here."""
+    monkeypatch.setattr(gdc, "GRAPH_USE_DELTA", False)
 
 
 def _fake_tree(fanout: int, depth: int) -> dict:
@@ -210,10 +219,12 @@ class TestPooledHttpClient:
     def test_get_goes_through_the_pooled_client(self):
         c = _client()
         with patch.object(c, "_client") as pooled:
-            pooled.return_value.get.return_value.status_code = 200
-            pooled.return_value.get.return_value.json.return_value = {"value": []}
+            resp = pooled.return_value.request.return_value
+            resp.status_code = 200
+            resp.headers = {}
+            resp.json.return_value = {"value": []}
             c._get("/drives/drive-1/root/children")
-        assert pooled.return_value.get.called
+        assert pooled.return_value.request.called
 
 
 class TestCatalogTiers:

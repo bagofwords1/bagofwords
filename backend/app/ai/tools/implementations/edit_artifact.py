@@ -13,6 +13,8 @@ from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.orm import lazyload
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -23,8 +25,9 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
-from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors
-from app.models.artifact import Artifact
+from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors
+from app.models.artifact import ArtifactVersion
+from app.services.artifact_service import new_version
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,7 @@ class EditArtifactTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["artifact", "dashboard", "edit"],
-            allowed_modes=["chat"],
+            allowed_modes=["chat", "training"],
         )
 
     @property
@@ -100,7 +103,18 @@ class EditArtifactTool(Tool):
         report = runtime_ctx.get("report")
         user = runtime_ctx.get("user")
 
-        artifact = await db.get(Artifact, str(data.artifact_id))
+        # Not db.get(): read_report may have left a load_only-partial instance
+        # of this row in the session's identity map, and get() would return it
+        # as-is — first .content/.report_id access then lazy-loads and raises
+        # MissingGreenlet under async. A real SELECT fills the missing columns.
+        artifact = (await db.execute(
+            select(ArtifactVersion)
+            .options(lazyload("*"))
+            .where(
+                ArtifactVersion.id == str(data.artifact_id),
+                ArtifactVersion.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
         if artifact is None or (report is not None and str(artifact.report_id) != str(report.id)):
             yield self._fail(None, "not_found", f"Artifact {data.artifact_id} not found in this report.")
             return
@@ -164,12 +178,25 @@ class EditArtifactTool(Tool):
         from app.services.artifact_payload import collect_artifact_payload
         shim = SimpleNamespace(
             report_id=artifact.report_id,
-            content={"visualization_ids": merged_viz_ids, "files": content.get("files") or []},
+            content={
+                "visualization_ids": merged_viz_ids,
+                "files": content.get("files") or [],
+                "runtime_version": content.get("runtime_version"),
+            },
         )
         artifact_data = await collect_artifact_payload(db, shim)
         if artifact_data is None:
             yield self._fail(artifact, "no_report", "The artifact's report no longer exists.")
             return
+        if content.get('sdk_version') == 1:
+            from app.models.artifact_resource import ArtifactResource
+            definitions = (await db.execute(select(ArtifactResource.definition).where(
+                ArtifactResource.artifact_id == artifact.artifact_id,
+                ArtifactResource.deleted_at.is_(None)))).scalars()
+            artifact_data['_fixture_resources'] = [
+                {k: d[k] for k in ('name', 'kind', 'fields')} for d in definitions
+            ]
+
         # collect_artifact_payload mirrors the live client and appends the
         # report's OTHER visualizations as stragglers after the listed ones.
         # The contracts apply to the artifact's own viz set only — gate and
@@ -246,7 +273,8 @@ class EditArtifactTool(Tool):
 
             # Deterministic gates — hard, no repair (the planner corrects and retries).
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
-            gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data)
+            gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
+            gate_errors += design_errors(new_code, artifact_data)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",
@@ -272,32 +300,52 @@ class EditArtifactTool(Tool):
 
         # Persist as the next version (stored rows are never rewritten).
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
-        new_version = artifact.version + 1
         ops_summary = "; ".join(
             (op.find[:60].replace("\n", " ") + " → " + op.replace[:60].replace("\n", " ")) for op in data.edits[:5]
         )
         prev_spec = artifact.generation_prompt or ""
-        accumulated_spec = f"{prev_spec}\n+ Edit (v{new_version}): [mechanical] {ops_summary}".strip()
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
         if content.get("files"):
             new_content["files"] = content.get("files")
-        new_artifact = Artifact(
-            report_id=artifact.report_id,
-            user_id=str(user.id) if user else artifact.user_id,
-            organization_id=artifact.organization_id,
-            title=data.title or artifact.title,
-            mode=artifact.mode,
+        # The runtime generation travels with the row: a legacy artifact stays
+        # legacy across edits (its code was written for that look); a themed
+        # one stays themed.
+        if content.get("runtime_version"):
+            new_content["runtime_version"] = content.get("runtime_version")
+        if 'sdk_version' in content:
+            from app.services.artifact_resource_service import code_requirements
+            new_content['sdk_version'] = content['sdk_version']
+            # Recomputed, not copied: an edit may start using a resource added
+            # since the last build, and publication must check that one too.
+            new_content['resource_requirements'] = await code_requirements(
+                db, artifact.artifact_id, new_code, content.get('resource_requirements'))
+        if data.expected_latest_version is not None:
+            from app.models.artifact import Artifact
+            from sqlalchemy import update, func
+            from datetime import datetime
+            await db.execute(update(Artifact).where(Artifact.id == artifact.artifact_id).values(updated_at=datetime.utcnow()))
+            latest = await db.scalar(select(func.max(ArtifactVersion.version)).where(ArtifactVersion.artifact_id == artifact.artifact_id))
+            if latest != data.expected_latest_version:
+                yield self._fail(artifact, 'version_conflict', 'A newer UI version exists. Read it before editing.', {'latest_version': latest})
+                return
+        new_artifact = await new_version(
+            db,
+            artifact,
+            user_id=str(user.id) if user else None,
+            title=data.title or None,
             content=new_content,
-            generation_prompt=accumulated_spec,
-            version=new_version,
-            status="completed",
+        )
+        # The accumulated spec names the version that was actually minted —
+        # the factory owns the number, so it is read back, never predicted.
+        version_number = new_artifact.version
+        new_artifact.generation_prompt = (
+            f"{prev_spec}\n+ Edit (v{version_number}): [mechanical] {ops_summary}".strip()
         )
         if screenshot_b64 or render_errors:
             new_artifact.screenshot_base64 = screenshot_b64
             new_artifact.render_errors = render_errors or None
         db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
 
         # Slides: move the validated deck under the new version's id and
         # render previews (a preview failure only costs the preview).
@@ -320,12 +368,36 @@ class EditArtifactTool(Tool):
             await db.commit()
             await db.refresh(new_artifact)
 
+        from app.ai.tools.implementations._sandbox_context import ANON_PREVIEW_NOTE, STATIC_PREVIEW_NOTE
+        review_images = {}
+        allow_screenshot = True
+        settings = runtime_ctx.get("settings")
+        if settings is not None:
+            try:
+                allow_screenshot = settings.get_config("allow_llm_see_data").value
+            except Exception:
+                pass
+        if screenshot_b64 and allow_screenshot and getattr(runtime_ctx.get("model"), "supports_vision", False):
+            review_images["images"] = [{"data": screenshot_b64, "media_type": "image/png", "source_type": "base64"}]
+            review_images["preview_note"] = ANON_PREVIEW_NOTE + " " + STATIC_PREVIEW_NOTE
+
+        from app.ai.tools.artifact_verification import build_artifact_verification_hint
+        from app.services.artifact_verification_policy import artifact_verification_available
+        verification_hint = build_artifact_verification_hint(
+            artifact_id=str(new_artifact.id), version=new_artifact.version,
+            mode=new_artifact.mode, code=new_code, previous_code=code,
+            parameters=[p for v in artifact_data.get("visualizations", []) for p in v.get("parameters", []) or []],
+            available=await artifact_verification_available(runtime_ctx, str(new_artifact.id)),
+        )
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
                 "output": {
                     "success": True,
+                    "verification_hint": verification_hint,
                     "artifact_id": str(new_artifact.id),
+                    "resource_artifact_id": str(new_artifact.artifact_id),
                     "title": new_artifact.title,
                     "mode": new_artifact.mode,
                     "version": new_artifact.version,
@@ -336,11 +408,16 @@ class EditArtifactTool(Tool):
                     "code": new_code,
                 },
                 "observation": {
+                    **review_images,
+                    "verification_hint": verification_hint,
                     "summary": (
-                        f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{new_version}. "
-                        "Contracts verified and render validated. No further verification needed."
+                        f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{version_number}. "
+                        "Contracts verified. "
+                        + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
+                        + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
                     "artifact_id": str(new_artifact.id),
+                    "resource_artifact_id": str(new_artifact.artifact_id),
                     "mode": new_artifact.mode,
                     "version": new_artifact.version,
                     "diff_applied": True,

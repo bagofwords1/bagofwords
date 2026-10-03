@@ -82,13 +82,13 @@ async def guard_route(db, user, kwargs):
     from app.models.query import Query
     from app.models.completion import Completion
     from app.models.widget import Widget
-    from app.models.artifact import Artifact
+    from app.models.artifact import ArtifactVersion
     from app.models.step import Step
     from app.models.entity import Entity
     report_ids = set()
     if kwargs.get("report_id"):
         report_ids.add(str(kwargs["report_id"]))
-    for key, model in (("query_id", Query), ("completion_id", Completion), ("widget_id", Widget), ("artifact_id", Artifact)):
+    for key, model in (("query_id", Query), ("completion_id", Completion), ("widget_id", Widget), ("artifact_id", ArtifactVersion)):
         if kwargs.get(key):
             rid = await db.scalar(select(model.report_id).where(model.id == str(kwargs[key])))
             if rid:

@@ -335,6 +335,8 @@ class ToolRunner:
                         sub_timings["queries"] = last_output["query_timings"]
                     if last_output.get("codegen_ms") is not None:
                         sub_timings["codegen_ms"] = last_output["codegen_ms"]
+                    if last_output.get("codegen_reasoning_ms") is not None:
+                        sub_timings["codegen_reasoning_ms"] = last_output["codegen_reasoning_ms"]
                     if last_output.get("execution_ms") is not None:
                         sub_timings["execution_ms"] = last_output["execution_ms"]
 

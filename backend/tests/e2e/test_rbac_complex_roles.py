@@ -147,7 +147,7 @@ def test_analyst_role_resolution(test_client, create_user, login_user, whoami, d
 
     # Create analyst role
     analyst_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Analyst", [
-        "view_reports", "view_entities", "view_evals", "export_query",
+        "view_reports", "view_code",
     ])
 
     # Assign to member
@@ -165,9 +165,7 @@ def test_analyst_role_resolution(test_client, create_user, login_user, whoami, d
 
     # Should have org-level view permissions
     assert "view_reports" in perms["permissions"]
-    assert "view_entities" in perms["permissions"]
-    assert "view_evals" in perms["permissions"]
-    assert "export_query" in perms["permissions"]
+    assert "view_code" in perms["permissions"]
 
     # Should NOT have create/manage permissions
     assert "manage_instructions" not in perms["permissions"]
@@ -237,7 +235,7 @@ def test_instruction_author_scoped_to_ds(test_client, create_user, login_user, w
 
     # Create role with view-level org permissions (no org-level manage_instructions)
     author_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Instruction Author", [
-        "view_reports", "view_entities", "view_evals",
+        "view_reports", "view_code",
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], author_role["id"], "user", ctx["member_id"])
 
@@ -383,7 +381,7 @@ def test_role_stacking_unions_permissions(test_client, create_user, login_user, 
 
     # Role 1: Analyst (view-only)
     analyst = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Stacking Analyst", [
-        "view_reports", "view_evals", "export_query",
+        "view_reports", "view_code",
     ])
 
     # Role 2: Instruction Author (adds manage_instructions)
@@ -400,8 +398,7 @@ def test_role_stacking_unions_permissions(test_client, create_user, login_user, 
 
     # From analyst role
     assert "view_reports" in perms["permissions"]
-    assert "view_evals" in perms["permissions"]
-    assert "export_query" in perms["permissions"]
+    assert "view_code" in perms["permissions"]
 
     # From author role
     assert "manage_instructions" in perms["permissions"]
@@ -433,7 +430,7 @@ def test_group_role_inheritance(test_client, create_user, login_user, whoami):
 
     # Create a custom role
     viewer_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Group Viewer", [
-        "view_reports", "view_evals", "view_entities",
+        "view_reports", "view_code",
     ])
 
     # Create a group
@@ -460,8 +457,7 @@ def test_group_role_inheritance(test_client, create_user, login_user, whoami):
     # Member should inherit the group's role permissions
     perms = _get_whoami_perms(whoami, ctx["member_token"], ctx["org_id"])
     assert "view_reports" in perms["permissions"]
-    assert "view_evals" in perms["permissions"]
-    assert "view_entities" in perms["permissions"]
+    assert "view_code" in perms["permissions"]
 
     # Still should NOT have admin perms
     assert "create_data_source" not in perms["permissions"]
@@ -548,7 +544,7 @@ def test_ds_admin_full_resource_access(test_client, create_user, login_user, who
 
     # Minimal org-level permissions
     ds_admin_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Admin", [
-        "view_reports", "view_data_source", 
+        "view_reports",
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], ds_admin_role["id"], "user", ctx["member_id"])
 
@@ -772,7 +768,7 @@ def test_entity_mixed_ds_list_denied(test_client, create_user, login_user, whoam
     ds_denied_id = str(uuid.uuid4())
 
     role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Mixed Entity Author", [
-        "view_entities",
+        "view_reports",
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
 
@@ -834,7 +830,7 @@ def test_eval_case_mixed_ds_list_denied(test_client, create_user, login_user, wh
     ds_denied_id = str(uuid.uuid4())
 
     role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Mixed Eval Author", [
-        "view_evals",
+        "view_reports",
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
 
@@ -908,7 +904,7 @@ def test_connection_manage_data_sources_denied(test_client, create_user, login_u
     # Give member create_data_source org-level perm (needed to hit the route)
     # but NO manage_data_sources resource grant on this connection
     role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Creator No Conn", [
-        "create_data_source", "view_data_source", "view_connections",
+        "create_data_source",
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
 
@@ -946,7 +942,7 @@ def test_connection_manage_data_sources_granted(test_client, create_user, login_
 
     # Give member create_data_source org-level + manage_data_sources on the connection
     role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Creator With Conn", [
-        "create_data_source", "view_data_source", "view_connections",
+        "create_data_source",
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
 

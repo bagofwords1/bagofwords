@@ -1,6 +1,6 @@
-# Row-level security on custom queries — design
+# Row-level security on custom tables — design
 
-Phase 2 of custom queries. A custom query is materialized once with a shared
+Phase 2 of custom tables. A custom table is materialized once with a shared
 credential, so every agent that activates it sees the same rows. RLS makes that
 copy safe to expose to people who should each see a slice of it, by filtering
 at read time against **who is asking**.
@@ -16,7 +16,7 @@ lapsed org isn't stuck behind its own filter.
 
 ## Why this is the unlock, not a nice-to-have
 
-Custom queries are gated on `auth_policy == 'system_only'` today. That excludes
+Custom tables are gated on `auth_policy == 'system_only'` today. That excludes
 exactly the governed, enterprise accounts most likely to have a source that
 can't take the load — the ones using per-user credentials precisely because row
 visibility differs per person. RLS moves enforcement from the source's
@@ -118,7 +118,7 @@ schedule UI rather than inferring.
 
 ## Authoring
 
-A fourth tab in the custom query modal, alongside Query / Cache / Danger.
+A fourth tab in the custom table modal, alongside Query / Cache / Danger.
 
 - **Attribute mode**: pick a column, pick an identity source (a
   `profile_attributes` key, a group, or a role), pick an operator. Attribute

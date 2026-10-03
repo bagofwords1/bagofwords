@@ -36,6 +36,18 @@ class LLMUsageRecord(BaseSchema):
     completion_tokens = Column(Integer, nullable=False, default=0)
     cache_read_tokens = Column(Integer, nullable=False, default=0)
     cache_creation_tokens = Column(Integer, nullable=False, default=0)
+    # Of cache_creation_tokens, how many were written under the 1-hour TTL.
+    # Anthropic bills a 1-hour write at 2x the input rate versus 1.25x for a
+    # 5-minute one, so without this split the same token count prices two
+    # different ways and the cost console cannot tell them apart. Only the
+    # 1-hour figure is stored; the 5-minute remainder is
+    # cache_creation_tokens - cache_write_1h_tokens.
+    cache_write_1h_tokens = Column(Integer, nullable=False, default=0)
+    # Reasoning / thinking tokens. A SUBSET of completion_tokens (already billed
+    # at the output rate), kept separately so spend on thinking is attributable
+    # rather than merged into ordinary output. Only OpenAI-family responses
+    # report it today; Anthropic folds thinking into output_tokens.
+    reasoning_tokens = Column(Integer, nullable=False, default=0)
 
     input_cost_usd = Column(Numeric(18, 6), nullable=False, default=0)
     output_cost_usd = Column(Numeric(18, 6), nullable=False, default=0)

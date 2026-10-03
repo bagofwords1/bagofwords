@@ -8,6 +8,19 @@ from enum import Enum
 
 
 class ErrorCode(str, Enum):
+    SAML_UNAVAILABLE = "saml_unavailable"
+    SAML_LOGIN_FAILED = "saml_login_failed"
+    ARTIFACT_RESOURCE_VALIDATION = "ARTIFACT_RESOURCE_VALIDATION"
+    ARTIFACT_RESOURCE_NOT_FOUND = "ARTIFACT_RESOURCE_NOT_FOUND"
+    ARTIFACT_RESOURCE_FORBIDDEN = "ARTIFACT_RESOURCE_FORBIDDEN"
+    ARTIFACT_RESOURCE_UNAUTHENTICATED = "ARTIFACT_RESOURCE_UNAUTHENTICATED"
+    ARTIFACT_RESOURCE_CONFLICT = "ARTIFACT_RESOURCE_CONFLICT"
+    ARTIFACT_RESOURCE_QUOTA_EXCEEDED = "ARTIFACT_RESOURCE_QUOTA_EXCEEDED"
+    ARTIFACT_RESOURCE_RATE_LIMITED = "ARTIFACT_RESOURCE_RATE_LIMITED"
+    ARTIFACT_RESOURCE_UNAVAILABLE = "ARTIFACT_RESOURCE_UNAVAILABLE"
+    ARTIFACT_RESOURCE_INTERRUPTED = "ARTIFACT_RESOURCE_INTERRUPTED"
+    ARTIFACT_RESOURCE_ABORTED = "ARTIFACT_RESOURCE_ABORTED"
+    ARTIFACT_RESOURCE_UNSUPPORTED_VERSION = "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION"
     # Generic
     VALIDATION = "validation"
     INVALID_JSON = "body.invalid_json"
@@ -30,12 +43,20 @@ class ErrorCode(str, Enum):
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"
 
+    # Audit log streams / export
+    AUDIT_STREAM_NOT_FOUND = "audit_stream.not_found"
+    AUDIT_STREAM_INVALID_DESTINATION = "audit_stream.invalid_destination"
+    AUDIT_STREAM_MISSING_FIELD = "audit_stream.missing_field"
+    AUDIT_STREAM_INVALID_FIELD = "audit_stream.invalid_field"
+    AUDIT_EXPORT_TOO_LARGE = "audit_log.export_too_large"
+
     # Resources (common CRUD)
     REPORT_NOT_FOUND = "report.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     FILE_NOT_FOUND = "file.not_found"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
+    DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
     USER_NOT_FOUND = "user.not_found"
     MEMBERSHIP_NOT_FOUND = "membership.not_found"
@@ -46,6 +67,19 @@ class ErrorCode(str, Enum):
     INSTRUCTION_LABEL_NOT_FOUND = "instruction.label_not_found"
     INSTRUCTION_DIRECTORY_NOT_FOUND = "instruction.directory_not_found"
     INTEGRATION_NOT_FOUND = "integration.not_found"
+
+    # User memory
+    MEMORY_DISABLED = "memory.disabled"
+    MEMORY_NOT_FOUND = "memory.not_found"
+    MEMORY_TEXT_REQUIRED = "memory.text_required"
+    MEMORY_TEXT_TOO_LONG = "memory.text_too_long"
+    MEMORY_TOO_MANY_TAGS = "memory.too_many_tags"
+    MEMORY_TAGS_REQUIRED = "memory.tags_required"
+    MEMORY_INVALID_DATE = "memory.invalid_date"
+    MEMORY_SENSITIVE = "memory.sensitive"
+    MEMORY_LOOKS_LIKE_RULE = "memory.looks_like_rule"
+    MEMORY_FULL = "memory.full"
+    MEMORY_NOT_ACTIVE = "memory.not_active"
 
     # Conflicts
     RESOURCE_CONFLICT = "resource.conflict"

@@ -687,6 +687,8 @@ function togglePermission(perm: string, checked: boolean) {
 
 const KNOWN_PERMISSION_KEYS = new Set([
     'manage_files',
+    'view_code',
+    'run_custom_code',
     'create_data_source',
     'manage_connections',
     'manage_instructions',
@@ -811,11 +813,18 @@ async function loadUsagePolicies() {
     }
 }
 
+// Mirrors permissions_registry.DEFAULT_ON_PERMISSIONS. A new role starts with
+// these checked so the editor's default matches the product's: every existing
+// role carries them (the migration backfilled them), so a freshly authored role
+// that silently lacked them would behave differently from every other role in
+// the org for no reason the admin chose.
+const DEFAULT_ON_PERMISSIONS = ['view_code', 'run_custom_code']
+
 function openCreateModal() {
     editingRole.value = null
     form.name = ''
     form.description = ''
-    form.permissions = []
+    form.permissions = [...DEFAULT_ON_PERMISSIONS]
     form.resourceGrants = []
     restrictedModels.value = []
     showOrgDetails.value = false

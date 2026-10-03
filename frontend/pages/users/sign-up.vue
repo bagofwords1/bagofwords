@@ -171,8 +171,8 @@ function extractErrorMessage(error: any, fallback: string): string {
 onMounted(async () => {
   try {
     const settings = await $fetch('/api/settings')
-    if (settings?.oidc_providers?.length) {
-      oidcProviders.value = settings.oidc_providers.filter((p: any) => p.enabled)
+    if (settings?.oidc_providers?.length || settings?.saml_providers?.length) {
+      oidcProviders.value = [...(settings.oidc_providers || []), ...(settings.saml_providers || [])].filter((p: any) => p.enabled)
     }
     if (settings?.auth?.mode) {
       authMode.value = settings.auth.mode

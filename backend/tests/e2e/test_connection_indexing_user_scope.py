@@ -231,3 +231,29 @@ def test_scopes_do_not_block_each_other(
     started = r.json()["indexing"]
     assert started["id"] != user_row_id
     assert started["scope"] == "org"
+
+
+@pytest.mark.e2e
+def test_personal_refresh_background_returns_user_job(create_connection, test_client, create_user, login_user, whoami):
+    """Refresh can return tracked progress without changing the shared run."""
+    _skip_if_no_chinook()
+    user = create_user()
+    token = login_user(user['email'], user['password'])
+    me = whoami(token)
+    org = me['organizations'][0]['id']
+    headers = {'Authorization': f'Bearer {token}', 'X-Organization-Id': str(org)}
+    conn = create_connection(name='Personal refresh', type='sqlite', config={'database': str(CONNECTION_TEST_DB_PATH)}, credentials={}, user_token=token, org_id=org)
+    shared = _wait_for_terminal_org_run(conn['id'])
+    response = test_client.post(f"/api/connections/{conn['id']}/my-schema/refresh?background=true", headers=headers)
+    assert response.status_code == 200
+    job = response.json()['indexing']
+    assert job['id'] and job['scope'] == 'user'
+    assert job['id'] != str(shared[0].id)
+    own = test_client.get(f"/api/connections/{conn['id']}/indexing?scope=user", headers=headers)
+    assert own.status_code == 200
+    assert own.json()['id'] == job['id']
+    shared_after = test_client.get(f"/api/connections/{conn['id']}/indexing?scope=org", headers=headers)
+    assert shared_after.json()['id'] == str(shared[0].id)
+    # Existing clients still receive the synchronous response by default.
+    legacy = test_client.post(f"/api/connections/{conn['id']}/my-schema/refresh", headers=headers)
+    assert legacy.status_code == 200 and 'table_count' in legacy.json()

@@ -10,12 +10,14 @@ TRIGGER_TABLE_CHANGE = "table_change"   # a table was activated / columns change
 TRIGGER_INSTRUCTION_CHANGE = "instruction_change"  # the agent's own build changed
 TRIGGER_GLOBAL_CHANGE = "global_change"  # a global instruction build was promoted
 TRIGGER_SUGGESTION = "suggestion"        # a new suggestion build was created (Self Learning)
+TRIGGER_NIGHTLY = "nightly"          # the nightly agent dream produced a consolidated build
 TRIGGERS = {
     TRIGGER_MANUAL,
     TRIGGER_TABLE_CHANGE,
     TRIGGER_INSTRUCTION_CHANGE,
     TRIGGER_GLOBAL_CHANGE,
     TRIGGER_SUGGESTION,
+    TRIGGER_NIGHTLY,
 }
 
 # Terminal / transient states of one loop.

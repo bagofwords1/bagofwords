@@ -1,0 +1,1 @@
+PASS: nested provenance controls are independently clickable

@@ -5,9 +5,9 @@ report's browser session and returns a `session_id`; the other four take that id
 Refs (`e12`) come from a snapshot and are only valid until the next navigation or
 DOM change — a stale ref returns a typed error telling the model to re-snapshot.
 """
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class _TitleMixin(BaseModel):
@@ -21,11 +21,22 @@ class _TitleMixin(BaseModel):
 
 
 class BrowserNavigateInput(_TitleMixin):
-    url: str = Field(..., description="The http(s) URL to open. Must match the connection's allowlist.")
+    url: Optional[str] = Field(default=None, description="External URL. Requires an attached browser connection and its allowlist. Supply exactly one of url or artifact_id.")
+    artifact_id: Optional[str] = Field(default=None, description="Exact saved page-artifact ID to verify in the real internal viewer. No browser connector required. Supply instead of url.")
+    viewport: Optional[dict[str, int]] = Field(default=None, description="Optional internal-preview width/height in pixels; defaults to the embedded app width.")
     session_id: Optional[str] = Field(
         default=None,
         description="Existing browser session to reuse. Omit to open a new session for this report.",
     )
+
+    @model_validator(mode="after")
+    def exactly_one_target(self):
+        if bool(self.url) == bool(self.artifact_id):
+            raise ValueError("Supply exactly one of url or artifact_id")
+        if self.viewport is not None and (set(self.viewport) != {"width", "height"} or
+                not all(320 <= n <= 1920 for n in self.viewport.values())):
+            raise ValueError("viewport must contain width and height between 320 and 1920")
+        return self
 
 
 class BrowserSnapshotInput(_TitleMixin):
@@ -38,6 +49,8 @@ class BrowserSnapshotInput(_TitleMixin):
         default=8000, ge=500, le=40000,
         description="Truncate the snapshot text to this many characters.",
     )
+    evidence_for_action_id: Optional[str] = None
+    since_cursor: Optional[int] = Field(default=None, ge=0)
 
 
 class BrowserExtractInput(_TitleMixin):
@@ -63,6 +76,7 @@ class BrowserActInput(_TitleMixin):
         default=None,
         description="Text for 'type', key for 'press' (e.g. 'Enter'), or option label/value for 'select'.",
     )
+    expect_query_update: Optional[dict[str, Any]] = Field(default=None, description="For a backend filter: {params: {...}} using declared names. Automatically expects all affected bound queries. Optional query_ids restricts the check to an explicit subset. Detects controls that send no update; does not execute queries itself.")
 
 
 class BrowserVisionInput(_TitleMixin):
@@ -89,3 +103,12 @@ class BrowserOutput(BaseModel):
     truncated: bool = Field(default=False, description="True if snapshot/text was truncated.")
     error_message: Optional[str] = Field(default=None, description="Error message if the action failed.")
     error_code: Optional[str] = Field(default=None, description="Machine code, e.g. 'stale_ref', 'not_allowed', 'no_session'.")
+    artifact: Optional[dict[str, Any]] = None
+    action_id: Optional[str] = None
+    evidence: Optional[dict[str, Any]] = None
+    evidence_id: Optional[str] = None
+    next_cursor: Optional[int] = None
+    parameters: Optional[list[dict[str, Any]]] = None
+    datasets: Optional[list[dict[str, Any]]] = None
+    verification_group_id: Optional[str] = None
+    readiness: Optional[str] = None

@@ -15,6 +15,7 @@ from app.ai.llm.llm import LLM
 from app.ai.llm.header_injection import validate_header_config
 from app.dependencies import async_session_maker
 from datetime import datetime
+import json
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
 from app.errors import AppError, ErrorCode
@@ -1303,6 +1304,115 @@ class LLMService:
             "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
         }
 
+    async def set_reasoning(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        update: "ModelReasoningUpdate",
+    ):
+        """Set a model's reasoning settings (``LLMModel.config``).
+
+        Only the fields present in the request change: ``mode`` →
+        ``reasoning_mode``, ``like_model_id`` → ``reasoning_model_id``,
+        ``default_effort`` → ``reasoning_effort`` (the model's default level),
+        ``params`` → ``reasoning_params`` (raw request fields per level).
+        Other config keys (temperature, routing_hint) are preserved.
+        """
+        from app.ai.llm.reasoning import reasoning_info
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        fields = update.model_fields_set
+        if "mode" in fields:
+            if update.mode is None or update.mode == "auto":
+                cfg.pop("reasoning_mode", None)
+                cfg.pop("reasoning_model_id", None)
+            else:
+                cfg["reasoning_mode"] = update.mode
+                if update.mode != "like":
+                    cfg.pop("reasoning_model_id", None)
+        if "like_model_id" in fields:
+            if update.like_model_id:
+                cfg["reasoning_model_id"] = update.like_model_id
+            else:
+                cfg.pop("reasoning_model_id", None)
+        if cfg.get("reasoning_mode") == "like" and not cfg.get("reasoning_model_id"):
+            raise HTTPException(status_code=400, detail="Choose the model this one behaves like")
+        if "default_effort" in fields:
+            if update.default_effort:
+                cfg["reasoning_effort"] = update.default_effort
+            else:
+                cfg.pop("reasoning_effort", None)
+        if "params" in fields:
+            if update.params:
+                cfg["reasoning_params"] = update.params
+            else:
+                cfg.pop("reasoning_params", None)
+        if cfg.get("reasoning_mode") == "custom" and not cfg.get("reasoning_params"):
+            raise HTTPException(status_code=400, detail="Custom mode needs raw request fields for at least one level")
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model reasoning set: id=%s, model_id=%s, mode=%s, default=%s, levels_with_params=%s, org_id=%s",
+            model.id, model.model_id, cfg.get("reasoning_mode", "auto"), cfg.get("reasoning_effort"),
+            sorted((cfg.get("reasoning_params") or {}).keys()), organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.reasoning_updated",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={
+                    "name": model.name, "model_id": model.model_id,
+                    "mode": cfg.get("reasoning_mode", "auto"),
+                    "like_model_id": cfg.get("reasoning_model_id"),
+                    "default_effort": cfg.get("reasoning_effort"),
+                    "levels_with_params": sorted((cfg.get("reasoning_params") or {}).keys()),
+                },
+            )
+        except Exception:
+            pass
+        return {"success": True, "reasoning": reasoning_info(model.model_id, cfg)}
+
+    async def test_reasoning(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        effort: str,
+    ):
+        """Run one agent-shaped request at ``effort`` against the saved model
+        (its current reasoning settings included) and report what came back."""
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+                LLMModel.deleted_at == None,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        llm = LLM(model, usage_session_maker=async_session_maker)
+        return await llm.test_agent_call(effort)
+
     async def set_routing_hint(
         self,
         db: AsyncSession,
@@ -1638,6 +1748,25 @@ class LLMService:
                     vision_override, db_model.supports_vision
                 )
 
+            # Last resort: a model the catalog has never heard of (a Bedrock
+            # inference profile, a gateway alias, a brand-new deployment) gets
+            # no rate from LLM_MODEL_DETAILS, and the branches above only read
+            # the catalog. Without this its every call records total_cost_usd=0
+            # — an entire provider's spend silently missing from the cost
+            # console rather than merely approximate. The admin typed a rate
+            # into the request; honor it.
+            for _field in ("input_cost_per_million_tokens_usd", "output_cost_per_million_tokens_usd"):
+                if getattr(db_model, _field, None) is None:
+                    _supplied = model.get(_field)
+                    if _supplied is not None:
+                        try:
+                            setattr(db_model, _field, float(_supplied))
+                        except (TypeError, ValueError):
+                            logger.warning(
+                                "ignoring non-numeric %s=%r for model %s",
+                                _field, _supplied, model.get("model_id"),
+                            )
+
             # A non-null context-window override always wins over catalog/user values.
             if cw_override is not None:
                 db_model.context_window_tokens = int(cw_override)
@@ -1769,6 +1898,65 @@ class LLMService:
                 api_key = credentials["aws_access_key_id"]
             if credentials.get("aws_secret_access_key"):
                 api_secret = credentials["aws_secret_access_key"]
+
+        # Vertex: project_id + location + auth_mode are non-secret →
+        # additional_config; the service account key JSON is a secret and rides
+        # the encrypted api_key slot.
+        if provider.provider_type == "vertex":
+            if "project_id" in credentials:
+                project_id = credentials.get("project_id")
+                if project_id:
+                    existing_additional_config = { **existing_additional_config, "project_id": project_id }
+                else:
+                    existing_additional_config.pop("project_id", None)
+            if "location" in credentials:
+                raw_location = credentials.get("location")
+                location = raw_location.strip().lower() if isinstance(raw_location, str) else raw_location
+                if location:
+                    existing_additional_config = { **existing_additional_config, "location": location }
+                else:
+                    # Blank means "use the default" rather than "no location":
+                    # global is where the newer Gemini models and every
+                    # third-party publisher model are served.
+                    existing_additional_config.pop("location", None)
+            if "auth_mode" in credentials:
+                raw_auth_mode = credentials.get("auth_mode")
+                auth_mode = raw_auth_mode.lower() if isinstance(raw_auth_mode, str) else raw_auth_mode
+                allowed_auth_modes = {"adc", "service_account"}
+                if auth_mode not in allowed_auth_modes:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid auth_mode for Vertex provider: {raw_auth_mode!r}. "
+                               f"Allowed values are: {', '.join(sorted(allowed_auth_modes))}."
+                    )
+                existing_additional_config = { **existing_additional_config, "auth_mode": auth_mode }
+
+            if credentials.get("service_account_json"):
+                raw_key = credentials["service_account_json"]
+                # Fail here rather than at the first inference call: a truncated
+                # paste or a wrong file is the most likely setup mistake, and
+                # the provider form can surface it immediately.
+                try:
+                    parsed_key = json.loads(raw_key)
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Vertex service account key is not valid JSON: {exc}"
+                    )
+                if not isinstance(parsed_key, dict) or not parsed_key.get("private_key"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Vertex service account key JSON is missing 'private_key' — "
+                               "paste the whole key file."
+                    )
+                api_key = raw_key
+                # A key file names its own project; adopt it when the admin
+                # left the field blank so the common case needs one paste.
+                if not existing_additional_config.get("project_id") and parsed_key.get("project_id"):
+                    existing_additional_config = {
+                        **existing_additional_config,
+                        "project_id": parsed_key["project_id"],
+                    }
 
         # All providers: custom outbound headers + per-user identity forwarding
         # (non-secret → additional_config, mirroring MCP connections). Present
@@ -2020,7 +2208,10 @@ class LLMService:
         small: bool = False
     ):
         default_model = await db.execute(
-            select(LLMModel).filter(LLMModel.id == model_id)
+            select(LLMModel).filter(
+                LLMModel.id == model_id,
+                LLMModel.organization_id == organization.id,
+            )
         )
         default_model = default_model.scalar_one_or_none()
 
@@ -2383,6 +2574,13 @@ class LLMService:
             getattr(model, "supports_vision_override", None),
             model_data.get("supports_vision", False),
         )
+        # Image generation follows the catalog the same way, admin override first.
+        # Without this a synced image model stayed unflagged: invisible to the
+        # generate_image tool and listed as a chat model.
+        model.supports_image_generation = LLMService._resolve_supports_vision(
+            getattr(model, "supports_image_generation_override", None),
+            model_data.get("supports_image_generation", False),
+        )
         # Same for the context window: an admin-set size survives catalog re-syncs.
         model.context_window_tokens = LLMService._resolve_context_window(
             getattr(model, "context_window_tokens_override", None),
@@ -2501,6 +2699,7 @@ class LLMService:
                     is_default=False,
                     is_small_default=False,
                     supports_vision=model_data.get("supports_vision", False),
+                    supports_image_generation=model_data.get("supports_image_generation", False),
                     context_window_tokens=model_data.get("context_window_tokens"),
                     max_output_tokens=model_data.get("max_output_tokens"),
                     input_cost_per_million_tokens_usd=model_data.get("input_cost_per_million_tokens_usd"),
@@ -2663,6 +2862,22 @@ class LLMService:
         logger.info("Testing LLM connection with model: model_id=%s, provider_type=%s", selected_model.model_id, provider.provider_type)
         llm = LLM(selected_model, usage_session_maker=async_session_maker)
         result = await llm.test_connection()
+        # A plain text reply is not enough: every agent turn sends function
+        # tools, and some endpoints accept text but reject tools (e.g. GPT-6
+        # on Chat Completions at its default reasoning effort). Check the
+        # agent-shaped request too so the admin finds out here, not mid-chat.
+        if result.get("success"):
+            agent_check = await llm.test_agent_call()
+            result["checks"] = [
+                {"name": "text", "success": True},
+                {"name": "tools", "success": agent_check.get("success", False), "message": agent_check.get("message")},
+            ]
+            if not agent_check.get("success"):
+                result["success"] = False
+                result["message"] = (
+                    f"Connected, but a tool-calling request failed ({agent_check.get('api')}): "
+                    f"{agent_check.get('message')}"
+                )
         if result.get("success"):
             logger.info("LLM connection test passed: provider_type=%s, model_id=%s, org_id=%s", provider.provider_type, selected_model.model_id, organization.id)
         else:

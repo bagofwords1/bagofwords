@@ -12,6 +12,7 @@ from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.ai.agents.planner.clock import current_time_str as _current_time_str
 from app.ai.agents.planner.prompt_blocks import NO_OVERFIT_BLOCK
 from app.ai.tools import format_tool_schemas
+from app.ai.context.replay_args import compact_replayed_args
 from datetime import datetime
 
 # Number of recent past observations to keep in full
@@ -22,6 +23,7 @@ _OBS_KEEP_KEYS = {
     "summary", "step_id", "artifact_id", "visualization_id",
     "visualization_ids", "query_id", "mode", "title",
     "analysis_complete", "success",
+    "verification_hint", "verification_group_id", "artifact", "evidence_id", "session_id", "action_id", "evidence", "parameters", "datasets", "next_cursor",
     # The instruction text an edit/create produced, and the live text a read
     # returned. An anchored edit_instruction can only match text the agent
     # currently holds, and these are the only places it comes from — minifying
@@ -184,7 +186,7 @@ ERROR HANDLING (robust; no blind retries)
 
   ### Step A — Pick the right tool
   - `edit_artifact` — the ONLY edit path, for any change to an existing artifact: cosmetic tweaks, layout rearrangements, adding/removing vizs or filters, multi-part restyles. Author the exact find/replace ops yourself against `<current_artifact>.<code>` (each `find` must match exactly once); when the code was omitted for size, call `read_artifact` first. Mechanical and atomic — no second model; a failed op tells you the closest match to correct, and an edit may carry MANY ops — size is never a reason to rebuild.
-  - `create_artifact` — ONLY for (a) a brand-new artifact (no `<current_artifact>`), or (b) the user explicitly asking for a rebuild/redesign from scratch ("start over", "rebuild it", "completely redesign"), or (c) an overhaul that replaces most of the viz set per Step B. YOU author the complete source and pass it in `code` (JSX per the ARTIFACT AUTHORING REFERENCE; python-pptx for slides), with `prompt` as the build spec. When rebuilding over an existing artifact, reproduce everything the user did not ask to change from `<current_artifact>.<code>`, and carry all existing viz_ids forward (see Step C).
+  - `create_artifact` — ONLY for (a) a brand-new artifact (no `<current_artifact>`), or (b) the user explicitly asking for a rebuild/redesign from scratch ("start over", "rebuild it", "completely redesign"), or (c) an overhaul that replaces most of the viz set per Step B. YOU author the complete source and pass it in `code` (JSX per the ARTIFACT AUTHORING REFERENCE; python-pptx for slides), with `prompt` as the build spec. When rebuilding over an existing artifact, reproduce everything the user did not ask to change from `<current_artifact>.<code>`, and carry all existing viz_ids forward (see Step C). In cases (b)/(c) also pass `replaces_artifact_id: <current_artifact>.<artifact_id>` so the rebuild is saved as the next version of that artifact; omit it in case (a) — a new artifact starts its own history at v1.
   - `read_artifact` — when the next step depends on what the code currently says: user reports a visual issue ("I don't see the filters"), you're unsure if the change is small or large, or you have no `artifact_id`. Pass `load_screenshot=true` when the issue is visual.
   - **Edit that needs new data:** `create_data` first (to produce the new viz), then `edit_artifact` with BOTH `artifact_id` AND `visualization_ids: [<new_viz_id>]`, with ops adding a section that renders vizById("<new_viz_id>"). Do not call `create_artifact` just because new data is needed.
 
@@ -228,12 +230,13 @@ ERROR HANDLING (robust; no blind retries)
   - **viz_ids are superset, never subset.** `visualization_ids` passed to `create_artifact` / `edit_artifact` MUST include every viz_id from `<current_artifact>.<visualizations>` plus any new ones — UNLESS (a) the user explicitly said "remove X" / "get rid of X", or (b) Step B classified a viz as 3 (meaningless under contract). Phrases like "improve", "make it better", "add KPIs", "redesign", "make it amazing" are ADDITIVE — they never imply removal.
   - **Title stability.** Keep `<current_artifact>.<title>` unless the user asked to rename. Do not invent "Enhanced X Dashboard" / "Improved Y" on enhance-turns.
   - **Reuse before `create_data`.** If a viz already on the canvas has rows that can produce the metric client-side, compute it in the artifact code — don't re-query. Example: a viz with 1000 rows and a `film_id` column can produce "Total Films" via a distinct count without another query.
+  - **App brief first.** Describe the task, primary working surface, data bindings, supported interactions, visual direction, and states in the create `prompt`. Themes, hero numbers, KPI rows, and cards are optional. Build the working interface the task needs.
   - **Authoring the code (and the create `prompt` spec).** DETAIL everything accumulated across the conversation IN THE CODE YOU AUTHOR — layout, theme/colors/style, viz placement, filters (with the contract scope from Step B), KPI cards, design preferences from ANY previous turn; the create `prompt` records the same as the build spec. Missing details = missing features. Mode: `page` for dashboards/reports (default), `slides` for presentations/PPTX.
 
   ### Step D — After the call
 
   - **Success with no screenshot issues:** set `analysis_complete=true`, put a brief summary in `final_answer`, do not loop.
-  - **Screenshot shows visual bugs** (misalignment, overlap, cut-off, wrong colors): use `edit_artifact` (not another `create_artifact`) with ops you author to fix the specific problem.
+  - **Screenshot review:** inspect the working surface, hierarchy, spacing, density and legibility when an image is attached. If a material visual issue is visible, use one `edit_artifact` with `purpose="visual_refinement"` and focused ops. Static screenshots cannot certify control behavior.
   - **User reports something missing after an edit** ("I don't see filters", "no gradient"): call `read_artifact` with `load_screenshot=true` first, then `edit_artifact` with ops that add the missing piece.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), call the clarify tool (put questions in its `question` arg).
 - **Clarify discipline.** Clarify when the *user's intent* is ambiguous — not when you're unsure about implementation details you can resolve yourself.
@@ -652,7 +655,13 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                     minified["tool_input"] = obs.get("tool_input")
                 result.append(minified)
             else:
-                result.append(obs)
+                inner = (obs.get("observation") or {}) if isinstance(obs, dict) else {}
+                args = obs.get("tool_input") if isinstance(obs, dict) else None
+                compact = compact_replayed_args(
+                    obs.get("tool_name") if isinstance(obs, dict) else None, args,
+                    succeeded=inner.get("success") is not False,
+                ) if args is not None else None
+                result.append({**obs, "tool_input": compact} if compact is not args else obs)
         return result
 
     @staticmethod
@@ -700,7 +709,7 @@ Help the organization build and maintain high-quality instructions that document
 - Run real queries with create_data to validate your understanding of the data
 - Create and edit instructions based on verified findings
 - Answer questions and clarify requirements
-- Produce docs and dashboards (create_doc, create_artifact) when the user asks for one
+- Produce and iterate on docs and dashboards (create_doc/edit_doc, create_artifact/edit_artifact/read_artifact) when the user asks for one
 
 Your primary goal is to produce instructions — use create_data as a verification tool to confirm your understanding before documenting it.
 

@@ -2185,6 +2185,20 @@ class SharePointConfig(BaseModel):
         ),
         json_schema_extra={"ui:type": "number"},
     )
+    walk_concurrency: int = Field(
+        4,
+        ge=1,
+        le=16,
+        title="Parallel Graph Requests",
+        description=(
+            "Folders listed in parallel while browsing sub-folders. Microsoft "
+            "throttles per app registration, so lower this (1-2) if the tenant "
+            "reports HTTP 429 / 'rate limit' errors; raise it only for small, "
+            "fast libraries. Full-library indexing uses Graph's delta feed and "
+            "is not affected."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
 
 
 # SharePoint Server uses Windows auth and its own REST API, not Graph.
@@ -2394,6 +2408,20 @@ class OneDriveConfig(BaseModel):
         description=(
             "Safety cap on how many files are enumerated into one user's "
             "catalog. Drives with more than this are truncated."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    walk_concurrency: int = Field(
+        4,
+        ge=1,
+        le=16,
+        title="Parallel Graph Requests",
+        description=(
+            "Folders listed in parallel while browsing sub-folders. Microsoft "
+            "throttles per app registration, so lower this (1-2) if the tenant "
+            "reports HTTP 429 / 'rate limit' errors; raise it only for small, "
+            "fast libraries. Full-library indexing uses Graph's delta feed and "
+            "is not affected."
         ),
         json_schema_extra={"ui:type": "number"},
     )
@@ -2963,7 +2991,8 @@ class QlikSenseOnPremCertCredentials(BaseModel):
         title="Root CA Certificate (root.pem)",
         description=(
             "Paste the full contents of root.pem. Qlik signs its service certificates with its "
-            "own root, so this is what makes 'Verify SSL' work on a default install."
+            "own root, so this is what makes 'Verify SSL' work on a default install. Ignored "
+            "when 'Verify SSL' is off."
         ),
         json_schema_extra={"ui:type": "textarea"},
     )
@@ -3036,7 +3065,8 @@ class QlikSenseOnPremConfig(BaseModel):
         title="Verify SSL",
         description=(
             "Verify the server's TLS certificate. A default install uses self-signed service "
-            "certificates, so this needs root.pem pasted in the credentials section."
+            "certificates, so this needs root.pem pasted in the credentials section. When off, "
+            "the certificate is not checked, even if root.pem is pasted."
         ),
         json_schema_extra={"ui:type": "boolean"},
     )
@@ -3302,6 +3332,128 @@ class InforOlapConfig(BaseModel):
         le=600,
         title="Timeout (sec)",
         description="HTTP timeout for XMLA calls.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
+# Infor EPM — Application Engine REST API (IFS / OAuth2 via ION API Gateway)
+class InforEpmIonCredentials(BaseModel):
+    gateway_token_url: str = Field(
+        ...,
+        title="ION Token URL",
+        description="OAuth token URL formed from the pu and ot values in the .ionapi credentials file.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    gateway_client_id: str = Field(
+        ...,
+        title="ION Client ID",
+        description="Client ID (ci) from the backend-service .ionapi credentials file.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    gateway_client_secret: str = Field(
+        ...,
+        title="ION Client Secret",
+        description="Client secret (cs) from the backend-service .ionapi credentials file.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    gateway_scope: str = Field(
+        "",
+        title="ION OAuth Scope",
+        description="Optional space-separated OAuth scopes assigned to the authorized application.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+class InforEpmTokenCredentials(BaseModel):
+    bearer_token: str = Field(
+        ...,
+        title="Bearer Token",
+        description=(
+            "A pre-issued gateway access token (e.g. copied from the ION API Swagger page). "
+            "Tokens expire — use this for testing only; production connections should use ION API Gateway credentials."
+        ),
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class InforEpmConfig(BaseModel):
+    api_url: str = Field(
+        ...,
+        title="Application Engine API URL",
+        description=(
+            "Base URL of the Application Engine REST service as shown in the ION API Swagger — "
+            "everything before the process name (e.g. https://<gateway>/<tenant>/.../api/rest/<Service>/v1). "
+            "Processes are called as <URL>/<ProcessName>[/async] and results fetched from <URL>/getasyncresult."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    olap_database: str = Field(
+        ...,
+        title="OLAP Database",
+        description="Name of the OLAP data connection / database, passed to every BOW process as OLAPName.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    max_rows: int = Field(
+        5000,
+        ge=1,
+        le=1000000,
+        title="Max rows per query",
+        description="Cell cap passed to BOW_ExecuteMdx as rowLimit; results beyond it are truncated.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    timeout_sec: int = Field(
+        120,
+        ge=1,
+        le=1800,
+        title="Query timeout (sec)",
+        description="Maximum time to wait for a process call (including async polling).",
+        json_schema_extra={"ui:type": "number"},
+    )
+    async_mode: bool = Field(
+        True,
+        title="Asynchronous execution",
+        description="Call processes via /async and poll getasyncresult (recommended). Disable to call processes synchronously.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the gateway's TLS certificate.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    cube_list_process: str = Field(
+        "BOW_GetCubeList",
+        title="Cube list process",
+        description="Application Engine process returning the cube names (one per line).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    cube_schema_process: str = Field(
+        "BOW_GetCubeSchema",
+        title="Cube schema process",
+        description="Application Engine process returning a cube's <BOWSchema> XML (dimensions, hierarchies, element samples).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    mdx_process: str = Field(
+        "BOW_ExecuteMdx",
+        title="MDX process",
+        description="Application Engine process executing an MDX statement and returning one cell per line.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    measure_dimension_pattern: str = Field(
+        "measure",
+        title="Measure dimension pattern",
+        description=(
+            "Dimensions whose name contains this text (case-insensitive) are treated as the cube's measures "
+            "dimension when the OLAP model does not flag one (ODBO type 2). Their elements become measure columns."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    poll_interval_sec: int = Field(
+        1,
+        ge=1,
+        le=30,
+        title="Poll interval (sec)",
+        description="Delay between getasyncresult polls in asynchronous mode.",
         json_schema_extra={"ui:type": "number"},
     )
 
@@ -3636,7 +3788,37 @@ class CustomAPIOAuthAppCredentials(MCPOAuthAppCredentials):
     pass
 
 
+class NetAppOntapCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="ONTAP account with HTTP application access and read-only diagnostic permissions.")
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class NetAppOntapConfig(BaseModel):
+    url: str = Field(..., title="Cluster management URL", description="Reachable ONTAP management origin, for example https://cluster.example:443. Targets ONTAP 9.14.1.")
+    ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the cluster. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
+    timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
+    max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
+    allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real clusters should use HTTPS.")
+
+
+class BrocadeCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="A switch account with read access to the required fabrics.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class BrocadeConfig(BaseModel):
+    url: str = Field(..., title="Switch URL", description="HTTPS management address of the Brocade switch.", json_schema_extra={"ui:type": "string"})
+    vf_ids: str = Field("", title="Fabric IDs", description="Optional comma-separated fabric IDs to restrict queries. Each logical-switch query must specify a fabric ID.", json_schema_extra={"ui:type": "string"})
+    include_advanced: bool = Field(False, title="Include advanced diagnostic tables", description="The default catalog contains 12 primary investigation tables.")
+    allow_http: bool = Field(False, title="Allow HTTP for a local simulator", description="Only loopback addresses are accepted over HTTP.")
+    login_scheme: Literal["Basic", "Custom_Basic"] = Field("Custom_Basic", title="Login scheme", description="Use Custom_Basic or Basic, as supported by your switch.")
+
+
 __all__ = [
+    "BrocadeConfig",
+    "BrocadeCredentials",
+    "NetAppOntapConfig",
+    "NetAppOntapCredentials",
     # Configs
     "PostgreSQLConfig",
     "SQLiteConfig",

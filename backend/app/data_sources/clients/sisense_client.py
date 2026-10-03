@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional
@@ -215,7 +216,8 @@ class SisenseClient(DataSourceClient):
     # Schema building
     # ------------------------------------------------------------------
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         """
         Build Table objects for all tables across all data models.
         Each table is named "{DatamodelTitle}/{TableName}".
@@ -237,16 +239,20 @@ class SisenseClient(DataSourceClient):
                     continue
                 if ds_title:
                     dashboards_by_model.setdefault(ds_title, []).append(d)
+        except IndexingCancelled:
+            raise
         except Exception:
             pass
 
-        for model in datamodels:
+        for model in discovery_items(datamodels, 'models', label=lambda model: model.get('title') or model.get('oid') or model.get('_id')):
             model_id = model.get("oid") or model.get("_id") or ""
             model_title = model.get("title") or model_id
 
             # Get full schema for this model
             try:
                 schema = self._get_datamodel_fields(model_title)
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 logging.warning(f"Failed to get schema for model '{model_title}': {e}")
                 continue

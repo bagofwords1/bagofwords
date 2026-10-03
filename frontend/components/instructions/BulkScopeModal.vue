@@ -40,7 +40,7 @@
                 <template #option="{ option }">
                     <div class="flex items-center gap-2">
                         <UIcon v-if="option.value === 'global'" name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                        <DataSourceIcon v-else :type="option.type" :icon="option.icon" class="h-4" />
+                        <DataSourceIcon v-else :type="option.type" :icon-token="option.icon_token" :icon="option.icon" class="h-4" />
                         <span>{{ option.label }}</span>
                     </div>
                 </template>
@@ -71,6 +71,7 @@ interface DataSource {
     name: string
     type?: string
     icon?: string | null
+    icon_token?: string | null
 }
 
 interface Option {
@@ -78,6 +79,7 @@ interface Option {
     label: string
     type?: string
     icon?: string | null
+    icon_token?: string | null
 }
 
 const props = defineProps<{
@@ -104,7 +106,8 @@ const options = computed<Option[]>(() => [
         value: ds.id,
         label: ds.name,
         type: ds.type,
-        icon: ds.icon ?? null
+        icon: ds.icon ?? null,
+        icon_token: ds.icon_token ?? null
     }))
 ])
 

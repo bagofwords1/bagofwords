@@ -8,6 +8,7 @@
  */
 
 export type ConnectionEffectiveStatus =
+  | 'sign_in_required'
   | 'success'
   | 'indexing'
   | 'indexing_failed'
@@ -27,7 +28,11 @@ export interface ConnectionIndexing {
   progress_total: number
   started_at?: string | null
   finished_at?: string | null
+  // When the source last reported progress. Unlike elapsed time, this tells a
+  // slow-but-progressing run from a stuck one.
+  last_activity_at?: string | null
   error?: string | null
+  events?: Array<{ ts: string; level: string; phase?: string | null; message: string; done?: number; total?: number }>
   stats?: Record<string, any> | null
 }
 
@@ -40,24 +45,33 @@ export function isIndexingFailed(idx?: ConnectionIndexing | null): boolean {
   return !!idx && idx.status === 'failed'
 }
 
+// Shared predicate for sign-in actions; service-account fallback already has access.
+export function needsConnectionSignIn(conn: any): boolean {
+  return conn?.auth_policy === 'user_required'
+    && !conn?.user_status?.has_user_credentials
+    && conn?.user_status?.effective_auth !== 'system'
+}
+
 export function getEffectiveStatus(conn: any): ConnectionEffectiveStatus {
+  // The API explicitly distinguishes missing personal access from a failed
+  // test. Do not let shared health/indexing imply this viewer is connected.
+  const user = conn?.user_status
+  if (user?.effective_auth === 'none' && user?.has_user_credentials === false
+      && ['offline', 'not_connected', 'unknown', ''].includes(String(user.connection || '').toLowerCase())) {
+    return 'sign_in_required'
+  }
   const idx = conn?.indexing as ConnectionIndexing | undefined
   if (isIndexingActive(idx)) return 'indexing'
 
-  const testStatus = String(conn?.user_status?.connection || '').toLowerCase()
+  const testStatus = String(conn?.user_status?.connection || conn?.last_connection_status || conn?.last_status || conn?.status || '').toLowerCase()
   if (testStatus === 'success') {
     // Test OK; check whether the most recent indexing failed.
     if (isIndexingFailed(idx)) return 'indexing_failed'
     return 'success'
   }
-  if (testStatus === 'not_connected' || testStatus === 'offline') return 'error'
+  if (testStatus === 'not_connected' || testStatus === 'offline' || testStatus === 'error') return 'error'
 
-  // No cached test result. If credentials-required with creds present, treat
-  // as success per existing behavior; indexing state still overrides.
-  if (conn?.auth_policy === 'user_required' && conn?.user_status?.has_user_credentials) {
-    if (isIndexingFailed(idx)) return 'indexing_failed'
-    return 'success'
-  }
+  if (isIndexingFailed(idx)) return 'indexing_failed'
 
   return 'unknown'
 }
@@ -99,6 +113,8 @@ export function statusBadgeClass(status: ConnectionEffectiveStatus): string {
 
 export function statusLabel(status: ConnectionEffectiveStatus): string {
   switch (status) {
+    case 'sign_in_required':
+      return 'Sign in required'
     case 'success':
       return 'Connected'
     case 'indexing':
@@ -116,6 +132,8 @@ export function statusLabel(status: ConnectionEffectiveStatus): string {
 // the user's locale via $t(). statusLabel above stays for legacy callers.
 export function statusLabelKey(status: ConnectionEffectiveStatus): string {
   switch (status) {
+    case 'sign_in_required':
+      return 'data.signInRequired'
     case 'success':
       return 'data.connected'
     case 'indexing':

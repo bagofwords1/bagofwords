@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
@@ -211,10 +212,12 @@ class PowerBIReportServerClient(DataSourceClient):
             return
         session = requests.Session()
         session.auth = HttpNtlmAuth(self._ntlm_user(), self.password)
-        if self.ca_bundle_path:
-            session.verify = self.ca_bundle_path
+        # verify_ssl decides whether to verify; the CA bundle is only the trust
+        # store used when it is on.
+        if not self.verify_ssl:
+            session.verify = False
         else:
-            session.verify = bool(self.verify_ssl)
+            session.verify = self.ca_bundle_path or True
         self._session = session
         self._prime_ntlm()
 
@@ -870,6 +873,7 @@ class PowerBIReportServerClient(DataSourceClient):
     # get_schemas — build BOW Table objects
     # ------------------------------------------------------------------
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """Build Table objects for:
           - Each Power BI report (.pbix) — one Table per report (columns empty; metadata carries data sources)

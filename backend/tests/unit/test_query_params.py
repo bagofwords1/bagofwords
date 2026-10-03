@@ -6,11 +6,14 @@ rejection, defaults, optional='All'), fingerprint stability, the AST guards,
 and declaration/code consistency.
 """
 
+import asyncio
 import pytest
+from datetime import date, datetime
 
 from app.schemas.param_schema import ParamSpec, parse_param_specs
 from app.ai.code_execution.query_params import (
     ParamError,
+    calendar_date_bounds,
     check_declarations_vs_code,
     check_params_not_formatted,
     code_accepts_params,
@@ -295,3 +298,207 @@ def test_parse_param_specs_skips_garbage():
         "not-a-dict",
     ])
     assert [s.name for s in specs] == ["ok"]
+
+
+@pytest.mark.parametrize("value", ["2027-02-29", "2024-04-31", "2024-01-01T25:00:00", "2024-01-01T12:60:00", "2024-01-01T12:00:00+25:00"])
+def test_date_parameters_reject_impossible_calendar_values(value):
+    with pytest.raises(ParamError):
+        resolve_param_values([ParamSpec(name="period", type="date")], {"period": value})
+
+
+def test_date_range_resolution_preserves_bounds_and_discards_ui_metadata():
+    default = {
+        "from": "2024-06-01",
+        "to": "2024-06-01T12:00:00Z",
+        "preset": "custom",
+        "timezone": "UTC",
+    }
+    requested = {
+        "from": "2024-06-02T12:00:00+02:00",
+        "to": "2024-06-02T10:00:00.000000001Z",
+        "label": "Last day",
+        "timezone": "Europe/Paris",
+    }
+    specs = [ParamSpec(name="period", type="date_range", default=default)]
+
+    from_default = resolve_param_values(specs, None)["period"]
+    from_request = resolve_param_values(specs, {"period": requested})["period"]
+
+    assert from_default == {key: default[key] for key in ("from", "to")}
+    assert from_request == {key: requested[key] for key in ("from", "to")}
+
+
+@pytest.mark.parametrize("bounds", [
+    {"from": "2024-06-02", "to": "2024-06-01"},
+    {"from": "2024-06-01", "to": "2024-06-01T12:00:00Z"},
+    {"from": "2024-06-01T12:00:00", "to": "2024-06-01T13:00:00Z"},
+])
+def test_legacy_date_ranges_resolve_unchanged_from_defaults_and_requests(bounds):
+    spec = ParamSpec(name="period", type="date_range", default=bounds)
+    expected = {key: bounds[key] for key in ("from", "to") if bounds.get(key) is not None}
+
+    assert resolve_param_values([spec], None)["period"] == expected
+    assert resolve_param_values([ParamSpec(name="period", type="date_range")], {"period": bounds})["period"] == expected
+
+
+@pytest.mark.parametrize("access", ["params['window']", "params.get('window')", "params.get('window') or {}"])
+def test_declared_date_ranges_cannot_silently_read_wrong_bound_names(access):
+    code = f"def generate_df(ds_clients, excel_files, params):\n    window = {access}\n    return window.get('start'), window.get('end')"
+    assert check_declarations_vs_code(code, [ParamSpec(name="window", type="date_range")])
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    ({"from": "2024-02-29", "to": "2024-03-31"}, ("2024-02-29", "2024-04-01")),
+    ({"from": "2024-12-31", "to": "2024-12-31"}, ("2024-12-31", "2025-01-01")),
+    ({"to": "2024-02-29"}, (None, "2024-03-01")),
+    ({"from": "2024-02-29"}, ("2024-02-29", None)),
+    (None, (None, None)),
+])
+def test_calendar_date_bounds_return_inclusive_start_and_exclusive_next_day(value, expected):
+    assert calendar_date_bounds(value) == expected
+
+
+@pytest.mark.parametrize("value", [
+    {"from": "2024-02-29T00:00:00", "to": "2024-02-29"},
+    {"from": "2024-02-29T00:00:00+02:00"},
+])
+def test_calendar_date_bounds_reject_timestamp_bounds(value):
+    with pytest.raises(ParamError):
+        calendar_date_bounds(value)
+
+
+def test_calendar_date_bounds_reject_reversed_calendar_dates():
+    with pytest.raises(ParamError):
+        calendar_date_bounds({"from": "2024-06-02", "to": "2024-06-01"})
+
+
+@pytest.mark.parametrize("value", [
+    "2024-02-29T12:34:56.123456+05:30",
+    "2024-02-29T12:34:56.123456-0530",
+    "2024-02-29 12:34:56.123456",
+    "2024-02-29T12:34:56",
+])
+def test_valid_timestamp_parameters_preserve_original_precision_and_offset(value):
+    resolved = resolve_param_values([ParamSpec(name="period", type="date")], {"period": value})
+    assert resolved["period"] == value
+
+
+def test_python_temporal_values_normalize_to_iso_strings():
+    values = resolve_param_values(
+        [ParamSpec(name="day", type="date"), ParamSpec(name="instant", type="date")],
+        {"day": date(2024, 2, 29), "instant": datetime.fromisoformat("2024-02-29T12:34:56.123456+05:30")},
+    )
+    assert values == {"day": "2024-02-29", "instant": "2024-02-29T12:34:56.123456+05:30"}
+
+
+def test_date_range_check_ignores_unrelated_dicts_and_reassigned_aliases():
+    code = """\
+def generate_df(ds_clients, excel_files, params):
+    window = params.get("window") or {}
+    window = {"start": "local", "end": "local"}
+    unrelated = {"start": "local", "end": "local"}
+    return window.get("start"), unrelated.get("end")
+"""
+    assert check_declarations_vs_code(code, [ParamSpec(name="window", type="date_range")]) == []
+
+
+def test_date_range_check_ignores_non_range_parameter_aliases():
+    code = """\
+def generate_df(ds_clients, excel_files, params):
+    window = params.get("window") or {}
+    return window.get("start")
+"""
+    specs = [ParamSpec(name="window", type="string")]
+    assert check_declarations_vs_code(code, specs) == []
+
+
+def test_execution_stream_rejects_wrong_date_range_keys_before_execution():
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+    from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+
+    code = """\
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    window = params.get("window") or {}
+    start = window.get("start")
+    return pd.DataFrame({"start": [start]})
+"""
+
+    async def codegen(**kwargs):
+        return code
+
+    executor = StreamingCodeExecutor()
+
+    async def collect():
+        return [event async for event in executor.generate_and_execute_stream_v2(
+            request=CodeGenRequest(
+                context=CodeGenContext(user_prompt="filter", schemas_excerpt=""),
+                retries=1,
+            ),
+            ds_clients={},
+            excel_files=[],
+            code_generator_fn=codegen,
+            param_specs=[ParamSpec(name="window", type="date_range")],
+            # The guard must work even when the optional parameter has no value.
+            params=None,
+        )]
+
+    events = asyncio.run(collect())
+    done = next(event["payload"] for event in events if event["type"] == "done")
+    assert done["df"] is None
+    assert any("date_range uses 'from'/'to'" in message for _, message in done["errors"])
+
+
+@pytest.mark.parametrize("offset", ["+01:60", "-0160", "+24:00"])
+def test_timestamp_parameters_reject_invalid_offset_components(offset):
+    with pytest.raises(ParamError):
+        resolve_param_values([ParamSpec(name="instant", type="date")], {"instant": "2024-02-29T12:00:00" + offset})
+
+
+@pytest.mark.parametrize("fraction", ["123456789", "12345678901234567890123456789"])
+def test_timestamp_comparison_preserves_fractional_precision_across_offsets(fraction):
+    from app.ai.code_execution.query_params import date_range_issue, param_values_equal
+    spec = ParamSpec(name="instant", type="date")
+    expected = "2024-02-29T12:00:00." + fraction + "Z"
+    assert param_values_equal(spec, expected, "2024-02-29T14:00:00." + fraction + "+02:00")
+    different = "2024-02-29T12:00:00." + fraction[:-1] + "8Z"
+    assert not param_values_equal(spec, expected, different)
+    bounds = {
+        "from": "2024-02-29T14:00:00." + fraction + "+02:00",
+        "to": different,
+    }
+    resolved = resolve_param_values([ParamSpec(name="period", type="date_range")], {"period": bounds})["period"]
+    assert resolved == bounds
+    assert date_range_issue(resolved) == "reversed_date_range"
+
+
+@pytest.mark.parametrize("bounds", [
+    {"from": "2024-06-01", "to": "2024-06-01T12:00:00Z"},
+    {"from": "2024-06-01T12:00:00", "to": "2024-06-01T13:00:00Z"},
+])
+def test_date_range_issue_marks_mixed_conventions_without_rejecting_resolution(bounds):
+    from app.ai.code_execution.query_params import date_range_issue
+
+    resolved = resolve_param_values([ParamSpec(name="period", type="date_range")], {"period": bounds})["period"]
+    assert resolved == bounds
+    assert date_range_issue(resolved) == "mixed_date_range"
+
+
+def test_date_range_issue_accepts_open_bounds_and_compares_timezone_equivalent_instants():
+    from app.ai.code_execution.query_params import date_range_issue
+
+    assert date_range_issue({"from": "2024-06-01T10:00:00.123456789Z"}) is None
+    assert date_range_issue({
+        "from": "2024-06-01T12:00:00.123456789+02:00",
+        "to": "2024-06-01T10:00:00.123456789Z",
+    }) is None
+
+
+@pytest.mark.parametrize("bounds", [
+    {"from": "2024-02-30"},
+    {"from": "2024-01-01", "to": "not-a-date"},
+])
+def test_date_range_issue_identifies_invalid_bounds(bounds):
+    from app.ai.code_execution.query_params import date_range_issue
+
+    assert date_range_issue(bounds) == "invalid_date_range"

@@ -246,6 +246,7 @@ class ReportService:
         include_data_tab: bool | None = None,
         artifact_chat_enabled: bool | None = None,
         artifact_chat_data_source_ids: list[str] | None = None,
+        artifact_chat_model_id: str | None = None,
     ) -> dict:
         """Set visibility for artifact or conversation sharing.
 
@@ -301,6 +302,16 @@ class ReportService:
                         status_code=400,
                         detail="This dashboard uses row-level security — viewers must run under their own identity, so 'run on my behalf' is not available.",
                     )
+            if report.shared_run_identity != run_identity:
+                # Cached per-viewer results were executed under the previous
+                # identity's credentials, and a success row outranks the shared
+                # snapshot on read — so switching must drop them both ways:
+                # into creator mode a viewer stays pinned to their own slice;
+                # out of it they keep the owner's rows after the revoke.
+                from app.models.step_user_result import StepUserResult
+                await db.execute(
+                    delete(StepUserResult).where(StepUserResult.report_id == str(report.id))
+                )
             report.shared_run_identity = run_identity
 
         # Artifact-only, same as run_identity: the conversation share has no
@@ -334,6 +345,21 @@ class ReportService:
                     if unknown:
                         raise HTTPException(status_code=400, detail="Unknown data source in artifact_chat_data_source_ids")
                 report.artifact_chat_data_source_ids = ids
+
+        if share_type == 'artifact' and artifact_chat_model_id is not None:
+            from app.services.artifact_chat_service import ORG_DEFAULT_CHAT_MODEL
+            if artifact_chat_model_id == "":
+                report.artifact_chat_model_id = None
+            elif artifact_chat_model_id == ORG_DEFAULT_CHAT_MODEL:
+                report.artifact_chat_model_id = ORG_DEFAULT_CHAT_MODEL
+            else:
+                # Same gate as ReportUpdate.model_id: the owner must be able to
+                # use the model they hand to viewers (exists, enabled, granted).
+                from app.services.llm_service import LLMService
+                await LLMService().validate_model_for_user(
+                    db, organization, current_user, artifact_chat_model_id
+                )
+                report.artifact_chat_model_id = artifact_chat_model_id
 
         # Sync legacy fields for backward compatibility
         if share_type == 'artifact':
@@ -527,6 +553,9 @@ class ReportService:
             "shared_group_ids": shared_group_ids or [],
             "shared_run_identity": report.shared_run_identity,
             "include_data_tab": report.include_data_tab,
+            "artifact_chat_enabled": bool(report.artifact_chat_enabled),
+            "artifact_chat_data_source_ids": report.artifact_chat_data_source_ids,
+            "artifact_chat_model_id": report.artifact_chat_model_id,
             "conversation_share_token": report.conversation_share_token if share_type == 'conversation' and visibility != 'none' else None,
         }
 
@@ -698,6 +727,7 @@ class ReportService:
             mode=getattr(report, "mode", "chat"),
             # Report-level LLM override (null = user/org default resolves at run time)
             model_id=getattr(report, "model_id", None),
+            reasoning_effort=getattr(report, "reasoning_effort", None),
             # Agent focus (subset of attached agents whose full schema is in context)
             focused_data_source_ids=getattr(report, "focused_data_source_ids", None) or [],
             # Conversation sharing
@@ -710,6 +740,7 @@ class ReportService:
             include_data_tab=bool(getattr(report, "include_data_tab", True)),
             artifact_chat_enabled=bool(getattr(report, "artifact_chat_enabled", False)),
             artifact_chat_data_source_ids=getattr(report, "artifact_chat_data_source_ids", None),
+            artifact_chat_model_id=getattr(report, "artifact_chat_model_id", None),
             artifact_shared_user_ids=[
                 str(s.user_id) for s in (report.shares or [])
                 if s.share_type == 'artifact' and s.user_id and s.deleted_at is None
@@ -748,7 +779,7 @@ class ReportService:
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step
         # version's data via Query.steps' selectin cascade.
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         qc_result = await db.execute(
             select(func.count(Query.id)).where(
                 Query.report_id == report.id,
@@ -756,10 +787,14 @@ class ReportService:
             )
         )
         report_schema.query_count = qc_result.scalar() or 0
+        # Count ARTIFACTS (parent identities), not version rows — the list
+        # path derives the same field from report.artifacts (parents), and a
+        # dashboard edited four times is still one artifact.
+        from app.models.artifact import Artifact as ArtifactParent
         ac_result = await db.execute(
-            select(func.count(Artifact.id)).where(
-                Artifact.report_id == report.id,
-                Artifact.deleted_at.is_(None),
+            select(func.count(ArtifactParent.id)).where(
+                ArtifactParent.report_id == report.id,
+                ArtifactParent.deleted_at.is_(None),
             )
         )
         report_schema.artifact_count = ac_result.scalar() or 0
@@ -880,6 +915,13 @@ class ReportService:
         # agent list is known (project defaults may fill it in).
         requested_mode = report_data.mode or 'chat'
         del report_data.mode
+        # Report-level LLM override from the composer. Popped like the fields
+        # above so it never reaches the ORM unvalidated via Report(**dict) —
+        # it is set below, after the same strict check the update path runs.
+        requested_model_id = report_data.model_id
+        del report_data.model_id
+        requested_reasoning_effort = report_data.reasoning_effort
+        del report_data.reasoning_effort
 
         # Create the report object
         report = Report(**report_data.dict())
@@ -912,6 +954,17 @@ class ReportService:
                 db, current_user, organization, [str(x) for x in data_source_ids]
             )
         report.mode = requested_mode
+        # Same gate as ReportUpdate.model_id: the creator must actually be able
+        # to use the model, so a hand-rolled payload can't pin one they have no
+        # grant for. Checked here, before anything is written, for the same
+        # reason the training gate is.
+        if requested_model_id:
+            from app.services.llm_service import LLMService
+            await LLMService().validate_model_for_user(
+                db, organization, current_user, requested_model_id
+            )
+            report.model_id = requested_model_id
+        report.reasoning_effort = requested_reasoning_effort
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'
@@ -938,10 +991,13 @@ class ReportService:
         )
         db.add(empty_layout)
 
-        # Associate files only if there are any (skip unnecessary query)
+        # Associate files only if there are any (skip unnecessary query).
+        # Same gate as data sources below: attaching makes a file readable
+        # through this report, so only files the creator may already see go on
+        # (org-scoped; anything else is dropped).
         if file_uuids:
-            file_result = await db.execute(select(File).filter(File.id.in_(file_uuids)))
-            files = file_result.scalars().all()
+            from app.services.file_access_service import filter_viewable_files
+            files = await filter_viewable_files(db, current_user, organization, file_uuids)
             report.files.extend(files)
 
         # Associate data sources only if there are any (skip unnecessary query)
@@ -1075,6 +1131,10 @@ class ReportService:
                     )
                 except Exception:
                     pass
+        # Reasoning level stored beside model_id. None = omitted (unchanged),
+        # "" = clear back to Default.
+        if getattr(report_data, 'reasoning_effort', None) is not None:
+            report.reasoning_effort = report_data.reasoning_effort or None
         # Project membership (move). Sentinel-aware like model_id:
         #   None -> untouched, "" -> back to root, <id> -> move into project
         # (requires view access on the target). The route's owner_only gate
@@ -1254,23 +1314,27 @@ class ReportService:
         collecting across all of them would rerun queries the dashboard no
         longer shows. (Dashboard-layout visualization blocks are deprecated
         and no longer consulted.)"""
-        from app.models.artifact import Artifact
+        from app.models.artifact import Artifact, ArtifactVersion
         artifact_stmt = (
-            select(Artifact.content)
+            select(ArtifactVersion.content)
             .where(
-                Artifact.report_id == str(report_id),
-                Artifact.deleted_at.is_(None),
+                ArtifactVersion.report_id == str(report_id),
+                ArtifactVersion.deleted_at.is_(None),
             )
-            .order_by(Artifact.created_at.desc())
+            .order_by(ArtifactVersion.created_at.desc())
             .limit(1)
         )
         if artifact_id:
             # Explicit target may be any mode — docs refresh their embedded vizs too.
-            artifact_stmt = artifact_stmt.where(Artifact.id == str(artifact_id))
+            artifact_stmt = artifact_stmt.where(ArtifactVersion.id == str(artifact_id))
         else:
             # Default rerun follows the latest DASHBOARD; a newer doc must not
-            # silently change which queries a report rerun refreshes.
-            artifact_stmt = artifact_stmt.where(Artifact.mode.in_(("page", "slides")))
+            # silently change which queries a report rerun refreshes. Mode
+            # lives on the parent — explicit join, not the column_property's
+            # correlated subquery, on this hot path.
+            artifact_stmt = artifact_stmt.join(
+                Artifact, Artifact.id == ArtifactVersion.artifact_id
+            ).where(Artifact.mode.in_(("page", "slides")))
         artifact_row = (await db.execute(artifact_stmt)).first()
         content = artifact_row[0] if artifact_row else None
         viz_ids = list(dict.fromkeys(
@@ -1535,31 +1599,46 @@ class ReportService:
         ds_service = DataSourceService()
         db_clients: dict = {}
         data_source_errors: list[dict] = []
+
+        def _source_error(name: str, ds_id: str, e: Exception) -> dict:
+            detail = str(getattr(e, 'detail', None) or str(e))
+            # Machine-readable cause so the viewer gate can offer the right
+            # action: connect their credential vs. request access vs. retry.
+            lowered = detail.lower()
+            if "credentials required" in lowered:
+                code = "credentials_required"
+            elif "do not have access" in lowered:
+                code = "no_access"
+            else:
+                code = "connection_failed"
+            return {"data_source": name, "data_source_id": ds_id, "code": code, "error": detail}
+
+        # Each connection builds on its own: a viewer missing one connection's
+        # credential still gets the data source's other connections. Those
+        # per-connection failures are reported below, naming the connection.
+        connection_errors: list = []
         # Auto (an unattached report) resolves like the interactive path — the
         # credential user's accessible agents — instead of to an empty set.
         run_agents = await resolve_run_agents(db, organization, credential_user, report)
         for data_source in run_agents:
             try:
-                ds_clients = await ds_service.construct_clients(db, data_source, current_user=credential_user)
+                ds_clients = await ds_service.construct_clients(
+                    db, data_source, current_user=credential_user,
+                    connection_errors=connection_errors,
+                )
                 db_clients.update(ds_clients)
             except Exception as e:
-                detail = str(getattr(e, 'detail', None) or str(e))
                 logger.warning(f"Viewer rerun: failed to construct clients for data source {data_source.id}: {e}; continuing")
-                # Machine-readable cause so the viewer gate can offer the right
-                # action: connect their credential vs. request access vs. retry.
-                lowered = detail.lower()
-                if "credentials required" in lowered:
-                    code = "credentials_required"
-                elif "do not have access" in lowered:
-                    code = "no_access"
-                else:
-                    code = "connection_failed"
-                data_source_errors.append({
-                    "data_source": data_source.name,
-                    "data_source_id": str(data_source.id),
-                    "code": code,
-                    "error": detail,
-                })
+                data_source_errors.append(_source_error(data_source.name, str(data_source.id), e))
+        for ce in connection_errors:
+            logger.warning(
+                f"Viewer rerun: connection {ce['connection_id']} of data source "
+                f"{ce['data_source_id']} unavailable: {ce['error']}; continuing"
+            )
+            data_source_errors.append({
+                **_source_error(ce["data_source_name"], ce["data_source_id"], ce["error"]),
+                "connection_name": ce["connection_name"],
+            })
 
         steps_total = 0
         steps_succeeded = 0
@@ -1661,6 +1740,15 @@ class ReportService:
 
         logger.info(f"Deleted {len(scheduled_prompts)} scheduled prompt(s) for archived report(s): {report_ids}")
 
+    async def _cancel_checkins_for_reports(self, db: AsyncSession, report_ids) -> None:
+        """Archived reports: cancel their pending agent check-ins
+        (cancelled:report_deleted) and remove the checkin:* jobs."""
+        try:
+            from app.services.checkin_service import checkin_service
+            await checkin_service.cancel_for_reports(db, list(report_ids or []))
+        except Exception:
+            logger.warning(f"Failed to cancel check-ins for archived report(s): {report_ids}", exc_info=True)
+
     async def archive_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
@@ -1670,6 +1758,7 @@ class ReportService:
         report.status = 'archived'
         await self._delete_scheduled_prompts_for_reports(db, [str(report.id)])
         await db.commit()
+        await self._cancel_checkins_for_reports(db, [str(report.id)])
         await db.refresh(report)
 
         # Audit log
@@ -2096,30 +2185,6 @@ class ReportService:
 
         return schema
 
-    async def get_public_layouts(self, db: AsyncSession, report_id: str, user=None):
-        # Ensure report exists and has artifact visibility.
-        # lazyload("*") — the visibility check needs the report row only, not
-        # the selectin cascade (all step data, artifacts, completions, ...).
-        result = await db.execute(
-            select(Report).options(lazyload("*"))
-            .where(Report.id == report_id).where(Report.report_type == 'regular')
-        )
-        report = result.scalar_one_or_none()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        await self._check_visibility(db, report, 'artifact_visibility', user)
-
-        rows = await db.execute(
-            select(DashboardLayoutVersion).options(lazyload("*"))
-            .where(DashboardLayoutVersion.report_id == report_id).order_by(
-                DashboardLayoutVersion.created_at.asc()
-            )
-        )
-        layouts = rows.scalars().all()
-
-        from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
-        return [DashboardLayoutVersionSchema.from_orm(l) for l in layouts]
-
     async def get_public_queries(self, db: AsyncSession, report_id: str, artifact_id: str | None = None, user=None):
         """Get queries for a shared report.
 
@@ -2140,12 +2205,12 @@ class ReportService:
         # If artifact_id provided, filter to only queries used by that artifact
         query_ids_filter = None
         if artifact_id:
-            from app.models.artifact import Artifact
+            from app.models.artifact import ArtifactVersion
             artifact_result = await db.execute(
-                select(Artifact).options(lazyload("*")).where(
-                    Artifact.id == artifact_id,
-                    Artifact.report_id == report_id,
-                    Artifact.deleted_at.is_(None)
+                select(ArtifactVersion).options(lazyload("*")).where(
+                    ArtifactVersion.id == artifact_id,
+                    ArtifactVersion.report_id == report_id,
+                    ArtifactVersion.deleted_at.is_(None)
                 )
             )
             artifact = artifact_result.scalar_one_or_none()
@@ -2231,6 +2296,28 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Not found")
 
         from app.schemas.step_schema import PublicStepSchema
+        # Code visibility on the published-report path.
+        #
+        # This route is undecorated and takes an OPTIONAL user, so it never goes
+        # through requires_permission and would otherwise inherit the deny
+        # default — silently stopping published reports from showing code.
+        #
+        # But defaulting it to permissive outright is a bypass: a signed-in
+        # member whose role withholds `view_code` could just open the shared
+        # link and read the SQL there. So the decision splits on identity —
+        # anonymous readers hold no role and keep the pre-existing behavior;
+        # a signed-in reader is held to the role they actually have.
+        from app.core.code_visibility import can_view_code, set_code_visibility
+        from app.core.permission_resolver import resolve_permissions
+
+        if user is not None and getattr(report, "organization_id", None):
+            resolved = await resolve_permissions(
+                db, str(user.id), str(report.organization_id)
+            )
+            set_code_visibility(can_view_code(resolved))
+        else:
+            set_code_visibility(True)
+
         # Convert view to dict if it's not already
         view_dict = step.view if isinstance(step.view, dict) else (step.view.dict() if step.view else {})
 
@@ -2278,11 +2365,11 @@ class ReportService:
         await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch artifacts for this report
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         artifacts_result = await db.execute(
-            select(Artifact).options(lazyload("*"))
-            .where(Artifact.report_id == report_id, Artifact.deleted_at.is_(None))
-            .order_by(Artifact.created_at.desc())
+            select(ArtifactVersion).options(lazyload("*"))
+            .where(ArtifactVersion.report_id == report_id, ArtifactVersion.deleted_at.is_(None))
+            .order_by(ArtifactVersion.created_at.desc())
         )
         artifacts = artifacts_result.scalars().all()
 
@@ -2302,12 +2389,13 @@ class ReportService:
         await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch the artifact and verify it belongs to this report
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         artifact_result = await db.execute(
-            select(Artifact).options(lazyload("*")).where(
-                Artifact.id == artifact_id,
-                Artifact.report_id == report_id,
-                Artifact.deleted_at.is_(None)
+            select(ArtifactVersion).options(lazyload("*"))
+            .where(
+                ArtifactVersion.id == artifact_id,
+                ArtifactVersion.report_id == report_id,
+                ArtifactVersion.deleted_at.is_(None)
             )
         )
         artifact = artifact_result.scalar_one_or_none()
@@ -2481,14 +2569,20 @@ class ReportService:
                 from app.models.artifact import Artifact
                 base_conditions.append(
                     Report.id.in_(
-                        select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                        select(Artifact.report_id).where(
+                            Artifact.report_id.isnot(None),
+                            Artifact.deleted_at.is_(None),
+                        )
                     )
                 )
             elif has_artifacts == 'no':
                 from app.models.artifact import Artifact
                 base_conditions.append(
                     ~Report.id.in_(
-                        select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                        select(Artifact.report_id).where(
+                            Artifact.report_id.isnot(None),
+                            Artifact.deleted_at.is_(None),
+                        )
                     )
                 )
 
@@ -2577,7 +2671,7 @@ class ReportService:
                     for rid, am_mode in (await db.execute(
                         select(Artifact.report_id, Artifact.mode).where(
                             Artifact.report_id.in_(report_ids),
-                            Artifact.mode.isnot(None),
+                            Artifact.deleted_at.is_(None),
                         )
                     )).all():
                         modes_by_report.setdefault(str(rid), set()).add(am_mode)
@@ -2730,6 +2824,34 @@ class ReportService:
                 )
                 active_sp_counts = {str(row[0]): row[1] for row in sp_result.all()}
 
+            # Batch the thumbnail pick: thumbnails live on VERSION rows (the
+            # parent Artifact rows loaded on report.artifacts have none). One
+            # query for the page, then per report the same selection key as
+            # before — prefer the dashboard (page mode), then newest.
+            thumbs_by_report: dict[str, str] = {}
+            if report_ids:
+                from app.models.artifact import Artifact, ArtifactVersion
+                th_result = await db.execute(
+                    select(
+                        ArtifactVersion.report_id,
+                        ArtifactVersion.thumbnail_path,
+                        Artifact.mode,
+                        ArtifactVersion.created_at,
+                    )
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                    .where(
+                        ArtifactVersion.report_id.in_(report_ids),
+                        ArtifactVersion.thumbnail_path.isnot(None),
+                    )
+                )
+                best: dict[str, tuple] = {}
+                for rid, thumb_path, art_mode, created in th_result.all():
+                    key = (art_mode != 'page', -(created.timestamp() if created else 0))
+                    rid = str(rid)
+                    if rid not in best or key < best[rid][0]:
+                        best[rid] = (key, thumb_path)
+                thumbs_by_report = {rid: pick[1] for rid, pick in best.items()}
+
             # Convert to schemas
             # Lifecycle-filter each report's attached data sources (same rules
             # as get_report); resolve the caller's publish visibility once for
@@ -2771,7 +2893,9 @@ class ReportService:
 
                 # Summary counts (from batched GROUP BY queries above)
                 report_schema.query_count = query_counts.get(str(report.id), 0)
-                report_schema.artifact_count = len(report.artifacts or [])
+                # Live parents only — same rule as the detail path's COUNT.
+                live_artifacts = [a for a in (report.artifacts or []) if a.deleted_at is None]
+                report_schema.artifact_count = len(live_artifacts)
 
                 # Active scheduled prompts (from batch query)
                 active_sp_count = active_sp_counts.get(str(report.id), 0)
@@ -2787,22 +2911,18 @@ class ReportService:
                 # Starred state for the current user
                 report_schema.is_starred = str(report.id) in starred_ids
 
-                # Compute unique artifact modes for this report
+                # Compute unique artifact modes for this report (parents)
                 report_schema.artifact_modes = list(set(
-                    a.mode for a in (report.artifacts or []) if a.mode
+                    a.mode for a in live_artifacts if a.mode
                 ))
 
-                # Get thumbnail URL from latest artifact (prefer page mode)
-                if report.artifacts:
-                    sorted_artifacts = sorted(
-                        [a for a in report.artifacts if a.thumbnail_path],
-                        key=lambda a: (a.mode != 'page', -a.created_at.timestamp() if a.created_at else 0)
-                    )
-                    if sorted_artifacts:
-                        # thumbnail_path is like "thumbnails/{artifact_id}.png", serve via /thumbnails/{filename}
-                        thumb_path = sorted_artifacts[0].thumbnail_path
-                        filename = thumb_path.split("/")[-1] if "/" in thumb_path else thumb_path
-                        report_schema.thumbnail_url = f"/thumbnails/{filename}"
+                # Thumbnail URL from the batched version-row pick above.
+                # thumbnail_path is like "thumbnails/{version_id}.png",
+                # served via /thumbnails/{filename}.
+                thumb_path = thumbs_by_report.get(str(report.id))
+                if thumb_path:
+                    filename = thumb_path.split("/")[-1] if "/" in thumb_path else thumb_path
+                    report_schema.thumbnail_url = f"/thumbnails/{filename}"
 
                 report_schemas.append(report_schema)
             span.add_event("report schemas ready")
@@ -2863,6 +2983,7 @@ class ReportService:
         if count:
             await self._delete_scheduled_prompts_for_reports(db, archived_ids)
             await db.commit()
+            await self._cancel_checkins_for_reports(db, archived_ids)
 
             # Audit log
             try:
@@ -3202,6 +3323,17 @@ class ReportService:
         if not report.refresh_on_view:
             return _skip("not enabled")
 
+        # A fork of a delegated source is being filled in by hydrate_fork,
+        # which runs every query under the forker's credentials and stamps
+        # last_run_at when done — so this rerun would execute the same queries
+        # a second time and write the same steps concurrently with it. Skip;
+        # once hydration settles, its last_run_at keeps the staleness gate
+        # below closed for the usual interval.
+        if report.forked_from_id:
+            from app.services.fork_service import fork_service
+            if await fork_service.is_hydrating(db, str(report_id)):
+                return _skip("fork hydrating")
+
         # An agent run in flight on this report owns its step graph: an owner
         # rerun underneath it races the agent's step writes (both sides fail)
         # and its commits expire the agent's cached ORM state mid-loop. Skip —
@@ -3521,6 +3653,13 @@ class ReportService:
         
         
         # Build per-completion block lists (sanitized)
+        # Agents referenced by these tool executions, resolved once. The data
+        # tools render their source icon from this; a shared conversation used to
+        # ship no agents at all, so the same tool card that showed a snowflake
+        # icon to the report's owner showed a generic one to everyone else.
+        from app.serializers.completion_v2 import resolve_data_sources_for_tool_executions
+        ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+
         completion_id_to_blocks: dict = {cid: [] for cid in completion_ids}
         for b in blocks:
             pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
@@ -3573,6 +3712,12 @@ class ReportService:
                     "arguments_json": te.arguments_json,
                     "result_json": result_json,
                     "duration_ms": te.duration_ms,
+                    # Id + resolved icon only: enough for the tool card's source
+                    # icon, without naming the org's agents to a public viewer.
+                    "data_sources": [
+                        {"id": ds.id, "icon_token": ds.icon_token}
+                        for ds in ds_by_te.get(str(te.id), [])
+                    ] or None,
                 })
             
             completion_id_to_blocks[b.completion_id].append(block_data)
@@ -3681,16 +3826,33 @@ class ReportService:
             from app.models.domain_connection import domain_connection
             from app.schemas.completion_v2_schema import ToolExecutionDataSourceSchema
 
+            from app.schemas.agent_icon import resolve_agent_icon_token
+
+            # Every connection, in the relationship's order — a multi-connection
+            # agent's icon depends on all of them, not on whichever join row
+            # came back first (see app.schemas.agent_icon).
             ds_rows = await db.execute(
-                select(DS.id, DS.name, Connection.type)
+                select(DS.id, DS.name, DS.icon, Connection.type, Connection.config)
                 .join(domain_connection, domain_connection.c.data_source_id == DS.id)
                 .join(Connection, Connection.id == domain_connection.c.connection_id)
                 .where(DS.id.in_(list(set(all_ds_ids))))
+                .order_by(Connection.created_at, Connection.id)
             )
+            ds_conns: dict[str, list[dict]] = {}
+            ds_names: dict[str, object] = {}
+            ds_icons: dict[str, object] = {}
             for r in ds_rows:
                 ds_id = str(r[0])
-                if ds_id not in ds_schema_map:
-                    ds_schema_map[ds_id] = ToolExecutionDataSourceSchema(id=ds_id, name=r[1], type=r[2])
+                ds_names.setdefault(ds_id, r[1])
+                ds_icons.setdefault(ds_id, r[2])
+                ds_conns.setdefault(ds_id, []).append({"type": r[3], "config": r[4]})
+            for ds_id, conns in ds_conns.items():
+                ds_schema_map[ds_id] = ToolExecutionDataSourceSchema(
+                    id=ds_id,
+                    name=ds_names[ds_id],
+                    type=conns[0]["type"] if conns else None,
+                    icon_token=resolve_agent_icon_token(ds_icons[ds_id], conns),
+                )
 
         # 4) Build query schemas
         queries: list[SummaryToolExecutionSchema] = []

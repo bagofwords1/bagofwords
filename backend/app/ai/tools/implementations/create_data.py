@@ -805,7 +805,8 @@ class CreateDataTool(Tool):
         # regardless of which model the planner/codegen used. Falls back to the
         # main model when no small model is set.
         viz_model = runtime_ctx.get("small_model") or runtime_ctx.get("model")
-        llm = LLM(viz_model, usage_session_maker=async_session_maker, usage_context=usage_ctx)
+        llm = LLM(viz_model, usage_session_maker=async_session_maker, usage_context=usage_ctx,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
         # Fetch visualization-specific instructions
@@ -813,12 +814,20 @@ class CreateDataTool(Tool):
         context_hub = runtime_ctx.get("context_hub")
         if context_hub and getattr(context_hub, "instruction_builder", None):
             try:
-                viz_section = await context_hub.instruction_builder.build(categories=["visualizations", "visualization", "general"])
+                # The instruction builder reads the agent's shared session;
+                # serialize with parallel siblings (a collision used to drop
+                # the visualization instructions silently).
+                _lock = runtime_ctx.get("tool_db_lock")
+                async with (_lock if _lock is not None else nullcontext()):
+                    viz_section = await context_hub.instruction_builder.build(categories=["visualizations", "visualization", "general"])
                 viz_instructions = viz_section.render() or ""
             except Exception:
                 viz_instructions = ""
 
-        allowed_types = list(ALLOWED_VIZ_TYPES)
+        # sorted(), not list(): ALLOWED_VIZ_TYPES is a set literal, so list() order
+        # varies between processes (PYTHONHASHSEED). That line now lives in the cached
+        # system prefix, and an unstable order would invalidate it on every restart.
+        allowed_types = sorted(ALLOWED_VIZ_TYPES)
 
         # Build column names list for reference
         column_names = [c.get("name", "") for c in profile.get("columns", [])]
@@ -833,16 +842,15 @@ ORGANIZATION VISUALIZATION INSTRUCTIONS:
 
 """
         
-        prompt = f"""Role: visualization planner. Analyze the data profile and choose the best visualization type.
+        # Same split as the coder: the role, the org visualization instructions and
+        # the rules/examples block are identical for every create_data call, so they
+        # go in `system` where inference_stream_v2 puts a cache breakpoint. Only the
+        # columns, conversation context, user prompt and data profile vary per call.
+        # NOTE: this whole prompt is ~3k tokens, which is below Claude Haiku 4.5's
+        # 4096-token minimum cacheable prefix — on a Haiku small-model this split is
+        # correct but caches nothing. It pays off on Sonnet (1024) and Opus (512).
+        viz_system = f"""Role: visualization planner. Analyze the data profile and choose the best visualization type.
 {instructions_block}
-Use the exact column names from the data. Available columns are: {column_names}
-
-Context: {messages_context or "None"}
-User prompt: {user_prompt or "None"}
-
-Data profile:
-{json.dumps(profile, ensure_ascii=False, indent=2)}
-
 ═══════════════════════════════════════════════════════════════════════════════
 RULES FOR METRIC_CARD (KPI display)
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1021,7 +1029,15 @@ Return only valid JSON:
 
 Include "group_by" when the data has multiple rows per x-axis category that should be shown as separate colored series.
 Include "aggregation" on each series entry when rows are granular.
-Include "filters" only when narrowing the data to a specific slice.
+Include "filters" only when narrowing the data to a specific slice."""
+
+        prompt = f"""Use the exact column names from the data. Available columns are: {column_names}
+
+Context: {messages_context or "None"}
+User prompt: {user_prompt or "None"}
+
+Data profile:
+{json.dumps(profile, ensure_ascii=False, indent=2)}
 
 Reminder: use exact column names from: {column_names}
 Do not use generic placeholders like "value" unless that is the actual column name."""
@@ -1032,6 +1048,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             chunks: list[str] = []
             async for evt in llm.inference_stream_v2(
                 messages=[Message(role="user", content=prompt)],
+                system=viz_system,
                 usage_scope="create_data.viz_infer",
             ):
                 if isinstance(evt, TextDeltaEvent):
@@ -1165,13 +1182,62 @@ Do not use generic placeholders like "value" unless that is the actual column na
             return _schemas_section_obj.render() if _schemas_section_obj else ""
 
     @staticmethod
+    def _resolve_group_from_static(static_schemas, ds_id: Optional[str], name_patterns: List[str]):
+        """Resolve one tables_by_source group from the in-memory schema context.
+
+        Mirrors the schema builder's own name filter (``re.search`` per
+        pattern) and grouping. Returns the resolved group(s), or None when any
+        requested table has no match there — the caller then builds from the
+        DB, since the static context is top-k capped.
+        """
+        import re
+        sections = list(getattr(static_schemas, "data_sources", None) or [])
+        if not sections:
+            return None
+        try:
+            compiled = [re.compile(p) for p in name_patterns]
+        except re.error:
+            return None
+        matched_by_ds: Dict[str, List[str]] = {}
+        pattern_hit = [False] * len(compiled)
+        for ds in sections:
+            ds_info = getattr(ds, "info", None)
+            sec_id = str(getattr(ds_info, "id", "") or "") if ds_info else ""
+            if ds_id and sec_id != ds_id:
+                continue
+            for t in (getattr(ds, "tables", None) or []):
+                name = getattr(t, "name", None) or ""
+                hits = [i for i, rp in enumerate(compiled) if rp.search(name)]
+                if not hits:
+                    continue
+                for i in hits:
+                    pattern_hit[i] = True
+                matched_by_ds.setdefault(sec_id or "__all__", []).append(name)
+        if not all(pattern_hit):
+            return None
+        if ds_id:
+            return [{"data_source_id": ds_id, "tables": matched_by_ds.get(ds_id, [])}]
+        return [
+            {"data_source_id": (None if k == "__all__" else k), "tables": v}
+            for k, v in matched_by_ds.items() if v
+        ]
+
+    @staticmethod
     async def _resolve_active_tables(
         tables_by_source: List[Any],
         schema_builder,
         data_sources: Optional[List[Any]] = None,
         db_lock: Optional["asyncio.Lock"] = None,
+        static_schemas: Any = None,
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Resolve table patterns to active tables only.
+
+        static_schemas: the run's already-built schema context
+        (``context_view.static.schemas`` — same builder, user and active-only
+        filter). A group whose every requested table is found there resolves
+        in memory; otherwise it falls back to a schema build, as before. The
+        static context is top-k capped, which is why a miss falls back rather
+        than meaning "not found".
 
         Args:
             tables_by_source: List of TablesBySource with table names/patterns
@@ -1228,6 +1294,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     name_patterns.append(f"(?i)(?:^|[./]){esc}$")
 
                 if not name_patterns:
+                    continue
+
+                static_hit = CreateDataTool._resolve_group_from_static(static_schemas, ds_id, name_patterns)
+                if static_hit is not None:
+                    resolved.extend(static_hit)
                     continue
 
                 # Resolve via schema_builder (only returns active tables)
@@ -1490,6 +1561,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     data.tables_by_source,
                     context_hub.schema_builder,
                     db_lock=runtime_ctx.get("tool_db_lock"),
+                    static_schemas=getattr(getattr(context_view, "static", None), "schemas", None),
                 )
         
         if any(str(g.data_source_id) == "builtin:bow" for g in (data.tables_by_source or [])) and "bow" not in runtime_ctx.get("ds_clients", {}):
@@ -1688,6 +1760,9 @@ Do not use generic placeholders like "value" unless that is the actual column na
             else None
         )
         coder = Coder(
+            reasoning_effort=runtime_ctx.get("reasoning_effort"),
+            reasoning_callback=runtime_ctx.get("reasoning_callback"),
+            read_session_maker=runtime_ctx.get("read_session_maker"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
@@ -1751,7 +1826,19 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 "3. A list-typed parameter renders as an IN list: use `col IN :name`.\n"
                 "4. identity-source parameters carry the viewing user's identity — always "
                 "apply them as filters so each viewer sees only their rows.\n"
-                "5. Every declared parameter above MUST be read from `params` in the code."
+                "5. Every declared parameter above MUST be read from `params` in the code.\n"
+                "6. date_range is None or {'from': ISO_value, 'to': ISO_value}; either bound may be absent. "
+                "NEVER read start/end or index it as a list. Calendar dates are YYYY-MM-DD. "
+                "For calendar-day filters add the injectable `calendar_date_bounds` argument to generate_df, "
+                "then start, stop = calendar_date_bounds(params['declared_name']). It returns an inclusive "
+                "start and EXCLUSIVE next-day stop, independently None for open bounds. "
+                "Bind (:start IS NULL OR column >= :start) AND (:stop IS NULL OR column < :stop). "
+                "Use the actual column type and dialect's casts if needed; do not truncate timestamp precision. "
+                "This helper does NOT convert timezones: for timezone-aware columns convert each local midnight "
+                "using the known reporting/source timezone (next calendar day, not +24 hours); never guess UTC. "
+                "Exact timestamp ranges must bypass the calendar helper, read from/to independently, "
+                "preserve offsets and document boundary semantics. Do not mix calendar dates and timestamps. "
+                "If a source stores text dates, use its known storage format, not locale guessing."
             )
 
         # Build typed context via helper (use resolved active tables, not original patterns)
@@ -1778,6 +1865,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         executed_queries = []
         query_timings = []
         codegen_ms = None
+        codegen_reasoning_ms = None
         execution_ms = None
 
         # Resolver for load_step()/load_entity() calls the generated code may
@@ -1793,6 +1881,13 @@ Do not use generic placeholders like "value" unless that is the actual column na
             enable_load_step=_ls_enabled,
             step_max_age_seconds=_ls_max_age,
         )
+
+        async def _resolve_loadables(step_refs, entity_refs):
+            # The resolver reads (and via protect_report may commit) on the
+            # agent's shared session: serialize with parallel siblings.
+            _lock = runtime_ctx.get("tool_db_lock")
+            async with (_lock if _lock is not None else nullcontext()):
+                return await _loadables_resolver.resolve(step_refs, entity_refs)
 
         # Schema/context reads can autoflush the in-memory event sequence. Do
         # not hold that write transaction throughout the coder's LLM request.
@@ -1812,8 +1907,9 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 code_context_builder=None,
                 code_generator_fn=coder.generate_code,
                 sigkill_event=runtime_ctx.get("sigkill_event"),
-                loadable_resolver_fn=_loadables_resolver.resolve,
+                loadable_resolver_fn=_resolve_loadables,
                 params=resolved_default_params,
+                param_specs=declared_param_specs,
             ):
                 if e["type"] == "progress":
                     # Map internal stage names to UI-friendly names
@@ -1852,6 +1948,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     query_timings = e["payload"].get("query_timings") or []
                     codegen_ms = e["payload"].get("codegen_ms")
                     execution_ms = e["payload"].get("execution_ms")
+                    # Reasoning inside that codegen_ms (last attempt, like it).
+                    codegen_reasoning_ms = getattr(coder, "reasoning_ms", None) or None
             codegen_span.set_attribute("codegen.success", generated_code is not None and exec_df is not None)
             codegen_span.set_attribute("codegen.error_count", len(code_errors))
             codegen_span.set_attribute("codegen.query_count", len(executed_queries))
@@ -1957,7 +2055,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
         # Success path: format data and privacy-aware preview
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
-        formatted = streamer.format_df_for_widget(exec_df)
+        formatted = await streamer.format_df_for_widget_async(exec_df)
         info = formatted.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         data_preview = build_data_preview(formatted, allow_llm_see_data=allow_llm_see_data)
@@ -2129,6 +2227,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     "executed_queries": executed_queries,
                     "query_timings": query_timings,
                     "codegen_ms": codegen_ms,
+                    "codegen_reasoning_ms": codegen_reasoning_ms,
                     "execution_ms": execution_ms,
                     "parameters": surviving_params,
                     "applied_params": (

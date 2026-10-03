@@ -29,7 +29,7 @@
                             <DataSourceIcon
                                 v-if="selectedDsFilter"
                                 :type="(selectedDsFilter as any).type || (selectedDsFilter as any).connections?.[0]?.type"
-                                :icon="(selectedDsFilter as any).icon"
+                                :icon-token="(selectedDsFilter as any).icon_token" :icon="(selectedDsFilter as any).icon"
                                 class="h-4 flex-shrink-0"
                             />
                             <Icon v-else name="heroicons:funnel" class="w-4 h-4 text-gray-400 dark:text-gray-500 flex-shrink-0" />
@@ -64,7 +64,7 @@
                                     @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
                                     class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-start border-t border-gray-100 dark:border-gray-800"
                                 >
-                                    <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" :icon="(d as any).icon" class="h-4 flex-shrink-0" />
+                                    <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" :icon-token="(d as any).icon_token" :icon="(d as any).icon" class="h-4 flex-shrink-0" />
                                     <span class="truncate flex-1 font-medium">{{ (d as any).name }}</span>
                                     <Icon v-if="dsFilterId === d.id" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>
@@ -120,6 +120,9 @@
                                 </div>
                                 <span v-if="build.is_main" class="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded shrink-0">Active</span>
                                 <span v-else-if="build.status === 'pending_approval'" class="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded shrink-0">Pending</span>
+                                <UTooltip v-else-if="closedByNightly(build)" :text="$t(`nightlyBuild.${closedByNightly(build)}Tip`)">
+                                    <span class="text-[9px] px-1.5 py-0.5 bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded shrink-0">{{ $t(`nightlyBuild.${closedByNightly(build)}`) }}</span>
+                                </UTooltip>
                                 <span v-else-if="build.status === 'rejected'" class="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded shrink-0">Rejected</span>
                             </div>
                             <div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1.5">
@@ -173,6 +176,9 @@
                                         <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full shrink-0">
                                             Pending
                                         </span>
+                                        <UTooltip v-else-if="closedByNightly(selectedBuild)" :text="$t(`nightlyBuild.${closedByNightly(selectedBuild)}Tip`)">
+                                            <span class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded-full shrink-0">{{ $t(`nightlyBuild.${closedByNightly(selectedBuild)}`) }}</span>
+                                        </UTooltip>
                                         <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full shrink-0">
                                             Rejected
                                         </span>
@@ -714,7 +720,7 @@ import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
-import { useCan, useCanAny } from '~/composables/usePermissions'
+import { useCanAny, useCanAccessMonitoring } from '~/composables/usePermissions'
 import { useAgent } from '~/composables/useAgent'
 import { onClickOutside } from '@vueuse/core'
 
@@ -939,7 +945,11 @@ const toast = useToast()
 // on every build operation via _enforce_build_ds_access.
 const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
-const canViewConsole = computed(() => useCan('view_console'))
+// Builds carry trace coordinates but not the agents behind the report, so gate
+// on console access (org-wide or agent manager) and let the backend's
+// ConsoleScope scope the per-report drill-down. `view_console` was never a
+// registry permission — it hid this from everyone but a full org admin.
+const canViewConsole = computed(() => useCanAccessMonitoring())
 
 // TraceModal state (opened from the "View trace" button on builds that were
 // produced by an agent execution).
@@ -1015,6 +1025,16 @@ watch(diffData, (next) => {
     selectedInstructionIds.value = picks
     expandedDiffItems.value = new Set()
 }, { immediate: true })
+
+// Nightly learning closes absorbed / stale AI suggestions with a marker — not
+// a reviewer's rejection, so they get their own badge.
+function closedByNightly(build: any): 'merged' | 'expired' | null {
+    if (build?.status !== 'rejected') return null
+    const reason = build.rejection_reason || ''
+    if (reason.startsWith('[merged]')) return 'merged'
+    if (reason.startsWith('[expired]')) return 'expired'
+    return null
+}
 
 // Build is editable if it's in draft or pending_approval status (not yet published)
 const isBuildEditable = computed(() => 

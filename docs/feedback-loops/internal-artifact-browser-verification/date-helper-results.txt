@@ -1,0 +1,30 @@
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:22: UserWarning: Field name "schema" in "OracleConfig" shadows an attribute in parent "BaseModel"
+  class OracleConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:56: UserWarning: Field name "schema" in "SapHanaConfig" shadows an attribute in parent "BaseModel"
+  class SapHanaConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:289: UserWarning: Field name "schema" in "PostgreSQLConfig" shadows an attribute in parent "BaseModel"
+  class PostgreSQLConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:396: UserWarning: Field name "schema" in "SnowflakeConfig" shadows an attribute in parent "BaseModel"
+  class SnowflakeConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:1067: UserWarning: Field name "schema" in "MssqlConfig" shadows an attribute in parent "SQLConfig"
+  class MssqlConfig(SQLConfig):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:1105: UserWarning: Field name "schema" in "PrestoConfig" shadows an attribute in parent "BaseModel"
+  class PrestoConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:1119: UserWarning: Field name "schema" in "TrinoConfig" shadows an attribute in parent "BaseModel"
+  class TrinoConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:1247: UserWarning: Field name "schema" in "VerticaConfig" shadows an attribute in parent "BaseModel"
+  class VerticaConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:1294: UserWarning: Field name "schema" in "AwsRedshiftConfig" shadows an attribute in parent "BaseModel"
+  class AwsRedshiftConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:1373: UserWarning: Field name "schema" in "DruidConfig" shadows an attribute in parent "BaseModel"
+  class DruidConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:1838: UserWarning: Field name "schema" in "DatabricksSqlConfig" shadows an attribute in parent "BaseModel"
+  class DatabricksSqlConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_sources/configs.py:2050: UserWarning: Field name "schema" in "MSFabricConfig" shadows an attribute in parent "BaseModel"
+  class MSFabricConfig(BaseModel):
+/Users/yochze/Desktop/bagofwords/backend/app/schemas/data_source_registry.py:235: UserWarning: Field name "schema" in "AuthVariant" shadows an attribute in parent "BaseModel"
+  class AuthVariant(BaseModel):
+Loading settings for environment: development
+Loading .env from: /Users/yochze/Desktop/bagofwords/backend/.env
+Loading config from: /Users/yochze/Desktop/bagofwords/configs/bow-config.dev.yaml
+{"calendar_boundary_checks": [{"params": {"from": "2024-02-29", "to": "2024-02-29"}, "ids": [2, 3]}, {"params": {"from": "2024-02-29"}, "ids": [2, 3, 4]}, {"params": {"to": "2024-02-29"}, "ids": [1, 2, 3]}, {"params": null, "ids": [1, 2, 3, 4]}], "nanosecond_and_offset_comparisons": "passed"}

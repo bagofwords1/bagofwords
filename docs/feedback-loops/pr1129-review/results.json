@@ -1,0 +1,93 @@
+[
+  {
+    "mode": "v11-data-before",
+    "legacy": false,
+    "text": "Revenue report\n\nREVENUE\n\n42.0%\n\n+20.0%\nvs last month",
+    "h1Weight": "600",
+    "chart": {
+      "smooth": false,
+      "showSymbol": false,
+      "grid": {
+        "left": 8,
+        "right": 12,
+        "top": 24,
+        "bottom": 8,
+        "containLabel": true,
+        "show": false,
+        "z": 0,
+        "backgroundColor": "rgba(0,0,0,0)",
+        "borderWidth": 1,
+        "borderColor": "#ccc"
+      }
+    },
+    "errors": []
+  },
+  {
+    "mode": "v11-data-after",
+    "legacy": true,
+    "text": "Revenue report\n\nREVENUE\n\n0.4%",
+    "h1Weight": "600",
+    "chart": {
+      "smooth": false,
+      "showSymbol": false,
+      "grid": {
+        "left": 8,
+        "right": 12,
+        "top": 24,
+        "bottom": 8,
+        "containLabel": true,
+        "show": false,
+        "z": 0,
+        "backgroundColor": "rgba(0,0,0,0)",
+        "borderWidth": 1,
+        "borderColor": "#ccc"
+      }
+    },
+    "errors": []
+  },
+  {
+    "mode": "legacy-base",
+    "text": "Revenue report\n\nREVENUE\n\n0.4%",
+    "h1Weight": "700",
+    "chart": {
+      "smooth": true,
+      "showSymbol": true,
+      "grid": {
+        "left": 40,
+        "right": 20,
+        "top": 20,
+        "bottom": 40,
+        "containLabel": true,
+        "show": false,
+        "z": 0,
+        "backgroundColor": "rgba(0,0,0,0)",
+        "borderWidth": 1,
+        "borderColor": "#ccc"
+      }
+    },
+    "errors": []
+  },
+  {
+    "mode": "legacy-pr",
+    "legacy": true,
+    "text": "Revenue report\n\nREVENUE\n\n0.4%",
+    "h1Weight": "600",
+    "chart": {
+      "smooth": false,
+      "showSymbol": false,
+      "grid": {
+        "left": 8,
+        "right": 12,
+        "top": 24,
+        "bottom": 8,
+        "containLabel": true,
+        "show": false,
+        "z": 0,
+        "backgroundColor": "rgba(0,0,0,0)",
+        "borderWidth": 1,
+        "borderColor": "#ccc"
+      }
+    },
+    "errors": []
+  }
+]

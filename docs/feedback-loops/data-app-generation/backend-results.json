@@ -1,0 +1,830 @@
+[
+  {
+    "app": "commerce",
+    "query": "Weekly performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 27,
+    "revenue": 4036361.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Market mix",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 12,
+    "revenue": 4036361.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Customer portfolio",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 48,
+    "revenue": 4036361.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Representative performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 12,
+    "revenue": 4036361.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Weekly performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 161,
+    "revenue": 4036361.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Priority accounts",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 48,
+    "revenue": 4036361.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Weekly performance",
+    "params": {
+      "region": "Europe",
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 27,
+    "revenue": 1008250.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Market mix",
+    "params": {
+      "region": "Europe",
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 3,
+    "revenue": 1008250.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Customer portfolio",
+    "params": {
+      "region": "Europe",
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 12,
+    "revenue": 1008250.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Representative performance",
+    "params": {
+      "region": "Europe",
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 3,
+    "revenue": 1008250.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Weekly performance",
+    "params": {
+      "region": "Europe",
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 80,
+    "revenue": 1008250.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Priority accounts",
+    "params": {
+      "region": "Europe",
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 12,
+    "revenue": 1008250.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Weekly performance",
+    "params": {
+      "region": "Asia Pacific",
+      "channels": [
+        "Direct",
+        "Partner"
+      ],
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-04-30"
+      },
+      "min_order": 800
+    },
+    "rows": 10,
+    "revenue": 196238.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Market mix",
+    "params": {
+      "region": "Asia Pacific",
+      "channels": [
+        "Direct",
+        "Partner"
+      ],
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-04-30"
+      },
+      "min_order": 800
+    },
+    "rows": 2,
+    "revenue": 196238.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Customer portfolio",
+    "params": {
+      "region": "Asia Pacific",
+      "channels": [
+        "Direct",
+        "Partner"
+      ],
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-04-30"
+      },
+      "min_order": 800
+    },
+    "rows": 12,
+    "revenue": 196238.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Representative performance",
+    "params": {
+      "region": "Asia Pacific",
+      "channels": [
+        "Direct",
+        "Partner"
+      ],
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-04-30"
+      },
+      "min_order": 800
+    },
+    "rows": 3,
+    "revenue": 196238.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Weekly performance",
+    "params": {
+      "region": "Asia Pacific",
+      "channels": [
+        "Direct",
+        "Partner"
+      ],
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-04-30"
+      },
+      "min_order": 800
+    },
+    "rows": 27,
+    "revenue": 196238.0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Priority accounts",
+    "params": {
+      "region": "Asia Pacific",
+      "channels": [
+        "Direct",
+        "Partner"
+      ],
+      "period": {
+        "from": "2026-03-01",
+        "to": "2026-04-30"
+      },
+      "min_order": 800
+    },
+    "rows": 12,
+    "revenue": 196238.0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Weekly performance",
+    "params": {
+      "region": null,
+      "channels": [],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Market mix",
+    "params": {
+      "region": null,
+      "channels": [],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Customer portfolio",
+    "params": {
+      "region": null,
+      "channels": [],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Representative performance",
+    "params": {
+      "region": null,
+      "channels": [],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Weekly performance",
+    "params": {
+      "region": null,
+      "channels": [],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Priority accounts",
+    "params": {
+      "region": null,
+      "channels": [],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Weekly performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 10000000
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Market mix",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 10000000
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Customer portfolio",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 10000000
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Representative performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 10000000
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Weekly performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 10000000
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Priority accounts",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2026-01-01",
+        "to": "2026-06-30"
+      },
+      "min_order": 10000000
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Weekly performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2030-01-01",
+        "to": "2030-01-31"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Market mix",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2030-01-01",
+        "to": "2030-01-31"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "commerce",
+    "query": "Customer portfolio",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2030-01-01",
+        "to": "2030-01-31"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Representative performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2030-01-01",
+        "to": "2030-01-31"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Weekly performance",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2030-01-01",
+        "to": "2030-01-31"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "reps",
+    "query": "Priority accounts",
+    "params": {
+      "region": null,
+      "channels": [
+        "Direct",
+        "Partner",
+        "Marketplace"
+      ],
+      "period": {
+        "from": "2030-01-01",
+        "to": "2030-01-31"
+      },
+      "min_order": 0
+    },
+    "rows": 0,
+    "revenue": 0,
+    "status": "PASS"
+  },
+  {
+    "invalid": {
+      "min_order": "not-a-number"
+    },
+    "status": "PASS"
+  },
+  {
+    "invalid": {
+      "period": "not-a-range"
+    },
+    "status": "PASS"
+  },
+  {
+    "invalid": {
+      "region": "Europe' OR 1=1 --"
+    },
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Album collection",
+    "params": {
+      "genre": null,
+      "search": "",
+      "max_price": 2,
+      "min_minutes": 0
+    },
+    "rows": 24,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Track details",
+    "params": {
+      "genre": null,
+      "search": "",
+      "max_price": 2,
+      "min_minutes": 0
+    },
+    "rows": 144,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Album collection",
+    "params": {
+      "genre": "Jazz",
+      "search": "",
+      "max_price": 2,
+      "min_minutes": 0
+    },
+    "rows": 6,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Track details",
+    "params": {
+      "genre": "Jazz",
+      "search": "",
+      "max_price": 2,
+      "min_minutes": 0
+    },
+    "rows": 36,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Album collection",
+    "params": {
+      "genre": null,
+      "search": "Ada",
+      "max_price": 1.3,
+      "min_minutes": 3
+    },
+    "rows": 4,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Track details",
+    "params": {
+      "genre": null,
+      "search": "Ada",
+      "max_price": 1.3,
+      "min_minutes": 3
+    },
+    "rows": 14,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Album collection",
+    "params": {
+      "genre": null,
+      "search": "' OR 1=1 --",
+      "max_price": 2,
+      "min_minutes": 0
+    },
+    "rows": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Track details",
+    "params": {
+      "genre": null,
+      "search": "' OR 1=1 --",
+      "max_price": 2,
+      "min_minutes": 0
+    },
+    "rows": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Album collection",
+    "params": {
+      "genre": null,
+      "search": "",
+      "max_price": 0,
+      "min_minutes": 0
+    },
+    "rows": 0,
+    "status": "PASS"
+  },
+  {
+    "app": "catalog",
+    "query": "Track details",
+    "params": {
+      "genre": null,
+      "search": "",
+      "max_price": 0,
+      "min_minutes": 0
+    },
+    "rows": 0,
+    "status": "PASS"
+  }
+]

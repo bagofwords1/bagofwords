@@ -447,7 +447,7 @@ def test_an_unrestricted_relation_still_serves_when_another_artifact_is_broken(a
 
 @pytest.mark.asyncio
 async def test_a_name_clashing_only_in_case_is_rejected():
-    """A custom query `album` next to a source table `Album` is two relations
+    """A custom table `album` next to a source table `Album` is two relations
     the agent cannot tell apart — and every by-name lookup around them (usage
     stats, the cached badge) folds case, so one wears the other's numbers."""
     from fastapi import HTTPException
@@ -505,7 +505,7 @@ async def test_an_exact_name_clash_keeps_its_plainer_message():
 
     with pytest.raises(HTTPException) as e:
         await custom_query_service._ensure_name_free(DB(), "conn-1", "album")
-    assert "another custom query" in e.value.detail
+    assert "another custom table" in e.value.detail
     assert "capitalisation" not in e.value.detail
 
 

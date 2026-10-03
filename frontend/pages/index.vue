@@ -71,7 +71,7 @@
           {{ greeting }} {{ $t('home.whatCanIHelpWith') }}
         </h1>
       </div>
-      <div class="w-full md:w-4/5 mx-auto mt-5 rounded-lg relative z-10">
+      <div class="w-full md:w-4/5 mx-auto mt-5 rounded-lg relative z-20">
           <PromptBoxV2
               :textareaContent="textareaContent"
               :initialSelectedDataSources="selectedDataSources"

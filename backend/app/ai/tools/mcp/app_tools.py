@@ -18,7 +18,7 @@ from app.models.organization import Organization
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.membership import Membership
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,10 @@ class GetVisualizationMCPTool(MCPTool):
         )
         viz = result.scalar_one_or_none()
 
-        if not viz:
+        # Same not-found answer for a foreign id as for a missing one.
+        if not viz or not await self._assert_can_view_report(
+            db, viz.report_id, user, organization
+        ):
             return {"error": f"Visualization {visualization_id} not found"}
 
         # Get the step (prefer default_step, fallback to latest)
@@ -169,13 +172,15 @@ class GetArtifactDataMCPTool(MCPTool):
 
         # Fetch artifact with report relationship
         result = await db.execute(
-            select(Artifact)
-            .options(selectinload(Artifact.report))
-            .where(Artifact.id == artifact_id)
+            select(ArtifactVersion)
+            .options(selectinload(ArtifactVersion.report))
+            .where(ArtifactVersion.id == artifact_id)
         )
         artifact = result.scalar_one_or_none()
 
-        if not artifact:
+        if not artifact or not await self._assert_can_view_report(
+            db, artifact.report_id, user, organization
+        ):
             return {"error": f"Artifact {artifact_id} not found"}
 
         report = artifact.report
@@ -223,6 +228,7 @@ class GetArtifactDataMCPTool(MCPTool):
                 "id": str(report.id) if report else str(artifact.report_id),
                 "title": report.title if report else "",
             },
+            "runtime": {"version": int(content.get("runtime_version") or 0)},
             "code": code,
             "mode": artifact.mode or "page",
             "visualizations": visualizations,

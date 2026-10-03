@@ -1,13 +1,14 @@
 // Resolve which LLM *brand* produced a completion, so we can overlay the right
 // model icon (from /public/llm_providers_icons/) on the assistant avatar.
 //
-// Name-first by design: a Claude / GPT / Gemini model served through AWS Bedrock
-// or a custom OpenAI-compatible endpoint has a hosting provider_type of
-// "bedrock" / "custom", but the meaningful brand is the model family itself.
+// Name-first by design: a Claude / GPT / Gemini model served through AWS Bedrock,
+// Google Vertex AI or a custom OpenAI-compatible endpoint has a hosting
+// provider_type of "bedrock" / "vertex" / "custom", but the meaningful brand is
+// the model family itself.
 // So we match the model id/name first and only fall back to the provider type
 // when the name is unrecognizable. Unknown -> "custom" (renders a generic chip).
 
-export type LlmBrand = 'openai' | 'anthropic' | 'google' | 'azure' | 'bedrock' | 'nvidia' | 'custom'
+export type LlmBrand = 'openai' | 'anthropic' | 'google' | 'azure' | 'bedrock' | 'vertex' | 'nvidia' | 'custom'
 
 // Substring/loose patterns matched against the lowercased model id or name.
 // Ordered by specificity; first hit wins. `o1/o3/o4` are OpenAI reasoning models.
@@ -26,12 +27,13 @@ const PROVIDER_BRANDS: Record<string, LlmBrand> = {
     google: 'google',
     azure: 'azure',
     bedrock: 'bedrock',
+    vertex: 'vertex',
     custom: 'custom',
 }
 
 /**
  * @param model        The model id/name used for the completion (e.g. "claude-sonnet-4-6").
- * @param providerType Optional hosting provider type (e.g. "bedrock") as a fallback only.
+ * @param providerType Optional hosting provider type (e.g. "bedrock", "vertex") as a fallback only.
  */
 export function resolveModelBrand(model?: string | null, providerType?: string | null): LlmBrand {
     const name = (model || '').toLowerCase()

@@ -1,8 +1,8 @@
-"""Unit tests for the MCP connector presets, data_shape license gate, and DCR SSRF guard."""
+"""Unit tests for the MCP connector presets and the data_shape license gate."""
 import pytest
 
 from app.schemas.data_source_registry import (
-    mcp_presets, mcp_preset, allowed_dcr_hosts,
+    mcp_presets, mcp_preset,
 )
 from app.services.connection_service import (
     ConnectionService, _user_auth_needs_enterprise, _looks_like_auth_challenge,
@@ -41,20 +41,13 @@ def test_license_gate_is_data_shape_scoped():
     assert _user_auth_needs_enterprise("totally_unknown_type") is True
 
 
-def test_dcr_allowlist_includes_preset_hosts_only():
-    hosts = allowed_dcr_hosts()
-    assert "mcp.notion.com" in hosts and "mcp.monday.com" in hosts
-    assert "auth.atlassian.com" in hosts  # AS host differs from resource host
-    assert "evil.example.com" not in hosts
-
-
 # ── Preset-scoped form defaults ────────────────────────────────────────────
 # oauth_app presets carry their provider OAuth constants so the connect form can
 # pre-fill them (the admin only supplies client_id/secret) instead of asking for
 # invariant endpoints by hand.
 
 def test_oauth_app_presets_prefill_endpoints():
-    for key in ("x", "github", "google_drive"):
+    for key in ("x", "github", "google_drive", "hubspot"):
         d = mcp_preset(key).oauth_defaults
         assert d is not None, f"{key} should carry oauth_defaults"
         assert d.authorize_url and d.authorize_url.startswith("https://")
@@ -91,6 +84,88 @@ def test_preset_allowed_auth_gating():
     assert mcp_preset("monday").allowed_auth == ["dcr"]
     # oauth_app-only presets.
     assert mcp_preset("github").allowed_auth == ["oauth_app"]
+    assert mcp_preset("hubspot").allowed_auth == ["oauth_app"]
+
+
+# ── HubSpot ────────────────────────────────────────────────────────────────
+# HubSpot's hosted CRM MCP server. Probed live 2026-09; each assertion below
+# pins something the probe established and that is easy to "correct" wrongly.
+
+def test_hubspot_preset_is_oauth_app_not_dcr():
+    # HubSpot's AS metadata advertises no registration_endpoint, so the tile must
+    # not offer the zero-setup DCR path — it needs a registered HubSpot app.
+    hs = mcp_preset("hubspot")
+    assert hs is not None, "hubspot must be in the MCP catalog"
+    assert hs.auth == "oauth_app"
+    assert "dcr" not in (hs.allowed_auth or [])
+
+
+def test_hubspot_server_url_has_no_path():
+    # HubSpot serves MCP at the ROOT of mcp.hubspot.com; /mcp is a 404. The
+    # connect form matches presets by exact server_url, so a path here breaks
+    # both the connection and preset recognition in edit mode.
+    assert mcp_preset("hubspot").server_url == "https://mcp.hubspot.com"
+
+
+def test_hubspot_uses_mcp_scoped_oauth_endpoints():
+    # The MCP server advertises its own endpoints, NOT HubSpot's classic
+    # app.hubspot.com / api.hubapi.com OAuth pair.
+    d = mcp_preset("hubspot").oauth_defaults
+    assert d.authorize_url == "https://mcp.hubspot.com/oauth/authorize/user"
+    assert d.token_url == "https://mcp.hubspot.com/oauth/v3/token"
+    assert "app.hubspot.com" not in d.authorize_url
+    assert "api.hubapi.com" not in d.token_url
+
+
+def test_hubspot_token_auth_and_audience_defaults():
+    d = mcp_preset("hubspot").oauth_defaults
+    # HubSpot advertises client_secret_post, which is our default → left unset
+    # rather than restated (X sets client_secret_basic because it differs).
+    assert d.token_endpoint_auth_method is None
+    # HubSpot does not advertise RFC 8707 resource indicators; sending an
+    # unexpected `resource` on the token request risks a rejection.
+    assert d.audience is None
+
+
+def test_hubspot_scopes_are_read_only_and_normalize():
+    from app.routes.connection_oauth import _normalize_scopes
+    d = mcp_preset("hubspot").oauth_defaults
+    normalized = _normalize_scopes(d.scopes)
+    scopes = normalized.split()
+    # `oauth` is required of every HubSpot app; the CRM scopes are the read-only
+    # set available on every portal tier.
+    assert "oauth" in scopes
+    assert "crm.objects.contacts.read" in scopes
+    # Default must not request write access.
+    assert not [s for s in scopes if s.endswith(".write")]
+    # RFC 6749 wants space-delimited scopes on the authorize request.
+    assert "," not in normalized
+
+
+def test_hubspot_sample_tools_are_the_discovered_ones():
+    # Filled from a live tools/list against a real portal (2026-09), not guessed.
+    # query_crm_data is the one that matters: HubSpot CRM over SQL.
+    tools = mcp_preset("hubspot").sample_tools
+    assert tools and "query_crm_data" in tools
+    assert {"search_crm_objects", "get_properties", "search_properties"} <= set(tools)
+
+
+def test_hubspot_preset_scopes_are_documentation_only():
+    # A HubSpot MCP Connector app grants a fixed bundle from its own config; the
+    # `scope` parameter does not control it (verified live: 4 requested, 37
+    # granted). The value is kept as guidance for configuring the app, so it must
+    # stay read-only and must not imply write access.
+    from app.routes.connection_oauth import _normalize_scopes
+    scopes = _normalize_scopes(mcp_preset("hubspot").oauth_defaults.scopes).split()
+    assert not [s for s in scopes if s.endswith(".write")]
+
+
+def test_hubspot_is_a_services_tile_and_serializes():
+    hs = next(p for p in mcp_presets() if p["key"] == "hubspot")
+    assert hs["category"] == "services"          # a SaaS app, like Salesforce
+    assert hs["transport"] == "streamable_http"
+    assert hs["title"] == "HubSpot"
+    assert hs["oauth_defaults"]["authorize_url"].startswith("https://mcp.hubspot.com/")
 
 
 def test_scope_normalization_comma_or_space():
@@ -184,3 +259,100 @@ async def test_bearer_mcp_401_still_fails(monkeypatch):
         "mcp", {"server_url": "https://api.x.com/mcp", "auth_type": "bearer"}, {"token": "bad"}
     )
     assert res["success"] is False
+
+
+# ── DCR Verify runs discovery ──────────────────────────────────────────────
+# Reachability alone is a false green for DCR: the 401 is the healthy state,
+# and the step that can actually fail — discovery — used to run only at Sign in.
+
+_DISCOVERED = {
+    "issuer": "https://auth.vendor.example.com",
+    "authorize_url": "https://auth.vendor.example.com/authorize",
+    "token_url": "https://auth.vendor.example.com/oauth/token",
+    "registration_endpoint": "https://auth.vendor.example.com/oidc/register",
+    "resource": "https://mcp.vendor.example.com/mcp",
+    "scopes": "mcp:read offline_access",
+    "scopes_source": "challenge",
+}
+
+
+def _dcr_setup(monkeypatch, discover):
+    import app.services.mcp_dcr_service as dcr
+    svc = ConnectionService()
+    fake = _FakeClient(fail_message="Failed to connect to MCP server: Client error '401 Unauthorized'")
+    monkeypatch.setattr(svc, "_resolve_client_by_type", lambda **kw: fake)
+    monkeypatch.setattr(dcr, "discover_mcp_oauth", discover)
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_dcr_verify_reports_what_sign_in_will_request(monkeypatch):
+    async def discover(url):
+        return dict(_DISCOVERED)
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "dcr"}, {}
+    )
+    assert res["success"] is True
+    assert res["requires_user_auth"] is True
+    assert res["detected"]["scopes"] == "mcp:read offline_access"
+    assert res["detected"]["scopes_source"] == "challenge"
+    assert res["detected"]["effective_scopes"] == "mcp:read offline_access"
+    assert "mcp:read offline_access" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_dcr_verify_shows_admin_override_as_effective(monkeypatch):
+    async def discover(url):
+        return dict(_DISCOVERED)
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "dcr"},
+        {"scopes": "custom:one"},
+    )
+    assert res["success"] is True
+    assert res["detected"]["scopes"] == "mcp:read offline_access"   # what the server says
+    assert res["detected"]["effective_scopes"] == "custom:one"      # what will be sent
+    assert "custom:one" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_dcr_verify_fails_when_discovery_fails(monkeypatch):
+    async def discover(url):
+        raise ValueError(f"Could not discover OAuth metadata for MCP server {url}")
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "dcr"}, {}
+    )
+    assert res["success"] is False
+    assert "discovery failed" in res["message"]
+    assert "Could not discover OAuth metadata" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_dcr_verify_fails_when_server_cannot_register_clients(monkeypatch):
+    async def discover(url):
+        return {**_DISCOVERED, "registration_endpoint": None}
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "dcr"}, {}
+    )
+    assert res["success"] is False
+    assert "registration_endpoint" in res["message"]
+    assert "admin-registered OAuth app" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_oauth_app_verify_does_not_run_discovery(monkeypatch):
+    # An admin-registered app has its endpoints already; nothing to discover.
+    called = []
+    async def discover(url):
+        called.append(url)
+        return dict(_DISCOVERED)
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "oauth_app"}, {}
+    )
+    assert res["success"] is True
+    assert called == []
+    assert "detected" not in res

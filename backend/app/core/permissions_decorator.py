@@ -204,6 +204,14 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             # Check role-based permission via RBAC resolver
             # `permission` may be a single string or a list/tuple (ANY-of semantics)
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+
+            # Publish this request's code-visibility decision for the sync
+            # serializers (see app/core/code_visibility.py). Every RBAC-gated
+            # route passes through here, so step payloads, tool results and
+            # stream events are all covered without a per-call-site check.
+            from app.core.code_visibility import set_code_visibility, can_view_code
+            set_code_visibility(can_view_code(resolved))
+
             if isinstance(permission, (list, tuple, set)):
                 has_role_permission = any(resolved.has_org_permission(p) for p in permission)
             else:

@@ -8,6 +8,75 @@
 version: v1.0.0
 # Open-source vulnerability ignores (client-side policy applied by `snyk test`).
 ignore:
+  # Timing Attack in oauthlib (High). Fixed only in oauthlib 4.0.0, but that
+  # version is NOT installable in this tree: databricks-sql-connector hard-caps
+  # oauthlib<4.0.0,>=3.1.0 on every published version up to and including the
+  # latest (4.6.0), so no upgrade can remediate it without dropping the
+  # Databricks connector. The vulnerable code path is server-side OAuth
+  # signature/token *verification* (constant-time comparison when validating
+  # inbound requests). This backend uses oauthlib only as an OAuth1 *client* —
+  # requests_oauthlib.OAuth1 signs outbound requests in
+  # app/data_sources/clients/netsuite_client.py — and never verifies inbound
+  # OAuth signatures, so the vulnerable path is not reached. Databricks auth in
+  # this deployment uses a personal access token, not the oauthlib OAuth flow.
+  # Time-boxed; re-review when databricks-sql-connector relaxes its oauthlib cap.
+  SNYK-PYTHON-OAUTHLIB-20305255:
+    - '*':
+        reason: >-
+          No installable fix (fixed in oauthlib 4.0.0; databricks-sql-connector
+          hard-caps oauthlib<4.0.0 on all versions incl. latest 4.6.0). Vuln is
+          in server-side OAuth verification; this backend uses oauthlib only as
+          an OAuth1 client (outbound request signing in netsuite_client.py), so
+          the path is not reached. Re-review when the databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  # Command Injection in simple-git / @simple-git/argv-parser (Critical). Pulled
+  # in ONLY as a dev/build-tooling transitive:
+  #   nuxt > @nuxt/devtools > simple-git > @simple-git/argv-parser
+  # @nuxt/devtools is the local development UI; it uses simple-git to read repo
+  # info while running `nuxt dev` on a developer's machine. It is NOT part of the
+  # production runtime: `nuxt build` emits `.output/`, which the prod image runs
+  # directly, and @nuxt/devtools / simple-git never ship in that artifact. The
+  # injection requires attacker-controlled arguments to git commands; the only
+  # inputs here are the developer's own local repo during dev, never attacker-
+  # controlled production request data. No upgrade remediates it in this tree:
+  # the fix lands only in simple-git 4.0.0, but every @nuxt/devtools release
+  # (stable up to 3.4.2; latest tag 4.0.0-beta.2) pins simple-git ^3.x, and
+  # forcing simple-git 4.x breaks the build — @nuxt/devtools does
+  # `import Git from 'simple-git'` and simple-git 4 removed its default export.
+  # Resolved by the Nuxt 4 / @nuxt/devtools upgrade. Time-boxed for re-review.
+  SNYK-JS-SIMPLEGIT-20335524:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGIT-20335531:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGIT-20335540:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGITARGVPARSER-20335528:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools > simple-git);
+          not in the production .output runtime. No fix installable: the fix is
+          @simple-git/argv-parser 2.0.1 (simple-git 4.x), but all @nuxt/devtools
+          releases pin simple-git ^3.x and v4 breaks the build (default export
+          removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
   # Improper Verification of Cryptographic Signature in node-forge (CVSS 8.7).
   # Pulled in ONLY as a build/dev-tooling transitive:
   #   nuxt > @nuxt/cli > listhen > node-forge
@@ -26,6 +95,58 @@ ignore:
           node-forge version exists (all versions affected, no patch). Re-review
           on expiry.
         expires: 2026-12-07T00:00:00.000Z
+  # Uncontrolled Recursion in braces (High). Reached ONLY through build-time
+  # tooling, never the shipped browser bundle:
+  #   @nuxt/ui > @nuxtjs/tailwindcss > tailwindcss > chokidar|fast-glob >
+  #     micromatch > braces        (Tailwind CSS generation at build time)
+  #   nuxt > nitropack > globby > fast-glob > micromatch > braces
+  #     (Nitro build-time file globbing)
+  # The recursion is driven by adversarial brace-expansion patterns; the only
+  # inputs braces sees here are the project's own globs / watched paths during
+  # `nuxt build`, never attacker-controlled runtime data, and braces does not
+  # execute in the production .output server. Every braces version is flagged
+  # (fixedIn: []), so no upgrade remediates it; the vulnerable chain is dropped
+  # by the Nuxt 4 upgrade. Time-boxed for re-review.
+  SNYK-JS-BRACES-19963945:
+    - '*':
+        reason: >-
+          Build-time-only transitive (Tailwind CSS generation and Nitro file
+          globbing via micromatch); not in the production .output runtime. No
+          fixed braces version exists (all versions affected). Re-review on
+          expiry or when the Nuxt 4 upgrade drops the chain.
+        expires: 2026-12-21T00:00:00.000Z
+  # Prototype Pollution in deepmerge (High). Build-time-only transitive:
+  #   nuxt > nitropack > @rollup/plugin-node-resolve > deepmerge
+  # deepmerge runs inside the Rollup/Nitro bundler during `nuxt build`, merging
+  # bundler configuration objects only. Exploiting prototype pollution requires
+  # attacker-controlled objects to be merged; the production .output server
+  # never invokes this code path on request data. Every deepmerge version is
+  # flagged (fixedIn: []), so no upgrade remediates it; resolved by the Nuxt 4
+  # upgrade. Time-boxed for re-review.
+  SNYK-JS-DEEPMERGE-19964053:
+    - '*':
+        reason: >-
+          Build-time-only transitive (Rollup/Nitro bundler config merge); not in
+          the production .output runtime request path. No fixed deepmerge version
+          exists (all versions affected). Re-review on expiry or when the Nuxt 4
+          upgrade drops the chain.
+        expires: 2026-12-21T00:00:00.000Z
+  # Uncontrolled Recursion in ioredis (High). Pulled in transitively as an
+  # OPTIONAL Nitro storage driver:
+  #   nuxt > nitropack > ioredis
+  # ioredis is loaded only when a Redis storage mount is configured. This
+  # deployment configures no Redis storage (frontend/nuxt.config.ts sets no
+  # nitro.storage redis driver; default storage is memory/filesystem), so the
+  # module is never instantiated at runtime. The only fix is 6.0.0-beta.1;
+  # forcing a pre-release ioredis into the Nitro server is riskier than the
+  # dormant finding. Re-review when a stable ioredis 6.x ships or Nuxt 4 lands.
+  SNYK-JS-IOREDIS-19963957:
+    - '*':
+        reason: >-
+          Dormant optional Nitro storage driver; no Redis storage is configured
+          in this deployment, so ioredis is never loaded at runtime. Only fix is
+          a pre-release (6.0.0-beta.1). Re-review on expiry.
+        expires: 2026-12-21T00:00:00.000Z
 exclude:
   code:
     - 'backend/tests'

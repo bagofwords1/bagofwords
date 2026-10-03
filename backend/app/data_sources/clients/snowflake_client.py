@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.fk_reflection import attach_foreign_keys
 from app.data_sources.query_cancellation import track
@@ -139,6 +140,8 @@ class SnowflakeClient(DataSourceClient):
         try:
             engine = self.snowflake_engine
             conn = engine.connect()
+        except IndexingCancelled:
+            raise
         except Exception as e:
             if conn is not None:
                 conn.close()
@@ -173,6 +176,8 @@ class SnowflakeClient(DataSourceClient):
         """Get tables with graceful fallback if enriched query fails, plus semantic views."""
         try:
             tables = self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
             # Fallback to basic query without comments
             tables = self._get_tables_basic()
@@ -180,6 +185,8 @@ class SnowflakeClient(DataSourceClient):
         # Append semantic views (failures here should not affect regular tables)
         try:
             tables.extend(self._get_semantic_views())
+        except IndexingCancelled:
+            raise
         except Exception:
             pass
 
@@ -244,6 +251,7 @@ class SnowflakeClient(DataSourceClient):
 
     def _get_semantic_views(self) -> List[Table]:
         """Discover Snowflake semantic views and their columns/measures/dimensions."""
+        discovery_phase('reading_semantic_views')
         tables = []
         schemas = self._schemas if self._schemas else ([self._primary_schema] if self._primary_schema else [])
 
@@ -256,6 +264,8 @@ class SnowflakeClient(DataSourceClient):
                     sv_results = conn.execute(
                         text(f"SHOW SEMANTIC VIEWS IN DATABASE {self.database}")
                     ).fetchall()
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     return tables
             else:
@@ -265,10 +275,12 @@ class SnowflakeClient(DataSourceClient):
                             text(f"SHOW SEMANTIC VIEWS IN SCHEMA {self.database}.{schema}")
                         ).fetchall()
                         sv_results.extend(rows)
+                    except IndexingCancelled:
+                        raise
                     except Exception:
                         continue
 
-            for sv_row in sv_results:
+            for sv_row in discovery_items(sv_results, 'semantic_views', label=lambda row: str(row[0])):
                 view_name = sv_row[1]  # name
                 sv_schema = sv_row[3]  # schema_name
                 fqn = f"{sv_schema}.{view_name}"
@@ -351,6 +363,8 @@ class SnowflakeClient(DataSourceClient):
                             description=props.get("COMMENT"),
                             metadata=col_metadata,
                         ))
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
 
@@ -375,6 +389,7 @@ class SnowflakeClient(DataSourceClient):
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table comments. May fail on older Snowflake versions."""
+        discovery_phase('reading_columns')
         tables = {}
         with self.connect() as conn:
             params = {}
@@ -408,7 +423,7 @@ class SnowflakeClient(DataSourceClient):
 
             results = conn.execute(sql, params).fetchall()
 
-            for row in results:
+            for row in discovery_items(results, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
                 key = (table_schema, table_name)
                 fqn = f"{table_schema}.{table_name}"
@@ -433,6 +448,7 @@ class SnowflakeClient(DataSourceClient):
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (original query - always works)."""
+        discovery_phase('metadata_fallback')
         tables = {}
         with self.connect() as conn:
             params = {}
@@ -458,7 +474,7 @@ class SnowflakeClient(DataSourceClient):
 
             results = conn.execute(sql, params).fetchall()
 
-            for row in results:
+            for row in discovery_items(results, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_schema, table_name, column_name, data_type = row
                 key = (table_schema, table_name)
                 fqn = f"{table_schema}.{table_name}"
@@ -502,7 +518,8 @@ class SnowflakeClient(DataSourceClient):
 
             return Table(name=f"{schema}.{table}", columns=columns, pks=None, fks=None, metadata_json={"schema": schema})
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         tables = self.get_tables()
         return tables
 

@@ -87,9 +87,9 @@ class ConnectionSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     tool_count: int = 0
-    # BOW-managed custom queries on this connection (materialized relations).
+    # BOW-managed custom tables on this connection (materialized relations).
     custom_queries_count: int = 0
-    # Whether this connection can host custom queries at all — accelerable
+    # Whether this connection can host custom tables at all — accelerable
     # connector type AND shared (system) credentials.
     custom_queries_supported: bool = False
     agent_count: int = 0
@@ -126,14 +126,17 @@ class ConnectionDetailSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     tool_count: int = 0
-    # BOW-managed custom queries on this connection (materialized relations).
+    # BOW-managed custom tables on this connection (materialized relations).
     custom_queries_count: int = 0
-    # Whether this connection can host custom queries at all — accelerable
+    # Whether this connection can host custom tables at all — accelerable
     # connector type AND shared (system) credentials.
     custom_queries_supported: bool = False
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
+    management_auth: str = "system"  # system | user, independent of query identity
+    last_connection_status: Optional[str] = None
+    last_connection_checked_at: Optional[str] = None
     # Non-secret credential fields, safe to send back so the edit form can
     # pre-fill them (OAuth endpoints, client_id, scopes, api_key header). Secrets
     # (client_secret, token, api_key, password) are NEVER included.
@@ -222,6 +225,9 @@ class ConnectionIndexingProgress(BaseModel):
     progress_total: int = 0
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    # When the source last reported progress — lets the UI tell a slow run
+    # from a stuck one, which elapsed time alone cannot.
+    last_activity_at: Optional[str] = None
     error: Optional[str] = None
     stats: Optional[Dict[str, Any]] = None
     events: Optional[List[Dict[str, Any]]] = None
@@ -235,4 +241,3 @@ class ConnectionIndexingSchema(ConnectionIndexingProgress):
     connection_id: str
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
-

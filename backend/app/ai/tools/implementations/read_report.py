@@ -16,7 +16,7 @@ import logging
 
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, load_only, selectinload
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -32,6 +32,7 @@ from app.ai.tools.schemas.read_report import (
     ReadReportMessage,
     ReadReportArtifact,
 )
+from app.models.artifact import ArtifactVersion
 from app.models.report import Report
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,21 @@ class ReadReportTool(Tool):
                 .where(Report.organization_id == str(organization.id))
                 .where(scope)
                 .options(
-                    selectinload(Report.artifacts),
+                    # Version rows, loaded bounded: the summary needs ids +
+                    # version numbers, never the ~100kB content JSON. The
+                    # load_only MUST keep title/mode/artifact_id — they are
+                    # parent read-throughs (see the ArtifactVersion docstring).
+                    selectinload(Report.artifact_versions).options(
+                        lazyload("*"),
+                        load_only(
+                            ArtifactVersion.id,
+                            ArtifactVersion.artifact_id,
+                            ArtifactVersion.version,
+                            ArtifactVersion.title,
+                            ArtifactVersion.mode,
+                            ArtifactVersion.created_at,
+                        ),
+                    ),
                     selectinload(Report.data_sources),
                     selectinload(Report.completions),
                 )
@@ -183,7 +198,7 @@ class ReadReportTool(Tool):
 
         # Artifacts summary (most recent first)
         artifacts = sorted(
-            report.artifacts or [],
+            report.artifact_versions or [],
             key=lambda a: a.created_at.timestamp() if a.created_at else 0,
             reverse=True,
         )

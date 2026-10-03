@@ -55,7 +55,7 @@ class GetContextTool(MCPTool):
         platform = await self._get_or_create_mcp_platform(db, organization)
 
         # Load report as ORM model (preserves Connection.get_credentials())
-        report = await self._load_report(db, input_data.report_id)
+        report = await self._load_report(db, input_data.report_id, user, organization)
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         # First, restrict to data sources THIS user is allowed to see — the

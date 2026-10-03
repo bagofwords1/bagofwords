@@ -69,6 +69,9 @@ class ConnectionIndexing(BaseSchema):
 
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
+    # Last progress reported by the source. Not `updated_at`: the liveness
+    # heartbeat bumps that even while the run is stuck.
+    last_activity_at = Column(DateTime, nullable=True)
 
     error = Column(Text, nullable=True)
     stats_json = Column(JSON, nullable=True)

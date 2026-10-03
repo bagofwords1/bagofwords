@@ -33,6 +33,75 @@ def _get_test_database_url() -> str:
     return os.environ.get("TEST_DATABASE_URL", settings.TEST_DATABASE_URL)
 
 
+# Default pool geometry for the production async engine, per uvicorn worker.
+# The effective ceiling against the database is
+# ``(pool_size + max_overflow) * workers * replicas`` — size it under the
+# server's ``max_connections - superuser_reserved_connections`` (stock Postgres
+# is 100 - 3 = 97). Exceeding it does NOT surface as a QueuePool timeout: the
+# server refuses the connect outright with "remaining connection slots are
+# reserved for roles with the SUPERUSER attribute", which then surfaces to
+# users as a failed agent run.
+DEFAULT_DB_POOL_SIZE = 20
+DEFAULT_DB_MAX_OVERFLOW = 20
+
+
+def _env_pool_int(name: str, default: int) -> int:
+    """Read a pool-geometry override from the environment.
+
+    These were hardcoded, so an operator hitting connection-slot exhaustion had
+    no lever short of editing the image. Invalid or negative values fall back to
+    the default rather than failing startup.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("%s=%r is not an integer; using %d", name, raw, default)
+        return default
+    if value < 0:
+        logger.warning("%s=%d is negative; using %d", name, value, default)
+        return default
+    return value
+
+
+def _pool_size() -> int:
+    return _env_pool_int("BOW_DB_POOL_SIZE", DEFAULT_DB_POOL_SIZE)
+
+
+def _max_overflow() -> int:
+    return _env_pool_int("BOW_DB_MAX_OVERFLOW", DEFAULT_DB_MAX_OVERFLOW)
+
+
+def _idle_session_timeout_ms() -> int:
+    """Server-side idle-session reaping, in ms. 0 (the default) disables it.
+
+    A QueuePool never shrinks on its own: `pool_recycle` is applied lazily at
+    checkout and *replaces* a stale connection rather than closing it, and
+    SQLAlchemy has no idle-pool reaper. So once a burst has grown the pool to
+    `pool_size`, that many Postgres backends stay open for the life of the
+    worker. Measured here against a local PG16: after a 40-way burst the pool
+    sat at 20 open backends indefinitely under light traffic, with or without
+    `pool_use_lifo`.
+
+    Letting the *server* close sessions idle past this timeout is what actually
+    drains it; `pool_pre_ping` (enabled below) then detects the closed socket at
+    next checkout and reconnects transparently. With the timeout at 5s and one
+    query/second of traffic, the same pool settled at 4 open backends under FIFO
+    checkout and 1 under LIFO.
+
+    OFF BY DEFAULT because `idle_session_timeout` is PostgreSQL 14+, and an
+    unrecognised GUC passed as a startup parameter makes *every* connection fail
+    with `UndefinedObjectError` — so enabling it blindly would hard-break
+    deployments on older servers. Operators on 14+ opt in with
+    BOW_DB_IDLE_SESSION_TIMEOUT_MS (the Helm chart, which bundles PG 17, sets
+    it). Keep it far longer than any gap between queries on a busy worker —
+    minutes, not seconds — or the pool churns reconnects instead of draining.
+    """
+    return _env_pool_int("BOW_DB_IDLE_SESSION_TIMEOUT_MS", 0)
+
+
 def _get_database_url() -> str:
     """Resolve the database URL from config, supporting IAM auth providers."""
     db = settings.bow_config.database
@@ -243,6 +312,14 @@ def _build_async_database_engine():
             server_settings = connect_args.setdefault("server_settings", {})
             server_settings.setdefault("lock_timeout", "30000")
             server_settings.setdefault("idle_in_transaction_session_timeout", "300000")
+            #   - idle_session_timeout: lets the server close sessions the pool
+            #     is holding but not using, so a quiet worker's backends drain
+            #     instead of pinning `pool_size` slots forever. Off unless the
+            #     operator opts in — see `_idle_session_timeout_ms` for why
+            #     (PG 14+ only; an unknown GUC here fails every connect).
+            _idle_ms = _idle_session_timeout_ms()
+            if _idle_ms > 0:
+                server_settings.setdefault("idle_session_timeout", str(_idle_ms))
             # PostgreSQL: use connection pooling for production
             # Pool sizing assumes one uvicorn worker. Each in-flight SSE
             # completion holds the agent's primary session for its entire
@@ -253,11 +330,22 @@ def _build_async_database_engine():
             engine = create_async_engine(
                 database_url,
                 echo=False,
-                pool_size=20,          # connections per worker
-                max_overflow=20,       # extra under load
+                pool_size=_pool_size(),          # connections per worker
+                max_overflow=_max_overflow(),    # extra under load
                 pool_timeout=30,       # wait time for connection
                 pool_recycle=1800,     # recycle every 30min (avoids stale connections)
                 pool_pre_ping=True,    # check connection health before use
+                # LIFO checkout: hand back the most recently used connection
+                # instead of round-robining through the whole pool, so steady
+                # light traffic concentrates on a few connections and the tail
+                # goes genuinely idle. On its own this does NOT reduce open
+                # backends (nothing closes a pooled connection) — it multiplies
+                # what `idle_session_timeout` above can reclaim: measured on a
+                # 20-connection pool under one query/second, FIFO settled at 4
+                # open backends and LIFO at 1. Mirrors the data-source pool,
+                # which sets it for the same reason
+                # (data_sources/engine_pool.py).
+                pool_use_lifo=True,
                 connect_args=connect_args,
             )
             if db_config.uses_iam_auth:

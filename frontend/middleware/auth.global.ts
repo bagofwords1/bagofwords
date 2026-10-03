@@ -1,4 +1,5 @@
 export default defineNuxtRouteMiddleware(async (to, from) => {
+  if (to.path.startsWith('/artifact-preview/')) return // API remains authenticated by the preview broker.
   const { status, getSession, data } = useAuth()
   // Reuse the session already loaded by the permissions plugin / sidebase's own
   // middleware instead of firing a fresh whoami on every navigation. Only hit
@@ -22,4 +23,4 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
 
 })
 
-  
+

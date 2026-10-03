@@ -12,7 +12,7 @@
             class="h-full ag-grid-themed ag-theme-custom"
             :style="agGridStyles"
         >
-            <AgGridComponent class="text-[9px]" :columnDefs="columnDefs" :rowData="rowData" />
+            <AgGridComponent class="text-xs" :columnDefs="columnDefs" :rowData="rowData" />
         </div>
     </div>
     <div 
@@ -74,7 +74,7 @@ const agGridStyles = computed(() => {
     '--ag-odd-row-background-color': tokens.value.cardBackground || tokens.value.background,
     '--ag-even-row-background-color': tokens.value.cardBackground || tokens.value.background,
     '--ag-font-family': tokens.value.fontFamily,
-    '--ag-font-size': '9px',
+    '--ag-font-size': '12px',
     fontFamily: tokens.value.fontFamily,
   }
 })

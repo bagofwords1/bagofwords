@@ -89,6 +89,7 @@
   interface AuthProvider {
     name: string
     enabled?: boolean
+    protocol?: 'saml' | 'oidc'
     label?: string
     brand?: 'microsoft' | 'google' | 'custom'
     icon?: string | null
@@ -230,8 +231,8 @@
   onMounted(async () => {
     try {
       const settings = await $fetch('/api/settings')
-      if (settings?.oidc_providers?.length) {
-        oidcProviders.value = settings.oidc_providers.filter((p: any) => p.enabled)
+      if (settings?.oidc_providers?.length || settings?.saml_providers?.length) {
+        oidcProviders.value = [...(settings.oidc_providers || []), ...(settings.saml_providers || [])].filter((p: any) => p.enabled)
       }
       if (settings?.auth?.mode) {
         authMode.value = settings.auth.mode
@@ -246,6 +247,9 @@
         return navigateTo('/users/sign-up')
       }
     } catch (_) {}
+    if (route.query.error_code === 'saml_login_failed') {
+      error_message.value = t('errors.saml_login_failed')
+    }
     const inviteError = route.query.error as string
     if (inviteError) {
       error_message.value = inviteError
@@ -308,6 +312,7 @@
       && !localOverride.value
       && !ldapEnabled.value
       && !inviteError
+      && !route.query.error_code
       && ssoProviderCount.value === 1
     ) {
       const provider = oidcProviders.value[0]
@@ -412,7 +417,9 @@
     try {
       loadingProvider.value = name
       persistRedirectForOAuth()
-      const response = await $fetch(`/api/auth/${name}/authorize`, {
+      const provider = oidcProviders.value.find((p) => p.name === name)
+      const path = provider?.protocol === 'saml' ? `saml/${name}` : name
+      const response = await $fetch(`/api/auth/${path}/authorize`, {
         method: 'GET',
         query: loginHint.value ? { login_hint: loginHint.value } : undefined,
       })

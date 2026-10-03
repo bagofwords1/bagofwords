@@ -120,4 +120,62 @@ onMounted(() => {
   flex: 1;
   width: 100%;
 }
+
+/* ag-theme-balham declares the whole `--ag-*` palette ON the element carrying
+   the theme class — which is this grid, not the wrapper. A themed wrapper
+   (.ag-grid-themed in RenderTable / TableAgGrid) sets its token values as
+   inline custom properties one level up, and those were being shadowed for
+   everything inside the grid: the app/report tokens never reached a single
+   cell. In light mode that went unnoticed (balham is white too); in dark mode
+   the grid rendered balham-dark's own greys (#2d3436 rows on a #1c1c1c header)
+   inside a #111827 panel — three different surfaces in one card.
+
+   Re-inherit the tokens the wrappers actually set, so the surface, text and
+   borders follow the app theme. Everything else (menus, filter popups, icons,
+   the active accent) intentionally keeps its per-variant balham value, which
+   is already light/dark correct. */
+.ag-grid-themed .ag-grid {
+  --ag-background-color: inherit;
+  --ag-foreground-color: inherit;
+  --ag-header-background-color: inherit;
+  --ag-header-foreground-color: inherit;
+  --ag-border-color: inherit;
+  --ag-odd-row-background-color: inherit;
+  --ag-row-hover-color: inherit;
+  --ag-selected-row-background-color: inherit;
+  --ag-font-family: inherit;
+  --ag-font-size: inherit;
+  /* Not set by the wrappers — derive them so row/column rules stop using
+     balham's own greys once --ag-border-color follows the theme. */
+  --ag-row-border-color: var(--ag-border-color);
+  --ag-header-column-separator-color: var(--ag-border-color);
+  /* The wrappers declare these as var(--ag-header-background-color), but that
+     resolves on the WRAPPER — i.e. to the flat card background, not to the
+     tinted header below. Re-declare them here so they resolve against this
+     element's header color and hovering a header cell doesn't flash it flat. */
+  --ag-header-cell-hover-background-color: var(--ag-header-background-color);
+  --ag-header-cell-moving-background-color: var(--ag-header-background-color);
+}
+
+/* Both wrappers set --ag-header-background-color to the same token as the body
+   (cardBackground), so once the tokens actually reached the grid the header row
+   collapsed onto the rows and the only separation left was the border under
+   .ag-header. Tint it toward the text color instead of picking a literal: that
+   darkens the header in light mode and lifts it in dark mode while staying in
+   the card's own hue family, so it also holds for the named report themes
+   (retro, hacker, …) without giving each one a header token of its own.
+
+   Gated on @supports because a custom property accepts any token stream at
+   parse time — without the gate, a browser that can't do color-mix would take
+   this declaration and then drop the property at computed-value time, leaving
+   the header with no background at all rather than the plain inherit above. */
+@supports (color: color-mix(in srgb, red 6%, blue)) {
+  .ag-grid-themed .ag-grid {
+    --ag-header-background-color: color-mix(
+      in srgb,
+      var(--ag-foreground-color) 6%,
+      var(--ag-background-color)
+    );
+  }
+}
 </style>

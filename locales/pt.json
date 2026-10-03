@@ -1,4 +1,19 @@
 {
+  "agentLanding": {
+    "actions": "Ações do agente",
+    "countTasks": "{n} tarefa | {n} tarefas",
+    "editStarters": "Editar sugestões de conversa",
+    "download": "Baixar dados do agente",
+    "addInstruction": "Adicionar instrução",
+    "chooseExisting": "Escolher existente",
+    "readMore": "Ler mais",
+    "readLess": "Mostrar menos"
+  },
+  "agentCard": {
+    "signedIn": "Sessão iniciada",
+    "countBoards": "{n} quadro | {n} quadros",
+    "configuredCountsHint": "Antes de iniciar sessão, as contagens refletem o catálogo partilhado, não o seu acesso pessoal."
+  },
   "agentsPage": {
     "title": "Agentes",
     "subtitle": "Configure seus agentes e os dados, ferramentas, habilidades e instruções com que eles raciocinam.",
@@ -18,6 +33,9 @@
     "newAgent": "Agente",
     "newAgentDesc": "Conecte dados, ferramentas e tabelas",
     "searchPlaceholder": "Buscar tudo…",
+    "clearSearch": "Limpar busca",
+    "searchAgentInstructions": "Buscar instruções…",
+    "noResults": "Nenhum resultado.",
     "filters": "Filtros",
     "filterStatus": "Status",
     "filterLoading": "Carregamento",
@@ -94,6 +112,23 @@
     "connect": "Conectar",
     "manageConnections": "Gerenciar conexões",
     "loadingFiles": "Carregando arquivos da origem…",
+    "fileBrowserRoot": "Todos os arquivos",
+    "fileBrowserSearch": "Pesquisar arquivos…",
+    "fileBrowserRefresh": "Atualizar",
+    "fileBrowserConnectRequired": "Conecte sua conta para navegar — esta conexão lê os arquivos com as credenciais de cada usuário.",
+    "fileBrowserError": "Não foi possível listar os arquivos da origem.",
+    "fileBrowserRetry": "Tentar novamente",
+    "fileBrowserEmpty": "Nenhum arquivo corresponde ao escopo desta conexão.",
+    "fileBrowserNoResults": "Nenhum arquivo corresponde a “{q}”.",
+    "fileBrowserSummary": "{n} arquivos no escopo · o agente lê apenas estes · acessos negados são auditados",
+    "fileBrowserTruncated": "Mostrando os primeiros {shown} de {total} arquivos — restrinja o escopo da conexão para ver o restante.",
+    "fileBrowserOpenInSource": "Abrir na origem",
+    "fileBrowserClosePreview": "Fechar pré-visualização",
+    "fileBrowserPreviewLoading": "Carregando pré-visualização…",
+    "fileBrowserPreviewError": "Não foi possível carregar a pré-visualização.",
+    "fileBrowserPreviewUnsupported": "Pré-visualização indisponível para este tipo de arquivo.",
+    "fileBrowserPreviewTooLarge": "Este arquivo é grande demais para pré-visualizar ({size}).",
+    "fileBrowserPreviewTextTruncated": "Mostrando os primeiros {n} caracteres.",
     "countTables": "{n} tabela | {n} tabelas",
     "countTools": "{n} ferramenta | {n} ferramentas",
     "countFiles": "{n} arquivo | {n} arquivos",
@@ -412,6 +447,11 @@
         "title": "⚡ \"{name}\" foi acionado — {summary}",
         "body": "A investigação foi concluída — abra a sessão para ver os resultados."
       }
+    },
+    "checkin": {
+      "badge": "Acompanhamento",
+      "openReport": "Abrir relatório",
+      "assistantFallback": "Analista de IA"
     }
   },
   "auth": {
@@ -517,6 +557,7 @@
     "training": "Treinamento",
     "schedulePrompt": "Agendar uma solicitação",
     "selectModel": "Selecionar modelo",
+    "createReportFailed": "Não foi possível criar o relatório",
     "untitled": "Sem título",
     "estimating": "Estimando…",
     "estimateUnavailable": "Estimativa indisponível",
@@ -574,7 +615,28 @@
     "modelAutoHint": "O roteador escolhe o melhor modelo",
     "autoAgentsHint": "Qualquer agente a que tenha acesso",
     "loadingDataSources": "Carregando fontes de dados…",
-    "noDataSources": "Nenhuma fonte de dados encontrada"
+    "noDataSources": "Nenhuma fonte de dados encontrada",
+    "effort": {
+      "title": "Esforço",
+      "default": "Padrão",
+      "levels": {
+        "off": "Rápido",
+        "low": "Baixo",
+        "medium": "Médio",
+        "high": "Alto",
+        "max": "Máx."
+      },
+      "searchModels": "Pesquisar modelos…",
+      "noMatches": "Nenhum modelo corresponde",
+      "otherProvider": "Outro",
+      "anyModel": "Aplica-se ao modelo que for executado",
+      "notSupported": "Este modelo não tem ajuste de esforço",
+      "providerDefault": "Padrão do modelo",
+      "modelDefault": "Padrão do administrador: {level}",
+      "runsAs": "Executa como {level} neste modelo",
+      "faster": "Mais rápido",
+      "smarter": "Mais inteligente"
+    }
   },
   "reports": {
     "title": "Relatórios",
@@ -730,7 +792,8 @@
         "title": "Mostrar respostas com feedback negativo",
         "prompt": "Revise as respostas que receberam feedback negativo dos usuários para identificar padrões e pontos de melhoria."
       }
-    ]
+    ],
+    "artifactLoadFailed": "Não foi possível carregar o painel. Atualize a página para tentar novamente."
   },
   "projects": {
     "title": "Projetos",
@@ -849,6 +912,11 @@
     "llm": "LLM",
     "exec": "Exec",
     "selectItem": "Selecione um item na árvore para ver os detalhes",
+    "tabs": {
+      "conversation": "Conversa",
+      "timeline": "Linha do tempo",
+      "details": "Detalhes"
+    },
     "userPrompt": "Solicitação do usuário",
     "instructionsCount": "{count} instruções",
     "alwaysCount": "{count} sempre",
@@ -883,7 +951,96 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Uso de LLM nesta conversa",
     "turnTokensTooltip": "Tokens LLM do planejador neste turno",
-    "turnUsageTooltip": "Uso de LLM neste turno"
+    "turnUsageTooltip": "Uso de LLM neste turno",
+    "setup": "Preparação",
+    "setupTooltip": "Tempo do início até o primeiro passo (construção de contexto, etc.)",
+    "overhead": "Outros",
+    "overheadTooltip": "Tempo não atribuído a nenhum passo: persistência, atualização de contexto entre passos, finalização",
+    "segment_planner": "LLM do planejador",
+    "segment_tool_llm": "LLM da ferramenta",
+    "segment_tool_exec": "Execução da ferramenta",
+    "segment_setup": "Preparação",
+    "plannerShort": "Plano",
+    "toolShort": "Ferr.",
+    "stepTiming": "Tempo do passo",
+    "stepTotal": "Total do passo",
+    "firstToken": "Tempo até o primeiro token",
+    "thinking": "Raciocínio",
+    "tool": "Ferramenta",
+    "machineTurn": "Turno automático ({source})",
+    "checkin": {
+      "title": "Acompanhamento do agente",
+      "runTurn": "Execução de acompanhamento (agente)",
+      "noFollowUp": "Nenhum acompanhamento planejado",
+      "noReason": "O planejador não deu um motivo.",
+      "due": "previsto para {when}",
+      "note": "Nota para depois",
+      "planReason": "Por que acompanhar",
+      "judge": "Juiz",
+      "focus": "Foco",
+      "whyRun": "Por que o juiz executou este acompanhamento",
+      "plannerUsage": "Planejador",
+      "judgeUsage": "Juiz",
+      "status": {
+        "not_proposed": "não proposto",
+        "rejected": "rejeitado",
+        "planned": "planejado",
+        "cancelled": "cancelado",
+        "skipped": "ignorado",
+        "running": "em execução",
+        "ran_quiet": "executado sem aviso",
+        "sent": "notificado",
+        "failed": "falhou"
+      },
+      "decision": {
+        "run": "executar",
+        "skip": "ignorar"
+      },
+      "reason": {
+        "disabled": "configuração desativada",
+        "pending_exists_user": "o usuário já tem um pendente",
+        "pending_exists_report": "o relatório já tem um pendente",
+        "weekly_cap": "limite semanal atingido",
+        "org_daily_cap": "limite diário da organização atingido",
+        "report_deleted": "relatório excluído",
+        "access_lost": "acesso perdido",
+        "judge_skip": "ignorado pelo juiz",
+        "run_failed": "a execução falhou",
+        "invalid_judge_output": "resposta do juiz inválida",
+        "opted_out": "usuário desativou",
+        "fire_error": "erro durante a verificação",
+        "stale_running": "ficou em execução (reinício)"
+      },
+      "outcome": {
+        "sent": "Usuário notificado",
+        "sentWithSubject": "Usuário notificado: {subject}",
+        "ran_quiet": "Executado sem aviso — nada a notificar",
+        "planned": "Aguardando o horário previsto",
+        "running": "Em execução",
+        "skipped": "Ignorado pelo juiz — nada foi executado",
+        "failed": "A execução do acompanhamento falhou — nada foi enviado",
+        "rejected": "Não agendado: {reason}",
+        "cancelled": "Cancelado: {reason}"
+      }
+    },
+    "memory": {
+      "title": "Memória",
+      "summary": "{injected} de {total} entradas incluídas · {chars} caracteres",
+      "privateNote": "A memória é privada do dono — só identificadores e seções são mostrados.",
+      "refused": "Recusado",
+      "tier": {
+        "always": "sempre",
+        "matched": "correspondência"
+      }
+    },
+    "export": {
+      "button": "Exportar",
+      "turnJson": "Baixar este turno (JSON)",
+      "conversationJson": "Baixar conversa (JSON)",
+      "copyTurn": "Copiar este turno como JSON",
+      "copied": "JSON do rastreamento copiado para a área de transferência",
+      "failed": "Não foi possível exportar o rastreamento"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -962,6 +1119,16 @@
       "executionSucceeded": "Execução bem-sucedida",
       "retrying": "Tentando novamente · tentativa {n}",
       "visualizing": "Visualizando"
+    },
+    "runQuery": {
+      "running": "Executando \"{title}\"…",
+      "runningWith": "Executando \"{title}\" com {params}…",
+      "ran": "\"{title}\" executada",
+      "ranWith": "\"{title}\" executada com {params}",
+      "failed": "Falha ao executar \"{title}\"",
+      "needsInput": "\"{title}\" precisa de valores de parâmetros",
+      "needsValues": "Aguardando valores para:",
+      "cachedHint": "Servido do seu resultado em cache para esses valores; a fonte não foi consultada novamente"
     },
     "createArtifact": {
       "creating": "Criando artefato",
@@ -1435,10 +1602,11 @@
       "cancelledPlural": "{count} esperas pendentes canceladas",
       "nothingPending": "Nenhuma espera pendente"
     },
-    "updateUserMemory": {
-      "updating": "Atualizando memória…",
+    "memory": {
+      "updating": "Atualizando a memória…",
+      "checking": "Consultando a memória…",
       "updated": "Memória atualizada",
-      "failed": "Falha ao atualizar a memória"
+      "checked": "Memória consultada"
     },
     "routeModel": {
       "routedTo": "Roteado para",
@@ -1499,7 +1667,26 @@
       "snapshot": "Estrutura da página",
       "snapshotted": "Página lida",
       "snapshotting": "Lendo a página",
-      "working": "Navegando"
+      "working": "Navegando",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "O filtro de datas não retornou linhas. Seu funcionamento correto ainda não foi verificado.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "A ler {name}…",
@@ -1511,6 +1698,18 @@
       "pathLabel": "Caminho:",
       "attachedAsSessionFile": "Anexado a esta conversa como ficheiro de sessão",
       "showPagePreviews": "Mostrar pré-visualizações de páginas ({n})"
+    },
+    "resource": {
+      "failed": "Falha ao alterar o recurso",
+      "create": "Recurso criado",
+      "update": "Recurso atualizado",
+      "delete": "Recurso excluído",
+      "working": "Configurando recurso",
+      "stopped": "Interrompido",
+      "unchanged": "Recurso inalterado",
+      "preserved": "Registros existentes preservados.",
+      "changed": "Alterações",
+      "noChanges": "Nenhuma alteração aplicada."
     }
   },
   "entityCreate": {
@@ -2290,7 +2489,191 @@
       "daysAbbr": "{n}d",
       "rangeCount": "{start}–{end} de {total}",
       "prev": "‹ Ant.",
-      "next": "Próx. ›"
+      "next": "Próx. ›",
+      "tabs": {
+        "activity": "Atividade",
+        "streams": "Fluxos"
+      },
+      "actorAgent": "via agente",
+      "actorSystem": "sistema",
+      "searchPlaceholder": "Pesquisar ações, usuários, títulos…",
+      "filters": {
+        "user": "Usuário",
+        "allUsers": "Todos os usuários",
+        "resource": "Recurso",
+        "allResources": "Todos os recursos",
+        "range": "Período",
+        "rangeAll": "Todo o período",
+        "range24h": "Últimas 24 horas",
+        "range7d": "Últimos 7 dias",
+        "range30d": "Últimos 30 dias",
+        "filterActions": "Filtrar ações…",
+        "noOptions": "Nenhum resultado"
+      },
+      "export": {
+        "button": "Exportar",
+        "json": "Baixar JSON (NDJSON)",
+        "csv": "Baixar CSV",
+        "hint": "Exporta a visualização filtrada atual, do mais antigo para o mais recente.",
+        "failed": "Falha na exportação"
+      },
+      "drawer": {
+        "title": "Detalhes do evento",
+        "close": "Fechar",
+        "who": "Quem",
+        "when": "Quando",
+        "where": "Onde",
+        "what": "O quê",
+        "details": "Detalhes",
+        "rawJson": "JSON bruto",
+        "copy": "Copiar",
+        "copied": "Copiado",
+        "actor": "Ator",
+        "actorType": "Tipo de ator",
+        "timeUtc": "UTC",
+        "timeLocal": "Local",
+        "relative": "Relativo",
+        "ip": "Endereço IP",
+        "userAgent": "User agent",
+        "action": "Ação",
+        "resourceType": "Tipo de recurso",
+        "resourceId": "ID do recurso",
+        "open": "Abrir",
+        "agentRun": "Execução do agente",
+        "executionMode": "Modo de execução",
+        "none": "—",
+        "noDetails": "Sem detalhes adicionais",
+        "fields": {
+          "title": "Título",
+          "tool": "Ferramenta",
+          "data_source": "Fonte de dados",
+          "connection": "Conexão",
+          "queries": "Consultas",
+          "row_count": "Linhas",
+          "reason": "Motivo",
+          "error": "Erro",
+          "changed": "Alterações",
+          "state": "Estado",
+          "destination": "Destino",
+          "format": "Formato"
+        },
+        "actorKinds": {
+          "user": "Usuário",
+          "agent": "Agente (em nome do usuário)",
+          "system": "Sistema"
+        }
+      },
+      "streams": {
+        "title": "Fluxos de log",
+        "subtitle": "Entregue cada evento de auditoria ao seu SIEM ou bucket de armazenamento. Após qualquer interrupção, a entrega continua a partir do último evento enviado.",
+        "empty": "Nenhum fluxo de log ainda",
+        "emptyHint": "Adicione um fluxo para enviar eventos de auditoria ao Datadog, Splunk, Microsoft Sentinel, S3, Google Cloud Storage, um webhook ou syslog.",
+        "add": "Adicionar fluxo",
+        "edit": "Editar",
+        "delete": "Excluir",
+        "deleteConfirm": "Excluir o fluxo \"{name}\"? Os eventos deixarão de ser entregues a ele.",
+        "pause": "Pausar",
+        "resume": "Retomar",
+        "state": {
+          "active": "Ativo",
+          "inactive": "Pausado",
+          "error": "Erro",
+          "invalid": "Credenciais inválidas"
+        },
+        "delivered": "{n} entregues",
+        "pending": "{n} pendentes",
+        "lag": "atrasado {time}",
+        "lastDelivered": "Última entrega {time}",
+        "never": "nunca",
+        "lastError": "Último erro",
+        "nextAttempt": "Nova tentativa {time}",
+        "manageRequired": "Somente membros com Gerenciar configurações podem alterar fluxos de log.",
+        "form": {
+          "titleNew": "Adicionar fluxo de log",
+          "titleEdit": "Editar fluxo de log",
+          "name": "Nome",
+          "namePlaceholder": "ex.: Splunk produção",
+          "destination": "Destino",
+          "chooseDestination": "Escolha para onde enviar os eventos",
+          "startFrom": "Começar a partir de",
+          "startNow": "Somente eventos novos",
+          "startBeginning": "Incluir todo o histórico",
+          "actionFilter": "Somente ações que começam com",
+          "actionFilterHint": "Prefixos separados por vírgula, como tool., member. — deixe vazio para enviar tudo.",
+          "advanced": "Configurações avançadas",
+          "test": "Enviar evento de teste",
+          "testing": "Enviando…",
+          "testOk": "Evento de teste entregue",
+          "testFailed": "O teste falhou: {error}",
+          "save": "Salvar fluxo",
+          "saving": "Salvando…",
+          "cancel": "Cancelar",
+          "back": "Voltar",
+          "secretStored": "Armazenado — deixe como está para manter",
+          "externalIdHint": "Use este External ID na política de confiança da função do IAM.",
+          "required": "Obrigatório"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "Webhook HTTPS",
+          "syslog": "Syslog sobre TLS"
+        },
+        "destinationHints": {
+          "datadog": "API de ingestão de logs",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "API de ingestão de logs (DCR)",
+          "s3": "Objetos NDJSON por lote",
+          "gcs": "Objetos NDJSON via chaves HMAC",
+          "https": "POST JSON assinado",
+          "syslog": "RFC 5424, JSON ou CEF"
+        },
+        "fields": {
+          "url": "URL do endpoint",
+          "auth_header_name": "Nome do cabeçalho de autenticação",
+          "auth_header_value": "Valor do cabeçalho de autenticação",
+          "hmac_secret": "Segredo de assinatura (HMAC)",
+          "headers": "Cabeçalhos extras (objeto JSON)",
+          "verify_tls": "Verificar certificado TLS",
+          "site": "Site do Datadog",
+          "api_key": "Chave de API",
+          "service": "Serviço",
+          "tags": "Tags",
+          "intake_url": "URL de ingestão personalizada",
+          "hec_url": "URL do HEC",
+          "token": "Token do HEC",
+          "index": "Índice",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "ID do locatário",
+          "client_id": "ID do cliente",
+          "client_secret": "Segredo do cliente",
+          "dce_url": "Endpoint de coleta de dados",
+          "dcr_immutable_id": "ID imutável da DCR",
+          "stream_name": "Nome do fluxo",
+          "authority_url": "URL da autoridade",
+          "bucket": "Bucket",
+          "region": "Região",
+          "prefix": "Prefixo da chave",
+          "role_arn": "ARN da função",
+          "external_id": "External ID",
+          "access_key_id": "ID da chave de acesso",
+          "secret_access_key": "Chave de acesso secreta",
+          "gzip": "Compactar objetos com gzip",
+          "endpoint_url": "URL de endpoint personalizada",
+          "sts_endpoint_url": "Endpoint STS personalizado",
+          "host": "Host",
+          "port": "Porta",
+          "tls": "Usar TLS",
+          "format": "Formato da mensagem",
+          "ca_cert": "Certificado de CA (PEM)",
+          "app_name": "Nome do app",
+          "client_cert": "Certificado do cliente (PEM)",
+          "client_key": "Chave do cliente (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "Configurações de IA",
@@ -2298,9 +2681,39 @@
       "beta": "Recurso beta",
       "locked": "Esta configuração está bloqueada e não pode ser alterada.",
       "notEditable": "(Não editável diretamente)",
-      "aiAgentsTitle": "Agentes de IA",
-      "aiAgentsSubtitle": "Configure os agentes de IA e os recursos disponíveis para os membros da sua organização.",
       "noSettings": "Nenhuma configuração de IA disponível.",
+      "sectionSummary": "{n} configurações",
+      "sectionSummaryOn": "{n} configurações · {on} ativas",
+      "sections": {
+        "data": {
+          "title": "Acesso a dados e privacidade",
+          "description": "O que a IA pode ver e trazer para uma conversa"
+        },
+        "capabilities": {
+          "title": "Capacidades do agente",
+          "description": "O que o agente pode fazer ao responder"
+        },
+        "learning": {
+          "title": "Aprendizado e memória",
+          "description": "Como a IA aprende com usuários, feedback e uso"
+        },
+        "tools": {
+          "title": "Ferramentas e MCP",
+          "description": "Servidores MCP externos e ferramentas de API personalizadas"
+        },
+        "limits": {
+          "title": "Limites",
+          "description": "Limites de linhas, tempos limite, novas tentativas e tamanhos de contexto"
+        },
+        "workspace": {
+          "title": "Espaço de trabalho",
+          "description": "Webhooks, forks e retenção de dados"
+        },
+        "other": {
+          "title": "Outros",
+          "description": "Configurações ainda não atribuídas a uma seção"
+        }
+      },
       "llmAccessWarning": "Alterar esta configuração afeta a privacidade dos dados. Será necessária uma confirmação.",
       "llmModalTitleEnable": "Ativar acesso do LLM aos dados",
       "llmModalTitleDisable": "Desativar acesso do LLM aos dados",
@@ -2310,7 +2723,7 @@
       "llmImpactInspectTool": "Inspecionar dados",
       "llmImpactAccuracy": "Redução da precisão e do desempenho da análise",
       "llmImpactColumns": "A IA verá apenas nomes de colunas e estatísticas, não os valores reais",
-      "llmFileUploadsNote": "Os uploads de arquivos não são afetados por esta configuração e ainda serão visíveis para a IA (você pode desativar uploads de arquivos separadamente).",
+      "llmFileUploadsNote": "Os uploads de arquivos não são afetados por esta configuração e ainda serão visíveis para a IA.",
       "llmConfirmLabel": "Digite {phrase} para confirmar",
       "llmConfirmPhrase": "TENHO CERTEZA",
       "llmConfirmPlaceholder": "TENHO CERTEZA",
@@ -2332,6 +2745,10 @@
         "allow_llm_see_data": {
           "name": "Permitir que o LLM veja os dados",
           "description": "Permite que o LLM veja os dados como parte da análise e das consultas dos usuários"
+        },
+        "enable_artifact_verification": {
+          "name": "Verificar aplicações de dados",
+          "description": "Permite que o agente verifique páginas interativas com ferramentas do navegador. Requer permissão para o LLM ver os dados."
         },
         "enable_training_mode": {
           "name": "Modo de treinamento",
@@ -2429,6 +2846,10 @@
           "name": "Tamanho embutido do resultado MCP",
           "description": "Quanto do resultado de uma ferramenta MCP ou de API personalizada o agente vê diretamente em seu contexto, em caracteres. A resposta completa é sempre salva em um arquivo, qualquer que seja este valor; esta configuração decide apenas quanto o modelo pode ler sem abrir esse arquivo. Aumente para que o agente responda a partir de um conjunto de resultados inteiro em vez de uma amostra; diminua para gastar menos tokens por chamada. Defina 0 para uma amostra de 3 registros. Limitado a 0-500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "Linhas de pré-visualização de dados MCP",
+          "description": "Quantas linhas de resultado create_data retorna a um cliente MCP externo (Claude, Cursor etc.) na resposta. O resultado completo é sempre salvo no relatório; isto só decide quanto o modelo do cliente recebe diretamente. Um cliente pode pedir menos linhas, nunca mais. Também limitado por 'Limitar o número de linhas'. Restrito a 1-10000."
+        },
         "enable_web_fetch": {
           "name": "Busca na web",
           "description": "Permite que o agente busque o conteúdo de URLs públicas HTTP e HTTPS. Somente respostas de texto são retornadas e conteúdos grandes são truncados."
@@ -2446,12 +2867,24 @@
           "description": "Número máximo de linhas com as quais o código gerado deve treinar um modelo. Fontes maiores são amostradas até esse tamanho antes do treino. Mínimo 1000."
         },
         "enable_custom_queries": {
-          "name": "Consultas personalizadas (beta)",
+          "name": "Tabelas personalizadas (beta)",
           "description": "Permite que administradores de conexão definam SQL que o BOW materializa em uma cópia local criptografada conforme uma programação, de modo que os agentes respondam a partir do resultado armazenado em vez de consultar a fonte a cada turno. Beta: desativado por padrão."
         },
         "enable_agent_notes": {
           "name": "Notas do agente",
           "description": "Permite que o agente mantenha notas de trabalho por relatório (um rascunho) que ele escreve e lê enquanto responde: planos, achados e tarefas. As notas aparecem no relatório, mas não são conhecimento compartilhado. Quando desativado, as ferramentas de notas ficam ocultas e as notas não são inseridas no contexto."
+        },
+        "enable_user_memory": {
+          "name": "Memória do usuário",
+          "description": "Permite que o agente lembre fatos sobre cada usuário entre sessões — seu trabalho, projetos, prazos e eventos, o que acompanha e suas próprias abreviações. Regras sobre como responder continuam nas instruções. Cada usuário pode ver, editar e excluir sua memória."
+        },
+        "enable_agent_dreaming": {
+          "name": "Aprendizado noturno dos agentes",
+          "description": "Toda noite, os agentes revisam suas sugestões pendentes, o feedback e o uso, e propõem uma melhoria consolidada por agente. O que acontece com ela segue a configuração de autoaprendizado de cada agente."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Expirar sugestões de IA não revisadas após (dias)",
+          "description": "Instruções sugeridas pela IA ainda pendentes após esse número de dias são fechadas como expiradas (não rejeitadas) pelo aprendizado noturno. Sugestões expiradas continuam contando como evidência se o mesmo padrão voltar. 0 as mantém abertas para sempre."
         },
         "max_instructions_in_context": {
           "name": "Máximo de instruções no contexto",
@@ -2484,6 +2917,22 @@
         "llm_fallback": {
           "name": "Fallback de LLM",
           "description": "Enterprise. Quando o modelo ativo falha por limite de taxa, sobrecarga do provedor ou erro de rede, a solicitação é automaticamente repetida no próximo modelo da ordem de fallback (configurada na página LLM) pelo restante da execução. A substituição é sempre informada no chat. Desativado por padrão; a ativação exige uma licença enterprise."
+        },
+        "enable_agent_checkins": {
+          "name": "Acompanhamentos do agente",
+          "description": "Permite que o agente faça um acompanhamento por conta própria após uma conversa quando vale a pena revisitar algo (por ex., após uma atualização de dados). Os acompanhamentos são executados como o usuário no mesmo relatório e só o notificam quando algo significativo mudou."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Acompanhamentos por usuário por semana",
+          "description": "Número máximo de acompanhamentos que um usuário pode receber em 7 dias."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Acompanhamentos por dia",
+          "description": "Limite de acompanhamentos em toda a organização por dia (teto de custo)."
+        },
+        "enable_artifact_resources": {
+          "name": "Recursos de artefatos",
+          "description": "Permitir registros persistentes, arquivos privados e operações de IA aprovadas nos artefatos. As permissões existentes de compartilhamento e recursos continuam válidas."
         }
       }
     },
@@ -2574,7 +3023,7 @@
       "fallbackOn": "Fallback de LLM ativado",
       "fallbackPrimary": "principal",
       "imageGenDefaultBlocked": "Modelos padrão não podem ser modelos de geração de imagens. Defina outro modelo como padrão primeiro.",
-      "imageGenTooltip": "Se este modelo gera imagens (ex.: gpt-image-1). Habilita-o para a ferramenta generate_image e para incorporar imagens geradas nos artefatos. Modelos de imagem ficam fora do seletor de modelos do chat e não podem ser padrão.",
+      "imageGenTooltip": "Se este modelo gera imagens (ex.: gpt-image-2.5-sunburst). Habilita-o para a ferramenta generate_image e para incorporar imagens geradas nos artefatos. Modelos de imagem ficam fora do seletor de modelos do chat e não podem ser padrão.",
       "modelAdded": "Modelo adicionado",
       "modelCardHint": "Clique na linha de um modelo para abrir suas configurações",
       "modelDeleted": "Modelo excluído",
@@ -2582,7 +3031,36 @@
       "modelsCount": "{count} modelos",
       "providerLabel": "Provedor",
       "providerSettingsTooltip": "Configurações do provedor",
-      "save": "Salvar"
+      "save": "Salvar",
+      "reasoning": {
+        "title": "Raciocínio",
+        "tooltip": "Como este modelo recebe o esforço escolhido pelos usuários (Baixo / Médio / Alto / Máx.).",
+        "modes": {
+          "auto": "Automático (catálogo de modelos)",
+          "like": "Comporta-se como outro modelo",
+          "generic": "Genérico (reasoning_effort)",
+          "custom": "Apenas campos personalizados",
+          "off": "Desativado"
+        },
+        "likeLabel": "Comporta-se como",
+        "likePlaceholder": "ex.: gpt-6-luna",
+        "defaultLevel": "Nível padrão",
+        "unsupported": "O esforço não se aplica a este modelo",
+        "savedSettings": "configurações salvas",
+        "rawTitle": "Campos de requisição brutos por nível (avançado)",
+        "rawHelp": "JSON mesclado à requisição ao provedor quando esse nível é usado. Chaves existentes são mescladas; as demais são enviadas como estão.",
+        "ranAs": "executou como {level}",
+        "tokens": "tokens de raciocínio",
+        "saveToTest": "Salve para testar suas alterações",
+        "testTooltip": "Enviar uma requisição com ferramentas neste nível",
+        "test": "Testar",
+        "rawNotObject": "Deve ser um objeto JSON",
+        "rawInvalid": "JSON inválido",
+        "fixRaw": "Corrija primeiro os campos inválidos",
+        "likeRequired": "Informe o modelo com o qual ele se parece",
+        "customRequired": "O modo personalizado precisa de campos para pelo menos um nível",
+        "saveFailed": "Não foi possível salvar as configurações de raciocínio"
+      }
     },
     "licensePage": {
       "title": "Licença",
@@ -2729,6 +3207,88 @@
     "piiTab": "Dados pessoais"
   },
   "data": {
+    "keepSavedSecret": "Deixe em branco para manter o segredo salvo",
+    "settingsNeedTest": "Configurações alteradas — teste novamente",
+    "queryAccess": "Acesso às consultas",
+    "sharedSchema": "Esquema compartilhado",
+    "refreshSharedSchema": "Atualizar esquema compartilhado",
+    "refreshMySchema": "Atualizar meu esquema",
+    "manageConnection": "Gerenciar conexão",
+    "connectionSettings": "Configurações da conexão",
+    "editSettings": "Editar configurações",
+    "savedSecret": "Salvo",
+    "testAgain": "Testar novamente",
+    "setupSaved": "Conexão salva",
+    "setupSavedDiscoveryFailed": "Conexão salva. A descoberta do esquema falhou. Corrija as configurações e tente novamente.",
+    "setupDone": "Concluído",
+    "setupPhases": {
+      "schema": "Processamento: esquema",
+      "catalog": "Processamento: catálogo",
+      "columns": "Processamento: colunas",
+      "tables": "Processamento: tabelas",
+      "models": "Processamento: modelos",
+      "workspaces": "Processamento: espaços de trabalho",
+      "reports": "Processamento: relatórios",
+      "applications": "Processamento: aplicativos",
+      "datasets": "Processamento: conjuntos de dados",
+      "universes": "Processamento: universos",
+      "indices": "Processamento: índices",
+      "aliases": "Processamento: aliases",
+      "files": "Processamento: arquivos",
+      "collections": "Processamento: coleções",
+      "subject_areas": "Processamento: áreas temáticas",
+      "assets": "Processamento: recursos",
+      "databases": "Processamento: bancos de dados",
+      "concepts": "Processamento: conceitos",
+      "cubes": "Processamento: cubos",
+      "entities": "Processamento: entidades",
+      "lists": "Processamento: listas",
+      "metrics": "Processamento: métricas",
+      "services": "Processamento: serviços",
+      "boards": "Processamento: quadros",
+      "relationship_schemas": "Processamento: esquemas de relações",
+      "semantic_views": "Processamento: visões semânticas",
+      "catalog_pages": "Processamento: páginas do catálogo",
+      "dashboard_spaces": "Processamento: espaços de painéis",
+      "saved-search_spaces": "Processamento: espaços de pesquisas salvas",
+      "discovering_schema": "Descoberta: esquema",
+      "catalog_ready": "Pronto: catálogo",
+      "reading_semantic_views": "Leitura: visões semânticas",
+      "admin_scan": "Varredura administrativa: espaços de trabalho",
+      "listing_workspaces": "Listagem: espaços de trabalho",
+      "workspace_models": "Listagem: modelos",
+      "workspace_reports": "Listagem: relatórios",
+      "model_metadata": "Leitura: modelos",
+      "model_introspection": "Processamento: modelos",
+      "assembling_models": "Montagem: modelos",
+      "reused_models": "Reutilizados: modelos",
+      "inspected_models": "Inspecionados: modelos",
+      "unreadable_models": "Ilegíveis: modelos",
+      "dataset_schemas": "Leitura: conjuntos de dados",
+      "listing_files": "Listagem: arquivos",
+      "log_groups": "Grupos de logs",
+      "saved_search_spaces": "Processamento: espaços de pesquisas salvas",
+      "reading_columns": "Lendo colunas",
+      "processing_columns": "Processando colunas",
+      "materialized_views": "Lendo visões materializadas",
+      "relationships": "Lendo relações",
+      "metadata_fallback": "Lendo metadados básicos",
+      "discovering": "Descobrindo dados",
+      "connecting": "Conectando à fonte",
+      "saving": "Salvando catálogo",
+      "warming": "Preparando cache de dados",
+      "syncing_agents": "Sincronizando com agentes"
+    },
+    "setupStatus": "Estado da conexão",
+    "setupReadyHint": "Insira os detalhes da conexão. Verificaremos o acesso e descobriremos os dados disponíveis.",
+    "setupConnection": "Verificar conexão",
+    "setupConnecting": "Conectando…",
+    "setupCurrentStage": "Etapa atual",
+    "setupElapsed": "Tempo: {time}",
+    "setupLastActivity": "Última atividade: há {time}",
+    "setupNoActivity": "Sem atividade há {time} — a indexação pode estar travada",
+    "setupQueued": "Na fila — aguardando outras indexações terminarem",
+    "setupPreviousStages": "Etapas anteriores",
     "title": "Conexões",
     "subtitle": "Gerencie suas conexões de banco de dados.",
     "addConnection": "Adicionar conexão",
@@ -2784,6 +3344,7 @@
     "provideCredentials": "Forneça suas credenciais para ativar o acesso.",
     "authMethod": "Método de autenticação",
     "signIn": "Entrar",
+    "signInRequired": "É necessário iniciar sessão",
     "testConnection": "Testar conexão",
     "cancel": "Cancelar",
     "save": "Salvar",
@@ -2838,7 +3399,7 @@
     "retry": "Tentar novamente",
     "reindex": "Reindexar",
     "lastIndexed": "Última indexação",
-    "customQueries": "Consultas personalizadas",
+    "customQueries": "Tabelas personalizadas",
     "schemaDiscovery": "Descoberta do esquema",
     "stop": "Parar",
     "stopping": "Parando…",
@@ -2940,6 +3501,14 @@
     "mcpAuthOauthApp": "OAuth (app registrado pelo admin)",
     "mcpDcrHintA": "Este conector se registra automaticamente (DCR) — não há credenciais de cliente para inserir.",
     "mcpDcrHintB": "Cada usuário entra com a própria conta na primeira vez que o usa.",
+    "mcpDcrScopesLabel": "Scopes (substituição opcional)",
+    "mcpDcrScopesPlaceholder": "Detectados automaticamente — execute Verificar",
+    "mcpDcrScopesHint": "Deixe vazio para solicitar os scopes anunciados pelo servidor. Verificar mostra o que foi detectado.",
+    "mcpDcrDetectedScopes": "Detectado: {scopes}",
+    "mcpDcrDetectedNone": "O servidor não anuncia scopes; o login não solicitará nenhum.",
+    "mcpDcrScopesSourceChallenge": "do desafio de login do servidor",
+    "mcpDcrScopesSourceResource": "dos metadados do recurso do servidor",
+    "mcpDcrScopesSourceAs": "do servidor de autorização (o servidor MCP não anuncia nenhum)",
     "mcpTokenSharedHint": "Este token é compartilhado por todos que usam esta conexão.",
     "mcpOauthAppHint": "Você está registrando um app OAuth para toda a organização. Depois de salvar, cada usuário faz login individualmente — os tokens são armazenados criptografados e enviados em cada chamada de ferramenta.",
     "mcpOauthPrefilledHint": "Os endpoints do provedor já estão preenchidos (veja Avançado) — você só precisa do Client ID e do Secret.",
@@ -3055,7 +3624,28 @@
         }
       ]
     },
-    "setupGuideCopyFailed": "Falha ao copiar — selecione o texto"
+    "setupGuideCopyFailed": "Falha ao copiar — selecione o texto",
+    "schemaRefreshFailed": "Falha ao atualizar o esquema",
+    "detailsAndLogs": "Detalhes e logs ({n})",
+    "lastConnectionTestPassed": "Último teste de conexão bem-sucedido",
+    "myAccount": "Minha conta",
+    "accessDataUsing": "Acessar dados usando",
+    "organizationAccount": "Conta da organização",
+    "personalAccessDescription": "Use suas próprias permissões.",
+    "organizationAccessDescription": "Use o acesso compartilhado configurado pelo administrador.",
+    "signInToProvider": "Entrar em {name}",
+    "lastCheckedRelative": "Última verificação: {time}",
+    "personalPermissions": "Usando as permissões da sua conta",
+    "contactConnectionAdmin": "Contate seu administrador para restaurar esta conexão.",
+    "refreshAvailable": "Atualizar tabelas disponíveis",
+    "signOut": "Sair",
+    "usedBy": "Usado por",
+    "noAccessibleAgents": "Nenhum agente disponível para você",
+    "accountLabel": "Conta",
+    "refreshAccess": "Atualizar acesso",
+    "yourAccount": "Sua conta",
+    "managementOrganizationHint": "Os testes e as atualizações do esquema usam as credenciais salvas da organização.",
+    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta."
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -3087,7 +3677,22 @@
     "userNotFound": "Usuário não encontrado na organização",
     "copyFailed": "Falha ao copiar",
     "includeDataTab": "Incluir a aba Dados",
-    "includeDataTabDesc": "Os destinatários verão o histórico completo dos dados e o processo usado para gerar este relatório"
+    "includeDataTabDesc": "Os destinatários verão o histórico completo dos dados e o processo usado para gerar este relatório",
+    "allowChat": "Permitir chat",
+    "allowChatDesc": "Membros do espaço de trabalho conectados podem fazer perguntas sobre este painel",
+    "chatScope": "O chat pode usar",
+    "chatScopeAgents": "Agentes do relatório",
+    "chatScopeAgentsDesc": "O chat pode executar consultas ao vivo somente leitura nos agentes selecionados",
+    "chatScopeDataOnly": "Somente dados do painel",
+    "chatScopeDataOnlyDesc": "O chat responde apenas com os dados que já estão neste painel",
+    "chatNoAgents": "Nenhum agente está associado a este relatório — o chat responderá apenas com os dados do painel.",
+    "chatModel": "Modelo padrão",
+    "chatModelDesc": "O modelo que o chat usa para os visualizadores. Quem não tiver acesso a ele usará o próprio modelo padrão.",
+    "chatModelOrgDefault": "Padrão da organização ({name})",
+    "chatModelOrgDefaultPlain": "Padrão da organização",
+    "chatModelReport": "Igual ao relatório ({name})",
+    "chatModelReportPlain": "Igual ao relatório",
+    "chatModelUnavailable": "Modelo indisponível — usando o padrão"
   },
   "publish": {
     "published": "Publicado",
@@ -3107,6 +3712,8 @@
     "copyClipboardFailed": "Falha ao copiar para a área de transferência"
   },
   "errors": {
+    "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
+    "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
     "generic": "Algo deu errado. Tente novamente.",
     "network": "Erro de rede. Verifique sua conexão.",
     "unauthorized": "Você não tem autorização para fazer isso.",
@@ -3148,7 +3755,35 @@
       "model_id_required": "O ID do modelo não pode ficar vazio",
       "model_id_not_editable": "Somente modelos personalizados em provedores Azure, AWS Bedrock ou personalizados (compatíveis com OpenAI) podem ter o ID do modelo editado",
       "model_id_duplicate": "O modelo \"{model_id}\" já existe neste provedor"
-    }
+    },
+    "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído.",
+    "memory.disabled": "A memória do usuário está desativada nesta organização.",
+    "memory.not_found": "Essa entrada de memória não existe.",
+    "memory.text_required": "Escreva o que deve ser lembrado.",
+    "memory.text_too_long": "No máximo 280 caracteres.",
+    "memory.too_many_tags": "Use no máximo 4 tags.",
+    "memory.tags_required": "Adicione pelo menos uma tag.",
+    "memory.invalid_date": "Essa data não é válida.",
+    "memory.sensitive": "A memória não pode guardar segredos, senhas ou dados pessoais sensíveis.",
+    "memory.looks_like_rule": "Isso é uma regra de como responder — adicione às suas instruções personalizadas. A memória guarda fatos sobre você.",
+    "memory.full": "A memória está cheia. Exclua algumas entradas primeiro.",
+    "memory.not_active": "Essa entrada já foi alterada ou esquecida.",
+    "audit_stream.not_found": "Fluxo de log não encontrado.",
+    "audit_stream.invalid_destination": "Destino de fluxo desconhecido.",
+    "audit_stream.missing_field": "Falta um campo obrigatório: {field}.",
+    "audit_stream.invalid_field": "Valor inválido para {field}.",
+    "audit_log.export_too_large": "A exportação é limitada a {limit} eventos e este filtro corresponde a {total}. Restrinja o filtro ou use um fluxo de log.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Solicitação inválida",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Recurso não encontrado",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Acesso negado",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Entre para continuar",
+    "ARTIFACT_RESOURCE_CONFLICT": "O recurso mudou; atualize e tente novamente",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Limite do recurso atingido",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Muitas solicitações; tente mais tarde",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso indisponível",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitação interrompida",
+    "ARTIFACT_RESOURCE_ABORTED": "Solicitação cancelada",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível"
   },
   "email": {
     "dashboardShare": {
@@ -3313,16 +3948,6 @@
     "menuData": "Dados"
   },
   "toolbar": {
-    "collapse": "Recolher",
-    "switchToArtifact": "Mudar para visualização de artefato",
-    "dashboard": "Painel",
-    "addComponent": "Adicionar componente",
-    "addText": "Adicionar texto",
-    "theme": "Tema",
-    "rerun": "Reexecutar relatório",
-    "openInNewTab": "Abrir painel em uma nova aba",
-    "fullscreen": "Tela cheia",
-    "shareDashboard": "Compartilhar painel",
     "polishDashboard": "Aprimorar painel"
   },
   "artifactFrame": {
@@ -3382,47 +4007,14 @@
     "renameFailed": "Não foi possível renomear o painel.",
     "more": "Mais",
     "schedule": "Agendar atualização",
-    "exportAs": "Exportar como {format}"
+    "exportAs": "Exportar como {format}",
+    "partialNoAccess": "Você não tem acesso aos dados de: {charts}",
+    "partialFailed": "Não foi possível carregar: {charts}",
+    "partialRenderFailed": "Parte deste painel usa dados aos quais você não tem acesso, por isso não pôde ser exibido. Peça acesso ao proprietário do painel."
   },
   "filter": {
-    "addFilters": "Adicionar filtros",
-    "title": "Filtros",
-    "clear": "Limpar",
-    "loading": "Carregando…",
-    "noData": "Nenhum dado disponível para filtrar",
-    "refresh": "Atualizar",
-    "noFilters": "Nenhum filtro aplicado",
-    "addFilter": "Adicionar filtro",
-    "columnPlaceholder": "Coluna",
-    "searchPlaceholder": "Buscar…",
-    "valuePlaceholder": "Valor",
     "selectColumn": "Selecionar coluna",
-    "visualization": "Visualização",
-    "orDivider": "OU",
-    "andDivider": "E",
-    "rowsCount": "{shown} de {total} linhas",
-    "apply": "Aplicar",
-    "op": {
-      "equals": "igual a",
-      "notEquals": "diferente de",
-      "contains": "contém",
-      "notContains": "não contém",
-      "startsWith": "começa com",
-      "endsWith": "termina com",
-      "isEmpty": "está vazio",
-      "isNotEmpty": "não está vazio",
-      "in": "em",
-      "notIn": "não em",
-      "greaterThan": "maior que",
-      "lessThan": "menor que",
-      "greaterOrEqual": "maior ou igual",
-      "lessOrEqual": "menor ou igual",
-      "between": "entre",
-      "before": "antes",
-      "after": "depois",
-      "isTrue": "é verdadeiro",
-      "isFalse": "é falso"
-    }
+    "visualization": "Visualização"
   },
   "slideViewer": {
     "loading": "Carregando slides...",
@@ -3796,6 +4388,7 @@
       "chip_slow": "Lentas",
       "chip_expensive": "Caras",
       "chip_retried": "Repetidas",
+      "rangeAll": "Todo o período",
       "range24h": "Últimas 24 horas",
       "range7d": "Últimos 7 dias",
       "range30d": "Últimos 30 dias",
@@ -4298,6 +4891,7 @@
     "nav": {
       "general": "Geral",
       "instructions": "Instruções personalizadas",
+      "memory": "Memória",
       "usage": "Uso",
       "apiKeys": "Chaves de API",
       "appearance": "Aparência"
@@ -4325,7 +4919,11 @@
       "defaultModelSaved": "Modelo padrão atualizado",
       "defaultModelFailed": "Falha ao atualizar o modelo padrão",
       "directorySubtitle": "Dados profissionais sincronizados do provedor de identidade da sua organização. Visíveis para a IA como contexto.",
-      "directoryTitle": "Perfil do diretório"
+      "directoryTitle": "Perfil do diretório",
+      "checkinsTitle": "Acompanhamentos do agente",
+      "checkinsSubtitle": "Permite que o agente volte por conta própria após uma conversa quando vale a pena revisitar algo (por exemplo, após uma atualização de dados). Ele só notifica você quando algo significativo mudou.",
+      "checkinsSaved": "Preferência de acompanhamento salva",
+      "checkinsFailed": "Não foi possível salvar sua preferência de acompanhamento"
     },
     "instructions": {
       "title": "Instruções personalizadas",
@@ -4377,8 +4975,36 @@
     },
     "memory": {
       "title": "Memória",
-      "subtitle": "O que a IA aprendeu e memorizou sobre você nesta organização — suas preferências, estilo e análises que você gostou. Ela atualiza isso conforme você trabalha; você pode editar ou limpar aqui.",
-      "placeholder": "A IA ainda não salvou nada na memória. Conforme você informa suas preferências, ela vai lembrá-las aqui."
+      "subtitle": "Fatos que a IA lembra sobre você nesta organização — seu trabalho, projetos, datas, o que você acompanha e suas abreviações. Só você pode ver.",
+      "vsInstructions": "Como a IA deve responder a você (formato, unidades, tamanho) não é memória — são suas instruções personalizadas.",
+      "instructionsLink": "Instruções personalizadas",
+      "count": "{count} de {cap} entradas",
+      "forgetAll": "Esquecer tudo",
+      "forgetAllTitle": "Esquecer tudo?",
+      "forgetAllBody": "A IA vai esquecer todas as {count} entradas que lembra sobre você nesta organização. Não é possível desfazer.",
+      "forgetAllConfirm": "Esquecer tudo",
+      "empty": "Nada guardado ainda. Enquanto você trabalha, a IA guarda aqui fatos como seus projetos, prazos ou reuniões próximas.",
+      "add": "Adicionar",
+      "past": "Passado",
+      "fromReport": "de {title}",
+      "untitledReport": "um relatório",
+      "loadFailed": "Não foi possível carregar sua memória",
+      "saveFailed": "Não foi possível salvar a alteração",
+      "saved": "Memória salva",
+      "forgotten": "Esquecido",
+      "forgotAll": "Tudo esquecido",
+      "source": {
+        "user": "Adicionado por você",
+        "agent": "Salvo pela IA",
+        "dream": "Anotado durante a noite"
+      },
+      "form": {
+        "placeholder": "Um fato sobre você, ex.: Lidero o projeto de churn do 3º trimestre",
+        "tags": "Tags, separadas por vírgula",
+        "dateHint": "Adicione uma data se estiver ligado a uma"
+      },
+      "searchPlaceholder": "Buscar na memória…",
+      "noMatches": "Nenhuma memória corresponde."
     }
   },
   "commandPalette": {
@@ -4643,7 +5269,15 @@
   },
   "events": {
     "evalRunFinished": "Execução de avaliação '{title}' terminou — {passed}/{total} aprovadas ({status})",
-    "waitResumed": "Espera concluída — retomando: {reason}"
+    "waitResumed": "Espera concluída — retomando: {reason}",
+    "checkin": {
+      "label": "Acompanhamento",
+      "running": "Acompanhando esta conversa…",
+      "sent": "Acompanhamento — você foi notificado",
+      "sentWithSubject": "Acompanhamento — você foi notificado: {subject}",
+      "quiet": "Verificado novamente: nada novo",
+      "failed": "O acompanhamento falhou"
+    }
   },
   "chatSummary": {
     "empty": "Nenhum item ainda",
@@ -4918,8 +5552,8 @@
     "loadingPrompts": "Carregando solicitações…",
     "selectedCount": "{count} selecionadas",
     "selectTables": "Selecionar tabelas",
-    "customQuery": "Consulta personalizada",
-    "customQueriesOff": "Consultas personalizadas desativadas",
+    "customQuery": "Tabela personalizada",
+    "customQueriesOff": "Tabelas personalizadas desativadas",
     "enableCustomQueries": "Ativar nas definições de IA",
     "reload": "Recarregar",
     "editQuery": "Editar {name}",
@@ -4977,5 +5611,74 @@
     "searchColumns": "Pesquisar colunas…",
     "noColumns": "Nenhuma coluna correspondente",
     "centrality": "Centralidade"
+  },
+  "fork": {
+    "preparing": "Preparando sua cópia…",
+    "preparingDetail": "Executando as consultas com suas próprias credenciais. Isso normalmente leva alguns segundos.",
+    "nothingRan": "Não foi possível criar sua cópia: nenhuma das consultas pôde ser executada com suas credenciais."
+  },
+  "quota": {
+    "resetsOn": "reinicia em {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Aprender durante a noite",
+    "nightlyDescription": "Toda noite, transforma correções repetidas, feedback e uso em uma única sugestão consolidada para este agente. Ela segue a configuração acima como qualquer outra sugestão.",
+    "nightlyOrgOff": "O aprendizado noturno está desativado nesta organização (configurações de IA)."
+  },
+  "nightlyBuild": {
+    "merged": "Mesclada",
+    "expired": "Expirada",
+    "mergedTip": "Incorporada a uma sugestão do aprendizado noturno. Não é uma rejeição de um revisor.",
+    "expiredTip": "Fechada após ficar sem revisão além do prazo da organização. Continua contando como evidência se o padrão voltar."
+  },
+  "schemaIdentity": {
+    "viewing": "Visualizando:",
+    "myAccount": "Minha conta",
+    "serviceAccount": "Conta de serviço",
+    "sharedConnection": "Conexão compartilhada",
+    "sharedSchema": "Esquema compartilhado",
+    "changeIdentity": "Alterar identidade das consultas",
+    "refresh": "Atualizar esquema",
+    "refreshMyFor": "Atualizar {name} · Minha conta",
+    "refreshSharedFor": "Atualizar {name} · Esquema compartilhado",
+    "refreshing": "Atualizando…",
+    "unknown": "Última atualização do esquema: desconhecida",
+    "refreshedAt": "Última atualização do esquema: {time}",
+    "attemptedAt": "Última tentativa: {time}",
+    "updated": "Esquema atualizado.",
+    "partial": "Alguns modelos não puderam ser atualizados. Suas colunas anteriores foram mantidas.",
+    "failed": "A atualização do esquema não foi concluída. Tente novamente.",
+    "connectRequired": "Conecte sua conta para ver suas tabelas."
+  },
+"artifactResources": {
+    "readOnlyLabel": "Somente leitura",
+    "sort": "Ordenar registros",
+    "applyFilter": "Aplicar",
+    "clearFilter": "Limpar filtro",
+    "true": "Verdadeiro",
+    "false": "Falso",
+    "inspect": "Recursos",
+    "readOnly": "Informações do artefato somente para leitura",
+    "data": "Explorador de dados",
+    "analytics": "Análises",
+    "collection": "Selecionar coleção",
+    "refresh": "Atualizar",
+    "schema": "Esquema da coleção",
+    "filterField": "Campo do filtro",
+    "filterValue": "Igual a",
+    "filter": "Filtrar",
+    "empty": "Nenhum dado para exibir",
+    "pageRows": "{count} registro nesta página | {count} registros nesta página",
+    "next": "Próxima página",
+    "details": "Detalhes do registro",
+    "views": "Visualizações",
+    "viewers": "Visitantes autenticados únicos",
+    "anonymousNote": "Visitas anônimas contam como visualizações, não como pessoas únicas.",
+    "embedded": "Incorporado",
+    "standalone": "Página compartilhada",
+    "days": "Últimos {count} dias",
+    "failed": "Não foi possível carregar os dados do artefato",
+    "newest": "Mais recentes primeiro",
+    "oldest": "Mais antigos primeiro"
   }
 }

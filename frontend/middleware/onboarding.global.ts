@@ -17,7 +17,7 @@ export default (defineNuxtRouteMiddleware(async (to) => {
   // Allow auth, organization creation, and public routes
   // '/print/': headless paper renders (PDF export) have no session and must
   // never be redirected — the renderer would capture the onboarding card.
-  const allowPrefixes = ['/users/', '/organizations/new', '/r/', '/print/']
+  const allowPrefixes = ['/users/', '/organizations/new', '/r/', '/print/', '/artifact-preview/']
   if (allowPrefixes.some(p => to.path.startsWith(p))) return
 
   // Ensure org
@@ -40,4 +40,3 @@ export default (defineNuxtRouteMiddleware(async (to) => {
     return navigateTo('/onboarding')
   }
 }))
-

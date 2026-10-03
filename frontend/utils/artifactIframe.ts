@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '10'; // v10: FilterSelect single-select mode (scalar params); v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
+export const ARTIFACT_GLOBALS_VERSION = '11'; // v11: themed design system (setTheme/useTheme, token utilities, Icon/Sparkline/Delta/PageHeader…, className merge); v10: FilterSelect single-select mode; // v10: FilterSelect single-select mode (scalar params); v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
 
 export interface ArtifactIframeFile {
   id: string;
@@ -84,6 +84,13 @@ export interface ArtifactIframeData {
   current_user?: ArtifactViewerContext | null;
   /** Declared query parameters + current values (useParams() runtime). */
   params?: ArtifactParamsPayload | null;
+  /**
+   * Sandbox runtime generation the artifact was authored for (from
+   * content.runtime_version). >= 11 enables the themed design system and
+   * merge-semantics className; absent/0 keeps the legacy look so stored
+   * artifacts never change appearance.
+   */
+  runtime?: { version: number } | null;
 }
 
 export interface ArtifactIframeOptions {
@@ -92,6 +99,9 @@ export interface ArtifactIframeOptions {
   mode?: 'page' | 'slides';
   /** Inject polish element-picker. Only meaningful in the editor. */
   polishMode?: boolean;
+  fixtureMode?: boolean;
+  /** Resource apps prohibit third-party image requests; legacy pages retain HTTPS images. */
+  resourceApp?: boolean;
   /** Text shown inside #root before Babel transforms the artifact code. */
   loadingLabel?: string;
   /** Default 'production'. 'development' gives clearer React error messages. */
@@ -122,6 +132,7 @@ function buildSlidesHtml(data: ArtifactIframeData, code: string): string {
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="/libs/tailwindcss-3.4.16.js">${SC}
   <style>
@@ -131,7 +142,7 @@ function buildSlidesHtml(data: ArtifactIframeData, code: string): string {
   </style>
 </head>
 <body class="bg-slate-900">
-  <script>window.ARTIFACT_DATA = ${JSON.stringify(data)};${SC}
+  <script>window.ARTIFACT_DATA = ${JSON.stringify(data).replace(/</g, '\\u003c')};${SC}
 
   ${code}
 </body>
@@ -322,7 +333,11 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
       ? '/libs/react-dom-18.development.js'
       : '/libs/react-dom-18.production.min.js';
 
-  const embeddedData = JSON.stringify(opts.data);
+  const embeddedData = JSON.stringify(opts.data).replace(/</g, '\\u003c');
+  // getRandomValues is available on plain-HTTP self-hosted installations too.
+  const runtimeNonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  const assetOrigin = window.location.origin;
+  const isolationPolicy = `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' ${assetOrigin}/libs/; style-src 'unsafe-inline' ${assetOrigin}/libs/; img-src data: blob: ${assetOrigin}${opts.resourceApp ? '' : ' https:'}; font-src data: ${assetOrigin}; connect-src 'none'; worker-src blob:; frame-src blob: data:; form-action 'none'; base-uri 'none';`;
   const polish = opts.polishMode ? polishScript() : '';
   const isDark = opts.colorMode === 'dark';
 
@@ -330,18 +345,21 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
 <html${isDark ? ' class="dark"' : ''}>
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${isolationPolicy}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <script>tailwind.config = { darkMode: 'class' };${SC}
-  <script crossorigin src="${reactSrc}">${SC}
-  <script crossorigin src="${reactDomSrc}">${SC}
+  <script src="/libs/artifact-tailwind.js?v=${ARTIFACT_GLOBALS_VERSION}">${SC}
+  <script src="${reactSrc}">${SC}
+  <script src="${reactDomSrc}">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
   <script src="/libs/echarts-5.min.js">${SC}
+  <script src="/libs/lucide.min.js">${SC}
   <script src="/libs/pdf.min.js">${SC}
+  <link rel="stylesheet" href="/libs/artifact-fonts.css?v=${ARTIFACT_GLOBALS_VERSION}">
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; background-color: #ffffff; color: #0f172a; }
-    html.dark body { background-color: #111827; color: #e5e7eb; }
+    body { font-family: var(--bow-font-body, system-ui, -apple-system, sans-serif); background-color: var(--bow-bg, #ffffff); color: var(--bow-ink, #0f172a); }
+    html.dark body { background-color: var(--bow-bg, #111827); color: var(--bow-ink, #e5e7eb); }
   </style>
 </head>
 <body>
@@ -350,6 +368,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   <script>
     // Live color-mode toggle from the host (no iframe reload).
     window.addEventListener('message', function (e) {
+      if (e.source !== window.parent) return;
       var d = e && e.data;
       if (d && d.type === 'ARTIFACT_SET_COLOR_MODE') {
         // A forced-dark artifact (root <div className="dark">) stays dark
@@ -360,8 +379,9 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
       }
     });
   ${SC}
-  <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
-  <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}">${SC}
+  <script>window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${SC}
+  <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}&revision=verification-1">${SC}
+  <script src="/libs/artifact-sdk.js?v=2">${SC}
 
   <script>${polish}${errorBoundaryScript()}${SC}
 

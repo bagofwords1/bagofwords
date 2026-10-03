@@ -1,4 +1,11 @@
-from pydantic import BaseModel, Field, model_validator, field_validator, field_serializer
+from pydantic import (
+    BaseModel,
+    Field,
+    computed_field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 from typing import List, Optional
 from datetime import datetime
 from app.schemas.view_schema import ViewSchema
@@ -9,7 +16,10 @@ class StepBase(BaseModel):
     status: str
     status_reason: Optional[str] = None
     prompt: str
-    code: str
+    # Optional so code visibility can redact it to None. Redaction never uses
+    # "" — an empty string is indistinguishable from a step that genuinely has
+    # no code, which would make "withheld" untestable.
+    code: Optional[str] = None
     description: Optional[str] = ""
     
 
@@ -34,6 +44,24 @@ class StepSchema(StepBase):
     class Config:
         from_attributes = True
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def error_code(self) -> Optional[str]:
+        """``no_access`` when this step failed because the identity was refused.
+
+        Derived from ``status_reason`` against the server's own constant rather
+        than stored, so it needs no column and cannot drift from the sentence
+        the reader is actually shown. It is what lets the dashboard tell "you
+        may not read this" apart from "this query broke" for the step's OWNER —
+        ``viewer_result.error_code`` only ever exists for a VIEWER, so a forker
+        looking at their own partly-hydrated fork had no signal at all.
+        """
+        from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+
+        if self.status == "error" and self.status_reason == NO_ACCESS_REASON:
+            return NO_ACCESS_CODE
+        return None
+
     @field_validator("data", "data_model", mode="before")
     @classmethod
     def _none_to_dict(cls, v):
@@ -52,6 +80,18 @@ class StepSchema(StepBase):
         PII display middleware), so internal ``.data`` access stays real."""
         from app.ai.llm.pii.display import redact_grid_display
         return redact_grid_display(data)
+
+    @field_serializer("code")
+    def _redact_code_for_display(self, code, _info):
+        """Withhold generated code from callers without ``view_code``.
+
+        Serializer-level (not call-site-level) on purpose: steps are serialized
+        from completions, queries, widgets and reports, and a check at each of
+        those is a check that can be forgotten. Internal ``.code`` access —
+        execution, exports, the agent itself — is untouched.
+        """
+        from app.core.code_visibility import code_visible_now
+        return code if code_visible_now() else None
 
 class StepCreate(StepBase):
     widget_id: str
@@ -79,7 +119,7 @@ class PublicStepSchema(BaseModel):
     id: str
     title: str
     type: str
-    code: str
+    code: Optional[str] = None
     data_model: dict = Field(default_factory=dict)
     data: dict = Field(default_factory=dict)
     view: Optional[dict] = Field(default_factory=dict)
@@ -100,4 +140,12 @@ class PublicStepSchema(BaseModel):
     @classmethod
     def _none_to_dict(cls, v):
         return v if v is not None else {}
+
+    @field_serializer("code")
+    def _redact_code_for_display(self, code, _info):
+        """Same gate as StepSchema. Anonymous viewers of a published report hold
+        no role, so the public report path sets the decision explicitly rather
+        than inheriting the deny default (see report_service)."""
+        from app.core.code_visibility import code_visible_now
+        return code if code_visible_now() else None
 

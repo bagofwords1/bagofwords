@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
@@ -49,6 +50,8 @@ class MysqlClient(DataSourceClient):
         try:
             engine = get_engine(self.mysql_uri)
             conn = engine.connect()
+        except IndexingCancelled:
+            raise
         except Exception as e:
             if conn is not None:
                 conn.close()
@@ -81,11 +84,14 @@ class MysqlClient(DataSourceClient):
         """Get tables with graceful fallback if enriched query fails."""
         try:
             return self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table comments. May fail on some MySQL versions."""
+        discovery_phase('reading_columns')
         with self.connect() as conn:
             sql = """
                 SELECT
@@ -103,7 +109,7 @@ class MysqlClient(DataSourceClient):
             result = conn.execute(text(sql), {'database': self.database}).fetchall()
 
             tables = {}
-            for row in result:
+            for row in discovery_items(result, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_name, column_name, data_type, col_comment, tbl_comment = row
 
                 if table_name not in tables:
@@ -124,6 +130,7 @@ class MysqlClient(DataSourceClient):
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (original query - always works)."""
+        discovery_phase('metadata_fallback')
         try:
             with self.connect() as conn:
                 sql = """
@@ -136,7 +143,7 @@ class MysqlClient(DataSourceClient):
                     text(sql), {'database': self.database}).fetchall()
 
                 tables = {}
-                for row in result:
+                for row in discovery_items(result, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                     table_name, column_name, data_type = row
 
                     if table_name not in tables:
@@ -146,6 +153,8 @@ class MysqlClient(DataSourceClient):
                         TableColumn(name=column_name, dtype=data_type))
                 self._attach_foreign_keys(conn, tables)
             return list(tables.values())
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
@@ -170,7 +179,8 @@ class MysqlClient(DataSourceClient):
             key_fn=lambda schema, table: table,
         )
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Get schemas for all tables in the specified database."""
         return self.get_tables()
 

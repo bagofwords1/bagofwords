@@ -1,0 +1,32 @@
+Compact production build output; asset/chunk inventory omitted.
+
+ WARN  Runtime config option proxy.proxies./.well-known.rewrite may not be able to be serialized.
+ WARN  Runtime config option proxy.proxies./mcp.rewrite may not be able to be serialized.
+ WARN  Runtime config option proxy.proxies./swagger.rewrite may not be able to be serialized.
+ WARN  Runtime config option proxy.proxies./openapi.json.rewrite may not be able to be serialized.
+ WARN  Runtime config option proxy.proxies./excel.rewrite may not be able to be serialized.
+ WARN  Runtime config option proxy.proxies./api.rewrite may not be able to be serialized.
+ WARN  Browserslist: browsers data (caniuse-lite) is 9 months old. Please run:
+ WARN  [plugin vite:esbuild] pages/reports/[id]/index.vue?vue&type=script&setup=true&lang.ts: Duplicate key "message_type" in object literal
+ WARN  [plugin vite:esbuild] pages/reports/[id]/index.vue?macro=true&vue&type=script&setup=true&lang.ts: Duplicate key "message_type" in object literal
+ WARN  [plugin vite:reporter]
+ WARN  [plugin vite:reporter]
+ WARN  [plugin vite:reporter]
+ WARN  [plugin vite:reporter]
+ WARN
+ℹ ✓ built in 1m 19s
+✔ Client built in 79027ms
+ WARN  [plugin vite:esbuild] pages/reports/[id]/index.vue?macro=true&vue&type=script&setup=true&lang.ts: Duplicate key "message_type" in object literal
+ WARN  [plugin vite:esbuild] pages/reports/[id]/index.vue?vue&type=script&setup=true&lang.ts: Duplicate key "message_type" in object literal
+ WARN  [plugin vite:reporter]
+ WARN  [plugin vite:reporter]
+ WARN  [plugin vite:reporter]
+ WARN  [plugin vite:reporter]
+ WARN  [plugin vite:reporter]
+ WARN  [plugin vite:reporter]
+ℹ ✓ built in 1m 32s
+✔ Server built in 91888ms
+[plugin esbuild] .nuxt/dist/server/_nuxt/index-DUOCtJQ9.js: [esbuild] (.nuxt/dist/server/_nuxt/index-DUOCtJQ9.js:4332:12) Duplicate key "message_type" in object literal
+[nitro] ✔ Nuxt Nitro server built
+└  ✨ Build complete!
+Done in 284.98s.

@@ -1,7 +1,7 @@
 <template>
   <div class="h-full w-full flex flex-col bg-white dark:bg-gray-900">
     <!-- Header / Toolbar -->
-    <div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
+    <div v-if="!verificationPreview" class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
       <div class="flex items-center gap-3">
         <UTooltip :text="$t('artifactFrame.backToChat')">
           <button @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded">
@@ -212,12 +212,12 @@
         </UTooltip>
 
         <!-- Share Dashboard -->
-        <ShareModal v-if="report" :report="report" share-type="artifact" title="Share Dashboard" />
+        <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')" />
       </div>
     </div>
 
     <!-- Iframe Container -->
-    <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+    <div ref="polishContainerRef" class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
       <!-- View-as switch in flight: cover the pane with a spinner until the
            new identity (and any identity-scoped re-runs) fully settle, so the
            transient anonymous fallback never flashes as the final render. -->
@@ -262,6 +262,23 @@
           <span>Identity parameters only — sources that authenticate per user still run with your credentials, so this user's actual rows may differ.</span>
         </div>
       </div>
+      <!-- Some charts withheld from this viewer: the dashboard still renders
+           the ones they can read; say which are missing and why. -->
+      <div
+        v-if="partiallyWithheld && !isLoading"
+        class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[90%] flex items-start gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]"
+      >
+        <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
+        <div>
+          <div v-if="withheldCharts.some(c => c.noAccess)">
+            {{ $t('artifactFrame.partialNoAccess', { charts: withheldCharts.filter(c => c.noAccess).map(c => c.title).join(', ') }) }}
+          </div>
+          <div v-if="withheldCharts.some(c => !c.noAccess)">
+            {{ $t('artifactFrame.partialFailed', { charts: withheldCharts.filter(c => !c.noAccess).map(c => c.title).join(', ') }) }}
+          </div>
+        </div>
+      </div>
+
       <!-- Loading State -->
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
@@ -311,7 +328,7 @@
            mode — withheld empty data must never reach the artifact code, nor
            surface as a code error with a Fix Error button. The backend never
            withholds from the report owner, so owners never see this. -->
-      <div v-else-if="snapshotWithheld" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
+      <div v-else-if="showViewerGate" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <ViewerRunGate :state="gateState" :report-id="reportId"
           :is-running="isViewerRunning" :source-errors="dataSourceErrors"
           :error-message="gateErrorMessage" :source-type="gateSourceType" @run="runAsViewer" />
@@ -372,10 +389,17 @@
       <div v-else-if="iframeError" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
         <Icon name="heroicons:exclamation-triangle" class="w-8 h-8 text-red-400 mb-3" />
         <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dashboard failed to render</h3>
-        <p class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 dark:bg-gray-900 rounded p-2 border">
+        <!-- A viewer missing some charts' data: the likely cause is artifact
+             code that assumed those rows exist. They cannot fix it (it is not
+             their dashboard), so explain instead of offering Fix Error. -->
+        <p v-if="partiallyWithheld" class="text-xs text-gray-500 dark:text-gray-400 max-w-md text-center">
+          {{ $t('artifactFrame.partialRenderFailed') }}
+        </p>
+        <p v-else class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 dark:bg-gray-900 rounded p-2 border">
           {{ iframeError.length > 200 ? iframeError.slice(0, 200) + '...' : iframeError }}
         </p>
         <UButton
+          v-if="!partiallyWithheld"
           @click="fixRenderError"
           size="xs"
           color="red"
@@ -388,10 +412,11 @@
 
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !snapshotWithheld && !iframeError && iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !showViewerGate && !iframeError && iframeSrcdoc"
         ref="iframeRef"
+        data-artifact-frame
         :srcdoc="iframeSrcdoc"
-        sandbox="allow-scripts allow-same-origin allow-downloads"
+        sandbox="allow-scripts allow-downloads allow-forms"
         class="absolute inset-0 w-full h-full border-0 bg-white dark:bg-gray-900 z-0"
         @load="onIframeLoad"
       />
@@ -400,7 +425,7 @@
            slides render as page images through SlideViewer, so there is no
            iframe for the element picker to talk to) -->
       <div
-        v-if="hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode && !hasSlidesWithPreviews && !slidesPreviewsMissing"
+        v-if="!verificationPreview && hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode && !hasSlidesWithPreviews && !slidesPreviewsMissing"
         class="absolute bottom-4 left-4 z-20"
       >
         <button
@@ -420,6 +445,7 @@
       <!-- Polish Prompt Box -->
       <div
         v-if="polishPromptVisible"
+        ref="polishBoxRef"
         class="absolute z-30 w-80 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3"
         :style="polishPromptPosition"
       >
@@ -433,19 +459,23 @@
         <div class="text-[10px] text-gray-400 mb-2 font-mono bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 truncate">
           &lt;{{ polishSelectedElement?.tag?.toLowerCase() }}&gt; {{ polishSelectedElement?.text?.slice(0, 60) }}
         </div>
-        <form @submit.prevent="submitPolishPrompt" class="flex gap-2">
-          <input
+        <!-- Grows with the instruction up to ~6 lines, then scrolls, so a long
+             prompt stays readable. Enter applies; Shift+Enter breaks the line. -->
+        <form @submit.prevent="submitPolishPrompt" class="flex flex-col gap-2">
+          <textarea
             ref="polishInputRef"
             v-model="polishInstruction"
-            type="text"
+            rows="2"
+            dir="auto"
             placeholder="e.g. make this bigger, change colors..."
-            class="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            class="block w-full resize-none max-h-36 overflow-y-auto text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            @keydown.enter.exact="onPolishEnter"
             @keydown.escape="cancelPolishPrompt"
           />
           <button
             type="submit"
             :disabled="!polishInstruction.trim()"
-            class="px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            class="self-end px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {{ $t('artifactFrame.apply') }}
           </button>
@@ -488,9 +518,10 @@
             </div>
             <!-- Other artifacts use iframe -->
             <iframe
+              ref="fullscreenRuntimeFrame"
               v-else-if="isFullscreenOpen && iframeSrcdoc"
               :srcdoc="iframeSrcdoc"
-              sandbox="allow-scripts allow-same-origin allow-downloads"
+              sandbox="allow-scripts allow-downloads allow-forms"
               class="absolute inset-0 w-full h-full border-0"
             />
           </div>
@@ -498,12 +529,14 @@
       </UModal>
     </Teleport>
   </div>
+  <ArtifactResourceExplorer v-if="resourceInspectorOpen && selectedArtifact?.artifact_id"
+    :artifact-id="selectedArtifact.artifact_id" :view="resourceInspectorView" @close="resourceInspectorOpen = false" />
 </template>
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
 import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
-import { useMyFetch } from '~/composables/useMyFetch';
+import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
 import DataModal from './DataModal.vue';
 import ShareModal from '../ShareModal.vue';
@@ -513,6 +546,7 @@ import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { polishPromptPosition as computePolishPromptPosition } from '~/utils/polishPrompt';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -533,7 +567,8 @@ async function copyArtifactId(id: string) {
 }
 
 interface ArtifactItem {
-  id: string;
+  id: string;                 // version id
+  artifact_id?: string;       // parent identity — shared by all versions of one artifact
   title: string;
   version: number;
   created_at: string;
@@ -556,7 +591,32 @@ const props = defineProps<{
    *  summary unmounts it and every click from there arrives too early. A prop
    *  is already reactive state on the page, so it survives the remount. */
   requestedArtifactId?: string | null;
+  /** Server-brokered preview: no user credential/session enters this page. */
+  verificationPreview?: boolean;
 }>();
+
+// The preview's server-side request broker supplies normal authorized API
+// responses. Rendering and parameter execution stay on this shared host.
+const useMyFetch: typeof useApplicationFetch = (async (request: any, options: any = {}) => {
+  if (!props.verificationPreview) return useApplicationFetch(request, options);
+  const path = String(request).startsWith('/api/') ? String(request) : `/api${request}`;
+  try {
+    const value = await $fetch(path, options);
+    return { data: ref(value), error: ref(null), pending: ref(false), status: ref('success'), refresh: () => {} };
+  } catch (error) {
+    return { data: ref(null), error: ref(error), pending: ref(false), status: ref('error'), refresh: () => {} };
+  }
+}) as typeof useApplicationFetch;
+
+let verificationRevision = 0;
+// A full payload carries only the latest accepted result for each query.
+const verificationRequests = new Map<string, string>();
+function verificationEvent(kind: string, fields: Record<string, any> = {}) {
+  if (!props.verificationPreview) return;
+  window.dispatchEvent(new CustomEvent('bow:artifact-evidence', {
+    detail: { kind, artifact_id: props.requestedArtifactId, ...fields },
+  }));
+}
 
 defineEmits<{
   (e: 'close'): void;
@@ -578,16 +638,39 @@ const iframeError = ref<string | null>(null);
 const isPolishMode = ref(false);
 const polishPromptVisible = ref(false);
 const polishInstruction = ref('');
-const polishInputRef = ref<HTMLInputElement | null>(null);
+const polishInputRef = ref<HTMLTextAreaElement | null>(null);
+const polishContainerRef = ref<HTMLElement | null>(null);
+const polishBoxRef = ref<HTMLElement | null>(null);
+const polishBoxHeight = ref(0);
 const polishSelectedElement = ref<{ tag: string; classes: string; text: string; htmlSnippet: string; rect: { top: number; left: number; width: number; height: number } } | null>(null);
 
 const polishPromptPosition = computed(() => {
   if (!polishSelectedElement.value?.rect) return { top: '50%', left: '50%' };
-  const r = polishSelectedElement.value.rect;
-  // Position below the element, clamped within the container
-  const top = Math.min(Math.max(r.top + r.height + 8, 8), 500);
-  const left = Math.min(Math.max(r.left, 8), 400);
+  // polishContainerRef is the inline pane the iframe fills, so the rect the
+  // iframe reports maps 1:1 onto it.
+  const { top, left } = computePolishPromptPosition(
+    polishSelectedElement.value.rect,
+    { width: polishBoxRef.value?.offsetWidth ?? 320, height: polishBoxHeight.value },
+    { width: polishContainerRef.value?.clientWidth ?? Infinity, height: polishContainerRef.value?.clientHeight ?? Infinity },
+  );
   return { top: top + 'px', left: left + 'px' };
+});
+
+watch(polishBoxRef, (el, _prev, onCleanup) => {
+  if (!el) return;
+  polishBoxHeight.value = el.offsetHeight;
+  const observer = new ResizeObserver(() => { polishBoxHeight.value = el.offsetHeight; });
+  observer.observe(el);
+  onCleanup(() => observer.disconnect());
+});
+
+// Fit the instruction box to its text; max-h caps it and scrolling takes over.
+watch(polishInstruction, async () => {
+  await nextTick();
+  const el = polishInputRef.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 });
 
 function togglePolishMode() {
@@ -604,7 +687,7 @@ function enterPolishMode() {
   polishSelectedElement.value = null;
   polishInstruction.value = '';
   // Tell iframe to enable pick mode (srcdoc iframe inherits parent origin)
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
 }
 
 function exitPolishMode() {
@@ -612,14 +695,24 @@ function exitPolishMode() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, '*');
 }
 
 function cancelPolishPrompt() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
+}
+
+// Enter applies — except the Enter that commits an IME candidate (CJK input),
+// which would submit a half-written instruction. Chrome/Firefox flag it with
+// isComposing; Safari fires it after compositionend, where only keyCode 229
+// gives it away.
+function onPolishEnter(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  submitPolishPrompt();
 }
 
 function submitPolishPrompt() {
@@ -928,6 +1021,22 @@ async function fetchViewerContext() {
 }
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+const fullscreenRuntimeFrame = ref<HTMLIFrameElement | null>(null);
+// Fullscreen runs a second copy of the artifact: it seeds from the same
+// srcdoc, then needs every live update (data, theme, param status) too.
+const fullscreenReady = ref(false);
+watch(isFullscreenOpen, (open) => { if (!open) fullscreenReady.value = false; });
+function postToRuntimeFrames(message: any) {
+  for (const frame of [iframeRef.value, fullscreenRuntimeFrame.value]) {
+    try { frame?.contentWindow?.postMessage(message, '*'); } catch { /* frame not ready */ }
+  }
+}
+const resourceInspectorOpen = ref(false);
+const resourceInspectorView = ref<'resources' | 'analytics'>('resources');
+const resourcesAvailable = ref(false);
+
+
+useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you" }));
 const isLoading = ref(true);
 
 // App color mode, forwarded into the artifact iframe (initial srcdoc + live
@@ -939,10 +1048,7 @@ const colorMode = useColorMode();
 let artifactColorMode: 'light' | 'dark' = colorMode.value === 'dark' ? 'dark' : 'light';
 watch(() => colorMode.value, (v) => {
   artifactColorMode = v === 'dark' ? 'dark' : 'light';
-  iframeRef.value?.contentWindow?.postMessage(
-    { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
-    window.location.origin
-  );
+  postToRuntimeFrames({ type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode });
 });
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
 
@@ -969,6 +1075,13 @@ const latestParamRunForQid: Record<string, number> = {};
 // Snapshot embedded in the iframe's srcdoc; frozen per data load so live
 // param/view-as updates (postMessage) never trigger an iframe reload.
 const srcdocSeed = ref<any>(null);
+
+// Which sandbox runtime generation the selected artifact was authored for.
+// Read from content.runtime_version so a legacy row keeps its legacy look.
+function artifactRuntime() {
+  const v = Number((selectedArtifact.value as any)?.content?.runtime_version || 0);
+  return { version: Number.isFinite(v) ? v : 0 };
+}
 
 function paramsPayload() {
   // Aggregate declarations by name: same-named params across queries render
@@ -1121,12 +1234,8 @@ function queriesWithIdentityParams(): string[] {
 
 function postParamsStatus(loading: boolean, error: string | null = null) {
   paramRunLoading.value = loading;
-  try {
-    iframeRef.value?.contentWindow?.postMessage(
-      { type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } },
-      window.location.origin,
-    );
-  } catch { /* iframe not ready */ }
+  verificationEvent(error ? 'error' : 'params_status', { loading, message: error });
+  postToRuntimeFrames({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } });
 }
 
 // Execute the parameterized queries server-side (viewer mode: per-viewer
@@ -1137,6 +1246,7 @@ async function runParamQueries(
   opts: { force?: boolean; identityOnly?: boolean } = {},
 ) {
   const changedNames = Object.keys(changes || {});
+  verificationEvent('params_commit', { changes, targets, commit_seq: paramAckSeq });
 
   // A name no query declares would silently no-op (nothing to run) — the
   // classic generated-code bug of setParam('genre') vs a declared genre_id.
@@ -1192,6 +1302,7 @@ async function runParamQueries(
         return;
       }
       if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
+      if (props.verificationPreview && res.verification_request_id) verificationRequests.set(qid, res.verification_request_id);
       for (const viz of visualizationsData.value) {
         if (viz.queryId === qid) {
           viz.rows = res.data?.rows || [];
@@ -1269,6 +1380,15 @@ async function fetchArtifactFiles(): Promise<any[]> {
 const artifactsList = ref<ArtifactItem[]>([]);
 const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
+watch(() => selectedArtifact.value?.artifact_id, async (id) => {
+  resourcesAvailable.value = false;
+  resourceInspectorOpen.value = false;
+  if (!id || props.verificationPreview) return;
+  try {
+    await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/context`, {headers:{Authorization:token.value || ''}});
+    if (selectedArtifact.value?.artifact_id === id) resourcesAvailable.value = true;
+  } catch { /* Disabled on existing installations until explicitly enabled. */ }
+}, {immediate:true});
 
 // Availability of PDF / PPTX / HTML for whatever is on screen; the public
 // share page derives its list from the same composable.
@@ -1291,10 +1411,21 @@ const selectedArtifactLabel = computed(() => {
   return t('artifactFrame.selectArtifact');
 });
 
-// Check if selected artifact is the latest (first in list, sorted by created_at desc)
+// "Use this version" appears when the selection is NOT the newest row of its
+// MODE (the list is created_at desc). Why mode and not artifact_id: versions
+// of one artifact always share its mode, so "newest of my artifact" is a
+// subset of "newest of my mode" — and pre-migration history has one parent
+// per version (backfill didn't guess lineage), where an artifact_id-only rule
+// would make every old version "latest of itself" and hide the revert button
+// from all existing data. The old rule (first row overall) was buggy the
+// other way: the newest DOC showed the button merely because a newer
+// dashboard existed above it.
 const isLatestSelected = computed(() => {
   if (!selectedArtifactId.value || artifactsList.value.length === 0) return true;
-  return artifactsList.value[0].id === selectedArtifactId.value;
+  const selected = artifactsList.value.find(a => a.id === selectedArtifactId.value);
+  if (!selected) return true;
+  const newestOfMode = artifactsList.value.find(a => a.mode === selected.mode);
+  return !newestOfMode || newestOfMode.id === selected.id;
 });
 
 // Check if selected artifact is pending (still generating)
@@ -1477,6 +1608,12 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
   }
 
+  if (resourcesAvailable.value && selectedArtifact.value?.artifact_id && !props.verificationPreview) {
+    view.unshift(
+      { label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } },
+      { label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } }
+    );
+  }
   return [edit, exports, view].filter(g => g.length > 0);
 });
 
@@ -1486,6 +1623,23 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
 // snapshot_withheld and empty data, and rendering the artifact against them
 // crashes generated code that assumes rows exist. Mirror of /r/[id].
 const snapshotWithheld = ref(false);
+// Per-chart view of the same policy. A viewer refused ONE dataset used to lose
+// the whole dashboard to the gate; now the charts they can read render and
+// only these are called out (see showViewerGate).
+const withheldCharts = ref<Array<{ title: string; noAccess: boolean }>>([]);
+// Set when the charts named above are the OWNER's own failed steps (a fork
+// whose hydration ran only part of the dashboard) rather than snapshots
+// withheld from a viewer. Banner-only: it must never reach showViewerGate.
+const ownerFailedCharts = ref(false);
+// Every query on the dashboard is withheld — nothing to render but the gate.
+const allWithheld = ref(false);
+// Some own run was refused by the provider (classified server-side as
+// error_code 'no_access'), as opposed to breaking for another reason.
+const viewerRunNoAccess = ref(false);
+// The dashboard renders, but some of its charts are unavailable to this viewer.
+const partiallyWithheld = computed(() =>
+  (snapshotWithheld.value || ownerFailedCharts.value)
+  && !showViewerGate.value && withheldCharts.value.length > 0);
 // True when any of the dashboard's queries reads a delegated (per-user
 // credential) source: View-as swaps identity params only — source-level rows
 // still come back under the caller's own credentials, so the preview must
@@ -1517,11 +1671,21 @@ const gateSourceType = computed<string | null>(() => {
 
 // In-app the user is always signed in, so the gate never shows 'signin';
 // the machine-readable data-source error codes pick the fallback action.
+// The gate covers the dashboard only when there is nothing of it to show:
+// before this viewer has any run of their own (it auto-runs and shows
+// "loading"), while that run is in flight, or when EVERY query is withheld.
+// Withheld is per query, so a viewer refused one dataset still gets every
+// chart they can read — the fork makes the same call (keep what ran).
+const showViewerGate = computed(() =>
+  snapshotWithheld.value && (allWithheld.value || isViewerRunning.value || !hasOwnResult.value));
+
 const gateState = computed<'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready'>(() => {
   if (isViewerRunning.value) return 'loading';
   const errs = dataSourceErrors.value;
   if (errs.some((e) => e.code === 'credentials_required')) return 'connect';
-  if (errs.some((e) => e.code === 'no_access')) return 'no_access';
+  // Refused at the data-source level (no client) OR at query time (one
+  // dataset) — both are "no access", never the provider's HTTP status.
+  if (errs.some((e) => e.code === 'no_access') || viewerRunNoAccess.value) return 'no_access';
   if (errs.length > 0 || viewerRunFailedReason.value) return 'error';
   return 'ready';
 });
@@ -1828,6 +1992,7 @@ async function switchToArtifact(artifactId: string) {
 // or updates the artifact already on screen)
 async function handleArtifactCreated(event: Event) {
   const detail = (event as CustomEvent).detail || {};
+  if (detail.report_id && detail.report_id !== props.reportId) return;
   const artifactId = detail.artifact_id;
   const takeover = detail.select !== false;
   if (!takeover && artifactId && selectedArtifactId.value &&
@@ -1894,9 +2059,10 @@ onMounted(async () => {
   // claim, so this is at most one owner-credential rerun per interval no
   // matter how many people open the page. Mirrors the /r host.
   try {
+    if (props.verificationPreview) return; // Verification only runs explicit viewer queries.
     const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun`, { method: 'POST' });
     const run: any = data.value;
-    if (run && !run.skipped && run.steps_succeeded) await refreshAll();
+    if (run && !run.skipped && run.steps_succeeded) await refreshDataInPlace();
   } catch { /* a failed background refresh must never break a rendered page */ }
 });
 
@@ -1982,12 +2148,21 @@ onUnmounted(() => {
 
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
-  if (event.data?.type === 'ARTIFACT_READY') {
+  if (event.source !== iframeRef.value?.contentWindow && event.source !== fullscreenRuntimeFrame.value?.contentWindow) return;
+  if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
+    verificationEvent('data_received', { data_revision: event.data.revision });
+    return;
+  }
+  if (event.data?.type === 'ARTIFACT_READY' && event.source === fullscreenRuntimeFrame.value?.contentWindow) {
+    fullscreenReady.value = true;
+    sendDataToIframe();
+  } else if (event.data?.type === 'ARTIFACT_READY') {
     console.log('[ArtifactFrame] Iframe ready');
     iframeError.value = null;
     iframeReady.value = true;
     sendDataToIframe();
   } else if (event.data?.type === 'ARTIFACT_ERROR') {
+    verificationEvent('error', { source: 'runtime', message: event.data.payload?.message });
     console.error('[ArtifactFrame] Iframe render error:', event.data.payload?.message);
     iframeError.value = event.data.payload?.message || 'Unknown render error';
   } else if (event.data?.type === 'POLISH_ELEMENT_SELECTED') {
@@ -1997,35 +2172,38 @@ function handleIframeMessage(event: MessageEvent) {
     nextTick(() => polishInputRef.value?.focus());
   } else if (event.data?.type === 'ARTIFACT_SET_PARAMS') {
     // A control in the artifact committed param changes: run the consuming
-    // queries server-side and push fresh rows back down.
-    if (event.source === iframeRef.value?.contentWindow) {
-      paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
-      runParamQueries(event.data.changes || {}, event.data.targets || null, {});
-    }
+    // queries server-side and push fresh rows back down (to both frames).
+    paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
+    runParamQueries(event.data.changes || {}, event.data.targets || null, {});
   } else if (event.data?.type === 'ARTIFACT_REFRESH_PARAMS') {
-    if (event.source === iframeRef.value?.contentWindow) {
-      runParamQueries(null, event.data.targets || null, { force: true });
-    }
+    runParamQueries(null, event.data.targets || null, { force: true });
   }
 }
 
 // Send data to iframe via postMessage
 function sendDataToIframe() {
-  if (!iframeRef.value?.contentWindow || !iframeReady.value) return;
+  const targets = [
+    iframeReady.value ? iframeRef.value?.contentWindow : null,
+    fullscreenReady.value ? fullscreenRuntimeFrame.value?.contentWindow : null,
+  ].filter((w): w is Window => !!w);
+  if (!targets.length) return;
 
   const payload = JSON.parse(JSON.stringify({
     report: toRaw(reportData.value),
     visualizations: toRaw(visualizationsData.value),
     files: toRaw(filesData.value),
     current_user: toRaw(effectiveViewerContext.value),
-    params: paramsPayload()
+    params: paramsPayload(),
+    runtime: artifactRuntime(),
+    ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {})
   }));
 
+  verificationEvent('data_sent', {
+    data_revision: verificationRevision,
+    request_ids: [...new Set(visualizationsData.value.map(v => verificationRequests.get(v.queryId)).filter(Boolean))],
+  });
   try {
-    iframeRef.value.contentWindow.postMessage({
-      type: 'ARTIFACT_DATA',
-      payload
-    }, window.location.origin);
+    for (const target of targets) target.postMessage({ type: 'ARTIFACT_DATA', payload }, '*');
   } catch (err: any) {
     console.error('[ArtifactFrame] Failed to send data to iframe:', err);
     iframeError.value = err?.message || 'Failed to send data to dashboard iframe';
@@ -2036,10 +2214,16 @@ function sendDataToIframe() {
   console.log('[ArtifactFrame] Data sent to iframe:', visualizationsData.value.length, 'visualizations');
 }
 
-// Fetch visualization data for the report (optionally filtered by artifact)
-async function fetchData(artifactId?: string) {
-  isLoading.value = true;
-  dataReady.value = false;
+// Fetch visualization data for the report (optionally filtered by artifact).
+// `inPlace` refreshes the rows of a dashboard that is already rendered: no
+// loading overlay, no srcdoc rebuild (which reloads the iframe — a visible
+// blank flash) and no reset of the viewer's control values; the fresh rows
+// reach the live document through postMessage like a param run.
+async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: boolean } = {}) {
+  if (!inPlace) {
+    isLoading.value = true;
+    dataReady.value = false;
+  }
 
   try {
     // Fetch report info
@@ -2074,6 +2258,11 @@ async function fetchData(artifactId?: string) {
     let anyOwnResult = false;
     let anyCredentialScoped = false;
     let failedReason: string | null = null;
+    const nextWithheldCharts: Array<{ title: string; noAccess: boolean }> = [];
+    let visibleQueries = 0;
+    // The owner's own steps that hydration could not run — banner, not gate.
+    let anyOwnerFailed = false;
+    let anyNoAccess = false;
 
     const nextParamSpecs: Record<string, any[]> = {};
     for (let qi = 0; qi < queries.length; qi++) {
@@ -2094,11 +2283,43 @@ async function fetchData(artifactId?: string) {
 
       // Per-viewer step-data policy markers: withheld snapshots gate the
       // render; an existing per-viewer result row gates auto-run.
-      if (step?.snapshot_withheld) anyWithheld = true;
       const vr = step?.viewer_result;
+      if (step?.snapshot_withheld) {
+        anyWithheld = true;
+        nextWithheldCharts.push({
+          title: query.title || 'Untitled',
+          noAccess: vr?.error_code === 'no_access',
+        });
+      } else if (step?.status === 'error' && step?.status_reason) {
+        // The step's OWNER seeing their own failed step — a forker whose
+        // hydration could run only part of the dashboard. `snapshot_withheld`
+        // is a viewer-only marker, always false here, so without this branch
+        // the two sentences hydrate_fork carefully writes onto the step reached
+        // nobody: the charts it could not run rendered blank, with no banner
+        // and no explanation. `error_code` tells "you may not read this" from
+        // "this query broke" without matching on prose.
+        //
+        // Sets its own flag, NOT `anyWithheld`: that one drives showViewerGate,
+        // and the owner must never be shown the viewer's sign-in/connect gate
+        // for their own fork. This feeds the banner alone.
+        anyOwnerFailed = true;
+        nextWithheldCharts.push({
+          title: query.title || 'Untitled',
+          noAccess: step.error_code === 'no_access',
+        });
+      } else if (step) {
+        // Only a step that actually loaded counts as viewable. A failed fetch
+        // (or a query with no default step) leaves `step` null, and
+        // `snapshot_withheld` then reads undefined — which counted it as
+        // visible, lifted the gate, and ran the artifact against rows that are
+        // uniformly empty: the render crash the gate exists to prevent. An
+        // unreadable step is not a readable one, so it stays out of the count.
+        visibleQueries += 1;
+      }
       if (vr) {
         anyOwnResult = true;
         if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
+        if (vr.status === 'error' && vr.error_code === 'no_access') anyNoAccess = true;
       }
 
       // Process each visualization in the query
@@ -2111,6 +2332,13 @@ async function fetchData(artifactId?: string) {
           columns: step?.data?.columns || [],
           dataModel: step?.data_model || {},
           stepStatus: step?.status,
+          // Withheld from this viewer: rows are empty on purpose. Exposed so
+          // artifact code (and anything reading ARTIFACT_DATA) can tell an
+          // unavailable chart from one with genuinely no rows.
+          unavailable: !!step?.snapshot_withheld || step?.status === 'error',
+          // The reason this chart is empty, in the words the server chose.
+          // Empty for a chart that simply has no rows.
+          unavailableReason: step?.status === 'error' ? (step?.status_reason || '') : '',
           // Provenance surfaced in the built-in InfoPopover on prebuilt comps
           code: step?.code || '',
           description: viz.description || query.description || step?.description || '',
@@ -2129,8 +2357,9 @@ async function fetchData(artifactId?: string) {
 
     // Initialize applied values: declaration defaults, overridden by any
     // qp_<name> URL state (shareable dashboards). Identity params carry no
-    // client value — the server binds them per viewer.
-    {
+    // client value — the server binds them per viewer. An in-place refresh
+    // keeps whatever the viewer has applied since.
+    if (!inPlace) {
       const urlValues = readParamsFromUrl();
       const nextValues: Record<string, any> = {};
       for (const specs of Object.values(nextParamSpecs)) {
@@ -2148,6 +2377,8 @@ async function fetchData(artifactId?: string) {
 
     // Reorder vizData to match artifact's visualization_ids order
     // (artifact code references viz[0], viz[1], etc. by index)
+    // These are newly fetched snapshots, not the previous parameter-run results.
+    verificationRequests.clear();
     const vizIds = selectedArtifact.value?.content?.visualization_ids;
     if (vizIds && vizIds.length > 0) {
       const vizMap = new Map(vizData.map(v => [v.id, v]));
@@ -2162,6 +2393,10 @@ async function fetchData(artifactId?: string) {
       visualizationsData.value = vizData;
     }
     snapshotWithheld.value = anyWithheld;
+    withheldCharts.value = nextWithheldCharts;
+    ownerFailedCharts.value = anyOwnerFailed;
+    allWithheld.value = queries.length > 0 && visibleQueries === 0;
+    viewerRunNoAccess.value = anyNoAccess;
     hasOwnResult.value = anyOwnResult;
     credentialScoped.value = anyCredentialScoped;
     viewerRunFailedReason.value = failedReason;
@@ -2197,12 +2432,13 @@ async function fetchData(artifactId?: string) {
     // snapshot. Later updates (param runs, view-as swaps) flow via
     // postMessage into the live data store — never by recomputing srcdoc,
     // which would reload the iframe and lose control state.
-    srcdocSeed.value = JSON.parse(JSON.stringify({
+    if (!inPlace) srcdocSeed.value = JSON.parse(JSON.stringify({
       report: toRaw(reportData.value),
       visualizations: toRaw(visualizationsData.value),
       files: toRaw(filesData.value),
       current_user: toRaw(effectiveViewerContext.value),
       params: paramsPayload(),
+      runtime: artifactRuntime(),
     }));
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
@@ -2216,6 +2452,13 @@ async function fetchData(artifactId?: string) {
       sendDataToIframe();
     }
   }
+}
+
+// Refresh-on-view finished with new rows: the artifact itself is unchanged,
+// so update the data of the rendered dashboard rather than reloading it.
+// Before the first paint there is nothing to keep — take the full path.
+async function refreshDataInPlace() {
+  await fetchData(selectedArtifactId.value, { inPlace: dataReady.value });
 }
 
 // Refresh everything
@@ -2513,10 +2756,13 @@ const iframeSrcdoc = computed(() => {
   // Wait for visualization data to be loaded
   if (!dataReady.value) return undefined;
 
-  // Snapshot withheld: the steps carry empty data, and generated artifact
-  // code routinely assumes rows exist — don't execute it at all. The
-  // ViewerRunGate covers this state until the viewer's own run resolves it.
-  if (snapshotWithheld.value) return undefined;
+  // Nothing of the dashboard is viewable yet: generated artifact code
+  // routinely assumes rows exist, so don't execute it against all-empty data —
+  // the ViewerRunGate covers this state. With SOME charts withheld it does
+  // run: those charts get empty rows (flagged `unavailable`) and the banner
+  // names them; a render failure then gets a viewer-appropriate message
+  // instead of "Fix Error".
+  if (showViewerGate.value) return undefined;
 
   // Slides without previews carry python-pptx source; it must never be
   // injected into the iframe (the browser would render it as raw text).
@@ -2538,12 +2784,15 @@ const iframeSrcdoc = computed(() => {
     files: filesData.value,
     current_user: effectiveViewerContext.value,
     params: paramsPayload(),
+    runtime: artifactRuntime(),
   };
   return buildArtifactIframeHtml({
     data: seed,
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
-    polishMode: true,
+    polishMode: !props.verificationPreview,
+    fixtureMode: !!props.verificationPreview,
+    resourceApp: selectedArtifact.value?.content?.sdk_version === 1,
     loadingLabel: t('artifactFrame.loadingArtifact'),
     reactBuild: 'development',
     colorMode: artifactColorMode,

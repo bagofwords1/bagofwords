@@ -37,6 +37,27 @@ class AgentExecutionTraceResponse(BaseModel):
     timing_breakdown: Optional[TimingBreakdownSchema] = None
 
 
+class TurnMemoryItemSchema(BaseModel):
+    handle: Optional[str] = None
+    dated: Optional[bool] = None
+    tier: Optional[str] = None  # always | matched (injected entries)
+    tool: Optional[str] = None  # create_memory | edit_memory | search_memory
+    action: Optional[str] = None
+    code: Optional[str] = None  # refusal code
+    success: Optional[bool] = None
+    text: Optional[str] = None  # owner only
+
+
+class TurnMemorySchema(BaseModel):
+    owner_view: bool = False
+    chars: int = 0
+    total_entries: int = 0
+    hidden: int = 0
+    injected: List[TurnMemoryItemSchema] = []
+    tool_calls: List[TurnMemoryItemSchema] = []
+    refusals: List[TurnMemoryItemSchema] = []
+
+
 class ConversationTurnSchema(BaseModel):
     """One user→assistant turn in a report conversation, with diagnosis badges.
 
@@ -48,6 +69,11 @@ class ConversationTurnSchema(BaseModel):
     user_completion_id: Optional[str] = None
     user_prompt: Optional[str] = None
     role: str = "user"  # 'user' | 'external'
+    # Machine turns (wait wake, eval run, agent check-in, …) carry the source
+    # of the hidden trigger; null for a human turn.
+    trigger_source: Optional[str] = None
+    # For trigger_source='checkin': the agent_checkins row this run belongs to.
+    checkin_id: Optional[str] = None
 
     # Assistant side
     completion_id: Optional[str] = None  # system completion
@@ -84,6 +110,40 @@ class ConversationTurnSchema(BaseModel):
     # uses). Empty for turns still in progress / without blocks.
     completion_blocks: List[CompletionBlockV2Schema] = []
 
+    # User-memory activity for this turn: entries injected (handle, tier),
+    # rendered size, memory tool calls and refusals. ``text`` fields are filled
+    # ONLY when the viewer owns the memory (owner_view=True); everyone else —
+    # admins included — sees handles and counts.
+    memory: Optional["TurnMemorySchema"] = None
+
+
+class CheckinTraceSchema(BaseModel):
+    """One agent check-in decision, for the TraceModal lifecycle card.
+
+    Every row for the report is included — not_proposed, rejected, cancelled
+    and skipped too — so admins see the decisions that left nothing visible.
+    """
+    id: str
+    status: str
+    status_reason: Optional[str] = None
+    source_completion_id: Optional[str] = None
+    run_completion_id: Optional[str] = None
+    note: Optional[str] = None
+    plan_reason: Optional[str] = None
+    due_at: OptionalUTCDatetime = None
+    judge_decision: Optional[str] = None
+    judge_reason: Optional[str] = None
+    judge_focus: Optional[str] = None
+    judged_at: OptionalUTCDatetime = None
+    notified: bool = False
+    notify_subject: Optional[str] = None
+    sent_at: OptionalUTCDatetime = None
+    planner_llm_tokens: Optional[int] = None
+    planner_llm_cost_usd: Optional[float] = None
+    judge_llm_tokens: Optional[int] = None
+    judge_llm_cost_usd: Optional[float] = None
+    created_at: OptionalUTCDatetime = None
+
 
 class ConversationTraceResponse(BaseModel):
     """A whole report conversation as an ordered list of turns + roll-up."""
@@ -104,5 +164,9 @@ class ConversationTraceResponse(BaseModel):
     total_llm_tokens: Optional[int] = None
     total_llm_cost_usd: Optional[float] = None
     turns: List[ConversationTurnSchema] = []
+    checkins: List[CheckinTraceSchema] = []
 
 
+
+
+ConversationTurnSchema.model_rebuild()

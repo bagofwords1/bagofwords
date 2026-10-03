@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from typing import List, Optional
@@ -174,7 +175,8 @@ class TimbrA2aClient(DataSourceClient):
     # Schema discovery
     # ------------------------------------------------------------------
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         return self.get_tables()
 
     def get_tables(self) -> List[Table]:

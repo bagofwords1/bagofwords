@@ -1,0 +1,23 @@
+Compact captured test output; repeated migration logs and warnings omitted.
+
+============================= test session starts ==============================
+platform darwin -- Python 3.12.8, pytest-8.4.2, pluggy-1.6.0
+collected 167 items
+tests/unit/test_query_params.py ........................................ [ 23%]
+tests/unit/test_artifact_browser_verification.py ....................... [ 49%]
+tests/unit/test_code_execution_heartbeat.py ..                           [ 62%]
+tests/unit/test_db_error_hints.py .....                                  [ 65%]
+tests/unit/test_query_timeout.py ........................                [ 79%]
+tests/unit/test_create_data_source_guidance.py ..                        [ 80%]
+tests/unit/test_create_data_card_guard.py .............................. [ 98%]
+=============================== warnings summary ===============================
+tests/unit/test_query_params.py::test_render_string_quoted_and_escaped
+tests/unit/test_query_params.py::test_render_string_quoted_and_escaped
+tests/unit/test_query_params.py::test_render_string_quoted_and_escaped
+tests/unit/test_query_params.py::test_render_string_quoted_and_escaped
+tests/unit/test_query_params.py::test_render_string_quoted_and_escaped
+tests/unit/test_query_params.py::test_render_string_quoted_and_escaped
+tests/unit/test_query_params.py::test_render_string_quoted_and_escaped
+tests/unit/test_query_params.py::test_render_string_quoted_and_escaped
+tests/unit/test_query_params.py: 20 warnings
+================ 167 passed, 255 warnings in 157.31s (0:02:37) =================

@@ -1,0 +1,21 @@
+{
+  "results": [
+    "Dynamic options from a separate real query remain complete after filtering",
+    "Unversioned dashboard retains legacy formatting/chart defaults after an ordinary edit and real parameter rerun",
+    "commerce: offline export renders without network and keeps runtime identity",
+    "catalog: offline export renders without network and keeps runtime identity",
+    "reps: offline export renders without network and keeps runtime identity",
+    "legacy: offline export renders without network and keeps runtime identity"
+  ],
+  "snapshot": {
+    "legacy": true,
+    "percent": "0.4%",
+    "weight": "700",
+    "height": 400,
+    "smooth": true,
+    "gridLeft": 40,
+    "ids": [
+      "6b65756a-adce-41c3-a646-4529bcb56d98"
+    ]
+  }
+}

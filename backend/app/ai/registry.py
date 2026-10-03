@@ -129,6 +129,10 @@ class ToolRegistry:
             # Skip inactive tools from catalog
             if hasattr(metadata, "is_active") and metadata.is_active is False:
                 continue
+            # Gateway-only tools (e.g. submit_list) are executable but never
+            # advertised: the planner sees their native per-resource aliases.
+            if "catalog_hidden" in (metadata.tags or []):
+                continue
             catalog.append({
                 "name": metadata.name,
                 "description": metadata.description,
@@ -203,7 +207,9 @@ class ToolRegistry:
         # actual report's capability set.
         required_cap = getattr(metadata, "requires_capability", None)
         if required_cap and filter_obj.available_capabilities is not None:
-            if required_cap not in filter_obj.available_capabilities:
+            internal_browser = required_cap == "browser" and "artifact_preview" in filter_obj.available_capabilities and metadata.name in {
+                "browser_navigate", "browser_act", "browser_snapshot", "browser_extract", "browser_vision"}
+            if required_cap not in filter_obj.available_capabilities and not internal_browser:
                 return False
 
         # Permission filtering

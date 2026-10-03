@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
@@ -67,12 +68,16 @@ class SapHanaClient(DataSourceClient):
         try:
             conn = dbapi.connect(**self._connect_kwargs)
             yield conn
+        except IndexingCancelled:
+            raise
         except Exception as e:
             raise RuntimeError(f"{e}")
         finally:
             if conn is not None:
                 try:
                     conn.close()
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
 
@@ -112,6 +117,8 @@ class SapHanaClient(DataSourceClient):
         """Get tables and views (Datasphere exposes views) with graceful fallback."""
         try:
             return self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
             return self._get_tables_basic()
 
@@ -136,6 +143,8 @@ class SapHanaClient(DataSourceClient):
                 return pks
             finally:
                 cursor.close()
+        except IndexingCancelled:
+            raise
         except Exception:
             return {}
 
@@ -190,7 +199,7 @@ class SapHanaClient(DataSourceClient):
                 cursor.close()
 
         tables: dict = {}
-        for schema_name, table_name, column_name, dtype, col_comment, obj_comment, obj_type, _pos in rows:
+        for schema_name, table_name, column_name, dtype, col_comment, obj_comment, obj_type, _pos in discovery_items(rows, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
             key = (schema_name, table_name)
             if key not in tables:
                 tables[key] = Table(
@@ -210,12 +219,16 @@ class SapHanaClient(DataSourceClient):
 
     def _get_tables_enriched(self) -> List[Table]:
         """Tables + views with comments and primary keys."""
+        discovery_phase('reading_columns')
         return self._fetch_tables(self._ENRICHED_SQL, with_pks=True)
 
     def _get_tables_basic(self) -> List[Table]:
         """Tables + views without comments (minimal privileges — always works)."""
+        discovery_phase('metadata_fallback')
         try:
             return self._fetch_tables(self._BASIC_SQL, with_pks=False)
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
@@ -225,7 +238,8 @@ class SapHanaClient(DataSourceClient):
         raise NotImplementedError(
             "get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Get schemas for all tables in the specified database."""
         return self.get_tables()
 

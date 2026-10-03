@@ -225,11 +225,12 @@ async def _canonical_snapshot(ids):
 
 @pytest.mark.e2e
 def test_user_visible_model_missing_from_sp_catalog_is_selectable(monkeypatch):
-    async def _fake_construct_client(self, db, data_source, current_user=None, **kw):
-        assert current_user is not None, "overlay sync must run with the user's identity"
+    async def _fake_construct_client(self, db, data_source, connection=None, user=None, **kw):
+        assert user is not None, "overlay sync must run with the user's identity"
+        assert connection is not None, "overlay sync must name the connection it crawls"
         return _FakeDelegatedPBIClient()
 
-    monkeypatch.setattr(DataSourceService, "construct_client", _fake_construct_client)
+    monkeypatch.setattr(DataSourceService, "_construct_user_catalog_client", _fake_construct_client)
 
     ids = _run(_seed())
     u1, u2 = ids["user_ids"]
@@ -279,10 +280,10 @@ def test_user_discovered_model_rename_updates_canonical_name(monkeypatch):
     remaining ONE row (matched by identity, no duplicate)."""
     clients = {"impl": _FakeDelegatedPBIClient()}
 
-    async def _fake_construct_client(self, db, data_source, current_user=None, **kw):
+    async def _fake_construct_client(self, db, data_source, connection=None, user=None, **kw):
         return clients["impl"]
 
-    monkeypatch.setattr(DataSourceService, "construct_client", _fake_construct_client)
+    monkeypatch.setattr(DataSourceService, "_construct_user_catalog_client", _fake_construct_client)
 
     ids = _run(_seed())
     u1 = ids["user_ids"][0]

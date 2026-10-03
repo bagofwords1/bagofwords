@@ -88,6 +88,8 @@ async def collect_visualizations(db, artifact) -> list[dict[str, Any]]:
             # Carried so an offline host can tell which visualizations a
             # declared query param is scoped to (declaration.query_ids).
             "query_id": str(viz.query_id),
+            "parameters": query.parameters or [],
+            "applied_params": getattr(step, "applied_params", None) or {},
             "title": viz.title or query.title or "Untitled",
             "view": viz.view or {},
             "rows": step.data.get("rows", []) if step and step.data else [],
@@ -126,15 +128,20 @@ async def collect_artifact_payload(db, artifact) -> Optional[dict[str, Any]]:
     if not report:
         return None
 
+    visualizations = await collect_visualizations(db, artifact)
     return {
         "report": {
             "id": str(report.id),
             "title": report.title,
             "theme": report.theme_name,
         },
-        "visualizations": await collect_visualizations(db, artifact),
+        "visualizations": [{k: v for k, v in viz.items() if k != "applied_params"} for viz in visualizations],
         "files": await collect_files(db, artifact),
         "current_user": None,
+        # Which sandbox runtime generation to render with (themed kit at >= 11;
+        # absent on rows created before it → legacy look and semantics).
+        "runtime": {"version": int((artifact.content or {}).get("runtime_version") or 0)},
+        "params": await collect_params(db, artifact, visualizations=visualizations),
     }
 
 
@@ -147,6 +154,39 @@ def _normalize_options(raw: list) -> list[dict[str, Any]]:
         else:
             out.append({"value": item, "label": str(item)})
     return out
+
+
+def build_params_payload(visualizations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Project existing query declarations into the iframe's parameter contract.
+
+    Shared by generation previews and stored-artifact payloads. No queries are
+    executed here; values reflect the stored snapshot, with declaration defaults
+    only when the snapshot does not specify a value.
+    """
+    from app.schemas.param_schema import parse_param_specs
+
+    declarations: dict[str, dict[str, Any]] = {}
+    values: dict[str, Any] = {}
+    options: dict[str, list[dict[str, Any]]] = {}
+    for viz in visualizations:
+        qid = str(viz.get("query_id") or viz.get("queryId") or "")
+        vid = str(viz.get("id") or "")
+        applied = viz.get("applied_params") or {}
+        for spec in parse_param_specs(viz.get("parameters")):
+            entry = declarations.setdefault(spec.name, {
+                **spec.model_dump(), "query_ids": [], "visualization_ids": [],
+            })
+            if qid and qid not in entry["query_ids"]:
+                entry["query_ids"].append(qid)
+            if vid and vid not in entry["visualization_ids"]:
+                entry["visualization_ids"].append(vid)
+            if spec.source != "identity":
+                value = applied.get(spec.name, spec.default) if spec.source == "input" else spec.default
+                values.setdefault(spec.name, value)
+            if spec.options:
+                options.setdefault(spec.name, _normalize_options(spec.options))
+    return {"declarations": list(declarations.values()), "values": values,
+            "options": options, "ack": 0}
 
 
 async def _options_from_source(db, source) -> list[dict[str, Any]]:
@@ -191,75 +231,20 @@ async def _options_from_source(db, source) -> list[dict[str, Any]]:
     return out
 
 
-async def collect_params(db, artifact) -> dict[str, Any]:
-    """Declared query parameters for the artifact's report, as ARTIFACT_DATA.params.
-
-    Same aggregation as paramsPayload() in ArtifactFrame.vue: params sharing a
-    name across queries collapse into ONE declaration whose query_ids lists
-    every query it drives, so a single control moves all of them.
-
-    Only the HTML export calls this. The PDF export deliberately ships without
-    params — it is a flat render, and declaring controls that a sheet of paper
-    cannot operate would only draw dead widgets.
-    """
-    from app.models.query import Query
-    from app.models.visualization import Visualization
+async def collect_params(db, artifact, *, visualizations: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+    """Snapshot parameter context, scoped to this artifact's visualizations."""
     from app.schemas.param_schema import parse_param_specs
 
-    # No SELECT DISTINCT here: Query.parameters (and the joined-loaded
-    # organization_settings.config) are Postgres `json`, which has no equality
-    # operator, so a whole-row DISTINCT raises UndefinedFunctionError on
-    # Postgres (SQLite silently allows it). The join fans out one row per
-    # visualization, so dedupe the Query identities in Python instead.
-    result = await db.execute(
-        select(Query)
-        .join(Visualization, Visualization.query_id == Query.id)
-        .where(Visualization.report_id == artifact.report_id)
-    )
-    queries = list(result.scalars().unique().all())
-
-    by_name: dict[str, dict[str, Any]] = {}
-    options: dict[str, list[dict[str, Any]]] = {}
-
-    for query in queries:
-        for spec in parse_param_specs(query.parameters):
-            entry = by_name.get(spec.name)
-            if entry is None:
-                entry = {
-                    "name": spec.name,
-                    "type": spec.type,
-                    "label": spec.label,
-                    "source": spec.source,
-                    "default": spec.default,
-                    "required": spec.required,
-                    "options": spec.options,
-                    "query_ids": [],
-                }
-                by_name[spec.name] = entry
-            entry["query_ids"].append(str(query.id))
-
-            if spec.name in options:
-                continue
-            if spec.options:
-                options[spec.name] = _normalize_options(spec.options)
-            elif spec.options_source:
+    if visualizations is None:
+        visualizations = await collect_visualizations(db, artifact)
+    included = set((artifact.content or {}).get("visualization_ids") or [])
+    if included:
+        visualizations = [v for v in visualizations if v["id"] in included]
+    payload = build_params_payload(visualizations)
+    for viz in visualizations:
+        for spec in parse_param_specs(viz.get("parameters")):
+            if spec.options_source:
                 resolved = await _options_from_source(db, spec.options_source)
                 if resolved:
-                    options[spec.name] = resolved
-
-    # Applied values start at each param's default, exactly as the live host
-    # seeds them. Identity params carry no client value — the server binds
-    # them per viewer, and an export has no viewer.
-    values: dict[str, Any] = {}
-    for name, entry in by_name.items():
-        if entry["source"] == "identity":
-            continue
-        if entry["default"] is not None:
-            values[name] = entry["default"]
-
-    return {
-        "declarations": list(by_name.values()),
-        "values": values,
-        "options": options,
-        "ack": 0,
-    }
+                    payload["options"][spec.name] = resolved
+    return payload

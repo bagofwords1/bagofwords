@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from lxml import html as lxml_html
 
@@ -19,7 +19,7 @@ from app.errors import AppError, ErrorCode
 
 from app.models.user import User
 from app.models.organization import Organization
-from app.models.artifact import Artifact as ArtifactModel
+from app.models.artifact import ArtifactVersion as ArtifactModel
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.report import Report as ReportModel
@@ -29,7 +29,8 @@ from app.schemas.artifact_schema import (
     ArtifactCreate,
     ArtifactUpdate,
 )
-from app.services.artifact_service import ArtifactService
+# new_artifact is aliased: `new_artifact` is a local row variable in this module
+from app.services.artifact_service import ArtifactService, new_artifact as new_artifact_row, new_version
 from app.services.artifact_codegen import (
     generate_echart_option_code,
     generate_section_jsx,
@@ -245,6 +246,21 @@ def _parse_slides_from_html(html_code: str) -> List[Dict[str, Any]]:
     return slides
 
 
+# Keys in artifact.content that only the server writes (rendered slide
+# previews are read back from disk by path). Client payloads never set them.
+_SERVER_OWNED_CONTENT_KEYS = ("preview_images",)
+
+
+def _without_server_owned_keys(content: Optional[dict], keep_from: Optional[dict] = None) -> Optional[dict]:
+    if content is None:
+        return None
+    cleaned = {k: v for k, v in content.items() if k not in _SERVER_OWNED_CONTENT_KEYS}
+    for key in _SERVER_OWNED_CONTENT_KEYS:
+        if keep_from and key in keep_from:
+            cleaned[key] = keep_from[key]
+    return cleaned
+
+
 @router.post("", response_model=ArtifactSchema)
 @requires_permission('update_reports')
 async def create_artifact(
@@ -254,6 +270,18 @@ async def create_artifact(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Create a new artifact for a report."""
+    # The report comes from the body, so the decorator can't scope it: the
+    # caller must own a report in this organization.
+    report = (await db.execute(
+        select(ReportModel).where(
+            ReportModel.id == str(payload.report_id),
+            ReportModel.organization_id == str(organization.id),
+            ReportModel.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if report is None or str(report.user_id) != str(current_user.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+    payload = payload.model_copy(update={"content": _without_server_owned_keys(payload.content)})
     artifact = await service.create(
         db,
         payload,
@@ -351,6 +379,11 @@ async def update_artifact(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Update an existing artifact."""
+    if payload.content is not None:
+        existing = await service.get(db, artifact_id)
+        payload = payload.model_copy(update={
+            "content": _without_server_owned_keys(payload.content, keep_from=(existing.content if existing else None)),
+        })
     artifact = await service.update(db, artifact_id, payload)
     if not artifact:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
@@ -741,11 +774,16 @@ async def get_slide_preview(
     if slide_index < 0 or slide_index >= len(preview_images):
         raise HTTPException(status_code=404, detail=f"Slide {slide_index} not found")
 
-    # Preview images are stored relative to uploads folder
-    uploads_dir = Path(__file__).parent.parent.parent / "uploads"
-    image_path = uploads_dir / preview_images[slide_index]
+    # Preview images are stored relative to uploads/pptx_previews. The path
+    # lives in artifact.content, which is caller-writable, so never trust it.
+    from app.core.path_safety import UnsafePathError, safe_join
+    previews_dir = Path(__file__).parent.parent.parent / "uploads" / "pptx_previews"
+    try:
+        image_path = safe_join(previews_dir, str(preview_images[slide_index]).removeprefix("pptx_previews/"))
+    except UnsafePathError:
+        raise HTTPException(status_code=404, detail="Preview image not found")
 
-    if not image_path.exists():
+    if not image_path.is_file():
         raise HTTPException(status_code=404, detail="Preview image not found")
 
     return FileResponse(
@@ -782,19 +820,6 @@ async def _resolve_base_artifact(db, report_id: str, artifact_id: Optional[str])
             )
         return base
     return await service.get_latest_by_report(db, report_id)
-
-
-async def _next_artifact_version(db, report_id: str) -> int:
-    """Report-wide next version number. Basing on max(version) — not the
-    base artifact's own version — keeps numbers unique when a new version
-    is built on an artifact that is not the newest."""
-    res = await db.execute(
-        select(sa_func.max(ArtifactModel.version)).where(
-            ArtifactModel.report_id == str(report_id),
-            ArtifactModel.deleted_at.is_(None),
-        )
-    )
-    return (res.scalar() or 0) + 1
 
 
 @router.post("/report/{report_id}/add-visualization", response_model=ArtifactSchema)
@@ -872,20 +897,14 @@ async def add_visualization_to_dashboard(
         new_content = {**(latest.content or {}), "code": new_code, "visualization_ids": new_viz_ids}
 
         # Create new version
-        new_artifact = ArtifactModel(
-            report_id=str(latest.report_id),
+        new_artifact = await new_version(
+            db,
+            latest,
             user_id=str(current_user.id),
-            organization_id=str(latest.organization_id),
-            title=latest.title,
-            mode=latest.mode,
             content=new_content,
             generation_prompt=latest.generation_prompt,
-            version=await _next_artifact_version(db, report_id),
-            status="completed",
         )
-        db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
     else:
         # No artifact yet — generate scaffold from scratch
         viz_index = 0
@@ -896,19 +915,16 @@ async def add_visualization_to_dashboard(
             section_jsx = generate_section_jsx(viz_title, option_code)
         code = generate_scaffold([section_jsx])
 
-        new_artifact = ArtifactModel(
+        new_artifact = await new_artifact_row(
+            db,
             report_id=str(report_id),
             user_id=str(current_user.id),
             organization_id=str(organization.id),
-            title="Dashboard",
             mode="page",
+            title="Dashboard",
             content={"code": code, "visualization_ids": [body.visualization_id]},
-            version=1,
-            status="completed",
         )
-        db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
 
     # 4. Trigger thumbnail regeneration in background
     try:
@@ -958,20 +974,14 @@ async def remove_visualization_from_dashboard(
     code = stub_out_viz_references(code, body.visualization_id)
 
     new_viz_ids = [v for v in existing_viz_ids if v != body.visualization_id]
-    new_artifact = ArtifactModel(
-        report_id=str(latest.report_id),
+    new_artifact = await new_version(
+        db,
+        latest,
         user_id=str(current_user.id),
-        organization_id=str(latest.organization_id),
-        title=latest.title,
-        mode=latest.mode,
         content={**(latest.content or {}), "code": code, "visualization_ids": new_viz_ids},
         generation_prompt=latest.generation_prompt,
-        version=await _next_artifact_version(db, report_id),
-        status="completed",
     )
-    db.add(new_artifact)
     await db.commit()
-    await db.refresh(new_artifact)
 
     try:
         from app.services.thumbnail_service import ThumbnailService

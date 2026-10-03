@@ -14,11 +14,14 @@ from app.settings.db_auth import get_auth_provider
 
 from app.models.base import BaseSchema
 from app.models.report import Report
+from app.models.artifact_resource import ArtifactResource, ArtifactRecord, ArtifactRecordIndex, ArtifactMutation, ArtifactView, ArtifactFileBinding, ArtifactRateBucket
+from app.models.artifact import Artifact, ArtifactVersion
 from app.models.widget import Widget
 from app.models.step import Step
 from app.models.completion import Completion
 from app.models.file import File
 from app.models.report_file_association import report_file_association
+from app.models.saml import SAMLIdentity, SAMLRequest
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.membership import Membership
@@ -67,6 +70,8 @@ from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
 from app.models.connection_table import ConnectionTable
 from app.models.note import Note
+from app.models.memory_entry import MemoryEntry
+from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.user_connection_tool_preference import UserConnectionToolPreference
@@ -92,6 +97,7 @@ from app.models.scheduled_prompt import ScheduledPrompt
 from app.models.instruction_build import InstructionBuild
 from app.models.oauth_server import OAuthClient, OAuthAuthorizationCode, OAuthAccessToken
 from app.ee.scim.models import ScimToken
+from app.ee.audit.streams.models import AuditLogStream
 from app.models.role import Role
 from app.models.group import Group
 from app.models.group_membership import GroupMembership
@@ -106,6 +112,8 @@ from app.models.project import Project, project_data_source_association, project
 from app.models.agent_automation_run import AgentAutomationRun
 from app.models.review_item import ReviewItem
 from app.models.notification import Notification
+from app.models.agent_checkin import AgentCheckin
+from app.models.dream_run import DreamRun
 from app.models.usage_policy import (
     UsagePolicy,
     UsagePolicyAssignment,

@@ -1,6 +1,7 @@
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from app.utils.reasoning_effort import normalize_prompt_json_effort
 from app.schemas.notification_schema import NotificationSubscriber
 
 
@@ -14,6 +15,11 @@ class ScheduledPromptCreate(BaseModel):
     spawn_new_report: Optional[bool] = False
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
 
+    @field_validator("prompt", mode="after")
+    @classmethod
+    def _validate_prompt_effort(cls, v):
+        return normalize_prompt_json_effort(v)
+
 
 class ScheduledPromptUpdate(BaseModel):
     prompt: Optional[dict] = None
@@ -22,6 +28,11 @@ class ScheduledPromptUpdate(BaseModel):
     is_active: Optional[bool] = None
     spawn_new_report: Optional[bool] = None
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
+
+    @field_validator("prompt", mode="after")
+    @classmethod
+    def _validate_prompt_effort(cls, v):
+        return normalize_prompt_json_effort(v)
 
 
 class ScheduledPromptSchema(BaseModel):

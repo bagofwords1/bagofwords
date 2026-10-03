@@ -94,8 +94,6 @@ async def send_member_added_email(
 
     from app.settings.config import settings
 
-    fm = settings.email_client
-
     from sqlalchemy import select
 
     from app.dependencies import async_session_maker
@@ -157,11 +155,14 @@ async def send_member_added_email(
         except Exception:
             logger.warning("agent-access in-app notification failed", exc_info=True)
 
-    # Email channel: only when SMTP is configured and the user has an email.
-    if fm is None or not recipient:
+    # Email channel: only when a transport resolves for this org and the user
+    # has an email. Availability is asked per organization so an org with its
+    # own SMTP server still gets mail when the global bow-config SMTP is empty.
+    if not recipient:
         return
 
-    from fastapi_mail import MessageSchema
+    from app.services.email_client_resolver import is_outbound_available
+    from app.services.notification_service import notification_service
 
     base_url = getattr(settings.bow_config, "base_url", None) or "http://localhost:3000"
     agent_url = f"{base_url.rstrip('/')}/agents/{data_source_id}"
@@ -182,14 +183,26 @@ async def send_member_added_email(
         f"text-decoration:none;border-radius:6px;font-weight:600;\">Open {ds_name}</a>"
     )
 
-    message = MessageSchema(
-        subject=subject,
-        recipients=[recipient],
-        body=body,
-        subtype="html",
-    )
-    try:
-        await fm.send_message(message)
-        logger.info("Member-added email sent to %s for data_source=%s", recipient, data_source_id)
-    except Exception as e:
-        logger.error("Failed to send member-added email to %s: %s", recipient, e)
+    async with async_session_maker() as send_db:
+        if not await is_outbound_available(send_db, str(organization_id), purpose="system"):
+            return
+        result = await notification_service.send_custom_email(
+            recipients=[recipient],
+            subject=subject,
+            body=body,
+            subtype="html",
+            retries=2,
+            timeout=15,
+            db=send_db,
+            organization_id=str(organization_id),
+            purpose="system",
+        )
+    if result.status == "sent":
+        logger.info(
+            "Member-added email sent to %s for data_source=%s via %s",
+            recipient, data_source_id, result.source,
+        )
+    else:
+        logger.error(
+            "Failed to send member-added email to %s: %s", recipient, result.error
+        )

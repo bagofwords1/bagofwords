@@ -7,17 +7,10 @@ from app.ee.audit.service import audit_service
 from typing import List, Optional
 from pydantic import BaseModel
 from app.services.report_service import ReportService
-from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
 from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema, ReportActivityResponse
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
-from app.schemas.dashboard_layout_version_schema import (
-    DashboardLayoutVersionSchema,
-    DashboardLayoutVersionCreate,
-    DashboardLayoutVersionUpdate,
-    DashboardLayoutBlocksPatch,
-)
 from app.models.user import User
 
 from app.core.auth import current_user, current_user_optional
@@ -49,7 +42,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
-layout_service = DashboardLayoutService()
 
 @router.post("/reports", response_model=ReportSchema)
 @requires_permission('create_reports')
@@ -289,6 +281,7 @@ async def set_report_visibility(
         include_data_tab=payload.include_data_tab,
         artifact_chat_enabled=payload.artifact_chat_enabled,
         artifact_chat_data_source_ids=payload.artifact_chat_data_source_ids,
+        artifact_chat_model_id=payload.artifact_chat_model_id,
     )
 
 
@@ -355,6 +348,38 @@ async def fork_report(
     new_report = await fork_service.fork_report(
         db, report_id, current_user, title=body.title,
     )
+    # A fork of a delegated source lands with its queries empty — no rows and
+    # no SQL — and is filled in by running them under the forker's own
+    # credentials. That is N round trips to the provider, so it runs detached
+    # and the fork id is returned now. Nothing pushes the result to the open
+    # page: charts stay empty until hydration commits and the page reloads.
+    # `spawn` (not bare create_task) keeps the task from being collected
+    # mid-run. Empty mapping for system-only forks, which are already complete.
+    pending_code = getattr(new_report, "pending_code", None)
+    if pending_code:
+        from app.core.fire_and_forget import spawn
+
+        spawn(fork_service.hydrate_fork(
+            fork_id=str(new_report.id),
+            user_id=str(current_user.id),
+            # The FORK's org, not the request's active one. Eligibility gates on
+            # membership in the SOURCE report's org, and the fork is created
+            # there too, so a user who belongs to two orgs can fork a report in
+            # one while browsing as the other. Hydration resolves org settings
+            # (and, for a report with no attached agents, the agent roster
+            # itself) from this id, so the request's org would run the fork's
+            # queries under the wrong org's limits and feature gates.
+            organization_id=str(new_report.organization_id),
+            pending_code=pending_code,
+        ))
+    elif getattr(new_report, "needs_thumbnail", False):
+        # An RLS-only fork copies its rows but not the creator's picture of
+        # them, and has no hydration pass to draw a replacement — so it is
+        # asked for here, after the fork's own transaction has committed.
+        from app.core.fire_and_forget import spawn
+        from app.services.thumbnail_service import ThumbnailService
+
+        spawn(ThumbnailService().regenerate_for_report(str(new_report.id)))
     await audit_service.log(
         db=db,
         organization_id=organization.id,
@@ -371,6 +396,23 @@ async def fork_report(
         forked_from_id=report_id,
         slug=new_report.slug,
     )
+
+
+@router.get("/reports/{report_id}/fork_status")
+@requires_permission('view_reports', model=Report)
+async def get_fork_status(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Whether a freshly created fork is still being filled in.
+
+    A fork of a delegated source is returned before its queries have run under
+    the forker's credentials; the report page polls this and waits instead of
+    rendering an empty dashboard, then loads once hydration has settled.
+    """
+    return {"hydrating": await fork_service.is_hydrating(db, report_id)}
 
 
 @router.post("/reports/{report_id}/notify", response_model=NotifyResponse)
@@ -398,9 +440,14 @@ async def notify_report(
     if payload.type in (NotificationType.SHARE_DASHBOARD, NotificationType.SHARE_CONVERSATION) and not payload.share_url:
         raise HTTPException(status_code=400, detail="share_url is required for share notifications")
 
-    # Guard: email channel requires SMTP
-    if NotificationChannel.EMAIL in payload.channels and not app_settings.email_client:
-        raise HTTPException(status_code=400, detail="Email notifications are not available (SMTP not configured)")
+    # Guard: email channel requires a transport. Asked per organization — an org
+    # with its own SMTP server can send even when the global bow-config SMTP is
+    # empty, so this must not key off the startup-global client alone.
+    if NotificationChannel.EMAIL in payload.channels:
+        from app.services.email_client_resolver import is_outbound_available
+
+        if not await is_outbound_available(db, str(organization.id), purpose="system"):
+            raise HTTPException(status_code=400, detail="Email notifications are not available (SMTP not configured)")
 
     # Build share_url for schedule type if not provided
     share_url = payload.share_url or f"{app_settings.bow_config.base_url}/r/{report.id}"
@@ -440,6 +487,10 @@ async def notify_report(
         message=payload.message,
         report_id=str(report.id),
         locale=_locale_from_org(organization),
+        # Without these the share mail bypasses the org's configured SMTP server
+        # and goes out via the global bow-config relay.
+        db=db,
+        organization_id=str(organization.id),
     )
 
     # Audit log
@@ -550,9 +601,9 @@ async def get_public_file_embed_token(
     await report_service.get_public_report(db, report_id, user=user)
 
     # (2) file is embedded in one of this report's artifacts.
-    from app.models.artifact import Artifact
+    from app.models.artifact import ArtifactVersion
     artifacts = (await db.execute(
-        select(Artifact).where(Artifact.report_id == report_id)
+        select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
     )).scalars().all()
     embedded = any(
         isinstance(a.content, dict)
@@ -741,7 +792,7 @@ async def export_public_report_pptx(
 
     from app.core.path_safety import UnsafePathError, safe_join
     from app.ee.audit.service import audit_service
-    from app.models.artifact import Artifact as ArtifactModel
+    from app.models.artifact import ArtifactVersion as ArtifactModel
     from app.services.report_pdf_service import ReportPdfService
     from app.services.viewer_data_policy import report_snapshot_withheld
 
@@ -851,7 +902,7 @@ async def export_public_report_html(
     from fastapi.responses import Response
 
     from app.ee.audit.service import audit_service
-    from app.models.artifact import Artifact as ArtifactModel
+    from app.models.artifact import ArtifactVersion as ArtifactModel
     from app.services.html_export_service import (
         ExportUnavailable,
         ascii_fallback_filename,
@@ -1029,69 +1080,3 @@ async def get_report_instructions(
     from app.services.instruction_service import InstructionService
     instruction_service = InstructionService()
     return await instruction_service.get_instructions_by_report(db, report_id, organization)
-
-# --- Dashboard Layout Routes ---
-
-@router.get("/reports/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
-@requires_permission('view_reports', model=Report, owner_only=True)
-async def list_layouts(report_id: str, hydrate: bool = False, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.get_layouts_for_report(db, report_id, hydrate=hydrate)
-
-@router.post("/reports/{report_id}/layouts", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def create_layout(report_id: str, payload: DashboardLayoutVersionCreate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    # Ensure payload.report_id matches route
-    if payload.report_id != report_id:
-        raise HTTPException(status_code=400, detail="report_id mismatch")
-    return await layout_service.create_layout(db, payload)
-
-@router.get("/reports/{report_id}/layouts/{layout_id}", response_model=DashboardLayoutVersionSchema)
-@requires_permission('view_reports', model=Report, owner_only=True)
-async def get_layout(report_id: str, layout_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return layout
-
-@router.patch("/reports/{report_id}/layouts/{layout_id}", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def update_layout(report_id: str, layout_id: str, payload: DashboardLayoutVersionUpdate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return await layout_service.update_layout(db, layout_id, payload, current_user, organization)
-
-@router.patch("/reports/{report_id}/layouts/active/blocks", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def patch_active_layout_blocks(report_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.patch_active_layout_blocks(db, report_id, payload, current_user, organization)
-
-
-@router.patch("/reports/{report_id}/layouts/{layout_id}/blocks", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def patch_layout_blocks(report_id: str, layout_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.patch_layout_blocks(db, report_id, layout_id, payload, current_user, organization)
-
-@router.post("/reports/{report_id}/layouts/{layout_id}/activate", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def activate_layout(report_id: str, layout_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return await layout_service.set_active_layout(db, report_id, layout_id)
-
-# --- Public (read-only) Dashboard Layout Routes ---
-
-@router.get("/r/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
-async def get_public_layouts(
-    report_id: str,
-    hydrate: bool = False,
-    db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
-):
-    from app.services.report_service import ReportService
-    rs = ReportService()
-    # Public service currently returns unhydrated; use private service for hydration
-    if hydrate:
-        return await layout_service.get_layouts_for_report(db, report_id, hydrate=True)
-    return await rs.get_public_layouts(db, report_id, user=user)

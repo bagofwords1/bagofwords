@@ -182,6 +182,16 @@ async def preview_code(
     `/{entity_id}/...` routes on purpose."""
     ds_ids = [str(i) for i in (payload.data_source_ids or []) if i]
     await _resolve_create_tier(db, current_user, organization, ds_ids)
+    # Executes caller-supplied code against the source — same trust boundary as
+    # a builder-mode query run, so it takes the same permission.
+    from app.core.permission_resolver import resolve_permissions
+    from app.core.code_visibility import can_run_custom_code
+    _resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    if not can_run_custom_code(_resolved):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to edit and run custom code",
+        )
     if not (payload.code or "").strip():
         raise HTTPException(status_code=400, detail="Code is required")
     _validate_declared_params(payload)

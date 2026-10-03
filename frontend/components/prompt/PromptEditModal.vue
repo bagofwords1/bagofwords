@@ -94,7 +94,7 @@
                   <span v-else class="text-xs truncate">{{ $t('prompts.nAgentsSelected', { n: agentIds.length }) }}</span>
                 </template>
                 <template #option="{ option }">
-                  <DataSourceIcon v-if="option.type || option.icon" :type="option.type" :icon="option.icon" class="h-3.5 w-auto flex-shrink-0" />
+                  <DataSourceIcon v-if="option.type || option.icon || option.icon_token" :type="option.type" :icon-token="option.icon_token" :icon="option.icon" class="h-3.5 w-auto flex-shrink-0" />
                   <span class="text-xs truncate">{{ option.name }}</span>
                 </template>
               </USelectMenu>
@@ -106,7 +106,7 @@
                   :key="a.id"
                   class="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
                 >
-                  <DataSourceIcon :type="a.type" :icon="a.icon" class="h-3 w-auto" />
+                  <DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="h-3 w-auto" />
                   {{ a.name }}
                   <button type="button" class="hover:text-red-500" @click="removeAgent(a.id)">
                     <UIcon name="heroicons-x-mark" class="w-2.5 h-2.5" />
@@ -133,7 +133,7 @@
 
           <div v-if="showAdvanced" class="flex items-center gap-2">
             <ModeSelector v-model="form.mode" :dataSourceIds="agentIds" />
-            <ModelSelector v-model="form.model_id" />
+            <ModelSelector v-model="form.model_id" v-model:effort="form.reasoning_effort" />
           </div>
         </section>
       </div>
@@ -197,6 +197,7 @@ const form = reactive({
   text: '' as string,
   mode: 'chat' as string,
   model_id: null as string | null,
+  reasoning_effort: null as string | null,
 })
 
 // Audience is a single explicit choice. 'agent' uses an explicit multiselect.
@@ -252,6 +253,7 @@ function seed() {
   form.text = p?.text || ''
   form.mode = p?.mode || 'chat'
   form.model_id = p?.model_id || null
+  form.reasoning_effort = p?.reasoning_effort || null
   mentionGroups.value = (p?.mentions as any[]) || []
   errorMsg.value = ''
 
@@ -307,6 +309,7 @@ async function save() {
       text: form.text,
       mode: form.mode,
       model_id: form.model_id || null,
+      reasoning_effort: form.reasoning_effort || null,
       mentions: mentionGroups.value.length ? mentionGroups.value : null,
       // No parameter schema is sent — params are bare {{name}} placeholders
       // derived from the text at run time. The backend column stays dormant.

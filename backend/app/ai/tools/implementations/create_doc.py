@@ -21,7 +21,7 @@ from app.ai.tools.schemas.events import (
     ToolProgressEvent,
     ToolStartEvent,
 )
-from app.models.artifact import Artifact
+from app.services.artifact_service import new_artifact
 from app.models.visualization import Visualization
 
 from ._doc_markdown import (
@@ -30,7 +30,6 @@ from ._doc_markdown import (
     extract_viz_placeholders,
     heading_outline,
 )
-from app.models.file import File
 
 logger = logging.getLogger(__name__)
 
@@ -196,33 +195,27 @@ class CreateDocTool(Tool):
         file_ids = extract_file_placeholders(markdown)
         valid_file_ids: List[str] = []
         if file_ids and organization is not None:
-            rows = await db.execute(
-                select(File.id).where(
-                    File.id.in_(file_ids),
-                    File.organization_id == str(organization.id),
-                )
+            # Only files the run's user may see: the doc's viewers get them.
+            from app.services.file_access_service import run_viewable_file_ids
+            owned = await run_viewable_file_ids(
+                db, user=user, report=report, organization=organization, file_ids=file_ids,
             )
-            owned = {str(r) for r in rows.scalars().all()}
             valid_file_ids = [f for f in file_ids if f in owned]
 
-        artifact = Artifact(
+        artifact = await new_artifact(
+            db,
             report_id=report_id,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
-            title=data.title or "Untitled Document",
             mode="doc",
+            title=data.title or "Untitled Document",
             content={
                 "markdown": markdown,
                 "visualization_ids": valid_viz_ids,
                 "file_ids": valid_file_ids,
             },
-            generation_prompt=None,
-            version=1,
-            status="completed",
         )
-        db.add(artifact)
         await db.commit()
-        await db.refresh(artifact)
 
         yield ToolProgressEvent(
             type="tool.progress",

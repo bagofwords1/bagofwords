@@ -192,11 +192,56 @@ class TestTestConnection:
 
     def test_probe_budget_respected(self):
         c = _mk_client()
-        many = {"ws1": [{"id": f"d{i}", "name": f"M{i}"} for i in range(20)]}
-        _wire_probe(c, WS, many, [_resp(404)] * 20)
+        many = {"ws1": [{"id": f"d{i}", "name": f"M{i}"} for i in range(c.MAX_PROBE_DATASETS + 10)]}
+        _wire_probe(c, WS, many, [_resp(404)] * (c.MAX_PROBE_DATASETS + 10))
         out = c.test_connection()
+        # No catalog attached, so nothing beyond the workspace walk is probed.
         assert c._request.call_count == c.MAX_PROBE_DATASETS
         assert out["success"] is False
+
+    def test_probe_budget_walks_past_a_run_of_unqueryable_models(self):
+        """A Viewer-only workspace answers 404 for every model in it. The
+        budget must be wide enough to reach a queryable model further down
+        instead of giving up after a handful."""
+        c = _mk_client()
+        many = {"ws1": [{"id": f"d{i}", "name": f"M{i}"} for i in range(12)]}
+        _wire_probe(c, WS, many, [_resp(404)] * 11 + [_resp(200, {"results": []})])
+        out = c.test_connection()
+        assert out["success"] is True
+        assert "M11" in out["message"]
+
+    def test_all_404_names_the_skipped_models(self):
+        """The old fallback printed 'no dataset could be probed' — no model
+        names, no hint. A user who can list a workspace but has no Build on
+        its models needs to know which models answered 404 and what to ask for."""
+        c = _mk_client()
+        _wire_probe(c, WS, DS, [_resp(404), _resp(404)])
+        out = c.test_connection()
+        assert out["success"] is False
+        assert out["connectivity"] is True
+        assert "no dataset could be probed" not in out["message"]
+        assert "Model1" in out["message"]
+        assert "Model2" in out["message"]
+        assert "Build" in out["message"]
+
+    def test_all_404_still_checks_the_known_catalog(self):
+        """Viewer somewhere + Build on the connection's own model is the normal
+        delegated shape. The workspace walk sees only the Viewer models (404);
+        the catalog probe must be consulted before failing the user."""
+        c = _mk_client()
+        c.attach_table_metadata([{
+            "name": "Shared/Orders",
+            "metadata_json": {"powerbi": {
+                "datasetId": "ds-shared", "workspaceId": "ws-x",
+                "workspaceName": "Elsewhere", "datasetName": "Shared", "tableName": "Orders",
+            }},
+        }])
+        _wire_probe(c, WS, DS, [_resp(404), _resp(404), _resp(200, {"results": []})])
+        out = c.test_connection()
+        assert out["success"] is True
+        assert "Shared" in out["message"]
+        # The third call is the tenant-level catalog probe, not a workspace one.
+        assert "/datasets/ds-shared/executeQueries" in c._request.call_args_list[2].args[1]
 
 
 # ---------- _request retry ---------- #
@@ -486,6 +531,30 @@ class TestInternalColumnFiltering:
         guide = c.system_prompt()
         assert "RowNumber-<GUID>" in guide
         assert "cannot be determined" in guide
+
+    def test_dax_guide_teaches_bounded_queries(self):
+        """Every DAX query is a live evaluation serialized over REST, so the
+        guide must lead with aggregation / TOPN and never show an unbounded
+        `EVALUATE <table>` as an example - models copy the first pattern they
+        see, and a full scan of a fact table is the slow query in the field."""
+        c = _mk_client()
+        guide = c.system_prompt()
+        assert "### Query Cost and Performance" in guide
+        assert "TOPN(100, Customers)" in guide
+        assert "SELECTCOLUMNS" in guide
+        # No example line is a bare, unbounded table scan.
+        bare = [
+            ln for ln in guide.splitlines()
+            if ln.strip().startswith("EVALUATE ")
+            and "(" not in ln
+            and "<" not in ln  # the `EVALUATE <table_expression>` pattern placeholder
+        ]
+        assert bare == [], bare
+        # Measures-first guidance sits with the performance rules, and the
+        # INFO.VIEW.* family is framed as a last resort, not an exploration step.
+        perf = guide.split("### Query Cost and Performance", 1)[1].split("### Key DAX Syntax Rules", 1)[0]
+        assert "[Measure Name]" in perf
+        assert "never as a default exploration step" in guide
 
 
 # ---------- Incremental discovery (prior_tables) ---------- #

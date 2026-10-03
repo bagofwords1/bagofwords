@@ -144,15 +144,15 @@ class ThumbnailService:
         Returns the number of artifacts cleared.
         """
         from app.dependencies import async_session_maker
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         from sqlalchemy import select, update
 
         cleared = 0
         async with async_session_maker() as db:
             rows = (await db.execute(
-                select(Artifact.id).where(
-                    Artifact.report_id == str(report_id),
-                    Artifact.thumbnail_path.is_not(None),
+                select(ArtifactVersion.id).where(
+                    ArtifactVersion.report_id == str(report_id),
+                    ArtifactVersion.thumbnail_path.is_not(None),
                 )
             )).all()
             for (artifact_id,) in rows:
@@ -163,8 +163,8 @@ class ThumbnailService:
                 cleared += 1
             if cleared:
                 await db.execute(
-                    update(Artifact)
-                    .where(Artifact.report_id == str(report_id))
+                    update(ArtifactVersion)
+                    .where(ArtifactVersion.report_id == str(report_id))
                     .values(thumbnail_path=None)
                 )
                 await db.commit()
@@ -196,7 +196,7 @@ class ThumbnailService:
         """
         try:
             from app.dependencies import async_session_maker
-            from app.models.artifact import Artifact
+            from app.models.artifact import Artifact, ArtifactVersion
             from app.models.report import Report
             from app.models.visualization import Visualization
             from app.models.query import Query
@@ -219,14 +219,16 @@ class ThumbnailService:
 
                 # Get the latest artifact for this report
                 stmt = (
-                    select(Artifact)
+                    select(ArtifactVersion)
+                    # Mode lives on the parent Artifact — explicit join.
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
                     .where(
-                        Artifact.report_id == report_id,
-                        Artifact.deleted_at.is_(None),
+                        ArtifactVersion.report_id == report_id,
+                        ArtifactVersion.deleted_at.is_(None),
                         # Report thumbnails render the dashboard, not docs
                         Artifact.mode.in_(("page", "slides")),
                     )
-                    .order_by(Artifact.created_at.desc())
+                    .order_by(ArtifactVersion.created_at.desc())
                     .limit(1)
                 )
                 result = await db.execute(stmt)
@@ -287,6 +289,7 @@ class ThumbnailService:
                     artifact_code=artifact_code,
                     visualizations=viz_data,
                     mode=artifact.mode or "page",
+                    runtime_version=int((artifact.content or {}).get("runtime_version") or 0),
                 )
 
                 # Delete old thumbnail if exists
@@ -301,7 +304,7 @@ class ThumbnailService:
 
                 if thumbnail_path:
                     # Update artifact with new thumbnail path
-                    stmt = update(Artifact).where(Artifact.id == artifact.id).values(thumbnail_path=thumbnail_path)
+                    stmt = update(ArtifactVersion).where(ArtifactVersion.id == artifact.id).values(thumbnail_path=thumbnail_path)
                     await db.execute(stmt)
                     await db.commit()
 
@@ -319,6 +322,7 @@ class ThumbnailService:
         artifact_code: str,
         visualizations: list,
         mode: str = "page",
+        runtime_version: int = 0,
     ) -> str:
         """Build HTML for thumbnail screenshot."""
         artifact_data = {
@@ -331,6 +335,7 @@ class ThumbnailService:
             # Thumbnails are shared assets — always render anonymously so no
             # viewer's identity gets baked into an image other users see.
             "current_user": None,
+            "runtime": {"version": runtime_version or 0},
         }
         data_json = json.dumps(artifact_data, default=str)
 
@@ -355,6 +360,7 @@ class ThumbnailService:
 <html>
 <head>
   <meta charset="UTF-8">
+  <script>window.ARTIFACT_DATA = {data_json};</script>
   {page_scripts}
   <style>html, body, #root {{ height: 100%; margin: 0; padding: 0; }}</style>
 </head>

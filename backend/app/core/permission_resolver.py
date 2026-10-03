@@ -38,6 +38,25 @@ ORG_PERM_IMPLIES_RESOURCE: dict[str, dict[str, set[str]]] = {
     "manage_connections":  {"connection": {"manage_connection", "create_data_sources"}},
 }
 
+# Org-level permissions that imply OTHER org-level permissions. Expanded once,
+# where the resolved set is built, so route checks, whoami and the frontend
+# permission store all see the same closure — rather than every call site having
+# to remember the pair.
+ORG_PERM_IMPLIES_ORG: dict[str, set[str]] = {
+    # Editing and executing code you are not allowed to read is not a coherent
+    # state, so the edit permission carries the read permission with it.
+    "run_custom_code": {"view_code"},
+}
+
+
+def expand_org_permissions(org_permissions: set) -> set:
+    """Close an org-permission set over ORG_PERM_IMPLIES_ORG (one level)."""
+    for held, implied in ORG_PERM_IMPLIES_ORG.items():
+        if held in org_permissions:
+            org_permissions.update(implied)
+    return org_permissions
+
+
 # A `manage` grant on a data source is the agent-owner/manager tier: it is a
 # superset that implies the specific management permissions enforced across the
 # agent's surfaces (instructions, entities, evals, membership). This is what
@@ -449,7 +468,7 @@ async def _resolve_permissions_inner(
         resource_permissions.setdefault(("data_source", ds_id), set()).add("manage")
 
     return ResolvedPermissions(
-        org_permissions=org_permissions,
+        org_permissions=expand_org_permissions(org_permissions),
         resource_permissions=resource_permissions,
         role_names=role_names,
     )
@@ -642,7 +661,7 @@ async def resolve_permissions_bulk(
             for ds_id in owned_by_org.get(org_id, []):
                 res_perms.setdefault(("data_source", ds_id), set()).add("manage")
             result[org_id] = ResolvedPermissions(
-                org_permissions=org_perms[org_id],
+                org_permissions=expand_org_permissions(org_perms[org_id]),
                 resource_permissions=res_perms,
                 role_names=role_names_by_org[org_id],
             )

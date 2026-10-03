@@ -91,6 +91,17 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
     red in the chat; everything else keeps the raw detail for debugging."""
     from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError
     from app.data_sources.clients.documentum_client import DocumentumHTTPError
+    from app.data_sources.clients._graph_throttle import GraphThrottledError
+    if isinstance(exc, GraphThrottledError):
+        name = connection_name or "this source"
+        wait = max(1, int(round(exc.retry_after)))
+        return (
+            f"Microsoft is rate-limiting '{name}' right now (HTTP {exc.status}); it will "
+            f"accept requests again in about {wait}s. Do NOT retry this call immediately or "
+            "in a loop — every request sent while throttled extends the block. Tell the "
+            "user the source is temporarily throttled by Microsoft and continue with the "
+            "remaining sources."
+        )
     if isinstance(exc, DocumentumHTTPError) and exc.status in (401, 403):
         name = connection_name or "Documentum"
         if exc.status == 401:
@@ -702,12 +713,19 @@ _ATTACH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 _PREVIEW_MAX_BYTES = 25 * 1024 * 1024  # 25 MB
 
 
-async def read_source_bytes(client, file_id: str) -> Tuple[bytes, str, Optional[str]]:
+async def read_source_bytes(
+    client, file_id: str, *, max_bytes: Optional[int] = None,
+) -> Tuple[bytes, str, Optional[str]]:
     """The file's ORIGINAL bytes + name + mime, unparsed.
 
     Prefers the client's raw-bytes reader so callers persist a real .pdf/.xlsx
     instead of a reparsed copy, and falls back to serializing whatever
     ``read_file`` returns for clients that expose no such reader.
+
+    ``max_bytes`` is forwarded to raw readers that accept it, which reject an
+    oversize file from its reported size (FileTooLargeError) BEFORE
+    downloading it. Readers without the parameter, and the fallback path,
+    don't enforce it — callers that must bound memory check the result too.
 
     Clients disagree on the return shape — network_dir/s3/graph_drive/
     google_drive hand back ``(bytes, name, mime)`` while OneNote returns bare
@@ -717,8 +735,16 @@ async def read_source_bytes(client, file_id: str) -> Tuple[bytes, str, Optional[
     leaf = str(file_id or "").rsplit("/", 1)[-1] or "file"
     if hasattr(client, "read_raw_bytes"):
         import asyncio
+        import inspect
 
-        raw = await asyncio.to_thread(client.read_raw_bytes, file_id)
+        kwargs = {}
+        if max_bytes:
+            try:
+                if "max_bytes" in inspect.signature(client.read_raw_bytes).parameters:
+                    kwargs["max_bytes"] = max_bytes
+            except (TypeError, ValueError):
+                pass
+        raw = await asyncio.to_thread(client.read_raw_bytes, file_id, **kwargs)
         if isinstance(raw, tuple):
             content = raw[0]
             name = raw[1] if len(raw) > 1 else ""
@@ -1072,3 +1098,22 @@ async def persist_source_document(
     except Exception as e:
         logger.warning("persist_source_document: failed for %s: %s", file_id, e)
         return None
+
+
+def email_inventory_row(e: dict) -> str:
+    """One line of a mailbox listing for the model-facing observation.
+
+    `list_emails` / `search_email` advertise that they return "messages with
+    their id, subject, sender and received time". The data is there (the mail
+    clients emit `from` / `modified_at`), but the generic file row renders only
+    name/path/size, so the model saw `Subject [id=...]` and had to call
+    read_email once per message just to learn the sender and date. This renders
+    the fields the tool description promises.
+    """
+    subject = str(e.get("name") or "(no subject)")
+    bits = [subject]
+    if e.get("sender"):
+        bits.append(f"from {e['sender']}")
+    if e.get("modified_at"):
+        bits.append(str(e["modified_at"]))
+    return " — ".join(bits) + f" [id={e.get('id')}]"

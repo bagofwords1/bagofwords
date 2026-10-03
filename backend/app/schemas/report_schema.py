@@ -7,6 +7,7 @@ from app.schemas.data_source_schema import DataSourceReportSchema
 from app.schemas.external_platform_schema import ExternalPlatformSchema
 from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
 from app.schemas.project_schema import ProjectMiniSchema
+from app.utils.reasoning_effort import normalize_effort
 
 class ReportBase(BaseModel):
     title: Optional[str] = None
@@ -21,6 +22,20 @@ class ReportCreate(ReportBase):
     # Start the report in a mode (the home prompt box's Chat/Training picker).
     # Omit for chat. Training is gated exactly like ReportUpdate.mode.
     mode: Optional[Literal["chat", "training"]] = None
+    # Report-level LLM override, picked in the composer before the report
+    # existed. Same meaning as ReportUpdate.model_id and validated the same
+    # way, minus the "" sentinel: there is no prior value to clear on create,
+    # so omitted/None simply means "no override, resolve the default at run
+    # time" — which is also what Auto sends.
+    model_id: Optional[str] = None
+    # Reasoning level picked with the model (low|medium|high|max). Omitted /
+    # None = Default.
+    reasoning_effort: Optional[str] = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
 
 class ReportUpdate(BaseModel):
     title: Optional[str] = None
@@ -36,6 +51,17 @@ class ReportUpdate(BaseModel):
     # Report-level LLM override. Sentinel-aware: omit to leave unchanged, send a
     # model id to set, send "" (empty string) to clear back to user/org default.
     model_id: Optional[str] = None
+    # Reasoning level stored beside model_id. Sentinel-aware the same way:
+    # omit to leave unchanged, "" or "default" to clear back to Default.
+    reasoning_effort: Optional[str] = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        if v is None:
+            return None
+        # Keep the clear sentinel distinguishable from "omitted".
+        return normalize_effort(v) or ""
     # Project membership. Sentinel-aware like model_id: omit to leave unchanged,
     # send a project id to move into that project, send "" to move back to the
     # personal root list.
@@ -85,6 +111,8 @@ class ReportSchema(ReportBase):
 
     # Report-level LLM override (null = user/org default resolves at run time)
     model_id: Optional[str] = None
+    # Reasoning level stored beside model_id (null = Default)
+    reasoning_effort: Optional[str] = None
     # Agent focus: subset of attached agents whose full schema is in context.
     # null/empty = no explicit focus (planner renders all when few / auto-seeds when many).
     focused_data_source_ids: Optional[List[str]] = None
@@ -105,6 +133,9 @@ class ReportSchema(ReportBase):
     # Owner's agent allowlist for artifact-page chat: null = inherit the
     # report's attached roster, [] = dashboard data only, list = subset.
     artifact_chat_data_source_ids: Optional[List[str]] = None
+    # Owner's default model for artifact-page chat: null = inherit the
+    # report's model; "org_default" = the organization default; else a model id.
+    artifact_chat_model_id: Optional[str] = None
     # True when the report reads an RLS-enabled relation: viewers always run
     # under their own identity and 'run on my behalf' (creator mode) is blocked.
     has_rls: bool = False
@@ -207,6 +238,10 @@ class ReportVisibilityUpdate(BaseModel):
     # omitted = leave unchanged; [] = dashboard data only; ["*"] = reset to
     # inherit the report's attached roster (null); a list = explicit subset.
     artifact_chat_data_source_ids: Optional[List[str]] = None
+    # Artifact sharing only: default model for chat. Sentinel-aware like
+    # ReportUpdate.model_id: omitted = leave unchanged; "" = clear (inherit the
+    # report's model); "org_default" = the organization default model.
+    artifact_chat_model_id: Optional[str] = None
 
 
 class ViewerRunResultSchema(BaseModel):

@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 import pandas as pd
 import sqlalchemy
@@ -46,6 +47,8 @@ class TrinoClient(DataSourceClient):
         try:
             engine = get_engine(self.trino_uri)
             conn = engine.connect()
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.error(f"Error connecting to Trino: {e}")
             if conn is not None:
@@ -88,12 +91,14 @@ class TrinoClient(DataSourceClient):
                 ).fetchall()
 
                 tables = {}
-                for row in result:
+                for row in discovery_items(result, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                     table_name, column_name, data_type = row
                     if table_name not in tables:
                         tables[table_name] = Table(name=table_name, columns=[], pks=None, fks=None)
                     tables[table_name].columns.append(TableColumn(name=column_name, dtype=data_type))
                 return list(tables.values())
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.error(f"Error retrieving tables: {e}")
             return []
@@ -101,7 +106,8 @@ class TrinoClient(DataSourceClient):
     def get_schema(self, table_id: str) -> Table:
         raise NotImplementedError("get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         return self.get_tables()
 
     def prompt_schema(self):

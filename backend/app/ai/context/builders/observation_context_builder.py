@@ -135,7 +135,7 @@ class ObservationContextBuilder:
                         f"{shown} {unit} (already returned — re-open the file "
                         "with its file_id if you still need them)"
                     )
-            elif prev_obs["tool_name"] in ("create_data", "read_query"):
+            elif prev_obs["tool_name"] in ("create_data", "read_query", "run_query"):
                 # Keep a small labeled sample instead of dropping rows entirely,
                 # so older results stay referenceable. The latest observation
                 # still carries the full budgeted preview. read_query shares this

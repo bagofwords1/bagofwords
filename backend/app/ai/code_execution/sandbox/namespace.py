@@ -164,13 +164,16 @@ def invoke_generate_df(
     """Call generate_df, binding injectables by parameter name.
 
     `ds_clients` and `excel_files` are always passed positionally. Any of
-    `http`, `load_step`, `load_entity`, `params` are passed by keyword only
+    `calendar_date_bounds`, `http`, `load_step`, `load_entity`, `params` are passed by keyword only
     when the function declares a parameter of that name — so legacy two-arg
     `(ds_clients, excel_files)` and three-arg `(…, http)` signatures keep
     working unchanged. `params` is always a dict (possibly empty) when the
     function asks for it, so `params.get(...)` never explodes.
     """
+    from app.ai.code_execution.query_params import calendar_date_bounds
+
     injectables = {
+        "calendar_date_bounds": calendar_date_bounds,
         "http": http_client,
         "load_step": load_step,
         "load_entity": load_entity,

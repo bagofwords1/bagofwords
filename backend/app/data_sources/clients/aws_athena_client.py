@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 import pandas as pd
 from typing import List
@@ -276,8 +277,8 @@ class AwsAthenaClient(DataSourceClient):
             # Use the existing Glue client instance
             paginator = self.glue_client.get_paginator('get_tables')
             tables = {}
-            for page in paginator.paginate(DatabaseName=self.database):
-                for table in page['TableList']:
+            for page in discovery_items(paginator.paginate(DatabaseName=self.database), 'catalog_pages'):
+                for table in discovery_items(page['TableList'], 'tables', label=lambda table: table['Name']):
                     table_name = table['Name']
                     tables[table_name] = Table(
                         name=table_name,
@@ -301,6 +302,8 @@ class AwsAthenaClient(DataSourceClient):
             
             return list(tables.values())
             
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.error(f"Error retrieving tables: {e}")
             return []
@@ -314,7 +317,8 @@ class AwsAthenaClient(DataSourceClient):
             "get_schema() is obsolete. Use get_tables() instead."
         )
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """
         Retrieve schemas for all tables in the specified database.
         """

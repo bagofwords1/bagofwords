@@ -12,6 +12,10 @@ from botocore import UNSIGNED
 from botocore.config import Config
 
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.reasoning import (
+    claude_off_params, _effort_to_thinking_config, capability_model as _capability_model, clamp_effort,
+    client_mode, efforts_for_client, merge_raw_params, raw_params_for, selected_effort,
+)
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.types import (
     ImageInput,
@@ -87,6 +91,47 @@ def _bedrock_max_tokens() -> int:
     except ValueError:
         return _DEFAULT_BEDROCK_MAX_TOKENS
     return value if value > 0 else _DEFAULT_BEDROCK_MAX_TOKENS
+
+
+# Bedrock's Converse API caches at explicit `cachePoint` blocks inserted into
+# the system, tools and messages sections — there is no cache_control here, so a
+# client that never inserts one silently pays full price on every turn even
+# though the platform has supported Claude prompt caching for some time.
+#
+# Two guards, both of which are hard failures rather than lost savings:
+#
+#   * Explicit cache points are rejected on model families that do not support
+#     them (the OpenAI-family models Bedrock also serves), so this is gated on
+#     an allowlist of families known to accept them rather than applied blindly.
+#   * "Cache point cannot be inserted after reasoning block" is a
+#     ValidationException, so a cache point never follows a reasoning block.
+#
+# BOW_BEDROCK_PROMPT_CACHE=0 disables the whole mechanism without a deploy.
+_BEDROCK_CACHE_FAMILIES = ("anthropic.", "claude", "amazon.nova", "nova-")
+
+_CACHE_POINT = {"cachePoint": {"type": "default"}}
+
+
+def _bedrock_cache_enabled(model_id: str) -> bool:
+    import os
+    if (os.environ.get("BOW_BEDROCK_PROMPT_CACHE") or "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    name = (model_id or "").strip().lower()
+    return any(tag in name for tag in _BEDROCK_CACHE_FAMILIES)
+
+
+def _ends_with_reasoning(blocks: list) -> bool:
+    """Whether the last content block is a reasoning block.
+
+    Bedrock rejects a cache point placed directly after one, so the caller
+    skips the marker rather than risking a non-retryable ValidationException.
+    """
+    if not blocks:
+        return False
+    last = blocks[-1]
+    return isinstance(last, dict) and (
+        "reasoningContent" in last or "reasoning_content" in last
+    )
 
 
 class BedrockClient(LLMClient):
@@ -211,12 +256,56 @@ class BedrockClient(LLMClient):
         content.append({"text": prompt.strip()})
         return content
 
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
-        response = self.client.converse(
-            modelId=model_id,
-            messages=[{"role": "user", "content": self._build_content(prompt, images)}],
-            inferenceConfig={"maxTokens": _bedrock_max_tokens()},
-        )
+    def _apply_reasoning(self, model_id, request_kwargs, thinking):
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
+        if thinking:
+            requested = selected_effort(thinking)
+            effort = clamp_effort(requested, efforts_for_client(self, model_id)) or requested
+            fields: dict = {}
+            if requested == "off" and mode != "custom":
+                fields = claude_off_params(_capability_model(self, model_id))
+            elif mode != "custom":
+                # Claude 4.6+ on Bedrock takes adaptive thinking with the effort
+                # in output_config BESIDE thinking (inside it is a
+                # ValidationException); Sonnet 5 / Opus 4.7+ reject
+                # type=enabled outright. Older Claude keeps a token budget.
+                mapped = _effort_to_thinking_config(effort, _capability_model(self, model_id)) if effort else None
+                if mapped and mapped.get("type") == "adaptive":
+                    fields = {
+                        "thinking": {"type": "adaptive", "display": "summarized"},
+                        "output_config": {"effort": effort},
+                    }
+                else:
+                    budget = int((mapped or thinking).get("budget_tokens") or 5000)
+                    fields = {"thinking": {"type": "enabled", "budget_tokens": budget}}
+            merge_raw_params(fields, raw_params_for(self, requested, effort), passthrough_key=None)
+            if fields:
+                request_kwargs["additionalModelRequestFields"] = fields
+            # maxTokens must exceed the thinking budget or the request fails.
+            budget = int((fields.get("thinking") or {}).get("budget_tokens") or 0)
+            if budget and request_kwargs["inferenceConfig"]["maxTokens"] <= budget:
+                request_kwargs["inferenceConfig"]["maxTokens"] = budget + 4096
+
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
+        """``system`` is the run-invariant half; see LLMClient.inference.
+
+        On a cache-capable model family it also carries a Converse cache point,
+        which is the only thing that makes a one-shot call cacheable here.
+        """
+        _kwargs: dict = {
+            "modelId": model_id,
+            "messages": [{"role": "user", "content": self._build_content(prompt, images)}],
+            "inferenceConfig": {"maxTokens": _bedrock_max_tokens()},
+        }
+        if system:
+            _kwargs["system"] = [{"text": system}]
+            if _bedrock_cache_enabled(model_id):
+                _kwargs["system"].append(_CACHE_POINT)
+        self._apply_reasoning(model_id, _kwargs, thinking)
+        response = self.client.converse(**_kwargs)
 
         # Extract text from response
         output_message = response["output"]["message"]
@@ -230,6 +319,12 @@ class BedrockClient(LLMClient):
         usage = LLMUsage(
             prompt_tokens=usage_data.get("inputTokens", 0),
             completion_tokens=usage_data.get("outputTokens", 0),
+            # Converse reports cache hits/writes under its own names; without
+            # reading them the savings are invisible in llm_usage_records and
+            # every cached token prices as if it had never been cached.
+            cache_read_tokens=int(usage_data.get("cacheReadInputTokens", 0) or 0),
+            cache_creation_tokens=int(usage_data.get("cacheWriteInputTokens", 0) or 0),
+            cache_write_5m_tokens=int(usage_data.get("cacheWriteInputTokens", 0) or 0),
         )
         self._set_last_usage(usage)
         return LLMResponse(text=text, usage=usage)
@@ -239,7 +334,8 @@ class BedrockClient(LLMClient):
     ) -> AsyncGenerator[str, None]:
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
-        usage_holder: dict = {"inputTokens": 0, "outputTokens": 0}
+        usage_holder: dict = {"inputTokens": 0, "outputTokens": 0,
+                              "cacheReadInputTokens": 0, "cacheWriteInputTokens": 0}
 
         def _sync_stream():
             """Run the blocking boto3 stream in a worker thread."""
@@ -259,6 +355,10 @@ class BedrockClient(LLMClient):
                         usage = event["metadata"].get("usage", {})
                         usage_holder["inputTokens"] = usage.get("inputTokens", usage_holder["inputTokens"])
                         usage_holder["outputTokens"] = usage.get("outputTokens", usage_holder["outputTokens"])
+                        usage_holder["cacheReadInputTokens"] = usage.get(
+                            "cacheReadInputTokens", usage_holder["cacheReadInputTokens"])
+                        usage_holder["cacheWriteInputTokens"] = usage.get(
+                            "cacheWriteInputTokens", usage_holder["cacheWriteInputTokens"])
             finally:
                 # Always signal end of stream so the async generator unblocks
                 loop.call_soon_threadsafe(queue.put_nowait, None)
@@ -278,6 +378,9 @@ class BedrockClient(LLMClient):
             LLMUsage(
                 prompt_tokens=usage_holder["inputTokens"],
                 completion_tokens=usage_holder["outputTokens"],
+                cache_read_tokens=int(usage_holder["cacheReadInputTokens"] or 0),
+                cache_creation_tokens=int(usage_holder["cacheWriteInputTokens"] or 0),
+                cache_write_5m_tokens=int(usage_holder["cacheWriteInputTokens"] or 0),
             )
         )
 
@@ -388,21 +491,31 @@ class BedrockClient(LLMClient):
             # per-deployment when a model supports more.
             "inferenceConfig": {"maxTokens": _bedrock_max_tokens()},
         }
+        _cache_on = _bedrock_cache_enabled(model_id)
         if system:
             request_kwargs["system"] = [{"text": system}]
-        if thinking:
-            budget = int(thinking.get("budget_tokens") or 5000)
-            request_kwargs["additionalModelRequestFields"] = {
-                "thinking": {"type": "enabled", "budget_tokens": budget}
-            }
-            # maxTokens must exceed the thinking budget or the request fails.
-            if request_kwargs["inferenceConfig"]["maxTokens"] <= budget:
-                request_kwargs["inferenceConfig"]["maxTokens"] = budget + 4096
+            if _cache_on:
+                # The system prompt is the most stable block in the request.
+                request_kwargs["system"].append(_CACHE_POINT)
+        self._apply_reasoning(model_id, request_kwargs, thinking)
         if tools:
             tc = self._translate_tools(tools)
             # disableParallelToolUse in toolChoice.auto requires botocore ≥ 1.37;
             # skip it to keep compatibility with older botocore versions.
+            if _cache_on and isinstance(tc, dict) and isinstance(tc.get("tools"), list) and tc["tools"]:
+                # The tool catalog is usually the single largest block in the
+                # request and is byte-stable for the whole run.
+                tc = {**tc, "tools": list(tc["tools"]) + [_CACHE_POINT]}
             request_kwargs["toolConfig"] = tc
+
+        if _cache_on and bedrock_messages:
+            # Everything up to and including the last settled turn is stable for
+            # the rest of the run; the newest turn is not, so the marker goes on
+            # the second-to-last message when there is one.
+            _target = bedrock_messages[-2] if len(bedrock_messages) > 2 else None
+            if _target is not None and isinstance(_target.get("content"), list):
+                if not _ends_with_reasoning(_target["content"]):
+                    _target["content"] = list(_target["content"]) + [_CACHE_POINT]
 
         def _sync_stream():
             try:
@@ -420,6 +533,8 @@ class BedrockClient(LLMClient):
         current_block_index: int = -1
         prompt_tokens = 0
         completion_tokens = 0
+        cache_read_tokens = 0
+        cache_write_tokens = 0
         stop_reason = "end_turn"
         raw_stop_reason = None
 
@@ -503,9 +618,19 @@ class BedrockClient(LLMClient):
                 usage = event["metadata"].get("usage", {})
                 prompt_tokens = usage.get("inputTokens", prompt_tokens)
                 completion_tokens = usage.get("outputTokens", completion_tokens)
+                cache_read_tokens = usage.get("cacheReadInputTokens", cache_read_tokens)
+                cache_write_tokens = usage.get("cacheWriteInputTokens", cache_write_tokens)
 
         await future
 
         yield MessageStopEvent(stop_reason=stop_reason, raw_stop_reason=raw_stop_reason)
-        yield UsageEvent(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+        # Converse has no TTL concept, so a write is attributed to the 5-minute
+        # bucket — the rate Bedrock charges and the one that never over-bills.
+        yield UsageEvent(
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
+            cache_read_tokens=int(cache_read_tokens or 0),
+            cache_creation_tokens=int(cache_write_tokens or 0),
+            cache_write_5m_tokens=int(cache_write_tokens or 0),
+        )
         self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))

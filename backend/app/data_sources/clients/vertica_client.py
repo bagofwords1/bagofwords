@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
@@ -49,6 +50,8 @@ class VerticaClient(DataSourceClient):
                 vp.connect(self._connection_name)
                 self._connected = True
             return self._connection_name
+        except IndexingCancelled:
+            raise
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Vertica: {e}")
 
@@ -72,11 +75,14 @@ class VerticaClient(DataSourceClient):
         """Get tables with graceful fallback if enriched query fails."""
         try:
             return self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column comments. May fail on some Vertica configurations."""
+        discovery_phase('reading_columns')
         self.connect()
 
         # Query with column comments (Vertica supports comments in v_catalog.comments)
@@ -128,7 +134,7 @@ class VerticaClient(DataSourceClient):
         result = result_df.to_pandas()
 
         tables = {}
-        for _, row in result.iterrows():
+        for _, row in discovery_items(result.iterrows(), 'columns', total=len(result), label=lambda pair: str(pair[1]['table_name']) + '.' + str(pair[1]['column_name'])):
             table_name = row['table_name']
             column_name = row['column_name']
             data_type = row['data_type']
@@ -154,6 +160,7 @@ class VerticaClient(DataSourceClient):
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (original query - always works)."""
+        discovery_phase('metadata_fallback')
         try:
             self.connect()
 
@@ -189,7 +196,7 @@ class VerticaClient(DataSourceClient):
             result = result_df.to_pandas()
 
             tables = {}
-            for _, row in result.iterrows():
+            for _, row in discovery_items(result.iterrows(), 'columns', total=len(result), label=lambda pair: str(pair[1]['table_name']) + '.' + str(pair[1]['column_name'])):
                 table_name = row['table_name']
                 column_name = row['column_name']
                 data_type = row['data_type']
@@ -201,6 +208,8 @@ class VerticaClient(DataSourceClient):
                     TableColumn(name=column_name, dtype=data_type))
 
             return list(tables.values())
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
@@ -210,7 +219,8 @@ class VerticaClient(DataSourceClient):
         raise NotImplementedError(
             "get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Get schemas for all tables in the specified database."""
         return self.get_tables()
 

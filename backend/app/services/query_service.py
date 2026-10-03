@@ -125,6 +125,12 @@ async def resolve_options_source_refs(
     return out
 
 
+def _no_access_code(status_reason):
+    """'no_access' when a viewer run's reason is the classified refusal."""
+    from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+    return NO_ACCESS_CODE if status_reason == NO_ACCESS_REASON else None
+
+
 class QueryService:
 
     def __init__(self) -> None:
@@ -240,11 +246,15 @@ class QueryService:
         payload: QueryCreate,
         organization_id: Optional[str],
         user_id: Optional[str],
+        commit: bool = True,
     ) -> Query:
         """Create a Query. If widget_id is not provided, create a widget under the given report_id.
 
         Note: For now, a Query always anchors to a Widget to avoid orphan Steps. If neither
         widget_id nor report_id is provided, this will raise a ValueError.
+
+        commit=False only flushes (no commit, no refresh), for callers that
+        create the query's step/visualization in the same transaction.
         """
         widget_id = payload.widget_id
         report_id = payload.report_id
@@ -254,9 +264,10 @@ class QueryService:
 
         if not widget_id:
             # Validate report exists before creating a widget
-            stmt = select(Report).where(Report.id == str(report_id))
-            report = (await db.execute(stmt)).scalar_one_or_none()
-            if report is None:
+            # Only the id is needed; don't pull Report's selectin graph.
+            stmt = select(Report.id).where(Report.id == str(report_id))
+            found_report_id = (await db.execute(stmt)).scalar_one_or_none()
+            if found_report_id is None:
                 raise ValueError("Report not found for creating widget")
 
             # Create a lightweight widget to anchor steps
@@ -266,7 +277,7 @@ class QueryService:
             w = Widget(
                 title=payload.title,
                 slug=slug,
-                report_id=str(report.id),
+                report_id=str(found_report_id),
                 status="draft",
             )
             db.add(w)
@@ -286,6 +297,9 @@ class QueryService:
             default_step_id=None,
         )
         db.add(q)
+        if not commit:
+            await db.flush()
+            return q
         await db.commit()
         await db.refresh(q)
         return q
@@ -345,13 +359,13 @@ class QueryService:
 
         # If artifact_id provided, filter to only queries used by that artifact
         if artifact_id:
-            from app.models.artifact import Artifact
+            from app.models.artifact import ArtifactVersion
             from app.models.visualization import Visualization
 
             artifact_result = await db.execute(
-                select(Artifact.content).where(
-                    Artifact.id == artifact_id,
-                    Artifact.deleted_at.is_(None)
+                select(ArtifactVersion.content).where(
+                    ArtifactVersion.id == artifact_id,
+                    ArtifactVersion.deleted_at.is_(None)
                 )
             )
             artifact_content = artifact_result.scalar_one_or_none()
@@ -841,7 +855,11 @@ class QueryService:
         ds_errors = []
         for ds in await self._report_data_sources(db, report, organization_id):
             try:
-                ds_conns = await ds_service.construct_clients(db, ds, current_user=credential_user)
+                # Each connection builds on its own: a viewer missing one
+                # connection's credential still gets its sibling connections.
+                ds_conns = await ds_service.construct_clients(
+                    db, ds, current_user=credential_user, connection_errors=[],
+                )
                 ds_clients.update(ds_conns)
             except Exception as e:
                 ds_errors.append(str(getattr(e, "detail", None) or e))
@@ -887,6 +905,11 @@ class QueryService:
             raise
         except Exception as e:
             df, status, status_reason = None, "error", str(e)
+            # Same treatment as the dashboard's viewer run: a per-dataset
+            # refusal becomes "no access", never the provider's raw text.
+            from app.services.access_errors import is_access_denied, NO_ACCESS_REASON
+            if is_access_denied(status_reason):
+                status_reason = NO_ACCESS_REASON
         finally:
             if usage_context is not None:
                 try:
@@ -904,7 +927,8 @@ class QueryService:
                 report_id=str(report.id), params_fingerprint=fingerprint,
                 status="success", status_reason=None, data=df,
                 applied_params=dict(resolved) if resolved else None,
-                executed_as="viewer", last_run_at=_dt.utcnow(),
+                executed_as="creator" if str(credential_user.id) != str(caller.id) else "viewer",
+                last_run_at=_dt.utcnow(),
             )
             return {
                 "data": df or {},
@@ -919,6 +943,7 @@ class QueryService:
             "cached": False,
             "status": "error",
             "error": status_reason,
+            "error_code": _no_access_code(status_reason),
             "step_id": str(step.id),
         }
 

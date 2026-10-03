@@ -1,0 +1,229 @@
+/*
+ * Rendered-markdown typography for instructions — ONE stylesheet driving both
+ * surfaces that display an instruction:
+ *
+ *   .instruction-prose            read-only  (InstructionText.vue, markdown-it → v-html)
+ *   .tiptap-prose                 editing    (InstructionEditor.vue, tiptap/ProseMirror)
+ *
+ * These used to be two near-identical copies inside each component's scoped
+ * <style>, and they drifted: the read-only copy never gained rules for the
+ * elements markdown-it emits beyond the handful someone remembered (tables,
+ * links, rules, h4-h6, images), so those rendered with nothing but Tailwind's
+ * preflight underneath them — borderless zero-padding table cells running
+ * together, links coloured exactly like body text, <hr> with no border at all,
+ * and h4+ at body size and weight. Keeping one stylesheet for both surfaces is
+ * what makes "the read-only view and the editor render identically" checkable
+ * rather than aspirational.
+ *
+ * Global (not scoped) on purpose: both class names are unique to instruction
+ * rendering, and `:deep()` from two components cannot share a declaration.
+ * Direction: every rule uses logical properties (padding-inline-start,
+ * border-inline-start) so a block whose own dir="rtl" flips without a second
+ * ruleset. Code and tabular data stay LTR — same policy as rtl.css.
+ */
+
+.instruction-prose,
+.tiptap-prose {
+  font-size: 13px;
+  line-height: 1.625;
+  color: #111827;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  /* `start` resolves against each block's own dir (set per block from its first
+   * strong character), so RTL blocks right-align. */
+  text-align: start;
+}
+
+.tiptap-prose { outline: none; }
+.tiptap-prose:focus { outline: none; }
+
+/* ── Headings ──────────────────────────────────────────────────────────────
+ * Preflight resets ALL six to `font-size: inherit; font-weight: inherit`, so
+ * any level left out here renders as plain body text. */
+.instruction-prose h1,
+.tiptap-prose h1 { font-size: 1.25em; font-weight: 600; margin: 0.75em 0 0.25em; color: #111827; }
+.instruction-prose h2,
+.tiptap-prose h2 { font-size: 1.1em; font-weight: 600; margin: 0.6em 0 0.2em; color: #111827; }
+.instruction-prose h3,
+.tiptap-prose h3 { font-size: 1em; font-weight: 600; margin: 0.5em 0 0.15em; color: #111827; }
+.instruction-prose h4,
+.tiptap-prose h4 { font-size: 0.95em; font-weight: 600; margin: 0.5em 0 0.15em; color: #374151; }
+.instruction-prose h5,
+.tiptap-prose h5 { font-size: 0.9em; font-weight: 600; margin: 0.5em 0 0.15em; color: #4b5563; }
+.instruction-prose h6,
+.tiptap-prose h6 { font-size: 0.85em; font-weight: 600; margin: 0.5em 0 0.15em; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ── Paragraphs ─────────────────────────────────────────────────────────── */
+.instruction-prose p,
+.tiptap-prose p { margin-bottom: 0.5em; }
+.instruction-prose p:last-child,
+.tiptap-prose p:last-child { margin-bottom: 0; }
+
+/* ── Lists — logical padding puts markers on the start edge under RTL ───── */
+.instruction-prose ul,
+.tiptap-prose ul { padding-inline-start: 1.25em; list-style: disc; margin-bottom: 0.5em; }
+.instruction-prose ol,
+.tiptap-prose ol { padding-inline-start: 1.25em; list-style: decimal; margin-bottom: 0.5em; }
+.instruction-prose li,
+.tiptap-prose li { margin-bottom: 0.2em; }
+/* Nested lists sit inside their parent item, not as a second block after it. */
+.instruction-prose li > ul, .instruction-prose li > ol,
+.tiptap-prose li > ul, .tiptap-prose li > ol { margin-top: 0.2em; margin-bottom: 0; }
+
+/* ── Inline code ───────────────────────────────────────────────────────── */
+.instruction-prose code,
+.tiptap-prose code {
+  background: #f3f4f6;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+  color: #374151;
+}
+
+/* ── Code blocks — always LTR (SQL / identifiers read left-to-right) ────── */
+.instruction-prose pre,
+.tiptap-prose pre {
+  background: #f9fafb;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 0.5em;
+  overflow-x: auto;
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+.instruction-prose pre code,
+.tiptap-prose pre code {
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── Blockquote — logical border so the bar sits on the start edge ─────── */
+.instruction-prose blockquote,
+.tiptap-prose blockquote {
+  border-inline-start: 3px solid #e5e7eb;
+  padding-inline-start: 1em;
+  margin: 0.5em 0;
+  color: #6b7280;
+}
+
+/* ── Links ─────────────────────────────────────────────────────────────────
+ * Preflight sets `a { color: inherit; text-decoration: inherit }`, which makes
+ * an unstyled link indistinguishable from the text around it. */
+.instruction-prose a,
+.tiptap-prose a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.instruction-prose a:hover,
+.tiptap-prose a:hover { color: #1d4ed8; }
+
+/* ── Thematic break ────────────────────────────────────────────────────────
+ * Preflight sets `border-width: 0` on every element, so an unstyled <hr>
+ * occupies space and paints nothing. */
+.instruction-prose hr,
+.tiptap-prose hr {
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+  margin: 1em 0;
+  height: 0;
+}
+/* ProseMirror renders the rule as a selectable node wrapper. */
+.tiptap-prose hr.ProseMirror-selectednode { border-top-color: #93c5fd; }
+
+/* ── Images ───────────────────────────────────────────────────────────────
+ * Without a max-width an image overflows the instruction panel entirely. */
+.instruction-prose img,
+.tiptap-prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.4em 0;
+}
+
+/* ── Tables ───────────────────────────────────────────────────────────────
+ * Preflight collapses borders and zeroes cell padding, so a table with no
+ * rules of its own renders as a borderless, gutterless block whose cells run
+ * straight into one another and read as a wall of text.
+ *
+ * Both renderers put the table inside a scroll container: markdown-it via the
+ * table_open/table_close renderer overrides in InstructionText, tiptap via the
+ * Table extension's own `.tableWrapper`. Without one, a table wider than the
+ * panel is squeezed until every cell wraps character-by-character. */
+.instruction-prose .md-table-wrap,
+.tiptap-prose .tableWrapper {
+  overflow-x: auto;
+  margin: 0.6em 0;
+  max-width: 100%;
+}
+
+.instruction-prose table,
+.tiptap-prose table {
+  border-collapse: collapse;
+  font-size: 0.92em;
+  /* `auto` lets a column size to its content; the wrapper handles overflow. */
+  table-layout: auto;
+}
+
+.instruction-prose th,
+.tiptap-prose th {
+  border: 1px solid #e5e7eb;
+  padding: 5px 9px;
+  background: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+  /* Browser default for <th> is `center`, which reads as a different column
+   * alignment from the body cells below it. */
+  text-align: start;
+  vertical-align: top;
+}
+
+.instruction-prose td,
+.tiptap-prose td {
+  border: 1px solid #e5e7eb;
+  padding: 5px 9px;
+  color: #111827;
+  text-align: start;
+  vertical-align: top;
+}
+
+/* Cell content is already block-level; drop the paragraph gap so a one-line
+ * cell is one line tall. */
+.instruction-prose th > p, .instruction-prose td > p,
+.tiptap-prose th > p, .tiptap-prose td > p { margin-bottom: 0; }
+
+/* Tiptap's cell-selection highlight. */
+.tiptap-prose .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 130, 246, 0.12);
+  pointer-events: none;
+}
+.tiptap-prose th, .tiptap-prose td { position: relative; }
+
+/* ── Dark mode. `.dark` lives on <html> (Tailwind darkMode: 'class'). ───── */
+.dark .instruction-prose,
+.dark .tiptap-prose { color: #e5e7eb; }
+
+.dark .instruction-prose h1, .dark .tiptap-prose h1,
+.dark .instruction-prose h2, .dark .tiptap-prose h2,
+.dark .instruction-prose h3, .dark .tiptap-prose h3 { color: #f9fafb; }
+.dark .instruction-prose h4, .dark .tiptap-prose h4 { color: #d1d5db; }
+.dark .instruction-prose h5, .dark .tiptap-prose h5 { color: #9ca3af; }
+.dark .instruction-prose h6, .dark .tiptap-prose h6 { color: #9ca3af; }
+
+.dark .instruction-prose code, .dark .tiptap-prose code { background: #374151; color: #e5e7eb; }
+.dark .instruction-prose pre, .dark .tiptap-prose pre { background: #1f2937; }
+.dark .instruction-prose blockquote, .dark .tiptap-prose blockquote { border-inline-start-color: #374151; color: #9ca3af; }
+
+.dark .instruction-prose a, .dark .tiptap-prose a { color: #93c5fd; }
+.dark .instruction-prose a:hover, .dark .tiptap-prose a:hover { color: #bfdbfe; }
+
+.dark .instruction-prose hr, .dark .tiptap-prose hr { border-top-color: #374151; }
+
+.dark .instruction-prose th, .dark .tiptap-prose th { background: #1f2937; color: #d1d5db; border-color: #374151; }
+.dark .instruction-prose td, .dark .tiptap-prose td { color: #e5e7eb; border-color: #374151; }

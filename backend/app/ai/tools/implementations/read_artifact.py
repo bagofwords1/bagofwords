@@ -26,7 +26,7 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ai.tools.schemas.read_artifact import ReadArtifactInput, ReadArtifactOutput
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
@@ -186,7 +186,7 @@ class ReadArtifactTool(Tool):
             required_permissions=[],
             tags=["artifact", "dashboard", "read"],
             observation_policy="on_trigger",
-            allowed_modes=["chat"],
+            allowed_modes=["chat", "training"],
         )
 
     @property
@@ -231,11 +231,11 @@ class ReadArtifactTool(Tool):
         # Fetch the artifact
         try:
             result = await db.execute(
-                select(Artifact)
+                select(ArtifactVersion)
                 .options(lazyload("*"))
                 .where(
-                    Artifact.id == data.artifact_id,
-                    Artifact.organization_id == str(organization.id),
+                    ArtifactVersion.id == data.artifact_id,
+                    ArtifactVersion.organization_id == str(organization.id),
                 )
             )
             artifact = result.scalar_one_or_none()
@@ -526,6 +526,15 @@ class ReadArtifactTool(Tool):
             "version": artifact.version,
             "runtime_environment": SANDBOX_RUNTIME_OBSERVATION,
         }
+        observation["resource_artifact_id"] = str(artifact.artifact_id)
+        import os
+        from app.services.artifact_resource_policy import artifact_resources_enabled
+        observation['resources_enabled'] = await artifact_resources_enabled(db, organization.id)
+        if observation['resources_enabled']:
+            from app.services.artifact_resource_service import ArtifactResources
+            viewer = getattr(context_hub, 'user', None) if context_hub else runtime_ctx.get('user')
+            resources = await ArtifactResources.open(db, str(artifact.artifact_id), viewer, organization.id)
+            observation['resources'] = await resources.definitions()
         # Available for 1 iteration; compacted by observation builder on next tool call
         if read_mode in ("full", "range"):
             observation["code"] = code_view

@@ -4,6 +4,7 @@ from typing import Any, AsyncIterator, Dict, Type
 
 from pydantic import BaseModel
 
+from app.ai.tools.implementations._browser_policy import guard_browser_tool
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEvent, ToolStartEvent, ToolProgressEvent, ToolEndEvent
@@ -42,16 +43,27 @@ class BrowserVisionTool(Tool):
     def output_model(self) -> Type[BaseModel]:
         return BrowserOutput
 
+    @guard_browser_tool
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = BrowserVisionInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Taking a screenshot"})
 
-        s = session_manager.get(data.session_id)
+        s = session_manager.get(data.session_id, runtime_ctx)
         if s is None or s.page is None:
             yield ToolEndEvent(type="tool.end", payload={
                 "output": BrowserOutput(success=False, error_message="No active browser session; call browser_navigate first.", error_code="no_session").model_dump(),
                 "observation": {"summary": "No active browser session.", "success": False},
             })
+            return
+
+        if s.preview:
+            from app.ai.tools.implementations._artifact_browser import run_artifact_operation
+            try:
+                result = await run_artifact_operation(s, "vision", data, runtime_ctx)
+                yield ToolEndEvent(type="tool.end", payload=result)
+            except Exception as e:
+                from app.ai.tools.implementations._artifact_browser import artifact_operation_failure
+                yield ToolEndEvent(type="tool.end", payload=await artifact_operation_failure(s, e, runtime_ctx))
             return
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing"})

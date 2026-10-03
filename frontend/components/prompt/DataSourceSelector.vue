@@ -20,7 +20,7 @@
                     <span v-else-if="internalSelectedDataSources.length > 0" class="flex items-center">
                         <template v-if="isCompactFinal">
                             <!-- Compact: show only first icon -->
-                            <DataSourceIcon :type="internalSelectedDataSources[0].type" :connector-key="internalSelectedDataSources[0].connector_key" :icon="internalSelectedDataSources[0].icon" class="h-4" />
+                            <DataSourceIcon :type="internalSelectedDataSources[0].type" :connector-key="internalSelectedDataSources[0].connector_key" :icon-token="internalSelectedDataSources[0].icon_token" :icon="internalSelectedDataSources[0].icon" class="h-4" />
                         </template>
                         <template v-else>
                             <!-- Non-compact: show stacked icons -->
@@ -30,7 +30,7 @@
                                     :key="ds.id"
                                     :type="ds.type"
                                     :connector-key="ds.connector_key"
-                                    :icon="ds.icon"
+                                    :icon-token="ds.icon_token" :icon="ds.icon"
                                     class="h-4 ring-1 ring-white rounded flex-shrink-0"
                                 />
                             </div>
@@ -97,7 +97,7 @@
                                     :data-selected="(!isAutoMode && isSelected(ds)) ? 'true' : 'false'"
                                 >
                                     <div class="flex items-center min-w-0">
-                                        <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon="ds.icon" class="h-4 flex-shrink-0" />
+                                        <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
                                         <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
                                         <!-- Non-production agents only reach here for managers; flag
                                              the lifecycle stage so it's clear they aren't live for
@@ -130,7 +130,7 @@
                                     @click="openCredentialsModal(ds)"
                                 >
                                     <div class="flex items-center min-w-0 opacity-50">
-                                        <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon="ds.icon" class="h-4 flex-shrink-0" />
+                                        <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
                                         <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
                                     </div>
                                     <button

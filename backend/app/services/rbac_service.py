@@ -47,12 +47,34 @@ class RBACService:
         grants_by_role = await self._fetch_role_grants(db, role_ids)
         return [self._role_to_schema(r, grants_by_role.get(r.id, [])) for r in roles]
 
+
+    @staticmethod
+    def _validate_permissions(permissions) -> list:
+        """Reject permission strings the registry does not define.
+
+        Roles previously took the caller's list verbatim into a JSON column, so
+        a typo ("mange_members") produced a role that silently granted nothing
+        and looked correct in the editor. Validating here makes the registry an
+        enforced contract rather than a naming convention.
+        """
+        from app.core.permissions_registry import ALL_PERMISSIONS
+
+        perms = list(permissions or [])
+        valid = ALL_PERMISSIONS | {FULL_ADMIN}
+        unknown = sorted({p for p in perms if p not in valid})
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown permission(s): {', '.join(unknown)}",
+            )
+        return perms
+
     async def create_role(self, db: AsyncSession, org_id: str, data: RoleCreate) -> RoleSchema:
         role = Role(
             organization_id=org_id,
             name=data.name,
             description=data.description,
-            permissions=data.permissions,
+            permissions=self._validate_permissions(data.permissions),
             is_system=False,
         )
         db.add(role)
@@ -68,6 +90,10 @@ class RBACService:
         if role.is_system:
             raise HTTPException(status_code=403, detail="Cannot modify system roles")
 
+        # Reject unknown strings before the lockout check reasons about them.
+        if data.permissions is not None:
+            self._validate_permissions(data.permissions)
+
         # If removing full_admin_access, check lockout
         if data.permissions is not None:
             had_full_admin = isinstance(role.permissions, list) and FULL_ADMIN in role.permissions
@@ -80,7 +106,7 @@ class RBACService:
         if data.description is not None:
             role.description = data.description
         if data.permissions is not None:
-            role.permissions = list(data.permissions)
+            role.permissions = self._validate_permissions(data.permissions)
             flag_modified(role, "permissions")
 
         if data.resource_grants is not None:

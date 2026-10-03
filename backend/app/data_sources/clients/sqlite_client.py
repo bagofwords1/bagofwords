@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import logging
 import re
@@ -166,6 +167,7 @@ class SqliteClient(DataSourceClient):
         except Exception:
             logger.debug("SQLite FK reflection failed; continuing", exc_info=True)
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None):
         return self.get_tables(progress_callback=progress_callback)
 

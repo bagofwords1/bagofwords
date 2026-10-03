@@ -112,6 +112,19 @@ def choose_outbound(
     return ResolvedOutbound(source="global" if global_present else "none")
 
 
+def global_smtp_configured() -> bool:
+    """Whether the global bow-config SMTP client exists.
+
+    The last-resort answer for code with no organization in scope. Prefer
+    :func:`is_outbound_available`, which also sees an organization's own relay;
+    keying on the global client alone is what made orgs that configured SMTP
+    through the UI look like they had no email at all.
+    """
+    from app.settings.config import settings
+
+    return settings.email_client is not None
+
+
 async def get_org_smtp(db, organization_id: str) -> Optional[dict]:
     """Load + decrypt the org's SMTP settings from OrganizationSettings.config.smtp."""
     if not organization_id:
@@ -133,6 +146,60 @@ async def get_org_smtp(db, organization_id: str) -> Optional[dict]:
     out = dict(smtp)
     out["password"] = decrypt_secret(smtp.get("password_enc"))
     return out
+
+
+async def any_smtp_configured(db) -> bool:
+    """Whether *any* outbound transport exists on this deployment.
+
+    The pre-authentication answer, for pages such as password reset that have no
+    organization in scope and must still know whether mail can be sent at all.
+    Keying this on the global bow-config client alone told organizations that
+    configured SMTP through the UI that password reset was unavailable, while
+    the reset mail would in fact have been delivered by their own relay.
+    """
+    if global_smtp_configured():
+        return True
+    try:
+        from sqlalchemy import select
+        from app.models.organization_settings import OrganizationSettings
+
+        rows = (await db.execute(select(OrganizationSettings.config))).scalars().all()
+    except Exception:  # noqa: BLE001 — a pre-auth flag must never 500 the page
+        logger.warning("any_smtp_configured: lookup failed", exc_info=True)
+        return False
+    for config in rows:
+        smtp = (config or {}).get("smtp") if isinstance(config, dict) else None
+        if isinstance(smtp, dict) and smtp.get("enabled") and smtp.get("host"):
+            return True
+    return False
+
+
+async def sole_organization_id(db, user_id: str) -> Optional[str]:
+    """The organization to send a user's account mail from, or ``None``.
+
+    Password resets and email verifications happen outside any organization
+    context — fastapi-users knows the user, not the tenant — yet they are system
+    mail and should leave via the organization's own relay when there is one.
+
+    A user with exactly one membership has an unambiguous answer, which covers
+    every self-hosted and single-tenant deployment. With several memberships
+    there is no principled choice (whose relay should carry a password reset?),
+    so we return ``None`` and the caller falls back to the global bow-config
+    SMTP rather than leaking the user's presence in one org to another org's
+    mail server.
+    """
+    if not user_id:
+        return None
+    from sqlalchemy import select
+    from app.models.membership import Membership
+
+    rows = (await db.execute(
+        select(Membership.organization_id).where(Membership.user_id == str(user_id))
+    )).scalars().all()
+    unique = {str(r) for r in rows if r}
+    if len(unique) == 1:
+        return unique.pop()
+    return None
 
 
 async def resolve_outbound(db, organization_id: str, purpose: str = "system") -> ResolvedOutbound:

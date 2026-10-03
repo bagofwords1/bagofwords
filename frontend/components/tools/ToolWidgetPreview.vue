@@ -14,7 +14,7 @@
             {{ $t('tools.createData.bowSource') }}
           </span>
           <button
-            v-if="queryId && canEditCode && (canEdit || !readonly)"
+            v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
             :title="$t('tools.widgetPreview.editQueryCode')"
@@ -263,7 +263,7 @@
 
                     <!-- Edit button -->
                     <button
-                      v-if="queryId && canEditCode && (canEdit || !readonly)"
+                      v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
                       @click="onEditClick"
                       class="text-xs px-2 py-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
                       :title="$t('tools.widgetPreview.editCode')"
@@ -424,7 +424,7 @@
 import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmounted, unref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
-import { useOrgSettings } from '~/composables/useOrgSettings'
+import { cardHydrationRequest, deriveViewerRun } from '~/utils/viewerRunHydration'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
@@ -464,7 +464,10 @@ const props = defineProps<{
 }>()
 const emit = defineEmits(['toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
-const { canEditCode } = useOrgSettings()
+// The "edit query" affordance needs both: something to show (`view_code`) and
+// the right to change it (`run_custom_code`, enforced on the run route).
+const canRunCustomCode = useCanRunCustomCode()
+const canViewCode = useCanViewCode()
 const { isExcel } = useExcel()
 const { t } = useI18n()
 const toast = useToast()
@@ -538,6 +541,14 @@ const step = computed(() => {
   }
   return null
 })
+/**
+ * Non-null when this card shows one run_query parameter slice rather than the
+ * query's saved snapshot. Read off the execution so it survives every way the
+ * card gets mounted — inline in the transcript, and the separate component the
+ * side panel mounts from stored state.
+ */
+const viewerRun = computed(() => deriveViewerRun(props.toolExecution))
+
 const stepOverride = ref<any | null>(null)
 const effectiveStep = computed(() => stepOverride.value || step.value)
 
@@ -887,16 +898,54 @@ async function loadReportSnapshotIfNeeded() {
   } catch {}
 }
 
+/**
+ * The step payload this card should display, for every path that refreshes it.
+ *
+ * A viewer-run card shows one parameter slice; the query's default step
+ * answers the saved values, so fetching it would swap the rows out from under
+ * a header that still names the requested params. Re-request the same slice
+ * instead — it is served from the per-viewer cache (StepUserResult, keyed by
+ * the params fingerprint), so this is a lookup, not a re-execution, and it
+ * returns every row rather than the 20-row serialized preview.
+ *
+ * Identity-sourced values are dropped before submitting: the server resolves
+ * those from the session and rejects any the client sends.
+ */
+async function fetchCardStep(): Promise<any | null> {
+  const req = cardHydrationRequest({
+    viewerRun: viewerRun.value,
+    queryId: queryId.value,
+    currentApplied: cardAppliedParams.value,
+    paramSpecs: cardParamSpecs.value,
+  })
+  if (!req) return null
+
+  const { data, error } = await useMyFetch(
+    req.url,
+    req.method === 'POST' ? { method: 'POST', body: req.body } : { method: 'GET' },
+  )
+  if (error.value) return null
+
+  if (req.method === 'GET') return ((data.value as any) || {}).step || null
+
+  const res: any = data.value
+  if (!res || res.status === 'error') return null
+  // Keep the card's own view/data_model; only the rows and the values they
+  // answer come from the run.
+  const base = JSON.parse(JSON.stringify(effectiveStep.value || {}))
+  return {
+    ...base,
+    data: res.data || {},
+    applied_params: res.applied_params || req.body?.params || {},
+  }
+}
+
 async function hydrateLatestStep() {
   isHydratingStep.value = true
   try {
-    const qid = queryId.value
-    if (qid) {
-      const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
-      if (!error.value) {
-        const fetched = ((data.value as any) || {}).step || null
-        if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
-      }
+    if (viewerRun.value?.queryId || queryId.value) {
+      const fetched = await fetchCardStep()
+      if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
       return
     }
     // No query to resolve (legacy execute tools, deduplicated step payloads):
@@ -1063,11 +1112,15 @@ const hasData = computed(() => {
   return !!effectiveStep.value
 })
 
-// Check if code is available
-const hasCode = computed(() => !!effectiveStep.value?.code)
+// Check if code is available. The permission is part of the condition, not just
+// the presence of a string: the server already redacts `code` to null, so this
+// is the belt to that braces — a payload cached client-side from before a role
+// change (or optimistic state from the live stream) must not resurrect the tab.
+const hasCode = computed(() => canViewCode.value && !!effectiveStep.value?.code)
 
 // Executed queries from backend (captured from client.execute_query calls)
 const executedQueries = computed(() => {
+  if (!canViewCode.value) return []
   const queries = props.toolExecution?.result_json?.executed_queries
   return Array.isArray(queries) ? queries : []
 })
@@ -1406,22 +1459,20 @@ onMounted(() => {
       const detail: any = (ev as any)?.detail || {}
       if (!detail?.query_id) return
       if (String(detail.query_id) !== String(queryId.value || '')) return
-      // Always fetch the latest default step from backend to avoid stale payloads
+      // Always refetch from the backend to avoid stale payloads. On a
+      // viewer-run card that means re-running the same slice against the new
+      // default step — the broadcast payload is the default snapshot, which
+      // answers other values, so it is never adopted there.
       ;(async () => {
         try {
-          const { data, error } = await useMyFetch(`/api/queries/${detail.query_id}/default_step`, { method: 'GET' })
-          if (!error.value) {
-            const fetched = ((data.value as any) || {}).step || null
-            if (fetched) {
-              stepOverride.value = JSON.parse(JSON.stringify(fetched))
-            } else if (detail.step) {
-              stepOverride.value = JSON.parse(JSON.stringify(detail.step))
-            }
-          } else if (detail.step) {
+          const fetched = await fetchCardStep()
+          if (fetched) {
+            stepOverride.value = JSON.parse(JSON.stringify(fetched))
+          } else if (detail.step && !viewerRun.value?.queryId) {
             stepOverride.value = JSON.parse(JSON.stringify(detail.step))
           }
         } catch {
-          if (detail.step) {
+          if (detail.step && !viewerRun.value?.queryId) {
             stepOverride.value = JSON.parse(JSON.stringify(detail.step))
           }
         }
@@ -1441,12 +1492,9 @@ onMounted(() => {
       hydratedVisualization.value = null
       ;(async () => {
         try {
-          const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
-          if (!error.value) {
-            const fetched = ((data.value as any) || {}).step || null
-            if (fetched) {
-              stepOverride.value = JSON.parse(JSON.stringify(fetched))
-            }
+          const fetched = await fetchCardStep()
+          if (fetched) {
+            stepOverride.value = JSON.parse(JSON.stringify(fetched))
           }
         } catch {}
       })()
@@ -1512,14 +1560,10 @@ async function handleEntitySaved() {
 
   // Refresh the step to get the updated created_entity_id
   try {
-    const qid = queryId.value
-    if (qid) {
-      const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
-      if (!error.value) {
-        const fetched = ((data.value as any) || {}).step || null
-        if (fetched) {
-          stepOverride.value = JSON.parse(JSON.stringify(fetched))
-        }
+    if (queryId.value || viewerRun.value?.queryId) {
+      const fetched = await fetchCardStep()
+      if (fetched) {
+        stepOverride.value = JSON.parse(JSON.stringify(fetched))
       }
     }
   } catch (e) {

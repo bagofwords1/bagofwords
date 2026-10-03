@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import os
@@ -119,8 +120,12 @@ class OracledbClient(DataSourceClient):
                 current_schema = self._schemas[0]
                 try:
                     conn.execute(text(f'ALTER SESSION SET CURRENT_SCHEMA = {current_schema}'))
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
+        except IndexingCancelled:
+            raise
         except Exception as e:
             if conn is not None:
                 conn.close()
@@ -153,11 +158,14 @@ class OracledbClient(DataSourceClient):
         """Get tables with graceful fallback if enriched query fails."""
         try:
             return self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table comments. May fail on some Oracle configurations."""
+        discovery_phase('reading_columns')
         with self.connect() as conn:
             params = {}
             where_clauses = []
@@ -195,7 +203,7 @@ class OracledbClient(DataSourceClient):
             result = conn.execute(sql, params).fetchall()
 
             tables = {}
-            for row in result:
+            for row in discovery_items(result, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 owner, table_name, column_name, data_type, col_comment, tbl_comment = row
                 key = (owner, table_name)
                 fqn = f"{owner}.{table_name}"
@@ -218,6 +226,7 @@ class OracledbClient(DataSourceClient):
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (original query - always works)."""
+        discovery_phase('metadata_fallback')
         try:
             with self.connect() as conn:
                 params = {}
@@ -243,7 +252,7 @@ class OracledbClient(DataSourceClient):
                 result = conn.execute(sql, params).fetchall()
 
                 tables = {}
-                for row in result:
+                for row in discovery_items(result, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                     owner, table_name, column_name, data_type = row
                     key = (owner, table_name)
                     fqn = f"{owner}.{table_name}"
@@ -254,6 +263,8 @@ class OracledbClient(DataSourceClient):
                     tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
                 self._attach_foreign_keys(conn, tables)
             return list(tables.values())
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
@@ -277,7 +288,8 @@ class OracledbClient(DataSourceClient):
             lambda schema, table: f"{schema}.{table}",
         )
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Get schemas for all tables in the specified database."""
         return self.get_tables()
 

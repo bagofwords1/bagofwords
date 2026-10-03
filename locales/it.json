@@ -1,4 +1,19 @@
 {
+  "agentLanding": {
+    "actions": "Azioni agente",
+    "countTasks": "{n} attività | {n} attività",
+    "editStarters": "Modifica gli spunti di conversazione",
+    "download": "Scarica i dati dell’agente",
+    "addInstruction": "Aggiungi istruzione",
+    "chooseExisting": "Scegli esistente",
+    "readMore": "Leggi di più",
+    "readLess": "Mostra meno"
+  },
+  "agentCard": {
+    "signedIn": "Accesso effettuato",
+    "countBoards": "{n} bacheca | {n} bacheche",
+    "configuredCountsHint": "Prima di accedere, i conteggi riflettono il catalogo condiviso, non il tuo accesso personale."
+  },
   "agentsPage": {
     "title": "Agenti",
     "subtitle": "Configura i tuoi agenti e i dati, gli strumenti, le competenze e le istruzioni con cui ragionano.",
@@ -18,6 +33,9 @@
     "newAgent": "Agente",
     "newAgentDesc": "Collega dati, strumenti e tabelle",
     "searchPlaceholder": "Cerca ovunque…",
+    "clearSearch": "Cancella ricerca",
+    "searchAgentInstructions": "Cerca istruzioni…",
+    "noResults": "Nessun risultato.",
     "filters": "Filtri",
     "filterStatus": "Stato",
     "filterLoading": "Caricamento",
@@ -94,6 +112,23 @@
     "connect": "Connetti",
     "manageConnections": "Gestisci connessioni",
     "loadingFiles": "Caricamento dei file dalla sorgente…",
+    "fileBrowserRoot": "Tutti i file",
+    "fileBrowserSearch": "Cerca file…",
+    "fileBrowserRefresh": "Aggiorna",
+    "fileBrowserConnectRequired": "Collega il tuo account per sfogliare: questa connessione legge i file con le credenziali di ciascun utente.",
+    "fileBrowserError": "Impossibile elencare i file dalla sorgente.",
+    "fileBrowserRetry": "Riprova",
+    "fileBrowserEmpty": "Nessun file corrisponde all'ambito di questa connessione.",
+    "fileBrowserNoResults": "Nessun file corrisponde a “{q}”.",
+    "fileBrowserSummary": "{n} file nell'ambito · l'agente legge solo questi · gli accessi negati vengono registrati",
+    "fileBrowserTruncated": "Vengono mostrati i primi {shown} di {total} file: restringi l'ambito della connessione per vedere il resto.",
+    "fileBrowserOpenInSource": "Apri nella sorgente",
+    "fileBrowserClosePreview": "Chiudi anteprima",
+    "fileBrowserPreviewLoading": "Caricamento anteprima…",
+    "fileBrowserPreviewError": "Impossibile caricare l'anteprima.",
+    "fileBrowserPreviewUnsupported": "Anteprima non disponibile per questo tipo di file.",
+    "fileBrowserPreviewTooLarge": "Questo file è troppo grande per l'anteprima ({size}).",
+    "fileBrowserPreviewTextTruncated": "Vengono mostrati i primi {n} caratteri.",
     "countTables": "{n} tabella | {n} tabelle",
     "countTools": "{n} strumento | {n} strumenti",
     "countFiles": "{n} file | {n} file",
@@ -412,6 +447,11 @@
         "title": "⚡ \"{name}\" si è attivato — {summary}",
         "body": "L'indagine è terminata — apri la sessione per vedere i risultati."
       }
+    },
+    "checkin": {
+      "badge": "Follow-up",
+      "openReport": "Apri report",
+      "assistantFallback": "Analista IA"
     }
   },
   "auth": {
@@ -517,6 +557,7 @@
     "training": "Addestramento",
     "schedulePrompt": "Pianifica un prompt",
     "selectModel": "Seleziona modello",
+    "createReportFailed": "Impossibile creare il report",
     "untitled": "Senza titolo",
     "estimating": "Stima in corso…",
     "estimateUnavailable": "Stima non disponibile",
@@ -574,7 +615,28 @@
     "modelAutoHint": "Il router sceglie il modello migliore",
     "autoAgentsHint": "Qualsiasi agente a cui hai accesso",
     "loadingDataSources": "Caricamento delle origini dati…",
-    "noDataSources": "Nessuna origine dati trovata"
+    "noDataSources": "Nessuna origine dati trovata",
+    "effort": {
+      "title": "Impegno",
+      "default": "Predefinito",
+      "levels": {
+        "off": "Veloce",
+        "low": "Basso",
+        "medium": "Medio",
+        "high": "Alto",
+        "max": "Max"
+      },
+      "searchModels": "Cerca modelli…",
+      "noMatches": "Nessun modello corrisponde",
+      "otherProvider": "Altro",
+      "anyModel": "Si applica al modello che viene eseguito",
+      "notSupported": "Questo modello non ha un'impostazione di impegno",
+      "providerDefault": "Predefinito del modello",
+      "modelDefault": "Predefinito dall'amministratore: {level}",
+      "runsAs": "Eseguito come {level} su questo modello",
+      "faster": "Più veloce",
+      "smarter": "Più intelligente"
+    }
   },
   "reports": {
     "title": "Report",
@@ -730,7 +792,8 @@
         "title": "Mostra risposte con feedback negativo",
         "prompt": "Esamina le risposte che hanno ricevuto feedback negativi dagli utenti per individuare schemi e aree di miglioramento."
       }
-    ]
+    ],
+    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare."
   },
   "projects": {
     "title": "Progetti",
@@ -849,6 +912,11 @@
     "llm": "LLM",
     "exec": "Esec",
     "selectItem": "Seleziona un elemento nell'albero per visualizzare i dettagli",
+    "tabs": {
+      "conversation": "Conversazione",
+      "timeline": "Cronologia",
+      "details": "Dettagli"
+    },
     "userPrompt": "Prompt dell'utente",
     "instructionsCount": "{count} istruzioni",
     "alwaysCount": "{count} sempre",
@@ -883,7 +951,96 @@
     "tokensCount": "{count} token",
     "llmUsageTooltip": "Utilizzo LLM per questa conversazione",
     "turnTokensTooltip": "Token LLM del pianificatore per questo turno",
-    "turnUsageTooltip": "Utilizzo LLM per questo turno"
+    "turnUsageTooltip": "Utilizzo LLM per questo turno",
+    "setup": "Preparazione",
+    "setupTooltip": "Tempo dall'avvio al primo passo (costruzione del contesto, ecc.)",
+    "overhead": "Altro",
+    "overheadTooltip": "Tempo non attribuito a nessun passo: persistenza, aggiornamento del contesto tra i passi, finalizzazione",
+    "segment_planner": "LLM del pianificatore",
+    "segment_tool_llm": "LLM dello strumento",
+    "segment_tool_exec": "Esecuzione dello strumento",
+    "segment_setup": "Preparazione",
+    "plannerShort": "Piano",
+    "toolShort": "Strum.",
+    "stepTiming": "Tempi del passo",
+    "stepTotal": "Totale del passo",
+    "firstToken": "Tempo al primo token",
+    "thinking": "Ragionamento",
+    "tool": "Strumento",
+    "machineTurn": "Turno automatico ({source})",
+    "checkin": {
+      "title": "Follow-up dell'agente",
+      "runTurn": "Esecuzione di follow-up (agente)",
+      "noFollowUp": "Nessun follow-up pianificato",
+      "noReason": "Il pianificatore non ha fornito un motivo.",
+      "due": "scadenza {when}",
+      "note": "Nota per il futuro",
+      "planReason": "Perché un follow-up",
+      "judge": "Giudice",
+      "focus": "Focus",
+      "whyRun": "Perché il giudice ha eseguito questo follow-up",
+      "plannerUsage": "Pianificatore",
+      "judgeUsage": "Giudice",
+      "status": {
+        "not_proposed": "non proposto",
+        "rejected": "rifiutato",
+        "planned": "pianificato",
+        "cancelled": "annullato",
+        "skipped": "saltato",
+        "running": "in esecuzione",
+        "ran_quiet": "eseguito senza avviso",
+        "sent": "notificato",
+        "failed": "non riuscito"
+      },
+      "decision": {
+        "run": "esegui",
+        "skip": "salta"
+      },
+      "reason": {
+        "disabled": "impostazione disattivata",
+        "pending_exists_user": "l'utente ne ha già uno in attesa",
+        "pending_exists_report": "il report ne ha già uno in attesa",
+        "weekly_cap": "limite settimanale raggiunto",
+        "org_daily_cap": "limite giornaliero dell'organizzazione raggiunto",
+        "report_deleted": "report eliminato",
+        "access_lost": "accesso perso",
+        "judge_skip": "saltato dal giudice",
+        "run_failed": "esecuzione non riuscita",
+        "invalid_judge_output": "risposta del giudice non valida",
+        "opted_out": "disattivato dall'utente",
+        "fire_error": "errore durante il controllo",
+        "stale_running": "rimasto in esecuzione (riavvio)"
+      },
+      "outcome": {
+        "sent": "Utente notificato",
+        "sentWithSubject": "Utente notificato: {subject}",
+        "ran_quiet": "Eseguito senza avviso — niente da segnalare",
+        "planned": "In attesa della scadenza",
+        "running": "In esecuzione",
+        "skipped": "Saltato dal giudice — nessuna esecuzione",
+        "failed": "L'esecuzione del follow-up non è riuscita — nulla è stato inviato",
+        "rejected": "Non pianificato: {reason}",
+        "cancelled": "Annullato: {reason}"
+      }
+    },
+    "memory": {
+      "title": "Memoria",
+      "summary": "{injected} di {total} voci incluse · {chars} caratteri",
+      "privateNote": "La memoria è privata del proprietario: vengono mostrati solo identificativi e sezioni.",
+      "refused": "Rifiutato",
+      "tier": {
+        "always": "sempre",
+        "matched": "corrispondenza"
+      }
+    },
+    "export": {
+      "button": "Esporta",
+      "turnJson": "Scarica questo turno (JSON)",
+      "conversationJson": "Scarica la conversazione (JSON)",
+      "copyTurn": "Copia questo turno come JSON",
+      "copied": "JSON della traccia copiato negli appunti",
+      "failed": "Impossibile esportare la traccia"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -962,6 +1119,16 @@
       "executionSucceeded": "Esecuzione riuscita",
       "retrying": "Nuovo tentativo · tentativo {n}",
       "visualizing": "Visualizzazione"
+    },
+    "runQuery": {
+      "running": "Esecuzione di \"{title}\"…",
+      "runningWith": "Esecuzione di \"{title}\" con {params}…",
+      "ran": "\"{title}\" eseguita",
+      "ranWith": "\"{title}\" eseguita con {params}",
+      "failed": "Esecuzione di \"{title}\" non riuscita",
+      "needsInput": "\"{title}\" richiede valori dei parametri",
+      "needsValues": "In attesa di valori per:",
+      "cachedHint": "Servito dal tuo risultato in cache per questi valori; la fonte non è stata interrogata di nuovo"
     },
     "createArtifact": {
       "creating": "Creazione dell'artefatto",
@@ -1435,10 +1602,11 @@
       "cancelledPlural": "Annullate {count} attese in sospeso",
       "nothingPending": "Nessuna attesa in sospeso"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Aggiornamento della memoria…",
+      "checking": "Consultazione della memoria…",
       "updated": "Memoria aggiornata",
-      "failed": "Aggiornamento della memoria non riuscito"
+      "checked": "Memoria consultata"
     },
     "routeModel": {
       "routedTo": "Instradato a",
@@ -1499,7 +1667,26 @@
       "snapshot": "Struttura della pagina",
       "snapshotted": "Pagina letta",
       "snapshotting": "Lettura della pagina",
-      "working": "Navigazione"
+      "working": "Navigazione",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "Il filtro delle date non ha restituito righe. Il suo corretto funzionamento non è ancora verificato.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "Lettura di {name}…",
@@ -1511,6 +1698,18 @@
       "pathLabel": "Percorso:",
       "attachedAsSessionFile": "Allegato a questa conversazione come file di sessione",
       "showPagePreviews": "Mostra anteprime delle pagine ({n})"
+    },
+    "resource": {
+      "failed": "Modifica della risorsa non riuscita",
+      "create": "Risorsa creata",
+      "update": "Risorsa aggiornata",
+      "delete": "Risorsa eliminata",
+      "working": "Configurazione della risorsa",
+      "stopped": "Interrotto",
+      "unchanged": "Risorsa invariata",
+      "preserved": "I record esistenti sono conservati.",
+      "changed": "Modifiche",
+      "noChanges": "Nessuna modifica applicata."
     }
   },
   "entityCreate": {
@@ -2290,7 +2489,191 @@
       "daysAbbr": "{n}g",
       "rangeCount": "{start}–{end} di {total}",
       "prev": "‹ Prec.",
-      "next": "Succ. ›"
+      "next": "Succ. ›",
+      "tabs": {
+        "activity": "Attività",
+        "streams": "Flussi"
+      },
+      "actorAgent": "tramite agente",
+      "actorSystem": "sistema",
+      "searchPlaceholder": "Cerca azioni, utenti, titoli…",
+      "filters": {
+        "user": "Utente",
+        "allUsers": "Tutti gli utenti",
+        "resource": "Risorsa",
+        "allResources": "Tutte le risorse",
+        "range": "Periodo",
+        "rangeAll": "Sempre",
+        "range24h": "Ultime 24 ore",
+        "range7d": "Ultimi 7 giorni",
+        "range30d": "Ultimi 30 giorni",
+        "filterActions": "Filtra azioni…",
+        "noOptions": "Nessun risultato"
+      },
+      "export": {
+        "button": "Esporta",
+        "json": "Scarica JSON (NDJSON)",
+        "csv": "Scarica CSV",
+        "hint": "Esporta la vista filtrata corrente, dal più vecchio al più recente.",
+        "failed": "Esportazione non riuscita"
+      },
+      "drawer": {
+        "title": "Dettagli evento",
+        "close": "Chiudi",
+        "who": "Chi",
+        "when": "Quando",
+        "where": "Dove",
+        "what": "Cosa",
+        "details": "Dettagli",
+        "rawJson": "JSON grezzo",
+        "copy": "Copia",
+        "copied": "Copiato",
+        "actor": "Attore",
+        "actorType": "Tipo di attore",
+        "timeUtc": "UTC",
+        "timeLocal": "Locale",
+        "relative": "Relativo",
+        "ip": "Indirizzo IP",
+        "userAgent": "User agent",
+        "action": "Azione",
+        "resourceType": "Tipo di risorsa",
+        "resourceId": "ID risorsa",
+        "open": "Apri",
+        "agentRun": "Esecuzione dell'agente",
+        "executionMode": "Modalità di esecuzione",
+        "none": "—",
+        "noDetails": "Nessun dettaglio aggiuntivo",
+        "fields": {
+          "title": "Titolo",
+          "tool": "Strumento",
+          "data_source": "Origine dati",
+          "connection": "Connessione",
+          "queries": "Query",
+          "row_count": "Righe",
+          "reason": "Motivo",
+          "error": "Errore",
+          "changed": "Modifiche",
+          "state": "Stato",
+          "destination": "Destinazione",
+          "format": "Formato"
+        },
+        "actorKinds": {
+          "user": "Utente",
+          "agent": "Agente (per conto dell'utente)",
+          "system": "Sistema"
+        }
+      },
+      "streams": {
+        "title": "Flussi di log",
+        "subtitle": "Invia ogni evento di audit al tuo SIEM o bucket di archiviazione. Dopo qualsiasi interruzione, la consegna riprende dall'ultimo evento inviato.",
+        "empty": "Ancora nessun flusso di log",
+        "emptyHint": "Aggiungi un flusso per inviare eventi di audit a Datadog, Splunk, Microsoft Sentinel, S3, Google Cloud Storage, un webhook o syslog.",
+        "add": "Aggiungi flusso",
+        "edit": "Modifica",
+        "delete": "Elimina",
+        "deleteConfirm": "Eliminare il flusso \"{name}\"? Gli eventi non gli verranno più consegnati.",
+        "pause": "Sospendi",
+        "resume": "Riprendi",
+        "state": {
+          "active": "Attivo",
+          "inactive": "In pausa",
+          "error": "Errore",
+          "invalid": "Credenziali non valide"
+        },
+        "delivered": "{n} consegnati",
+        "pending": "{n} in attesa",
+        "lag": "in ritardo di {time}",
+        "lastDelivered": "Ultima consegna {time}",
+        "never": "mai",
+        "lastError": "Ultimo errore",
+        "nextAttempt": "Nuovo tentativo {time}",
+        "manageRequired": "Solo i membri con Gestisci impostazioni possono modificare i flussi di log.",
+        "form": {
+          "titleNew": "Aggiungi flusso di log",
+          "titleEdit": "Modifica flusso di log",
+          "name": "Nome",
+          "namePlaceholder": "es. Splunk produzione",
+          "destination": "Destinazione",
+          "chooseDestination": "Scegli dove inviare gli eventi",
+          "startFrom": "Inizia da",
+          "startNow": "Solo nuovi eventi",
+          "startBeginning": "Includi tutta la cronologia",
+          "actionFilter": "Solo azioni che iniziano con",
+          "actionFilterHint": "Prefissi separati da virgole, come tool., member. — lascia vuoto per inviare tutto.",
+          "advanced": "Impostazioni avanzate",
+          "test": "Invia evento di prova",
+          "testing": "Invio…",
+          "testOk": "Evento di prova consegnato",
+          "testFailed": "Prova non riuscita: {error}",
+          "save": "Salva flusso",
+          "saving": "Salvataggio…",
+          "cancel": "Annulla",
+          "back": "Indietro",
+          "secretStored": "Salvato — lascialo così per mantenerlo",
+          "externalIdHint": "Inserisci questo External ID nella policy di attendibilità del ruolo IAM.",
+          "required": "Obbligatorio"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "Webhook HTTPS",
+          "syslog": "Syslog su TLS"
+        },
+        "destinationHints": {
+          "datadog": "API di acquisizione log",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "API di acquisizione log (DCR)",
+          "s3": "Oggetti NDJSON per batch",
+          "gcs": "Oggetti NDJSON tramite chiavi HMAC",
+          "https": "POST JSON firmato",
+          "syslog": "RFC 5424, JSON o CEF"
+        },
+        "fields": {
+          "url": "URL dell'endpoint",
+          "auth_header_name": "Nome dell'header di autenticazione",
+          "auth_header_value": "Valore dell'header di autenticazione",
+          "hmac_secret": "Segreto di firma (HMAC)",
+          "headers": "Header aggiuntivi (oggetto JSON)",
+          "verify_tls": "Verifica certificato TLS",
+          "site": "Sito Datadog",
+          "api_key": "Chiave API",
+          "service": "Servizio",
+          "tags": "Tag",
+          "intake_url": "URL di acquisizione personalizzato",
+          "hec_url": "URL HEC",
+          "token": "Token HEC",
+          "index": "Indice",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "ID tenant",
+          "client_id": "ID client",
+          "client_secret": "Segreto client",
+          "dce_url": "Endpoint di raccolta dati",
+          "dcr_immutable_id": "ID immutabile DCR",
+          "stream_name": "Nome del flusso",
+          "authority_url": "URL dell'autorità",
+          "bucket": "Bucket",
+          "region": "Regione",
+          "prefix": "Prefisso chiave",
+          "role_arn": "ARN del ruolo",
+          "external_id": "External ID",
+          "access_key_id": "ID chiave di accesso",
+          "secret_access_key": "Chiave di accesso segreta",
+          "gzip": "Comprimi oggetti con gzip",
+          "endpoint_url": "URL endpoint personalizzato",
+          "sts_endpoint_url": "Endpoint STS personalizzato",
+          "host": "Host",
+          "port": "Porta",
+          "tls": "Usa TLS",
+          "format": "Formato del messaggio",
+          "ca_cert": "Certificato CA (PEM)",
+          "app_name": "Nome app",
+          "client_cert": "Certificato client (PEM)",
+          "client_key": "Chiave client (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "Impostazioni IA",
@@ -2298,9 +2681,39 @@
       "beta": "Funzionalità beta",
       "locked": "Questa impostazione è bloccata e non può essere modificata.",
       "notEditable": "(Non modificabile direttamente)",
-      "aiAgentsTitle": "Agenti IA",
-      "aiAgentsSubtitle": "Configura gli agenti IA e le funzionalità disponibili per i membri della tua organizzazione.",
       "noSettings": "Nessuna impostazione IA disponibile.",
+      "sectionSummary": "{n} impostazioni",
+      "sectionSummaryOn": "{n} impostazioni · {on} attive",
+      "sections": {
+        "data": {
+          "title": "Accesso ai dati e privacy",
+          "description": "Cosa l'IA può vedere e portare in una conversazione"
+        },
+        "capabilities": {
+          "title": "Capacità dell'agente",
+          "description": "Cosa può fare l'agente mentre risponde"
+        },
+        "learning": {
+          "title": "Apprendimento e memoria",
+          "description": "Come l'IA impara da utenti, feedback e utilizzo"
+        },
+        "tools": {
+          "title": "Strumenti e MCP",
+          "description": "Server MCP esterni e strumenti API personalizzati"
+        },
+        "limits": {
+          "title": "Limiti",
+          "description": "Limiti di righe, timeout, tentativi e dimensioni del contesto"
+        },
+        "workspace": {
+          "title": "Area di lavoro",
+          "description": "Webhook, fork e conservazione dei dati"
+        },
+        "other": {
+          "title": "Altro",
+          "description": "Impostazioni non ancora assegnate a una sezione"
+        }
+      },
       "llmAccessWarning": "La modifica di questa impostazione influisce sulla privacy dei dati. Sarà richiesta una conferma.",
       "llmModalTitleEnable": "Abilita accesso LLM ai dati",
       "llmModalTitleDisable": "Disabilita accesso LLM ai dati",
@@ -2310,7 +2723,7 @@
       "llmImpactInspectTool": "Ispeziona dati",
       "llmImpactAccuracy": "Riduzione dell'accuratezza e delle prestazioni dell'analisi",
       "llmImpactColumns": "L'IA vedrà solo i nomi delle colonne e le statistiche, non i valori effettivi",
-      "llmFileUploadsNote": "I caricamenti dei file non sono influenzati da questa impostazione e saranno comunque visibili all'IA (puoi disabilitare i caricamenti dei file separatamente).",
+      "llmFileUploadsNote": "I caricamenti dei file non sono influenzati da questa impostazione e saranno comunque visibili all'IA.",
       "llmConfirmLabel": "Digita {phrase} per confermare",
       "llmConfirmPhrase": "SONO SICURO",
       "llmConfirmPlaceholder": "SONO SICURO",
@@ -2332,6 +2745,10 @@
         "allow_llm_see_data": {
           "name": "Consenti all'LLM di vedere i dati",
           "description": "Consente all'LLM di vedere i dati nell'ambito dell'analisi e delle richieste degli utenti"
+        },
+        "enable_artifact_verification": {
+          "name": "Verifica le app di dati",
+          "description": "Consenti all’agente di controllare le pagine interattive con gli strumenti del browser. Richiede l’accesso del modello linguistico ai dati."
         },
         "enable_training_mode": {
           "name": "Modalità addestramento",
@@ -2429,6 +2846,10 @@
           "name": "Dimensione inline del risultato MCP",
           "description": "Quanta parte del risultato di uno strumento MCP o API personalizzata l'agente vede direttamente nel proprio contesto, in caratteri. La risposta completa viene sempre salvata su file qualunque sia questo valore; l'impostazione decide solo quanto il modello può leggere senza aprire quel file. Aumentalo perché l'agente risponda a partire da un intero insieme di risultati anziché da un campione; riducilo per consumare meno token per chiamata. Imposta 0 per un campione di 3 record. Limitato a 0-500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "Righe di anteprima dati MCP",
+          "description": "Quante righe di risultato create_data restituisce a un client MCP esterno (Claude, Cursor, ecc.) nella risposta. Il risultato completo viene sempre salvato nel report; questo decide solo quanto riceve direttamente il modello del client. Un client può chiedere meno righe, mai di più. Limitato anche da 'Limita il numero di righe'. Compreso tra 1 e 10000."
+        },
         "enable_web_fetch": {
           "name": "Recupero dal web",
           "description": "Consente all'agente di recuperare il contenuto di URL pubblici HTTP e HTTPS. Vengono restituite solo risposte di tipo testuale e i contenuti di grandi dimensioni vengono troncati."
@@ -2446,12 +2867,24 @@
           "description": "Numero massimo di righe su cui il codice generato deve addestrare un modello. Le sorgenti più grandi vengono campionate a questa dimensione prima dell'addestramento. Minimo 1000."
         },
         "enable_custom_queries": {
-          "name": "Query personalizzate (beta)",
+          "name": "Tabelle personalizzate (beta)",
           "description": "Consente agli amministratori delle connessioni di definire SQL che BOW materializza in una copia locale cifrata secondo una pianificazione, così gli agenti rispondono dal risultato memorizzato anziché interrogare la sorgente a ogni turno. Beta: disattivato per impostazione predefinita."
         },
         "enable_agent_notes": {
           "name": "Note dell'agente",
           "description": "Consente all'agente di tenere note di lavoro per ogni report (un blocco appunti) che scrive e rilegge mentre risponde: piani, riscontri e cose da fare. Le note sono mostrate nel report ma non sono conoscenza condivisa. Quando è disattivato, gli strumenti per le note sono nascosti e le note non vengono inserite nel contesto."
+        },
+        "enable_user_memory": {
+          "name": "Memoria utente",
+          "description": "Consente all'agente di ricordare fatti su ogni utente tra le sessioni: il suo lavoro, i progetti, le scadenze e gli eventi, ciò che segue e le sue abbreviazioni. Le regole su come rispondere restano nelle istruzioni. Ogni utente può vedere, modificare ed eliminare la propria memoria."
+        },
+        "enable_agent_dreaming": {
+          "name": "Apprendimento notturno degli agenti",
+          "description": "Ogni notte gli agenti esaminano i suggerimenti in sospeso, i feedback e l'utilizzo e propongono un miglioramento consolidato per agente. Cosa accade dopo segue l'impostazione di autoapprendimento di ciascun agente."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "Fai scadere i suggerimenti IA non revisionati dopo (giorni)",
+          "description": "Le istruzioni suggerite dall'IA ancora in sospeso dopo questi giorni vengono chiuse come scadute (non rifiutate) dall'apprendimento notturno. I suggerimenti scaduti contano ancora come prova se lo stesso schema ritorna. 0 li lascia aperti per sempre."
         },
         "max_instructions_in_context": {
           "name": "Numero massimo di istruzioni nel contesto",
@@ -2484,6 +2917,22 @@
         "llm_fallback": {
           "name": "Ripiego LLM",
           "description": "Enterprise. Quando il modello attivo fallisce per un limite di frequenza, un sovraccarico del fornitore o un errore di rete, la richiesta viene automaticamente ritentata sul modello successivo nell'ordine di ripiego (configurato nella pagina LLM) per il resto dell'esecuzione. La sostituzione viene sempre dichiarata nella chat. Disattivato per impostazione predefinita; l'attivazione richiede una licenza enterprise."
+        },
+        "enable_agent_checkins": {
+          "name": "Follow-up dell'agente",
+          "description": "Consente all'agente di fare un follow-up in autonomia dopo una conversazione quando vale la pena ricontrollare (ad es. dopo un aggiornamento dei dati). I follow-up vengono eseguiti come l'utente nello stesso report e lo notificano solo quando qualcosa di significativo è cambiato."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Follow-up per utente a settimana",
+          "description": "Numero massimo di follow-up che un utente può ricevere in 7 giorni."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Follow-up al giorno",
+          "description": "Limite massimo di follow-up per l'intera organizzazione al giorno (limite di costo)."
+        },
+        "enable_artifact_resources": {
+          "name": "Risorse degli artefatti",
+          "description": "Consenti agli artefatti di usare record persistenti, file privati e operazioni IA approvate. Restano valide le autorizzazioni di condivisione e delle risorse."
         }
       }
     },
@@ -2574,7 +3023,7 @@
       "fallbackOn": "Fallback LLM attivo",
       "fallbackPrimary": "principale",
       "imageGenDefaultBlocked": "I modelli predefiniti non possono essere modelli di generazione immagini. Imposta prima un altro modello come predefinito.",
-      "imageGenTooltip": "Indica se questo modello genera immagini (es. gpt-image-1). Lo abilita per lo strumento generate_image e per incorporare immagini generate negli artefatti. I modelli di immagini sono esclusi dal selettore dei modelli in chat e non possono essere predefiniti.",
+      "imageGenTooltip": "Indica se questo modello genera immagini (es. gpt-image-2.5-sunburst). Lo abilita per lo strumento generate_image e per incorporare immagini generate negli artefatti. I modelli di immagini sono esclusi dal selettore dei modelli in chat e non possono essere predefiniti.",
       "modelAdded": "Modello aggiunto",
       "modelCardHint": "Clicca sulla riga di un modello per aprirne le impostazioni",
       "modelDeleted": "Modello eliminato",
@@ -2582,7 +3031,36 @@
       "modelsCount": "{count} modelli",
       "providerLabel": "Provider",
       "providerSettingsTooltip": "Impostazioni del provider",
-      "save": "Salva"
+      "save": "Salva",
+      "reasoning": {
+        "title": "Ragionamento",
+        "tooltip": "Come questo modello riceve l'impegno scelto dagli utenti (Basso / Medio / Alto / Max).",
+        "modes": {
+          "auto": "Automatico (catalogo modelli)",
+          "like": "Si comporta come un altro modello",
+          "generic": "Generico (reasoning_effort)",
+          "custom": "Solo campi di richiesta personalizzati",
+          "off": "Disattivato"
+        },
+        "likeLabel": "Si comporta come",
+        "likePlaceholder": "es. gpt-6-luna",
+        "defaultLevel": "Livello predefinito",
+        "unsupported": "L'impegno non si applica a questo modello",
+        "savedSettings": "impostazioni salvate",
+        "rawTitle": "Campi di richiesta grezzi per livello (avanzato)",
+        "rawHelp": "JSON unito alla richiesta al provider quando si usa quel livello. Le chiavi esistenti vengono unite; le altre sono inoltrate così come sono.",
+        "ranAs": "eseguito come {level}",
+        "tokens": "token di ragionamento",
+        "saveToTest": "Salva per provare le modifiche",
+        "testTooltip": "Invia una richiesta con strumenti a questo livello",
+        "test": "Prova",
+        "rawNotObject": "Deve essere un oggetto JSON",
+        "rawInvalid": "JSON non valido",
+        "fixRaw": "Correggi prima i campi non validi",
+        "likeRequired": "Indica il modello a cui somiglia",
+        "customRequired": "La modalità personalizzata richiede campi per almeno un livello",
+        "saveFailed": "Impossibile salvare le impostazioni di ragionamento"
+      }
     },
     "licensePage": {
       "title": "Licenza",
@@ -2729,6 +3207,88 @@
     "piiTab": "Dati personali"
   },
   "data": {
+    "keepSavedSecret": "Lascia vuoto per mantenere il segreto salvato",
+    "settingsNeedTest": "Impostazioni modificate — verifica di nuovo",
+    "queryAccess": "Accesso alle query",
+    "sharedSchema": "Schema condiviso",
+    "refreshSharedSchema": "Aggiorna schema condiviso",
+    "refreshMySchema": "Aggiorna il mio schema",
+    "manageConnection": "Gestisci connessione",
+    "connectionSettings": "Impostazioni connessione",
+    "editSettings": "Modifica impostazioni",
+    "savedSecret": "Salvato",
+    "testAgain": "Verifica di nuovo",
+    "setupSaved": "Connessione salvata",
+    "setupSavedDiscoveryFailed": "Connessione salvata. Il rilevamento dello schema non è riuscito. Correggi le impostazioni e riprova.",
+    "setupDone": "Fatto",
+    "setupPhases": {
+      "schema": "Elaborazione: schema",
+      "catalog": "Elaborazione: catalogo",
+      "columns": "Elaborazione: colonne",
+      "tables": "Elaborazione: tabelle",
+      "models": "Elaborazione: modelli",
+      "workspaces": "Elaborazione: aree di lavoro",
+      "reports": "Elaborazione: report",
+      "applications": "Elaborazione: applicazioni",
+      "datasets": "Elaborazione: set di dati",
+      "universes": "Elaborazione: universi",
+      "indices": "Elaborazione: indici",
+      "aliases": "Elaborazione: alias",
+      "files": "Elaborazione: file",
+      "collections": "Elaborazione: raccolte",
+      "subject_areas": "Elaborazione: aree tematiche",
+      "assets": "Elaborazione: risorse",
+      "databases": "Elaborazione: database",
+      "concepts": "Elaborazione: concetti",
+      "cubes": "Elaborazione: cubi",
+      "entities": "Elaborazione: entità",
+      "lists": "Elaborazione: elenchi",
+      "metrics": "Elaborazione: metriche",
+      "services": "Elaborazione: servizi",
+      "boards": "Elaborazione: bacheche",
+      "relationship_schemas": "Elaborazione: schemi delle relazioni",
+      "semantic_views": "Elaborazione: viste semantiche",
+      "catalog_pages": "Elaborazione: pagine del catalogo",
+      "dashboard_spaces": "Elaborazione: aree dashboard",
+      "saved-search_spaces": "Elaborazione: aree ricerche salvate",
+      "discovering_schema": "Rilevamento: schema",
+      "catalog_ready": "Pronto: catalogo",
+      "reading_semantic_views": "Lettura: viste semantiche",
+      "admin_scan": "Scansione amministrativa: aree di lavoro",
+      "listing_workspaces": "Elenco: aree di lavoro",
+      "workspace_models": "Elenco: modelli",
+      "workspace_reports": "Elenco: report",
+      "model_metadata": "Lettura: modelli",
+      "model_introspection": "Elaborazione: modelli",
+      "assembling_models": "Composizione: modelli",
+      "reused_models": "Riutilizzati: modelli",
+      "inspected_models": "Ispezionati: modelli",
+      "unreadable_models": "Non leggibili: modelli",
+      "dataset_schemas": "Lettura: set di dati",
+      "listing_files": "Elenco: file",
+      "log_groups": "Gruppi di log",
+      "saved_search_spaces": "Elaborazione: aree ricerche salvate",
+      "reading_columns": "Lettura colonne",
+      "processing_columns": "Elaborazione colonne",
+      "materialized_views": "Lettura viste materializzate",
+      "relationships": "Lettura relazioni",
+      "metadata_fallback": "Lettura metadati di base",
+      "discovering": "Ricerca dati",
+      "connecting": "Connessione all'origine",
+      "saving": "Salvataggio del catalogo",
+      "warming": "Preparazione della cache dati",
+      "syncing_agents": "Sincronizzazione con gli agenti"
+    },
+    "setupStatus": "Stato della connessione",
+    "setupReadyHint": "Inserisci i dettagli di connessione. Verificheremo l’accesso e scopriremo i dati disponibili.",
+    "setupConnection": "Verifica connessione",
+    "setupConnecting": "Connessione…",
+    "setupCurrentStage": "Fase attuale",
+    "setupElapsed": "Tempo: {time}",
+    "setupLastActivity": "Ultima attività: {time} fa",
+    "setupNoActivity": "Nessuna attività da {time}: l'indicizzazione potrebbe essere bloccata",
+    "setupQueued": "In coda: in attesa del termine di altre indicizzazioni",
+    "setupPreviousStages": "Fasi precedenti",
     "title": "Connessioni",
     "subtitle": "Gestisci le tue connessioni di database.",
     "addConnection": "Aggiungi connessione",
@@ -2784,6 +3344,7 @@
     "provideCredentials": "Fornisci le tue credenziali per abilitare l'accesso.",
     "authMethod": "Metodo di autenticazione",
     "signIn": "Accedi",
+    "signInRequired": "Accesso richiesto",
     "testConnection": "Verifica connessione",
     "cancel": "Annulla",
     "save": "Salva",
@@ -2838,7 +3399,7 @@
     "retry": "Riprova",
     "reindex": "Reindicizza",
     "lastIndexed": "Ultima indicizzazione",
-    "customQueries": "Query personalizzate",
+    "customQueries": "Tabelle personalizzate",
     "schemaDiscovery": "Rilevamento dello schema",
     "stop": "Interrompi",
     "stopping": "Interruzione…",
@@ -2940,6 +3501,14 @@
     "mcpAuthOauthApp": "OAuth (app registrata dall'admin)",
     "mcpDcrHintA": "Questo connettore si registra automaticamente (DCR): nessuna credenziale client da inserire.",
     "mcpDcrHintB": "Ogni utente accede con il proprio account al primo utilizzo.",
+    "mcpDcrScopesLabel": "Scope (override facoltativo)",
+    "mcpDcrScopesPlaceholder": "Rilevati automaticamente — esegui Verifica",
+    "mcpDcrScopesHint": "Lascia vuoto per richiedere gli scope annunciati dal server. Verifica mostra cosa è stato rilevato.",
+    "mcpDcrDetectedScopes": "Rilevato: {scopes}",
+    "mcpDcrDetectedNone": "Il server non annuncia scope; l'accesso non ne richiederà alcuno.",
+    "mcpDcrScopesSourceChallenge": "dalla challenge di accesso del server",
+    "mcpDcrScopesSourceResource": "dai metadati della risorsa del server",
+    "mcpDcrScopesSourceAs": "dal server di autorizzazione (il server MCP non ne annuncia alcuno)",
     "mcpTokenSharedHint": "Questo token è condiviso da tutti coloro che usano questa connessione.",
     "mcpOauthAppHint": "Stai registrando un'app OAuth per tutta l'organizzazione. Dopo il salvataggio, ogni utente accede individualmente: i token sono archiviati cifrati e inviati a ogni chiamata di strumento.",
     "mcpOauthPrefilledHint": "Gli endpoint del provider sono precompilati (vedi Avanzato): servono solo Client ID e Secret.",
@@ -3055,7 +3624,28 @@
         }
       ]
     },
-    "setupGuideCopyFailed": "Copia non riuscita — seleziona il testo"
+    "setupGuideCopyFailed": "Copia non riuscita — seleziona il testo",
+    "schemaRefreshFailed": "Aggiornamento dello schema non riuscito",
+    "detailsAndLogs": "Dettagli e log ({n})",
+    "lastConnectionTestPassed": "Ultimo test di connessione riuscito",
+    "myAccount": "Il mio account",
+    "accessDataUsing": "Accedi ai dati con",
+    "organizationAccount": "Account dell’organizzazione",
+    "personalAccessDescription": "Usa le tue autorizzazioni.",
+    "organizationAccessDescription": "Usa l’accesso condiviso configurato dal tuo amministratore.",
+    "signInToProvider": "Accedi a {name}",
+    "lastCheckedRelative": "Ultimo controllo: {time}",
+    "personalPermissions": "Usa le autorizzazioni del tuo account",
+    "contactConnectionAdmin": "Contatta il tuo amministratore per ripristinare questa connessione.",
+    "refreshAvailable": "Aggiorna tabelle disponibili",
+    "signOut": "Esci",
+    "usedBy": "Usato da",
+    "noAccessibleAgents": "Nessun agente disponibile per te",
+    "accountLabel": "Account",
+    "refreshAccess": "Aggiorna accesso",
+    "yourAccount": "Il tuo account",
+    "managementOrganizationHint": "I test e gli aggiornamenti dello schema usano le credenziali salvate dell’organizzazione.",
+    "managementPersonalHint": "Questo connettore richiede il tuo accesso. I test e gli aggiornamenti usano il tuo account."
   },
   "share": {
     "shareDashboard": "Condividi dashboard",
@@ -3087,7 +3677,22 @@
     "userNotFound": "Utente non trovato nell'organizzazione",
     "copyFailed": "Impossibile copiare",
     "includeDataTab": "Includi la scheda Dati",
-    "includeDataTabDesc": "I destinatari vedranno la cronologia completa dei dati e il processo utilizzato per generare questo report"
+    "includeDataTabDesc": "I destinatari vedranno la cronologia completa dei dati e il processo utilizzato per generare questo report",
+    "allowChat": "Consenti chat",
+    "allowChatDesc": "I membri dell'area di lavoro che hanno effettuato l'accesso possono porre domande su questa dashboard",
+    "chatScope": "La chat può usare",
+    "chatScopeAgents": "Agenti del report",
+    "chatScopeAgentsDesc": "La chat può eseguire query live in sola lettura sugli agenti selezionati",
+    "chatScopeDataOnly": "Solo dati della dashboard",
+    "chatScopeDataOnlyDesc": "La chat risponde solo con i dati già presenti in questa dashboard",
+    "chatNoAgents": "Nessun agente è collegato a questo report: la chat risponderà solo con i dati della dashboard.",
+    "chatModel": "Modello predefinito",
+    "chatModelDesc": "Il modello usato dalla chat per chi visualizza. Chi non vi ha accesso usa il proprio modello predefinito.",
+    "chatModelOrgDefault": "Predefinito dell'organizzazione ({name})",
+    "chatModelOrgDefaultPlain": "Predefinito dell'organizzazione",
+    "chatModelReport": "Come nel report ({name})",
+    "chatModelReportPlain": "Come nel report",
+    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito"
   },
   "publish": {
     "published": "Pubblicato",
@@ -3107,6 +3712,8 @@
     "copyClipboardFailed": "Impossibile copiare negli appunti"
   },
   "errors": {
+    "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
+    "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",
     "generic": "Qualcosa è andato storto. Riprova.",
     "network": "Errore di rete. Verifica la connessione.",
     "unauthorized": "Non sei autorizzato a farlo.",
@@ -3148,7 +3755,35 @@
       "model_id_required": "L'ID del modello non può essere vuoto",
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
       "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider"
-    }
+    },
+    "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla.",
+    "memory.disabled": "La memoria utente è disattivata in questa organizzazione.",
+    "memory.not_found": "Questa voce di memoria non esiste.",
+    "memory.text_required": "Scrivi cosa ricordare.",
+    "memory.text_too_long": "Al massimo 280 caratteri.",
+    "memory.too_many_tags": "Al massimo 4 tag.",
+    "memory.tags_required": "Aggiungi almeno un tag.",
+    "memory.invalid_date": "Questa data non è valida.",
+    "memory.sensitive": "La memoria non può contenere segreti, password o dati personali sensibili.",
+    "memory.looks_like_rule": "Questa è una regola su come rispondere: aggiungila alle tue istruzioni personalizzate. La memoria conserva fatti su di te.",
+    "memory.full": "La memoria è piena. Elimina prima alcune voci.",
+    "memory.not_active": "Questa voce è già stata modificata o dimenticata.",
+    "audit_stream.not_found": "Flusso di log non trovato.",
+    "audit_stream.invalid_destination": "Destinazione del flusso sconosciuta.",
+    "audit_stream.missing_field": "Manca un campo obbligatorio: {field}.",
+    "audit_stream.invalid_field": "Valore non valido per {field}.",
+    "audit_log.export_too_large": "L'esportazione è limitata a {limit} eventi e questo filtro ne restituisce {total}. Restringi il filtro o usa un flusso di log.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Richiesta non valida",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Risorsa non trovata",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Accesso negato",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Accedi per continuare",
+    "ARTIFACT_RESOURCE_CONFLICT": "Risorsa modificata; aggiorna e riprova",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Limite della risorsa raggiunto",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Troppe richieste; riprova più tardi",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Risorsa non disponibile",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Richiesta interrotta",
+    "ARTIFACT_RESOURCE_ABORTED": "Richiesta annullata",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versione SDK non supportata"
   },
   "email": {
     "dashboardShare": {
@@ -3313,16 +3948,6 @@
     "menuData": "Dati"
   },
   "toolbar": {
-    "collapse": "Comprimi",
-    "switchToArtifact": "Passa alla vista Artefatto",
-    "dashboard": "Dashboard",
-    "addComponent": "Aggiungi componente",
-    "addText": "Aggiungi testo",
-    "theme": "Tema",
-    "rerun": "Riesegui report",
-    "openInNewTab": "Apri dashboard in una nuova scheda",
-    "fullscreen": "Schermo intero",
-    "shareDashboard": "Condividi dashboard",
     "polishDashboard": "Rifinisci dashboard"
   },
   "artifactFrame": {
@@ -3382,47 +4007,14 @@
     "renameFailed": "Impossibile rinominare la dashboard.",
     "more": "Altro",
     "schedule": "Pianifica aggiornamento",
-    "exportAs": "Esporta come {format}"
+    "exportAs": "Esporta come {format}",
+    "partialNoAccess": "Non hai accesso ai dati di: {charts}",
+    "partialFailed": "Impossibile caricare: {charts}",
+    "partialRenderFailed": "Parte di questa dashboard usa dati a cui non hai accesso, quindi non è stato possibile visualizzarla. Chiedi l’accesso al proprietario della dashboard."
   },
   "filter": {
-    "addFilters": "Aggiungi filtri",
-    "title": "Filtri",
-    "clear": "Cancella",
-    "loading": "Caricamento…",
-    "noData": "Nessun dato disponibile da filtrare",
-    "refresh": "Aggiorna",
-    "noFilters": "Nessun filtro applicato",
-    "addFilter": "Aggiungi filtro",
-    "columnPlaceholder": "Colonna",
-    "searchPlaceholder": "Cerca…",
-    "valuePlaceholder": "Valore",
     "selectColumn": "Seleziona colonna",
-    "visualization": "Visualizzazione",
-    "orDivider": "O",
-    "andDivider": "E",
-    "rowsCount": "{shown} di {total} righe",
-    "apply": "Applica",
-    "op": {
-      "equals": "uguale a",
-      "notEquals": "diverso da",
-      "contains": "contiene",
-      "notContains": "non contiene",
-      "startsWith": "inizia con",
-      "endsWith": "termina con",
-      "isEmpty": "è vuoto",
-      "isNotEmpty": "non è vuoto",
-      "in": "in",
-      "notIn": "non in",
-      "greaterThan": "maggiore di",
-      "lessThan": "minore di",
-      "greaterOrEqual": "maggiore o uguale",
-      "lessOrEqual": "minore o uguale",
-      "between": "tra",
-      "before": "prima",
-      "after": "dopo",
-      "isTrue": "è vero",
-      "isFalse": "è falso"
-    }
+    "visualization": "Visualizzazione"
   },
   "slideViewer": {
     "loading": "Caricamento delle diapositive...",
@@ -3796,6 +4388,7 @@
       "chip_slow": "Lente",
       "chip_expensive": "Costose",
       "chip_retried": "Ritentate",
+      "rangeAll": "Sempre",
       "range24h": "Ultime 24 ore",
       "range7d": "Ultimi 7 giorni",
       "range30d": "Ultimi 30 giorni",
@@ -4298,6 +4891,7 @@
     "nav": {
       "general": "Generale",
       "instructions": "Istruzioni personalizzate",
+      "memory": "Memoria",
       "usage": "Utilizzo",
       "apiKeys": "Chiavi API",
       "appearance": "Aspetto"
@@ -4325,7 +4919,11 @@
       "defaultModelSaved": "Modello predefinito aggiornato",
       "defaultModelFailed": "Impossibile aggiornare il modello predefinito",
       "directorySubtitle": "Informazioni professionali sincronizzate dal provider di identità della tua organizzazione. Visibili all'AI come contesto.",
-      "directoryTitle": "Profilo della directory"
+      "directoryTitle": "Profilo della directory",
+      "checkinsTitle": "Follow-up dell'agente",
+      "checkinsSubtitle": "Consente all'agente di ricontrollare in autonomia dopo una conversazione quando vale la pena (ad esempio dopo un aggiornamento dei dati). Ti notifica solo quando qualcosa di significativo è cambiato.",
+      "checkinsSaved": "Preferenza di follow-up salvata",
+      "checkinsFailed": "Impossibile salvare la preferenza di follow-up"
     },
     "instructions": {
       "title": "Istruzioni personalizzate",
@@ -4377,8 +4975,36 @@
     },
     "memory": {
       "title": "Memoria",
-      "subtitle": "Ciò che l'IA ha imparato e ricordato su di te in questa organizzazione — le tue preferenze, lo stile e le analisi che ti sono piaciute. Viene aggiornata man mano che lavori; puoi modificarla o cancellarla qui.",
-      "placeholder": "L'IA non ha ancora salvato nulla in memoria. Man mano che le comunichi le tue preferenze, le ricorderà qui."
+      "subtitle": "I fatti che l'IA ricorda di te in questa organizzazione: il tuo lavoro, i progetti, le date, ciò che segui e le tue abbreviazioni. Solo tu puoi vederli.",
+      "vsInstructions": "Come l'IA deve risponderti (formato, unità, lunghezza) non è memoria: sono le tue istruzioni personalizzate.",
+      "instructionsLink": "Istruzioni personalizzate",
+      "count": "{count} di {cap} voci",
+      "forgetAll": "Dimentica tutto",
+      "forgetAllTitle": "Dimenticare tutto?",
+      "forgetAllBody": "L'IA dimenticherà tutte le {count} voci che ricorda di te in questa organizzazione. L'operazione è irreversibile.",
+      "forgetAllConfirm": "Dimentica tutto",
+      "empty": "Ancora nulla in memoria. Mentre lavori, l'IA salva qui fatti come i tuoi progetti, le scadenze o le prossime riunioni.",
+      "add": "Aggiungi",
+      "past": "Passato",
+      "fromReport": "da {title}",
+      "untitledReport": "un report",
+      "loadFailed": "Impossibile caricare la tua memoria",
+      "saveFailed": "Impossibile salvare la modifica",
+      "saved": "Memoria salvata",
+      "forgotten": "Dimenticato",
+      "forgotAll": "Tutto dimenticato",
+      "source": {
+        "user": "Aggiunto da te",
+        "agent": "Salvato dall'IA",
+        "dream": "Annotato durante la notte"
+      },
+      "form": {
+        "placeholder": "Un fatto su di te, es. Guido il progetto sul churn del terzo trimestre",
+        "tags": "Tag, separati da virgole",
+        "dateHint": "Aggiungi una data se è legato a una data"
+      },
+      "searchPlaceholder": "Cerca nella memoria…",
+      "noMatches": "Nessun ricordo corrisponde."
     }
   },
   "commandPalette": {
@@ -4643,7 +5269,15 @@
   },
   "events": {
     "evalRunFinished": "L'esecuzione di valutazione '{title}' è terminata — {passed}/{total} superati ({status})",
-    "waitResumed": "Attesa trascorsa — ripresa: {reason}"
+    "waitResumed": "Attesa trascorsa — ripresa: {reason}",
+    "checkin": {
+      "label": "Follow-up",
+      "running": "Follow-up su questa conversazione…",
+      "sent": "Follow-up — ti ho notificato",
+      "sentWithSubject": "Follow-up — ti ho notificato: {subject}",
+      "quiet": "Ricontrollato: niente di nuovo",
+      "failed": "Follow-up non riuscito"
+    }
   },
   "chatSummary": {
     "empty": "Ancora nessun elemento",
@@ -4918,8 +5552,8 @@
     "loadingPrompts": "Caricamento richieste…",
     "selectedCount": "{count} selezionate",
     "selectTables": "Seleziona tabelle",
-    "customQuery": "Query personalizzata",
-    "customQueriesOff": "Query personalizzate disattivate",
+    "customQuery": "Tabella personalizzata",
+    "customQueriesOff": "Tabelle personalizzate disattivate",
     "enableCustomQueries": "Attiva nelle impostazioni IA",
     "reload": "Ricarica",
     "editQuery": "Modifica {name}",
@@ -4977,5 +5611,74 @@
     "searchColumns": "Cerca colonne…",
     "noColumns": "Nessuna colonna corrispondente",
     "centrality": "Centralità"
+  },
+  "fork": {
+    "preparing": "Preparazione della tua copia…",
+    "preparingDetail": "Esecuzione delle query con le tue credenziali. Di solito richiede pochi secondi.",
+    "nothingRan": "Impossibile creare la tua copia: nessuna delle sue query è stata eseguita con le tue credenziali."
+  },
+  "quota": {
+    "resetsOn": "si azzera il {date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "Impara durante la notte",
+    "nightlyDescription": "Ogni notte trasforma correzioni ripetute, feedback e utilizzo in un unico suggerimento consolidato per questo agente. Segue l'impostazione qui sopra come qualsiasi altro suggerimento.",
+    "nightlyOrgOff": "L'apprendimento notturno è disattivato per questa organizzazione (impostazioni IA)."
+  },
+  "nightlyBuild": {
+    "merged": "Unita",
+    "expired": "Scaduta",
+    "mergedTip": "Confluita in un suggerimento dell'apprendimento notturno. Non è un rifiuto di un revisore.",
+    "expiredTip": "Chiusa dopo essere rimasta non revisionata oltre la scadenza dell'organizzazione. Conta ancora come prova se lo schema ritorna."
+  },
+  "schemaIdentity": {
+    "viewing": "Vista:",
+    "myAccount": "Il mio account",
+    "serviceAccount": "Account di servizio",
+    "sharedConnection": "Connessione condivisa",
+    "sharedSchema": "Schema condiviso",
+    "changeIdentity": "Cambia identità delle query",
+    "refresh": "Aggiorna schema",
+    "refreshMyFor": "Aggiorna {name} · Il mio account",
+    "refreshSharedFor": "Aggiorna {name} · Schema condiviso",
+    "refreshing": "Aggiornamento…",
+    "unknown": "Ultimo aggiornamento dello schema: sconosciuto",
+    "refreshedAt": "Ultimo aggiornamento dello schema: {time}",
+    "attemptedAt": "Ultimo tentativo: {time}",
+    "updated": "Schema aggiornato.",
+    "partial": "Non è stato possibile aggiornare alcuni modelli. Le colonne precedenti sono state mantenute.",
+    "failed": "Aggiornamento dello schema non completato. Riprova.",
+    "connectRequired": "Collega il tuo account per vedere le sue tabelle."
+  },
+"artifactResources": {
+    "readOnlyLabel": "Sola lettura",
+    "sort": "Ordina record",
+    "applyFilter": "Applica",
+    "clearFilter": "Rimuovi filtro",
+    "true": "Vero",
+    "false": "Falso",
+    "inspect": "Risorse",
+    "readOnly": "Informazioni sull’artefatto in sola lettura",
+    "data": "Esplora dati",
+    "analytics": "Analisi",
+    "collection": "Seleziona raccolta",
+    "refresh": "Aggiorna",
+    "schema": "Schema della raccolta",
+    "filterField": "Campo del filtro",
+    "filterValue": "Uguale a",
+    "filter": "Filtra",
+    "empty": "Nessun dato da visualizzare",
+    "pageRows": "{count} record in questa pagina",
+    "next": "Pagina successiva",
+    "details": "Dettagli del record",
+    "views": "Visualizzazioni",
+    "viewers": "Visitatori autenticati unici",
+    "anonymousNote": "Le visite anonime sono conteggiate come visualizzazioni, non come persone uniche.",
+    "embedded": "Incorporato",
+    "standalone": "Pagina condivisa",
+    "days": "Ultimi {count} giorni",
+    "failed": "Impossibile caricare i dati dell’artefatto",
+    "newest": "Più recenti prima",
+    "oldest": "Meno recenti prima"
   }
 }

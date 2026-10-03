@@ -8,6 +8,7 @@ used in v1.
 """
 
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import base64
 import binascii
@@ -273,7 +274,8 @@ class GmailMailClient(DataSourceClient):
 
     # Mailboxes are always queried live per user; they have no shared admin
     # catalog and should never create one table row per message.
-    def get_schemas(self, *args, **kwargs) -> List:
+    @discovery_progress
+    def get_schemas(self, *args, progress_callback=None, **kwargs) -> List:
         return []
 
     def get_schema(self, table_name: str):

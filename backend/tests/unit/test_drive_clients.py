@@ -312,7 +312,10 @@ class TestGraphListFiles:
         assert "notes.pdf" not in names  # extension filter
         assert "subfolder" not in names  # folder excluded
 
-    def test_list_files_recursive(self):
+    def test_list_files_recursive(self, monkeypatch):
+        # Pins the folder walk; the delta path is covered in test_graph_throttling.
+        import app.data_sources.clients.graph_drive_client as gdc
+        monkeypatch.setattr(gdc, "GRAPH_USE_DELTA", False)
         c = self._client(recursive=True)
         # First page: 1 file + 1 folder. Second page (folder children): 1 file.
         responses = iter([

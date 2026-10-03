@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import logging
@@ -170,6 +171,8 @@ class MSSQLClient(DataSourceClient):
             # it is cached on the pooled connection, making this one round trip
             # per physical connection rather than per query.
             capture_identity(conn)
+        except IndexingCancelled:
+            raise
         except Exception as e:
             if conn is not None:
                 if self.kerberos_impersonate:
@@ -203,6 +206,8 @@ class MSSQLClient(DataSourceClient):
                     bytes(row[0]).hex().lower() != self.kerberos_expected_sid.lower()
                     or str(row[1]).upper() != "KERBEROS"):
                 raise RuntimeError("SQL authenticated identity mismatch")
+        except IndexingCancelled:
+            raise
         except Exception:
             conn.invalidate()
             raise
@@ -221,12 +226,15 @@ class MSSQLClient(DataSourceClient):
         """Get tables with graceful fallback if enriched query fails."""
         try:
             return self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
             logger.exception("MSSQL enriched table introspection failed; falling back to basic query")
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table descriptions via extended properties. May fail on some configurations."""
+        discovery_phase('reading_columns')
         with self.connect() as conn:
             params = {"database": self.database}
             where_clauses = ["c.table_catalog = :database"]
@@ -266,7 +274,7 @@ class MSSQLClient(DataSourceClient):
             result = conn.execute(sql, params).fetchall()
 
             tables = {}
-            for row in result:
+            for row in discovery_items(result, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
                 key = (table_schema, table_name)
                 fqn = f"{table_schema}.{table_name}"
@@ -290,6 +298,7 @@ class MSSQLClient(DataSourceClient):
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (original query - always works)."""
+        discovery_phase('metadata_fallback')
         with self.connect() as conn:
             params = {"database": self.database}
             where_clauses = ["table_catalog = :database"]
@@ -312,7 +321,7 @@ class MSSQLClient(DataSourceClient):
             result = conn.execute(sql, params).fetchall()
 
             tables = {}
-            for row in result:
+            for row in discovery_items(result, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_schema, table_name, column_name, data_type = row
                 key = (table_schema, table_name)
                 fqn = f"{table_schema}.{table_name}"
@@ -345,7 +354,8 @@ class MSSQLClient(DataSourceClient):
         raise NotImplementedError(
             "get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Get schemas for all tables in the specified database."""
         return self.get_tables()
 

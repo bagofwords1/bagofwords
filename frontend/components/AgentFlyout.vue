@@ -32,7 +32,7 @@
                 <DataSourceIcon
                   :type="primaryConnection?.type"
                   :connector-key="primaryConnection?.connector_key"
-                  :icon="agentDetails?.icon"
+                  :icon-token="agentDetails?.icon_token" :icon="agentDetails?.icon"
                   class="h-4 w-4 flex-shrink-0"
                 />
                 <div class="text-sm font-semibold text-gray-900 dark:text-white truncate">

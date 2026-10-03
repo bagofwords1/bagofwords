@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import duckdb
@@ -61,6 +62,8 @@ class DuckDBClient(DataSourceClient):
             con.execute("INSTALL azure;")
             con.execute("LOAD azure;")
             con.execute("SET azure_transport_option_type='curl';")
+        except IndexingCancelled:
+            raise
         except Exception:
             # Ignore if azure extension is unavailable in this build
             pass
@@ -164,12 +167,16 @@ class DuckDBClient(DataSourceClient):
                 self._configure_httpfs(con)
                 self._create_views(con)
             yield con
+        except IndexingCancelled:
+            raise
         except Exception as e:
             raise RuntimeError(f"Error while connecting to DuckDB: {e}")
         finally:
             try:
                 if con is not None:
                     con.close()
+            except IndexingCancelled:
+                raise
             except Exception:
                 pass
 
@@ -204,7 +211,7 @@ class DuckDBClient(DataSourceClient):
                     WHERE table_schema = 'main' AND table_type = 'VIEW'
                     ORDER BY table_name
                 """).fetchall()
-            for (name,) in rows:
+            for (name,) in discovery_items(rows, 'tables', label=lambda row: row[0]):
                 cols = []
                 try:
                     desc = con.execute(f"DESCRIBE {name}").fetchall()
@@ -213,12 +220,16 @@ class DuckDBClient(DataSourceClient):
                         col_name = d[0]
                         col_type = d[1]
                         cols.append(TableColumn(name=col_name, dtype=str(col_type)))
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     # Fallback: zero-row scan
                     try:
                         df = con.execute(f"SELECT * FROM {name} LIMIT 0").df()
                         for c in df.columns:
                             cols.append(TableColumn(name=str(c), dtype="unknown"))
+                    except IndexingCancelled:
+                        raise
                     except Exception:
                         pass
                 tables.append(Table(name=name, columns=cols, pks=[], fks=[]))
@@ -242,7 +253,8 @@ class DuckDBClient(DataSourceClient):
                     pass
         return Table(name=table_name, columns=cols, pks=[], fks=[])
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         return self.get_tables()
 
     def prompt_schema(self):
