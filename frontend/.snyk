@@ -14,6 +14,54 @@
 version: v1.0.0
 # Open-source vulnerability ignores (client-side policy applied by `snyk test`).
 ignore:
+  # Command Injection in simple-git / @simple-git/argv-parser (Critical). Pulled
+  # in ONLY as a dev/build-tooling transitive:
+  #   nuxt > @nuxt/devtools > simple-git > @simple-git/argv-parser
+  # @nuxt/devtools is the local development UI; it uses simple-git to read repo
+  # info while running `nuxt dev` on a developer's machine. It is NOT part of the
+  # production runtime: `nuxt build` emits `.output/`, which the prod image runs
+  # directly, and @nuxt/devtools / simple-git never ship in that artifact. The
+  # injection requires attacker-controlled arguments to git commands; the only
+  # inputs here are the developer's own local repo during dev, never attacker-
+  # controlled production request data. No upgrade remediates it in this tree:
+  # the fix lands only in simple-git 4.0.0, but every @nuxt/devtools release
+  # (stable up to 3.4.2; latest tag 4.0.0-beta.2) pins simple-git ^3.x, and
+  # forcing simple-git 4.x breaks the build — @nuxt/devtools does
+  # `import Git from 'simple-git'` and simple-git 4 removed its default export.
+  # Resolved by the Nuxt 4 / @nuxt/devtools upgrade. Time-boxed for re-review.
+  SNYK-JS-SIMPLEGIT-20335524:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGIT-20335531:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGIT-20335540:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGITARGVPARSER-20335528:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools > simple-git);
+          not in the production .output runtime. No fix installable: the fix is
+          @simple-git/argv-parser 2.0.1 (simple-git 4.x), but all @nuxt/devtools
+          releases pin simple-git ^3.x and v4 breaks the build (default export
+          removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
   # Improper Verification of Cryptographic Signature in node-forge (CVSS 8.7).
   # Pulled in ONLY as a build/dev-tooling transitive:
   #   nuxt > @nuxt/cli > listhen > node-forge
@@ -83,4 +131,27 @@ ignore:
           Dormant optional Nitro storage driver; no Redis storage is configured
           in this deployment, so ioredis is never loaded at runtime. Only fix is
           a pre-release (6.0.0-beta.1). Re-review on expiry.
+        expires: 2026-12-21T00:00:00.000Z
+  # Infinite loop in uri-js (High). Reached ONLY through dev/build-time
+  # TypeScript checking tooling, never the shipped browser bundle or the
+  # production server:
+  #   @nuxt/typescript-build > fork-ts-checker-webpack-plugin >
+  #     schema-utils > ajv > uri-js
+  # ajv is pinned to 6.15.0 here (resolutions) to clear SNYK-JS-AJV-15274295,
+  # but ajv 6.x still depends on uri-js ^4.2.2 and 4.4.1 is the latest 4.x —
+  # every uri-js version is flagged (fixedIn: []), so no upgrade remediates it.
+  # fork-ts-checker runs only during `nuxt dev`/type-check on developer and CI
+  # machines; it is NOT part of the production `.output` runtime, and the only
+  # inputs uri-js parses here are the project's own TS config / schema URIs,
+  # never attacker-controlled request data. Dropped when @nuxt/typescript-build
+  # is removed in favour of the Nuxt 4 / vue-tsc type-check path. Time-boxed.
+  SNYK-JS-URIJS-19963963:
+    - '*':
+        reason: >-
+          Dev/build-time-only transitive (TypeScript checking via
+          @nuxt/typescript-build > fork-ts-checker-webpack-plugin >
+          schema-utils > ajv); not in the production .output runtime. No fixed
+          uri-js version exists (all versions affected; ajv 6.x requires
+          uri-js 4.x). Re-review on expiry or when the typescript-build chain is
+          dropped.
         expires: 2026-12-21T00:00:00.000Z
