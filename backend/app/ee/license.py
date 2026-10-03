@@ -37,6 +37,7 @@ TIER_FEATURES = {
         "pii_protection",
         "rls",
         "data_encryption",
+        "audit_log_streams",
     ],
 }
 

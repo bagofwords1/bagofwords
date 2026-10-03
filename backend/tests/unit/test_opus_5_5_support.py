@@ -17,9 +17,8 @@ def test_opus_5_family_never_gets_budget_tokens(model_id, effort):
     assert cfg["effort"] == effort
 
 
-def test_opus_5_5_effort_off_omits_thinking():
-    # Sending {"type": "disabled"} is a 400 on Opus 5.5; omitting runs adaptive.
-    assert _effort_to_thinking_config("off", "claude-opus-5-5") is None
+# Off is tested at the provider boundary in test_reasoning_off_effort.py;
+# the internal disabled marker is translated to adaptive low for Opus 5.5.
 
 
 def test_opus_5_5_rejects_temperature():

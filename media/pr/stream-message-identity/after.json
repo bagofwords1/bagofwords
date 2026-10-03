@@ -1,0 +1,15 @@
+{
+  "label": "after",
+  "status": "success",
+  "blocks": [
+    {
+      "id": "answer-evidence",
+      "block_index": 0,
+      "phase": "final_answer",
+      "status": "success",
+      "content": "Chinook revenue totals $1,428.56 for 2022–2024.",
+      "_client_arrived_at": "2026-10-03T17:43:37.362"
+    }
+  ],
+  "errors": []
+}

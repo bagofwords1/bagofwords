@@ -639,7 +639,6 @@
     }
   },
   "reports": {
-    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare.",
     "title": "Report",
     "subtitle": "Sfoglia e gestisci i tuoi report",
     "newReport": "Nuovo report",
@@ -793,7 +792,8 @@
         "title": "Mostra risposte con feedback negativo",
         "prompt": "Esamina le risposte che hanno ricevuto feedback negativi dagli utenti per individuare schemi e aree di miglioramento."
       }
-    ]
+    ],
+    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare."
   },
   "projects": {
     "title": "Progetti",
@@ -1084,18 +1084,6 @@
     "loopRetryNotice": "Errore interno — nuovo tentativo dal contesto più recente (tentativo {attempt}/{max})"
   },
   "tools": {
-    "resource": {
-      "failed": "Modifica della risorsa non riuscita",
-      "create": "Risorsa creata",
-      "update": "Risorsa aggiornata",
-      "delete": "Risorsa eliminata",
-      "working": "Configurazione della risorsa",
-      "stopped": "Interrotto",
-      "unchanged": "Risorsa invariata",
-      "preserved": "I record esistenti sono conservati.",
-      "changed": "Modifiche",
-      "noChanges": "Nessuna modifica applicata."
-    },
     "common": {
       "input": "Input",
       "output": "Output",
@@ -1710,6 +1698,18 @@
       "pathLabel": "Percorso:",
       "attachedAsSessionFile": "Allegato a questa conversazione come file di sessione",
       "showPagePreviews": "Mostra anteprime delle pagine ({n})"
+    },
+    "resource": {
+      "failed": "Modifica della risorsa non riuscita",
+      "create": "Risorsa creata",
+      "update": "Risorsa aggiornata",
+      "delete": "Risorsa eliminata",
+      "working": "Configurazione della risorsa",
+      "stopped": "Interrotto",
+      "unchanged": "Risorsa invariata",
+      "preserved": "I record esistenti sono conservati.",
+      "changed": "Modifiche",
+      "noChanges": "Nessuna modifica applicata."
     }
   },
   "entityCreate": {
@@ -2489,7 +2489,191 @@
       "daysAbbr": "{n}g",
       "rangeCount": "{start}–{end} di {total}",
       "prev": "‹ Prec.",
-      "next": "Succ. ›"
+      "next": "Succ. ›",
+      "tabs": {
+        "activity": "Attività",
+        "streams": "Flussi"
+      },
+      "actorAgent": "tramite agente",
+      "actorSystem": "sistema",
+      "searchPlaceholder": "Cerca azioni, utenti, titoli…",
+      "filters": {
+        "user": "Utente",
+        "allUsers": "Tutti gli utenti",
+        "resource": "Risorsa",
+        "allResources": "Tutte le risorse",
+        "range": "Periodo",
+        "rangeAll": "Sempre",
+        "range24h": "Ultime 24 ore",
+        "range7d": "Ultimi 7 giorni",
+        "range30d": "Ultimi 30 giorni",
+        "filterActions": "Filtra azioni…",
+        "noOptions": "Nessun risultato"
+      },
+      "export": {
+        "button": "Esporta",
+        "json": "Scarica JSON (NDJSON)",
+        "csv": "Scarica CSV",
+        "hint": "Esporta la vista filtrata corrente, dal più vecchio al più recente.",
+        "failed": "Esportazione non riuscita"
+      },
+      "drawer": {
+        "title": "Dettagli evento",
+        "close": "Chiudi",
+        "who": "Chi",
+        "when": "Quando",
+        "where": "Dove",
+        "what": "Cosa",
+        "details": "Dettagli",
+        "rawJson": "JSON grezzo",
+        "copy": "Copia",
+        "copied": "Copiato",
+        "actor": "Attore",
+        "actorType": "Tipo di attore",
+        "timeUtc": "UTC",
+        "timeLocal": "Locale",
+        "relative": "Relativo",
+        "ip": "Indirizzo IP",
+        "userAgent": "User agent",
+        "action": "Azione",
+        "resourceType": "Tipo di risorsa",
+        "resourceId": "ID risorsa",
+        "open": "Apri",
+        "agentRun": "Esecuzione dell'agente",
+        "executionMode": "Modalità di esecuzione",
+        "none": "—",
+        "noDetails": "Nessun dettaglio aggiuntivo",
+        "fields": {
+          "title": "Titolo",
+          "tool": "Strumento",
+          "data_source": "Origine dati",
+          "connection": "Connessione",
+          "queries": "Query",
+          "row_count": "Righe",
+          "reason": "Motivo",
+          "error": "Errore",
+          "changed": "Modifiche",
+          "state": "Stato",
+          "destination": "Destinazione",
+          "format": "Formato"
+        },
+        "actorKinds": {
+          "user": "Utente",
+          "agent": "Agente (per conto dell'utente)",
+          "system": "Sistema"
+        }
+      },
+      "streams": {
+        "title": "Flussi di log",
+        "subtitle": "Invia ogni evento di audit al tuo SIEM o bucket di archiviazione. Dopo qualsiasi interruzione, la consegna riprende dall'ultimo evento inviato.",
+        "empty": "Ancora nessun flusso di log",
+        "emptyHint": "Aggiungi un flusso per inviare eventi di audit a Datadog, Splunk, Microsoft Sentinel, S3, Google Cloud Storage, un webhook o syslog.",
+        "add": "Aggiungi flusso",
+        "edit": "Modifica",
+        "delete": "Elimina",
+        "deleteConfirm": "Eliminare il flusso \"{name}\"? Gli eventi non gli verranno più consegnati.",
+        "pause": "Sospendi",
+        "resume": "Riprendi",
+        "state": {
+          "active": "Attivo",
+          "inactive": "In pausa",
+          "error": "Errore",
+          "invalid": "Credenziali non valide"
+        },
+        "delivered": "{n} consegnati",
+        "pending": "{n} in attesa",
+        "lag": "in ritardo di {time}",
+        "lastDelivered": "Ultima consegna {time}",
+        "never": "mai",
+        "lastError": "Ultimo errore",
+        "nextAttempt": "Nuovo tentativo {time}",
+        "manageRequired": "Solo i membri con Gestisci impostazioni possono modificare i flussi di log.",
+        "form": {
+          "titleNew": "Aggiungi flusso di log",
+          "titleEdit": "Modifica flusso di log",
+          "name": "Nome",
+          "namePlaceholder": "es. Splunk produzione",
+          "destination": "Destinazione",
+          "chooseDestination": "Scegli dove inviare gli eventi",
+          "startFrom": "Inizia da",
+          "startNow": "Solo nuovi eventi",
+          "startBeginning": "Includi tutta la cronologia",
+          "actionFilter": "Solo azioni che iniziano con",
+          "actionFilterHint": "Prefissi separati da virgole, come tool., member. — lascia vuoto per inviare tutto.",
+          "advanced": "Impostazioni avanzate",
+          "test": "Invia evento di prova",
+          "testing": "Invio…",
+          "testOk": "Evento di prova consegnato",
+          "testFailed": "Prova non riuscita: {error}",
+          "save": "Salva flusso",
+          "saving": "Salvataggio…",
+          "cancel": "Annulla",
+          "back": "Indietro",
+          "secretStored": "Salvato — lascialo così per mantenerlo",
+          "externalIdHint": "Inserisci questo External ID nella policy di attendibilità del ruolo IAM.",
+          "required": "Obbligatorio"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "Webhook HTTPS",
+          "syslog": "Syslog su TLS"
+        },
+        "destinationHints": {
+          "datadog": "API di acquisizione log",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "API di acquisizione log (DCR)",
+          "s3": "Oggetti NDJSON per batch",
+          "gcs": "Oggetti NDJSON tramite chiavi HMAC",
+          "https": "POST JSON firmato",
+          "syslog": "RFC 5424, JSON o CEF"
+        },
+        "fields": {
+          "url": "URL dell'endpoint",
+          "auth_header_name": "Nome dell'header di autenticazione",
+          "auth_header_value": "Valore dell'header di autenticazione",
+          "hmac_secret": "Segreto di firma (HMAC)",
+          "headers": "Header aggiuntivi (oggetto JSON)",
+          "verify_tls": "Verifica certificato TLS",
+          "site": "Sito Datadog",
+          "api_key": "Chiave API",
+          "service": "Servizio",
+          "tags": "Tag",
+          "intake_url": "URL di acquisizione personalizzato",
+          "hec_url": "URL HEC",
+          "token": "Token HEC",
+          "index": "Indice",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "ID tenant",
+          "client_id": "ID client",
+          "client_secret": "Segreto client",
+          "dce_url": "Endpoint di raccolta dati",
+          "dcr_immutable_id": "ID immutabile DCR",
+          "stream_name": "Nome del flusso",
+          "authority_url": "URL dell'autorità",
+          "bucket": "Bucket",
+          "region": "Regione",
+          "prefix": "Prefisso chiave",
+          "role_arn": "ARN del ruolo",
+          "external_id": "External ID",
+          "access_key_id": "ID chiave di accesso",
+          "secret_access_key": "Chiave di accesso segreta",
+          "gzip": "Comprimi oggetti con gzip",
+          "endpoint_url": "URL endpoint personalizzato",
+          "sts_endpoint_url": "Endpoint STS personalizzato",
+          "host": "Host",
+          "port": "Porta",
+          "tls": "Usa TLS",
+          "format": "Formato del messaggio",
+          "ca_cert": "Certificato CA (PEM)",
+          "app_name": "Nome app",
+          "client_cert": "Certificato client (PEM)",
+          "client_key": "Chiave client (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "Impostazioni IA",
@@ -2497,9 +2681,39 @@
       "beta": "Funzionalità beta",
       "locked": "Questa impostazione è bloccata e non può essere modificata.",
       "notEditable": "(Non modificabile direttamente)",
-      "aiAgentsTitle": "Agenti IA",
-      "aiAgentsSubtitle": "Configura gli agenti IA e le funzionalità disponibili per i membri della tua organizzazione.",
       "noSettings": "Nessuna impostazione IA disponibile.",
+      "sectionSummary": "{n} impostazioni",
+      "sectionSummaryOn": "{n} impostazioni · {on} attive",
+      "sections": {
+        "data": {
+          "title": "Accesso ai dati e privacy",
+          "description": "Cosa l'IA può vedere e portare in una conversazione"
+        },
+        "capabilities": {
+          "title": "Capacità dell'agente",
+          "description": "Cosa può fare l'agente mentre risponde"
+        },
+        "learning": {
+          "title": "Apprendimento e memoria",
+          "description": "Come l'IA impara da utenti, feedback e utilizzo"
+        },
+        "tools": {
+          "title": "Strumenti e MCP",
+          "description": "Server MCP esterni e strumenti API personalizzati"
+        },
+        "limits": {
+          "title": "Limiti",
+          "description": "Limiti di righe, timeout, tentativi e dimensioni del contesto"
+        },
+        "workspace": {
+          "title": "Area di lavoro",
+          "description": "Webhook, fork e conservazione dei dati"
+        },
+        "other": {
+          "title": "Altro",
+          "description": "Impostazioni non ancora assegnate a una sezione"
+        }
+      },
       "llmAccessWarning": "La modifica di questa impostazione influisce sulla privacy dei dati. Sarà richiesta una conferma.",
       "llmModalTitleEnable": "Abilita accesso LLM ai dati",
       "llmModalTitleDisable": "Disabilita accesso LLM ai dati",
@@ -2509,7 +2723,7 @@
       "llmImpactInspectTool": "Ispeziona dati",
       "llmImpactAccuracy": "Riduzione dell'accuratezza e delle prestazioni dell'analisi",
       "llmImpactColumns": "L'IA vedrà solo i nomi delle colonne e le statistiche, non i valori effettivi",
-      "llmFileUploadsNote": "I caricamenti dei file non sono influenzati da questa impostazione e saranno comunque visibili all'IA (puoi disabilitare i caricamenti dei file separatamente).",
+      "llmFileUploadsNote": "I caricamenti dei file non sono influenzati da questa impostazione e saranno comunque visibili all'IA.",
       "llmConfirmLabel": "Digita {phrase} per confermare",
       "llmConfirmPhrase": "SONO SICURO",
       "llmConfirmPlaceholder": "SONO SICURO",
@@ -2531,10 +2745,6 @@
         "allow_llm_see_data": {
           "name": "Consenti all'LLM di vedere i dati",
           "description": "Consente all'LLM di vedere i dati nell'ambito dell'analisi e delle richieste degli utenti"
-        },
-        "enable_artifact_resources": {
-          "name": "Risorse degli artefatti",
-          "description": "Consenti agli artefatti di usare record persistenti, file privati e operazioni IA approvate. Restano valide le autorizzazioni di condivisione e delle risorse."
         },
         "enable_artifact_verification": {
           "name": "Verifica le app di dati",
@@ -2636,6 +2846,10 @@
           "name": "Dimensione inline del risultato MCP",
           "description": "Quanta parte del risultato di uno strumento MCP o API personalizzata l'agente vede direttamente nel proprio contesto, in caratteri. La risposta completa viene sempre salvata su file qualunque sia questo valore; l'impostazione decide solo quanto il modello può leggere senza aprire quel file. Aumentalo perché l'agente risponda a partire da un intero insieme di risultati anziché da un campione; riducilo per consumare meno token per chiamata. Imposta 0 per un campione di 3 record. Limitato a 0-500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "Righe di anteprima dati MCP",
+          "description": "Quante righe di risultato create_data restituisce a un client MCP esterno (Claude, Cursor, ecc.) nella risposta. Il risultato completo viene sempre salvato nel report; questo decide solo quanto riceve direttamente il modello del client. Un client può chiedere meno righe, mai di più. Limitato anche da 'Limita il numero di righe'. Compreso tra 1 e 10000."
+        },
         "enable_web_fetch": {
           "name": "Recupero dal web",
           "description": "Consente all'agente di recuperare il contenuto di URL pubblici HTTP e HTTPS. Vengono restituite solo risposte di tipo testuale e i contenuti di grandi dimensioni vengono troncati."
@@ -2715,6 +2929,10 @@
         "checkins_max_runs_per_org_per_day": {
           "name": "Follow-up al giorno",
           "description": "Limite massimo di follow-up per l'intera organizzazione al giorno (limite di costo)."
+        },
+        "enable_artifact_resources": {
+          "name": "Risorse degli artefatti",
+          "description": "Consenti agli artefatti di usare record persistenti, file privati e operazioni IA approvate. Restano valide le autorizzazioni di condivisione e delle risorse."
         }
       }
     },
@@ -3550,6 +3768,11 @@
     "memory.looks_like_rule": "Questa è una regola su come rispondere: aggiungila alle tue istruzioni personalizzate. La memoria conserva fatti su di te.",
     "memory.full": "La memoria è piena. Elimina prima alcune voci.",
     "memory.not_active": "Questa voce è già stata modificata o dimenticata.",
+    "audit_stream.not_found": "Flusso di log non trovato.",
+    "audit_stream.invalid_destination": "Destinazione del flusso sconosciuta.",
+    "audit_stream.missing_field": "Manca un campo obbligatorio: {field}.",
+    "audit_stream.invalid_field": "Valore non valido per {field}.",
+    "audit_log.export_too_large": "L'esportazione è limitata a {limit} eventi e questo filtro ne restituisce {total}. Restringi il filtro o usa un flusso di log.",
     "ARTIFACT_RESOURCE_VALIDATION": "Richiesta non valida",
     "ARTIFACT_RESOURCE_NOT_FOUND": "Risorsa non trovata",
     "ARTIFACT_RESOURCE_FORBIDDEN": "Accesso negato",
@@ -3725,16 +3948,6 @@
     "menuData": "Dati"
   },
   "toolbar": {
-    "collapse": "Comprimi",
-    "switchToArtifact": "Passa alla vista Artefatto",
-    "dashboard": "Dashboard",
-    "addComponent": "Aggiungi componente",
-    "addText": "Aggiungi testo",
-    "theme": "Tema",
-    "rerun": "Riesegui report",
-    "openInNewTab": "Apri dashboard in una nuova scheda",
-    "fullscreen": "Schermo intero",
-    "shareDashboard": "Condividi dashboard",
     "polishDashboard": "Rifinisci dashboard"
   },
   "artifactFrame": {
@@ -3800,44 +4013,8 @@
     "partialRenderFailed": "Parte di questa dashboard usa dati a cui non hai accesso, quindi non è stato possibile visualizzarla. Chiedi l’accesso al proprietario della dashboard."
   },
   "filter": {
-    "addFilters": "Aggiungi filtri",
-    "title": "Filtri",
-    "clear": "Cancella",
-    "loading": "Caricamento…",
-    "noData": "Nessun dato disponibile da filtrare",
-    "refresh": "Aggiorna",
-    "noFilters": "Nessun filtro applicato",
-    "addFilter": "Aggiungi filtro",
-    "columnPlaceholder": "Colonna",
-    "searchPlaceholder": "Cerca…",
-    "valuePlaceholder": "Valore",
     "selectColumn": "Seleziona colonna",
-    "visualization": "Visualizzazione",
-    "orDivider": "O",
-    "andDivider": "E",
-    "rowsCount": "{shown} di {total} righe",
-    "apply": "Applica",
-    "op": {
-      "equals": "uguale a",
-      "notEquals": "diverso da",
-      "contains": "contiene",
-      "notContains": "non contiene",
-      "startsWith": "inizia con",
-      "endsWith": "termina con",
-      "isEmpty": "è vuoto",
-      "isNotEmpty": "non è vuoto",
-      "in": "in",
-      "notIn": "non in",
-      "greaterThan": "maggiore di",
-      "lessThan": "minore di",
-      "greaterOrEqual": "maggiore o uguale",
-      "lessOrEqual": "minore o uguale",
-      "between": "tra",
-      "before": "prima",
-      "after": "dopo",
-      "isTrue": "è vero",
-      "isFalse": "è falso"
-    }
+    "visualization": "Visualizzazione"
   },
   "slideViewer": {
     "loading": "Caricamento delle diapositive...",
@@ -5454,7 +5631,26 @@
     "mergedTip": "Confluita in un suggerimento dell'apprendimento notturno. Non è un rifiuto di un revisore.",
     "expiredTip": "Chiusa dopo essere rimasta non revisionata oltre la scadenza dell'organizzazione. Conta ancora come prova se lo schema ritorna."
   },
-  "artifactResources": {
+  "schemaIdentity": {
+    "viewing": "Vista:",
+    "myAccount": "Il mio account",
+    "serviceAccount": "Account di servizio",
+    "sharedConnection": "Connessione condivisa",
+    "sharedSchema": "Schema condiviso",
+    "changeIdentity": "Cambia identità delle query",
+    "refresh": "Aggiorna schema",
+    "refreshMyFor": "Aggiorna {name} · Il mio account",
+    "refreshSharedFor": "Aggiorna {name} · Schema condiviso",
+    "refreshing": "Aggiornamento…",
+    "unknown": "Ultimo aggiornamento dello schema: sconosciuto",
+    "refreshedAt": "Ultimo aggiornamento dello schema: {time}",
+    "attemptedAt": "Ultimo tentativo: {time}",
+    "updated": "Schema aggiornato.",
+    "partial": "Non è stato possibile aggiornare alcuni modelli. Le colonne precedenti sono state mantenute.",
+    "failed": "Aggiornamento dello schema non completato. Riprova.",
+    "connectRequired": "Collega il tuo account per vedere le sue tabelle."
+  },
+"artifactResources": {
     "readOnlyLabel": "Sola lettura",
     "sort": "Ordina record",
     "applyFilter": "Applica",

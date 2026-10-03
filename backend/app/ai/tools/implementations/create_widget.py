@@ -185,7 +185,8 @@ class CreateWidgetTool(Tool):
 
         # Phase 1: Generate Data Model (streamed parsing like create_data_model)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_data_model"})
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
 
         header = f"""
 You are a data modeling assistant.

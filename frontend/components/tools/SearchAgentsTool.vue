@@ -59,10 +59,12 @@
               v-if="a.focused"
               class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-600 flex-shrink-0"
             >focused</span>
+            <!-- Lifecycle stage (Development / Training / Disabled), same as
+                 the agent selector — not the raw publish_status ("draft"). -->
             <span
-              v-else-if="a.status && a.status !== 'published'"
-              class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0"
-            >{{ a.status }}</span>
+              v-else-if="stageOf(a) !== 'production'"
+              :class="['ms-1.5 text-[9px] px-1 py-0.5 rounded border flex-shrink-0', stageMeta(stageOf(a)).badge]"
+            >{{ $t('agentsPage.stage.' + stageOf(a)) }}</span>
             <button
               v-if="a.needs_signin"
               @click.stop="signInAgent(a)"
@@ -96,6 +98,7 @@
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import { deriveStage, stageMeta } from '~/composables/useDataSourcePublishStatus'
 
 const isCollapsed = ref(true)
 function toggleCollapsed() { isCollapsed.value = !isCollapsed.value }
@@ -129,6 +132,10 @@ const agents = computed<any[]>(() => {
   const rj: any = props.toolExecution?.result_json || {}
   return Array.isArray(rj.agents) ? rj.agents : []
 })
+
+function stageOf(a: any) {
+  return deriveStage(a.status, a.reliability_status)
+}
 
 const total = computed<number>(() => {
   const rj: any = props.toolExecution?.result_json || {}
