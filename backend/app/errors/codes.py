@@ -8,6 +8,8 @@ from enum import Enum
 
 
 class ErrorCode(str, Enum):
+    SAML_UNAVAILABLE = "saml_unavailable"
+    SAML_LOGIN_FAILED = "saml_login_failed"
     # Generic
     VALIDATION = "validation"
     INVALID_JSON = "body.invalid_json"

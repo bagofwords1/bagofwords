@@ -117,6 +117,7 @@ dependencies = [
     # connect()'s `extra_headers` to `additional_headers`.
     "websockets>=14.0,<17",
     "kubernetes>=36.0.3",
+    "python3-saml>=1.16.0,<2",
 ]
 
 [project.optional-dependencies]

@@ -255,6 +255,22 @@ def clamp_effort(effort: Optional[str], efforts: Optional[Sequence[str]]) -> Opt
     return min(usable, key=lambda x: (abs(EFFORT_ORDER.index(x) - want), -EFFORT_ORDER.index(x)))
 
 
+def lightest_effort(efforts: Optional[Sequence[str]]) -> Optional[str]:
+    """What reasoning "off" sends to a model whose effort we know.
+
+    "none" where the model accepts it, else its lightest level: OpenAI reasoning
+    models run at their default (medium) when the request carries no effort, so
+    leaving it out does not turn reasoning off. None when the efforts are
+    unknown or the model does not reason.
+    """
+    if not efforts:
+        return None
+    if "none" in efforts:
+        return "none"
+    usable = [x for x in EFFORT_ORDER if x in efforts]
+    return usable[0] if usable else None
+
+
 def uses_thinking_budget(model_id: Optional[str]) -> bool:
     key = _capability_key(model_id)
     return key.startswith(_BUDGET_PREFIXES)

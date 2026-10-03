@@ -635,6 +635,7 @@
       "title": "Esfuerzo",
       "default": "Predeterminado",
       "levels": {
+        "off": "Rápido",
         "low": "Bajo",
         "medium": "Medio",
         "high": "Alto",
@@ -647,7 +648,9 @@
       "notSupported": "Este modelo no tiene ajuste de esfuerzo",
       "providerDefault": "Valor predeterminado del modelo",
       "modelDefault": "Predeterminado del administrador: {level}",
-      "runsAs": "Se ejecuta como {level} en este modelo"
+      "runsAs": "Se ejecuta como {level} en este modelo",
+      "faster": "Más rápido",
+      "smarter": "Más inteligente"
     }
   },
   "reports": {
@@ -3588,6 +3591,8 @@
     "copyClipboardFailed": "No se pudo copiar al portapapeles"
   },
   "errors": {
+    "saml_unavailable": "La configuración de SSO no está disponible. Contacta con tu administrador.",
+    "saml_login_failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo o contacta con tu administrador.",
     "generic": "Algo salió mal. Inténtalo de nuevo.",
     "network": "Error de red. Revisa tu conexión.",
     "unauthorized": "No tienes permiso para hacer eso.",

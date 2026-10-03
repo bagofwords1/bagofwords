@@ -64,25 +64,48 @@
       </div>
     </div>
 
-    <!-- Effort for the selected model -->
-    <div class="border-t border-gray-100 dark:border-gray-800 p-2" data-testid="effort-bar">
-      <div class="flex items-center justify-between mb-1.5">
-        <span class="font-medium text-gray-700 dark:text-gray-200">{{ $t('prompt.effort.title') }}</span>
-        <span class="text-[10px] text-gray-400 truncate ms-2">{{ effortHint }}</span>
+    <!-- Effort for the selected model: a Faster ↔ Smarter slider -->
+    <div class="border-t border-gray-100 dark:border-gray-800 px-3 pt-2.5 pb-3" data-testid="effort-bar">
+      <div class="flex items-baseline justify-between gap-2">
+        <span class="flex items-baseline gap-1.5 min-w-0">
+          <span class="text-gray-500 dark:text-gray-400">{{ $t('prompt.effort.title') }}</span>
+          <span class="font-medium text-gray-900 dark:text-white" data-testid="effort-current">{{ currentLabel }}</span>
+        </span>
+        <span v-if="effortHint" class="text-[10px] text-gray-400 truncate" data-testid="effort-hint">{{ effortHint }}</span>
       </div>
-      <div class="flex gap-0.5 p-0.5 rounded-md bg-gray-100 dark:bg-gray-800" :class="{ 'opacity-50': effortDisabled }">
-        <button
-          v-for="opt in effortOptions"
-          :key="opt.value || 'default'"
-          type="button"
-          :disabled="effortDisabled && !!opt.value"
-          class="flex-auto px-1.5 py-1 rounded text-[11px] whitespace-nowrap transition-colors"
-          :class="(props.effort || null) === opt.value
-            ? 'bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-white font-medium'
-            : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white disabled:cursor-not-allowed'"
-          :data-testid="`effort-${opt.value || 'default'}`"
-          @click="setEffort(opt.value)"
-        >{{ opt.label }}</button>
+      <div class="flex justify-between mt-2 mb-1 text-[10px] text-gray-400 dark:text-gray-500">
+        <span>{{ $t('prompt.effort.faster') }}</span>
+        <span>{{ $t('prompt.effort.smarter') }}</span>
+      </div>
+      <div
+        ref="trackRef"
+        role="slider"
+        :tabindex="effortDisabled ? -1 : 0"
+        :aria-label="$t('prompt.effort.title')"
+        aria-valuemin="0"
+        :aria-valuemax="STOPS.length - 1"
+        :aria-valuenow="currentIndex"
+        :aria-valuetext="currentLabel"
+        :aria-disabled="effortDisabled"
+        class="effort-track relative h-6 rounded-full bg-gray-100 dark:bg-gray-800 select-none touch-none outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+        :class="effortDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
+        data-testid="effort-slider"
+        @pointerdown="onPointerDown"
+        @keydown="onSliderKey"
+      >
+        <div class="effort-fill absolute inset-y-0 start-0 rounded-full bg-gray-300/70 dark:bg-gray-700" :style="{ width: fillWidth }" />
+        <span
+          v-for="(stop, i) in STOPS"
+          :key="stop"
+          class="absolute top-1/2 w-1 h-1 -mt-0.5 -ms-0.5 rounded-full"
+          :class="i <= currentIndex ? 'bg-gray-500 dark:bg-gray-400' : 'bg-gray-300 dark:bg-gray-600'"
+          :style="{ insetInlineStart: stopPos(i) }"
+          :data-testid="`effort-${stop}`"
+        />
+        <span
+          class="effort-thumb absolute top-0.5 w-5 h-5 -ms-2.5 rounded-full bg-white dark:bg-gray-200 shadow ring-1 ring-black/5"
+          :style="{ insetInlineStart: stopPos(currentIndex) }"
+        />
       </div>
     </div>
   </div>
@@ -112,7 +135,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const AUTO = 'auto'
-const LEVELS = ['low', 'medium', 'high', 'max'] as const
 
 const query = ref('')
 const highlighted = ref(0)
@@ -166,32 +188,98 @@ const selectedModel = computed(() => (props.models || []).find(m => m.id === pro
 // Effort applies to whichever model runs when the pick is Auto/Default.
 const effortDisabled = computed(() => !!selectedModel.value && !selectedModel.value.reasoning?.supported)
 
-const effortOptions = computed(() => [
-  { value: null, label: t('prompt.effort.default') },
-  ...LEVELS.map(l => ({ value: l, label: t(`prompt.effort.levels.${l}`) })),
-])
+// Weakest to strongest. "off" is Fast: no reasoning where the model can skip
+// it, its lightest level where it cannot (the backend decides which).
+const STOPS = ['off', 'medium', 'high', 'max'] as const
+type Stop = typeof STOPS[number]
+// Saved efforts outside the stops (older "low" picks) sit at the nearest one.
+const NEAREST: Record<string, Stop> = { none: 'off', minimal: 'off', low: 'off', xhigh: 'max' }
+function stopIndex(effort: string | null | undefined) {
+  if (!effort) return -1
+  const s = (STOPS as readonly string[]).includes(effort) ? effort : NEAREST[effort]
+  return s ? STOPS.indexOf(s as Stop) : -1
+}
+
+// No explicit pick runs the admin's default for the model, else Fast.
+const defaultIndex = computed(() => {
+  const i = stopIndex(selectedModel.value?.reasoning?.default)
+  return i >= 0 ? i : 0
+})
+const currentIndex = computed(() => {
+  const i = stopIndex(props.effort)
+  return i >= 0 ? i : defaultIndex.value
+})
+const currentLabel = computed(() => {
+  const e = props.effort && !STOPS.includes(props.effort as Stop) ? props.effort : STOPS[currentIndex.value]
+  return t(`prompt.effort.levels.${e}`)
+})
+
+// Stop centres sit a half-thumb (12px) in from each end of the track.
+function stopPos(i: number) {
+  return `calc(12px + (100% - 24px) * ${i / (STOPS.length - 1)})`
+}
+const fillWidth = computed(() => `calc(24px + (100% - 24px) * ${currentIndex.value / (STOPS.length - 1)})`)
 
 const effortHint = computed(() => {
   const m = selectedModel.value
   if (!m) return t('prompt.effort.anyModel')
   if (!m.reasoning?.supported) return t('prompt.effort.notSupported')
-  if (!props.effort) {
-    const d = m.reasoning?.default
-    return d ? t('prompt.effort.modelDefault', { level: t(`prompt.effort.levels.${d}`) }) : t('prompt.effort.providerDefault')
-  }
-  const runsAs = m.reasoning?.levels?.[props.effort]
-  if (runsAs && runsAs !== props.effort) return t('prompt.effort.runsAs', { level: runsAs })
+  const level = STOPS[currentIndex.value]
+  const runsAs = level === 'off' ? null : m.reasoning?.levels?.[level]
+  if (runsAs && runsAs !== level) return t('prompt.effort.runsAs', { level: runsAs })
   return ''
 })
+
+function setStop(i: number) {
+  if (effortDisabled.value) return
+  const clamped = Math.max(0, Math.min(STOPS.length - 1, i))
+  // The default stop means "no explicit choice", so the admin default keeps
+  // applying and the trigger shows no badge.
+  emit('update:effort', clamped === defaultIndex.value ? null : STOPS[clamped])
+}
+
+const trackRef = ref<HTMLElement | null>(null)
+function indexAt(clientX: number) {
+  const el = trackRef.value
+  if (!el) return currentIndex.value
+  const r = el.getBoundingClientRect()
+  const rtl = getComputedStyle(el).direction === 'rtl'
+  const x = rtl ? r.right - clientX : clientX - r.left
+  const f = (x - 12) / Math.max(1, r.width - 24)
+  return Math.round(Math.max(0, Math.min(1, f)) * (STOPS.length - 1))
+}
+function onPointerDown(e: PointerEvent) {
+  if (effortDisabled.value) return
+  const el = trackRef.value
+  el?.setPointerCapture?.(e.pointerId)
+  setStop(indexAt(e.clientX))
+  const move = (ev: PointerEvent) => {
+    const i = indexAt(ev.clientX)
+    if (i !== currentIndex.value) setStop(i)
+  }
+  const up = () => {
+    el?.removeEventListener('pointermove', move)
+    el?.removeEventListener('pointerup', up)
+    el?.removeEventListener('pointercancel', up)
+  }
+  el?.addEventListener('pointermove', move)
+  el?.addEventListener('pointerup', up)
+  el?.addEventListener('pointercancel', up)
+}
+function onSliderKey(e: KeyboardEvent) {
+  const rtl = trackRef.value ? getComputedStyle(trackRef.value).direction === 'rtl' : false
+  const step = { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1, ArrowUp: 1, ArrowDown: -1 } as Record<string, number>
+  if (e.key in step) setStop(currentIndex.value + step[e.key])
+  else if (e.key === 'Home') setStop(0)
+  else if (e.key === 'End') setStop(STOPS.length - 1)
+  else return
+  e.preventDefault()
+  e.stopPropagation()
+}
 
 function pick(id: string | null) {
   emit('update:modelValue', id)
   emit('close')
-}
-
-function setEffort(v: string | null) {
-  if (effortDisabled.value && v) return
-  emit('update:effort', v)
 }
 
 function scrollToHighlighted() {
@@ -223,5 +311,13 @@ function onKeydown(e: KeyboardEvent) {
 <style scoped>
 .picker-row {
   @apply w-full px-2 py-1.5 rounded cursor-pointer flex items-center;
+}
+.effort-thumb,
+.effort-fill {
+  transition: inset-inline-start 180ms cubic-bezier(.2, .8, .2, 1), width 180ms cubic-bezier(.2, .8, .2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .effort-thumb,
+  .effort-fill { transition: none; }
 }
 </style>
