@@ -46,6 +46,27 @@ class EditArtifactMCPTool(MCPTool):
     def input_schema(self) -> Dict[str, Any]:
         return MCPEditArtifactInput.model_json_schema()
 
+    async def _validated_edit(self, input_data, edits, db, user, organization, report, artifact):
+        parent_id, report_id = str(artifact.artifact_id), str(report.id)
+        from app.ai.tools.implementations.edit_artifact import EditArtifactTool as ValidatedEdit
+        runtime = {'db': db, 'user': user, 'organization': organization, 'report': report}
+        output, observation = {}, {}
+        async for event in ValidatedEdit().run_stream({
+            'artifact_id': input_data.artifact_id, 'edits': edits,
+            'expected_latest_version': input_data.expected_latest_version,
+            'visualization_ids': input_data.visualization_ids, 'title': input_data.title,
+        }, runtime):
+            if event.type == 'tool.end':
+                output = event.payload.get('output') or {}
+                observation = event.payload.get('observation') or {}
+        from app.settings.config import settings
+        success = output.get('success') is True
+        return MCPEditArtifactOutput(report_id=report_id, success=success,
+            artifact_id=output.get('artifact_id'), resource_artifact_id=parent_id,
+            version=output.get('version'), diff_applied=success,
+            error_message=None if success else str(output.get('error') or observation.get('error') or 'Edit requires repair'),
+            url=f"{settings.bow_config.base_url}/reports/{report_id}?artifact={output.get('artifact_id')}" if success else None).model_dump()
+
     async def execute(
         self,
         args: Dict[str, Any],
@@ -67,12 +88,16 @@ class EditArtifactMCPTool(MCPTool):
                 error_message=f"Report not found: {str(e)}",
             ).model_dump()
 
+        await self._authorize_artifact_authoring(db, user, organization, report)
+
         # Load the existing artifact
         try:
             result = await db.execute(
                 select(ArtifactVersion).where(
                     ArtifactVersion.id == input_data.artifact_id,
                     ArtifactVersion.organization_id == str(organization.id),
+                    ArtifactVersion.report_id == str(report.id),
+                    ArtifactVersion.deleted_at.is_(None),
                 )
             )
             artifact = result.scalar_one_or_none()
@@ -112,6 +137,12 @@ class EditArtifactMCPTool(MCPTool):
                 success=False,
                 error_message="Artifact has no code to edit.",
             ).model_dump()
+
+        if input_data.edits is not None:
+            return await self._validated_edit(input_data, input_data.edits, db, user, organization, report, artifact)
+        if not input_data.edit_instruction.strip():
+            return MCPEditArtifactOutput(report_id=str(report.id),success=False,
+                error_message='Supply edits or an edit instruction.').model_dump()
 
         # Create tracking context
         tracking = await self._create_tracking_context(
@@ -232,6 +263,13 @@ class EditArtifactMCPTool(MCPTool):
         if artifact.mode == "page":
             prompt = edit_tool._build_edit_system_prompt() + "\n\n" + prompt
 
+        if content.get('sdk_version') == 1:
+            from app.ai.agents.planner.artifact_sdk_reference import ARTIFACT_SDK_REFERENCE
+            from app.services.artifact_resource_service import ArtifactResources
+            import json
+            resource_service = await ArtifactResources.open(db, str(artifact.artifact_id), user, str(organization.id))
+            prompt += '\n\n' + ARTIFACT_SDK_REFERENCE + '\nExisting definitions:\n' + json.dumps(await resource_service.definitions())
+
         # LLM inference (non-streaming for MCP). Offloaded to a worker
         # thread because `LLM.inference` is sync and runs the pre-call
         # usage-limit check via `run_blocking`; that check raises if
@@ -274,6 +312,13 @@ class EditArtifactMCPTool(MCPTool):
             if extracted and extracted != response.strip():
                 new_code = extracted
 
+        if content.get('sdk_version') == 1:
+            result = await self._validated_edit(input_data, [{'find': existing_code, 'replace': new_code}],
+                db, user, organization, report, artifact)
+            await self._finish_tracking(db, tracking, success=result['success'],
+                summary='Artifact edit validated' if result['success'] else 'Artifact edit requires repair')
+            return result
+
         # Create a NEW artifact record (preserves version history for frontend dropdown)
         new_title = input_data.title or artifact.title
         included_viz_ids = [v["id"] for v in visualizations]
@@ -310,6 +355,7 @@ class EditArtifactMCPTool(MCPTool):
         return MCPEditArtifactOutput(
             report_id=str(report.id),
             artifact_id=str(new_artifact.id),
+            resource_artifact_id=str(artifact.artifact_id),
             success=True,
             version=version_number,
             diff_applied=diff_applied,

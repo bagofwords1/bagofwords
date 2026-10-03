@@ -288,6 +288,7 @@ import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import CreateDocTool from '~/components/tools/CreateDocTool.vue'
@@ -603,6 +604,8 @@ function getToolComponent(toolName: string) {
             return ReadFileTool
         case 'attach_file':
             return AttachFileTool
+        case 'manage_artifact_resources':
+            return ManageArtifactResourcesTool
         case 'create_artifact':
             return CreateArtifactTool
         case 'edit_artifact':

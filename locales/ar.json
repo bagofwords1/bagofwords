@@ -639,6 +639,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "تعذر تحميل لوحة المعلومات. حدّث الصفحة للمحاولة مرة أخرى.",
     "title": "التقارير",
     "subtitle": "تصفح وأدِر تقاريرك",
     "newReport": "تقرير جديد",
@@ -1083,6 +1084,18 @@
     "loopRetryNotice": "حدث خطأ داخلي — تُعاد المحاولة من أحدث سياق (المحاولة {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "تعذر تغيير المورد",
+      "create": "تم إنشاء المورد",
+      "update": "تم تحديث المورد",
+      "delete": "تم حذف المورد",
+      "working": "جارٍ إعداد المورد",
+      "stopped": "متوقف",
+      "unchanged": "المورد دون تغيير",
+      "preserved": "تم الاحتفاظ بالسجلات الحالية.",
+      "changed": "التغييرات",
+      "noChanges": "لم يتم تطبيق أي تغييرات."
+    },
     "common": {
       "input": "المدخلات",
       "output": "المخرجات",
@@ -2549,6 +2562,10 @@
           "name": "السماح لنموذج اللغة برؤية البيانات",
           "description": "يتيح لنموذج اللغة رؤية البيانات كجزء من التحليل واستعلامات المستخدمين"
         },
+        "enable_artifact_resources": {
+          "name": "موارد العناصر",
+          "description": "السماح للعناصر باستخدام سجلات دائمة وملفات خاصة وعمليات ذكاء اصطناعي معتمدة. تظل أذونات المشاركة والموارد الحالية سارية."
+        },
         "enable_artifact_verification": {
           "name": "التحقق من تطبيقات البيانات",
           "description": "السماح للوكيل بفحص الصفحات التفاعلية باستخدام أدوات المتصفح. يتطلب السماح للنموذج اللغوي برؤية البيانات."
@@ -3562,7 +3579,18 @@
     "memory.sensitive": "لا يمكن للذاكرة أن تحتوي على أسرار أو كلمات مرور أو بيانات شخصية حساسة.",
     "memory.looks_like_rule": "هذه قاعدة لطريقة الإجابة — أضفها إلى تعليماتك المخصصة. الذاكرة تحفظ حقائق عنك.",
     "memory.full": "الذاكرة ممتلئة. احذف بعض الإدخالات أولًا.",
-    "memory.not_active": "تم تغيير هذا الإدخال أو نسيانه بالفعل."
+    "memory.not_active": "تم تغيير هذا الإدخال أو نسيانه بالفعل.",
+    "ARTIFACT_RESOURCE_VALIDATION": "طلب مورد غير صالح",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "المورد غير موجود",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "الوصول مرفوض",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "سجّل الدخول للمتابعة",
+    "ARTIFACT_RESOURCE_CONFLICT": "تغير المورد؛ حدّث وحاول مجددًا",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "تم بلوغ حد المورد",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "طلبات كثيرة؛ حاول لاحقًا",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "المورد غير متاح",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "انقطع الطلب",
+    "ARTIFACT_RESOURCE_ABORTED": "أُلغي الطلب",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم"
   },
   "email": {
     "dashboardShare": {
@@ -5455,5 +5483,36 @@
     "expired": "منتهي الصلاحية",
     "mergedTip": "أُدمج في اقتراح من التعلّم الليلي. ليس رفضًا من مراجع.",
     "expiredTip": "أُغلق بعد بقائه دون مراجعة بعد المهلة المحددة للمؤسسة. يظل دليلًا إذا عاد النمط."
+  },
+  "artifactResources": {
+    "readOnlyLabel": "للقراءة فقط",
+    "sort": "ترتيب السجلات",
+    "applyFilter": "تطبيق",
+    "clearFilter": "مسح عامل التصفية",
+    "true": "صحيح",
+    "false": "خطأ",
+    "inspect": "الموارد",
+    "readOnly": "معلومات العنصر للقراءة فقط",
+    "data": "مستكشف البيانات",
+    "analytics": "التحليلات",
+    "collection": "اختر مجموعة",
+    "refresh": "تحديث",
+    "schema": "مخطط المجموعة",
+    "filterField": "حقل التصفية",
+    "filterValue": "يساوي",
+    "filter": "تصفية",
+    "empty": "لا توجد بيانات لعرضها",
+    "pageRows": "عدد السجلات في هذه الصفحة: {count}",
+    "next": "الصفحة التالية",
+    "details": "تفاصيل السجل",
+    "views": "المشاهدات",
+    "viewers": "الزوار الفريدون المسجلون",
+    "anonymousNote": "تُحتسب الزيارات المجهولة كمشاهدات، وليس كأشخاص فريدين.",
+    "embedded": "مضمّن",
+    "standalone": "صفحة مشتركة",
+    "days": "آخر {count} يوم",
+    "failed": "تعذر تحميل بيانات العنصر",
+    "newest": "الأحدث أولاً",
+    "oldest": "الأقدم أولاً"
   }
 }
