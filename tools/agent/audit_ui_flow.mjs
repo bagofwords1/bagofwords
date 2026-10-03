@@ -1,7 +1,7 @@
 // Drive the Audit Logs settings page as an org admin and capture evidence.
 //
 //   cd frontend
-//   node ../tools/agent/audit_ui_flow.mjs <out_dir> [--phase before|after] [--locale en|he]
+//   node ../tools/agent/audit_ui_flow.mjs <out_dir> [--phase before|after] [--locale en|he] [--video]
 //
 // before: the activity list only (what the page offers today).
 // after:  list, detail drawer, filters (+ URL persistence), search, export
@@ -32,7 +32,13 @@ mkdirSync(outDir, { recursive: true });
 
 const execPath = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const browser = await chromium.launch({ executablePath: execPath });
-const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+const video = rest.includes('--video');
+const videoDir = join(outDir, '.video-tmp');
+const context = await browser.newContext({
+  viewport: { width: 1440, height: 900 },
+  acceptDownloads: true,
+  ...(video ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 800 } } } : {}),
+});
 const page = await context.newPage();
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -178,7 +184,13 @@ check('stream appears in list', (await streamRow.count()) > 0);
 await shot('streams-list');
 
 writeFileSync(join(outDir, `${phase}-${locale}-results.json`), JSON.stringify(results, null, 2));
+const videoPath = video ? await page.video()?.path() : null;
 await context.close();
+if (videoPath) {
+  const { renameSync } = await import('node:fs');
+  renameSync(videoPath, join(outDir, `${phase}-${locale}-flow.webm`));
+  console.log(`recorded ${join(outDir, `${phase}-${locale}-flow.webm`)}`);
+}
 await browser.close();
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

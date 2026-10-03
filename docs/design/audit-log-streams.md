@@ -34,6 +34,14 @@
   budget per tick (stamping gets 10 s), in place of a fixed batch count, so a
   large history backfill drains quickly. APScheduler fires the tick in every uvicorn worker
   (shared job store); the compare-and-set lease makes that safe.
+- **The scheduler** (`app/core/scheduler.py`) is now `ResilientAsyncIOScheduler`.
+  APScheduler 3.x does not guard `jobstore.update_job` in `_process_jobs`, so
+  one SQLite "database is locked" there silently stopped every scheduled job in
+  the worker until restart. That is pre-existing, but it stopped audit export
+  under load. A failed pass is now logged and retried.
+- **Exporter bookkeeping** (stamper lease release, stream progress and finish
+  writes) retries while the database is locked, so a busy database delays
+  delivery but never strands a stream or the stamper behind a lease.
 - **The detail drawer** reads the row already returned by the list endpoint,
   which carries every stored field, so no extra `GET /{log_id}` is needed.
 - **Loop A5** is a plain-node formatter test plus a Playwright layout spec
