@@ -16,6 +16,7 @@ Both sides import this module, so it must stay light (stdlib + pandas/pyarrow).
 from __future__ import annotations
 
 import json
+import numbers
 import struct
 from typing import Any, BinaryIO, Dict, Optional, Tuple
 
@@ -88,6 +89,53 @@ def _stringify_column(series: pd.Series) -> pd.Series:
     return series.astype(object).map(conv)
 
 
+_INT64_MIN, _INT64_MAX = -(1 << 63), (1 << 63) - 1
+_UINT64_MAX = (1 << 64) - 1
+
+
+def _is_null_scalar(value: Any) -> bool:
+    if value is None or value is pd.NA:
+        return True
+    try:
+        res = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    return res is True or (isinstance(res, bool) and res)
+
+
+def _as_nullable_integers(series: pd.Series) -> pd.Series | None:
+    """Re-type an object column of Python ints as a nullable integer column.
+
+    Connectors that return counters wider than int64 (Brocade port
+    statistics, for one) build object-dtype frames so pandas does not turn
+    the values into lossy floats. Arrow's type inference overflows on such a
+    column before it ever considers uint64, which used to send it down the
+    text fallback and hand the parent strings. A nullable UInt64/Int64
+    extension column crosses Arrow losslessly and pandas reconstructs the
+    same dtype on the other side. Returns None when the column is not
+    integers (bools excluded) that fit one of those two types.
+    """
+    values = series.tolist()
+    ints = []
+    for v in values:
+        if _is_null_scalar(v):
+            continue
+        if isinstance(v, bool) or not isinstance(v, numbers.Integral):
+            return None
+        ints.append(int(v))
+    if not ints:
+        return None
+    lo, hi = min(ints), max(ints)
+    if lo >= 0 and hi <= _UINT64_MAX:
+        dtype = "UInt64"
+    elif lo >= _INT64_MIN and hi <= _INT64_MAX:
+        dtype = "Int64"
+    else:
+        return None
+    data = [None if _is_null_scalar(v) else int(v) for v in values]
+    return pd.Series(pd.array(data, dtype=dtype), index=series.index)
+
+
 def dataframe_to_arrow(df: pd.DataFrame) -> Tuple[bytes, Dict[str, Any]]:
     """Serialize `df` to Arrow IPC stream bytes plus a small meta dict.
 
@@ -98,7 +146,16 @@ def dataframe_to_arrow(df: pd.DataFrame) -> Tuple[bytes, Dict[str, Any]]:
     """
     import pyarrow as pa
 
-    meta: Dict[str, Any] = {"stringified": [], "columns": None}
+    # Positions of object-dtype columns. Arrow types them (bool, int, str),
+    # which is right on the wire but would hand the parent numpy scalars
+    # where the child's code (or a connector) deliberately kept Python
+    # objects; the parent restores object dtype so the frame reads the same
+    # as it did when the code ran in-process.
+    meta: Dict[str, Any] = {
+        "stringified": [],
+        "columns": None,
+        "object_columns": [i for i, dt in enumerate(df.dtypes) if pd.api.types.is_object_dtype(dt)],
+    }
     try:
         table = pa.Table.from_pandas(df, preserve_index=None)
         sink = pa.BufferOutputStream()
@@ -117,9 +174,15 @@ def dataframe_to_arrow(df: pd.DataFrame) -> Tuple[bytes, Dict[str, Any]]:
         try:
             pa.array(series)
             wire[name] = series
+            continue
         except Exception:
-            wire[name] = _stringify_column(series)
-            meta["stringified"].append(str(col))
+            pass
+        retyped = _as_nullable_integers(series) if series.dtype == object else None
+        if retyped is not None:
+            wire[name] = retyped
+            continue
+        wire[name] = _stringify_column(series)
+        meta["stringified"].append(str(col))
     meta["columns"] = [c if isinstance(c, (str, int, float, bool)) or c is None else str(c) for c in original_columns]
     try:
         table = pa.Table.from_pandas(wire, preserve_index=None)
@@ -138,9 +201,16 @@ def arrow_to_dataframe(payload: bytes, meta: Optional[Dict[str, Any]] = None) ->
     with pa.ipc.open_stream(pa.BufferReader(payload)) as reader:
         table = reader.read_all()
     df = table.to_pandas()
-    columns = (meta or {}).get("columns")
+    meta = meta or {}
+    columns = meta.get("columns")
     if columns is not None and len(columns) == len(df.columns):
         df.columns = columns
+    for i in meta.get("object_columns") or []:
+        if not (isinstance(i, int) and 0 <= i < len(df.columns)):
+            continue
+        restored = df.iloc[:, i].astype(object)
+        restored[restored.isna()] = None
+        df.isetitem(i, restored)
     return df
 
 

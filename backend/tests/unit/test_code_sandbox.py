@@ -320,6 +320,33 @@ def generate_df(ds_clients, excel_files):
     assert df["mixed"].tolist() == ["1", "two", "{'three': 3}"]
 
 
+def test_wide_integer_columns_keep_their_values_across_the_boundary():
+    # Connectors whose counters exceed int64 (Brocade port statistics) build
+    # object-dtype frames of Python ints so pandas does not coerce them to
+    # lossy floats. Arrow's inference overflows on such a column; it must be
+    # re-typed as a nullable integer column, not handed over as text.
+    code = """
+def generate_df(ds_clients, excel_files):
+    return pd.DataFrame(
+        [[18446744073709551614, "0/12", True], [None, "0/13", True]],
+        columns=["in_octets", "port", "_bow_complete"], dtype=object,
+    )
+"""
+    df, _, _ = _run(code)
+    assert df["in_octets"].iloc[0] == 18446744073709551614
+    assert df["in_octets"].iloc[1] is None
+    assert df["port"].tolist() == ["0/12", "0/13"]
+    # Object columns come back as object columns of Python scalars, as they
+    # did in-process: `is True` holds, not just truthiness.
+    assert df["_bow_complete"].iloc[0] is True
+    assert df["in_octets"].dtype == object
+
+    # Still text for a column Arrow genuinely cannot type.
+    wide, meta = protocol.dataframe_to_arrow(pd.DataFrame({"w": [1 << 70, 1]}, dtype=object))
+    assert meta["stringified"] == ["w"]
+    assert protocol.arrow_to_dataframe(wide, meta)["w"].tolist() == [str(1 << 70), "1"]
+
+
 def test_protocol_refuses_oversized_frames():
     import io
     import struct
