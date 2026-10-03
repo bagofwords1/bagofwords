@@ -2185,30 +2185,6 @@ class ReportService:
 
         return schema
 
-    async def get_public_layouts(self, db: AsyncSession, report_id: str, user=None):
-        # Ensure report exists and has artifact visibility.
-        # lazyload("*") — the visibility check needs the report row only, not
-        # the selectin cascade (all step data, artifacts, completions, ...).
-        result = await db.execute(
-            select(Report).options(lazyload("*"))
-            .where(Report.id == report_id).where(Report.report_type == 'regular')
-        )
-        report = result.scalar_one_or_none()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        await self._check_visibility(db, report, 'artifact_visibility', user)
-
-        rows = await db.execute(
-            select(DashboardLayoutVersion).options(lazyload("*"))
-            .where(DashboardLayoutVersion.report_id == report_id).order_by(
-                DashboardLayoutVersion.created_at.asc()
-            )
-        )
-        layouts = rows.scalars().all()
-
-        from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
-        return [DashboardLayoutVersionSchema.from_orm(l) for l in layouts]
-
     async def get_public_queries(self, db: AsyncSession, report_id: str, artifact_id: str | None = None, user=None):
         """Get queries for a shared report.
 
@@ -2415,7 +2391,8 @@ class ReportService:
         # Fetch the artifact and verify it belongs to this report
         from app.models.artifact import ArtifactVersion
         artifact_result = await db.execute(
-            select(ArtifactVersion).options(lazyload("*")).where(
+            select(ArtifactVersion).options(lazyload("*"))
+            .where(
                 ArtifactVersion.id == artifact_id,
                 ArtifactVersion.report_id == report_id,
                 ArtifactVersion.deleted_at.is_(None)

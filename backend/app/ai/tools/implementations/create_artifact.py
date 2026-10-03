@@ -66,7 +66,7 @@ class CreateArtifactTool(Tool):
                 "Use for: new dashboards, full redesigns, large layout changes, or when edit_artifact cannot handle the scope. "
                 "Modes: 'page' for interactive dashboards with KPI cards, charts, and responsive grids; "
                 "'slides' for presentation decks (exportable to PPTX). "
-                "IMPORTANT: for 'page' mode visualization_ids are required - find them in previous create_data tool results "
+                "For analytical data use visualization_ids from previous create_data tool results; resource-backed and static pages may omit them. "
                 "shown as 'viz_id: <uuid>' in the conversation history. For 'slides' mode they are optional: "
                 "a deck may include title, agenda and narrative slides that carry no chart. "
                 "Do NOT ask the user for URLs or IDs - extract them from the conversation context. "
@@ -261,7 +261,7 @@ class CreateArtifactTool(Tool):
         Returns:
             Complete HTML string ready for headless browser rendering
         """
-        data_json = json.dumps(artifact_data, default=str)
+        data_json = json.dumps(artifact_data, default=str).replace("<", "\\u003c")
 
         # Slides mode: pure HTML + Tailwind (no React/Babel)
         if mode == "slides":
@@ -303,7 +303,7 @@ class CreateArtifactTool(Tool):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script>window.ARTIFACT_DATA = {data_json};</script>
+  <script>window.ARTIFACT_DATA = {data_json};window.__BOW_FIXTURE_MODE__=true;</script>
   {page_scripts}
   <style>
     html, body, #root {{ height: 100%; margin: 0; padding: 0; }}
@@ -939,35 +939,6 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # for the final persist + observation after the last repair round.
         _repair_deadline = time.monotonic() + 210
 
-        # Early validation: require at least one visualization OR at least one file
-        # (an image/PDF-only artifact is allowed when file_ids are provided).
-        # Slides are exempt: a deck legitimately opens with a title, agenda or
-        # narrative slide that carries no chart, and a whole deck may be
-        # narrative-only.
-        if (
-            (not data.visualization_ids or len(data.visualization_ids) == 0)
-            and not getattr(data, "file_ids", None)
-            and data.mode != "slides"
-        ):
-            yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Artifact"})
-            yield ToolEndEvent(
-                type="tool.end",
-                payload={
-                    "output": {
-                        "success": False,
-                        "error": "No visualization_ids provided. At least one visualization is required to create an artifact.",
-                    },
-                    "observation": {
-                        "summary": "Failed to create artifact: no visualization_ids provided",
-                        "error": {
-                            "type": "validation_error",
-                            "message": "visualization_ids is required and must contain at least one visualization ID. Create visualizations using create_data first, then use their IDs here.",
-                        },
-                    },
-                },
-            )
-            return
-
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Artifact"})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 
@@ -979,6 +950,14 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         db = runtime_ctx.get("db")
         context_hub = runtime_ctx.get("context_hub")
         organization_settings = runtime_ctx.get("settings")
+
+        # Reject unavailable persistence before generating code or a pending version.
+        if data.resources:
+            from app.services.artifact_resource_policy import artifact_resources_enabled
+            if not await artifact_resources_enabled(db, organization.id):
+                yield ToolEndEvent(type="tool.end", payload={"output": {"success": False}, "observation": {
+                    "error": "Artifact resources are disabled in organization settings. Ask an organization admin to enable Artifact resources in AI settings; do not promise persistence while disabled."}})
+                return
 
         # Check privacy setting
         allow_llm_see_data = True
@@ -1174,10 +1153,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "filename": f.filename,
                 })
 
-        # Early failure: if no valid visualizations AND no files were resolved,
-        # fail like create_data does with tables. Slides may be narrative-only
-        # (see the mode exemption in the early validation above).
-        if not visualizations and not included_files and data.mode != "slides":
+        # Explicit analytical/file references must resolve. A page that requests
+        # neither may be a static site or a resource-backed application.
+        if (data.visualization_ids or data.file_ids) and not visualizations and not included_files and data.mode != "slides":
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -1249,6 +1227,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "report and mode, so a NEW artifact was created instead."
                 )
 
+        replace_content = dict(replace_source.content or {}) if replace_source is not None else {}
+
         # Create artifact early with pending status so frontend can show it
         if replace_source is not None:
             artifact = await new_version(
@@ -1280,6 +1260,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             payload={
                 "stage": "artifact_created",
                 "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id),
                 "status": "pending",
                 "timing": False,
             }
@@ -1348,6 +1329,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 files=included_files,
                 prior_code=prior_code,
             )
+            if data.resources:
+                prompt += '\nDeclared resources (use these names and fields):\n' + json.dumps([r.model_dump() for r in data.resources])
             # Static reference goes in the system prompt so provider-side prompt
             # caching reuses it across artifact calls (page mode only — slides
             # keeps its single-prompt path).
@@ -1405,8 +1388,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
-                    "output": {"success": False, "artifact_id": str(artifact.id), "error": "Stopped by user"},
-                    "observation": {"summary": "Artifact creation stopped by user", "artifact_id": str(artifact.id), "stopped": True},
+                    "output": {"success": False, "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id), "error": "Stopped by user"},
+                    "observation": {"summary": "Artifact creation stopped by user", "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id), "stopped": True},
                 },
             )
             return
@@ -1508,6 +1493,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         if data.mode == "page":
             artifact_data = {
+                "_fixture_resources": [r.model_dump(include={"name", "kind", "fields"}) for r in data.resources],
                 "report": {
                     "id": str(report.id) if report else None,
                     "title": getattr(report, "title", None) if report else None,
@@ -1594,6 +1580,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         if data.mode == "slides" and preview_images:
             content["preview_images"] = preview_images
 
+        if replace_content.get('sdk_version') == 1:
+            content = {**content, 'sdk_version': 1,
+                       'resource_requirements': replace_content.get('resource_requirements', {})}
         artifact.content = content
         if data.mode == "slides":
             artifact.status = "completed" if pptx_success else "failed"
@@ -1613,6 +1602,52 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             artifact.screenshot_base64 = screenshot_base64
             artifact.render_errors = render_errors or None
 
+        resource_artifact_version_id = str(artifact.id)
+        try:
+            if data.resources and data.mode == "page" and render_clean:
+                import os
+                from app.services.artifact_resource_service import ArtifactResources, fail
+                from app.schemas.artifact_resource_schema import ResourceChange
+                from hashlib import sha256
+                from datetime import datetime
+                from sqlalchemy import update
+                from app.models.artifact_resource import ArtifactResource
+                from app.schemas.artifact_resource_schema import ResourceDefinition
+                # Savepoint: a rejected definition rolls back only the resource
+                # work, never the agent's shared session state.
+                async with db.begin_nested():
+                    resource_service = await ArtifactResources.open(db, str(artifact.artifact_id), user, organization.id, manage=True)
+                    # Serialize with schema mutations. Rebuilding UI is not permission
+                    # to silently migrate existing data or overwrite resource policies.
+                    await db.execute(update(Artifact).where(Artifact.id == artifact.artifact_id).values(updated_at=datetime.utcnow()))
+                    for definition in sorted(data.resources, key=lambda d: d.kind == 'ai'):
+                        existing = await db.scalar(select(ArtifactResource).where(
+                            ArtifactResource.artifact_id == artifact.artifact_id,
+                            ArtifactResource.name == definition.name,
+                        ))
+                        if existing is not None:
+                            if existing.deleted_at is not None:
+                                fail('CONFLICT', f"Resource name '{definition.name}' belonged to a deleted resource and stays reserved so older versions never bind to new data. Choose a new name.")
+                            expected = definition.model_dump()
+                            if definition.kind == 'ai' and definition.model_id is None:
+                                expected['model_id'] = existing.definition.get('model_id')
+                            if expected != ResourceDefinition.model_validate(existing.definition).model_dump():
+                                fail('CONFLICT', 'Resource already exists with a different definition. Read and explicitly update its schema or permissions before rebuilding.')
+                            continue
+                        await resource_service.configure(ResourceChange(action='create', definition=definition,
+                            idempotency_key=f'create:{artifact.id}:{sha256(definition.name.encode()).hexdigest()[:32]}'))
+                    requirements = {**artifact.content.get('resource_requirements', {}), **{
+                        d.name: {'kind': d.kind, 'fields': {k: f.type for k, f in d.fields.items()}} for d in data.resources}}
+                    artifact.content = {**artifact.content, 'sdk_version': 1, 'resource_requirements': requirements}
+        except Exception as exc:
+            failed = await db.get(ArtifactVersion, resource_artifact_version_id)
+            if failed:
+                failed.status = 'failed'
+                await db.commit()
+            from app.errors import AppError
+            message = exc.message if isinstance(exc, AppError) else 'Resource definitions could not be applied. Check definitions and retry.'
+            yield ToolEndEvent(type='tool.end', payload={'output': {'success': False}, 'observation': {'error': message}})
+            return
         await db.commit()
         await db.refresh(artifact)
 
@@ -1656,8 +1691,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     ),
                 },
                 "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id),
                 "mode": data.mode,
-                "visualization_count": len(visualizations),
+                "resources": await resource_service.definitions() if data.resources and data.mode == "page" and render_clean else [],
+            "visualization_count": len(visualizations),
                 "visualization_ids": included_viz_ids,
                 "render_errors": [_error_msg],
             }
@@ -1669,6 +1706,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "output": {
                         "success": False,
                         "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id),
                         "error": f"PPTX execution failed: {_error_msg}",
                         "code_preview": {
                             "language": "python",
@@ -1713,8 +1751,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     ),
                 },
                 "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id),
                 "mode": data.mode,
-                "visualization_count": len(visualizations),
+                "resources": await resource_service.definitions() if data.resources and data.mode == "page" and render_clean else [],
+            "visualization_count": len(visualizations),
                 "visualization_ids": included_viz_ids,
                 "render_errors": render_errors,
             }
@@ -1734,6 +1774,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "output": {
                         "success": False,
                         "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id),
                         "error": f"Render validation failed: {first_error}",
                         "code_preview": {
                             "language": "jsx",
@@ -1748,6 +1789,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         output = CreateArtifactOutput(
             artifact_id=str(artifact.id),
+            resource_artifact_id=str(artifact.artifact_id),
             code=code,
             mode=data.mode,
             title=data.title,
@@ -1767,6 +1809,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         code_lines = code.count('\n') + 1 if code else 0
         output["artifact_preview"] = {
             "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id),
             "title": data.title or "Untitled",
             "mode": data.mode,
             "version": artifact.version,
@@ -1775,6 +1818,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "lines": code_lines,
             },
             "visualization_ids": included_viz_ids,
+            "resources": await resource_service.definitions() if data.resources and data.mode == "page" and render_clean else [],
             "visualization_count": len(visualizations),
         }
         # Code for collapsible toggle (collapsed by default in UI)
@@ -1829,7 +1873,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             "summary": summary_msg,
             "verification_hint": verification_hint,
             "artifact_id": str(artifact.id),
+                "resource_artifact_id": str(artifact.artifact_id),
             "mode": data.mode,
+            "resources": await resource_service.definitions() if data.resources and data.mode == "page" and render_clean else [],
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
         }
@@ -2382,7 +2428,8 @@ Create a beautiful, varied presentation following these design principles. Each 
         """Shared cacheable data-app guidance and runtime API contract."""
         from app.ai.agents.planner.data_app_authoring import DATA_APP_AUTHORING
 
-        return DATA_APP_AUTHORING + "\n\n" + SANDBOX_RUNTIME_PROMPT
+        from app.ai.agents.planner.artifact_sdk_reference import ARTIFACT_SDK_REFERENCE
+        return DATA_APP_AUTHORING + "\n\n" + SANDBOX_RUNTIME_PROMPT + "\n\n" + ARTIFACT_SDK_REFERENCE
 
     def _build_page_prompt(
         self,

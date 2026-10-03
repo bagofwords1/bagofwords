@@ -103,3 +103,40 @@ unwrapped SDK exception; corrected to match the established provider contract
 and facade error behavior. Python compilation and `git diff --check` pass.
 
 This proves request construction, not live acceptance or a measured latency gain.
+
+## Parent merge — bounded streaming compatibility
+
+Merged parent `267c1b4d9` (`codex/artifact-resources`). The only textual conflict
+was `LLM.inference_stream`: the parent added `preserve_text`, output bounds,
+explicit iterator closure and usage recording in `finally`, while this PR added
+the reasoning-aware stream bridge. Both behaviors are retained. Bounded calls
+use the bounded legacy adapters with the effective thinking policy; their
+no-retry, truncation and cancellation behavior remains active. Unbounded calls
+retain the native-stream policy bridge. Six additional facade cases cover raw
+text, output caps, lowest reasoning, normal completion, truncation and closing.
+
+The previous focused suite plus the parent's bounded-stream tests now reports
+**504 passed, 0 failed, 151 warnings**. Python compilation and whitespace checks
+pass. Run the verification command above with these additional modules:
+
+```text
+tests/unit/test_small_model_reasoning.py
+tests/unit/test_llm_provider_headers.py
+tests/unit/artifact_resources/test_bounded_streams.py
+```
+
+Parent integration findings:
+
+- **Pre-existing defect, corrected:** parent `backend/app/errors/codes.py:24–25`
+  repeats `SAML_UNAVAILABLE` and `SAML_LOGIN_FAILED`, already declared at lines
+  11–12. Executing the source directly from `git show 267c1b4d9:backend/app/errors/codes.py`
+  raises `TypeError: 'SAML_UNAVAILABLE' already defined`. Last touched in parent
+  merge `bb00dea59`. Removed only the repeated declarations; values are unchanged.
+- **Pre-existing migration blocker, not changed:** database-backed title tests
+  cannot set up their fixtures because Alembic reports three heads:
+  `artssomrg01`, `auditstrm01`, `mrg1003`. Migration files are identical to parent
+  `267c1b4d9` (`git diff 267c1b4d9 -- backend/alembic` is empty). All ten cases
+  in `test_report_title_streaming.py` are blocked at the same fixture setup.
+  These are not included in the 504 passing focused tests. Initial invocation
+  without conftest also lacked the required ORM/DB fixtures; rerunning with
+  normal fixtures exposed the migration blocker above.

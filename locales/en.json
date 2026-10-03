@@ -833,7 +833,8 @@
       "newActivity": "New activity",
       "errorNew": "Finished with an error"
     },
-    "inProject": "In {name}"
+    "inProject": "In {name}",
+    "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again."
   },
   "projects": {
     "title": "Projects",
@@ -1765,6 +1766,18 @@
         "updated": "updated",
         "unchanged": "unchanged"
       }
+    },
+    "resource": {
+      "failed": "Resource change failed",
+      "create": "Created resource",
+      "update": "Updated resource",
+      "delete": "Deleted resource",
+      "working": "Configuring resource",
+      "stopped": "Stopped",
+      "unchanged": "Resource unchanged",
+      "preserved": "Existing records preserved.",
+      "changed": "Changed",
+      "noChanges": "No changes applied."
     }
   },
   "entityCreate": {
@@ -2672,7 +2685,191 @@
       "daysAbbr": "{n}d",
       "rangeCount": "{start}–{end} of {total}",
       "prev": "‹ Prev",
-      "next": "Next ›"
+      "next": "Next ›",
+      "tabs": {
+        "activity": "Activity",
+        "streams": "Streams"
+      },
+      "actorAgent": "via agent",
+      "actorSystem": "system",
+      "searchPlaceholder": "Search actions, users, titles…",
+      "filters": {
+        "user": "User",
+        "allUsers": "All users",
+        "resource": "Resource",
+        "allResources": "All resources",
+        "range": "Time",
+        "rangeAll": "All time",
+        "range24h": "Last 24 hours",
+        "range7d": "Last 7 days",
+        "range30d": "Last 30 days",
+        "filterActions": "Filter actions…",
+        "noOptions": "No matches"
+      },
+      "export": {
+        "button": "Export",
+        "json": "Download JSON (NDJSON)",
+        "csv": "Download CSV",
+        "hint": "Exports the current filtered view, oldest first.",
+        "failed": "Export failed"
+      },
+      "drawer": {
+        "title": "Event details",
+        "close": "Close",
+        "who": "Who",
+        "when": "When",
+        "where": "Where",
+        "what": "What",
+        "details": "Details",
+        "rawJson": "Raw JSON",
+        "copy": "Copy",
+        "copied": "Copied",
+        "actor": "Actor",
+        "actorType": "Actor type",
+        "timeUtc": "UTC",
+        "timeLocal": "Local",
+        "relative": "Relative",
+        "ip": "IP address",
+        "userAgent": "User agent",
+        "action": "Action",
+        "resourceType": "Resource type",
+        "resourceId": "Resource ID",
+        "open": "Open",
+        "agentRun": "Agent run",
+        "executionMode": "Execution mode",
+        "none": "—",
+        "noDetails": "No additional details",
+        "fields": {
+          "title": "Title",
+          "tool": "Tool",
+          "data_source": "Data source",
+          "connection": "Connection",
+          "queries": "Queries",
+          "row_count": "Rows",
+          "reason": "Reason",
+          "error": "Error",
+          "changed": "Changes",
+          "state": "State",
+          "destination": "Destination",
+          "format": "Format"
+        },
+        "actorKinds": {
+          "user": "User",
+          "agent": "Agent (on behalf of user)",
+          "system": "System"
+        }
+      },
+      "streams": {
+        "title": "Log streams",
+        "subtitle": "Deliver every audit event to your SIEM or storage bucket. After any outage, delivery resumes from the last event sent.",
+        "empty": "No log streams yet",
+        "emptyHint": "Add a stream to send audit events to Datadog, Splunk, Microsoft Sentinel, S3, Google Cloud Storage, a webhook or syslog.",
+        "add": "Add stream",
+        "edit": "Edit",
+        "delete": "Delete",
+        "deleteConfirm": "Delete stream \"{name}\"? Events stop being delivered to it.",
+        "pause": "Pause",
+        "resume": "Resume",
+        "state": {
+          "active": "Active",
+          "inactive": "Paused",
+          "error": "Error",
+          "invalid": "Invalid credentials"
+        },
+        "delivered": "{n} delivered",
+        "pending": "{n} pending",
+        "lag": "behind by {time}",
+        "lastDelivered": "Last delivered {time}",
+        "never": "never",
+        "lastError": "Last error",
+        "nextAttempt": "Retrying {time}",
+        "manageRequired": "Only members with Manage settings can change log streams.",
+        "form": {
+          "titleNew": "Add log stream",
+          "titleEdit": "Edit log stream",
+          "name": "Name",
+          "namePlaceholder": "e.g. Splunk production",
+          "destination": "Destination",
+          "chooseDestination": "Choose where to send events",
+          "startFrom": "Start from",
+          "startNow": "New events only",
+          "startBeginning": "Include all history",
+          "actionFilter": "Only actions starting with",
+          "actionFilterHint": "Comma-separated prefixes such as tool., member. — leave empty to send everything.",
+          "advanced": "Advanced settings",
+          "test": "Send test event",
+          "testing": "Sending…",
+          "testOk": "Test event delivered",
+          "testFailed": "Test failed: {error}",
+          "save": "Save stream",
+          "saving": "Saving…",
+          "cancel": "Cancel",
+          "back": "Back",
+          "secretStored": "Stored — leave as is to keep",
+          "externalIdHint": "Put this External ID in the IAM role's trust policy.",
+          "required": "Required"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "HTTPS webhook",
+          "syslog": "Syslog over TLS"
+        },
+        "destinationHints": {
+          "datadog": "Logs intake API",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "Logs Ingestion API (DCR)",
+          "s3": "NDJSON objects per batch",
+          "gcs": "NDJSON objects via HMAC keys",
+          "https": "Signed JSON POST",
+          "syslog": "RFC 5424, JSON or CEF"
+        },
+        "fields": {
+          "url": "Endpoint URL",
+          "auth_header_name": "Auth header name",
+          "auth_header_value": "Auth header value",
+          "hmac_secret": "Signing secret (HMAC)",
+          "headers": "Extra headers (JSON object)",
+          "verify_tls": "Verify TLS certificate",
+          "site": "Datadog site",
+          "api_key": "API key",
+          "service": "Service",
+          "tags": "Tags",
+          "intake_url": "Custom intake URL",
+          "hec_url": "HEC URL",
+          "token": "HEC token",
+          "index": "Index",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "Tenant ID",
+          "client_id": "Client ID",
+          "client_secret": "Client secret",
+          "dce_url": "Data collection endpoint",
+          "dcr_immutable_id": "DCR immutable ID",
+          "stream_name": "Stream name",
+          "authority_url": "Authority URL",
+          "bucket": "Bucket",
+          "region": "Region",
+          "prefix": "Key prefix",
+          "role_arn": "Role ARN",
+          "external_id": "External ID",
+          "access_key_id": "Access key ID",
+          "secret_access_key": "Secret access key",
+          "gzip": "Gzip objects",
+          "endpoint_url": "Custom endpoint URL",
+          "sts_endpoint_url": "Custom STS endpoint",
+          "host": "Host",
+          "port": "Port",
+          "tls": "Use TLS",
+          "format": "Message format",
+          "ca_cert": "CA certificate (PEM)",
+          "app_name": "App name",
+          "client_cert": "Client certificate (PEM)",
+          "client_key": "Client key (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "AI Settings",
@@ -2680,9 +2877,39 @@
       "beta": "Beta feature",
       "locked": "This setting is locked and cannot be changed.",
       "notEditable": "(Not directly editable)",
-      "aiAgentsTitle": "AI Agents",
-      "aiAgentsSubtitle": "Configure AI agents and capabilities available to your organization's members.",
       "noSettings": "No AI settings available.",
+      "sectionSummary": "{n} settings",
+      "sectionSummaryOn": "{n} settings · {on} on",
+      "sections": {
+        "data": {
+          "title": "Data access & privacy",
+          "description": "What the AI can see and bring into a conversation"
+        },
+        "capabilities": {
+          "title": "Agent capabilities",
+          "description": "What the agent can do while answering"
+        },
+        "learning": {
+          "title": "Learning & memory",
+          "description": "How the AI learns from users, feedback and usage"
+        },
+        "tools": {
+          "title": "Tools & MCP",
+          "description": "External MCP servers and custom API tools"
+        },
+        "limits": {
+          "title": "Limits",
+          "description": "Row caps, timeouts, retries and context sizes"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "description": "Webhooks, forks and data retention"
+        },
+        "other": {
+          "title": "Other",
+          "description": "Settings not yet assigned to a section"
+        }
+      },
       "llmAccessWarning": "Changing this setting affects data privacy. A confirmation will be required.",
       "llmModalTitleEnable": "Enable LLM Data Access",
       "llmModalTitleDisable": "Disable LLM Data Access",
@@ -2692,7 +2919,7 @@
       "llmImpactInspectTool": "Inspect Data",
       "llmImpactAccuracy": "Reduced analysis accuracy and performance",
       "llmImpactColumns": "AI will only see column names and statistics, not actual values",
-      "llmFileUploadsNote": "File uploads are unaffected by this setting and will still be visible to the AI (you can disable file uploads separately).",
+      "llmFileUploadsNote": "File uploads are unaffected by this setting and will still be visible to the AI.",
       "llmConfirmLabel": "Type {phrase} to confirm",
       "llmConfirmPhrase": "I AM SURE",
       "llmConfirmPlaceholder": "I AM SURE",
@@ -2815,6 +3042,10 @@
           "name": "MCP result inline size",
           "description": "How much of an MCP / custom API tool result the agent sees directly in its context, in characters. The complete response is always saved to a file whatever this is set to; this only decides how much the model can read without opening that file. Raise it so the agent can answer from a whole result set instead of a sample; lower it to spend fewer tokens per call. Set to 0 for a 3-record sample. Clamped to 0-500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "MCP data preview rows",
+          "description": "How many result rows create_data returns to an external MCP client (Claude, Cursor, etc.) in its response. The full result is always saved in the report; this only decides how much the client's model receives inline. A client may ask for fewer rows, never more. Also bounded by 'Limit row count'. Clamped to 1-10000."
+        },
         "enable_web_fetch": {
           "name": "Web Fetch",
           "description": "Allow the agent to fetch the contents of public HTTP and HTTPS URLs. Only text-like responses are returned and large bodies are truncated."
@@ -2894,6 +3125,10 @@
         "checkins_max_runs_per_org_per_day": {
           "name": "Check-in runs per day",
           "description": "Upper bound on follow-up runs across the organization per day (cost cap)."
+        },
+        "enable_artifact_resources": {
+          "name": "Artifact resources",
+          "description": "Allow artifacts to use persistent records, private files and approved AI operations. Existing sharing and resource permissions still apply."
         }
       }
     },
@@ -3706,7 +3941,23 @@
     "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
     "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
     "memory.full": "Memory is full. Delete some entries first.",
-    "memory.not_active": "That entry was already changed or forgotten."
+    "memory.not_active": "That entry was already changed or forgotten.",
+    "audit_stream.not_found": "Audit log stream not found.",
+    "audit_stream.invalid_destination": "Unknown log stream destination.",
+    "audit_stream.missing_field": "A required field is missing: {field}.",
+    "audit_stream.invalid_field": "Invalid value for {field}.",
+    "audit_log.export_too_large": "Export is limited to {limit} events and this filter matches {total}. Narrow the filter or use a log stream.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Invalid resource request",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Resource not found",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Resource access denied",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Sign in to continue",
+    "ARTIFACT_RESOURCE_CONFLICT": "Resource changed; refresh and try again",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Resource limit reached",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "Too many requests; try again later",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Resource unavailable",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Request interrupted",
+    "ARTIFACT_RESOURCE_ABORTED": "Request cancelled",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Unsupported SDK version"
   },
   "email": {
     "dashboardShare": {
@@ -3900,16 +4151,6 @@
     "menuData": "Data"
   },
   "toolbar": {
-    "collapse": "Collapse",
-    "switchToArtifact": "Switch to Artifact view",
-    "dashboard": "Dashboard",
-    "addComponent": "Add Component",
-    "addText": "Add Text",
-    "theme": "Theme",
-    "rerun": "Rerun report",
-    "openInNewTab": "Open dashboard in a new tab",
-    "fullscreen": "Full screen",
-    "shareDashboard": "Share Dashboard",
     "polishDashboard": "Polish Dashboard"
   },
   "artifactFrame": {
@@ -3975,44 +4216,8 @@
     "partialRenderFailed": "Part of this dashboard uses data you don't have access to, so it couldn't be displayed. Ask the dashboard's owner for access."
   },
   "filter": {
-    "addFilters": "Add Filters",
-    "title": "Filters",
-    "clear": "Clear",
-    "loading": "Loading…",
-    "noData": "No data available to filter",
-    "refresh": "Refresh",
-    "noFilters": "No filters applied",
-    "addFilter": "Add filter",
-    "columnPlaceholder": "Column",
-    "searchPlaceholder": "Search…",
-    "valuePlaceholder": "Value",
     "selectColumn": "Select column",
-    "visualization": "Visualization",
-    "orDivider": "OR",
-    "andDivider": "AND",
-    "rowsCount": "{shown} of {total} rows",
-    "apply": "Apply",
-    "op": {
-      "equals": "equals",
-      "notEquals": "not equals",
-      "contains": "contains",
-      "notContains": "not contains",
-      "startsWith": "starts with",
-      "endsWith": "ends with",
-      "isEmpty": "is empty",
-      "isNotEmpty": "is not empty",
-      "in": "in",
-      "notIn": "not in",
-      "greaterThan": "greater than",
-      "lessThan": "less than",
-      "greaterOrEqual": "greater or equal",
-      "lessOrEqual": "less or equal",
-      "between": "between",
-      "before": "before",
-      "after": "after",
-      "isTrue": "is true",
-      "isFalse": "is false"
-    }
+    "visualization": "Visualization"
   },
   "slideViewer": {
     "loading": "Loading slides...",
@@ -5614,5 +5819,36 @@
     "selectAll": "Select all rows",
     "selectRow": "Select row",
     "toastRowsDeleted": "{n} row deleted | {n} rows deleted"
+  },
+  "artifactResources": {
+    "readOnlyLabel": "Read only",
+    "sort": "Sort records",
+    "applyFilter": "Apply",
+    "clearFilter": "Clear filter",
+    "true": "True",
+    "false": "False",
+    "inspect": "Resources",
+    "readOnly": "Read-only artifact insights",
+    "data": "Data explorer",
+    "analytics": "Analytics",
+    "collection": "Select collection",
+    "refresh": "Refresh",
+    "schema": "Collection schema",
+    "filterField": "Filter field",
+    "filterValue": "Equals",
+    "filter": "Filter",
+    "empty": "No data to display",
+    "pageRows": "{count} record on this page | {count} records on this page",
+    "next": "Next page",
+    "details": "Record details",
+    "views": "Views",
+    "viewers": "Authenticated unique viewers",
+    "anonymousNote": "Anonymous visits are included in views, not unique people.",
+    "embedded": "Embedded",
+    "standalone": "Shared page",
+    "days": "Last {count} days",
+    "failed": "Unable to load artifact data",
+    "newest": "Newest first",
+    "oldest": "Oldest first"
   }
 }

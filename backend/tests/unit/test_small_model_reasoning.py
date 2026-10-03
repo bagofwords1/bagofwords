@@ -121,3 +121,54 @@ def test_main_model_inherits_explicit_constructor_policy(effort):
     with patch.object(llm.client.async_client.responses,'create',capture),pytest.raises(RuntimeError):
         asyncio.run(run())
     assert requests[0]['reasoning']['effort']==('none' if effort=='off' else effort)
+
+@pytest.mark.parametrize('provider,model_id', [('openai','gpt-6-luna'),('anthropic','claude-sonnet-4-6')])
+@pytest.mark.parametrize('ending', ['complete','truncate','cancel'])
+def test_bounded_small_stream_keeps_minimum_raw_text_and_closes(provider, model_id, ending):
+    llm = LLM(model(True, model_id, provider))
+    text = '```json\n  {"value": 1}\n```  '
+
+    class Transport:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=self)
+            self.messages = self
+            self.closed = False
+            self.params = None
+        def with_options(self, **options):
+            assert options['max_retries'] == 0
+            return self
+        async def create(self, **params):
+            self.params = params
+            return self
+        def __aiter__(self):
+            return self.events()
+        async def events(self):
+            if provider == 'anthropic':
+                yield SimpleNamespace(type='content_block_delta', delta=SimpleNamespace(text=text))
+                yield SimpleNamespace(type='message_delta', delta=SimpleNamespace(stop_reason='max_tokens' if ending=='truncate' else 'end_turn'))
+            else:
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=text),finish_reason=None)])
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=None),finish_reason='length' if ending=='truncate' else 'stop')])
+        async def close(self):
+            self.closed = True
+
+    transport = Transport()
+    llm.client.async_client = transport  # External SDK boundary only.
+    async def run():
+        stream = llm.inference_stream('question', should_record=False, preserve_text=True, max_output_tokens=128)
+        assert await anext(stream) == text
+        if ending == 'cancel':
+            await stream.aclose()
+        elif ending == 'truncate':
+            with pytest.raises(RuntimeError):
+                await anext(stream)
+        else:
+            with pytest.raises(StopAsyncIteration):
+                await anext(stream)
+    asyncio.run(run())
+    assert transport.closed
+    assert transport.params.get('max_completion_tokens',transport.params.get('max_tokens')) == 128
+    if provider == 'openai':
+        assert transport.params['reasoning_effort'] == 'none'
+    else:
+        assert transport.params['extra_body']['thinking']['type'] == 'disabled'

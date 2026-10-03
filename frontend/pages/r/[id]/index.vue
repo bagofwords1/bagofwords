@@ -213,16 +213,8 @@
                     ref="artifactIframeRef"
                     :srcdoc="iframeSrcdoc"
                     @load="onArtifactIframeLoad"
-                    sandbox="allow-scripts allow-same-origin allow-downloads"
+                    sandbox="allow-scripts allow-downloads allow-forms"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
-                />
-
-                <!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
-                <DashboardComponent
-                    v-else-if="hasLegacyLayout && !hasArtifacts && reportLoaded"
-                    :report="report"
-                    :edit="false"
-                    class="absolute inset-0 w-full h-full"
                 />
 
                 <!-- Loading state -->
@@ -233,7 +225,11 @@
                     </div>
                 </div>
 
-                <!-- Empty state (no artifacts, no legacy layout) -->
+                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-gray-500">
+                    <p>{{ $t('reports.artifactLoadFailed') }}</p>
+                </div>
+
+                <!-- Empty state (no artifacts) -->
                 <div v-else class="absolute inset-0 flex items-center justify-center text-gray-400">
                     <div class="text-center">
                         <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
@@ -279,7 +275,6 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
-import DashboardComponent from '~/components/DashboardComponent.vue';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
@@ -313,7 +308,7 @@ async function fetchViewerContext() {
 const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
-const hasLegacyLayout = ref(false);
+const artifactLoadFailed = ref(false);
 const reportLoaded = ref(false);
 const dataReady = ref(false);
 
@@ -734,9 +729,11 @@ async function loadReport() {
 
 // Fetch the latest artifact for this report (using public endpoints)
 async function loadArtifact() {
+    artifactLoadFailed.value = false;
     try {
         // Use public endpoint - no auth required
-        const { data } = await useMyFetch(`/api/r/${report_id}/artifacts`);
+        const { data, error } = await useMyFetch(`/api/r/${report_id}/artifacts`);
+        if (error.value) throw error.value;
         if (data.value && Array.isArray(data.value) && data.value.length > 0) {
             hasArtifacts.value = true;
             // Prefer the newest dashboard/deck (the list is created_at desc):
@@ -745,7 +742,8 @@ async function loadArtifact() {
             const rows = data.value as any[];
             const latestArtifactId = (rows.find(a => a.mode !== 'doc') || rows[0]).id;
             // Use public artifact endpoint
-            const { data: fullArtifact } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
+            const { data: fullArtifact, error: detailError } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
+            if (detailError.value || !fullArtifact.value) throw detailError.value || new Error("Missing artifact response");
             if (fullArtifact.value) {
                 artifact.value = fullArtifact.value;
                 await loadArtifactFiles();
@@ -755,21 +753,8 @@ async function loadArtifact() {
         }
     } catch (e) {
         hasArtifacts.value = false;
-        console.log('[PublicArtifact] No artifact found, will check for legacy layout');
-    }
-}
-
-// Check if report has legacy dashboard layout
-async function checkLegacyLayout() {
-    try {
-        const { data } = await useMyFetch(`/api/r/${report_id}/layouts?hydrate=true`);
-        const layouts = Array.isArray(data.value) ? data.value : [];
-        const activeLayout = layouts.find((l) => l.is_active);
-        if (activeLayout?.blocks && Array.isArray(activeLayout.blocks) && activeLayout.blocks.length > 0) {
-            hasLegacyLayout.value = true;
-        }
-    } catch (e) {
-        hasLegacyLayout.value = false;
+        artifactLoadFailed.value = true;
+        console.error('[PublicArtifact] Failed to load artifact');
     }
 }
 
@@ -902,6 +887,7 @@ async function loadVisualizationData(artifactId?: string) {
 // mode and pushes fresh rows back with a new ARTIFACT_DATA message.
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
+useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id}));
 // The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
 // later data change has to be posted into it. A message posted before the
 // iframe finishes loading is simply lost, so deliveries wait for `load`.
@@ -916,7 +902,7 @@ watch(() => colorMode.value, (v) => {
     artifactColorMode = v === 'dark' ? 'dark' : 'light';
     artifactIframeRef.value?.contentWindow?.postMessage(
         { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
-        window.location.origin
+        '*'
     );
 });
 
@@ -1073,7 +1059,7 @@ function queriesWithIdentityParams(): string[] {
 
 function postToArtifactIframe(msg: any) {
     try {
-        artifactIframeRef.value?.contentWindow?.postMessage(msg, window.location.origin);
+        artifactIframeRef.value?.contentWindow?.postMessage(msg, '*');
     } catch { /* iframe not ready */ }
 }
 
@@ -1238,6 +1224,7 @@ const iframeSrcdoc = computed(() => {
         data: seed,
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
+        resourceApp: artifact.value?.content?.sdk_version === 1,
         colorMode: artifactColorMode,
     });
 });
@@ -1319,11 +1306,6 @@ onMounted(async () => {
     // This ensures we only fetch queries used by the artifact
     const artifactId = artifact.value?.id;
     await loadVisualizationData(artifactId);
-
-    // If no artifacts, check for legacy layout
-    if (!hasArtifacts.value) {
-        await checkLegacyLayout();
-    }
 
     // Params: defaults from declarations; identity-scoped queries run as the
     // signed-in viewer BEFORE first paint so the dashboard opens on their
