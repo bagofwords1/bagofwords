@@ -24,7 +24,7 @@ let respond = async (url, options) => {
 const state = {
   props:{verificationPreview:true}, paramAckSeq:0, paramRunCounter:0, latestParamRunForQid:{}, verificationRevision:0,
   queryParamSpecs:{value:{sales:[{name:'country',source:'input'}],stock:[{name:'warehouse',source:'input'}]}},
-  paramValues:{value:{}}, viewAsMode:{value:'you'}, iframeReady:{value:true}, dataReady:{value:false}, iframeError:{value:null},
+  paramValues:{value:{}}, viewAsMode:{value:'you'}, iframeReady:{value:true}, fullscreenReady:{value:false}, fullscreenRuntimeFrame:{value:null}, dataReady:{value:false}, iframeError:{value:null},
   visualizationsData:{value:[{id:'sales-chart',queryId:'sales',rows:[]},{id:'stock-chart',queryId:'stock',rows:[]}]},
   reportData:{value:{}},filesData:{value:[]},effectiveViewerContext:{value:{}},
   window:{location:{origin:'https://preview.test'}},console:{log(){},error(){}},

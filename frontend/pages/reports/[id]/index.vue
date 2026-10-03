@@ -984,6 +984,7 @@ import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
@@ -2627,7 +2628,9 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'create_dashboard':
 			return CreateDashboardTool
-		case 'create_artifact':
+		case 'manage_artifact_resources':
+            return ManageArtifactResourcesTool
+        case 'create_artifact':
 			return CreateArtifactTool
 		case 'read_artifact':
 			return ReadArtifactTool

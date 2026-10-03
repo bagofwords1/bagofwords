@@ -2391,7 +2391,8 @@ class ReportService:
         # Fetch the artifact and verify it belongs to this report
         from app.models.artifact import ArtifactVersion
         artifact_result = await db.execute(
-            select(ArtifactVersion).options(lazyload("*")).where(
+            select(ArtifactVersion).options(lazyload("*"))
+            .where(
                 ArtifactVersion.id == artifact_id,
                 ArtifactVersion.report_id == report_id,
                 ArtifactVersion.deleted_at.is_(None)

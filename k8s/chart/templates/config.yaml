@@ -32,6 +32,9 @@ data:
 
   # Application configuration
   BOW_BASE_URL: {{ .Values.config.baseUrl | quote }}
+  {{- if .Values.config.forwardedAllowIps }}
+  FORWARDED_ALLOW_IPS: {{ .Values.config.forwardedAllowIps | quote }}
+  {{- end }}
   BOW_AUTH_MODE: {{ .Values.config.authMode | quote }}
   BOW_GOOGLE_AUTH_ENABLED: {{ .Values.config.googleOauthEnabled | quote }}
   BOW_INTERCOM_ENABLED: {{ .Values.config.intercomEnabled | quote }}

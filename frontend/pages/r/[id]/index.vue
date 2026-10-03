@@ -213,7 +213,7 @@
                     ref="artifactIframeRef"
                     :srcdoc="iframeSrcdoc"
                     @load="onArtifactIframeLoad"
-                    sandbox="allow-scripts allow-same-origin allow-downloads"
+                    sandbox="allow-scripts allow-downloads allow-forms"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
                 />
 
@@ -223,6 +223,10 @@
                         <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
                         <p>Loading...</p>
                     </div>
+                </div>
+
+                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-gray-500">
+                    <p>{{ $t('reports.artifactLoadFailed') }}</p>
                 </div>
 
                 <!-- Empty state (no artifacts) -->
@@ -304,6 +308,7 @@ async function fetchViewerContext() {
 const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
+const artifactLoadFailed = ref(false);
 const reportLoaded = ref(false);
 const dataReady = ref(false);
 
@@ -724,9 +729,11 @@ async function loadReport() {
 
 // Fetch the latest artifact for this report (using public endpoints)
 async function loadArtifact() {
+    artifactLoadFailed.value = false;
     try {
         // Use public endpoint - no auth required
-        const { data } = await useMyFetch(`/api/r/${report_id}/artifacts`);
+        const { data, error } = await useMyFetch(`/api/r/${report_id}/artifacts`);
+        if (error.value) throw error.value;
         if (data.value && Array.isArray(data.value) && data.value.length > 0) {
             hasArtifacts.value = true;
             // Prefer the newest dashboard/deck (the list is created_at desc):
@@ -735,7 +742,8 @@ async function loadArtifact() {
             const rows = data.value as any[];
             const latestArtifactId = (rows.find(a => a.mode !== 'doc') || rows[0]).id;
             // Use public artifact endpoint
-            const { data: fullArtifact } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
+            const { data: fullArtifact, error: detailError } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
+            if (detailError.value || !fullArtifact.value) throw detailError.value || new Error("Missing artifact response");
             if (fullArtifact.value) {
                 artifact.value = fullArtifact.value;
                 await loadArtifactFiles();
@@ -745,7 +753,8 @@ async function loadArtifact() {
         }
     } catch (e) {
         hasArtifacts.value = false;
-        console.log('[PublicArtifact] No artifact found');
+        artifactLoadFailed.value = true;
+        console.error('[PublicArtifact] Failed to load artifact');
     }
 }
 
@@ -878,6 +887,7 @@ async function loadVisualizationData(artifactId?: string) {
 // mode and pushes fresh rows back with a new ARTIFACT_DATA message.
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
+useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id}));
 // The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
 // later data change has to be posted into it. A message posted before the
 // iframe finishes loading is simply lost, so deliveries wait for `load`.
@@ -892,7 +902,7 @@ watch(() => colorMode.value, (v) => {
     artifactColorMode = v === 'dark' ? 'dark' : 'light';
     artifactIframeRef.value?.contentWindow?.postMessage(
         { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
-        window.location.origin
+        '*'
     );
 });
 
@@ -1049,7 +1059,7 @@ function queriesWithIdentityParams(): string[] {
 
 function postToArtifactIframe(msg: any) {
     try {
-        artifactIframeRef.value?.contentWindow?.postMessage(msg, window.location.origin);
+        artifactIframeRef.value?.contentWindow?.postMessage(msg, '*');
     } catch { /* iframe not ready */ }
 }
 
@@ -1214,6 +1224,7 @@ const iframeSrcdoc = computed(() => {
         data: seed,
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
+        resourceApp: artifact.value?.content?.sdk_version === 1,
         colorMode: artifactColorMode,
     });
 });

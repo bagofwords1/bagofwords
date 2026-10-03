@@ -639,6 +639,7 @@
     }
   },
   "reports": {
+    "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen.",
     "title": "Rapporter",
     "subtitle": "Bläddra och hantera dina rapporter",
     "newReport": "Ny rapport",
@@ -1083,6 +1084,18 @@
     "loopRetryNotice": "Ett internt fel uppstod — försöker igen från den senaste kontexten (försök {attempt}/{max})"
   },
   "tools": {
+    "resource": {
+      "failed": "Resursändringen misslyckades",
+      "create": "Resurs skapad",
+      "update": "Resurs uppdaterad",
+      "delete": "Resurs borttagen",
+      "working": "Konfigurerar resurs",
+      "stopped": "Stoppad",
+      "unchanged": "Resurs oförändrad",
+      "preserved": "Befintliga poster bevarade.",
+      "changed": "Ändringar",
+      "noChanges": "Inga ändringar tillämpades."
+    },
     "common": {
       "input": "Indata",
       "output": "Utdata",
@@ -2519,6 +2532,10 @@
           "name": "Låt LLM:en se data",
           "description": "Låter LLM:en se data som en del av analysen och användarnas frågor"
         },
+        "enable_artifact_resources": {
+          "name": "Artefaktresurser",
+          "description": "Tillåt artefakter att använda beständiga poster, privata filer och godkända AI-operationer. Befintliga delnings- och resursbehörigheter gäller fortfarande."
+        },
         "enable_artifact_verification": {
           "name": "Verifiera dataappar",
           "description": "Låt agenten kontrollera interaktiva sidor med webbläsarverktyg. Kräver att språkmodellen får se data."
@@ -3532,7 +3549,18 @@
     "memory.sensitive": "Minnet kan inte innehålla hemligheter, lösenord eller känsliga personuppgifter.",
     "memory.looks_like_rule": "Det är en regel för hur AI:n ska svara – lägg till den i dina anpassade instruktioner. Minnet sparar fakta om dig.",
     "memory.full": "Minnet är fullt. Radera några poster först.",
-    "memory.not_active": "Den posten har redan ändrats eller glömts."
+    "memory.not_active": "Den posten har redan ändrats eller glömts.",
+    "ARTIFACT_RESOURCE_VALIDATION": "Ogiltig resursbegäran",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "Resursen hittades inte",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "Åtkomst nekad",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "Logga in för att fortsätta",
+    "ARTIFACT_RESOURCE_CONFLICT": "Resursen har ändrats; uppdatera och försök igen",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "Resursgränsen har nåtts",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "För många förfrågningar; försök senare",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "Resursen är inte tillgänglig",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "Begäran avbröts",
+    "ARTIFACT_RESOURCE_ABORTED": "Begäran avbruten",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte"
   },
   "email": {
     "dashboardShare": {
@@ -5379,5 +5407,36 @@
     "expired": "Utgången",
     "mergedTip": "Uppgick i ett förslag från den nattliga inlärningen. Inte ett avslag från en granskare.",
     "expiredTip": "Stängd efter att ha legat ogranskad längre än organisationens gräns. Räknas fortfarande som belägg om mönstret återkommer."
+  },
+  "artifactResources": {
+    "readOnlyLabel": "Skrivskyddad",
+    "sort": "Sortera poster",
+    "applyFilter": "Tillämpa",
+    "clearFilter": "Rensa filter",
+    "true": "Sant",
+    "false": "Falskt",
+    "inspect": "Resurser",
+    "readOnly": "Skrivskyddad artefaktöversikt",
+    "data": "Datautforskare",
+    "analytics": "Analys",
+    "collection": "Välj samling",
+    "refresh": "Uppdatera",
+    "schema": "Samlingsschema",
+    "filterField": "Filterfält",
+    "filterValue": "Lika med",
+    "filter": "Filtrera",
+    "empty": "Inga data att visa",
+    "pageRows": "{count} post på sidan | {count} poster på sidan",
+    "next": "Nästa sida",
+    "details": "Postinformation",
+    "views": "Visningar",
+    "viewers": "Unika inloggade besökare",
+    "anonymousNote": "Anonyma besök räknas som visningar, inte som unika personer.",
+    "embedded": "Inbäddad",
+    "standalone": "Delad sida",
+    "days": "Senaste {count} dagarna",
+    "failed": "Det gick inte att läsa artefaktdata",
+    "newest": "Nyast först",
+    "oldest": "Äldst först"
   }
 }

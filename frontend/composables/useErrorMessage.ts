@@ -20,7 +20,7 @@ export function useErrorMessage() {
 
   function extractPayload(err: unknown): {
     error_code?: string
-    detail?: string
+    detail?: string | Array<{ loc?: unknown[]; msg?: string }>
     message?: string
     params?: Record<string, unknown>
   } {
@@ -47,6 +47,13 @@ export function useErrorMessage() {
     }
     // Fall back to server-provided English string, then caller fallback, then generic.
     if (typeof payload.detail === 'string' && payload.detail) return payload.detail
+    // FastAPI validation responses are arrays, not localized AppError envelopes.
+    // Include only the field path and message, never echoed input values.
+    if (Array.isArray(payload.detail)) {
+      const messages = payload.detail.slice(0, 5).filter(item => item && typeof item.msg === 'string')
+        .map(item => `${(item.loc || []).filter(part => part !== 'body').join('.')}: ${item.msg}`)
+      if (messages.length) return messages.join('; ')
+    }
     if (typeof payload.message === 'string' && payload.message) return payload.message
     if (fallback) return fallback
     return t('errors.generic')
