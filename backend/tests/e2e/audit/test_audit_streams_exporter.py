@@ -265,3 +265,20 @@ def test_paused_stream_is_not_delivered_and_resumes_from_its_cursor(test_client,
     _tick(_later(240))
     stats = siem.state.stats("https", _db_ids(test_client, admin))
     assert stats["missing"] == [] and stats["duplicates"] == 0
+
+
+def test_concurrent_exporters_claim_a_stream_once(test_client, bootstrap_admin, siem):
+    """Two exporters (e.g. two hosts on one database) racing for the same
+    stream: the compare-and-set lease lets exactly one send each batch."""
+    admin = bootstrap_admin()
+    _api_key_events(test_client, admin, 5)
+    s = _stream(test_client, admin, siem)
+    now = _later()
+
+    async def race():
+        return await asyncio.gather(*(exporter.deliver_stream(s["id"], now) for _ in range(4)))
+
+    sent = _run(race())
+    assert sorted(sent)[-1] > 0 and sum(1 for n in sent if n) == 1
+    stats = siem.state.stats("https", _db_ids(test_client, admin))
+    assert stats["missing"] == [] and stats["duplicates"] == 0

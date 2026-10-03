@@ -62,7 +62,7 @@ if (page.url().includes('/onboarding')) {
 await page.evaluate((l) => localStorage.setItem('bow.locale', l), locale);
 
 const gotoAudit = async (query = '') => {
-  await page.goto(`${origin}/settings/audit${query}`, { waitUntil: 'networkidle' }).catch(() => {});
+  await page.goto(`${origin}/settings/audit${query}`, { waitUntil: 'load' }).catch(() => {});
   await page.waitForSelector('[data-testid="audit-row"], .border.rounded .flex.items-center', { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(600);
 };
@@ -95,7 +95,7 @@ await shot('drawer-custom-query');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(300);
 
-const tool = page.locator('[data-testid="audit-row"]', { hasText: /agent|סוכן/ }).first();
+const tool = page.locator('[data-testid="audit-row"]', { hasText: /data queried|נתונים|queried/ }).filter({ has: page.locator('[data-testid="audit-actor-agent"]') }).first();
 if (await tool.count()) {
   await tool.click();
   await page.waitForSelector('[data-testid="audit-drawer"]', { timeout: 5000 }).catch(() => {});
@@ -111,10 +111,10 @@ if (await tool.count()) {
 
 // ---- Filters --------------------------------------------------------------
 await page.locator('[data-testid="audit-filter-range"]').click().catch(() => {});
-await page.locator('[data-testid="audit-range-24h"]').click().catch(() => {});
+await page.locator('[data-testid="audit-filter-range-option"]').first().click().catch(() => {});
 await page.waitForTimeout(600);
 await page.locator('[data-testid="audit-filter-resource"]').click().catch(() => {});
-await page.locator('[data-testid="audit-resource-option"]', { hasText: 'api_key' }).first().click().catch(() => {});
+await page.locator('[data-testid="audit-filter-resource-option"]', { hasText: 'api_key' }).first().click().catch(() => {});
 await page.keyboard.press('Escape');
 await page.waitForTimeout(800);
 const url = page.url();
@@ -122,7 +122,8 @@ check('filters persist in the URL', /resource_type=api_key/.test(url) && /range=
 const filteredRows = await page.locator('[data-testid="audit-row"]').allInnerTexts();
 check('resource filter narrows rows', filteredRows.length > 0 && filteredRows.every((t) => t.includes('api_key')), `${filteredRows.length} rows`);
 await shot('filtered');
-await page.reload({ waitUntil: 'networkidle' });
+await page.reload({ waitUntil: 'load' });
+await page.waitForSelector('[data-testid="audit-row"]', { timeout: 15000 }).catch(() => {});
 await page.waitForTimeout(800);
 const afterReload = await page.locator('[data-testid="audit-row"]').allInnerTexts();
 check('filters survive reload', afterReload.length === filteredRows.length);
@@ -168,7 +169,7 @@ await shot('stream-form');
 await page.locator('[data-testid="stream-test"]').click();
 await page.waitForSelector('[data-testid="stream-test-result"]', { timeout: 15000 }).catch(() => {});
 const testTxt = await page.locator('[data-testid="stream-test-result"]').innerText().catch(() => '');
-check('send test event succeeds', /ok|success|delivered|נשלח|הצליח/i.test(testTxt), testTxt);
+check('send test event succeeds', /delivered|נמסר/i.test(testTxt), testTxt);
 await shot('stream-test-ok');
 await page.locator('[data-testid="stream-save"]').click();
 await page.waitForTimeout(1200);

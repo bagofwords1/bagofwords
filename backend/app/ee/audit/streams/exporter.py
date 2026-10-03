@@ -3,8 +3,8 @@
 # See backend/app/ee/LICENSE for details
 #
 # Treats audit_logs as an outbox. Each tick, for every active stream that is
-# due: claim it with a short lease (row lock + next_attempt_at bump, so several
-# hosts never double-send), read the next batch after its cursor, send it, and
+# due: claim it with a short lease (a compare-and-set UPDATE of next_attempt_at,
+# so several hosts never double-send), read the next batch after its cursor, send it, and
 # move the cursor only when the destination accepted the batch. Delivery is
 # therefore at-least-once with no gaps; every event carries its audit_logs id
 # so the receiver can dedupe.
@@ -19,7 +19,7 @@ import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import selectinload
 
 from app.ee.audit.models import AuditLog
@@ -88,22 +88,28 @@ async def fetch_batch(db, organization_id: str, cursor: Tuple[Optional[datetime]
 async def _claim(stream_id: str, now: datetime) -> Optional[dict]:
     maker = _session_maker()
     async with maker() as db:
-        q = (
-            select(AuditLogStream)
+        # Compare-and-set lease: only the process whose UPDATE matches the
+        # "due" predicate wins. Atomic on every backend (SQLite ignores
+        # SELECT ... FOR UPDATE, so a row lock alone would not serialize
+        # two hosts sharing one database file).
+        claimed = await db.execute(
+            update(AuditLogStream)
             .where(
                 AuditLogStream.id == stream_id,
                 AuditLogStream.state == "active",
                 AuditLogStream.deleted_at.is_(None),
                 or_(AuditLogStream.next_attempt_at.is_(None), AuditLogStream.next_attempt_at <= now),
             )
-            .options(selectinload(AuditLogStream.organization))
-            .with_for_update(skip_locked=True)
+            .values(next_attempt_at=now + timedelta(seconds=LEASE_SECONDS), last_attempt_at=now)
+            .execution_options(synchronize_session=False)
         )
-        st = (await db.execute(q)).scalar_one_or_none()
-        if st is None:
+        if claimed.rowcount != 1:
+            await db.rollback()
             return None
-        st.next_attempt_at = now + timedelta(seconds=LEASE_SECONDS)
-        st.last_attempt_at = now
+        await db.commit()
+        st = (await db.execute(
+            select(AuditLogStream).options(selectinload(AuditLogStream.organization)).where(AuditLogStream.id == stream_id)
+        )).scalar_one()
         try:
             secrets = st.get_secrets()
         except Exception:
@@ -120,7 +126,6 @@ async def _claim(stream_id: str, now: datetime) -> Optional[dict]:
             "cursor": (st.cursor_created_at, st.cursor_id),
             "failures": st.consecutive_failures or 0,
         }
-        await db.commit()
         return snap
 
 
