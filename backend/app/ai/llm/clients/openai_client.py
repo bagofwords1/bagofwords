@@ -194,7 +194,7 @@ class OpenAi(LLMClient):
         )
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
 
         OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
@@ -204,6 +204,8 @@ class OpenAi(LLMClient):
         params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
         if system:
             params["messages"] = [{"role": "system", "content": system}] + list(params["messages"])
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
         chat_completion = self.client.chat.completions.create(**params)
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)

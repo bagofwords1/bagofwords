@@ -5,6 +5,8 @@ from app.ai.llm.reasoning import (
     capability_model, clamp_effort, client_mode, client_reasons, efforts_for_client, lightest_effort,
     merge_raw_params, raw_params_for, selected_effort, supports_openai_summary,
 )
+from app.ai.llm.clients.openai_client import OpenAi
+from app.ai.llm.clients.chat_effort import apply_chat_reasoning
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -149,7 +151,7 @@ class OpenAIResponsesClient(LLMClient):
         return content
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
 
         OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
@@ -160,16 +162,15 @@ class OpenAIResponsesClient(LLMClient):
         _msgs = [{"role": "user", "content": self._build_chat_content(prompt, images)}]
         if system:
             _msgs = [{"role": "system", "content": system}] + _msgs
-        chat_completion = self.client.chat.completions.create(
-            model=model_id,
-            messages=_msgs,
-            **({"temperature": temperature} if not model_id.startswith("gpt-6") else {}),
-        )
+        params = {"model": model_id, "messages": _msgs}
+        if not model_id.startswith("gpt-6"):
+            params["temperature"] = temperature
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        chat_completion = self.client.chat.completions.create(**params)
         content = chat_completion.choices[0].message.content or ""
         usage_raw = getattr(chat_completion, "usage", None)
-        prompt_tokens = getattr(usage_raw, "prompt_tokens", 0) or 0
-        completion_tokens = getattr(usage_raw, "completion_tokens", 0) or 0
-        usage = LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+        usage = OpenAi._extract_usage(usage_raw)
         self._set_last_usage(usage)
         return LLMResponse(text=content, usage=usage)
 

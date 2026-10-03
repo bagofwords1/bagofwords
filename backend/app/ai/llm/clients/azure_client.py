@@ -92,7 +92,7 @@ class AzureClient(LLMClient):
         return content
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
 
         OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
@@ -105,11 +105,10 @@ class AzureClient(LLMClient):
         _msgs = [{"role": "user", "content": self._build_content(prompt, images)}]
         if system:
             _msgs = [{"role": "system", "content": system}] + _msgs
-        chat_completion = self.client.chat.completions.create(
-            messages=_msgs,
-            model=model_id,
-            temperature=temperature,
-        )
+        params = {"messages": _msgs, "model": model_id, "temperature": temperature}
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        chat_completion = self.client.chat.completions.create(**params)
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
         content = chat_completion.choices[0].message.content or ""

@@ -106,7 +106,8 @@ class AddParameterTool(Tool):
             column=data.column,
             error_context=(f"\nPREVIOUS ATTEMPT FAILED WITH: {error_context}\nFix exactly that.\n" if error_context else ""),
         )
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         report = runtime_ctx.get("report")
         buffer = ""
         async for evt in llm.inference_stream_v2(

@@ -480,7 +480,8 @@ Fix ONLY what the errors require — do not redesign, restyle, or restructure an
 
 Output the FULL corrected code wrapped in <script type="text/babel"> ... </script>. No explanations, no diff markers, no markdown fences."""
 
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         try:
             chunks: list[str] = []
             async for evt in llm.inference_stream_v2(
@@ -526,7 +527,8 @@ Fix ONLY what the error requires — do not redesign, restyle, or restructure an
 
 Output the FULL corrected code in a ```python code block. No explanations, no diff markers."""
 
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         try:
             chunks: list[str] = []
             async for evt in llm.inference_stream_v2(
@@ -1353,7 +1355,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
             # Stream from LLM
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
-            llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+            llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
             buffer = ""
             slides_detected = 0  # Track number of slides detected during streaming
 
