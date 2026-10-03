@@ -64,6 +64,28 @@ not spiked: `dd.cloud_cost_scalar/_timeseries` (24–48h delay), `dd.logs(indexe
 
 ## Catalog (`get_schemas`) — "everything in Datadog"
 
+> **Final (2026-10-03, verified live — supersedes the shipped-list and MCP notes
+> below).** API-only schema discovery exists: Datadog's own CLI
+> [`DataDog/pup`](https://github.com/DataDog/pup/blob/main/src/commands/ddsql.rs)
+> (L47-52, L476-520) calls the DDSQL Editor's REST endpoints, with the **same
+> API + app key** as queries (no MCP, no `mcp_read` — worked with both trial keys):
+>
+> | Endpoint | Verified |
+> |---|---|
+> | `GET /api/unstable/ddsql-editor/tools/table-names` | `{"tables":[…]}` — **2,181 static tables** in one 0.4 s call (aws 1,258 · gcp 484 · azure 329 · oci 49 · dd 32 · alibabacloud 21 · k8s 8). Table functions are not included. Rate limit 12,000/60 s. |
+> | `POST /api/unstable/ddsql-editor/tools/table-data` `{"tables":[…]}` | typed columns (`string, hstore, hstore_csv, json, timestamp, float64, array<string>`, names come quoted `"\"_key\""`). **Max 50 tables per call** (extra ignored) → 44 calls for everything, 0.6 s each, 12,000/60 s. Unknown or function names → `{"tables":[]}`. |
+> | `GET /api/unstable/ddsql-editor/tools/ddsql-docs` | 49 KB dialect spec + table-function syntax (`dd.logs(`, `dd.spans(`, `dd.rum(`, `dd.metric_scalar(`, `dd.metrics_timeseries(`, `dd.product_analytics(`, `dd.security_findings(`, `dd.actions_datastores(`) → feed into `system_prompt()` |
+> | `GET /api/v2/reference-tables/tables` (stable, paged) | org reference tables + `schema.fields`; query as `reference_tables.<name>` (0 in trial org) |
+>
+> So `get_schemas` = `table-names` → `table-data` in batches of 50 (all 2,181
+> tables with columns in ~30 s, no DDSQL rate-limit cost) → optionally
+> batched `UNION ALL count(*)` via DDSQL to flag/hide empty tables → table
+> functions from a small hand-written list (+ org log/span fields sampled via
+> the events-search REST APIs) → reference tables. Paths are `unstable`:
+> feature-detect, and on 403/404 fall back to a shipped snapshot of the
+> public Data Directory. No other OSS project uses these endpoints; Airbyte
+> (~12 streams) and Steampipe (13 tables) hardcode REST resources instead.
+
 > **Decision (2026-10-03): REST API only — the connector does NOT call the MCP
 > server.** Reasons: the MCP path is `/api/unstable/…`, it has fair-use caps
 > (50 calls/10 s, 100k/month) that scheduled reindexes would eat, and it needs an
