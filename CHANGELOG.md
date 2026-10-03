@@ -1,5 +1,16 @@
 # Release Notes
 
+## Version 0.0.575 (October 3, 2026)
+- Added artifact resources: persistent records, files and AI streaming (#1220) — default off in organization settings
+- Added enterprise audit streaming to SIEM and storage destinations (#1232)
+- Made six connectors available without an enterprise license and unified license checks (#1225)
+- Fixed report scrolling, dashboard refresh, reasoning settings and access checks; updated the not-found page (#1227, #1228, #1230, #1231)
+
+## Version 0.0.574 (October 3, 2026)
+- Added SAML single sign-on with any SAML 2.0 identity provider (#1219) — configured under `saml_providers` in `bow-config.yaml`
+- Replaced the reasoning effort buttons with a Faster ↔ Smarter slider in the model picker (#1223)
+- Fixed the fastest effort still running OpenAI models at medium reasoning (#1223)
+
 ## Version 0.0.573 (September 29, 2026)
 - Added Claude Sonnet 5.5 (`claude-sonnet-5-5`) as an Anthropic preset — the new Anthropic default for new providers
 - Added GPT-6.1 Sol (`gpt-6.1-sol`) as an OpenAI preset
