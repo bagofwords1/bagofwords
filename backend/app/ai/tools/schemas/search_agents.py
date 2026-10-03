@@ -31,6 +31,9 @@ class SearchAgentsItem(BaseModel):
     name: str
     description: Optional[str] = None
     status: Optional[str] = None
+    # ok | training | development — combined with status (publish_status) by
+    # the UI into the agent's lifecycle stage (Development/Training/...).
+    reliability_status: Optional[str] = None
     item_kind: Optional[str] = None
     item_count: int = 0
     focused: bool = False

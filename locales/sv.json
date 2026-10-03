@@ -639,7 +639,6 @@
     }
   },
   "reports": {
-    "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen.",
     "title": "Rapporter",
     "subtitle": "Bläddra och hantera dina rapporter",
     "newReport": "Ny rapport",
@@ -793,7 +792,8 @@
         "title": "Visa svar med negativ återkoppling",
         "prompt": "Granska svar som fått negativ återkoppling från användare för att hitta mönster och förbättringsområden."
       }
-    ]
+    ],
+    "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen."
   },
   "projects": {
     "title": "Projekt",
@@ -1084,18 +1084,6 @@
     "loopRetryNotice": "Ett internt fel uppstod — försöker igen från den senaste kontexten (försök {attempt}/{max})"
   },
   "tools": {
-    "resource": {
-      "failed": "Resursändringen misslyckades",
-      "create": "Resurs skapad",
-      "update": "Resurs uppdaterad",
-      "delete": "Resurs borttagen",
-      "working": "Konfigurerar resurs",
-      "stopped": "Stoppad",
-      "unchanged": "Resurs oförändrad",
-      "preserved": "Befintliga poster bevarade.",
-      "changed": "Ändringar",
-      "noChanges": "Inga ändringar tillämpades."
-    },
     "common": {
       "input": "Indata",
       "output": "Utdata",
@@ -1710,6 +1698,18 @@
       "pathLabel": "Sökväg:",
       "attachedAsSessionFile": "Bifogad till denna konversation som sessionsfil",
       "showPagePreviews": "Visa sidförhandsvisningar ({n})"
+    },
+    "resource": {
+      "failed": "Resursändringen misslyckades",
+      "create": "Resurs skapad",
+      "update": "Resurs uppdaterad",
+      "delete": "Resurs borttagen",
+      "working": "Konfigurerar resurs",
+      "stopped": "Stoppad",
+      "unchanged": "Resurs oförändrad",
+      "preserved": "Befintliga poster bevarade.",
+      "changed": "Ändringar",
+      "noChanges": "Inga ändringar tillämpades."
     }
   },
   "entityCreate": {
@@ -2489,7 +2489,191 @@
       "daysAbbr": "{n} d",
       "rangeCount": "{start}–{end} av {total}",
       "prev": "‹ Föreg.",
-      "next": "Nästa ›"
+      "next": "Nästa ›",
+      "tabs": {
+        "activity": "Aktivitet",
+        "streams": "Strömmar"
+      },
+      "actorAgent": "via agent",
+      "actorSystem": "system",
+      "searchPlaceholder": "Sök åtgärder, användare, titlar…",
+      "filters": {
+        "user": "Användare",
+        "allUsers": "Alla användare",
+        "resource": "Resurs",
+        "allResources": "Alla resurser",
+        "range": "Tid",
+        "rangeAll": "All tid",
+        "range24h": "Senaste 24 timmarna",
+        "range7d": "Senaste 7 dagarna",
+        "range30d": "Senaste 30 dagarna",
+        "filterActions": "Filtrera åtgärder…",
+        "noOptions": "Inga träffar"
+      },
+      "export": {
+        "button": "Exportera",
+        "json": "Ladda ner JSON (NDJSON)",
+        "csv": "Ladda ner CSV",
+        "hint": "Exporterar den aktuella filtrerade vyn, äldst först.",
+        "failed": "Exporten misslyckades"
+      },
+      "drawer": {
+        "title": "Händelsedetaljer",
+        "close": "Stäng",
+        "who": "Vem",
+        "when": "När",
+        "where": "Var",
+        "what": "Vad",
+        "details": "Detaljer",
+        "rawJson": "Rå JSON",
+        "copy": "Kopiera",
+        "copied": "Kopierat",
+        "actor": "Aktör",
+        "actorType": "Aktörstyp",
+        "timeUtc": "UTC",
+        "timeLocal": "Lokal",
+        "relative": "Relativ",
+        "ip": "IP-adress",
+        "userAgent": "Användaragent",
+        "action": "Åtgärd",
+        "resourceType": "Resurstyp",
+        "resourceId": "Resurs-ID",
+        "open": "Öppna",
+        "agentRun": "Agentkörning",
+        "executionMode": "Körläge",
+        "none": "—",
+        "noDetails": "Inga ytterligare detaljer",
+        "fields": {
+          "title": "Titel",
+          "tool": "Verktyg",
+          "data_source": "Datakälla",
+          "connection": "Anslutning",
+          "queries": "Frågor",
+          "row_count": "Rader",
+          "reason": "Orsak",
+          "error": "Fel",
+          "changed": "Ändringar",
+          "state": "Status",
+          "destination": "Mål",
+          "format": "Format"
+        },
+        "actorKinds": {
+          "user": "Användare",
+          "agent": "Agent (för användarens räkning)",
+          "system": "System"
+        }
+      },
+      "streams": {
+        "title": "Loggströmmar",
+        "subtitle": "Leverera varje granskningshändelse till ditt SIEM eller din lagringsbucket. Efter ett avbrott fortsätter leveransen från den senast skickade händelsen.",
+        "empty": "Inga loggströmmar ännu",
+        "emptyHint": "Lägg till en ström för att skicka granskningshändelser till Datadog, Splunk, Microsoft Sentinel, S3, Google Cloud Storage, en webhook eller syslog.",
+        "add": "Lägg till ström",
+        "edit": "Redigera",
+        "delete": "Ta bort",
+        "deleteConfirm": "Ta bort strömmen \"{name}\"? Händelser levereras inte längre till den.",
+        "pause": "Pausa",
+        "resume": "Återuppta",
+        "state": {
+          "active": "Aktiv",
+          "inactive": "Pausad",
+          "error": "Fel",
+          "invalid": "Ogiltiga autentiseringsuppgifter"
+        },
+        "delivered": "{n} levererade",
+        "pending": "{n} väntande",
+        "lag": "{time} efter",
+        "lastDelivered": "Senast levererad {time}",
+        "never": "aldrig",
+        "lastError": "Senaste fel",
+        "nextAttempt": "Försöker igen {time}",
+        "manageRequired": "Endast medlemmar med Hantera inställningar kan ändra loggströmmar.",
+        "form": {
+          "titleNew": "Lägg till loggström",
+          "titleEdit": "Redigera loggström",
+          "name": "Namn",
+          "namePlaceholder": "t.ex. Splunk produktion",
+          "destination": "Mål",
+          "chooseDestination": "Välj vart händelser ska skickas",
+          "startFrom": "Börja från",
+          "startNow": "Endast nya händelser",
+          "startBeginning": "Inkludera all historik",
+          "actionFilter": "Endast åtgärder som börjar med",
+          "actionFilterHint": "Kommaseparerade prefix som tool., member. — lämna tomt för att skicka allt.",
+          "advanced": "Avancerade inställningar",
+          "test": "Skicka testhändelse",
+          "testing": "Skickar…",
+          "testOk": "Testhändelsen levererades",
+          "testFailed": "Testet misslyckades: {error}",
+          "save": "Spara ström",
+          "saving": "Sparar…",
+          "cancel": "Avbryt",
+          "back": "Tillbaka",
+          "secretStored": "Sparad — lämna som den är för att behålla",
+          "externalIdHint": "Ange detta External ID i IAM-rollens förtroendepolicy.",
+          "required": "Obligatoriskt"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "HTTPS-webhook",
+          "syslog": "Syslog över TLS"
+        },
+        "destinationHints": {
+          "datadog": "Logs intake-API",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "Logs Ingestion-API (DCR)",
+          "s3": "NDJSON-objekt per batch",
+          "gcs": "NDJSON-objekt via HMAC-nycklar",
+          "https": "Signerad JSON-POST",
+          "syslog": "RFC 5424, JSON eller CEF"
+        },
+        "fields": {
+          "url": "Slutpunkts-URL",
+          "auth_header_name": "Namn på autentiseringshuvud",
+          "auth_header_value": "Värde för autentiseringshuvud",
+          "hmac_secret": "Signeringshemlighet (HMAC)",
+          "headers": "Extra huvuden (JSON-objekt)",
+          "verify_tls": "Verifiera TLS-certifikat",
+          "site": "Datadog-sajt",
+          "api_key": "API-nyckel",
+          "service": "Tjänst",
+          "tags": "Taggar",
+          "intake_url": "Anpassad intake-URL",
+          "hec_url": "HEC-URL",
+          "token": "HEC-token",
+          "index": "Index",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "Klient-ID (tenant)",
+          "client_id": "Klient-ID",
+          "client_secret": "Klienthemlighet",
+          "dce_url": "Slutpunkt för datainsamling",
+          "dcr_immutable_id": "Oföränderligt DCR-ID",
+          "stream_name": "Strömnamn",
+          "authority_url": "Authority-URL",
+          "bucket": "Bucket",
+          "region": "Region",
+          "prefix": "Nyckelprefix",
+          "role_arn": "Roll-ARN",
+          "external_id": "External ID",
+          "access_key_id": "Åtkomstnyckel-ID",
+          "secret_access_key": "Hemlig åtkomstnyckel",
+          "gzip": "Komprimera objekt med gzip",
+          "endpoint_url": "Anpassad slutpunkts-URL",
+          "sts_endpoint_url": "Anpassad STS-slutpunkt",
+          "host": "Värd",
+          "port": "Port",
+          "tls": "Använd TLS",
+          "format": "Meddelandeformat",
+          "ca_cert": "CA-certifikat (PEM)",
+          "app_name": "Appnamn",
+          "client_cert": "Klientcertifikat (PEM)",
+          "client_key": "Klientnyckel (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "AI-inställningar",
@@ -2497,9 +2681,39 @@
       "beta": "Betafunktion",
       "locked": "Den här inställningen är låst och kan inte ändras.",
       "notEditable": "(Inte direkt redigerbar)",
-      "aiAgentsTitle": "AI-agenter",
-      "aiAgentsSubtitle": "Konfigurera AI-agenter och funktioner som är tillgängliga för medlemmar i din organisation.",
       "noSettings": "Inga AI-inställningar tillgängliga.",
+      "sectionSummary": "{n} inställningar",
+      "sectionSummaryOn": "{n} inställningar · {on} på",
+      "sections": {
+        "data": {
+          "title": "Dataåtkomst & integritet",
+          "description": "Vad AI:n får se och ta in i en konversation"
+        },
+        "capabilities": {
+          "title": "Agentens förmågor",
+          "description": "Vad agenten får göra när den svarar"
+        },
+        "learning": {
+          "title": "Inlärning & minne",
+          "description": "Hur AI:n lär sig av användare, feedback och användning"
+        },
+        "tools": {
+          "title": "Verktyg & MCP",
+          "description": "Externa MCP-servrar och anpassade API-verktyg"
+        },
+        "limits": {
+          "title": "Gränser",
+          "description": "Radgränser, tidsgränser, omförsök och kontextstorlekar"
+        },
+        "workspace": {
+          "title": "Arbetsyta",
+          "description": "Webhooks, förgreningar och datalagring"
+        },
+        "other": {
+          "title": "Övrigt",
+          "description": "Inställningar som ännu inte tillhör en sektion"
+        }
+      },
       "llmAccessWarning": "Att ändra den här inställningen påverkar datasekretessen. En bekräftelse krävs.",
       "llmModalTitleEnable": "Aktivera LLM-dataåtkomst",
       "llmModalTitleDisable": "Inaktivera LLM-dataåtkomst",
@@ -2509,7 +2723,7 @@
       "llmImpactInspectTool": "Inspektera data",
       "llmImpactAccuracy": "Minskad analyskvalitet och prestanda",
       "llmImpactColumns": "AI:n kommer endast att se kolumnnamn och statistik, inte faktiska värden",
-      "llmFileUploadsNote": "Filuppladdningar påverkas inte av den här inställningen och kommer fortfarande att vara synliga för AI:n (du kan inaktivera filuppladdningar separat).",
+      "llmFileUploadsNote": "Filuppladdningar påverkas inte av den här inställningen och kommer fortfarande att vara synliga för AI:n.",
       "llmConfirmLabel": "Skriv {phrase} för att bekräfta",
       "llmConfirmPhrase": "JAG ÄR SÄKER",
       "llmConfirmPlaceholder": "JAG ÄR SÄKER",
@@ -2531,10 +2745,6 @@
         "allow_llm_see_data": {
           "name": "Låt LLM:en se data",
           "description": "Låter LLM:en se data som en del av analysen och användarnas frågor"
-        },
-        "enable_artifact_resources": {
-          "name": "Artefaktresurser",
-          "description": "Tillåt artefakter att använda beständiga poster, privata filer och godkända AI-operationer. Befintliga delnings- och resursbehörigheter gäller fortfarande."
         },
         "enable_artifact_verification": {
           "name": "Verifiera dataappar",
@@ -2636,6 +2846,10 @@
           "name": "Inbäddad storlek på MCP-resultat",
           "description": "Hur mycket av ett resultat från ett MCP- eller eget API-verktyg som agenten ser direkt i sin kontext, i tecken. Hela svaret sparas alltid till en fil oavsett detta värde; inställningen avgör bara hur mycket modellen kan läsa utan att öppna den filen. Höj värdet så att agenten kan svara utifrån en hel resultatmängd i stället för ett stickprov; sänk det för att förbruka färre tokens per anrop. Ange 0 för ett stickprov på 3 poster. Begränsat till 0-500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "Förhandsgranskningsrader för MCP-data",
+          "description": "Hur många resultatrader create_data returnerar till en extern MCP-klient (Claude, Cursor m.fl.) i sitt svar. Hela resultatet sparas alltid i rapporten; detta avgör bara hur mycket klientens modell får direkt. En klient kan be om färre rader, aldrig fler. Begränsas även av 'Begränsa antalet rader'. Begränsat till 1-10000."
+        },
         "enable_web_fetch": {
           "name": "Webbhämtning",
           "description": "Låter agenten hämta innehållet på publika HTTP- och HTTPS-adresser. Endast textliknande svar returneras och stora innehåll trunkeras."
@@ -2715,6 +2929,10 @@
         "checkins_max_runs_per_org_per_day": {
           "name": "Uppföljningar per dag",
           "description": "Övre gräns för uppföljningar i hela organisationen per dag (kostnadstak)."
+        },
+        "enable_artifact_resources": {
+          "name": "Artefaktresurser",
+          "description": "Tillåt artefakter att använda beständiga poster, privata filer och godkända AI-operationer. Befintliga delnings- och resursbehörigheter gäller fortfarande."
         }
       }
     },
@@ -3550,6 +3768,11 @@
     "memory.looks_like_rule": "Det är en regel för hur AI:n ska svara – lägg till den i dina anpassade instruktioner. Minnet sparar fakta om dig.",
     "memory.full": "Minnet är fullt. Radera några poster först.",
     "memory.not_active": "Den posten har redan ändrats eller glömts.",
+    "audit_stream.not_found": "Loggströmmen hittades inte.",
+    "audit_stream.invalid_destination": "Okänt mål för strömmen.",
+    "audit_stream.missing_field": "Ett obligatoriskt fält saknas: {field}.",
+    "audit_stream.invalid_field": "Ogiltigt värde för {field}.",
+    "audit_log.export_too_large": "Exporten är begränsad till {limit} händelser och filtret matchar {total}. Begränsa filtret eller använd en loggström.",
     "ARTIFACT_RESOURCE_VALIDATION": "Ogiltig resursbegäran",
     "ARTIFACT_RESOURCE_NOT_FOUND": "Resursen hittades inte",
     "ARTIFACT_RESOURCE_FORBIDDEN": "Åtkomst nekad",
@@ -3725,16 +3948,6 @@
     "menuData": "Data"
   },
   "toolbar": {
-    "collapse": "Fäll ihop",
-    "switchToArtifact": "Växla till artefaktvy",
-    "dashboard": "Instrumentpanel",
-    "addComponent": "Lägg till komponent",
-    "addText": "Lägg till text",
-    "theme": "Tema",
-    "rerun": "Kör om rapport",
-    "openInNewTab": "Öppna instrumentpanel på ny flik",
-    "fullscreen": "Helskärm",
-    "shareDashboard": "Dela instrumentpanel",
     "polishDashboard": "Putsa instrumentpanel"
   },
   "artifactFrame": {
@@ -3800,44 +4013,8 @@
     "partialRenderFailed": "En del av den här instrumentpanelen använder data du inte har åtkomst till, så den kunde inte visas. Be ägaren om åtkomst."
   },
   "filter": {
-    "addFilters": "Lägg till filter",
-    "title": "Filter",
-    "clear": "Rensa",
-    "loading": "Laddar…",
-    "noData": "Ingen data tillgänglig att filtrera",
-    "refresh": "Uppdatera",
-    "noFilters": "Inga filter tillämpade",
-    "addFilter": "Lägg till filter",
-    "columnPlaceholder": "Kolumn",
-    "searchPlaceholder": "Sök…",
-    "valuePlaceholder": "Värde",
     "selectColumn": "Välj kolumn",
-    "visualization": "Visualisering",
-    "orDivider": "ELLER",
-    "andDivider": "OCH",
-    "rowsCount": "{shown} av {total} rader",
-    "apply": "Tillämpa",
-    "op": {
-      "equals": "lika med",
-      "notEquals": "inte lika med",
-      "contains": "innehåller",
-      "notContains": "innehåller inte",
-      "startsWith": "börjar med",
-      "endsWith": "slutar med",
-      "isEmpty": "är tom",
-      "isNotEmpty": "är inte tom",
-      "in": "i",
-      "notIn": "inte i",
-      "greaterThan": "större än",
-      "lessThan": "mindre än",
-      "greaterOrEqual": "större eller lika med",
-      "lessOrEqual": "mindre eller lika med",
-      "between": "mellan",
-      "before": "före",
-      "after": "efter",
-      "isTrue": "är sant",
-      "isFalse": "är falskt"
-    }
+    "visualization": "Visualisering"
   },
   "slideViewer": {
     "loading": "Laddar bilder...",

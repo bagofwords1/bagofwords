@@ -217,14 +217,6 @@
                     class="absolute inset-0 w-full h-full border-0 bg-white"
                 />
 
-                <!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
-                <DashboardComponent
-                    v-else-if="hasLegacyLayout && !hasArtifacts && reportLoaded"
-                    :report="report"
-                    :edit="false"
-                    class="absolute inset-0 w-full h-full"
-                />
-
                 <!-- Loading state -->
                 <div v-else-if="!reportLoaded" class="absolute inset-0 flex items-center justify-center text-gray-400">
                     <div class="text-center">
@@ -237,7 +229,7 @@
                     <p>{{ $t('reports.artifactLoadFailed') }}</p>
                 </div>
 
-                <!-- Empty state (no artifacts, no legacy layout) -->
+                <!-- Empty state (no artifacts) -->
                 <div v-else class="absolute inset-0 flex items-center justify-center text-gray-400">
                     <div class="text-center">
                         <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
@@ -283,7 +275,6 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
-import DashboardComponent from '~/components/DashboardComponent.vue';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
@@ -318,7 +309,6 @@ const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
 const artifactLoadFailed = ref(false);
-const hasLegacyLayout = ref(false);
 const reportLoaded = ref(false);
 const dataReady = ref(false);
 
@@ -765,20 +755,6 @@ async function loadArtifact() {
         hasArtifacts.value = false;
         artifactLoadFailed.value = true;
         console.error('[PublicArtifact] Failed to load artifact');
-    }
-}
-
-// Check if report has legacy dashboard layout
-async function checkLegacyLayout() {
-    try {
-        const { data } = await useMyFetch(`/api/r/${report_id}/layouts?hydrate=true`);
-        const layouts = Array.isArray(data.value) ? data.value : [];
-        const activeLayout = layouts.find((l) => l.is_active);
-        if (activeLayout?.blocks && Array.isArray(activeLayout.blocks) && activeLayout.blocks.length > 0) {
-            hasLegacyLayout.value = true;
-        }
-    } catch (e) {
-        hasLegacyLayout.value = false;
     }
 }
 
@@ -1330,11 +1306,6 @@ onMounted(async () => {
     // This ensures we only fetch queries used by the artifact
     const artifactId = artifact.value?.id;
     await loadVisualizationData(artifactId);
-
-    // If no artifacts, check for legacy layout
-    if (!hasArtifacts.value) {
-        await checkLegacyLayout();
-    }
 
     // Params: defaults from declarations; identity-scoped queries run as the
     // signed-in viewer BEFORE first paint so the dashboard opens on their
