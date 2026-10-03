@@ -9,6 +9,11 @@ HTTPS endpoint, or syslog over TLS. Delivery is **at-least-once and resumable**:
 a stream that is paused, broken, or rejected picks up from the last event it
 delivered, with no gaps.
 
+The same change upgrades the **Audit Logs page** itself (WP7). Today it
+overlaps text on multi-part actions and hides most of what each row stores. It
+gains readable rows, a detail drawer, the filters the API already supports, and
+CSV/JSON export in the same event format the streams send.
+
 Precondition: the tool-audit queue must stop dropping events. A stream can only
 deliver what reached `audit_logs`, so that fix is work package 0.
 
@@ -34,6 +39,11 @@ land in `docs/feedback-loops/audit-log-streams.md`.
 | A8 | Only `manage_settings` can create, edit, or delete streams; `view_audit_logs` can view their status; members can do neither | Loop A4 (RBAC e2e) |
 | A9 | Stream secrets are never returned by the API and are encrypted at rest | Loop A4 |
 | A10 | The UI works in en, es, and he (RTL) | Loop B6 (ui-evidence) |
+| A11 | Every audit row renders without overlap, whatever the action's length or segment count; the chip colour follows the action's final verb | Loop A5 (formatter test over every distinct action + layout spec) + Loop B8 |
+| A12 | Every stored field of an event (`details`, `user_agent`, `resource_id`, exact timestamp, IP) is reachable from the page | Loop B8 (detail drawer) |
+| A13 | The user, resource-type and date-range filters return exactly the rows matching them, and search matches user email and `details.title` | Loop A6 |
+| A14 | Export returns exactly the filtered rows as envelope v1 (JSON) or flat CSV, stays org-scoped, and is gated like viewing | Loop A6 |
+
 
 ---
 
@@ -67,7 +77,18 @@ land in `docs/feedback-loops/audit-log-streams.md`.
 - `backend/app/ee/encryption/types.py:216`: `encrypt_value` / `decrypt_value`
   for secrets at rest.
 - `frontend/pages/settings/audit.vue`: the existing audit settings page; the
-  streams UI goes here as a tab.
+  streams UI goes here as a tab. Current defects:
+  - :111: the action chip sits in a fixed `w-24` column with no truncation.
+  - :263: `formatAction` only shortens two-part actions (`report.updated` → "updated"). Three-part actions such as `artifact.record.created` print in full and overflow into the resource column.
+  - :271: `getActionClass` colours by `split('.')[1]`, so `artifact.record.created` gets the grey "record" style instead of green "created".
+  - Only `details.title` is shown. `details`, `user_agent`, `resource_id` and the exact timestamp are never displayed, and the IP column is empty for tool/agent events.
+- `backend/app/ee/audit/routes.py:29`: `list_audit_logs` already accepts
+  `user_id`, `resource_type`, `resource_id`, `start_date` and `end_date`, but
+  the page only sends `action` and `search`. `GET /enterprise/audit/{log_id}`
+  (:99) already returns every stored field for one row.
+- `backend/app/ee/audit/service.py:109`: `search` matches only `action` and
+  `resource_type` (`ilike`), so searching an email or a report title finds
+  nothing.
 - `httpx` and `boto3` are already dependencies (`backend/pyproject.toml`).
 
 ---
@@ -214,6 +235,70 @@ A **Streams** tab in `frontend/pages/settings/audit.vue`:
   snippet.
 - Strings go in `locales/{en,es,he}.json` (same shape); RTL is checked in `he`.
 
+### Audit Logs page (activity view)
+
+The page gets an **Activity | Streams** switch at the top. Activity is the
+upgraded log list below; Streams is the tab above.
+
+**Row layout**
+
+```
+ 12:04:31  yochze@gmail.com   ⚙ via agent   artifact · record [created]   artifact_resource · Q3 Revenue ↗   ▸
+ └ time    └ actor            └ actor kind  └ resource path + verb chip    └ target (+ link)                   └ drawer
+```
+
+- **Time:** exact local time today, date and time for older rows; the
+  relative time ("28m") goes in the tooltip.
+- **Actor:** email plus a kind marker. The marker reads "via agent" when
+  `details.agent_execution_id` is set and "system" when there is no user. It
+  uses the same rule as the envelope's `actor.type`, from a shared helper.
+- **Action:** every segment but the last is shown as muted text
+  (`artifact · record`); the last segment is the coloured verb chip. The
+  column is flexible with `min-w-0` + `truncate`, and the full action is in
+  the tooltip, so no action length can overlap the next column.
+- **Target:** `resource_type · details.title`. Where the resource has a page
+  (report, data source, member, agent), it links to it.
+- The IP moves into the drawer.
+
+**Detail drawer** (click a row, or Enter on a focused row)
+
+- **Who / when / where:** actor and kind, timestamp in UTC and local, IP, user
+  agent.
+- **What:** the full action, resource type and id (copy button), link to the
+  resource.
+- **Details:** known keys rendered as labelled fields, such as `queries` as
+  code blocks, `data_source`, `tool`, and before/after values as a diff. The
+  raw `details` JSON sits below in a collapsible block.
+- For agent and tool events: a link to the agent run (`agent_execution_id`)
+  and the execution mode.
+- It uses the existing `GET /enterprise/audit/{log_id}`; no new read endpoint.
+
+**Filters**
+
+- New **User** (member picker), **Resource type** (from a new
+  `GET /enterprise/audit/resource-types`, mirroring `/action-types`) and
+  **Date range** (presets 24h / 7d / 30d / custom) filters. All map onto query
+  params `list_audit_logs` already accepts.
+- The action dropdown gets a scrollable list with a search box, grouped by
+  resource prefix (`artifact.*`, `report.*`, …).
+- Filter state lives in the URL query, so a filtered view can be shared or
+  bookmarked.
+- Backend: `search` also matches the actor's email (join `users`) and
+  `details.title`. Use JSON-path access that works on both sqlite and
+  postgres, or a cast-to-text fallback with a test on both.
+
+**Export**
+
+- `GET /enterprise/audit/export?format=json|csv&<same filters>`, gated by
+  `audit_logs` + `view_audit_logs`, streamed (no full in-memory load) and
+  capped at 100k rows per request. Over the cap, the response asks the user to
+  narrow the filter or use a stream.
+- JSON is NDJSON of envelope v1, the exact shape the streams send. CSV
+  flattens it to `id, occurred_at, action, actor_type, actor_email,
+  resource_type, resource_id, title, ip_address, user_agent, details_json`.
+- Each export emits `audit_log.exported` with the filters and row count.
+- A **Download** button on the page exports the current filtered view.
+
 ---
 
 ## Work packages
@@ -240,8 +325,21 @@ A **Streams** tab in `frontend/pages/settings/audit.vue`:
 ### WP4: API routes, license key, RBAC, secret redaction, admin emails on state transitions
 ### WP5: UI tab + i18n + ui-evidence
 ### WP6: feedback-loop doc + docs.bagofwords.com page (docs-update skill) + CHANGELOG (release-notes skill)
+### WP7: Audit Logs page upgrade (activity view)
 
-Rough size: WP0 1d · WP1 3d · WP2 1d · WP3 2d · WP4 1d · WP5 2d · WP6 0.5d.
+1. **Row rendering fix** (ships first, independently): split the action into
+   path + verb; colour by the last segment; flexible, truncating action column.
+   Fixes the overlap seen in production.
+2. **Detail drawer**, using `GET /enterprise/audit/{log_id}`.
+3. **Filters:** user, resource type (new `/resource-types` route), date range,
+   searchable action dropdown, filter state in the URL; backend search widened
+   to email + `details.title`.
+4. **Export endpoint + Download button** (depends on WP1's envelope).
+5. **i18n** for every new string in en/es/he; RTL check in `he`.
+
+WP7.1–7.3 have no dependency on the streams work and can merge before WP1.
+
+Rough size: WP0 1d · WP1 3d · WP2 1d · WP3 2d · WP4 1d · WP5 2d · WP6 0.5d · WP7 2.5d.
 
 ---
 
@@ -374,6 +472,43 @@ All of these run with `--db=sqlite` and `--db=postgres`.
 - CRUD emits `audit_stream.*` events.
 - `/test` against the mock returns ok; against a mock 401 it returns invalid.
 
+### A5. Row rendering (`frontend/tests/unit/auditActionFormat.mjs` + `frontend/tests/settings/audit-log.spec.ts`)
+
+- Move the action formatting and colour logic out of the page into
+  `frontend/utils/auditActionFormat.ts`. Test it in the repo's existing
+  frontend unit style: a plain `node:assert` `.mjs` file, like
+  `tests/unit/agentSelection.mjs`.
+- Parametrize over action shapes: 1, 2, 3 and 4 segments, long resource
+  names, underscores, unknown verbs, and every distinct action currently
+  emitted by the backend. That list comes from a fixture built by grepping the
+  `action="…"` / `log_tool_audit(` call sites.
+- **Invariants:** the verb is the last segment, the path is the rest, and the
+  colour class follows the verb (`created` green, `deleted|removed` red, …).
+- **Before the fix: FAIL** for any 3-segment action (full string as the chip,
+  "record" colour). **After: PASS.**
+- A Playwright spec covers the layout: with seeded multi-segment actions, every
+  row's action cell has `scrollWidth <= clientWidth` or carries `truncate` + a
+  `title` holding the full action. It runs in `en` and `he`.
+
+### A6. Filters, search, export (`tests/e2e/audit/test_audit_log_query.py`)
+
+- Seed events through real actions by two users, across two resource types,
+  with one org B event as a control.
+- **Filters:** `user_id`, `resource_type`, and `start_date`/`end_date`
+  (dates via the clock utilities, not wall time) each return exactly the
+  matching rows (`total == expected`), and combined filters intersect.
+- **Search:** searching a user's email or a report title returns that user's
+  or report's rows. Before the backend change it returns 0 (**FAIL**); after,
+  it **PASSES**.
+- **`/resource-types`:** returns the distinct types for the org only.
+- **Export:** JSON lines parse as envelope v1, and the set of ids equals the
+  filtered list endpoint's ids (paged through). CSV has the documented header
+  and the same row count. Org B's rows are never present. A member gets 403;
+  unlicensed returns the enterprise-required error. The export emits
+  `audit_log.exported`.
+- Runs on sqlite and postgres (the `details.title` search is the part most
+  likely to diverge).
+
 ---
 
 ## Loop B: live stack against the mock consumer
@@ -411,6 +546,7 @@ scenario.
 | **B4 tool burst** | Run the stub-LLM agent in a loop producing about 10× the queue size of tool events, with `tools/agent/pg_latency_proxy.py` adding DB latency (postgres leg) | `GET` queue stats: `dropped == 0`; `missing == 0` at the mock |
 | **B5 crash mid-batch** | `fault https timeout count=1`, run `tools/agent/restart_backend.sh` during the in-flight request | `missing == 0`; every duplicate has the same `id` (A3) |
 | **B6 UI** | Playwright via `tools/agent/capture.mjs`: add a stream, send a test event (shows success), pause/resume, the state chip turns `invalid` under a 401 fault; repeat in `he` | screenshots + a GIF of the add-stream flow (ui-evidence skill), RTL layout correct |
+| **B8 activity view** | After B1 (so the log holds user, agent/tool and system events of every shape), Playwright: screenshot the list; open the drawer on a 3-segment tool event and on a `report.updated` event; apply user + resource-type + 24h filters and reload (filters persist via the URL); search an email; click Download (JSON) and compare the file's ids with the mock's `/_received` for the same window; repeat the list + drawer in `he` | no row overlap (each row's action cell `scrollWidth <= clientWidth` or truncated with a title); drawer shows `details`, user agent, resource id; export ids == stream ids; before/after screenshots per ui-evidence |
 | **B7 multi-worker** | `start.sh` with `WORKERS=4`; also two hosts against one postgres (two `boot_stack` backends on different ports, both with `BOW_SCHEDULER_LEADER=1`) | duplicates bounded by one batch; `missing == 0` |
 
 The loop exits non-zero on any FAIL, so it can run as a manual or nightly CI
@@ -435,7 +571,8 @@ the skill's template:
 - A0's observed FAIL (dropped count) before WP0, and the PASS after.
 - A2 and A3 pytest output.
 - Loop B's PASS table plus the `/tmp/siem-mock/*.jsonl` excerpts (redacted).
-- The ui-evidence screenshots.
+- The ui-evidence screenshots: streams tab, plus the activity view before
+  (the overlapping row from production) and after (row, drawer, filters, he).
 - Any pre-existing unrelated failures, verified with the change stashed.
 
 ## Risks / open questions
