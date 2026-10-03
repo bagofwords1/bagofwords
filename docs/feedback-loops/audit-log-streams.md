@@ -1,6 +1,6 @@
 # Feedback Loop — "Audit export to a SIEM (webhook, S3 or syslog). Also make the tool-audit queue stop dropping events"
 
-Plan: `docs/design/audit-log-streams.md`. This record covers four claims:
+Design: `docs/design/audit-log-streams.md`. This record covers four claims:
 
 1. The tool-audit queue (`app/ee/audit/tool_audit.py`) dropped events under load and lost them on DB errors and shutdown. After the fix it loses none.
 2. Org admins can stream every audit event to Datadog, Splunk, Microsoft Sentinel, S3, GCS, an HTTPS webhook or syslog. Delivery is at least once, with no gaps across retries, rejected credentials, pauses, restarts and racing exporters.
@@ -112,7 +112,7 @@ Things Loop B surfaced:
 
 The scheduler then delivered to that UI-created stream (mock stats: `received=1, duplicates=0`).
 
-Screenshots and flow GIFs (`after-en-flow.gif`, `after-he-flow.gif`) are in `media/pr/audit-log-streams/`. `before-*` is the old page on the same seeded event shapes; `after-*` is the new one, on a fresh sandbox org with 7 live streams (one `invalid`, one retrying).
+Evidence in `media/pr/audit-log-streams/`: `before-en-list.png` is the old page on the same seeded event shapes; the `after-*` screenshots (list, drawer, filters, Streams tab, add-stream form, Hebrew Streams tab) and `after-en-flow.gif` are the new page, on a fresh sandbox org with 7 live streams (one `invalid`, one retrying). Rerunning the flow script regenerates the full `en` + `he` set.
 
 ## What this proves / regression notes
 

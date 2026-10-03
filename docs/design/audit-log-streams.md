@@ -1,641 +1,212 @@
-# Audit log streams — implementation plan
+# Audit log streams, export and the Audit Logs page
 
-**Status:** implemented and verified in the sandbox (2026-10-03). Branch:
-`ai/hopeful-pasteur-ubk7d7`. Replay steps and observed results:
+**Status:** shipped in 0.0.575 ([bagofwords1/bagofwords#1232](https://github.com/bagofwords1/bagofwords/pull/1232)).
+How it was verified, and the bugs the verification found:
 `docs/feedback-loops/audit-log-streams.md`.
 
-**As built — where the implementation departs from the plan below:**
+Three changes:
 
-- **Stream secrets** use the `Connection.credentials` scheme (Fernet with
-  `bow_config.encryption_key`, always on) instead of `encrypt_value`, which
-  stays plaintext unless the `data_encryption` feature is licensed and enabled.
-  As with connection credentials, a deployment needs a stable
-  `BOW_ENCRYPTION_KEY`. If the key changes, the affected streams move to
-  `invalid` with "stored secrets could not be decrypted", and resume once the
-  secret is re-entered.
-- **The exporter claim** is a compare-and-set `UPDATE` of `next_attempt_at`
-  (the lease) rather than `SELECT … FOR UPDATE SKIP LOCKED`. SQLite ignores
-  `FOR UPDATE`, so the row lock would not have stopped two hosts sharing one
-  database from double-sending; a regression test proves 1-of-4 racers sends.
-- **Tool-audit `created_at` is stamped when the row is written**, not when the
-  event was enqueued. A delayed write (backpressure, or a disk spill replayed
-  on the next start) keeps its original time in `details.occurred_at`.
-- **Streams cursor on a visibility-ordered sequence, not on `created_at` with a
-  lag window.** On each tick, the exporter stamps every newly *visible* row of
-  an organization that has a stream with the next value of a global sequence,
-  `audit_logs.export_seq`. One stamper runs at a time, under a lease on the
-  single-row `audit_export_state`. A row whose transaction commits late is
-  stamped later, with a higher number, so no cursor can ever be past it.
-  Loop B4 disproved the time-plus-lag design twice: first through enqueue-time
-  stamps, then through SQLite lock waits longer than the window. A3 now
-  injects rows that commit 5 s, 10 min and 2 days "late". "Start from now" is
-  a `start_after` time filter. `BOW_AUDIT_STREAM_LAG_SECONDS` no longer exists.
-- **The exporter** handles up to 4 streams concurrently, each with a 20 s time
-  budget per tick (stamping gets 10 s), in place of a fixed batch count, so a
-  large history backfill drains quickly. APScheduler fires the tick in every uvicorn worker
-  (shared job store); the compare-and-set lease makes that safe.
-- **The scheduler** (`app/core/scheduler.py`) is now `ResilientAsyncIOScheduler`.
-  APScheduler 3.x does not guard `jobstore.update_job` in `_process_jobs`, so
-  one SQLite "database is locked" there silently stopped every scheduled job in
-  the worker until restart. That is pre-existing, but it stopped audit export
-  under load. A failed pass is now logged and retried.
-- **Exporter bookkeeping** (stamper lease release, stream progress and finish
-  writes) retries while the database is locked, so a busy database delays
-  delivery but never strands a stream or the stamper behind a lease.
-- **The detail drawer** reads the row already returned by the list endpoint,
-  which carries every stored field, so no extra `GET /{log_id}` is needed.
-- **Loop A5** is a plain-node formatter test plus a Playwright layout spec
-  (`frontend/tests/settings/audit-log.spec.ts`). The spec skips on the
-  unlicensed CI stack; the licensed run is `tools/agent/audit_ui_flow.mjs`.
-- **Loop B4** drives the burst through the real `log_tool_audit` queue in a
-  separate process on the same sandbox database. There is no LLM-driven agent:
-  the sandbox Anthropic key has no credit.
-- **Loop B7** (multi-host) is covered by the concurrent-claim e2e test rather
-  than two live backends.
+1. **Log streams.** An org admin sends every audit event the org produces to
+   Datadog, Splunk, Microsoft Sentinel, Amazon S3, Google Cloud Storage, an
+   HTTPS webhook or syslog. Delivery is at least once, with no gaps, and
+   resumes from the last delivered event after any outage, pause, credential
+   failure or restart.
+2. **Tool-audit durability.** Agent tool events (`log_tool_audit`) are never
+   dropped: not under load, not on database errors, not on shutdown.
+3. **Audit Logs page.** Readable rows, a detail drawer, user, resource and
+   time filters, wider search, and JSON/CSV export.
 
-An org admin configures one or more **log streams** in *Settings → Audit*,
-and every audit event the org produces is delivered to their SIEM or bucket:
-Datadog, Splunk, Microsoft Sentinel, AWS S3, Google Cloud Storage, a generic
-HTTPS endpoint, or syslog over TLS. Delivery is **at-least-once and resumable**:
-a stream that is paused, broken, or rejected picks up from the last event it
-delivered, with no gaps.
-
-The same change upgrades the **Audit Logs page** itself (WP7). Today it
-overlaps text on multi-part actions and hides most of what each row stores. It
-gains readable rows, a detail drawer, the filters the API already supports, and
-CSV/JSON export in the same event format the streams send.
-
-Precondition: the tool-audit queue must stop dropping events. A stream can only
-deliver what reached `audit_logs`, so that fix is work package 0.
-
-Verification follows the **sandbox-feedback-loop** skill. A single **mock SIEM
-consumer** (`tools/agent/mock_siem_consumer.py`) emulates every destination,
-records what it receives, and injects faults on command. Every claim in this
-plan has a loop that can fail before the change and pass after it. The results
-land in `docs/feedback-loops/audit-log-streams.md`.
+Gated by the `audit_log_streams` license feature (enterprise tier) for streams,
+and by `audit_logs` for the page and export. Viewing needs `view_audit_logs`;
+creating, editing or deleting a stream needs `manage_settings`.
 
 ---
 
-## Outcome (acceptance criteria)
+## Event envelope (v1)
 
-| # | Promise | Proven by |
-|---|---|---|
-| A1 | Every event written to `audit_logs` for an org reaches each of its `active` streams | Loop B1: mock `/_stats` shows `missing == 0` against a DB count |
-| A2 | No event is skipped: no gaps, even across retries, restarts, and late-committing transactions | Loops A3, B3, B5 |
-| A3 | Duplicates are possible but carry the same `id` | Loop B5: duplicates appear only after a kill-mid-batch, every one with the same `id` |
-| A4 | A 429 or 5xx response is retried and the stream stays `active` | Loop B2 |
-| A5 | A 401 or 403 moves the stream to `invalid`, a non-retryable 4xx moves it to `error`, and fixing the config resumes from the cursor | Loop B3 |
-| A6 | The tool-audit queue never drops events: `dropped == 0` under a burst 10× the queue size with a slow DB | Loop A0 |
-| A7 | Each destination's wire format and auth match what that vendor's intake expects | Loop A2 (per-destination contract tests against the mock) |
-| A8 | Only `manage_settings` can create, edit, or delete streams; `view_audit_logs` can view their status; members can do neither | Loop A4 (RBAC e2e) |
-| A9 | Stream secrets are never returned by the API and are encrypted at rest | Loop A4 |
-| A10 | The UI works in en, es, and he (RTL) | Loop B6 (ui-evidence) |
-| A11 | Every audit row renders without overlap, whatever the action's length or segment count; the chip colour follows the action's final verb | Loop A5 (formatter test over every distinct action + layout spec) + Loop B8 |
-| A12 | Every stored field of an event (`details`, `user_agent`, `resource_id`, exact timestamp, IP) is reachable from the page | Loop B8 (detail drawer) |
-| A13 | The user, resource-type and date-range filters return exactly the rows matching them, and search matches user email and `details.title` | Loop A6 |
-| A14 | Export returns exactly the filtered rows as envelope v1 (JSON) or flat CSV, stays org-scoped, and is gated like viewing | Loop A6 |
-
-
----
-
-## Validated current boundaries
-
-- `backend/app/ee/audit/service.py:23`: `AuditService.log` is the single
-  writer behind all ~57 call sites (`db.add` at :73, commit at :75). The stream
-  exporter reads rows this function wrote and never touches the request path.
-- `backend/app/ee/audit/models.py`: `AuditLog` has `id` (uuid),
-  `organization_id`, `user_id`, `action`, `resource_type`, `resource_id`,
-  `details` (JSON), `ip_address`, `user_agent`, and `created_at` (app clock,
-  `datetime.utcnow`). There is an index on `(organization_id, created_at)` and
-  no retention purge.
-- `backend/app/ee/audit/tool_audit.py`: the queue drops or loses events in
-  five places:
-  - :227: `put_nowait` → `QueueFull` → the event is dropped (`_QUEUE_MAXSIZE = 1000`, :20).
-  - :130: a failed write is counted, never retried.
-  - :88: one session and one commit per event, serially. This low throughput is why the queue fills.
-  - :186: shutdown drains for only 5 s (:21), then cancels; the rest is lost.
-  - :146: `_ensure_worker` swaps in a fresh queue when the task has died, orphaning pending events.
-- `backend/main.py:458`: `try_acquire_scheduler_leader()` takes a per-host
-  `flock` (`app/core/scheduler.py:67`). That is **not** cluster-wide, so with
-  multiple replicas each host has its own leader. The exporter therefore also
-  needs a row lock per stream.
-- `backend/app/ee/audit/routes.py:23`: the router prefix is
-  `/enterprise/audit`. Routes there are gated with
-  `@require_enterprise(feature="audit_logs")` and
-  `@requires_permission("view_audit_logs")`.
-- `backend/app/ee/license.py:19`: `TIER_FEATURES`. A new feature key needs no
-  license regeneration.
-- `backend/app/ee/encryption/types.py:216`: `encrypt_value` / `decrypt_value`
-  for secrets at rest.
-- `frontend/pages/settings/audit.vue`: the existing audit settings page; the
-  streams UI goes here as a tab. Current defects:
-  - :111: the action chip sits in a fixed `w-24` column with no truncation.
-  - :263: `formatAction` only shortens two-part actions (`report.updated` → "updated"). Three-part actions such as `artifact.record.created` print in full and overflow into the resource column.
-  - :271: `getActionClass` colours by `split('.')[1]`, so `artifact.record.created` gets the grey "record" style instead of green "created".
-  - Only `details.title` is shown. `details`, `user_agent`, `resource_id` and the exact timestamp are never displayed, and the IP column is empty for tool/agent events.
-- `backend/app/ee/audit/routes.py:29`: `list_audit_logs` already accepts
-  `user_id`, `resource_type`, `resource_id`, `start_date` and `end_date`, but
-  the page only sends `action` and `search`. `GET /enterprise/audit/{log_id}`
-  (:99) already returns every stored field for one row.
-- `backend/app/ee/audit/service.py:109`: `search` matches only `action` and
-  `resource_type` (`ilike`), so searching an email or a report title finds
-  nothing.
-- `httpx` and `boto3` are already dependencies (`backend/pyproject.toml`).
-
----
-
-## Design
-
-### Event envelope (v1)
-
-The envelope is a stable public contract, separate from the table schema and
-built from one `AuditLog` row:
+`app/ee/audit/streams/envelope.py` maps an `audit_logs` row to the public shape
+that every stream and the JSON export emit. It is versioned and independent of
+the table schema.
 
 ```json
 {
-  "id": "6f1c…",                          // audit_logs.id: the dedupe key
+  "id": "…",                      // audit_logs.id — the receiver's dedupe key
   "version": 1,
   "action": "api_key.created",
   "occurred_at": "2026-10-03T12:00:00.123Z",
   "organization": {"id": "…", "name": "Acme"},
-  "actor":   {"type": "user", "id": "…", "email": "a@acme.com"},
-  "targets": [{"type": "api_key", "id": "…"}],
-  "context": {"ip_address": "203.0.113.4", "user_agent": "…"},
+  "actor":   {"type": "user|agent|system", "id": "…", "email": "…"},
+  "targets": [{"type": "api_key", "id": "…", "name": "<details.title>"}],
+  "context": {"ip_address": "…", "user_agent": "…"},
   "metadata": { /* audit_logs.details, verbatim */ }
 }
 ```
 
-- `actor.type` is `user` when `user_id` is set and `agent` when `details`
-  carries `agent_execution_id` (tool events, see `tool_audit._build_event`).
-  Otherwise it is `system`.
-- Lives in `app/ee/audit/streams/envelope.py` as a pure function, covered by a
-  golden unit test whose expected output is reviewed by hand (tests AGENTS.md
-  rule 9).
+`actor.type` is `agent` when `details.agent_execution_id` is set, `user` when
+`user_id` is set, and `system` otherwise. The UI marker uses the same rule
+(`frontend/utils/auditActionFormat.ts`).
 
-### Data model (migration `auditstrm01`)
+## Data model (migration `auditstrm01`)
 
-`audit_log_streams`:
+- **`audit_log_streams`**: one row per stream.
+  - `destination`, `config` (JSON) and `secrets`. Secrets are a Fernet-encrypted
+    JSON object, using the same scheme as `Connection.credentials`; they are
+    never returned by the API.
+  - `action_filter` (list of prefixes), `state`
+    (`active | inactive | error | invalid`), and `start_from` with `start_after`.
+  - `cursor_seq`, the last delivered `export_seq`.
+  - Status fields: `delivered_count`, `last_delivered_at`, `last_attempt_at`,
+    `last_error`, `consecutive_failures`, `next_attempt_at` (backoff and lease).
+- **`audit_logs.export_seq`**: a visibility-ordered sequence, stamped by the
+  exporter (below). Indexed on `(organization_id, export_seq)`.
+- **`audit_export_state`**: a single row holding `last_seq` and the stamper
+  lease.
+- An `(organization_id, created_at, id)` index on `audit_logs` serves the
+  export endpoint's keyset scan.
 
-| column | type | notes |
-|---|---|---|
-| `id` | str(36) | |
-| `organization_id` | fk | indexed |
-| `name` | str | display name |
-| `destination` | enum str | `datadog`, `splunk`, `sentinel`, `s3`, `gcs`, `https`, `syslog` |
-| `config` | JSON | non-secret fields (site, URL, bucket, region, DCR id…) |
-| `secrets` | JSON | encrypted envelope (`encrypt_value`); never serialized out |
-| `action_filter` | JSON null | list of prefixes, e.g. `["tool.", "user."]`; null means all |
-| `state` | enum str | `active`, `inactive`, `error`, `invalid` |
-| `cursor_created_at`, `cursor_id` | datetime, str | last delivered event; null means start position |
-| `start_from` | enum str | `now` or `beginning` (backfill), applied on first activation |
-| `last_delivered_at`, `last_attempt_at` | datetime | |
-| `last_error` | text | truncated; no secrets |
-| `consecutive_failures`, `next_attempt_at` | int, datetime | drives backoff |
-| `created_at`, `updated_at`, `created_by` | | |
+## Exporter (`app/ee/audit/streams/exporter.py`)
 
-This also adds an index `audit_logs (organization_id, created_at, id)` so the
-cursor scan is index-only. It must work on both sqlite and postgres; CI runs
-both.
+Runs as an APScheduler interval job, every `BOW_AUDIT_STREAM_INTERVAL_SECONDS`
+(default 15). APScheduler fires it in every uvicorn worker, because the job
+store is shared; the leases below make that safe.
 
-### Destinations
+**1. Stamp.** One process at a time wins the stamper lease, a compare-and-set
+`UPDATE` on `audit_export_state` lasting 30 s. It gives newly visible rows of
+organizations that have a stream the next `export_seq` values, in batches of
+2,000, within a 10 s budget per tick.
 
-All destinations share one interface in `app/ee/audit/streams/destinations/`:
+The ordering is the guarantee. A row whose transaction commits late becomes
+visible later and is stamped later, with a higher number, so no stream cursor
+can already be past it. Ordering by `created_at` with a lag window (the first
+design) lost rows under lock contention and on spill replay.
 
-```python
-class Destination(Protocol):
-    max_batch: int
-    async def send(self, events: list[dict]) -> SendResult  # ok | retryable(err) | invalid(err) | fatal(err)
-    async def test(self) -> SendResult                       # sends one audit_stream.test event
-```
+**2. Deliver.** Up to 4 streams run concurrently. Each due stream is claimed
+with a compare-and-set lease on `next_attempt_at` (120 s). `SELECT … FOR UPDATE`
+is not used, because SQLite ignores it. Then, within a 20 s budget per stream:
 
-| destination | wire | auth | classification |
+- read the next batch with `export_seq > cursor_seq`, plus
+  `created_at >= start_after` for "new events only";
+- apply `action_filter`;
+- send the batch, and move `cursor_seq` only if the destination accepted it.
+
+Rows excluded by the filter still advance the cursor.
+
+| Send result | Effect |
+|---|---|
+| `ok` | cursor saved, failures reset |
+| `retryable` (408/425/429/5xx, network, timeout) | stays `active`, backoff `min(5·2^(n-1), 900)` s ± 20 % |
+| `invalid` (401/403, rejected token, TLS verification, undecryptable secrets) | state `invalid` |
+| `fatal` (other 4xx, missing bucket) | state `error` |
+
+A move to `invalid` or `error` is audited (`audit_stream.state_changed`) and
+emailed once to the org's admins. Bookkeeping writes (lease release, progress,
+finish) retry while the database is locked, so a busy database delays
+delivery but never strands a stream behind its lease.
+
+Duplicates can only follow a crash mid-send. They carry the same `id`, and an
+S3 or GCS object key is a deterministic function of its batch, so a retried
+batch overwrites the same object.
+
+## Destinations (`app/ee/audit/streams/destinations/`)
+
+Every destination implements `send(batch) -> SendResult`, and its fields are
+declared once as `FieldSpec`s. That list drives API validation and the UI form
+(`GET /enterprise/audit/streams/destinations`).
+
+| Destination | Wire | Auth | Batch |
 |---|---|---|---|
-| `datadog` | `POST https://http-intake.logs.{site}/api/v2/logs`, array of `{ddsource:"bagofwords", service, hostname, message: <envelope json>}` | `DD-API-KEY` header | 202 ok · 400/413 fatal · 403 invalid · 429/5xx retryable |
-| `splunk` | `POST {hec_url}/services/collector/event`, NDJSON lines of `{time, sourcetype:"bagofwords:audit", source, event: <envelope>}` | `Authorization: Splunk <token>` | 200 ok · 401/403 invalid · 400 fatal · 503/5xx retryable |
-| `sentinel` | `POST {dce}/dataCollectionRules/{dcr_id}/streams/{stream}?api-version=2023-01-01`, JSON array | Entra client-credentials token (`login.microsoftonline.com/{tenant}/oauth2/v2.0/token`, scope `https://monitor.azure.com/.default`), fetched with `httpx`, no new dependency | 204 ok · 401/403 invalid · 413 fatal · 429/5xx retryable |
-| `s3` | `PutObject` key `{prefix}/{YYYY-MM-DD}/{first_occurred_at}_{first_id}.json`, NDJSON (optional gzip), `ContentMD5` set so Object-Lock buckets accept it | Cross-account role via STS `AssumeRole` + external ID (generated per stream and shown in the UI), or access keys for self-hosted | AccessDenied invalid · NoSuchBucket fatal · throttling/5xx retryable |
-| `gcs` | Same writer as S3 against `https://storage.googleapis.com` | HMAC keys | Same as S3 |
-| `https` | `POST {url}`, JSON array | Custom headers plus `X-BOW-Timestamp` and `X-BOW-Signature: v1=hex(hmac_sha256(secret, ts + "." + body))` | 2xx ok · 401/403 invalid · other 4xx fatal · 408/429/5xx retryable |
-| `syslog` | RFC 5424 over TCP+TLS with RFC 5425 octet-counting framing (`asyncio.open_connection(ssl=…)`). `MSG` is the envelope JSON; optional CEF | Optional mTLS client cert | Connect/TLS failure retryable · cert rejected invalid |
-
-The S3 key is a deterministic function of the batch's first event, and batch
-boundaries come from the cursor. A retried batch therefore overwrites the same
-object instead of creating a duplicate.
-
-### Exporter
-
-The exporter lives in `app/ee/audit/streams/exporter.py` and is registered in
-`main.py` next to the other leader-only jobs. It runs as an interval job every
-15 s with `max_instances=1` and `coalesce=True`.
-
-For each stream with `state='active'` and `next_attempt_at <= now`:
-
-1. **Claim the stream.** `SELECT … FOR UPDATE SKIP LOCKED` on postgres; on
-   sqlite, a single process already serializes this. That keeps multiple hosts
-   from double-sending.
-2. **Read a batch.** Up to `max_batch` rows where
-   `organization_id = :org AND (created_at, id) > (:cursor_created_at, :cursor_id) AND created_at < now() - :lag`,
-   ordered by `created_at, id`. `:lag` defaults to 30 s (`BOW_AUDIT_STREAM_LAG_SECONDS`).
-   The lag covers transactions that commit late with an earlier `created_at`;
-   without it the cursor would step over them.
-3. **Filter.** Apply `action_filter` in Python. Filtered-out rows still advance the cursor.
-4. **Send** with `destination.send(batch)`.
-5. **Advance or back off.**
-   - `ok`: advance the cursor to the last row, reset failures, and loop while
-     full batches keep coming (bounded per tick).
-   - `retryable`: `next_attempt_at = now + min(2^n · 5 s, 15 min)` with jitter;
-     the state stays `active`.
-   - `invalid` or `fatal`: set the state, store a redacted `last_error`, and
-     email the org admins once per transition.
-6. **Commit** the cursor and state together.
-
-Re-activating a stream (PATCH `state=active`, or saving new credentials) clears
-`next_attempt_at`. Delivery resumes from the cursor, so nothing written while
-the stream was down is lost.
-
-### API
-
-New routes in `app/ee/audit/streams/routes.py`, under prefix
-`/enterprise/audit/streams`:
-
-| method | path | gate |
-|---|---|---|
-| GET | `` | `view_audit_logs` |
-| POST | `` | `manage_settings` |
-| GET | `/{id}` | `view_audit_logs` |
-| PATCH | `/{id}` (config, secrets, filter, `state: active\|inactive`) | `manage_settings` |
-| DELETE | `/{id}` | `manage_settings` |
-| POST | `/{id}/test` (synchronous, returns the `SendResult`) | `manage_settings` |
-| GET | `/{id}/status`: state, lag (`now - cursor_created_at`), pending count, last error | `view_audit_logs` |
-
-- All routes carry `@require_enterprise(feature="audit_log_streams")`; the key
-  is added to the `enterprise` tier in `app/ee/license.py`.
-- Responses expose `secrets` only as `{"<field>": "••••<last4>"}`.
-- Create, update, and delete each emit an audit event:
-  `audit_stream.created|updated|deleted|activated|paused`.
-
-### UI
-
-A **Streams** tab in `frontend/pages/settings/audit.vue`:
-
-- The list shows a state chip, destination icon, lag, and last error.
-- *Add stream* opens a dialog: choose a destination, fill in its form, choose
-  "start from now / include history", then **Send test event**, then save.
-- Pause, resume, edit, and delete per stream.
-- The S3 form shows the generated external ID and a copyable trust-policy
-  snippet.
-- Strings go in `locales/{en,es,he}.json` (same shape); RTL is checked in `he`.
-
-### Audit Logs page (activity view)
-
-The page gets an **Activity | Streams** switch at the top. Activity is the
-upgraded log list below; Streams is the tab above.
-
-**Row layout**
-
-```
- 12:04:31  yochze@gmail.com   ⚙ via agent   artifact · record [created]   artifact_resource · Q3 Revenue ↗   ▸
- └ time    └ actor            └ actor kind  └ resource path + verb chip    └ target (+ link)                   └ drawer
-```
-
-- **Time:** exact local time today, date and time for older rows; the
-  relative time ("28m") goes in the tooltip.
-- **Actor:** email plus a kind marker. The marker reads "via agent" when
-  `details.agent_execution_id` is set and "system" when there is no user. It
-  uses the same rule as the envelope's `actor.type`, from a shared helper.
-- **Action:** every segment but the last is shown as muted text
-  (`artifact · record`); the last segment is the coloured verb chip. The
-  column is flexible with `min-w-0` + `truncate`, and the full action is in
-  the tooltip, so no action length can overlap the next column.
-- **Target:** `resource_type · details.title`. Where the resource has a page
-  (report, data source, member, agent), it links to it.
-- The IP moves into the drawer.
-
-**Detail drawer** (click a row, or Enter on a focused row)
-
-- **Who / when / where:** actor and kind, timestamp in UTC and local, IP, user
-  agent.
-- **What:** the full action, resource type and id (copy button), link to the
-  resource.
-- **Details:** known keys rendered as labelled fields, such as `queries` as
-  code blocks, `data_source`, `tool`, and before/after values as a diff. The
-  raw `details` JSON sits below in a collapsible block.
-- For agent and tool events: a link to the agent run (`agent_execution_id`)
-  and the execution mode.
-- It uses the existing `GET /enterprise/audit/{log_id}`; no new read endpoint.
-
-**Filters**
-
-- New **User** (member picker), **Resource type** (from a new
-  `GET /enterprise/audit/resource-types`, mirroring `/action-types`) and
-  **Date range** (presets 24h / 7d / 30d / custom) filters. All map onto query
-  params `list_audit_logs` already accepts.
-- The action dropdown gets a scrollable list with a search box, grouped by
-  resource prefix (`artifact.*`, `report.*`, …).
-- Filter state lives in the URL query, so a filtered view can be shared or
-  bookmarked.
-- Backend: `search` also matches the actor's email (join `users`) and
-  `details.title`. Use JSON-path access that works on both sqlite and
-  postgres, or a cast-to-text fallback with a test on both.
-
-**Export**
-
-- `GET /enterprise/audit/export?format=json|csv&<same filters>`, gated by
-  `audit_logs` + `view_audit_logs`, streamed (no full in-memory load) and
-  capped at 100k rows per request. Over the cap, the response asks the user to
-  narrow the filter or use a stream.
-- JSON is NDJSON of envelope v1, the exact shape the streams send. CSV
-  flattens it to `id, occurred_at, action, actor_type, actor_email,
-  resource_type, resource_id, title, ip_address, user_agent, details_json`.
-- Each export emits `audit_log.exported` with the filters and row count.
-- A **Download** button on the page exports the current filtered view.
-
----
-
-## Work packages
-
-### WP0: tool-audit queue stops dropping events (`tool_audit.py`)
-
-1. **Batched writes.** The worker awaits one event, then drains up to 200 with
-   `get_nowait()`. One session, `add_all`, one commit.
-2. **Retry.** Up to 3 attempts per batch (0.5 s, 1 s, 2 s backoff), then fall
-   back to per-event writes so one poison row can't sink the batch.
-3. **No drop on full.** If the queue is full, the calling tool writes the event
-   inline via `_write_event` and pays the latency itself. `_dropped_count`
-   stays as a guard metric that should always read 0.
-4. **Disk spill.** If the DB is still failing after retries, or the shutdown
-   drain times out, append to `$BOW_DATA_DIR/audit-spill/<pid>-<ts>.jsonl`. The
-   scheduler leader replays and deletes spill files on startup.
-5. **Worker restart.** `_ensure_worker` reuses the existing queue and only
-   restarts the task.
-6. **Stats.** `get_tool_audit_queue_stats()` adds `spilled` and `replayed`.
-
-### WP1: envelope, model, migration, exporter core, `https` + `s3` destinations
-### WP2: `datadog`, `splunk` destinations (thin wrappers over the shared HTTP sender)
-### WP3: `sentinel`, `gcs`, `syslog` destinations
-### WP4: API routes, license key, RBAC, secret redaction, admin emails on state transitions
-### WP5: UI tab + i18n + ui-evidence
-### WP6: feedback-loop doc + docs.bagofwords.com page (docs-update skill) + CHANGELOG (release-notes skill)
-### WP7: Audit Logs page upgrade (activity view)
-
-1. **Row rendering fix** (ships first, independently): split the action into
-   path + verb; colour by the last segment; flexible, truncating action column.
-   Fixes the overlap seen in production.
-2. **Detail drawer**, using `GET /enterprise/audit/{log_id}`.
-3. **Filters:** user, resource type (new `/resource-types` route), date range,
-   searchable action dropdown, filter state in the URL; backend search widened
-   to email + `details.title`.
-4. **Export endpoint + Download button** (depends on WP1's envelope).
-5. **i18n** for every new string in en/es/he; RTL check in `he`.
-
-WP7.1–7.3 have no dependency on the streams work and can merge before WP1.
-
-Rough size: WP0 1d · WP1 3d · WP2 1d · WP3 2d · WP4 1d · WP5 2d · WP6 0.5d · WP7 2.5d.
-
----
-
-## The mock SIEM consumer
-
-`tools/agent/mock_siem_consumer.py` is a single-file mock in the same style as
-`tools/agent/mock_infor_epm_server.py`: stdlib only, run with
-`python tools/agent/mock_siem_consumer.py --port 8790 --syslog-port 6514`.
-It is **not** a vendor product. It emulates each intake's documented surface
-closely enough to validate wire format and auth, and nothing more.
-
-It is also importable as a pytest fixture (`tests/mocks/siem_consumer.py`
-re-exports it) and starts on an ephemeral port in a thread. Loop A and Loop B
-use the same mock.
-
-### Emulated intakes
-
-| path / port | emulates | validates | 2xx response |
-|---|---|---|---|
-| `POST /dd/api/v2/logs` | Datadog logs intake | `DD-API-KEY == demo-dd-key`; body is an array; each `message` parses as envelope v1 | 202 `{}` |
-| `POST /splunk/services/collector/event` | Splunk HEC | `Authorization: Splunk demo-hec-token`; NDJSON; each line has an `event` | 200 `{"text":"Success","code":0}` |
-| `POST /entra/{tenant}/oauth2/v2.0/token` | Entra token endpoint | client id/secret `demo-client`/`demo-secret`, scope | 200 `{access_token, expires_in}` |
-| `POST /sentinel/dataCollectionRules/{dcr}/streams/{stream}` | Logs Ingestion API | bearer token minted above; `api-version` present | 204 |
-| `PUT /s3/{bucket}/{key}` (path-style) | S3 / GCS PutObject | `Content-MD5` matches the body; key matches `{prefix}/YYYY-MM-DD/{ts}_{id}.json`; SigV4 header present (signature not verified) | 200 + `ETag` |
-| `POST /sts/` `Action=AssumeRole` | STS | `ExternalId == stream's` (configured via control API) | 200 XML credentials |
-| `POST /https/{anything}` | Generic HTTPS | `X-BOW-Signature` recomputed with `demo-hmac-secret`; timestamp within 5 min | 200 |
-| TCP+TLS `:6514` | syslog RFC 5425 | octet-count framing; RFC 5424 header; `MSG` parses as envelope | — (no ack, by protocol) |
-
-The syslog listener uses a self-signed cert the mock writes to
-`--state-dir/tls/` at startup. The stream config points `ca_cert` at it.
-
-### Control and inspection API
-
-| method | path | purpose |
-|---|---|---|
-| POST | `/_control/fault` `{"dest":"splunk","mode":"503\|429\|401\|403\|400\|timeout\|reset","count":3}` | The next *count* requests to *dest* fail that way (`count: -1` means until cleared) |
-| DELETE | `/_control/fault` | clear all faults |
-| POST | `/_control/sts` `{"external_id":"…"}` | set the expected external ID |
-| GET | `/_received?dest=…` | received envelopes, in arrival order |
-| GET | `/_stats?dest=…&expect_ids=<file>` | `{received, unique, duplicates, missing:[…], out_of_order, auth_failures, format_errors}` |
-| DELETE | `/_received` | reset |
-
-Every request is also appended to `--state-dir/<dest>.jsonl` with headers
-redacted, so a Loop B run leaves an inspectable artifact.
-
-`missing` is computed against an id list the loop exports from the DB
-(`SELECT id FROM audit_logs WHERE organization_id = …`). That cross-check is
-what proves A1 and A2: the DB is the source of truth, and the mock's view of
-it must match.
-
----
-
-## Loop A: deterministic (no external services, runs in CI)
-
-Setup comes from the sandbox-feedback-loop skill:
-
-```bash
-cd backend && uv sync --frozen --extra dev
-export BOW_DATABASE_URL="sqlite:///db/app.db" TESTING=true && mkdir -p db
-```
-
-### A0. Queue drops: reproduce first (`tests/unit/test_tool_audit_queue.py`)
-
-The test stubs only the DB boundary's latency: it wraps `async_session_maker`
-so each commit takes 20 ms. It then fires `10 × _QUEUE_MAXSIZE`
-`log_tool_audit` calls concurrently and drains.
-
-- **Invariant:** `rows in audit_logs == calls made` and
-  `stats["dropped"] == 0`. The test is parametrized over burst size and commit
-  latency, so it covers the general case, not one magic number.
-- **Before WP0: FAIL** (`dropped > 0`, rows < calls).
-- **After WP0: PASS.**
-- Also: a DB that fails N times then recovers leads to every event written
-  (retry). A DB that never recovers during shutdown leads to the spill file
-  holding exactly the unwritten events, and replay on the next start leads to
-  every row present once.
-
-### A1. Envelope (`tests/unit/test_audit_stream_envelope.py`)
-
-- User, agent, and system actor mapping.
-- `details` passes through unchanged.
-- Timestamps are ISO-8601 UTC with a `Z` suffix.
-- A golden file for one row of each actor type, reviewed by hand.
-
-### A2. Destination contracts (`tests/unit/test_audit_stream_destinations.py`)
-
-For each destination, send a batch to the mock fixture and assert:
-
-- The mock reports `format_errors == 0` and `auth_failures == 0`.
-- Received ids equal sent ids.
-- With wrong credentials, the result is `invalid`.
-- For each fault mode, `SendResult` matches the classification table above
-  (parametrized over destination × mode).
-- S3: `Content-MD5` is present, and the key is deterministic (sending the same
-  batch twice produces one key).
-- HTTPS: the HMAC verifies.
-- Syslog: framing round-trips.
-
-### A3. Exporter cursor semantics (`tests/e2e/audit/test_audit_streams_exporter.py`)
-
-These tests seed events through real API actions: create and revoke API keys
-via fixtures. They point a stream at the mock fixture and call the exporter
-tick function directly (no scheduler, no sleep).
-
-- **All delivered:** N events, tick until idle, then `missing == []`.
-- **Cursor only moves on success:** inject 503×3, tick ×4, then every event
-  is delivered once and the state is still `active`.
-- **Late commit:** insert a row with `created_at` older than the cursor but
-  inside the lag window, tick, and it is delivered. This is the one direct DB
-  write, with a comment explaining why: the API can't backdate.
-- **Invalid then fixed:** a 401 moves the stream to `invalid`. PATCH new
-  credentials and `active`, tick, and events written while it was invalid
-  arrive with no gaps.
-- **Action filter:** filtered actions are absent and the cursor still advances
-  past them.
-- **Org isolation:** org B's events never reach org A's stream.
-- **Backfill:** `start_from=beginning` delivers pre-existing rows;
-  `start_from=now` does not.
-
-All of these run with `--db=sqlite` and `--db=postgres`.
-
-### A4. API + RBAC (`tests/e2e/audit/test_audit_streams_api.py`)
-
-- An admin can do full CRUD.
-- A member gets 403 on every route.
-- A role with only `view_audit_logs` can GET but not create.
-- Without a license, every route returns the enterprise-required error.
-- Response bodies never contain the plaintext secret.
-- The DB column holds an encrypted envelope, not the plaintext.
-- CRUD emits `audit_stream.*` events.
-- `/test` against the mock returns ok; against a mock 401 it returns invalid.
-
-### A5. Row rendering (`frontend/tests/unit/auditActionFormat.mjs` + `frontend/tests/settings/audit-log.spec.ts`)
-
-- Move the action formatting and colour logic out of the page into
-  `frontend/utils/auditActionFormat.ts`. Test it in the repo's existing
-  frontend unit style: a plain `node:assert` `.mjs` file, like
-  `tests/unit/agentSelection.mjs`.
-- Parametrize over action shapes: 1, 2, 3 and 4 segments, long resource
-  names, underscores, unknown verbs, and every distinct action currently
-  emitted by the backend. That list comes from a fixture built by grepping the
-  `action="…"` / `log_tool_audit(` call sites.
-- **Invariants:** the verb is the last segment, the path is the rest, and the
-  colour class follows the verb (`created` green, `deleted|removed` red, …).
-- **Before the fix: FAIL** for any 3-segment action (full string as the chip,
-  "record" colour). **After: PASS.**
-- A Playwright spec covers the layout: with seeded multi-segment actions, every
-  row's action cell has `scrollWidth <= clientWidth` or carries `truncate` + a
-  `title` holding the full action. It runs in `en` and `he`.
-
-### A6. Filters, search, export (`tests/e2e/audit/test_audit_log_query.py`)
-
-- Seed events through real actions by two users, across two resource types,
-  with one org B event as a control.
-- **Filters:** `user_id`, `resource_type`, and `start_date`/`end_date`
-  (dates via the clock utilities, not wall time) each return exactly the
-  matching rows (`total == expected`), and combined filters intersect.
-- **Search:** searching a user's email or a report title returns that user's
-  or report's rows. Before the backend change it returns 0 (**FAIL**); after,
-  it **PASSES**.
-- **`/resource-types`:** returns the distinct types for the org only.
-- **Export:** JSON lines parse as envelope v1, and the set of ids equals the
-  filtered list endpoint's ids (paged through). CSV has the documented header
-  and the same row count. Org B's rows are never present. A member gets 403;
-  unlicensed returns the enterprise-required error. The export emits
-  `audit_log.exported`.
-- Runs on sqlite and postgres (the `details.title` search is the part most
-  likely to diverge).
-
----
-
-## Loop B: live stack against the mock consumer
-
-This loop runs the real app, uvicorn workers, scheduler, and browser. It needs
-no third-party credentials.
-
-```bash
-# 1. stack + org
-tools/agent/boot_stack.sh
-cd backend && uv run python ../tools/agent/seed_org.py --demo --invite member@example.com
-export BOW_AUDIT_STREAM_LAG_SECONDS=2     # shorten for the loop; default 30
-
-# 2. mock consumer
-python tools/agent/mock_siem_consumer.py --port 8790 --syslog-port 6514 \
-  --state-dir /tmp/siem-mock &
-
-# 3. driver
-uv run python ../tools/agent/audit_streams_loop.py --base-url http://localhost:8000 \
-  --mock http://localhost:8790 --scenario all
-```
-
-`tools/agent/audit_streams_loop.py` creates one stream per destination via the
-API, all pointed at the mock. It generates events through real actions: login,
-API key create/revoke, member invite, and an agent chat via
-`tools/agent/stub_llm.py` so tool audit events flow too. It then polls
-`/_stats` until convergence or a timeout and prints a PASS/FAIL table per
-scenario.
-
-| scenario | steps | pass condition |
-|---|---|---|
-| **B1 happy path** | 200 mixed events | every destination: `missing == 0`, `format_errors == 0` |
-| **B2 transient** | `fault splunk 503 count=5`, `fault dd 429 count=3`, generate 50 events | `missing == 0`; stream status shows `active`; backend log shows backoff |
-| **B3 invalid → fixed** | `fault sentinel 401 count=-1`, generate 30 events, check state is `invalid` and the admin email captured (SMTP stub), clear fault, PATCH `active` | the 30 events arrive; `missing == 0` |
-| **B4 tool burst** | Run the stub-LLM agent in a loop producing about 10× the queue size of tool events, with `tools/agent/pg_latency_proxy.py` adding DB latency (postgres leg) | `GET` queue stats: `dropped == 0`; `missing == 0` at the mock |
-| **B5 crash mid-batch** | `fault https timeout count=1`, run `tools/agent/restart_backend.sh` during the in-flight request | `missing == 0`; every duplicate has the same `id` (A3) |
-| **B6 UI** | Playwright via `tools/agent/capture.mjs`: add a stream, send a test event (shows success), pause/resume, the state chip turns `invalid` under a 401 fault; repeat in `he` | screenshots + a GIF of the add-stream flow (ui-evidence skill), RTL layout correct |
-| **B8 activity view** | After B1 (so the log holds user, agent/tool and system events of every shape), Playwright: screenshot the list; open the drawer on a 3-segment tool event and on a `report.updated` event; apply user + resource-type + 24h filters and reload (filters persist via the URL); search an email; click Download (JSON) and compare the file's ids with the mock's `/_received` for the same window; repeat the list + drawer in `he` | no row overlap (each row's action cell `scrollWidth <= clientWidth` or truncated with a title); drawer shows `details`, user agent, resource id; export ids == stream ids; before/after screenshots per ui-evidence |
-| **B7 multi-worker** | `start.sh` with `WORKERS=4`; also two hosts against one postgres (two `boot_stack` backends on different ports, both with `BOW_SCHEDULER_LEADER=1`) | duplicates bounded by one batch; `missing == 0` |
-
-The loop exits non-zero on any FAIL, so it can run as a manual or nightly CI
-job.
-
-### Loop C (optional): real vendors
-
-This loop sends to real trial accounts (a Datadog trial, Splunk Cloud trial,
-an Azure DCR, and a bucket). Credentials come from env vars only:
-`BOW_IT_DD_API_KEY`, `BOW_IT_SPLUNK_HEC`, and so on. The tests go in
-`tests/integrations/audit_streams/` and are CI-gated. Each one sends a test
-event, then reads it back through the vendor's search API. Its job is to catch
-drift between the mock and the real intake; it is not required to merge.
-
----
-
-## Feedback-loop record
-
-After implementation, write `docs/feedback-loops/audit-log-streams.md` using
-the skill's template:
-
-- A0's observed FAIL (dropped count) before WP0, and the PASS after.
-- A2 and A3 pytest output.
-- Loop B's PASS table plus the `/tmp/siem-mock/*.jsonl` excerpts (redacted).
-- The ui-evidence screenshots: streams tab, plus the activity view before
-  (the overlapping row from production) and after (row, drawer, filters, he).
-- Any pre-existing unrelated failures, verified with the change stashed.
-
-## Risks / open questions
-
-- **Clock skew across hosts.** `created_at` comes from each host's app clock.
-  The lag window absorbs small skew. If multi-host skew exceeds it, switch
-  `created_at` to a DB-side `server_default=func.now()` for new rows.
-- **Very high-volume orgs.** Tool events dominate the volume. Add
-  `action_filter` presets (e.g. "exclude `tool.*`") in the UI, and cap
-  per-tick work per stream so one stream can't starve the others.
-- **Outbound network policy.** On air-gapped installs, the S3, Datadog, and
-  Sentinel endpoints may be blocked; the error shows up in the stream's status.
-  Syslog and generic HTTPS to an internal collector stay available.
-- **Future retention purge.** It must not delete rows newer than the minimum
-  `cursor_created_at` of active streams. Leave a guard and a test hook in WP1.
+| `datadog` | `POST /api/v2/logs` on the chosen site; envelope JSON as `message` | `DD-API-KEY` | 500 |
+| `splunk` | HEC `/services/collector/event`, NDJSON `{time, sourcetype, event}` | `Authorization: Splunk …` | 500 |
+| `sentinel` | Logs Ingestion API `…/dataCollectionRules/{dcr}/streams/{stream}?api-version=2023-01-01` | Entra client credentials (`https://monitor.azure.com/.default`) | 500 |
+| `s3` | `PutObject` NDJSON (optional gzip) at `{prefix}/{YYYY-MM-DD}/{ts}_{first_id}.json`, with `Content-MD5` | access keys, or AssumeRole with a generated External ID | 1000 |
+| `gcs` | same writer through GCS's S3-compatible API | HMAC keys | 1000 |
+| `https` | JSON array POST | optional auth header; `X-BOW-Signature: v1=hmac_sha256(secret, ts + "." + body)` with `X-BOW-Timestamp` | 500 |
+| `syslog` | RFC 5424 over TCP/TLS, octet-counted framing; JSON or CEF message | optional mTLS, custom CA | 500 |
+
+Each SDK's own retries are turned off (`total_max_attempts=1` for botocore), so
+the exporter alone owns retry and backoff.
+
+## Tool-audit queue (`app/ee/audit/tool_audit.py`)
+
+- **Batching:** the worker drains up to 200 events into one session and one
+  commit.
+- **Retry:** a failed batch is retried after 0.5, 1 and 2 s, then written event
+  by event so one bad row cannot sink the rest.
+- **Full queue:** the caller waits up to 2 s for space, then writes its event
+  inline. Nothing is discarded.
+- **Disk spill:** what still cannot reach the database (an outage, or a shutdown
+  that times out) is appended to `BOW_AUDIT_SPILL_DIR` (default
+  `backend/data/audit-spill`). The scheduler leader replays it on the next
+  start; each file is claimed by atomic rename.
+- **No duplicates:** event ids are assigned at enqueue, so retries and replays
+  skip rows that are already written.
+- **`created_at`** is stamped when the row is written. A write delayed more than
+  5 s keeps the original time in `details.occurred_at`.
+
+## Scheduler resilience (`app/core/scheduler.py`)
+
+`ResilientAsyncIOScheduler` wraps APScheduler 3.x's `_process_jobs`.
+APScheduler does not guard `jobstore.update_job` there, so one failing
+job-store write (for example SQLite "database is locked") escaped `wakeup()` and
+silently stopped every scheduled job in the worker until restart. A failed pass
+is now logged and retried after `jobstore_retry_interval`.
+
+## API
+
+| Route | Gate |
+|---|---|
+| `GET /enterprise/audit` — list, now with `resource_type` (comma list), `user_id`, `start_date`, `end_date`; `search` also matches actor email and `details.title` | `view_audit_logs` |
+| `GET /enterprise/audit/resource-types` | `view_audit_logs` |
+| `GET /enterprise/audit/export?format=json\|csv&<filters>` — streamed, oldest first, capped at 100,000 rows (`audit_log.export_too_large`); emits `audit_log.exported`; CSV cells are guarded against formula injection | `view_audit_logs` |
+| `GET /enterprise/audit/streams`, `/{id}`, `/destinations` | `view_audit_logs` |
+| `POST /enterprise/audit/streams`, `PATCH /{id}`, `DELETE /{id}`, `POST /test` | `manage_settings` |
+
+The streams router is mounted before the audit router, because `/{log_id}`
+would otherwise capture `/streams`. Responses mask secrets (`••••last4`). On
+update, a masked value keeps the stored secret and an empty string clears it.
+Stream create, update, pause, activate and delete are audited
+(`audit_stream.*`). Errors are typed (`audit_stream.not_found`,
+`.invalid_destination`, `.missing_field`, `.invalid_field`).
+
+## UI (`frontend/pages/settings/audit.vue`, `frontend/components/audit/`)
+
+- **Activity tab:**
+  - each row shows the exact time, the actor with a "via agent" marker, the
+    action as a muted resource path plus a verb chip coloured by its last
+    segment (it truncates and never overlaps), and the target;
+  - the drawer shows who, when (local, UTC, relative), where, what and the
+    parsed details (queries, changes), with the raw JSON and copy buttons;
+  - user, resource, time and action filters are kept in the URL;
+  - JSON or CSV export of the filtered view.
+- **Streams tab:**
+  - a destination picker, then a form generated from the field schema;
+  - **Send test event** before saving;
+  - state chips, delivered and pending counts, the last error, and the retry
+    countdown;
+  - pause, resume, edit and delete.
+- Strings are in all 10 locales, and the page works RTL (`he`).
+
+## Operational notes
+
+- **Encryption key:** set a stable `BOW_ENCRYPTION_KEY`, as for connection
+  credentials. If the key changes, streams with secrets move to `invalid` and
+  resume once their secrets are re-entered; no events are lost.
+- **Network policy:** on air-gapped installs, the S3, Datadog and Sentinel
+  endpoints may be blocked, and the failure shows up in the stream's status.
+  Syslog or HTTPS to an internal collector still work.
+- **Future retention purge:** it must not delete rows a stream has not yet
+  delivered, i.e. rows past the lowest `cursor_seq` among active streams.
+
+## Verification
+
+Replay steps and observed results are in
+`docs/feedback-loops/audit-log-streams.md`. In brief:
+
+- **Mock SIEM:** `tools/agent/mock_siem_consumer.py` emulates every intake and
+  injects faults.
+- **Tests:** pytest contract, exporter, API and RBAC suites on SQLite and
+  Postgres.
+- **Live loop:** `tools/agent/audit_streams_loop.py` runs the happy path,
+  transient faults, invalid-then-fixed credentials, a 10,000-event tool burst
+  and a restart mid-send, finishing 27/27.
+- **UI flow:** `tools/agent/audit_ui_flow.mjs`, 12/12 checks in `en` and `he`.
