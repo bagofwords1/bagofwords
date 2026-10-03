@@ -20,6 +20,7 @@ from .types import (
     LLMUsage,
     Message,
     ToolSpec,
+    TextDeltaEvent,
     UsageEvent,
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
@@ -29,7 +30,7 @@ from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
 from app.ai.llm.header_injection import build_provider_headers
-from app.ai.llm.reasoning import needs_responses_for_tools, reasoning_mode, reasoning_params
+from app.ai.llm.reasoning import needs_responses_for_tools, reasoning_mode, reasoning_params, _effort_to_thinking_config
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from app.settings.logging_config import get_logger
@@ -268,7 +269,9 @@ class LLM:
         usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
         usage_context: Optional[UsageLimitContext] = None,
         pii_redactor: Optional[PiiRedactor] = None,
+        reasoning_effort: Optional[str] = None,
     ):
+        self._default_reasoning_effort = reasoning_effort
         self.model = model
         self.model_id = model.model_id
         self.provider = model.provider.provider_type
@@ -769,6 +772,17 @@ class LLM:
 
         return new_system, new_messages
 
+    def _effective_thinking(self, thinking: Optional[dict] = None) -> Optional[dict]:
+        # Small-default is an execution policy, not merely a model selection.
+        # Explicit off is translated by each adapter to its supported minimum.
+        if getattr(self.model, "is_small_default", False) is True:
+            return {"type": "disabled"}
+        if thinking is not None:
+            return thinking
+        return _effort_to_thinking_config(
+            getattr(self, "_default_reasoning_effort", None), self._capability_model_id()
+        )
+
     def inference(
         self,
         prompt: str,
@@ -794,10 +808,12 @@ class LLM:
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
             self._check_usage_limit_sync(prompt_tokens_estimate, should_record=should_record)
             response = None
+            thinking = self._effective_thinking()
+            policy_kwargs = {"thinking": thinking} if thinking is not None else {}
             for _attempt in range(_MAX_SYNC_RETRIES + 1):
                 try:
                     response = self.client.inference(
-                        model_id=self.model_id, prompt=prompt, images=images, system=system,
+                        model_id=self.model_id, prompt=prompt, images=images, system=system, **policy_kwargs,
                     )
                     break
                 except Exception as e:
@@ -850,6 +866,30 @@ class LLM:
             )
             return sanitized
 
+    async def _text_stream_with_policy(self, prompt, images, *, max_output_tokens=None):
+        from contextlib import aclosing
+
+        thinking = self._effective_thinking()
+        # Bounded extraction must retain the adapters' no-retry, output-limit
+        # and truncation checks. Apply the same policy on that legacy route.
+        if thinking is None or max_output_tokens is not None:
+            options = {"max_output_tokens": max_output_tokens} if max_output_tokens is not None else {}
+            if thinking is not None:
+                options["thinking"] = thinking
+            async with aclosing(self.client.inference_stream(
+                model_id=self.model_id, prompt=prompt, images=images, **options
+            )) as stream:
+                async for chunk in stream:
+                    yield chunk
+            return
+        async with aclosing(self.client.inference_stream_v2(
+            model_id=self.model_id, messages=[Message(role="user", content=prompt)],
+            images=images, thinking=thinking,
+        )) as stream:
+            async for event in stream:
+                if isinstance(event, TextDeltaEvent):
+                    yield event.text
+
     async def inference_stream(
         self,
         prompt: str,
@@ -884,7 +924,7 @@ class LLM:
             try:
                 from contextlib import aclosing
                 options = {"max_output_tokens": max_output_tokens} if max_output_tokens is not None else {}
-                async with aclosing(self.client.inference_stream(model_id=self.model_id, prompt=prompt, images=images, **options)) as provider_stream:
+                async with aclosing(self._text_stream_with_policy(prompt, images, **options)) as provider_stream:
                     async for chunk in provider_stream:
                         if chunk is None:
                             continue
@@ -978,6 +1018,11 @@ class LLM:
                     scope_ref_id=usage_scope_ref_id,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    cache_read_tokens=usage.cache_read_tokens,
+                    cache_creation_tokens=usage.cache_creation_tokens,
+                    cache_write_5m_tokens=usage.cache_write_5m_tokens,
+                    cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                    reasoning_tokens=usage.reasoning_tokens,
                     should_record=should_record,
                 )
                 await self._record_usage_limit_async(
@@ -1012,6 +1057,7 @@ class LLM:
         or, as fallback, the prompt_tokens_estimate plus a UsageEvent count).
         """
         target_model_id = model_id or self.model_id
+        thinking = self._effective_thinking(thinking)
         with tracer.start_as_current_span("llm.inference_stream_v2") as span:
             span.set_attribute("llm.model_id", target_model_id)
             span.set_attribute("llm.provider", self.provider)

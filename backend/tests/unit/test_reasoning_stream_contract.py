@@ -60,7 +60,7 @@ async def test_selected_effort_reaches_provider(kind, effort):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('kind', ['anthropic', 'responses'])
-async def test_summary_requested_when_no_effort_given(kind):
+async def test_no_effort_preserves_provider_default(kind):
     client = make_client(kind)
     create = capture(client, kind)
     model = 'claude-sonnet-5' if kind == 'anthropic' else 'gpt-5.2'
@@ -68,14 +68,10 @@ async def test_summary_requested_when_no_effort_given(kind):
         pass
     params = create.call_args.kwargs
     if kind == 'anthropic':
-        assert params['extra_body']['thinking']['display'] == 'summarized'
-        # Sonnet 5 cannot stop thinking; with no effort asked for it gets the
-        # least rather than the provider's default (high).
-        assert params['extra_body']['output_config'] == {'effort': 'low'}
+        assert 'thinking' not in params.get('extra_body', {})
+        assert 'output_config' not in params.get('extra_body', {})
     else:
-        # Likewise OpenAI runs reasoning models at medium when the effort is
-        # left out; "off" asks for none, so there is no summary to request.
-        assert params['reasoning'] == {'effort': 'none'}
+        assert params['reasoning'] == {'summary': 'auto'}
     await client.async_client.close()
     client.client.close()
 
@@ -218,3 +214,22 @@ async def test_older_anthropic_keeps_supported_manual_budget():
     assert 'output_config' not in body
     await client.async_client.close()
     client.client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind', ['responses', 'custom', 'azure'])
+@pytest.mark.parametrize('level,expected', [('off', 'none'), ('none', 'none'), (None, None), ('low', 'low')])
+async def test_opaque_deployments_use_underlying_model_for_disable(kind, level, expected):
+    from app.ai.llm.reasoning import _effort_to_thinking_config
+    client = make_client(kind)
+    client.reasoning_mode = 'like'
+    client.reasoning_model_id = 'gpt-6-luna'
+    create = capture(client, kind)
+    try:
+        async for _ in client.inference_stream_v2('deployment-west', [Message(role='user', content='hello')], thinking=_effort_to_thinking_config(level, 'deployment-west')):
+            pass
+        params = create.call_args.kwargs
+        assert (params.get('reasoning', {}).get('effort') if kind == 'responses' else params.get('reasoning_effort')) == expected
+    finally:
+        await client.async_client.close()
+        client.client.close()
