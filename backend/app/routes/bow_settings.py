@@ -50,6 +50,11 @@ async def get_frontend_settings(db: AsyncSession = Depends(get_async_db)):
                 "icon": p.icon,
             } for p in getattr(settings.bow_config, "oidc_providers", []) or []
         ],
+        "saml_providers": [
+            {"name": p.name, "enabled": True, "label": p.label or p.name,
+             "brand": "custom", "protocol": "saml"}
+            for p in settings.bow_config.saml_providers if p.enabled
+        ],
         "features": {
             "allow_uninvited_signups": settings.bow_config.features.allow_uninvited_signups,
             "allow_multiple_organizations": settings.bow_config.features.allow_multiple_organizations,

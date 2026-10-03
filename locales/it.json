@@ -620,6 +620,7 @@
       "title": "Impegno",
       "default": "Predefinito",
       "levels": {
+        "off": "Veloce",
         "low": "Basso",
         "medium": "Medio",
         "high": "Alto",
@@ -632,7 +633,9 @@
       "notSupported": "Questo modello non ha un'impostazione di impegno",
       "providerDefault": "Predefinito del modello",
       "modelDefault": "Predefinito dall'amministratore: {level}",
-      "runsAs": "Eseguito come {level} su questo modello"
+      "runsAs": "Eseguito come {level} su questo modello",
+      "faster": "Più veloce",
+      "smarter": "Più intelligente"
     }
   },
   "reports": {
@@ -3491,6 +3494,8 @@
     "copyClipboardFailed": "Impossibile copiare negli appunti"
   },
   "errors": {
+    "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
+    "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",
     "generic": "Qualcosa è andato storto. Riprova.",
     "network": "Errore di rete. Verifica la connessione.",
     "unauthorized": "Non sei autorizzato a farlo.",

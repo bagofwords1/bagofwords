@@ -620,6 +620,7 @@
       "title": "Aufwand",
       "default": "Standard",
       "levels": {
+        "off": "Schnell",
         "low": "Niedrig",
         "medium": "Mittel",
         "high": "Hoch",
@@ -632,7 +633,9 @@
       "notSupported": "Dieses Modell hat keine Aufwandseinstellung",
       "providerDefault": "Standard des Modells",
       "modelDefault": "Admin-Standard: {level}",
-      "runsAs": "Läuft auf diesem Modell als {level}"
+      "runsAs": "Läuft auf diesem Modell als {level}",
+      "faster": "Schneller",
+      "smarter": "Intelligenter"
     }
   },
   "reports": {
@@ -3491,6 +3494,8 @@
     "copyClipboardFailed": "In Zwischenablage kopieren fehlgeschlagen"
   },
   "errors": {
+    "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
+    "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",
     "generic": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
     "network": "Netzwerkfehler. Überprüfen Sie Ihre Verbindung.",
     "unauthorized": "Sie sind nicht berechtigt, dies zu tun.",

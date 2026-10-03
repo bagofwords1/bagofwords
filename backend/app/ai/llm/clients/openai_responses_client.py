@@ -2,7 +2,7 @@ import asyncio
 import json
 
 from app.ai.llm.reasoning import (
-    capability_model, clamp_effort, client_mode, client_reasons, efforts_for_client,
+    capability_model, clamp_effort, client_mode, client_reasons, efforts_for_client, lightest_effort,
     merge_raw_params, raw_params_for, selected_effort, supports_openai_summary,
 )
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
@@ -379,10 +379,15 @@ class OpenAIResponsesClient(LLMClient):
                 request_kwargs["parallel_tool_calls"] = False
         if client_reasons(self, model_id):
             reasoning = {}
-            if supports_openai_summary(capability_model(self, model_id)):
-                reasoning["summary"] = "auto"
             requested = selected_effort(thinking)
-            effort = clamp_effort(requested, efforts_for_client(self, model_id))
+            efforts = efforts_for_client(self, model_id)
+            effort = clamp_effort(requested, efforts)
+            if not requested and client_mode(self) in ("auto", "like"):
+                # Reasoning "off": without an effort the model reasons at its
+                # default (medium), so ask for none, or the least it allows.
+                effort = lightest_effort(efforts)
+            if effort != "none" and supports_openai_summary(capability_model(self, model_id)):
+                reasoning["summary"] = "auto"
             if effort and client_mode(self) != "custom":
                 reasoning["effort"] = effort
             if reasoning:

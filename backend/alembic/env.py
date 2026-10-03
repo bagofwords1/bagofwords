@@ -21,6 +21,7 @@ from app.models.step import Step
 from app.models.completion import Completion
 from app.models.file import File
 from app.models.report_file_association import report_file_association
+from app.models.saml import SAMLIdentity, SAMLRequest
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.membership import Membership

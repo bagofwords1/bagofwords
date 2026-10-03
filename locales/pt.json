@@ -620,6 +620,7 @@
       "title": "Esforço",
       "default": "Padrão",
       "levels": {
+        "off": "Rápido",
         "low": "Baixo",
         "medium": "Médio",
         "high": "Alto",
@@ -632,7 +633,9 @@
       "notSupported": "Este modelo não tem ajuste de esforço",
       "providerDefault": "Padrão do modelo",
       "modelDefault": "Padrão do administrador: {level}",
-      "runsAs": "Executa como {level} neste modelo"
+      "runsAs": "Executa como {level} neste modelo",
+      "faster": "Mais rápido",
+      "smarter": "Mais inteligente"
     }
   },
   "reports": {
@@ -3491,6 +3494,8 @@
     "copyClipboardFailed": "Falha ao copiar para a área de transferência"
   },
   "errors": {
+    "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
+    "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
     "generic": "Algo deu errado. Tente novamente.",
     "network": "Erro de rede. Verifique sua conexão.",
     "unauthorized": "Você não tem autorização para fazer isso.",

@@ -620,6 +620,7 @@
       "title": "Ansträngning",
       "default": "Standard",
       "levels": {
+        "off": "Snabb",
         "low": "Låg",
         "medium": "Medel",
         "high": "Hög",
@@ -632,7 +633,9 @@
       "notSupported": "Den här modellen har ingen ansträngningsinställning",
       "providerDefault": "Modellens standard",
       "modelDefault": "Administratörens standard: {level}",
-      "runsAs": "Körs som {level} på den här modellen"
+      "runsAs": "Körs som {level} på den här modellen",
+      "faster": "Snabbare",
+      "smarter": "Smartare"
     }
   },
   "reports": {
@@ -3491,6 +3494,8 @@
     "copyClipboardFailed": "Det gick inte att kopiera till urklipp"
   },
   "errors": {
+    "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
+    "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",
     "generic": "Något gick fel. Försök igen.",
     "network": "Nätverksfel. Kontrollera din anslutning.",
     "unauthorized": "Du har inte behörighet att göra det.",
