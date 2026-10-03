@@ -194,7 +194,7 @@ class OpenAi(LLMClient):
         )
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
 
         OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
@@ -204,6 +204,8 @@ class OpenAi(LLMClient):
         params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
         if system:
             params["messages"] = [{"role": "system", "content": system}] + list(params["messages"])
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
         chat_completion = self.client.chat.completions.create(**params)
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
@@ -211,13 +213,15 @@ class OpenAi(LLMClient):
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None, thinking: Optional[dict] = None
     ) -> AsyncGenerator[str, None]:
         client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
-        stream = await client.chat.completions.create(
-            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True),
-            **({"max_completion_tokens": max_output_tokens} if max_output_tokens is not None else {})
-        )
+        params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True)
+        if max_output_tokens is not None:
+            params["max_completion_tokens"] = max_output_tokens
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        stream = await client.chat.completions.create(**params)
 
         prompt_tokens = 0
         completion_tokens = 0

@@ -805,7 +805,8 @@ class CreateDataTool(Tool):
         # regardless of which model the planner/codegen used. Falls back to the
         # main model when no small model is set.
         viz_model = runtime_ctx.get("small_model") or runtime_ctx.get("model")
-        llm = LLM(viz_model, usage_session_maker=async_session_maker, usage_context=usage_ctx)
+        llm = LLM(viz_model, usage_session_maker=async_session_maker, usage_context=usage_ctx,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
         # Fetch visualization-specific instructions

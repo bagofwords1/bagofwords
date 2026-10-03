@@ -89,17 +89,52 @@ class Google(LLMClient):
         contents.append(types.Part.from_text(text=prompt.strip()))
         return contents
 
+    def _reasoning_config(self, model_id, thinking):
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
+        requested = selected_effort(thinking) if thinking else None
+        effort = (clamp_effort(requested, efforts_for_client(self, model_id)) or requested) if requested else None
+        if requested == "off":
+            # Preserve the existing minimum for models that cannot disable
+            # thinking; a disabled marker must not become a 1024-token budget.
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=self._thinking_budget(), include_thoughts=False
+            )
+        elif thinking and mode != "custom" and effort and _capability_model(self, model_id).lower().rsplit("/", 1)[-1].startswith("gemini-3"):
+            # Gemini 3 takes a named level; a budget would be converted
+            # imprecisely, and sending both is a 400.
+            thinking_config = types.ThinkingConfig(thinking_level=effort.upper(), include_thoughts=True)
+        elif thinking:
+            budget = thinking.get("budget_tokens")
+            if effort in THINKING_BUDGETS and (thinking.get("effort") or not budget):
+                budget = min(THINKING_BUDGETS[effort], GEMINI_MAX_THINKING_BUDGET)
+            thinking_config = types.ThinkingConfig(thinking_budget=self._thinking_budget(budget or 1024), include_thoughts=True)
+        else:
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=self._thinking_budget(), include_thoughts=False
+            )
+        config_kwargs: dict = {
+            "thinking_config": thinking_config,
+            "temperature": self.temperature,
+        }
+        raw = raw_params_for(self, requested, effort) if requested else {}
+        if raw:
+            # Raw fields use GenerateContentConfig names, e.g.
+            # {"thinking_config": {"thinking_budget": 2048}}. In custom mode
+            # they replace our thinking config instead of merging into it.
+            base_thinking = {} if mode == "custom" else thinking_config.model_dump(exclude_none=True)
+            merged = merge_raw_params({"thinking_config": base_thinking, **{k: v for k, v in config_kwargs.items() if k != "thinking_config"}}, raw, passthrough_key=None)
+            tc = merged.pop("thinking_config", None)
+            config_kwargs = {**merged, "thinking_config": types.ThinkingConfig(**tc) if isinstance(tc, dict) and tc else thinking_config}
+        return config_kwargs
+
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` maps to Gemini's native system_instruction. This client
         surfaces no cached-token counts, so the split costs nothing and buys
         nothing here today; it keeps the interface uniform across clients."""
-        thinking_budget = self._thinking_budget()
-
-        _cfg: dict = {
-            "thinking_config": types.ThinkingConfig(thinking_budget=thinking_budget),
-            "temperature": self.temperature,
-        }
+        _cfg = self._reasoning_config(model_id, thinking)
         if system:
             _cfg["system_instruction"] = system
         response = self.client.models.generate_content(
@@ -311,37 +346,7 @@ class Google(LLMClient):
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
-        mode = client_mode(self)
-        if mode == "off":
-            thinking = None
-        requested = selected_effort(thinking) if thinking else None
-        effort = (clamp_effort(requested, efforts_for_client(self, model_id)) or requested) if requested else None
-        if thinking and mode != "custom" and effort and _capability_model(self, model_id).lower().rsplit("/", 1)[-1].startswith("gemini-3"):
-            # Gemini 3 takes a named level; a budget would be converted
-            # imprecisely, and sending both is a 400.
-            thinking_config = types.ThinkingConfig(thinking_level=effort.upper(), include_thoughts=True)
-        elif thinking:
-            budget = thinking.get("budget_tokens")
-            if effort in THINKING_BUDGETS and (thinking.get("effort") or not budget):
-                budget = min(THINKING_BUDGETS[effort], GEMINI_MAX_THINKING_BUDGET)
-            thinking_config = types.ThinkingConfig(thinking_budget=self._thinking_budget(budget or 1024), include_thoughts=True)
-        else:
-            thinking_config = types.ThinkingConfig(
-                thinking_budget=self._thinking_budget(), include_thoughts=False
-            )
-        config_kwargs: dict = {
-            "thinking_config": thinking_config,
-            "temperature": self.temperature,
-        }
-        raw = raw_params_for(self, requested, effort) if requested else {}
-        if raw:
-            # Raw fields use GenerateContentConfig names, e.g.
-            # {"thinking_config": {"thinking_budget": 2048}}. In custom mode
-            # they replace our thinking config instead of merging into it.
-            base_thinking = {} if mode == "custom" else thinking_config.model_dump(exclude_none=True)
-            merged = merge_raw_params({"thinking_config": base_thinking, **{k: v for k, v in config_kwargs.items() if k != "thinking_config"}}, raw, passthrough_key=None)
-            tc = merged.pop("thinking_config", None)
-            config_kwargs = {**merged, "thinking_config": types.ThinkingConfig(**tc) if isinstance(tc, dict) and tc else thinking_config}
+        config_kwargs = self._reasoning_config(model_id, thinking)
         if system:
             config_kwargs["system_instruction"] = system
         if tools:

@@ -2040,7 +2040,9 @@ class AgentV2:
 
                 # Run the planner and capture the final decision
                 final_decision = None
-                async for evt in knowledge_planner.execute(planner_input, self.sigkill_event):
+                async for evt in knowledge_planner.execute(
+                    planner_input, self.sigkill_event, thinking=self._thinking_config
+                ):
                     if evt.type == "planner.decision.final":
                         final_decision = evt.data
                         break
