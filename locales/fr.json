@@ -2497,9 +2497,39 @@
       "beta": "Fonctionnalité bêta",
       "locked": "Ce paramètre est verrouillé et ne peut pas être modifié.",
       "notEditable": "(Non directement modifiable)",
-      "aiAgentsTitle": "Agents IA",
-      "aiAgentsSubtitle": "Configurez les agents IA et les capacités disponibles pour les membres de votre organisation.",
       "noSettings": "Aucun paramètre IA disponible.",
+      "sectionSummary": "{n} paramètres",
+      "sectionSummaryOn": "{n} paramètres · {on} activés",
+      "sections": {
+        "data": {
+          "title": "Accès aux données et confidentialité",
+          "description": "Ce que l'IA peut voir et intégrer à une conversation"
+        },
+        "capabilities": {
+          "title": "Capacités de l'agent",
+          "description": "Ce que l'agent peut faire pour répondre"
+        },
+        "learning": {
+          "title": "Apprentissage et mémoire",
+          "description": "Comment l'IA apprend des utilisateurs, des retours et de l'usage"
+        },
+        "tools": {
+          "title": "Outils et MCP",
+          "description": "Serveurs MCP externes et outils d'API personnalisés"
+        },
+        "limits": {
+          "title": "Limites",
+          "description": "Plafonds de lignes, délais, nouvelles tentatives et tailles de contexte"
+        },
+        "workspace": {
+          "title": "Espace de travail",
+          "description": "Webhooks, duplications et conservation des données"
+        },
+        "other": {
+          "title": "Autres",
+          "description": "Paramètres pas encore rattachés à une section"
+        }
+      },
       "llmAccessWarning": "Modifier ce paramètre affecte la confidentialité des données. Une confirmation sera requise.",
       "llmModalTitleEnable": "Activer l'accès aux données par le LLM",
       "llmModalTitleDisable": "Désactiver l'accès aux données par le LLM",
@@ -2509,7 +2539,7 @@
       "llmImpactInspectTool": "Inspecter les données",
       "llmImpactAccuracy": "Précision et performance d'analyse réduites",
       "llmImpactColumns": "L'IA ne verra que les noms de colonnes et les statistiques, pas les valeurs réelles",
-      "llmFileUploadsNote": "Les téléversements de fichiers ne sont pas affectés par ce paramètre et resteront visibles par l'IA (vous pouvez désactiver les téléversements séparément).",
+      "llmFileUploadsNote": "Les téléversements de fichiers ne sont pas affectés par ce paramètre et resteront visibles par l'IA.",
       "llmConfirmLabel": "Tapez {phrase} pour confirmer",
       "llmConfirmPhrase": "JE SUIS SÛR",
       "llmConfirmPlaceholder": "JE SUIS SÛR",
@@ -2635,6 +2665,10 @@
         "mcp_result_inline_chars": {
           "name": "Taille en ligne du résultat MCP",
           "description": "Quelle part du résultat d'un outil MCP ou d'API personnalisée l'agent voit directement dans son contexte, en caractères. La réponse complète est toujours enregistrée dans un fichier quelle que soit cette valeur ; ce réglage détermine seulement ce que le modèle peut lire sans ouvrir ce fichier. Augmentez-le pour que l'agent réponde à partir d'un jeu de résultats complet plutôt que d'un échantillon ; diminuez-le pour dépenser moins de tokens par appel. Mettez 0 pour un échantillon de 3 enregistrements. Borné entre 0 et 500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "Lignes d'aperçu des données MCP",
+          "description": "Nombre de lignes de résultat que create_data renvoie à un client MCP externe (Claude, Cursor, etc.) dans sa réponse. Le résultat complet est toujours enregistré dans le rapport ; ce réglage décide seulement de la quantité que le modèle du client reçoit directement. Un client peut demander moins de lignes, jamais plus. Également limité par « Limiter le nombre de lignes ». Borné entre 1 et 10000."
         },
         "enable_web_fetch": {
           "name": "Récupération web",

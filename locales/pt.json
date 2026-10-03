@@ -2497,9 +2497,39 @@
       "beta": "Recurso beta",
       "locked": "Esta configuração está bloqueada e não pode ser alterada.",
       "notEditable": "(Não editável diretamente)",
-      "aiAgentsTitle": "Agentes de IA",
-      "aiAgentsSubtitle": "Configure os agentes de IA e os recursos disponíveis para os membros da sua organização.",
       "noSettings": "Nenhuma configuração de IA disponível.",
+      "sectionSummary": "{n} configurações",
+      "sectionSummaryOn": "{n} configurações · {on} ativas",
+      "sections": {
+        "data": {
+          "title": "Acesso a dados e privacidade",
+          "description": "O que a IA pode ver e trazer para uma conversa"
+        },
+        "capabilities": {
+          "title": "Capacidades do agente",
+          "description": "O que o agente pode fazer ao responder"
+        },
+        "learning": {
+          "title": "Aprendizado e memória",
+          "description": "Como a IA aprende com usuários, feedback e uso"
+        },
+        "tools": {
+          "title": "Ferramentas e MCP",
+          "description": "Servidores MCP externos e ferramentas de API personalizadas"
+        },
+        "limits": {
+          "title": "Limites",
+          "description": "Limites de linhas, tempos limite, novas tentativas e tamanhos de contexto"
+        },
+        "workspace": {
+          "title": "Espaço de trabalho",
+          "description": "Webhooks, forks e retenção de dados"
+        },
+        "other": {
+          "title": "Outros",
+          "description": "Configurações ainda não atribuídas a uma seção"
+        }
+      },
       "llmAccessWarning": "Alterar esta configuração afeta a privacidade dos dados. Será necessária uma confirmação.",
       "llmModalTitleEnable": "Ativar acesso do LLM aos dados",
       "llmModalTitleDisable": "Desativar acesso do LLM aos dados",
@@ -2509,7 +2539,7 @@
       "llmImpactInspectTool": "Inspecionar dados",
       "llmImpactAccuracy": "Redução da precisão e do desempenho da análise",
       "llmImpactColumns": "A IA verá apenas nomes de colunas e estatísticas, não os valores reais",
-      "llmFileUploadsNote": "Os uploads de arquivos não são afetados por esta configuração e ainda serão visíveis para a IA (você pode desativar uploads de arquivos separadamente).",
+      "llmFileUploadsNote": "Os uploads de arquivos não são afetados por esta configuração e ainda serão visíveis para a IA.",
       "llmConfirmLabel": "Digite {phrase} para confirmar",
       "llmConfirmPhrase": "TENHO CERTEZA",
       "llmConfirmPlaceholder": "TENHO CERTEZA",
@@ -2635,6 +2665,10 @@
         "mcp_result_inline_chars": {
           "name": "Tamanho embutido do resultado MCP",
           "description": "Quanto do resultado de uma ferramenta MCP ou de API personalizada o agente vê diretamente em seu contexto, em caracteres. A resposta completa é sempre salva em um arquivo, qualquer que seja este valor; esta configuração decide apenas quanto o modelo pode ler sem abrir esse arquivo. Aumente para que o agente responda a partir de um conjunto de resultados inteiro em vez de uma amostra; diminua para gastar menos tokens por chamada. Defina 0 para uma amostra de 3 registros. Limitado a 0-500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "Linhas de pré-visualização de dados MCP",
+          "description": "Quantas linhas de resultado create_data retorna a um cliente MCP externo (Claude, Cursor etc.) na resposta. O resultado completo é sempre salvo no relatório; isto só decide quanto o modelo do cliente recebe diretamente. Um cliente pode pedir menos linhas, nunca mais. Também limitado por 'Limitar o número de linhas'. Restrito a 1-10000."
         },
         "enable_web_fetch": {
           "name": "Busca na web",

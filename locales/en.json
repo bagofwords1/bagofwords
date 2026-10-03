@@ -2693,9 +2693,39 @@
       "beta": "Beta feature",
       "locked": "This setting is locked and cannot be changed.",
       "notEditable": "(Not directly editable)",
-      "aiAgentsTitle": "AI Agents",
-      "aiAgentsSubtitle": "Configure AI agents and capabilities available to your organization's members.",
       "noSettings": "No AI settings available.",
+      "sectionSummary": "{n} settings",
+      "sectionSummaryOn": "{n} settings · {on} on",
+      "sections": {
+        "data": {
+          "title": "Data access & privacy",
+          "description": "What the AI can see and bring into a conversation"
+        },
+        "capabilities": {
+          "title": "Agent capabilities",
+          "description": "What the agent can do while answering"
+        },
+        "learning": {
+          "title": "Learning & memory",
+          "description": "How the AI learns from users, feedback and usage"
+        },
+        "tools": {
+          "title": "Tools & MCP",
+          "description": "External MCP servers and custom API tools"
+        },
+        "limits": {
+          "title": "Limits",
+          "description": "Row caps, timeouts, retries and context sizes"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "description": "Webhooks, forks and data retention"
+        },
+        "other": {
+          "title": "Other",
+          "description": "Settings not yet assigned to a section"
+        }
+      },
       "llmAccessWarning": "Changing this setting affects data privacy. A confirmation will be required.",
       "llmModalTitleEnable": "Enable LLM Data Access",
       "llmModalTitleDisable": "Disable LLM Data Access",
@@ -2705,7 +2735,7 @@
       "llmImpactInspectTool": "Inspect Data",
       "llmImpactAccuracy": "Reduced analysis accuracy and performance",
       "llmImpactColumns": "AI will only see column names and statistics, not actual values",
-      "llmFileUploadsNote": "File uploads are unaffected by this setting and will still be visible to the AI (you can disable file uploads separately).",
+      "llmFileUploadsNote": "File uploads are unaffected by this setting and will still be visible to the AI.",
       "llmConfirmLabel": "Type {phrase} to confirm",
       "llmConfirmPhrase": "I AM SURE",
       "llmConfirmPlaceholder": "I AM SURE",
@@ -2831,6 +2861,10 @@
         "mcp_result_inline_chars": {
           "name": "MCP result inline size",
           "description": "How much of an MCP / custom API tool result the agent sees directly in its context, in characters. The complete response is always saved to a file whatever this is set to; this only decides how much the model can read without opening that file. Raise it so the agent can answer from a whole result set instead of a sample; lower it to spend fewer tokens per call. Set to 0 for a 3-record sample. Clamped to 0-500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "MCP data preview rows",
+          "description": "How many result rows create_data returns to an external MCP client (Claude, Cursor, etc.) in its response. The full result is always saved in the report; this only decides how much the client's model receives inline. A client may ask for fewer rows, never more. Also bounded by 'Limit row count'. Clamped to 1-10000."
         },
         "enable_web_fetch": {
           "name": "Web Fetch",

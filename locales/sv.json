@@ -2497,9 +2497,39 @@
       "beta": "Betafunktion",
       "locked": "Den här inställningen är låst och kan inte ändras.",
       "notEditable": "(Inte direkt redigerbar)",
-      "aiAgentsTitle": "AI-agenter",
-      "aiAgentsSubtitle": "Konfigurera AI-agenter och funktioner som är tillgängliga för medlemmar i din organisation.",
       "noSettings": "Inga AI-inställningar tillgängliga.",
+      "sectionSummary": "{n} inställningar",
+      "sectionSummaryOn": "{n} inställningar · {on} på",
+      "sections": {
+        "data": {
+          "title": "Dataåtkomst & integritet",
+          "description": "Vad AI:n får se och ta in i en konversation"
+        },
+        "capabilities": {
+          "title": "Agentens förmågor",
+          "description": "Vad agenten får göra när den svarar"
+        },
+        "learning": {
+          "title": "Inlärning & minne",
+          "description": "Hur AI:n lär sig av användare, feedback och användning"
+        },
+        "tools": {
+          "title": "Verktyg & MCP",
+          "description": "Externa MCP-servrar och anpassade API-verktyg"
+        },
+        "limits": {
+          "title": "Gränser",
+          "description": "Radgränser, tidsgränser, omförsök och kontextstorlekar"
+        },
+        "workspace": {
+          "title": "Arbetsyta",
+          "description": "Webhooks, förgreningar och datalagring"
+        },
+        "other": {
+          "title": "Övrigt",
+          "description": "Inställningar som ännu inte tillhör en sektion"
+        }
+      },
       "llmAccessWarning": "Att ändra den här inställningen påverkar datasekretessen. En bekräftelse krävs.",
       "llmModalTitleEnable": "Aktivera LLM-dataåtkomst",
       "llmModalTitleDisable": "Inaktivera LLM-dataåtkomst",
@@ -2509,7 +2539,7 @@
       "llmImpactInspectTool": "Inspektera data",
       "llmImpactAccuracy": "Minskad analyskvalitet och prestanda",
       "llmImpactColumns": "AI:n kommer endast att se kolumnnamn och statistik, inte faktiska värden",
-      "llmFileUploadsNote": "Filuppladdningar påverkas inte av den här inställningen och kommer fortfarande att vara synliga för AI:n (du kan inaktivera filuppladdningar separat).",
+      "llmFileUploadsNote": "Filuppladdningar påverkas inte av den här inställningen och kommer fortfarande att vara synliga för AI:n.",
       "llmConfirmLabel": "Skriv {phrase} för att bekräfta",
       "llmConfirmPhrase": "JAG ÄR SÄKER",
       "llmConfirmPlaceholder": "JAG ÄR SÄKER",
@@ -2635,6 +2665,10 @@
         "mcp_result_inline_chars": {
           "name": "Inbäddad storlek på MCP-resultat",
           "description": "Hur mycket av ett resultat från ett MCP- eller eget API-verktyg som agenten ser direkt i sin kontext, i tecken. Hela svaret sparas alltid till en fil oavsett detta värde; inställningen avgör bara hur mycket modellen kan läsa utan att öppna den filen. Höj värdet så att agenten kan svara utifrån en hel resultatmängd i stället för ett stickprov; sänk det för att förbruka färre tokens per anrop. Ange 0 för ett stickprov på 3 poster. Begränsat till 0-500000."
+        },
+        "mcp_create_data_preview_rows": {
+          "name": "Förhandsgranskningsrader för MCP-data",
+          "description": "Hur många resultatrader create_data returnerar till en extern MCP-klient (Claude, Cursor m.fl.) i sitt svar. Hela resultatet sparas alltid i rapporten; detta avgör bara hur mycket klientens modell får direkt. En klient kan be om färre rader, aldrig fler. Begränsas även av 'Begränsa antalet rader'. Begränsat till 1-10000."
         },
         "enable_web_fetch": {
           "name": "Webbhämtning",
