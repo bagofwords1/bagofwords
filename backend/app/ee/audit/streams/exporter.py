@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from sqlalchemy import func, or_, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 
 from app.ee.audit.models import AuditLog
@@ -47,7 +47,9 @@ STREAM_CONCURRENCY = 4
 MAX_BACKOFF_SECONDS = 900
 STAMP_BATCH = 2000
 STAMP_BUDGET_SECONDS = 10.0
-STAMP_LEASE_SECONDS = 60
+# Outlasts one stamping pass; a pass whose lease release fails (a locked
+# database) only blocks the next stamper until the lease expires.
+STAMP_LEASE_SECONDS = 30
 
 
 def backoff_seconds(failures: int) -> float:
@@ -104,29 +106,46 @@ async def stamp_visible_rows(now: Optional[datetime] = None) -> int:
     started = time.monotonic()
     try:
         while time.monotonic() - started < STAMP_BUDGET_SECONDS:
-            async with maker() as db:
-                streamed_orgs = select(AuditLogStream.organization_id).where(AuditLogStream.deleted_at.is_(None))
-                ids = (await db.execute(
-                    select(AuditLog.id)
-                    .where(AuditLog.export_seq.is_(None), AuditLog.organization_id.in_(streamed_orgs))
-                    .order_by(AuditLog.created_at, AuditLog.id)
-                    .limit(STAMP_BATCH)
-                )).scalars().all()
-                if not ids:
-                    break
-                state = await db.get(AuditExportState, 1)
-                base = state.last_seq or 0
-                await db.execute(update(AuditLog), [{"id": i, "export_seq": base + k + 1} for k, i in enumerate(ids)])
-                state.last_seq = base + len(ids)
-                await db.commit()
-                stamped += len(ids)
-                if len(ids) < STAMP_BATCH:
-                    break
+            try:
+                n = await _stamp_batch(maker)
+            except OperationalError:
+                # Writers hold the database (SQLite lock, PG lock timeout):
+                # nothing was committed; try again within this pass.
+                logger.debug("audit export: stamping batch hit a lock; retrying", exc_info=True)
+                await asyncio.sleep(0.25)
+                continue
+            stamped += n
+            if n < STAMP_BATCH:
+                break
     finally:
-        async with maker() as db:
-            await db.execute(update(AuditExportState).where(AuditExportState.id == 1).values(stamp_lease_until=None))
-            await db.commit()
+        for attempt in range(5):
+            try:
+                async with maker() as db:
+                    await db.execute(update(AuditExportState).where(AuditExportState.id == 1).values(stamp_lease_until=None))
+                    await db.commit()
+                break
+            except OperationalError:
+                await asyncio.sleep(0.2 * (attempt + 1))
     return stamped
+
+
+async def _stamp_batch(maker) -> int:
+    async with maker() as db:
+        streamed_orgs = select(AuditLogStream.organization_id).where(AuditLogStream.deleted_at.is_(None))
+        ids = (await db.execute(
+            select(AuditLog.id)
+            .where(AuditLog.export_seq.is_(None), AuditLog.organization_id.in_(streamed_orgs))
+            .order_by(AuditLog.created_at, AuditLog.id)
+            .limit(STAMP_BATCH)
+        )).scalars().all()
+        if not ids:
+            return 0
+        state = await db.get(AuditExportState, 1)
+        base = state.last_seq or 0
+        await db.execute(update(AuditLog), [{"id": i, "export_seq": base + k + 1} for k, i in enumerate(ids)])
+        state.last_seq = base + len(ids)
+        await db.commit()
+        return len(ids)
 
 
 def _deliverable(q, organization_id: str, cursor_seq: Optional[int], start_after: Optional[datetime]):
@@ -191,7 +210,23 @@ async def _claim(stream_id: str, now: datetime) -> Optional[dict]:
         return snap
 
 
+async def _retry_locked(fn, attempts: int = 6):
+    """Run a short write transaction, retrying while the database is locked
+    by other writers, so bookkeeping never strands a stream behind its lease."""
+    for attempt in range(attempts):
+        try:
+            return await fn()
+        except OperationalError:
+            if attempt == attempts - 1:
+                raise
+            await asyncio.sleep(0.2 * (attempt + 1))
+
+
 async def _save_progress(stream_id: str, cursor: int, delivered: int, now: datetime) -> None:
+    await _retry_locked(lambda: _save_progress_once(stream_id, cursor, delivered, now))
+
+
+async def _save_progress_once(stream_id: str, cursor: int, delivered: int, now: datetime) -> None:
     maker = _session_maker()
     async with maker() as db:
         st = await db.get(AuditLogStream, stream_id)
@@ -206,6 +241,10 @@ async def _save_progress(stream_id: str, cursor: int, delivered: int, now: datet
 
 async def _finish(snap: dict, result: SendResult, now: datetime) -> Optional[str]:
     """Record the outcome; return the new terminal state if it changed."""
+    return await _retry_locked(lambda: _finish_once(snap, result, now))
+
+
+async def _finish_once(snap: dict, result: SendResult, now: datetime) -> Optional[str]:
     maker = _session_maker()
     transitioned = None
     async with maker() as db:

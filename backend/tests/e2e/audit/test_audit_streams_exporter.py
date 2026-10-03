@@ -368,3 +368,39 @@ def test_racing_stampers_give_every_row_one_unique_sequence(test_client, bootstr
 
     total, seqs, distinct, nulls = _run(check())
     assert nulls == 0 and seqs == total == distinct
+
+
+def test_stamping_survives_a_locked_database_and_releases_its_lease(test_client, bootstrap_admin, siem, monkeypatch):
+    """Under write contention a stamping batch can fail with a lock error. The
+    pass retries within its budget and always releases the stamper lease, so
+    the next tick is not blocked."""
+    from sqlalchemy.exc import OperationalError
+
+    from app.dependencies import async_session_maker
+    from app.ee.audit.streams.models import AuditExportState
+
+    admin = bootstrap_admin()
+    _stream(test_client, admin, siem)
+    _api_key_events(test_client, admin, 3)
+
+    real = exporter._stamp_batch
+    fails = {"n": 2}
+
+    async def flaky(maker):
+        if fails["n"]:
+            fails["n"] -= 1
+            raise OperationalError("UPDATE audit_logs", {}, Exception("database is locked"))
+        return await real(maker)
+
+    monkeypatch.setattr(exporter, "_stamp_batch", flaky)
+    now = _later()
+    assert _run(exporter.stamp_visible_rows(now)) > 0
+
+    async def lease():
+        async with async_session_maker() as s:
+            return (await s.get(AuditExportState, 1)).stamp_lease_until
+
+    assert _run(lease()) is None
+    _tick(now + timedelta(seconds=1))
+    stats = siem.state.stats("https", _db_ids(test_client, admin))
+    assert stats["missing"] == [] and stats["duplicates"] == 0
