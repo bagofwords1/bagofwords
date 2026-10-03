@@ -94,7 +94,7 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll">
 			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
@@ -2574,6 +2574,29 @@ function checkMobile() {
 	isMobile.value = window.innerWidth < 768
 }
 
+// On mobile the chat is unmounted while another tab is shown, so its scroll
+// position would reset to the top on return. Remember where the reader was
+// (pre-flush: the old container is still in the DOM) and put them back.
+let chatScrollSnapshot: { top: number; following: boolean } | null = null
+watch(mobileView, (view, prev) => {
+	if (!isMobile.value) return
+	if (prev === 'chat' && view !== 'chat') {
+		const el = scrollContainer.value
+		chatScrollSnapshot = el ? { top: el.scrollTop, following: isFollowing.value } : null
+	} else if (view === 'chat' && prev !== 'chat') {
+		const snap = chatScrollSnapshot
+		chatScrollSnapshot = null
+		nextTick(() => {
+			if (!snap || snap.following) { forceScrollToBottom(); return }
+			const el = scrollContainer.value
+			if (!el) return
+			isFollowing.value = false
+			el.scrollTop = snap.top
+			lastScrollTop = el.scrollTop
+		})
+	}
+})
+
 if (import.meta.client) {
 	checkMobile()
 	window.addEventListener('resize', checkMobile)
@@ -3103,9 +3126,13 @@ function jumpToLatest() {
   forceScrollToBottom()
 }
 
+// Land at the bottom once, then keep catching up with content that mounts
+// late — but as background follow-scrolls, so a reader who has already
+// started scrolling up keeps their place. (Forcing every catch-up re-engaged
+// following and yanked them back down ~650ms after load.)
 function scheduleInitialScroll() {
-    const delays = [0, 80, 160, 320, 640]
-    for (const delay of delays) setTimeout(forceScrollToBottom, delay)
+    forceScrollToBottom()
+    for (const delay of [80, 160, 320, 640]) setTimeout(followScrollToBottom, delay)
 }
 
 // Resolve which completion block a tool.* streaming event targets.
@@ -4695,7 +4722,6 @@ onUnmounted(() => {
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', followScrollToBottom)
-	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
 	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
@@ -5649,8 +5675,6 @@ onMounted(async () => {
     // Aggressive initial scroll to handle async content mounting
 	scheduleInitialScroll()
     window.addEventListener('resize', followScrollToBottom)
-	// Attach scroll listener for infinite scroll up / follow-mode tracking
-	try { scrollContainer.value?.addEventListener('scroll', onScroll) } catch {}
 })
 
 </script>

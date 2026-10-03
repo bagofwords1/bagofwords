@@ -2036,7 +2036,7 @@ onMounted(async () => {
     if (props.verificationPreview) return; // Verification only runs explicit viewer queries.
     const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun`, { method: 'POST' });
     const run: any = data.value;
-    if (run && !run.skipped && run.steps_succeeded) await refreshAll();
+    if (run && !run.skipped && run.steps_succeeded) await refreshDataInPlace();
   } catch { /* a failed background refresh must never break a rendered page */ }
 });
 
@@ -2188,10 +2188,16 @@ function sendDataToIframe() {
   console.log('[ArtifactFrame] Data sent to iframe:', visualizationsData.value.length, 'visualizations');
 }
 
-// Fetch visualization data for the report (optionally filtered by artifact)
-async function fetchData(artifactId?: string) {
-  isLoading.value = true;
-  dataReady.value = false;
+// Fetch visualization data for the report (optionally filtered by artifact).
+// `inPlace` refreshes the rows of a dashboard that is already rendered: no
+// loading overlay, no srcdoc rebuild (which reloads the iframe — a visible
+// blank flash) and no reset of the viewer's control values; the fresh rows
+// reach the live document through postMessage like a param run.
+async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: boolean } = {}) {
+  if (!inPlace) {
+    isLoading.value = true;
+    dataReady.value = false;
+  }
 
   try {
     // Fetch report info
@@ -2325,8 +2331,9 @@ async function fetchData(artifactId?: string) {
 
     // Initialize applied values: declaration defaults, overridden by any
     // qp_<name> URL state (shareable dashboards). Identity params carry no
-    // client value — the server binds them per viewer.
-    {
+    // client value — the server binds them per viewer. An in-place refresh
+    // keeps whatever the viewer has applied since.
+    if (!inPlace) {
       const urlValues = readParamsFromUrl();
       const nextValues: Record<string, any> = {};
       for (const specs of Object.values(nextParamSpecs)) {
@@ -2399,7 +2406,7 @@ async function fetchData(artifactId?: string) {
     // snapshot. Later updates (param runs, view-as swaps) flow via
     // postMessage into the live data store — never by recomputing srcdoc,
     // which would reload the iframe and lose control state.
-    srcdocSeed.value = JSON.parse(JSON.stringify({
+    if (!inPlace) srcdocSeed.value = JSON.parse(JSON.stringify({
       report: toRaw(reportData.value),
       visualizations: toRaw(visualizationsData.value),
       files: toRaw(filesData.value),
@@ -2419,6 +2426,13 @@ async function fetchData(artifactId?: string) {
       sendDataToIframe();
     }
   }
+}
+
+// Refresh-on-view finished with new rows: the artifact itself is unchanged,
+// so update the data of the rendered dashboard rather than reloading it.
+// Before the first paint there is nothing to keep — take the full path.
+async function refreshDataInPlace() {
+  await fetchData(selectedArtifactId.value, { inPlace: dataReady.value });
 }
 
 // Refresh everything
