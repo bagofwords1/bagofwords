@@ -56,7 +56,7 @@ class ListAgentToolsMCPTool(MCPTool):
             )
             data_sources = list(rows.scalars().all())
         elif input_data.report_id:
-            report = await self._load_report(db, input_data.report_id)
+            report = await self._load_report(db, input_data.report_id, user, organization)
             data_sources = list(report.data_sources or [])
         else:
             return []
