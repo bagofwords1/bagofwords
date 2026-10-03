@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np  # noqa: F401
 import pandas as pd
 
-from app.ai.code_execution.sandbox import landlock
+from app.ai.code_execution.sandbox import landlock, seccomp
 from app.ai.code_execution.sandbox.namespace import (
     SandboxFile,
     build_loadable_closures,
@@ -326,6 +326,13 @@ def run(in_fd: int, out_fd: int) -> int:
         applied["rlimits"] = _apply_rlimits(limits)
     except Exception as e:  # pragma: no cover - platform dependent
         applied["rlimits_error"] = f"{type(e).__name__}: {e}"
+        if limits.get("require_landlock"):
+            write_message(writer, {
+                "t": "error", "exc_type": "SandboxUnavailable",
+                "message": f"resource limits required but unavailable: {e}",
+                "applied": applied,
+            })
+            return 3
     try:
         landlock.set_no_new_privs()
         applied["no_new_privs"] = True
@@ -333,14 +340,28 @@ def run(in_fd: int, out_fd: int) -> int:
         applied["no_new_privs"] = f"{type(e).__name__}: {e}"
     ll = _apply_landlock(job)
     applied["landlock"] = ll
-    if limits.get("require_landlock") and not ll.get("applied"):
+    if limits.get("require_landlock") and (not ll.get("applied") or not ll.get("net_blocked")):
+        reason = ll.get("reason") or "TCP confinement needs Landlock ABI 4"
         write_message(writer, {
             "t": "error",
             "exc_type": "SandboxUnavailable",
-            "message": f"Landlock required but not available: {ll.get('reason')}",
+            "message": f"Landlock filesystem and TCP confinement required but unavailable: {reason}",
             "applied": applied,
         })
         return 3
+    try:
+        seccomp.install_no_process_creation()
+        applied["process_creation_blocked"] = True
+    except Exception as e:
+        applied["process_creation_blocked"] = False
+        applied["process_creation_error"] = f"{type(e).__name__}: {e}"
+        if limits.get("require_landlock"):
+            write_message(writer, {
+                "t": "error", "exc_type": "SandboxUnavailable",
+                "message": f"process creation restriction required but unavailable: {e}",
+                "applied": applied,
+            })
+            return 3
     write_message(writer, {"t": "ready", "applied": applied})
 
     rpc = _Rpc(reader, writer)
@@ -351,6 +372,8 @@ def run(in_fd: int, out_fd: int) -> int:
     try:
         if job.get("mode") == "pptx":
             pptx_bytes = _run_pptx_job(job, scratch_dir)
+            if len(pptx_bytes) > int(limits.get("max_result_mb", 64)) * 1024 * 1024:
+                raise ValueError("sandbox result too large for the configured parent memory budget")
             sys.stdout = real_stdout
             write_message(writer, {"t": "result", "kind": "pptx", "stdout": capture.getvalue()}, pptx_bytes)
             return 0
@@ -362,6 +385,8 @@ def run(in_fd: int, out_fd: int) -> int:
             write_message(writer, {"t": "result", "kind": "none", "stdout": stdout_text})
             return 0
         arrow_bytes, meta = dataframe_to_arrow(df)
+        if len(arrow_bytes) > int(limits.get("max_result_mb", 64)) * 1024 * 1024:
+            raise ValueError("sandbox result too large for the configured parent memory budget")
         write_message(writer, {"t": "result", "kind": "dataframe", "stdout": stdout_text, "meta": meta}, arrow_bytes)
         return 0
     except BaseException as e:  # noqa: BLE001 - everything is reported to the parent

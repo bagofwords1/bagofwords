@@ -730,6 +730,8 @@ class QueryCapturingClientWrapper:
         # on the timing entry so a timeout shows whether the query is still
         # running on the database or was actually stopped.
         self._last_cancel_outcome: Optional[str] = None
+        self._active_query_thread: Optional[threading.Thread] = None
+        self._active_query_lock = threading.Lock()
         self._max_concurrent_queries = (
             int(max_concurrent_queries)
             if isinstance(max_concurrent_queries, (int, float)) and max_concurrent_queries > 0
@@ -872,7 +874,13 @@ class QueryCapturingClientWrapper:
             daemon=True,
         )
         t.start()
-        t.join(self._query_timeout_seconds)
+        with self._active_query_lock:
+            self._active_query_thread = t
+        try:
+            t.join(self._query_timeout_seconds)
+        finally:
+            with self._active_query_lock:
+                self._active_query_thread = None
         if t.is_alive():
             self._last_cancel_outcome = self._cancel_orphan(t)
             raise QueryTimeoutError(
@@ -882,6 +890,13 @@ class QueryCapturingClientWrapper:
         if "exc" in holder:
             raise holder["exc"]
         return holder.get("value")
+
+    def cancel_active_query(self) -> None:
+        """Request source-side cancellation when the sandbox job stops early."""
+        with self._active_query_lock:
+            thread = self._active_query_thread
+        if thread is not None and thread.is_alive():
+            self._cancel_orphan(thread)
 
     def _cancel_orphan(self, thread: threading.Thread) -> str:
         """Best-effort source-side cancellation of an abandoned query.
@@ -1223,12 +1238,19 @@ class StreamingCodeExecutor:
             http_enabled=http_client is not None,
             load_step_enabled=load_step_enabled,
         )
+
+        def _cancel_queries():
+            for client in wrapped_clients.values():
+                if isinstance(client, QueryCapturingClientWrapper):
+                    client.cancel_active_query()
+
         result = _run_sandbox_job(
             job,
             execute_query=_execute_query,
             http_get=http_client.get if http_client is not None else None,
             http_batch_get=http_client.batch_get if http_client is not None else None,
             cancel_event=cancel_event,
+            on_abort=_cancel_queries,
             log=self.logger or logger,
         )
         if span is not None:

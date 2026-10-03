@@ -14,6 +14,7 @@ the suite already covers:
 from __future__ import annotations
 
 import os
+import platform
 import threading
 import time
 from pathlib import Path
@@ -152,6 +153,7 @@ def generate_df(ds_clients, excel_files):
     assert time.monotonic() - t0 < 10
 
 
+@pytest.mark.skipif(platform.system() == "Darwin", reason="macOS does not enforce RLIMIT_AS")
 def test_memory_hog_hits_the_cap_instead_of_the_host():
     code = """
 def generate_df(ds_clients, excel_files):
@@ -470,7 +472,8 @@ def generate_df(ds_clients, excel_files):
     b = run_job(SandboxJob(mode="data", code=code))
     ra, rb = a.df.iloc[0], b.df.iloc[0]
     assert ra["cwd"] != rb["cwd"]
-    assert ra["tmp"] == ra["cwd"] and rb["tmp"] == rb["cwd"]
+    assert os.path.realpath(ra["tmp"]) == os.path.realpath(ra["cwd"])
+    assert os.path.realpath(rb["tmp"]) == os.path.realpath(rb["cwd"])
     assert bool(ra["seen_before"]) is False and bool(rb["seen_before"]) is False
     assert a.applied.get("cwd") == ra["cwd"]
     assert not os.path.exists(ra["cwd"]) and not os.path.exists(rb["cwd"])

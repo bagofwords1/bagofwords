@@ -465,7 +465,9 @@ def _read_with_deadline(child: _ChildProcess, deadline: float, cancel_event: Opt
     kernel closes it)."""
     raw = _read_exact_with_deadline(child, _FRAME.size, deadline, cancel_event, limits)
     hlen, plen = _FRAME.unpack(raw)
-    if hlen > MAX_HEADER_BYTES or plen > MAX_FRAME_BYTES:
+    max_header = min(MAX_HEADER_BYTES, 16 * 1024 * 1024)
+    max_payload = min(MAX_FRAME_BYTES, limits.max_result_mb * 1024 * 1024)
+    if hlen > max_header or plen > max_payload:
         raise ProtocolError(f"frame too large: header={hlen} payload={plen}")
     header = json.loads(_read_exact_with_deadline(child, hlen, deadline, cancel_event, limits).decode("utf-8"))
     if not isinstance(header, dict):
@@ -531,6 +533,7 @@ def run_job(
     http_batch_get: Optional[Callable[..., Any]] = None,
     limits: Optional[SandboxLimits] = None,
     cancel_event: Optional[threading.Event] = None,
+    on_abort: Optional[Callable[[], None]] = None,
     log: Optional[logging.Logger] = None,
 ) -> SandboxResult:
     """Run one job in a fresh sandboxed interpreter. Blocking; call from a
@@ -594,7 +597,8 @@ def run_job(
                         "code sandbox: Landlock not available (%s). Generated code still runs in a "
                         "separate process with a scrubbed environment, rlimits and a kill timeout, "
                         "but filesystem/TCP confinement is off. A kernel >= 5.13 with the Landlock "
-                        "LSM enabled adds it; set BOW_SANDBOX_REQUIRE_LANDLOCK=1 to refuse to run without it.",
+                        "LSM enabled adds it; production refuses unconfined execution by default. "
+                        "Set BOW_SANDBOX_REQUIRE_LANDLOCK=1 to require it in development too.",
                         ll.get("reason"),
                     )
                 continue
@@ -689,6 +693,10 @@ def run_job(
                 )
 
             raise SandboxError(f"unexpected sandbox message {kind!r}")
+    except (SandboxTimeoutError, SandboxCancelled):
+        if on_abort is not None:
+            threading.Thread(target=on_abort, name="bow_sandbox_abort", daemon=True).start()
+        raise
     finally:
         if child is not None:
             child.drain_stderr()

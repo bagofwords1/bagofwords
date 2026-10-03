@@ -12,9 +12,10 @@ what the host can enforce, which is a deployment property.
                                   Default 4096.
     BOW_SANDBOX_CPU_SECONDS       RLIMIT_CPU for the child. 0 disables.
                                   Default = timeout.
-    BOW_SANDBOX_REQUIRE_LANDLOCK  1 → fail executions when the kernel cannot
-                                  apply Landlock (default 0: log a warning
-                                  once and continue with rlimits + env scrub).
+    BOW_SANDBOX_REQUIRE_LANDLOCK  1 → require filesystem and TCP confinement.
+                                  Defaults to 1 in production, 0 in development.
+    BOW_SANDBOX_MAX_RESULT_MB     Maximum child result sent to the API worker.
+                                  Default 64 MB.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ MODE_INPROCESS = "inprocess"
 
 DEFAULT_TIMEOUT_SECONDS = 600
 DEFAULT_MEMORY_MB = 4096
+DEFAULT_MAX_RESULT_MB = 64
 
 
 def _int_env(name: str, default: int, *, minimum: int = 0) -> int:
@@ -50,6 +52,7 @@ class SandboxLimits:
     memory_mb: int
     cpu_seconds: int
     require_landlock: bool
+    max_result_mb: int = DEFAULT_MAX_RESULT_MB
 
     @classmethod
     def from_env(cls) -> "SandboxLimits":
@@ -58,7 +61,11 @@ class SandboxLimits:
             timeout_seconds=timeout,
             memory_mb=_int_env("BOW_SANDBOX_MEMORY_MB", DEFAULT_MEMORY_MB),
             cpu_seconds=_int_env("BOW_SANDBOX_CPU_SECONDS", timeout),
-            require_landlock=os.environ.get("BOW_SANDBOX_REQUIRE_LANDLOCK", "").strip() == "1",
+            require_landlock=os.environ.get(
+                "BOW_SANDBOX_REQUIRE_LANDLOCK",
+                "1" if os.environ.get("ENVIRONMENT", "development").lower() == "production" else "0",
+            ).strip() == "1",
+            max_result_mb=_int_env("BOW_SANDBOX_MAX_RESULT_MB", DEFAULT_MAX_RESULT_MB, minimum=1),
         )
 
     def as_dict(self) -> dict:
@@ -67,4 +74,5 @@ class SandboxLimits:
             "memory_mb": self.memory_mb,
             "cpu_seconds": self.cpu_seconds,
             "require_landlock": self.require_landlock,
+            "max_result_mb": self.max_result_mb,
         }

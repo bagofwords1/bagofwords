@@ -63,6 +63,8 @@ format_df_for_widget           ◀── Arrow ───  DataFrame → Arrow IP
 | Filesystem | Landlock: interpreter/libs read-only, this run's uploaded files read-only, one scratch dir read-write, nothing else (`/proc` is not exposed — `/proc/<pid>/environ` of the parent would leak the key) | when the kernel supports it |
 | TCP | Landlock net (ABI ≥ 4, kernel ≥ 6.7): no bind, no connect | when the kernel supports it |
 | stdout | capped at 2 MB in the child | always |
+| Result payload | child checks Arrow/PPTX size; parent rejects oversized frames before reading them | 64 MB |
+| Process creation | Linux seccomp denies fork/vfork/process clone; threads remain available | Linux |
 
 Cancelling the tool (user stop, tool timeout) sets a cancel event the runner
 polls; the child is killed instead of running on.
@@ -72,16 +74,18 @@ polls; the child is killed instead of running on.
 * **Kernel isolation.** The child shares the host kernel. A kernel exploit is
   out of scope for this layer; that is what gVisor / Kata / a microVM add.
 * **Network on older kernels.** Without Landlock ABI 4 (kernel < 6.7) the
-  child can open sockets to whatever the container can reach. There are no
-  credentials in the child to use, but SSRF-style reach into the customer's
-  network is not prevented. Deploy the executor as a separate container with
-  a no-egress network policy to close this, or run on a 6.7+ kernel.
+  child can open TCP sockets to whatever the container can reach. Production
+  refuses to execute by default in this case. An operator can explicitly set
+  `BOW_SANDBOX_REQUIRE_LANDLOCK=0` to permit weaker confinement, or deploy an
+  executor with a no-egress network policy.
 * **Landlock availability.** Requires kernel ≥ 5.13 with
   `CONFIG_SECURITY_LANDLOCK` and `landlock` in the LSM list (default on
   mainstream distro kernels; not on every cloud/VM kernel). Docker's default
-  seccomp profile allows the Landlock syscalls since 20.10. When unavailable
-  the sandbox logs one warning and runs with everything else in the table;
-  set `BOW_SANDBOX_REQUIRE_LANDLOCK=1` to refuse instead.
+  seccomp profile allows the Landlock syscalls since 20.10. When unavailable,
+  production refuses to execute by default. Development logs a warning and
+  continues; set `BOW_SANDBOX_REQUIRE_LANDLOCK=1` to require it there too.
+  Production also requires the Linux process-creation filter so a forked child
+  cannot leave the process group controlled by the runner.
 
 ## Operator knobs (environment)
 
@@ -91,7 +95,8 @@ polls; the child is killed instead of running on.
 | `BOW_SANDBOX_TIMEOUT_SECONDS` | wall-clock budget per execution | `600` |
 | `BOW_SANDBOX_MEMORY_MB` | `RLIMIT_AS` for the child, `0` disables | `4096` |
 | `BOW_SANDBOX_CPU_SECONDS` | `RLIMIT_CPU`, `0` disables | = timeout |
-| `BOW_SANDBOX_REQUIRE_LANDLOCK` | `1` → fail executions when Landlock cannot be applied | `0` |
+| `BOW_SANDBOX_REQUIRE_LANDLOCK` | `1` → require Landlock filesystem and TCP confinement; `0` explicitly permits weaker confinement | `1` in production, `0` in development |
+| `BOW_SANDBOX_MAX_RESULT_MB` | Maximum Arrow or PPTX payload accepted from the child | `64` |
 | `BOW_SANDBOX_ZYGOTE` | `0` disables the fork server (each run then spawns a full interpreter, ~0.7 s) | `1` |
 
 Thread-count hints (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`,
