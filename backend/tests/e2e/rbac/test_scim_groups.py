@@ -539,6 +539,46 @@ def test_rename_into_a_taken_name_is_a_conflict(scim_org):
 
 
 @pytest.mark.e2e
+def test_names_differing_only_in_case_collide(scim_org, create_group):
+    """displayName is caseExact=false: the uniqueness guard matches the filter,
+    against manual groups and other SCIM groups alike."""
+    org = scim_org()
+    manual = _uniq("Engineers")
+    assert create_group(name=manual, user_token=org["admin_token"], org_id=org["org_id"]).status_code == 200
+    _assert_scim_error(org["scim"]("POST", "/Groups", {"displayName": manual.lower()}), 409, "uniqueness")
+
+    scim_name = _uniq("Platform")
+    gid = org["scim"]("POST", "/Groups", {"displayName": scim_name}).json()["id"]
+    _assert_scim_error(org["scim"]("POST", "/Groups", {"displayName": scim_name.upper()}), 409, "uniqueness")
+    other = org["scim"]("POST", "/Groups", {"displayName": _uniq("Other")}).json()["id"]
+    _assert_scim_error(_patch(org["scim"], other, {"op": "Replace", "path": "displayName",
+                                                   "value": scim_name.swapcase()}), 409, "uniqueness")
+
+    # Re-casing a group's own name is not a collision with itself.
+    recased = _patch(org["scim"], gid, {"op": "Replace", "path": "displayName", "value": scim_name.upper()})
+    assert recased.status_code == 200, recased.text
+    assert recased.json()["displayName"] == scim_name.upper()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("method", ["PUT", "PATCH"])
+def test_membership_only_change_advances_last_modified(org_with_members, method):
+    org = org_with_members
+    u1, u2, _ = org["user_ids"]
+    name = _uniq("Stamped")
+    created = org["scim"]("POST", "/Groups", {"displayName": name, "members": [{"value": u1}]}).json()
+
+    if method == "PUT":
+        resp = org["scim"]("PUT", f"/Groups/{created['id']}",
+                           {"displayName": name, "members": [{"value": u1}, {"value": u2}]})
+    else:
+        resp = _patch(org["scim"], created["id"], {"op": "Add", "path": "members", "value": [{"value": u2}]})
+    assert resp.status_code == 200, resp.text
+    assert _member_ids(resp.json()) == {u1, u2}
+    assert resp.json()["meta"]["lastModified"] > created["meta"]["lastModified"]
+
+
+@pytest.mark.e2e
 def test_discovery_advertises_groups_matching_what_the_endpoint_returns(org_with_members):
     org = org_with_members
     scim = org["scim"]
@@ -659,9 +699,9 @@ def test_scim_delete_removes_everything_that_points_at_the_group(
     org_with_members, test_client, create_role, assign_role, grant_resource, list_role_assignments,
     create_report, set_visibility, get_shares,
 ):
-    """Role assignments, resource grants and report shares on the group go with
-    it — report_shares has a real FK, so on Postgres a leftover share would make
-    the DELETE fail outright."""
+    """Role assignments, resource grants, quota assignments and report shares on
+    the group go with it — report_shares has a real FK, so on Postgres a leftover
+    share would make the DELETE fail outright."""
     org = org_with_members
     org_id, token = org["org_id"], org["admin_token"]
     gid = org["scim"]("POST", "/Groups", {"displayName": _uniq("Doomed"),
@@ -679,6 +719,22 @@ def test_scim_delete_removes_everything_that_points_at_the_group(
                    shared_user_ids=[], shared_group_ids=[gid])
     assert any(s.get("group_id") == gid for s in get_shares(report["id"], "artifact",
                                                              user_token=token, org_id=org_id))
+    policy = test_client.post(f"/api/organizations/{org_id}/usage-policies",
+                              json={"name": _uniq("Quota"), "monthly_token_limit": 1000, "enabled": True},
+                              headers=_hdr(token, org_id))
+    assert policy.status_code == 200, policy.text
+    quota = test_client.put(f"/api/organizations/{org_id}/usage-policy-assignments/principal",
+                            json={"principal_type": "group", "principal_id": gid,
+                                  "policy_id": policy.json()["id"]},
+                            headers=_hdr(token, org_id))
+    assert quota.status_code == 200, quota.text
+
+    def quota_principals():
+        policies = test_client.get(f"/api/organizations/{org_id}/usage-policies", headers=_hdr(token, org_id))
+        assert policies.status_code == 200, policies.text
+        return {a["principal_id"] for p in policies.json() for a in p.get("assignments", [])}
+
+    assert gid in quota_principals()
 
     assert org["scim"]("DELETE", f"/Groups/{gid}").status_code == 204
 
@@ -688,3 +744,4 @@ def test_scim_delete_removes_everything_that_points_at_the_group(
     assert all(g["principal_id"] != gid for g in grants)
     assert all(s.get("group_id") != gid for s in get_shares(report["id"], "artifact",
                                                              user_token=token, org_id=org_id))
+    assert gid not in quota_principals()

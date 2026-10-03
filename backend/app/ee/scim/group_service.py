@@ -40,6 +40,7 @@ from app.models.membership import Membership
 from app.models.report_share import ReportShare
 from app.models.resource_grant import ResourceGrant
 from app.models.role_assignment import RoleAssignment
+from app.models.usage_policy import UsagePolicyAssignment
 from app.models.user import User
 
 PROVIDER_NAME = "scim"
@@ -358,14 +359,18 @@ class ScimGroupService:
         # Every group in the org counts, soft-deleted included: UNIQUE
         # (organization_id, name) does not look at deleted_at. Matching a
         # manual/LDAP/OIDC group is a conflict, never an adoption.
-        holder = (
+        # Case-insensitive, like the displayName filter (caseExact=false): a
+        # name differing only in case would otherwise slip past the guard, and
+        # two such SCIM groups would both answer the IdP's lookup.
+        holders = (
             await db.execute(
                 select(Group.id, Group.external_provider)
                 .where(Group.organization_id == organization_id)
-                .where(Group.name == name)
+                .where(func.lower(Group.name) == name.lower())
             )
-        ).first()
-        if holder is not None and str(holder[0]) != own_id:
+        ).all()
+        holder = next((h for h in holders if str(h[0]) != own_id), None)
+        if holder is not None:
             if holder[1] == PROVIDER_NAME:
                 detail = f"A SCIM group named '{name}' already exists"
             else:
@@ -468,9 +473,16 @@ class ScimGroupService:
         await self._check_unique(db, organization_id, name, data.externalId, own_id=str(group.id))
         await self._check_members(db, organization_id, member_ids)
 
+        current = {
+            user_id for user_id, _ in (await self._members(db, [str(group.id)]))[str(group.id)]
+        }
         group.name = name
         group.external_id = data.externalId
-        await self._set_members(db, str(group.id), member_ids)
+        if member_ids != current:
+            await self._set_members(db, str(group.id), member_ids)
+            # As in PATCH: a membership-only change leaves the row untouched,
+            # so bump it for meta.lastModified.
+            group.updated_at = datetime.utcnow()
         await self._commit(db)
         await db.refresh(group)
         return await self._render(db, group, base_url)
@@ -513,9 +525,9 @@ class ScimGroupService:
     async def delete_group(self, db: AsyncSession, organization_id: str, group_id: str) -> None:
         group = await self._get(db, organization_id, group_id)
         # Nothing may keep pointing at the group: report_shares holds a real
-        # foreign key (Postgres would refuse the delete), and role assignments /
-        # resource grants reference it by principal id, so they would be left
-        # as orphans that a later group reusing the id could inherit.
+        # foreign key (Postgres would refuse the delete), and role assignments,
+        # resource grants and quota assignments reference it by principal id,
+        # so they would be left as orphans the APIs keep listing.
         await db.execute(delete(ReportShare).where(ReportShare.group_id == group.id))
         await db.execute(
             delete(RoleAssignment)
@@ -528,6 +540,12 @@ class ScimGroupService:
             .where(ResourceGrant.organization_id == organization_id)
             .where(ResourceGrant.principal_type == "group")
             .where(ResourceGrant.principal_id == group.id)
+        )
+        await db.execute(
+            delete(UsagePolicyAssignment)
+            .where(UsagePolicyAssignment.organization_id == organization_id)
+            .where(UsagePolicyAssignment.principal_type == "group")
+            .where(UsagePolicyAssignment.principal_id == group.id)
         )
         await db.delete(group)  # GroupMemberships go with it (cascade)
         await db.commit()

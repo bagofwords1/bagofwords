@@ -36,10 +36,11 @@ the directory, and nothing leaks across orgs or into groups the IdP doesn't own.
 Ownership rules:
 - **The SCIM surface never adopts a group it didn't create.** A displayName
   that collides with a manual, LDAP or OIDC group gets 409 `uniqueness`.
+  Names are compared without case, matching the `displayName eq` filter.
 - **Group pushes never create org memberships**, so user lifecycle and the
   seat cap stay with `/Users`.
-- **DELETE also removes** role assignments, resource grants and report shares
-  on the group. `report_shares` has a real FK, so on Postgres the delete would
+- **DELETE also removes** role assignments, resource grants, quota
+  assignments and report shares on the group. `report_shares` has a real FK, so on Postgres the delete would
   otherwise fail.
 
 ## The Entra stand-in
