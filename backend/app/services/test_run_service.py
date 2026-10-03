@@ -637,7 +637,9 @@ class TestRunService:
                     # and websocket 'update_completion' is emitted for AgentV2 to cancel promptly.
                     for sc in sys_completions:
                         try:
-                            await self.completions.update_completion_sigkill(db, str(sc.id), current_user, organization)
+                            await self.completions.update_completion_sigkill(
+                                db, str(sc.id), current_user, organization, authorize=False
+                            )
                         except Exception:
                             pass
                 except Exception:

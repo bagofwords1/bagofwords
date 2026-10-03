@@ -3948,16 +3948,6 @@
     "menuData": "Данные"
   },
   "toolbar": {
-    "collapse": "Свернуть",
-    "switchToArtifact": "Переключиться на вид артефакта",
-    "dashboard": "Дашборд",
-    "addComponent": "Добавить компонент",
-    "addText": "Добавить текст",
-    "theme": "Тема",
-    "rerun": "Перезапустить отчёт",
-    "openInNewTab": "Открыть дашборд в новой вкладке",
-    "fullscreen": "Полный экран",
-    "shareDashboard": "Поделиться дашбордом",
     "polishDashboard": "Доработать дашборд"
   },
   "artifactFrame": {
@@ -4023,44 +4013,8 @@
     "partialRenderFailed": "Часть этой панели использует данные, к которым у вас нет доступа, поэтому её не удалось показать. Запросите доступ у владельца панели."
   },
   "filter": {
-    "addFilters": "Добавить фильтры",
-    "title": "Фильтры",
-    "clear": "Очистить",
-    "loading": "Загрузка…",
-    "noData": "Нет данных для фильтрации",
-    "refresh": "Обновить",
-    "noFilters": "Фильтры не применены",
-    "addFilter": "Добавить фильтр",
-    "columnPlaceholder": "Колонка",
-    "searchPlaceholder": "Поиск…",
-    "valuePlaceholder": "Значение",
     "selectColumn": "Выберите колонку",
-    "visualization": "Визуализация",
-    "orDivider": "ИЛИ",
-    "andDivider": "И",
-    "rowsCount": "{shown} из {total} строк",
-    "apply": "Применить",
-    "op": {
-      "equals": "равно",
-      "notEquals": "не равно",
-      "contains": "содержит",
-      "notContains": "не содержит",
-      "startsWith": "начинается с",
-      "endsWith": "заканчивается на",
-      "isEmpty": "пусто",
-      "isNotEmpty": "не пусто",
-      "in": "входит в",
-      "notIn": "не входит в",
-      "greaterThan": "больше чем",
-      "lessThan": "меньше чем",
-      "greaterOrEqual": "больше или равно",
-      "lessOrEqual": "меньше или равно",
-      "between": "между",
-      "before": "до",
-      "after": "после",
-      "isTrue": "истина",
-      "isFalse": "ложь"
-    }
+    "visualization": "Визуализация"
   },
   "slideViewer": {
     "loading": "Загрузка слайдов...",

@@ -4091,16 +4091,6 @@
     "menuData": "נתונים"
   },
   "toolbar": {
-    "collapse": "כיווץ",
-    "switchToArtifact": "מעבר לתצוגת ארטיפקט",
-    "dashboard": "דשבורד",
-    "addComponent": "הוסף רכיב",
-    "addText": "הוסף טקסט",
-    "theme": "ערכת נושא",
-    "rerun": "הרצת הדוח מחדש",
-    "openInNewTab": "פתח את הדשבורד בלשונית חדשה",
-    "fullscreen": "מסך מלא",
-    "shareDashboard": "שיתוף דשבורד",
     "polishDashboard": "ליטוש דשבורד"
   },
   "artifactFrame": {
@@ -4166,44 +4156,8 @@
     "partialRenderFailed": "חלק מהדשבורד מבוסס על נתונים שאין לך הרשאה אליהם, ולכן לא ניתן היה להציג אותו. בקשו גישה מבעלי הדשבורד."
   },
   "filter": {
-    "addFilters": "הוסף מסננים",
-    "title": "מסננים",
-    "clear": "ניקוי",
-    "loading": "טוען…",
-    "noData": "אין נתונים לסינון",
-    "refresh": "רענן",
-    "noFilters": "לא הוחלו מסננים",
-    "addFilter": "הוסף מסנן",
-    "columnPlaceholder": "עמודה",
-    "searchPlaceholder": "חיפוש…",
-    "valuePlaceholder": "ערך",
     "selectColumn": "בחר עמודה",
-    "visualization": "ויזואליזציה",
-    "orDivider": "או",
-    "andDivider": "וגם",
-    "rowsCount": "{shown} מתוך {total} שורות",
-    "apply": "החל",
-    "op": {
-      "equals": "שווה ל",
-      "notEquals": "לא שווה ל",
-      "contains": "מכיל",
-      "notContains": "לא מכיל",
-      "startsWith": "מתחיל ב",
-      "endsWith": "מסתיים ב",
-      "isEmpty": "ריק",
-      "isNotEmpty": "לא ריק",
-      "in": "מתוך",
-      "notIn": "לא מתוך",
-      "greaterThan": "גדול מ",
-      "lessThan": "קטן מ",
-      "greaterOrEqual": "גדול או שווה",
-      "lessOrEqual": "קטן או שווה",
-      "between": "בין",
-      "before": "לפני",
-      "after": "אחרי",
-      "isTrue": "אמת",
-      "isFalse": "שקר"
-    }
+    "visualization": "ויזואליזציה"
   },
   "slideViewer": {
     "loading": "טוען שקופיות...",

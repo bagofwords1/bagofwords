@@ -3948,16 +3948,6 @@
     "menuData": "البيانات"
   },
   "toolbar": {
-    "collapse": "طيّ",
-    "switchToArtifact": "التبديل إلى عرض العنصر",
-    "dashboard": "لوحة تحكم",
-    "addComponent": "إضافة مكوّن",
-    "addText": "إضافة نص",
-    "theme": "السمة",
-    "rerun": "إعادة تشغيل التقرير",
-    "openInNewTab": "فتح لوحة التحكم في علامة تبويب جديدة",
-    "fullscreen": "ملء الشاشة",
-    "shareDashboard": "مشاركة لوحة التحكم",
     "polishDashboard": "تحسين لوحة التحكم"
   },
   "artifactFrame": {
@@ -4023,44 +4013,8 @@
     "partialRenderFailed": "يعتمد جزء من لوحة المعلومات هذه على بيانات لا تملك صلاحية الوصول إليها، لذا تعذّر عرضها. اطلب الوصول من مالك لوحة المعلومات."
   },
   "filter": {
-    "addFilters": "إضافة عوامل تصفية",
-    "title": "عوامل التصفية",
-    "clear": "مسح",
-    "loading": "جارٍ التحميل…",
-    "noData": "لا توجد بيانات للتصفية",
-    "refresh": "تحديث",
-    "noFilters": "لم يتم تطبيق عوامل تصفية",
-    "addFilter": "إضافة عامل تصفية",
-    "columnPlaceholder": "العمود",
-    "searchPlaceholder": "بحث…",
-    "valuePlaceholder": "القيمة",
     "selectColumn": "اختر عمودًا",
-    "visualization": "التصور المرئي",
-    "orDivider": "أو",
-    "andDivider": "و",
-    "rowsCount": "{shown} من {total} صف",
-    "apply": "تطبيق",
-    "op": {
-      "equals": "يساوي",
-      "notEquals": "لا يساوي",
-      "contains": "يحتوي على",
-      "notContains": "لا يحتوي على",
-      "startsWith": "يبدأ بـ",
-      "endsWith": "ينتهي بـ",
-      "isEmpty": "فارغ",
-      "isNotEmpty": "ليس فارغًا",
-      "in": "ضمن",
-      "notIn": "ليس ضمن",
-      "greaterThan": "أكبر من",
-      "lessThan": "أصغر من",
-      "greaterOrEqual": "أكبر من أو يساوي",
-      "lessOrEqual": "أصغر من أو يساوي",
-      "between": "بين",
-      "before": "قبل",
-      "after": "بعد",
-      "isTrue": "صحيح",
-      "isFalse": "خاطئ"
-    }
+    "visualization": "التصور المرئي"
   },
   "slideViewer": {
     "loading": "جارٍ تحميل الشرائح...",

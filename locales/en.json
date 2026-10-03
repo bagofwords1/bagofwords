@@ -4151,16 +4151,6 @@
     "menuData": "Data"
   },
   "toolbar": {
-    "collapse": "Collapse",
-    "switchToArtifact": "Switch to Artifact view",
-    "dashboard": "Dashboard",
-    "addComponent": "Add Component",
-    "addText": "Add Text",
-    "theme": "Theme",
-    "rerun": "Rerun report",
-    "openInNewTab": "Open dashboard in a new tab",
-    "fullscreen": "Full screen",
-    "shareDashboard": "Share Dashboard",
     "polishDashboard": "Polish Dashboard"
   },
   "artifactFrame": {
@@ -4226,44 +4216,8 @@
     "partialRenderFailed": "Part of this dashboard uses data you don't have access to, so it couldn't be displayed. Ask the dashboard's owner for access."
   },
   "filter": {
-    "addFilters": "Add Filters",
-    "title": "Filters",
-    "clear": "Clear",
-    "loading": "Loading…",
-    "noData": "No data available to filter",
-    "refresh": "Refresh",
-    "noFilters": "No filters applied",
-    "addFilter": "Add filter",
-    "columnPlaceholder": "Column",
-    "searchPlaceholder": "Search…",
-    "valuePlaceholder": "Value",
     "selectColumn": "Select column",
-    "visualization": "Visualization",
-    "orDivider": "OR",
-    "andDivider": "AND",
-    "rowsCount": "{shown} of {total} rows",
-    "apply": "Apply",
-    "op": {
-      "equals": "equals",
-      "notEquals": "not equals",
-      "contains": "contains",
-      "notContains": "not contains",
-      "startsWith": "starts with",
-      "endsWith": "ends with",
-      "isEmpty": "is empty",
-      "isNotEmpty": "is not empty",
-      "in": "in",
-      "notIn": "not in",
-      "greaterThan": "greater than",
-      "lessThan": "less than",
-      "greaterOrEqual": "greater or equal",
-      "lessOrEqual": "less or equal",
-      "between": "between",
-      "before": "before",
-      "after": "after",
-      "isTrue": "is true",
-      "isFalse": "is false"
-    }
+    "visualization": "Visualization"
   },
   "slideViewer": {
     "loading": "Loading slides...",

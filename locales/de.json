@@ -3948,16 +3948,6 @@
     "menuData": "Daten"
   },
   "toolbar": {
-    "collapse": "Einklappen",
-    "switchToArtifact": "Zur Artefaktansicht wechseln",
-    "dashboard": "Dashboard",
-    "addComponent": "Komponente hinzufügen",
-    "addText": "Text hinzufügen",
-    "theme": "Design",
-    "rerun": "Bericht erneut ausführen",
-    "openInNewTab": "Dashboard in neuem Tab öffnen",
-    "fullscreen": "Vollbild",
-    "shareDashboard": "Dashboard teilen",
     "polishDashboard": "Dashboard verfeinern"
   },
   "artifactFrame": {
@@ -4023,44 +4013,8 @@
     "partialRenderFailed": "Ein Teil dieses Dashboards nutzt Daten, auf die du keinen Zugriff hast, daher konnte es nicht angezeigt werden. Bitte die Person, der das Dashboard gehört, um Zugriff."
   },
   "filter": {
-    "addFilters": "Filter hinzufügen",
-    "title": "Filter",
-    "clear": "Löschen",
-    "loading": "Lädt …",
-    "noData": "Keine Daten zum Filtern verfügbar",
-    "refresh": "Aktualisieren",
-    "noFilters": "Keine Filter angewendet",
-    "addFilter": "Filter hinzufügen",
-    "columnPlaceholder": "Spalte",
-    "searchPlaceholder": "Suchen …",
-    "valuePlaceholder": "Wert",
     "selectColumn": "Spalte auswählen",
-    "visualization": "Visualisierung",
-    "orDivider": "ODER",
-    "andDivider": "UND",
-    "rowsCount": "{shown} von {total} Zeilen",
-    "apply": "Anwenden",
-    "op": {
-      "equals": "gleich",
-      "notEquals": "ungleich",
-      "contains": "enthält",
-      "notContains": "enthält nicht",
-      "startsWith": "beginnt mit",
-      "endsWith": "endet mit",
-      "isEmpty": "ist leer",
-      "isNotEmpty": "ist nicht leer",
-      "in": "in",
-      "notIn": "nicht in",
-      "greaterThan": "größer als",
-      "lessThan": "kleiner als",
-      "greaterOrEqual": "größer oder gleich",
-      "lessOrEqual": "kleiner oder gleich",
-      "between": "zwischen",
-      "before": "vor",
-      "after": "nach",
-      "isTrue": "ist wahr",
-      "isFalse": "ist falsch"
-    }
+    "visualization": "Visualisierung"
   },
   "slideViewer": {
     "loading": "Folien werden geladen ...",

@@ -3948,16 +3948,6 @@
     "menuData": "Data"
   },
   "toolbar": {
-    "collapse": "Fäll ihop",
-    "switchToArtifact": "Växla till artefaktvy",
-    "dashboard": "Instrumentpanel",
-    "addComponent": "Lägg till komponent",
-    "addText": "Lägg till text",
-    "theme": "Tema",
-    "rerun": "Kör om rapport",
-    "openInNewTab": "Öppna instrumentpanel på ny flik",
-    "fullscreen": "Helskärm",
-    "shareDashboard": "Dela instrumentpanel",
     "polishDashboard": "Putsa instrumentpanel"
   },
   "artifactFrame": {
@@ -4023,44 +4013,8 @@
     "partialRenderFailed": "En del av den här instrumentpanelen använder data du inte har åtkomst till, så den kunde inte visas. Be ägaren om åtkomst."
   },
   "filter": {
-    "addFilters": "Lägg till filter",
-    "title": "Filter",
-    "clear": "Rensa",
-    "loading": "Laddar…",
-    "noData": "Ingen data tillgänglig att filtrera",
-    "refresh": "Uppdatera",
-    "noFilters": "Inga filter tillämpade",
-    "addFilter": "Lägg till filter",
-    "columnPlaceholder": "Kolumn",
-    "searchPlaceholder": "Sök…",
-    "valuePlaceholder": "Värde",
     "selectColumn": "Välj kolumn",
-    "visualization": "Visualisering",
-    "orDivider": "ELLER",
-    "andDivider": "OCH",
-    "rowsCount": "{shown} av {total} rader",
-    "apply": "Tillämpa",
-    "op": {
-      "equals": "lika med",
-      "notEquals": "inte lika med",
-      "contains": "innehåller",
-      "notContains": "innehåller inte",
-      "startsWith": "börjar med",
-      "endsWith": "slutar med",
-      "isEmpty": "är tom",
-      "isNotEmpty": "är inte tom",
-      "in": "i",
-      "notIn": "inte i",
-      "greaterThan": "större än",
-      "lessThan": "mindre än",
-      "greaterOrEqual": "större eller lika med",
-      "lessOrEqual": "mindre eller lika med",
-      "between": "mellan",
-      "before": "före",
-      "after": "efter",
-      "isTrue": "är sant",
-      "isFalse": "är falskt"
-    }
+    "visualization": "Visualisering"
   },
   "slideViewer": {
     "loading": "Laddar bilder...",

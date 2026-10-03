@@ -1,6 +1,7 @@
 import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -38,10 +39,10 @@ async def list_all_scheduled_prompts(
     organization: Organization = Depends(get_current_organization),
 ):
     """List all scheduled prompts across all reports in the organization."""
-    # `filter=shared` returns other users' prompt text + report titles, which
-    # bypasses the owner_only gate on the report-scoped scheduled-prompt
-    # endpoints. Restrict cross-user visibility to admins only.
-    if filter == 'shared':
+    # Any filter other than `my` returns other users' prompt text + report
+    # titles, which bypasses the owner_only gate on the report-scoped
+    # scheduled-prompt endpoints. Restrict cross-user visibility to admins.
+    if filter != 'my':
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
         if FULL_ADMIN not in resolved.org_permissions:
             raise HTTPException(status_code=403, detail="Not allowed to list shared scheduled prompts")
@@ -108,6 +109,22 @@ async def list_scheduled_prompts(
     return await scheduled_prompt_service.list_scheduled_prompts(db, report_id)
 
 
+async def _ensure_scheduled_prompt_in_report(db: AsyncSession, report_id: str, sp_id: str) -> None:
+    """The decorator scopes `report_id` (org + owner); tie `sp_id` to that
+    report so a schedule on someone else's report can't be reached through
+    a report the caller owns."""
+    from app.models.scheduled_prompt import ScheduledPrompt
+    found = (await db.execute(
+        select(ScheduledPrompt.id).where(
+            ScheduledPrompt.id == sp_id,
+            ScheduledPrompt.report_id == report_id,
+            ScheduledPrompt.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if found is None:
+        raise HTTPException(status_code=404, detail="Scheduled prompt not found")
+
+
 @router.put("/reports/{report_id}/scheduled-prompts/{sp_id}", response_model=ScheduledPromptSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
 async def update_scheduled_prompt(
@@ -119,6 +136,7 @@ async def update_scheduled_prompt(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    await _ensure_scheduled_prompt_in_report(db, report_id, sp_id)
     sp = await scheduled_prompt_service.update_scheduled_prompt(db, sp_id, body, current_user, organization)
     try:
         await audit_service.log(
@@ -143,6 +161,7 @@ async def delete_scheduled_prompt(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    await _ensure_scheduled_prompt_in_report(db, report_id, sp_id)
     await scheduled_prompt_service.delete_scheduled_prompt(db, sp_id, current_user, organization)
     try:
         await audit_service.log(
@@ -165,6 +184,7 @@ async def list_scheduled_prompt_runs(
     organization: Organization = Depends(get_current_organization),
 ):
     """Past runs of a scheduled task — the reports it produced, newest first."""
+    await _ensure_scheduled_prompt_in_report(db, report_id, sp_id)
     return await scheduled_prompt_service.list_runs(db, sp_id, limit=limit)
 
 
@@ -187,6 +207,7 @@ async def trigger_scheduled_prompt(
     """
     # Validate existence/visibility before kicking off the background run so the
     # caller gets a clean 404 instead of a silent no-op.
+    await _ensure_scheduled_prompt_in_report(db, report_id, sp_id)
     await scheduled_prompt_service.get_scheduled_prompt(db, sp_id)
     asyncio.create_task(scheduled_prompt_service.scheduled_run_prompt(sp_id, force=True))
     try:
