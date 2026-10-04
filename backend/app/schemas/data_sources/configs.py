@@ -3364,6 +3364,23 @@ class InforEpmIonCredentials(BaseModel):
     )
 
 
+class InforEpmServiceAccountCredentials(InforEpmIonCredentials):
+    gateway_service_account_key: str = Field(
+        ...,
+        min_length=1,
+        title="Service Account Key",
+        description="Service account access key for ION password-grant authentication.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    gateway_service_account_secret: str = Field(
+        ...,
+        min_length=1,
+        title="Service Account Secret",
+        description="Service account secret for ION password-grant authentication.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
 class InforEpmTokenCredentials(BaseModel):
     bearer_token: str = Field(
         ...,

@@ -17,8 +17,8 @@ policy forbids.
 Infor's sanctioned alternative is the **Application Engine**: BI# processes
 run *inside* the farm on a named OLAP connection (no credentials in code;
 the engine carries the IFS identity), and every published process appears as
-a REST endpoint in the ION API Gateway, where a client-credentials OAuth2
-token is all a caller needs. This connector is that route.
+a REST endpoint in the ION API Gateway, using either client-credentials OAuth2 or an ION service account
+(password grant with HTTP Basic client authentication). This connector is that route.
 
 Investigation notes that shaped the design (all generic):
 
@@ -50,7 +50,11 @@ client maps to an empty DataFrame.
 Transport: `POST <api_url>/<Process>` (sync) or `POST <api_url>/<Process>/async`
 → `{"taskId"}` then `POST <api_url>/getasyncresult {"taskId"}` until a
 completed status with the result. Bearer token from the ION token endpoint
-(client credentials) or a static token for testing.
+(client credentials or service-account password grant) or a static token for testing.
+Service-account mode sends the access key and secret as form-encoded username
+and password, with the application client ID/secret in HTTP Basic authentication.
+Expired tokens and a single HTTP 401 trigger reauthentication using the same
+grant; refresh tokens are not stored or required.
 
 ## Our side
 
@@ -58,9 +62,11 @@ completed status with the result. Bearer token from the ION token endpoint
   token exchange with refresh + 401 retry, sync/async process calls,
   `parse_bow_schema`, `parse_mdx_cells`, the MDX system prompt.
 - `backend/app/schemas/data_sources/configs.py` — `InforEpmConfig`,
-  `InforEpmIonCredentials`, `InforEpmTokenCredentials` (the form).
+  `InforEpmIonCredentials`, `InforEpmServiceAccountCredentials`,
+  `InforEpmTokenCredentials` (the form).
 - `backend/app/schemas/data_source_registry.py` — `infor_epm` entry
-  (`ion_oauth` default, `bearer_token` for testing; no password variant).
+  (`ion_oauth` remains the default; `ion_service_account` adds the password
+  grant; `bearer_token` is available for testing).
 
 ### Schema model
 

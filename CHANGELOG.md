@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.577 (October 4, 2026)
+- Added ION service-account authentication for Infor EPM connections
+
 ## Version 0.0.576 (October 4, 2026)
 - Added SCIM group provisioning from Microsoft Entra ID, Okta and other identity providers (#1236) — synced groups are managed by the IdP and their members can't be edited in Settings
 - Fixed Prometheus indexing failing on VictoriaMetrics servers that cap matched series, and labels missing for some metrics on large servers (#1237)
