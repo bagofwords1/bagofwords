@@ -17,6 +17,7 @@ from app.models.resource_grant import ResourceGrant
 from app.models.user import User
 from app.models.membership import Membership
 from app.core.permission_resolver import assert_full_admin_exists, FULL_ADMIN
+from app.errors import AppError, ErrorCode
 from app.schemas.rbac_schema import (
     RoleCreate, RoleUpdate, RoleSchema, RoleResourceGrantInput, RoleResourceGrantOutput,
     GroupCreate, GroupUpdate, GroupSchema, GroupMemberSchema,
@@ -261,7 +262,7 @@ class RBACService:
         return schema
 
     async def update_group(self, db: AsyncSession, org_id: str, group_id: str, data: GroupUpdate) -> GroupSchema:
-        group = await self._get_group(db, org_id, group_id)
+        group = await self._get_editable_group(db, org_id, group_id)
         if data.name is not None:
             group.name = data.name
         if data.description is not None:
@@ -271,7 +272,7 @@ class RBACService:
         return GroupSchema.model_validate(group)
 
     async def delete_group(self, db: AsyncSession, org_id: str, group_id: str) -> None:
-        group = await self._get_group(db, org_id, group_id)
+        group = await self._get_editable_group(db, org_id, group_id)
         await db.delete(group)
         await db.commit()
 
@@ -310,7 +311,7 @@ class RBACService:
         self, db: AsyncSession, org_id: str, group_id: str,
         user_id: Optional[str] = None, membership_id: Optional[str] = None,
     ) -> None:
-        await self._get_group(db, org_id, group_id)
+        await self._get_editable_group(db, org_id, group_id)
 
         if bool(user_id) == bool(membership_id):
             raise HTTPException(status_code=400, detail="Provide exactly one of user_id or membership_id")
@@ -345,7 +346,7 @@ class RBACService:
 
     async def remove_group_member(self, db: AsyncSession, org_id: str, group_id: str, principal_id: str) -> None:
         """Remove a group member by either user id or pending membership id."""
-        await self._get_group(db, org_id, group_id)
+        await self._get_editable_group(db, org_id, group_id)
         result = await db.execute(
             select(GroupMembership).where(
                 GroupMembership.group_id == group_id,
@@ -390,6 +391,21 @@ class RBACService:
         group = result.scalar_one_or_none()
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
+        return group
+
+    async def _get_editable_group(self, db: AsyncSession, org_id: str, group_id: str) -> Group:
+        """A group the admin API may change: anything but a SCIM-pushed group.
+
+        The IdP owns a SCIM group's name and members (app/ee/scim/group_service.py);
+        a hand edit would be silently undone by the next push. Roles and grants
+        on the group stay editable — that is how admins give it access.
+        """
+        group = await self._get_group(db, org_id, group_id)
+        if group.external_provider == "scim":
+            raise AppError.conflict(
+                ErrorCode.GROUP_MANAGED_BY_SCIM,
+                "This group is managed by your identity provider over SCIM; change it there.",
+            )
         return group
 
     # ── Role Assignments ─────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 """add agent catalogs
 
 Revision ID: agentcat01
-Revises: mrgheads05
+Revises: emailclaim01
 Create Date: 2026-09-17
 
 Adds the agent_catalogs table (org-level named groupings of agents) and the
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'agentcat01'
-down_revision: Union[str, None] = 'mrgheads05'
+down_revision: Union[str, None] = 'emailclaim01'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
