@@ -267,3 +267,55 @@ def test_deleting_agent_with_folders_succeeds(
     listing = test_client.get("/api/data_sources", headers=_auth(token, org_id))
     assert listing.status_code == 200
     assert ds["id"] not in {d["id"] for d in listing.json()}
+
+
+def _build_total(test_client, token, org_id):
+    resp = test_client.get("/api/builds", params={"status": "all", "limit": 1}, headers=_auth(token, org_id))
+    assert resp.status_code == 200, resp.json()
+    return resp.json()["total"]
+
+
+async def _deleted_audit_ids(org_id):
+    # The audit list API is enterprise-gated, so read the rows directly.
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.ee.audit.models import AuditLog
+
+    async with async_session_maker() as db:
+        rows = await db.execute(
+            select(AuditLog.resource_id).where(
+                AuditLog.organization_id == str(org_id),
+                AuditLog.action == "instruction.deleted",
+            )
+        )
+        return {str(r[0]) for r in rows.fetchall()}
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [2, 7])
+async def test_deleting_agent_records_one_build_regardless_of_instruction_count(
+    count, test_client, bootstrap_admin, sqlite_data_source, delete_data_source,
+):
+    """Removing an agent's instructions is one change, not one per instruction.
+
+    A build per instruction copied and promoted all of main N times — the
+    delete crawled for agents with many instructions and, committing per
+    instruction, could stop midway with only part of them gone. Each deleted
+    instruction still gets its own audit row.
+    """
+    admin = bootstrap_admin(f"del_bulk{count}")
+    token, org_id = admin["token"], admin["org_id"]
+    ds = sqlite_data_source(name=f"bulk_{uuid.uuid4().hex[:6]}", user_token=token, org_id=org_id)
+    ids = {
+        _create_instruction(test_client, token, org_id, f"rule {i} {uuid.uuid4().hex[:6]}", [ds["id"]])["id"]
+        for i in range(count)
+    }
+    before = _build_total(test_client, token, org_id)
+
+    result = delete_data_source(data_source_id=ds["id"], user_token=token, org_id=org_id)
+    assert result.get("message"), result
+
+    assert _build_total(test_client, token, org_id) - before == 1
+    assert ids.isdisjoint(_visible_ids(test_client, token, org_id))
+    assert ids <= await _deleted_audit_ids(org_id)

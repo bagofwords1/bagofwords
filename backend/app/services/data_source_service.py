@@ -2193,9 +2193,9 @@ class DataSourceService:
         """Remove an agent's instruction scope before the agent row is deleted.
 
         - Instructions attached to this agent and to no other are soft-deleted
-          through ``InstructionService.delete_instruction`` (same path as a
-          manual delete: pending suggestions are voided, a removal build is
-          recorded, an audit row is written).
+          together through ``InstructionService.bulk_delete_instructions``
+          (pending suggestions are voided, ONE removal build is recorded),
+          plus an ``instruction.deleted`` audit row per instruction.
         - The remaining association rows (shared instructions) are dropped so
           the shared instruction keeps only its other agents.
         - The agent's folders and their placements are deleted. Folders
@@ -2214,7 +2214,7 @@ class DataSourceService:
             .where(assoc.c.data_source_id != data_source_id)
         )
         only_here_q = await db.execute(
-            select(Instruction.id)
+            select(Instruction.id, Instruction.title)
             .join(assoc, assoc.c.instruction_id == Instruction.id)
             .where(
                 assoc.c.data_source_id == data_source_id,
@@ -2223,13 +2223,36 @@ class DataSourceService:
                 ~Instruction.id.in_(attached_elsewhere),
             )
         )
-        only_here = [str(row[0]) for row in only_here_q.fetchall()]
+        titles = {str(row[0]): row[1] for row in only_here_q.fetchall()}
+        only_here = list(titles)
 
-        instruction_service = InstructionService()
-        for instruction_id in only_here:
-            await instruction_service.delete_instruction(
-                db, instruction_id, organization=organization, current_user=current_user
+        # One soft-delete + one removal build for the whole set. Calling
+        # delete_instruction per row built, finalized and promoted a full copy
+        # of main for every instruction (O(agent instructions x org
+        # instructions), each promote waiting on the shared main-build lock),
+        # and committed each delete on its own, so a request that died midway
+        # left the agent alive with part of its instructions already gone.
+        if only_here:
+            instruction_service = InstructionService()
+            result = await instruction_service.bulk_delete_instructions(
+                db, only_here, current_user=current_user, organization=organization
             )
+            deleted = [iid for iid in only_here if iid not in set(result.failed_ids)]
+            # bulk_delete_instructions writes no audit rows; keep the
+            # per-instruction trail the single delete path records.
+            for instruction_id in deleted:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="instruction.deleted",
+                    user_id=str(current_user.id),
+                    resource_type="instruction",
+                    resource_id=instruction_id,
+                    details={"title": titles[instruction_id]},
+                    commit=False,
+                )
+            await db.commit()
+            only_here = deleted
 
         # Detach whatever is still linked (instructions shared with other
         # agents, plus the rows of the instructions just soft-deleted).
