@@ -126,3 +126,63 @@ def test_cancelled_job_requests_source_query_cancellation(monkeypatch):
         with pytest.raises(SandboxCancelled):
             future.result(timeout=5)
         assert cancellation_requested.wait(timeout=5)
+
+
+@pytest.mark.parametrize(
+    "abi, seccomp_reason, env, refuses",
+    [
+        (0, "", {}, True),
+        (3, "", {}, True),
+        (4, "", {}, False),
+        (6, "", {}, False),
+        (6, "unsupported seccomp architecture: riscv64", {}, True),
+        (0, "", {"BOW_SANDBOX_REQUIRE_LANDLOCK": "0"}, False),
+        (0, "", {"BOW_CODE_SANDBOX": "inprocess"}, False),
+    ],
+)
+def test_startup_check_predicts_when_production_refuses_to_execute(monkeypatch, abi, seccomp_reason, env, refuses):
+    # The kernel probes are the boundary: the check must flag exactly the
+    # hosts on which the required confinement cannot be applied.
+    from app.ai.code_execution.sandbox import landlock, seccomp
+    from app.ai.code_execution.sandbox.runner import required_confinement_problem
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    for name in ("BOW_SANDBOX_REQUIRE_LANDLOCK", "BOW_CODE_SANDBOX"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(landlock, "abi_version", lambda: abi)
+    monkeypatch.setattr(seccomp, "unsupported_reason", lambda: seccomp_reason)
+
+    assert bool(required_confinement_problem()) is refuses
+
+
+@pytest.mark.asyncio
+async def test_unavailable_confinement_is_not_retried_with_new_code(monkeypatch):
+    # A host that cannot confine generated code fails every attempt the same
+    # way. The retry loop must stop at once (no further code generation) and
+    # tell the operator which setting decides it.
+    from app.ai.code_execution.sandbox.runner import required_confinement_problem
+    from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("BOW_SANDBOX_REQUIRE_LANDLOCK", raising=False)
+    monkeypatch.delenv("BOW_CODE_SANDBOX", raising=False)
+    if not required_confinement_problem():
+        pytest.skip("this host provides the required confinement")
+
+    generated = []
+
+    async def codegen(**kwargs):
+        generated.append(kwargs)
+        return "def generate_df(ds_clients, excel_files):\n    return pd.DataFrame({'v': [1]})\n"
+
+    events = [
+        e async for e in StreamingCodeExecutor(organization_settings=None).generate_and_execute_stream_v2(
+            request=CodeGenRequest(context=CodeGenContext(user_prompt="x", schemas_excerpt=""), retries=3),
+            ds_clients={}, excel_files=[], code_generator_fn=codegen,
+        )
+    ]
+    done = [e for e in events if e["type"] == "done"][-1]["payload"]
+    assert len(generated) == 1
+    assert done["errors"] and "BOW_SANDBOX_REQUIRE_LANDLOCK" in str(done["errors"])

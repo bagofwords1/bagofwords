@@ -31,17 +31,29 @@ class _Program(ctypes.Structure):
     _fields_ = [("len", ctypes.c_ushort), ("filter", ctypes.POINTER(_Filter))]
 
 
+# clone syscall number and the direct fork syscalls, per machine.
+_SYSCALLS = {
+    "x86_64": (56, (57, 58)), "amd64": (56, (57, 58)),
+    "aarch64": (220, ()), "arm64": (220, ()),
+}
+
+
+def unsupported_reason() -> str:
+    """Why this host cannot install the filter; empty when it can."""
+    if platform.system() != "Linux":
+        return "seccomp is available only on Linux"
+    arch = platform.machine().lower()
+    if arch not in _SYSCALLS:
+        return f"unsupported seccomp architecture: {arch}"
+    return ""
+
+
 def install_no_process_creation() -> None:
     """Install an irreversible filter in this child before running user code."""
-    if platform.system() != "Linux":
-        raise OSError("seccomp is available only on Linux")
-    arch = platform.machine().lower()
-    if arch in ("x86_64", "amd64"):
-        clone_nr, direct_forks = 56, (57, 58)
-    elif arch in ("aarch64", "arm64"):
-        clone_nr, direct_forks = 220, ()
-    else:
-        raise OSError(f"unsupported seccomp architecture: {arch}")
+    reason = unsupported_reason()
+    if reason:
+        raise OSError(reason)
+    clone_nr, direct_forks = _SYSCALLS[platform.machine().lower()]
 
     ins = [(_BPF_LD_W_ABS, 0, 0, 0)]  # seccomp_data.nr
     for nr in direct_forks:

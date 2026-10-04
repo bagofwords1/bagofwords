@@ -87,6 +87,30 @@ polls; the child is killed instead of running on.
   Production also requires the Linux process-creation filter so a forked child
   cannot leave the process group controlled by the runner.
 
+## Choosing `BOW_SANDBOX_REQUIRE_LANDLOCK` (upgrade note)
+
+The production default (`1`) runs generated code only where the kernel can
+apply the full policy: Landlock filesystem **and** TCP confinement (Linux
+6.7+, Landlock ABI 4) plus the process-creation filter. On any other host,
+every create_data / inspect_data / refresh / scheduled rerun / PPTX run
+fails until the operator acts:
+
+* At startup each API worker logs, at ERROR, `Code execution is disabled on
+  this host: …` with the kernel and Landlock ABI it found.
+* Each refused run fails with a `SandboxUnavailable` error naming this
+  setting. It is terminal: the coder is not asked to regenerate code, since
+  no code change can fix the host.
+
+The fix is to upgrade the kernel, or to set `BOW_SANDBOX_REQUIRE_LANDLOCK=0`.
+`0` does not switch confinement off: the child always applies as much
+Landlock as the kernel offers. It only stops refusing when part is missing:
+
+| Host | With `0` |
+|---|---|
+| Linux 6.7+ (Landlock ABI ≥ 4) | Full policy, same as `1`. |
+| Linux 5.13–6.6 with Landlock enabled (e.g. Ubuntu 22.04, Debian 12, AL2023) | Filesystem confinement still applies, so secrets stay out of reach. Generated code that escapes Python can open TCP connections (internal services, cloud metadata endpoints). |
+| No Landlock (e.g. RHEL 8, or the LSM disabled) | Separate process, scrubbed environment, rlimits and the kill timeout only. Code that escapes Python can read files the API user can read, including `backend/.env` and the API worker's `/proc/<pid>/environ`. |
+
 ## Operator knobs (environment)
 
 | Variable | Meaning | Default |

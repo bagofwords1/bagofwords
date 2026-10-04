@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import pickle
+import platform
 import select
 import shutil
 import signal
@@ -82,6 +83,48 @@ class SandboxExecutionError(Exception):
         self.message = message
         self.traceback_text = traceback_text
         super().__init__(f"{exc_type}: {message}" if exc_type else message)
+
+
+CONFINEMENT_REMEDY = (
+    "Upgrade the host kernel to Linux 6.7 or later (Landlock ABI 4), or set "
+    "BOW_SANDBOX_REQUIRE_LANDLOCK=0 to run generated code with the confinement "
+    "this host supports (see docs/design/code-execution-sandbox.md)."
+)
+
+
+class SandboxUnavailableError(SandboxExecutionError):
+    """The host cannot provide the confinement BOW_SANDBOX_REQUIRE_LANDLOCK
+    requires, so nothing was executed. Regenerating the code cannot fix that:
+    it is terminal for the retry loop, and the message tells the operator what
+    to change."""
+
+    terminal_execution_error = True
+
+    def __init__(self, message: str):
+        super().__init__("SandboxUnavailable", f"{message}. {CONFINEMENT_REMEDY}")
+
+
+def required_confinement_problem(limits: Optional[SandboxLimits] = None) -> str:
+    """What would make every sandboxed execution refuse to run on this host,
+    or "" when nothing would. Probes the same kernel facts the child checks
+    (Landlock ABI, seccomp support) without starting one, so startup can say
+    so once instead of every user request failing with it."""
+    from app.ai.code_execution.sandbox import landlock, seccomp
+    from app.ai.code_execution.sandbox.config import MODE_SUBPROCESS, sandbox_mode
+
+    limits = limits or SandboxLimits.from_env()
+    if sandbox_mode() != MODE_SUBPROCESS or not limits.require_landlock:
+        return ""
+    abi = landlock.abi_version()
+    if abi < 4:
+        return (
+            f"Landlock filesystem and TCP confinement are required but this kernel "
+            f"({platform.release()}) offers Landlock ABI {abi}; TCP confinement needs ABI 4"
+        )
+    reason = seccomp.unsupported_reason()
+    if reason:
+        return f"process creation restriction is required but unavailable: {reason}"
+    return ""
 
 
 @dataclass
@@ -641,6 +684,7 @@ def run_job(
     rpc_exceptions: Dict[int, BaseException] = {}
     result = SandboxResult()
     child: Optional[_ChildProcess] = None
+    ready_seen = False
     try:
         child = _acquire_child()
         scratch_dir = child.scratch_dir
@@ -683,6 +727,7 @@ def run_job(
 
             kind = header.get("t")
             if kind == "ready":
+                ready_seen = True
                 result.applied = header.get("applied") or {}
                 result.spawn_ms = round((time.monotonic() - t0) * 1000.0, 1)
                 ll = (result.applied.get("landlock") or {})
@@ -798,6 +843,10 @@ def run_job(
                     # propagated unchanged: surface the real object so the
                     # retry loop keeps its type-based decisions.
                     exc = rpc_exceptions[int(rpc_id)]
+                elif header.get("exc_type") == "SandboxUnavailable" and not ready_seen:
+                    # The child refused before running anything (it reports
+                    # this only ahead of `ready`, so user code cannot fake it).
+                    exc = SandboxUnavailableError(str(header.get("message") or ""))
                 else:
                     exc = SandboxExecutionError(
                         str(header.get("exc_type") or ""),
