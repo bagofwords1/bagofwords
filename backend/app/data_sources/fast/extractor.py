@@ -1,6 +1,6 @@
-"""Bounded, streaming extraction of a custom query into an encrypted artifact.
+"""Bounded, streaming extraction of a custom table into an encrypted artifact.
 
-A custom query is the one place in the product where a deliberately huge scan
+A custom table is the one place in the product where a deliberately huge scan
 can happen — an admin can write `SELECT * FROM orders` against a 2-billion-row
 table. Three independent layers stop that taking the process down:
 
@@ -162,12 +162,12 @@ def check_budget(
     if est.rows and est.rows > max_rows:
         raise ExtractionRefused(
             f"Estimated {est.rows:,} rows exceeds the {max_rows:,}-row limit for a "
-            f"custom query. Narrow the query with a WHERE clause or fewer columns."
+            f"custom table. Narrow the query with a WHERE clause or fewer columns."
         )
     if est.total_bytes and est.total_bytes > max_bytes:
         raise ExtractionRefused(
             f"Estimated {est.total_bytes / (1024**3):.1f} GB exceeds the "
-            f"{max_bytes / (1024**3):.1f} GB limit for a custom query. "
+            f"{max_bytes / (1024**3):.1f} GB limit for a custom table. "
             f"Narrow the query with a WHERE clause or fewer columns."
         )
 
@@ -257,7 +257,7 @@ def extract_to_artifact(
                     if row_count > max_rows:
                         raise ExtractionAborted(
                             f"Query returned more than the {max_rows:,}-row limit "
-                            f"for a custom query and was aborted."
+                            f"for a custom table and was aborted."
                         )
                     con.register("bow_batch", tbl)
                     if first:

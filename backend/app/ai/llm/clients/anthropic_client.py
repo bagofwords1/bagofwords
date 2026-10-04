@@ -1,5 +1,10 @@
 import json
 
+from app.ai.llm.reasoning import (
+    claude_off_params, selected_effort, _effort_to_thinking_config,
+    capability_model as _capability_model, clamp_effort, client_mode, efforts_for_client,
+    merge_raw_params, raw_params_for,
+)
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
@@ -35,7 +40,7 @@ _STOP_REASON_MAP = {
 }
 
 # Model families that reject sampling parameters (temperature/top_p/top_k)
-# with a 400. Sonnet 5 / Opus 5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them
+# with a 400. Sonnet 5 / Opus 5 / Opus 5.5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them
 # from the API — prompting is the steering mechanism there. Older models (4.6
 # and earlier) still accept temperature.
 _NO_SAMPLING_PARAM_TAGS = (
@@ -51,6 +56,36 @@ _NO_SAMPLING_PARAM_TAGS = (
 def _accepts_temperature(model_id: str) -> bool:
     mid = (model_id or "").lower()
     return not any(tag in mid for tag in _NO_SAMPLING_PARAM_TAGS)
+
+
+# TTL for the run-invariant cache prefix (tool catalog + system prompt).
+#
+# Anthropic's default ephemeral TTL is 5 minutes, measured from the START of the
+# request that writes or reads the entry. Inside one agent run the planner
+# iterates fast enough to keep it warm, but BETWEEN user turns a person reads the
+# answer and types the next question — routinely more than 5 minutes — so the
+# whole tools+system prefix (~39k tokens on a default org) was re-written at
+# 1.25x on the first call of nearly every turn instead of being read back at
+# 0.1x. That is a ~12x swing on the largest single block in the request.
+#
+# The 1-hour TTL costs 2x to write instead of 1.25x and breaks even at three
+# reads of the entry; a single multi-step turn already issues more than that, and
+# a cache READ refreshes the timer for free, so an active conversation keeps one
+# entry alive instead of re-writing it per turn.
+#
+# Only the prefix gets the long TTL. The per-turn message breakpoint stays on the
+# 5-minute default: it moves every iteration, so a long TTL there would pay the
+# 2x write premium for an entry that is superseded seconds later. Anthropic also
+# requires longer-TTL entries to appear BEFORE shorter-TTL ones, and the render
+# order is tools -> system -> messages, so 1h/1h/5m is a valid ordering.
+#
+# BOW_PROMPT_CACHE_TTL=5m restores the previous behavior without a deploy.
+def _prefix_cache_control() -> dict[str, Any]:
+    import os
+    ttl = (os.environ.get("BOW_PROMPT_CACHE_TTL") or "1h").strip().lower()
+    if ttl in ("5m", "5min", "default", "ephemeral"):
+        return {"type": "ephemeral"}
+    return {"type": "ephemeral", "ttl": "1h"}
 
 
 class Anthropic(LLMClient):
@@ -128,10 +163,77 @@ class Anthropic(LLMClient):
         content.append({"type": "text", "text": prompt.strip()})
         return content
 
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
+    def _apply_reasoning(self, model_id, request_kwargs, thinking):
+        # Extended thinking. The installed Anthropic SDK (<=0.40.0) doesn't
+        # expose `thinking` as a top-level kwarg, but the API server does
+        # accept it — pass via `extra_body` so it's appended to the request
+        # JSON. We also default display="summarized" so the UI gets readable
+        # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
+        # the default temperature when thinking is on, so drop ours entirely
+        # (omitting it is valid on every model).
+        # An omitted setting preserves provider defaults; explicit off is
+        # translated separately and must never become an enabled budget.
+        capability_model = _capability_model(self, model_id)
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
+        requested = selected_effort(thinking) if thinking else None
+        if requested and mode == "custom":
+            # Custom mode: the admin's raw fields ARE the reasoning request.
+            extra_body = merge_raw_params(dict(request_kwargs.pop("extra_body", {}) or {}),
+                                          raw_params_for(self, requested, clamp_effort(requested, efforts_for_client(self, model_id))),
+                                          passthrough_key=None)
+            request_kwargs["extra_body"] = extra_body
+            if "thinking" in extra_body:
+                request_kwargs.pop("temperature", None)
+        elif requested == "off":
+            extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
+            extra_body.update(claude_off_params(capability_model))
+            merge_raw_params(extra_body, raw_params_for(self, requested, None), passthrough_key=None)
+            if extra_body:
+                request_kwargs["extra_body"] = extra_body
+                request_kwargs.pop("temperature", None)
+        elif thinking:
+            t = dict(thinking)
+            effort = clamp_effort(requested, efforts_for_client(self, model_id)) or requested
+            # Re-map for the actual client model, including routed/fallback
+            # models; the planner may have built a budget for another family.
+            mapped = _effort_to_thinking_config(effort, capability_model)
+            if mapped and ((thinking or {}).get("effort") or mapped.get("type") == "adaptive"):
+                t.update(mapped)
+                if mapped.get("type") == "adaptive":
+                    t.pop("budget_tokens", None)
+            t.pop("effort", None)
+            t.setdefault("display", "summarized")
+            extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
+            extra_body["thinking"] = t
+            if effort and t.get("type") == "adaptive":
+                extra_body["output_config"] = {"effort": effort}
+            if requested:
+                merge_raw_params(extra_body, raw_params_for(self, requested, effort), passthrough_key=None)
+            request_kwargs["extra_body"] = extra_body
+            request_kwargs.pop("temperature", None)
+            # max_tokens must exceed budget_tokens; bump if needed.
+            budget = int((extra_body.get("thinking") or {}).get("budget_tokens") or 0)
+            if budget and request_kwargs.get("max_tokens", 0) <= budget:
+                request_kwargs["max_tokens"] = budget + 4096
+
+
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         kwargs: dict[str, Any] = {}
         if _accepts_temperature(model_id):
             kwargs["temperature"] = self.temperature
+        if system:
+            # Same breakpoint the streaming path puts on its system block. A
+            # one-shot call that keeps its whole prompt in one user message can
+            # never cache — there is no stable prefix to mark — so callers that
+            # split off their invariant half get the read rate from here on.
+            kwargs["system"] = [
+                {"type": "text", "text": system, "cache_control": _prefix_cache_control()},
+            ]
+        kwargs["max_tokens"] = self.max_tokens
+        self._apply_reasoning(model_id, kwargs, thinking)
         message = self.client.messages.create(
             model=model_id,
             messages=[
@@ -140,7 +242,6 @@ class Anthropic(LLMClient):
                     "content": self._build_content(prompt, images),
                 }
             ],
-            max_tokens=self.max_tokens,
             **kwargs,
         )
         usage = self._extract_usage(getattr(message, "usage", None))
@@ -156,12 +257,17 @@ class Anthropic(LLMClient):
         return LLMResponse(text=text, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None, thinking: Optional[dict] = None
     ) -> AsyncGenerator[str, None]:
         kwargs: dict[str, Any] = {}
         if _accepts_temperature(model_id):
             kwargs["temperature"] = self.temperature
-        stream = await self.async_client.messages.create(
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        kwargs["max_tokens"] = min(self.max_tokens, max_output_tokens) if max_output_tokens is not None else self.max_tokens
+        self._apply_reasoning(model_id, kwargs, thinking)
+        if max_output_tokens is not None:
+            kwargs["max_tokens"] = min(kwargs["max_tokens"], max_output_tokens)
+        stream = await client.messages.create(
             model=model_id,
             messages=[
                 {
@@ -169,48 +275,93 @@ class Anthropic(LLMClient):
                     "content": self._build_content(prompt, images),
                 }
             ],
-            max_tokens=self.max_tokens,
             stream=True,
             **kwargs,
         )
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if chunk.type == "content_block_delta" and chunk.delta.text:
-                yield chunk.delta.text
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
+        try:
+            async for chunk in stream:
+                if max_output_tokens is not None and getattr(getattr(chunk, "delta", None), "stop_reason", None) == "max_tokens":
+                    raise ValueError("Model output limit reached")
+                if chunk.type == "content_block_delta" and getattr(chunk.delta, "text", None):
+                    yield chunk.delta.text
+                usage = self._extract_usage(getattr(chunk, "usage", None))
+                if usage.prompt_tokens or usage.completion_tokens:
+                    prompt_tokens = usage.prompt_tokens or prompt_tokens
+                    completion_tokens = usage.completion_tokens or completion_tokens
 
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await (getattr(stream, "aclose", None) or stream.close)()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _extract_usage(raw: Any) -> LLMUsage:
+        """Read one usage object, including the per-TTL cache-write split.
+
+        ``usage.cache_creation`` breaks cache_creation_input_tokens down into
+        ``ephemeral_5m_input_tokens`` / ``ephemeral_1h_input_tokens``. Those are
+        what the two write rates (1.25x / 2x) apply to, so the billed rate comes
+        from the provider's own answer rather than from whichever TTL we asked
+        for — the two diverge whenever a request READS an entry written under a
+        different TTL, and a config-derived guess is silently wrong there.
+
+        When the field is absent (older API surface, or a gateway that drops
+        it), the whole write is attributed to the 5-minute TTL: that matches the
+        API default and never over-bills.
+        """
         if raw is None:
             return LLMUsage()
+
+        def _split(creation_obj, total: int) -> tuple[int, int]:
+            """(5m, 1h) when the provider broke the write down, else (0, 0).
+
+            Absent breakdown must NOT be reported as "all 5-minute" here. The
+            stream repeats cache_creation_input_tokens on message_delta without
+            repeating the breakdown, so returning the total as 5m would clobber
+            the correct split already read from message_start and silently
+            re-price a 1-hour write at 1.25x. The "unattributed writes bill at
+            the 5-minute rate" fallback belongs once at the end of the stream,
+            where it can see whether any breakdown ever arrived.
+            """
+            if creation_obj is None:
+                return 0, 0
+            if isinstance(creation_obj, dict):
+                m5 = creation_obj.get("ephemeral_5m_input_tokens")
+                h1 = creation_obj.get("ephemeral_1h_input_tokens")
+            else:
+                m5 = getattr(creation_obj, "ephemeral_5m_input_tokens", None)
+                h1 = getattr(creation_obj, "ephemeral_1h_input_tokens", None)
+            if m5 is None and h1 is None:
+                return 0, 0
+            return int(m5 or 0), int(h1 or 0)
+
         if isinstance(raw, dict):
+            total_write = int(raw.get("cache_creation_input_tokens", 0) or 0)
+            w5, w1 = _split(raw.get("cache_creation"), total_write)
             return LLMUsage(
                 prompt_tokens=int(raw.get("input_tokens", 0) or 0),
                 completion_tokens=int(raw.get("output_tokens", 0) or 0),
                 cache_read_tokens=int(raw.get("cache_read_input_tokens", 0) or 0),
-                cache_creation_tokens=int(raw.get("cache_creation_input_tokens", 0) or 0),
+                cache_creation_tokens=total_write,
+                cache_write_5m_tokens=w5,
+                cache_write_1h_tokens=w1,
             )
-        prompt = getattr(raw, "input_tokens", 0)
-        completion = getattr(raw, "output_tokens", 0)
-        cache_read = getattr(raw, "cache_read_input_tokens", 0)
-        cache_create = getattr(raw, "cache_creation_input_tokens", 0)
+        total_write = int(getattr(raw, "cache_creation_input_tokens", 0) or 0)
+        w5, w1 = _split(getattr(raw, "cache_creation", None), total_write)
         return LLMUsage(
-            prompt_tokens=int(prompt or 0),
-            completion_tokens=int(completion or 0),
-            cache_read_tokens=int(cache_read or 0),
-            cache_creation_tokens=int(cache_create or 0),
+            prompt_tokens=int(getattr(raw, "input_tokens", 0) or 0),
+            completion_tokens=int(getattr(raw, "output_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(raw, "cache_read_input_tokens", 0) or 0),
+            cache_creation_tokens=total_write,
+            cache_write_5m_tokens=w5,
+            cache_write_1h_tokens=w1,
         )
 
     async def test_connection(self):
@@ -349,24 +500,7 @@ class Anthropic(LLMClient):
         if _accepts_temperature(model_id):
             request_kwargs["temperature"] = self.temperature
 
-        # Extended thinking. The installed Anthropic SDK (<=0.40.0) doesn't
-        # expose `thinking` as a top-level kwarg, but the API server does
-        # accept it — pass via `extra_body` so it's appended to the request
-        # JSON. We also default display="summarized" so the UI gets readable
-        # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
-        # the default temperature when thinking is on, so drop ours entirely
-        # (omitting it is valid on every model).
-        if thinking:
-            t = dict(thinking)
-            t.setdefault("display", "summarized")
-            extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
-            extra_body["thinking"] = t
-            request_kwargs["extra_body"] = extra_body
-            request_kwargs.pop("temperature", None)
-            # max_tokens must exceed budget_tokens; bump if needed.
-            budget = int(t.get("budget_tokens") or 0)
-            if budget and request_kwargs.get("max_tokens", 0) <= budget:
-                request_kwargs["max_tokens"] = budget + 4096
+        self._apply_reasoning(model_id, request_kwargs, thinking)
 
         # Prompt caching. Historically only system + tools were marked, so
         # everything in `messages` — the static context (instructions, schemas,
@@ -395,7 +529,7 @@ class Anthropic(LLMClient):
         if system:
             if enable_cache:
                 request_kwargs["system"] = [
-                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}},
+                    {"type": "text", "text": system, "cache_control": _prefix_cache_control()},
                 ]
             else:
                 request_kwargs["system"] = system
@@ -404,7 +538,7 @@ class Anthropic(LLMClient):
             if enable_cache and translated:
                 # Put the breakpoint on the LAST tool — Anthropic caches everything
                 # up to and including the marked block.
-                translated[-1] = {**translated[-1], "cache_control": {"type": "ephemeral"}}
+                translated[-1] = {**translated[-1], "cache_control": _prefix_cache_control()}
             request_kwargs["tools"] = translated
             # Force-disable parallel tool_use at the API level. The model is
             # capable of emitting multiple tool_use blocks in one response,
@@ -439,6 +573,9 @@ class Anthropic(LLMClient):
         completion_tokens = 0
         cache_read_tokens = 0
         cache_creation_tokens = 0
+        cache_write_5m_tokens = 0
+        cache_write_1h_tokens = 0
+
 
         stream = await self.async_client.messages.create(**request_kwargs)
 
@@ -454,6 +591,9 @@ class Anthropic(LLMClient):
                     cache_read_tokens = usage.cache_read_tokens
                 if usage.cache_creation_tokens:
                     cache_creation_tokens = usage.cache_creation_tokens
+                if usage.cache_write_5m_tokens or usage.cache_write_1h_tokens:
+                    cache_write_5m_tokens = usage.cache_write_5m_tokens
+                    cache_write_1h_tokens = usage.cache_write_1h_tokens
                 continue
 
             if ctype == "content_block_start":
@@ -539,6 +679,9 @@ class Anthropic(LLMClient):
                     cache_read_tokens = usage.cache_read_tokens
                 if usage.cache_creation_tokens:
                     cache_creation_tokens = usage.cache_creation_tokens
+                if usage.cache_write_5m_tokens or usage.cache_write_1h_tokens:
+                    cache_write_5m_tokens = usage.cache_write_5m_tokens
+                    cache_write_1h_tokens = usage.cache_write_1h_tokens
                 if stop_reason:
                     yield MessageStopEvent(
                         stop_reason=_STOP_REASON_MAP.get(stop_reason, "other"),
@@ -550,12 +693,20 @@ class Anthropic(LLMClient):
                 # Some SDKs emit this terminator without a stop_reason; ignore.
                 continue
 
+
         # Emit final usage event after the stream ends
+        # A write with no TTL breakdown (older surface, or a gateway that drops
+        # the field) is attributed to the 5-minute TTL — the API default, and
+        # the rate that never over-bills.
+        if cache_creation_tokens and not (cache_write_5m_tokens or cache_write_1h_tokens):
+            cache_write_5m_tokens = cache_creation_tokens
         yield UsageEvent(
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cache_write_5m_tokens=cache_write_5m_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
         )
         self._set_last_usage(
             LLMUsage(
@@ -563,5 +714,7 @@ class Anthropic(LLMClient):
                 completion_tokens=completion_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
+                cache_write_5m_tokens=cache_write_5m_tokens,
+                cache_write_1h_tokens=cache_write_1h_tokens,
             )
         )

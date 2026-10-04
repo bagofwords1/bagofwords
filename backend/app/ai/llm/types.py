@@ -13,6 +13,19 @@ class LLMUsage:
     # though providers report them differently — see per-client _extract_usage.
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
+    # Cache writes split by TTL. Anthropic charges 1.25x for a 5-minute entry
+    # and 2x for a 1-hour one, and reports the split back on every response
+    # (usage.cache_creation.ephemeral_{5m,1h}_input_tokens), so the billed rate
+    # is read from the provider rather than inferred from our own config — a
+    # config-derived guess silently understates the bill the moment the two
+    # disagree. Their sum equals cache_creation_tokens; families with no write
+    # concept leave both at 0.
+    cache_write_5m_tokens: int = 0
+    cache_write_1h_tokens: int = 0
+    # Reasoning / thinking tokens, billed at the OUTPUT rate and already
+    # included in completion_tokens. Tracked separately so spend on thinking is
+    # attributable rather than merged into ordinary output.
+    reasoning_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -191,6 +204,11 @@ class UsageEvent:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
+    # Cache writes split by the TTL the provider actually billed, and reasoning
+    # tokens (a subset of output_tokens). See LLMUsage for why both are carried.
+    cache_write_5m_tokens: int = 0
+    cache_write_1h_tokens: int = 0
+    reasoning_tokens: int = 0
     type: Literal["usage"] = "usage"
 
 

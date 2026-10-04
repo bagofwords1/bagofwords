@@ -42,7 +42,12 @@ class BowSort(StrictModel):
 
 
 class BowQuery(StrictModel):
-    dataset: Literal["runs", "tool_calls"]
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    dataset: Literal["runs", "tool_calls", "list"]
+    # dataset="list" only: which Agent List to read. list_id is rename-safe and
+    # preferred; list ("bow.<agent>.lists.<list>") is resolved at execution time.
+    list_id: str | None = Field(default=None, max_length=64)
+    list_name: str | None = Field(default=None, max_length=200, alias="list")
     query: str = Field(default="", max_length=8000)
     time_range: BowTimeRange = Field(default_factory=lambda: BowTimeRange(relative="30d"))
     tz_offset_minutes: int = Field(default=0, ge=-840, le=840)
@@ -54,6 +59,11 @@ class BowQuery(StrictModel):
 
     @model_validator(mode="after")
     def validate_shape(self):
+        if self.dataset == "list":
+            if not (self.list_id or self.list_name):
+                raise ValueError("dataset 'list' needs list_id")
+        elif self.list_id or self.list_name:
+            raise ValueError("list_id/list only apply to dataset 'list'")
         if self.group_by and not self.metrics:
             raise ValueError("group_by requires metrics")
         if self.columns is not None and (not self.columns or self.metrics):

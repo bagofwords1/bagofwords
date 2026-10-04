@@ -31,6 +31,22 @@ google_oauth:
  # extra_authorize_params: { prompt: login }
  # extra_token_params: {}
 
+# SAML 2.0 SSO (any IdP with Redirect requests and POST responses).
+# Requires HTTPS base_url. See docs/guides/saml-sso.md and
+# configs/bow-config.saml-demo.yaml for a runnable localhost example.
+# saml_providers:
+#   - name: company-sso
+#     enabled: true
+#     label: Company SSO
+#     organization_id: ${BOW_SAML_ORGANIZATION_ID}
+#     idp:
+#       metadata_file: /etc/bow/company-idp.xml
+#     attributes:
+#       subject: name_id
+#       email: mail
+#       name: displayName
+#     auto_provision_users: false
+
 # LDAP / Active Directory
 # ldap:
 #   enabled: false

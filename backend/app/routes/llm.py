@@ -16,6 +16,8 @@ from app.schemas.llm_schema import (
     LLMProviderCreate,
     LLMProviderUpdate,
     LLMProviderTestConnection,
+    ModelReasoningUpdate,
+    ModelReasoningTest,
     LLMModelSchema,
     LLMModelCreate,
     LLMModelUpdate,
@@ -294,6 +296,34 @@ async def set_model_pricing(
         body.input_cost_per_million_tokens_usd,
         body.output_cost_per_million_tokens_usd,
     )
+
+
+@router.post("/llm/models/{model_id}/reasoning")
+@requires_permission('manage_llm')
+async def set_model_reasoning(
+    model_id: str,
+    body: ModelReasoningUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set a model's reasoning settings: mode (auto / behaves like / generic /
+    custom / off), its default level, and raw request fields per level."""
+    return await llm_service.set_reasoning(db, organization, current_user, model_id, body)
+
+
+@router.post("/llm/models/{model_id}/test_reasoning")
+@requires_permission('manage_llm')
+async def test_model_reasoning(
+    model_id: str,
+    body: ModelReasoningTest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Send one tool-calling request at the given level with the model's saved
+    reasoning settings, and report what it ran as and what came back."""
+    return await llm_service.test_reasoning(db, organization, current_user, model_id, body.effort)
 
 
 class RoutingHintUpdate(BaseModel):

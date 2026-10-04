@@ -110,6 +110,7 @@ from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 from app.models.webhook_data_source_association import webhook_data_source_association
+from app.models.project import project_data_source_association
 from app.models.eval import TestSuite
 
 from typing import List, Dict, Any, Optional
@@ -151,10 +152,45 @@ _WARM_RETRY_S = 300.0
 _WARM_ATTEMPTS_MAX = 10000
 
 
+# Every table holding a foreign key to data_sources whose database rule does
+# not delete or null it on its own (no ON DELETE CASCADE / SET NULL) must be
+# listed in exactly one of these, or deleting an agent stops on that key —
+# after the delete has already removed the agent's instructions and saved
+# queries. tests/unit/test_agent_delete_covers_every_reference.py enforces it.
+#
+# Cleared by delete_data_source (explicitly, or via an ORM relationship on
+# DataSource that deletes the rows):
+AGENT_DELETE_CLEARS = frozenset({
+    "data_source_file_association",      # DataSource.files (secondary)
+    "data_source_memberships",           # explicit delete
+    "datasource_tables",                 # delete_data_source_tables (+ retry)
+    "dream_runs",                        # explicit delete (nightly-learning log)
+    "entity_data_source_association",    # _delete_agent_scoped_entities
+    "git_repositories",                  # explicit delete
+    "instruction_data_source_association",  # _delete_agent_scoped_instructions
+    "instruction_directories",           # _delete_agent_scoped_instructions
+    "metadata_indexing_jobs",            # explicit delete
+    "metadata_resources",                # explicit delete
+    "project_data_source_association",   # explicit detach (Project-side M2M)
+    "prompt_data_source_association",    # DataSource.prompts (secondary)
+    "report_data_source_association",    # DataSource.reports (secondary)
+    "table_feedback_events",             # DataSource.table_feedback_events (cascade)
+    "table_stats",                       # DataSource.table_stats (cascade)
+    "table_usage_events",                # DataSource.table_usage_events (cascade)
+    "user_data_source_credentials",      # explicit delete
+    "webhook_data_source_association",   # explicit detach (Webhook-side M2M)
+})
+# Deliberately left pointing at the deleted id: history, and no database-level
+# constraint (the model declares a ForeignKey, the migration never created it).
+AGENT_DELETE_KEEPS = frozenset({
+    "llm_usage_records",                 # b1c2d3e4f5a6 adds the column without an FK
+})
+
+
 class DataSourceService:
 
     def __init__(self):
-        pass
+        self.last_discovery_diagnostics = []
 
     async def _bulk_connection_aux(
         self,
@@ -898,19 +934,28 @@ class DataSourceService:
         # instead discover their tools now so the connector is immediately usable
         # by the agent (execute_mcp gates on ConnectionTool rows). Members can't
         # call the connection refresh-tools route, so we do it here on create.
+        # Everything above is committed first and ids are kept as plain strings:
+        # discovery is best-effort, and a failed flush must be rolled back —
+        # otherwise the reload below raised PendingRollbackError and the whole
+        # create 500'd — without losing the agent or touching expired objects.
+        new_data_source_id = str(new_data_source.id)
         try:
             tps = tool_provider_types()
             conns_for_tools = connections_to_link if connections_to_link else [new_connection]
-            tool_conns = [c for c in conns_for_tools if getattr(c, "type", None) in tps]
-            if tool_conns:
+            tool_conn_ids = [str(c.id) for c in conns_for_tools if getattr(c, "type", None) in tps]
+            if tool_conn_ids:
+                await db.commit()
                 from app.services.connection_service import ConnectionService
                 _csvc = ConnectionService()
-                for c in tool_conns:
+                for conn_id in tool_conn_ids:
                     try:
+                        c = await db.get(Connection, conn_id, populate_existing=True)
                         await _csvc.refresh_tools(db, c, current_user)
                     except Exception as _te:
-                        logger.warning(f"create_data_source: tool discovery failed for connection {getattr(c,'id',None)}: {_te}")
+                        await db.rollback()
+                        logger.warning(f"create_data_source: tool discovery failed for connection {conn_id}: {_te}")
         except Exception as _te:
+            await db.rollback()
             logger.warning(f"create_data_source: tool-provider refresh skipped: {_te}")
 
         # Reload the data source with relationships to avoid serialization issues
@@ -921,7 +966,7 @@ class DataSourceService:
                 selectinload(DataSource.connections),
                 selectinload(DataSource.tables),
             )
-            .where(DataSource.id == new_data_source.id)
+            .where(DataSource.id == new_data_source_id)
         )
         result = await db.execute(stmt)
         final_data_source = result.scalar_one()
@@ -1517,7 +1562,7 @@ class DataSourceService:
 
 
     async def _cached_table_names_by_ds(self, db: AsyncSession, data_sources) -> dict:
-        """{data_source_id: [names]} of ACTIVATED BOW custom queries.
+        """{data_source_id: [names]} of ACTIVATED BOW custom tables.
 
         One grouped query for the whole list — a per-agent lookup here would add
         a round trip per row to every agent-list render.
@@ -1994,6 +2039,29 @@ class DataSourceService:
         # Capture details before deletion for audit
         data_source_name = data_source.name
 
+        # Refuse BEFORE deleting anything if a reference this procedure does
+        # not clear still points at the agent: the steps below commit as they
+        # go, so a key that blocks the final DELETE would otherwise leave the
+        # agent in place with its instructions and saved queries already gone.
+        await self._assert_nothing_blocks_agent_delete(db, data_source_id, data_source_name)
+
+        # 0) Content scoped ONLY to this agent goes with it: instructions,
+        #    saved queries (entities) and eval test cases attached to this
+        #    agent and to no other are deleted; anything shared with another
+        #    agent is merely detached from this one; global content is
+        #    untouched. Dropping only the association rows would leave e.g. an
+        #    instruction with no data sources, which the app treats as
+        #    *global* (visible to every org member and loaded into every
+        #    agent's context) — a silent org-wide publish of this agent's
+        #    private knowledge. The agent's instruction folders go too.
+        await self._delete_agent_scoped_instructions(
+            db, data_source, organization=organization, current_user=current_user
+        )
+        await self._delete_agent_scoped_entities(
+            db, data_source, organization=organization, current_user=current_user
+        )
+        await self._delete_agent_scoped_test_cases(db, data_source_id)
+
         # 1) Delete per-user overlay columns and tables (they hard-FK the data source)
         #    Delete columns via subquery of overlay table ids, then overlay tables.
         overlay_ids_subq = select(UserOverlayTable.id).where(UserOverlayTable.data_source_id == data_source_id)
@@ -2013,6 +2081,9 @@ class DataSourceService:
         await db.execute(
             delete(UserDataSourceCredentials).where(UserDataSourceCredentials.data_source_id == data_source_id)
         )
+        # Nightly-learning run log for this agent (history of a deleted agent).
+        from app.models.dream_run import DreamRun
+        await db.execute(delete(DreamRun).where(DreamRun.data_source_id == data_source_id))
 
         # A suite's data_source_id is only its Drafts home, not ownership.
         # Preserve the suite and its cases as org-level content when its agent
@@ -2033,6 +2104,15 @@ class DataSourceService:
         await db.execute(
             delete(webhook_data_source_association).where(
                 webhook_data_source_association.c.data_source_id == data_source_id
+            )
+        )
+
+        # 2c) Same for projects that list this agent among their defaults
+        #     (Project.data_sources is declared only on the Project side). The
+        #     project stays; it just no longer offers this agent.
+        await db.execute(
+            delete(project_data_source_association).where(
+                project_data_source_association.c.data_source_id == data_source_id
             )
         )
 
@@ -2106,6 +2186,211 @@ class DataSourceService:
             pass
 
         return {"message": "Data source deleted successfully"}
+
+    async def _delete_agent_scoped_instructions(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        *,
+        organization: Organization,
+        current_user: User,
+    ) -> List[str]:
+        """Remove an agent's instruction scope before the agent row is deleted.
+
+        - Instructions attached to this agent and to no other are soft-deleted
+          through ``InstructionService.delete_instruction`` (same path as a
+          manual delete: pending suggestions are voided, a removal build is
+          recorded, an audit row is written).
+        - The remaining association rows (shared instructions) are dropped so
+          the shared instruction keeps only its other agents.
+        - The agent's folders and their placements are deleted. Folders
+          hard-FK the agent with no ON DELETE rule, so on Postgres leaving them
+          behind makes the parent DELETE fail.
+
+        Returns the ids of the instructions that were deleted.
+        """
+        from app.models.instruction import Instruction, instruction_data_source_association as assoc
+        from app.models.instruction_directory import InstructionDirectory, InstructionDirectoryPlacement
+
+        data_source_id = str(data_source.id)
+
+        attached_elsewhere = (
+            select(assoc.c.instruction_id)
+            .where(assoc.c.data_source_id != data_source_id)
+        )
+        only_here_q = await db.execute(
+            select(Instruction.id)
+            .join(assoc, assoc.c.instruction_id == Instruction.id)
+            .where(
+                assoc.c.data_source_id == data_source_id,
+                Instruction.organization_id == str(organization.id),
+                Instruction.deleted_at.is_(None),
+                ~Instruction.id.in_(attached_elsewhere),
+            )
+        )
+        only_here = [str(row[0]) for row in only_here_q.fetchall()]
+
+        instruction_service = InstructionService()
+        for instruction_id in only_here:
+            await instruction_service.delete_instruction(
+                db, instruction_id, organization=organization, current_user=current_user
+            )
+
+        # Detach whatever is still linked (instructions shared with other
+        # agents, plus the rows of the instructions just soft-deleted).
+        await db.execute(delete(assoc).where(assoc.c.data_source_id == data_source_id))
+        # The ORM already holds this collection (lazy="selectin"); expire it so
+        # the parent DELETE does not try to remove the same rows again.
+        db.expire(data_source, ["instructions"])
+
+        directory_ids = select(InstructionDirectory.id).where(
+            InstructionDirectory.data_source_id == data_source_id
+        )
+        await db.execute(
+            delete(InstructionDirectoryPlacement).where(
+                InstructionDirectoryPlacement.directory_id.in_(directory_ids)
+            )
+        )
+        await db.execute(
+            delete(InstructionDirectory).where(InstructionDirectory.data_source_id == data_source_id)
+        )
+
+        if only_here:
+            logger.info(
+                "Deleted %d instruction(s) scoped only to data source %s",
+                len(only_here), data_source_id,
+            )
+        return only_here
+
+    @staticmethod
+    async def _assert_nothing_blocks_agent_delete(db: AsyncSession, data_source_id: str, name: str) -> None:
+        """Raise before any delete when a table this procedure does not clear
+        (see AGENT_DELETE_CLEARS) still references the agent through a foreign
+        key the database would enforce."""
+        from sqlalchemy import func
+        from app.models.base import metadata
+        from app.errors import AppError, ErrorCode
+
+        for table in metadata.tables.values():
+            if table.name in AGENT_DELETE_CLEARS or table.name in AGENT_DELETE_KEEPS:
+                continue
+            for fk in table.foreign_keys:
+                if fk.column.table.name != "data_sources":
+                    continue
+                if (fk.ondelete or "").upper() in ("CASCADE", "SET NULL"):
+                    continue
+                count = (await db.execute(
+                    select(func.count()).select_from(table).where(fk.parent == data_source_id)
+                )).scalar() or 0
+                if count:
+                    raise AppError.conflict(
+                        ErrorCode.DATA_SOURCE_IN_USE,
+                        f'Agent "{name}" is still referenced by {table.name}, so it cannot be deleted. Nothing was deleted.',
+                        agent=name, reference=table.name,
+                    )
+
+    async def _delete_agent_scoped_entities(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        *,
+        organization: Organization,
+        current_user: User,
+    ) -> List[str]:
+        """Same rule as instructions, for saved queries (entities).
+
+        Entities attached to this agent and to no other are deleted through
+        ``EntityService.delete_entity`` (audit row written); entities shared
+        with another agent lose only this agent's association row.
+        Returns the ids of the entities that were deleted.
+        """
+        from app.models.entity import Entity, entity_data_source_association as assoc
+        from app.services.entity_service import EntityService
+
+        data_source_id = str(data_source.id)
+
+        attached_elsewhere = (
+            select(assoc.c.entity_id)
+            .where(assoc.c.data_source_id != data_source_id)
+        )
+        only_here_q = await db.execute(
+            select(Entity.id)
+            .join(assoc, assoc.c.entity_id == Entity.id)
+            .where(
+                assoc.c.data_source_id == data_source_id,
+                Entity.organization_id == str(organization.id),
+                Entity.deleted_at.is_(None),
+                ~Entity.id.in_(attached_elsewhere),
+            )
+        )
+        only_here = [str(row[0]) for row in only_here_q.fetchall()]
+
+        entity_service = EntityService()
+        for entity_id in only_here:
+            await entity_service.delete_entity(
+                db, entity_id, organization=organization, current_user=current_user
+            )
+
+        # Detach the shared entities; the ORM collection is lazy="select" and
+        # not loaded, so expiring it keeps the parent DELETE from reloading
+        # (and re-deleting) these rows.
+        await db.execute(delete(assoc).where(assoc.c.data_source_id == data_source_id))
+        db.expire(data_source, ["entities"])
+
+        if only_here:
+            logger.info(
+                "Deleted %d entity(ies) scoped only to data source %s",
+                len(only_here), data_source_id,
+            )
+        return only_here
+
+    async def _delete_agent_scoped_test_cases(self, db: AsyncSession, data_source_id: str) -> List[str]:
+        """Same rule as instructions, for eval test cases.
+
+        A case targets agents through ``TestCase.data_source_ids_json``. A case
+        targeting only this agent is soft-deleted (the same soft delete
+        ``TestCaseService.delete_case`` performs — TestResult rows FK the case,
+        so it is never hard-deleted). A case that also targets other agents
+        just loses this agent's id; an agent-less case runs against every
+        agent and is untouched. The suite the cases live in is not touched
+        here: ``delete_data_source`` re-homes it to the org (see the
+        ``TestSuite`` update there).
+        Returns the ids of the cases that were deleted.
+        """
+        from app.core.eval_scope import _targets_agent
+        from app.models.eval import TestCase
+
+        data_source_id = str(data_source_id)
+        rows = (await db.execute(
+            select(TestCase)
+            .join(TestSuite, TestCase.suite_id == TestSuite.id)
+            .where(
+                TestCase.deleted_at.is_(None),
+                _targets_agent(TestCase.data_source_ids_json, data_source_id),
+            )
+        )).scalars().all()
+
+        deleted: List[str] = []
+        now = datetime.utcnow()
+        for case in rows:
+            targets = [str(x) for x in (case.data_source_ids_json or [])]
+            if data_source_id not in targets:
+                # Textual pre-filter false positive (id embedded in another value).
+                continue
+            remaining = [x for x in targets if x != data_source_id]
+            if remaining:
+                case.data_source_ids_json = remaining
+            else:
+                case.deleted_at = now
+                deleted.append(str(case.id))
+            db.add(case)
+
+        if deleted:
+            logger.info(
+                "Deleted %d eval case(s) scoped only to data source %s",
+                len(deleted), data_source_id,
+            )
+        return deleted
 
     async def delete_data_source_tables(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         result = await db.execute(select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source_id))
@@ -2717,7 +3002,7 @@ class DataSourceService:
 
     async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
                                      connection, current_user: User | None = None):
-        """Build the FastQueryClient for the custom queries this agent activated.
+        """Build the FastQueryClient for the custom tables this agent activated.
 
         Returns None when the agent has activated none — most agents, most of the
         time — so no extra client appears in the common case.
@@ -4003,7 +4288,7 @@ class DataSourceService:
         # Fetch stats if requested
         # Stats are matched by row id where the stats row records one, and only
         # fall back to the lowercased name where it doesn't. Name alone is not
-        # an identity: a custom query named `album` and a source table named
+        # an identity: a custom table named `album` and a source table named
         # `Album` are different relations that collided into one bucket, so the
         # new relation displayed the other one's usage count. The same applies
         # to two connections on one agent that both have an `orders`.
@@ -4524,6 +4809,7 @@ class DataSourceService:
         user: User,
         prefetched_tables=None,
         progress_callback=None,
+        force_refresh: bool = False,
     ):
         """Sync + return this user's catalog across EVERY per-user connection.
 
@@ -4538,6 +4824,7 @@ class DataSourceService:
         plain list — which is only reused when there is exactly one per-user
         connection to attribute it to.
         """
+        self.last_discovery_diagnostics = []
         conns = self._per_user_catalog_connections(data_source)
         if not conns:
             return []
@@ -4561,6 +4848,7 @@ class DataSourceService:
                 db=sync_db, data_source=ds, user=usr, connection=conn,
                 prefetched_tables=prefetched_by_conn.get(str(conn.id)),
                 progress_callback=progress_callback,
+                force_refresh=force_refresh,
             )
 
         def _note_failure(conn, e):
@@ -4645,6 +4933,7 @@ class DataSourceService:
         connection,
         prefetched_tables: Optional[list] = None,
         progress_callback=None,
+        force_refresh: bool = False,
     ):
         """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list.
 
@@ -4701,6 +4990,40 @@ class DataSourceService:
                     }
                     for r in rows if r.metadata_json
                 } or None
+                if connection.type == "powerbi":
+                    from app.utils.powerbi_catalog import powerbi_identity, qualified_powerbi_name
+                    # A later sign-in must not overwrite a user's freshly read
+                    # columns with an older (or broader) service-account schema.
+                    own_tables = [
+                        t for t in await self.read_user_data_source_schema(db, data_source, user)
+                        if t.connection_id == _cid and powerbi_identity(t.metadata_json) is not None
+                    ]
+                    canonical = {
+                        powerbi_identity(entry["metadata_json"]): entry
+                        for entry in (prior_tables or {}).values()
+                    }
+                    own_models = {powerbi_identity(t.metadata_json)[:2] for t in own_tables}
+                    prior_tables = {
+                        name: entry for name, entry in (prior_tables or {}).items()
+                        if (powerbi_identity(entry["metadata_json"]) or ())[:2] not in own_models
+                    }
+                    for table in own_tables:
+                        entry = canonical.get(powerbi_identity(table.metadata_json)) or {}
+                        columns = {c["name"]: c for c in entry.get("columns", [])}
+                        same_columns = set(columns) == {c.name for c in table.columns}
+                        prior_name = table.name
+                        if (prior_name in prior_tables and
+                            powerbi_identity(prior_tables[prior_name]["metadata_json"]) != powerbi_identity(table.metadata_json)):
+                            prior_name = qualified_powerbi_name(prior_name, table.metadata_json)
+                        prior_tables[prior_name] = {
+                            "columns": [
+                                {**columns.get(c.name, {}), "name": c.name, "dtype": c.dtype}
+                                for c in table.columns
+                            ],
+                            "pks": entry.get("pks", []) if same_columns else [],
+                            "fks": entry.get("fks", []) if same_columns else [],
+                            "metadata_json": table.metadata_json,
+                        }
             except Exception:
                 prior_tables = None
             client = await self._construct_user_catalog_client(
@@ -4715,6 +5038,8 @@ class DataSourceService:
             # callback (every path except the tracked background job) get exactly
             # the call they made before.
             kwargs = {}
+            if force_refresh and _accepts_kwarg(client.aget_schemas, "force_refresh"):
+                kwargs["force_refresh"] = True
             if prior_tables and _accepts_kwarg(client.aget_schemas, "prior_tables"):
                 kwargs["prior_tables"] = prior_tables
             if progress_callback is not None and _accepts_kwarg(
@@ -4722,6 +5047,9 @@ class DataSourceService:
             ):
                 kwargs["progress_callback"] = progress_callback
             fresh = await client.aget_schemas(**kwargs)
+            self.last_discovery_diagnostics.extend(
+                getattr(client, "discovery_diagnostics", []) or []
+            )
         if fresh is None:
             # No snapshot is not an authoritative empty snapshot. A successful
             # empty list must still reconcile and revoke the previous overlay.
@@ -4847,17 +5175,9 @@ class DataSourceService:
             ):
                 canonical_by_name[row.name] = row
 
-        def _dataset_table_key(meta) -> tuple | None:
-            """Stable identity for a Power BI table independent of display name:
-            (datasetId, tableName). Lets a user's row match an existing canonical
-            row even if the dataset was renamed or two datasets share a name."""
-            try:
-                pbi = (meta or {}).get("powerbi") if isinstance(meta, dict) else None
-                if pbi and pbi.get("datasetId") and pbi.get("tableName"):
-                    return (str(pbi["datasetId"]), str(pbi["tableName"]))
-            except Exception:
-                pass
-            return None
+        from app.utils.powerbi_catalog import powerbi_identity, reconcile_powerbi_names
+        _dataset_table_key = powerbi_identity
+        normalized = reconcile_powerbi_names(normalized, canonical_by_name)
 
         # Connection-scoped on the SAME rule as canonical_by_name, and for the
         # same reason: this index is consulted FIRST, so indexing every row here
@@ -4994,6 +5314,10 @@ class DataSourceService:
             if conn_id is not None and row_conn is None:
                 row.connection_id = conn_id
                 db.add(row)
+        prior_by_identity = {
+            _dataset_table_key(row.metadata_json): row for row in prior_by_name.values()
+            if _dataset_table_key(row.metadata_json) is not None
+        }
         new_table_names = set(normalized.keys())
 
         # Batch-load every prior column overlay in ONE pass instead of querying
@@ -5025,8 +5349,20 @@ class DataSourceService:
         # per-table round trips this loop was rewritten to avoid.
         rows_by_name: dict[str, UserOverlayTable] = {}
         for table_name, payload in normalized.items():
-            t_row = prior_by_name.get(table_name)
+            identity = _dataset_table_key(payload.get("metadata_json"))
+            t_row = prior_by_identity.get(identity) if identity is not None else prior_by_name.get(table_name)
+            if t_row is not None and t_row.table_name != table_name:
+                # Rename in place so selections and per-column state survive.
+                prior_by_name.pop(t_row.table_name, None)
+                t_row.table_name = table_name
+                prior_by_name[table_name] = t_row
             if t_row is None:
+                conflicting = prior_by_name.get(table_name)
+                if conflicting is not None:
+                    historical_name = f"{table_name} [revoked {conflicting.id}]"
+                    conflicting.table_name = historical_name
+                    prior_by_name[historical_name] = prior_by_name.pop(table_name)
+                    await db.flush()
                 t_row = UserOverlayTable(
                     # Assign the id up front: the column rows below need it as an
                     # FK, and generating it here removes a per-table `flush()`
@@ -5427,13 +5763,10 @@ class DataSourceService:
                         f"(auth_policy={auth_policy})"
                     )
                     svc = ConnectionService()
-                    # Interactive reload: only introspect NEW datasets; known
-                    # ones are rebuilt from the indexed catalog (column-level
-                    # drift is picked up by scheduled/background reindexing,
-                    # which runs with the default full introspection).
+                    # Explicit Reload must pick up column-level changes.
                     await svc.refresh_schema(
                         db=conn_db, connection=conn, current_user=user_in_session,
-                        introspection="incremental",
+                        introspection="full",
                     )
                     await conn_db.commit()
                     fetched = getattr(svc, "last_refresh_fresh_tables", None)
@@ -5590,6 +5923,7 @@ class DataSourceService:
                 await self.get_user_data_source_schema(
                     db=db, data_source=data_source, user=current_user,
                     prefetched_tables=prefetched_tables,
+                    force_refresh=True,
                 )
             except Exception:
                 # Degrading here is deliberate (a live fetch against the user's
@@ -6157,17 +6491,78 @@ class DataSourceService:
             )
         )
         
-        # Remove domain tables that reference this connection's tables
         from app.models.connection_table import ConnectionTable
+        from app.models.connection_tool import ConnectionTool
+        from app.models.data_source_connection_tool import DataSourceConnectionTool
+        from app.models.instruction_reference import InstructionReference
+        from app.models.table_feedback_event import TableFeedbackEvent
+        from app.models.table_stats import TableStats
+        from app.models.table_usage_event import TableUsageEvent
+
+        # The agent's tables that came from this connection. A subquery, not a
+        # bound id list: a connection can carry tens of thousands of tables,
+        # past PostgreSQL's 32767-parameter ceiling.
+        removed_table_ids = select(DataSourceTable.id).where(
+            DataSourceTable.datasource_id == data_source_id,
+            DataSourceTable.connection_table_id.in_(
+                select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
+            ),
+        )
+
+        # Clear what hangs off those tables before deleting them. The bulk
+        # DELETE below bypasses the ORM delete-orphan cascade declared on
+        # DataSourceTable, and these FKs have no ON DELETE rule, so Postgres
+        # rejected the unlink (table_stats_datasource_table_id_fkey) as soon as
+        # any table had been queried or rated. SQLite never enforced it.
+        for model in (TableStats, TableUsageEvent, TableFeedbackEvent):
+            await db.execute(
+                delete(model).where(model.datasource_table_id.in_(removed_table_ids))
+            )
+        # Polymorphic reference (no FK): the table ids are gone for good — a
+        # relink creates new rows — so an instruction would point at nothing.
+        await db.execute(
+            delete(InstructionReference).where(
+                InstructionReference.object_type == "datasource_table",
+                InstructionReference.object_id.in_(removed_table_ids),
+            )
+        )
+        # Per-user overlays of this connection within this agent. Legacy rows
+        # carry no connection_id; catch those by the table they point at.
+        overlay_filter = and_(
+            UserOverlayTable.data_source_id == data_source_id,
+            or_(
+                UserOverlayTable.connection_id == connection_id,
+                UserOverlayTable.data_source_table_id.in_(removed_table_ids),
+            ),
+        )
+        await db.execute(
+            delete(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id.in_(
+                select(UserOverlayTable.id).where(overlay_filter)
+            ))
+        )
+        await db.execute(delete(UserOverlayTable).where(overlay_filter))
+
         await db.execute(
             delete(DataSourceTable).where(
                 DataSourceTable.datasource_id == data_source_id,
                 DataSourceTable.connection_table_id.in_(
                     select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
-                )
+                ),
             )
         )
-        
+
+        # This agent's tool policies for the connection's tools. They only
+        # cascade on agent/tool delete, so they outlived the unlink, leaked into
+        # the agent's YAML export, and silently came back on a relink.
+        await db.execute(
+            delete(DataSourceConnectionTool).where(
+                DataSourceConnectionTool.data_source_id == data_source_id,
+                DataSourceConnectionTool.connection_tool_id.in_(
+                    select(ConnectionTool.id).where(ConnectionTool.connection_id == connection_id)
+                ),
+            )
+        )
+
         await db.commit()
         return {"message": "Connection removed from agent"}
 
@@ -6189,10 +6584,14 @@ class DataSourceService:
         """
         from app.models.connection_table import ConnectionTable
 
+        from app.services.powerbi_catalog_service import prepare_powerbi_catalog
+        await prepare_powerbi_catalog(db, connection)
+
         # Get connection tables - ensure connection_id is string
         connection_id_str = str(connection.id)
         conn_tables = await db.execute(
             select(ConnectionTable).filter(ConnectionTable.connection_id == connection_id_str)
+            .execution_options(populate_existing=True)
         )
         conn_tables = conn_tables.scalars().all()
 
@@ -6206,6 +6605,7 @@ class DataSourceService:
         # This allows the same table name from different connections to coexist
         existing = await db.execute(
             select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source.id)
+            .execution_options(populate_existing=True)
         )
         existing_rows = existing.scalars().all()
         existing_by_conn_table_id = {t.connection_table_id: t for t in existing_rows if t.connection_table_id}
@@ -6230,6 +6630,31 @@ class DataSourceService:
             if not t.connection_table_id:
                 unlinked_by_name.setdefault(t.name, []).append(t)
 
+        from app.utils.powerbi_catalog import powerbi_identity, reconcile_powerbi_names
+        conn_ids = {t.id for t in conn_tables}
+        def belongs_here(row):
+            if row.connection_table_id:
+                return row.connection_table_id in conn_ids
+            provenance = (row.metadata_json or {}).get("discovered_connection_id")
+            return provenance is None or str(provenance) == connection_id_str
+
+        # An SP can discover a different model with the same label as an
+        # existing user-contributed row. Never adopt that row or its selection.
+        scoped_existing = {r.name: r for r in existing_rows if belongs_here(r)}
+        from copy import deepcopy
+        domain_payloads = reconcile_powerbi_names(
+            {t.name: {"id": t.id, "metadata_json": t.metadata_json, "fks": deepcopy(t.fks or [])}
+             for t in conn_tables},
+            scoped_existing,
+        )
+        domain_names = {payload["id"]: name for name, payload in domain_payloads.items()}
+        domain_fks = {payload["id"]: payload["fks"] for payload in domain_payloads.values()}
+        unlinked_by_identity = {
+            powerbi_identity(r.metadata_json): r for r in existing_rows
+            if r.connection_table_id is None and belongs_here(r)
+            and powerbi_identity(r.metadata_json) is not None
+        }
+
         total_tables = len(conn_tables)
 
         # Determine initial activation:
@@ -6244,12 +6669,14 @@ class DataSourceService:
             needs_smart_selection = total_tables > max_auto_select
 
         for conn_table in conn_tables:
+            domain_name = domain_names[conn_table.id]
             if conn_table.id in existing_by_conn_table_id:
                 # Update existing - refresh schema data (preserves is_active)
                 domain_table = existing_by_conn_table_id[conn_table.id]
+                domain_table.name = domain_name
                 domain_table.columns = conn_table.columns
                 domain_table.pks = conn_table.pks
-                domain_table.fks = conn_table.fks
+                domain_table.fks = domain_fks[conn_table.id]
                 domain_table.no_rows = conn_table.no_rows
                 domain_table.metadata_json = conn_table.metadata_json
             else:
@@ -6258,13 +6685,21 @@ class DataSourceService:
                 # rather than inserting a duplicate. Preserves its is_active (it may
                 # be the row users currently see/select) and its per-user overlay
                 # links (UserDataSourceTable.data_source_table_id points at it).
-                pool = unlinked_by_name.get(conn_table.name)
-                if pool:
-                    domain_table = pool.pop(0)
+                identity = powerbi_identity(conn_table.metadata_json)
+                pool = unlinked_by_name.get(domain_name) or []
+                candidate = unlinked_by_identity.pop(identity, None) if identity else None
+                if candidate is None:
+                    candidate = next((r for r in pool if belongs_here(r)
+                                      and powerbi_identity(r.metadata_json) == identity), None)
+                if candidate is not None:
+                    domain_table = candidate
+                    domain_table.name = domain_name
+                    if candidate in pool:
+                        pool.remove(candidate)
                     domain_table.connection_table_id = conn_table.id
                     domain_table.columns = conn_table.columns
                     domain_table.pks = conn_table.pks
-                    domain_table.fks = conn_table.fks
+                    domain_table.fks = domain_fks[conn_table.id]
                     domain_table.no_rows = conn_table.no_rows
                     domain_table.metadata_json = conn_table.metadata_json
                     domain_table.centrality_score = conn_table.centrality_score
@@ -6277,10 +6712,10 @@ class DataSourceService:
                 else:
                     # Create new domain table linked to connection table
                     domain_table = DataSourceTable(
-                        name=conn_table.name,
+                        name=domain_name,
                         datasource_id=data_source.id,
                         connection_table_id=conn_table.id,
-                        # A BOW custom query always starts inactive on a new
+                        # A BOW custom table always starts inactive on a new
                         # agent: it is an admin's curated relation for a specific
                         # purpose, not part of the source catalog the auto-select
                         # rule is reasoning about, and enabling it silently would
@@ -6293,7 +6728,7 @@ class DataSourceService:
                         # Copy legacy fields for backward compatibility
                         columns=conn_table.columns,
                         pks=conn_table.pks,
-                        fks=conn_table.fks,
+                        fks=domain_fks[conn_table.id],
                         no_rows=conn_table.no_rows,
                         metadata_json=conn_table.metadata_json,
                         centrality_score=conn_table.centrality_score,
@@ -6355,7 +6790,9 @@ class DataSourceService:
             )).scalars().all()
             for orphan in orphan_rows:
                 target = linked_by_name.get(orphan.name)
-                if target is None or str(target.id) == str(orphan.id):
+                if (target is None or str(target.id) == str(orphan.id)
+                    or not belongs_here(orphan)
+                    or powerbi_identity(orphan.metadata_json) != powerbi_identity(target.metadata_json)):
                     continue
                 oid, tid = str(orphan.id), str(target.id)
                 # Re-point everything that referenced the orphan onto the canonical

@@ -212,7 +212,7 @@
         </UTooltip>
 
         <!-- Share Dashboard -->
-        <ShareModal v-if="report" :report="report" share-type="artifact" title="Share Dashboard" />
+        <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')" />
       </div>
     </div>
 
@@ -416,7 +416,7 @@
         ref="iframeRef"
         data-artifact-frame
         :srcdoc="iframeSrcdoc"
-        sandbox="allow-scripts allow-same-origin allow-downloads"
+        sandbox="allow-scripts allow-downloads allow-forms"
         class="absolute inset-0 w-full h-full border-0 bg-white dark:bg-gray-900 z-0"
         @load="onIframeLoad"
       />
@@ -518,9 +518,10 @@
             </div>
             <!-- Other artifacts use iframe -->
             <iframe
+              ref="fullscreenRuntimeFrame"
               v-else-if="isFullscreenOpen && iframeSrcdoc"
               :srcdoc="iframeSrcdoc"
-              sandbox="allow-scripts allow-same-origin allow-downloads"
+              sandbox="allow-scripts allow-downloads allow-forms"
               class="absolute inset-0 w-full h-full border-0"
             />
           </div>
@@ -528,6 +529,8 @@
       </UModal>
     </Teleport>
   </div>
+  <ArtifactResourceExplorer v-if="resourceInspectorOpen && selectedArtifact?.artifact_id"
+    :artifact-id="selectedArtifact.artifact_id" :view="resourceInspectorView" @close="resourceInspectorOpen = false" />
 </template>
 
 <script setup lang="ts">
@@ -684,7 +687,7 @@ function enterPolishMode() {
   polishSelectedElement.value = null;
   polishInstruction.value = '';
   // Tell iframe to enable pick mode (srcdoc iframe inherits parent origin)
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
 }
 
 function exitPolishMode() {
@@ -692,14 +695,14 @@ function exitPolishMode() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, '*');
 }
 
 function cancelPolishPrompt() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
 }
 
 // Enter applies — except the Enter that commits an IME candidate (CJK input),
@@ -1018,6 +1021,22 @@ async function fetchViewerContext() {
 }
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+const fullscreenRuntimeFrame = ref<HTMLIFrameElement | null>(null);
+// Fullscreen runs a second copy of the artifact: it seeds from the same
+// srcdoc, then needs every live update (data, theme, param status) too.
+const fullscreenReady = ref(false);
+watch(isFullscreenOpen, (open) => { if (!open) fullscreenReady.value = false; });
+function postToRuntimeFrames(message: any) {
+  for (const frame of [iframeRef.value, fullscreenRuntimeFrame.value]) {
+    try { frame?.contentWindow?.postMessage(message, '*'); } catch { /* frame not ready */ }
+  }
+}
+const resourceInspectorOpen = ref(false);
+const resourceInspectorView = ref<'resources' | 'analytics'>('resources');
+const resourcesAvailable = ref(false);
+
+
+useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you" }));
 const isLoading = ref(true);
 
 // App color mode, forwarded into the artifact iframe (initial srcdoc + live
@@ -1029,10 +1048,7 @@ const colorMode = useColorMode();
 let artifactColorMode: 'light' | 'dark' = colorMode.value === 'dark' ? 'dark' : 'light';
 watch(() => colorMode.value, (v) => {
   artifactColorMode = v === 'dark' ? 'dark' : 'light';
-  iframeRef.value?.contentWindow?.postMessage(
-    { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
-    window.location.origin
-  );
+  postToRuntimeFrames({ type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode });
 });
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
 
@@ -1219,12 +1235,7 @@ function queriesWithIdentityParams(): string[] {
 function postParamsStatus(loading: boolean, error: string | null = null) {
   paramRunLoading.value = loading;
   verificationEvent(error ? 'error' : 'params_status', { loading, message: error });
-  try {
-    iframeRef.value?.contentWindow?.postMessage(
-      { type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } },
-      window.location.origin,
-    );
-  } catch { /* iframe not ready */ }
+  postToRuntimeFrames({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } });
 }
 
 // Execute the parameterized queries server-side (viewer mode: per-viewer
@@ -1369,6 +1380,15 @@ async function fetchArtifactFiles(): Promise<any[]> {
 const artifactsList = ref<ArtifactItem[]>([]);
 const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
+watch(() => selectedArtifact.value?.artifact_id, async (id) => {
+  resourcesAvailable.value = false;
+  resourceInspectorOpen.value = false;
+  if (!id || props.verificationPreview) return;
+  try {
+    await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/context`, {headers:{Authorization:token.value || ''}});
+    if (selectedArtifact.value?.artifact_id === id) resourcesAvailable.value = true;
+  } catch { /* Disabled on existing installations until explicitly enabled. */ }
+}, {immediate:true});
 
 // Availability of PDF / PPTX / HTML for whatever is on screen; the public
 // share page derives its list from the same composable.
@@ -1588,6 +1608,12 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
   }
 
+  if (resourcesAvailable.value && selectedArtifact.value?.artifact_id && !props.verificationPreview) {
+    view.unshift(
+      { label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } },
+      { label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } }
+    );
+  }
   return [edit, exports, view].filter(g => g.length > 0);
 });
 
@@ -2036,7 +2062,7 @@ onMounted(async () => {
     if (props.verificationPreview) return; // Verification only runs explicit viewer queries.
     const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun`, { method: 'POST' });
     const run: any = data.value;
-    if (run && !run.skipped && run.steps_succeeded) await refreshAll();
+    if (run && !run.skipped && run.steps_succeeded) await refreshDataInPlace();
   } catch { /* a failed background refresh must never break a rendered page */ }
 });
 
@@ -2122,12 +2148,15 @@ onUnmounted(() => {
 
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
-  if (props.verificationPreview && event.source !== iframeRef.value?.contentWindow) return;
+  if (event.source !== iframeRef.value?.contentWindow && event.source !== fullscreenRuntimeFrame.value?.contentWindow) return;
   if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
   }
-  if (event.data?.type === 'ARTIFACT_READY') {
+  if (event.data?.type === 'ARTIFACT_READY' && event.source === fullscreenRuntimeFrame.value?.contentWindow) {
+    fullscreenReady.value = true;
+    sendDataToIframe();
+  } else if (event.data?.type === 'ARTIFACT_READY') {
     console.log('[ArtifactFrame] Iframe ready');
     iframeError.value = null;
     iframeReady.value = true;
@@ -2143,21 +2172,21 @@ function handleIframeMessage(event: MessageEvent) {
     nextTick(() => polishInputRef.value?.focus());
   } else if (event.data?.type === 'ARTIFACT_SET_PARAMS') {
     // A control in the artifact committed param changes: run the consuming
-    // queries server-side and push fresh rows back down.
-    if (event.source === iframeRef.value?.contentWindow) {
-      paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
-      runParamQueries(event.data.changes || {}, event.data.targets || null, {});
-    }
+    // queries server-side and push fresh rows back down (to both frames).
+    paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
+    runParamQueries(event.data.changes || {}, event.data.targets || null, {});
   } else if (event.data?.type === 'ARTIFACT_REFRESH_PARAMS') {
-    if (event.source === iframeRef.value?.contentWindow) {
-      runParamQueries(null, event.data.targets || null, { force: true });
-    }
+    runParamQueries(null, event.data.targets || null, { force: true });
   }
 }
 
 // Send data to iframe via postMessage
 function sendDataToIframe() {
-  if (!iframeRef.value?.contentWindow || !iframeReady.value) return;
+  const targets = [
+    iframeReady.value ? iframeRef.value?.contentWindow : null,
+    fullscreenReady.value ? fullscreenRuntimeFrame.value?.contentWindow : null,
+  ].filter((w): w is Window => !!w);
+  if (!targets.length) return;
 
   const payload = JSON.parse(JSON.stringify({
     report: toRaw(reportData.value),
@@ -2174,10 +2203,7 @@ function sendDataToIframe() {
     request_ids: [...new Set(visualizationsData.value.map(v => verificationRequests.get(v.queryId)).filter(Boolean))],
   });
   try {
-    iframeRef.value.contentWindow.postMessage({
-      type: 'ARTIFACT_DATA',
-      payload
-    }, window.location.origin);
+    for (const target of targets) target.postMessage({ type: 'ARTIFACT_DATA', payload }, '*');
   } catch (err: any) {
     console.error('[ArtifactFrame] Failed to send data to iframe:', err);
     iframeError.value = err?.message || 'Failed to send data to dashboard iframe';
@@ -2188,10 +2214,16 @@ function sendDataToIframe() {
   console.log('[ArtifactFrame] Data sent to iframe:', visualizationsData.value.length, 'visualizations');
 }
 
-// Fetch visualization data for the report (optionally filtered by artifact)
-async function fetchData(artifactId?: string) {
-  isLoading.value = true;
-  dataReady.value = false;
+// Fetch visualization data for the report (optionally filtered by artifact).
+// `inPlace` refreshes the rows of a dashboard that is already rendered: no
+// loading overlay, no srcdoc rebuild (which reloads the iframe — a visible
+// blank flash) and no reset of the viewer's control values; the fresh rows
+// reach the live document through postMessage like a param run.
+async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: boolean } = {}) {
+  if (!inPlace) {
+    isLoading.value = true;
+    dataReady.value = false;
+  }
 
   try {
     // Fetch report info
@@ -2325,8 +2357,9 @@ async function fetchData(artifactId?: string) {
 
     // Initialize applied values: declaration defaults, overridden by any
     // qp_<name> URL state (shareable dashboards). Identity params carry no
-    // client value — the server binds them per viewer.
-    {
+    // client value — the server binds them per viewer. An in-place refresh
+    // keeps whatever the viewer has applied since.
+    if (!inPlace) {
       const urlValues = readParamsFromUrl();
       const nextValues: Record<string, any> = {};
       for (const specs of Object.values(nextParamSpecs)) {
@@ -2399,7 +2432,7 @@ async function fetchData(artifactId?: string) {
     // snapshot. Later updates (param runs, view-as swaps) flow via
     // postMessage into the live data store — never by recomputing srcdoc,
     // which would reload the iframe and lose control state.
-    srcdocSeed.value = JSON.parse(JSON.stringify({
+    if (!inPlace) srcdocSeed.value = JSON.parse(JSON.stringify({
       report: toRaw(reportData.value),
       visualizations: toRaw(visualizationsData.value),
       files: toRaw(filesData.value),
@@ -2419,6 +2452,13 @@ async function fetchData(artifactId?: string) {
       sendDataToIframe();
     }
   }
+}
+
+// Refresh-on-view finished with new rows: the artifact itself is unchanged,
+// so update the data of the rendered dashboard rather than reloading it.
+// Before the first paint there is nothing to keep — take the full path.
+async function refreshDataInPlace() {
+  await fetchData(selectedArtifactId.value, { inPlace: dataReady.value });
 }
 
 // Refresh everything
@@ -2751,6 +2791,8 @@ const iframeSrcdoc = computed(() => {
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
     polishMode: !props.verificationPreview,
+    fixtureMode: !!props.verificationPreview,
+    resourceApp: selectedArtifact.value?.content?.sdk_version === 1,
     loadingLabel: t('artifactFrame.loadingArtifact'),
     reactBuild: 'development',
     colorMode: artifactColorMode,

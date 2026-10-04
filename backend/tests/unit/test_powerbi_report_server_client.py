@@ -75,6 +75,27 @@ class TestNtlmUser:
         assert c._ntlm_user() == "alice"
 
 
+class TestTlsVerification:
+    """verify_ssl decides whether to verify; the CA bundle is only the trust store."""
+
+    @pytest.mark.parametrize(
+        "verify_ssl,ca_bundle_path,expected",
+        [
+            (True, None, True),
+            (True, "/etc/ssl/corp.pem", "/etc/ssl/corp.pem"),
+            (False, None, False),
+            (False, "/etc/ssl/corp.pem", False),
+        ],
+    )
+    def test_session_verify(self, verify_ssl, ca_bundle_path, expected):
+        c = PowerBIReportServerClient(
+            "https://pbi", "u", "p", verify_ssl=verify_ssl, ca_bundle_path=ca_bundle_path
+        )
+        with patch.object(PowerBIReportServerClient, "_prime_ntlm"):
+            c.connect()
+        assert c._session.verify == expected
+
+
 class TestConstructorValidation:
     def test_requires_server_url(self):
         with pytest.raises(ValueError, match="server_url"):

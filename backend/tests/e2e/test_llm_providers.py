@@ -46,6 +46,16 @@ async def _seed_stale_openai_preset(org_id):
                 is_small_default=True,
                 supports_vision=True,
             ),
+            # Retired image model (OpenAI shuts it down 2026-12-01).
+            LLMModel(
+                organization_id=org_id,
+                provider_id=provider.id,
+                name="GPT Image 1",
+                model_id="gpt-image-1",
+                is_preset=True,
+                is_enabled=True,
+                supports_image_generation=True,
+            ),
         ])
         await db.commit()
         return str(provider.id)
@@ -260,8 +270,30 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
     assert by_model_id["gpt-5.6-terra"]["is_enabled"] is True
     assert by_model_id["gpt-5.6-terra"]["is_default"] is True
 
+    # GPT-6 has no Terra, so GPT-5.6 Terra keeps the default above; GPT-6 Luna
+    # takes the small default from GPT-5.6 Luna.
+    assert by_model_id["gpt-6-sol"]["is_enabled"] is True
+    assert by_model_id["gpt-6-sol"]["is_default"] is False
+    assert by_model_id["gpt-6-sol"]["max_output_tokens"] == 128000
+
+    # GPT-6.1 Sol arrives alongside GPT-6 Sol without taking the default.
+    assert by_model_id["gpt-6.1-sol"]["is_enabled"] is True
+    assert by_model_id["gpt-6.1-sol"]["is_default"] is False
+
+    # The 2.5 image models replace gpt-image-1 and arrive flagged as image
+    # models (the sync used to add them unflagged); the retired id is disabled.
+    for image_id in ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare"):
+        assert by_model_id[image_id]["is_enabled"] is True
+        assert by_model_id[image_id]["supports_image_generation"] is True
+        assert by_model_id[image_id]["is_default"] is False
+    assert by_model_id.get("gpt-image-1", {}).get("is_enabled") is not True
+
+    assert by_model_id["gpt-6-luna"]["is_enabled"] is True
+    assert by_model_id["gpt-6-luna"]["is_small_default"] is True
+    assert by_model_id["gpt-6-luna"]["is_default"] is False
+
     assert by_model_id["gpt-5.6-luna"]["is_enabled"] is True
-    assert by_model_id["gpt-5.6-luna"]["is_small_default"] is True
+    assert by_model_id["gpt-5.6-luna"]["is_small_default"] is False
 
     assert by_model_id["gpt-5.5"]["is_enabled"] is True
     assert by_model_id["gpt-5.5"]["is_default"] is False

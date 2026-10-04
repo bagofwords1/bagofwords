@@ -107,6 +107,16 @@ class LLMUsageItem(BaseModel):
     completion_tokens: int
     cache_read_tokens: int
     cache_creation_tokens: int
+    # Of cache_creation_tokens, the share written under the 1-hour TTL (billed
+    # at 2x rather than 1.25x). Reasoning tokens are a subset of
+    # completion_tokens, billed at the output rate.
+    cache_write_1h_tokens: int = 0
+    reasoning_tokens: int = 0
+    # Share of input tokens served from cache. None (not 0) when the model
+    # family reports no cache telemetry at all — Gemini and non-Claude Bedrock
+    # models — because 0% and "cannot be measured" are different answers and
+    # rendering the second as the first reads as a broken cache.
+    cache_hit_rate: Optional[float] = None
     total_tokens: int
     input_cost_usd: float
     output_cost_usd: float

@@ -173,6 +173,10 @@ from app.schemas.data_sources.configs import (
     InforOlapConfig,
     InforOlapCredentials,
     InforOlapIonCredentials,
+    # Infor EPM (Application Engine REST API)
+    InforEpmConfig,
+    InforEpmIonCredentials,
+    InforEpmTokenCredentials,
     # Microsoft Analysis Services (SSAS — XMLA)
     AnalysisServicesConfig,
     AnalysisServicesCredentials,
@@ -894,7 +898,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ],
         client_path="app.data_sources.clients.kubernetes_client.KubernetesClient",
         version="beta",
-        requires_license="enterprise",
     ),
     "brocade": DataSourceRegistryEntry(
         type="brocade",
@@ -965,7 +968,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.splunk_client.SplunkClient",
-        requires_license="enterprise",
         version="beta",
     ),
     "MSSQL": DataSourceRegistryEntry(
@@ -1691,7 +1693,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
-        requires_license="enterprise",
     ),
     "onenote": DataSourceRegistryEntry(
         type="onenote",
@@ -1764,7 +1765,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        requires_license="enterprise",
     ),
     "gmail_mail": DataSourceRegistryEntry(
         type="gmail_mail",
@@ -1793,7 +1793,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        requires_license="enterprise",
     ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
@@ -1821,7 +1820,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
-        requires_license="enterprise",
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
@@ -1956,6 +1954,33 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.infor_olap_client.InforOlapClient",
+        requires_license="enterprise",
+    ),
+    "infor_epm": DataSourceRegistryEntry(
+        type="infor_epm",
+        category="bi",
+        title="Infor EPM (Application Engine)",
+        description=(
+            "Query Infor d/EPM OLAP cubes via MDX through Application Engine processes published on the "
+            "ION API Gateway. Uses IFS/OAuth2 authentication — no OLAP Basic credentials required."
+        ),
+        config_schema=InforEpmConfig,
+        credentials_auth=AuthOptions(
+            default="ion_oauth",
+            by_auth={
+                "ion_oauth": AuthVariant(
+                    title="ION API Gateway",
+                    schema=InforEpmIonCredentials,
+                    scopes=["system"],
+                ),
+                "bearer_token": AuthVariant(
+                    title="Bearer Token (testing)",
+                    schema=InforEpmTokenCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.infor_epm_client.InforEpmClient",
         requires_license="enterprise",
     ),
     "analysis_services": DataSourceRegistryEntry(

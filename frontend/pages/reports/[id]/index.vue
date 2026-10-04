@@ -94,7 +94,7 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll">
 			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
@@ -171,6 +171,13 @@
 							<!-- collapsed -->
 						</template>
 
+						<!-- Agent check-in that ran quietly (did not notify): the reply
+						     stays in the report, collapsed under its "Checked back:
+						     nothing new" strip until expanded. -->
+						<template v-else-if="m.role === 'system' && (m as any).trigger_source === 'checkin' && isQuietCheckinReplyCollapsed(m)">
+							<!-- collapsed -->
+						</template>
+
 						<!-- Machine event entry (eval run finished, wait resumed): a
 						     borderless, compact line aligned into the agent column —
 						     same gutter as system messages, styled like a tool card. -->
@@ -178,9 +185,15 @@
 							<!-- avatar-width spacer so the line lines up with agent content -->
 							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
 							<div class="w-full ms-0 md:ms-4 max-w-2xl">
-								<div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+								<div
+									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
+									:class="isQuietCheckinStrip(m) ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
+									:data-testid="(m as any).trigger_source === 'checkin' ? `checkin-strip-${m.id}` : undefined"
+									@click="isQuietCheckinStrip(m) && toggleCheckinExpand(m.id)"
+								>
 									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
 									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
+									<Icon v-if="isQuietCheckinStrip(m)" :name="expandedCheckinIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 flex-shrink-0" />
 									<span v-if="m.created_at" class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
 								</div>
 							</div>
@@ -365,7 +378,7 @@
 													>
 														<template v-if="block.plan_decision?.reasoning || block.reasoning">
 															<MarkdownRender
-																:content="block.plan_decision?.reasoning || block.reasoning || ''"
+																:content="block.reasoning || block.plan_decision?.reasoning || ''"
 																:final="isBlockFinalized(block)"
 																:typewriter="!isBlockFinalized(block)"
 																:render-code-blocks-as-pre="true"
@@ -410,8 +423,6 @@
 													:can-expand="!isMobile"
 													@openFilePreview="openFilePreview"
 													@openDataPanel="openDataPanel"
-													@addWidget="handleAddWidgetFromPreview"
-													@refreshDashboard="refreshDashboardFast"
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
@@ -436,7 +447,7 @@
 											
 											<!-- Tool widget preview -->
 											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
-												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
+												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
 											</div>
 											</div>
 
@@ -714,6 +725,7 @@
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
+					:initialEffort="report?.reasoning_effort || ''"
 					:textareaContent="prefillText"
 					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt } : undefined"
 					:isStopping="false"
@@ -785,7 +797,7 @@
 				<button
 					@click="rightPanelView = 'artifact'"
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-					:class="rightPanelView === 'artifact' || rightPanelView === 'grid'
+					:class="rightPanelView === 'artifact'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
 						: 'text-gray-400 hover:text-gray-600'"
 				>
@@ -892,43 +904,13 @@
 				</div>
 			</div>
 
-			<!-- Grid View (DashboardComponent - Edit Mode) -->
-			<DashboardComponent
-				v-else-if="rightPanelView === 'grid' && reportLoaded && (visualizations || []).length >= 0"
-				ref="dashboardRef"
-				:report="report"
-				:edit="true"
-				:visualizations="visualizations"
-				:textWidgetsIds="textWidgetsIds"
-				:isStreaming="isStreaming"
-				@toggleSplitScreen="toggleSplitScreen"
-				@editVisualization="handleEditQuery"
-				@toggleArtifactView="rightPanelView = 'artifact'"
-				class="h-full"
-			/>
-
-			<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
-			<DashboardComponent
-				v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
-				ref="dashboardRef"
-				:report="report"
-				:edit="true"
-				:visualizations="visualizations"
-				:textWidgetsIds="textWidgetsIds"
-				:isStreaming="isStreaming"
-				:hideArtifactSwitch="true"
-				@toggleSplitScreen="toggleSplitScreen"
-				@editVisualization="handleEditQuery"
-				class="h-full"
-			/>
-
 			<!-- A fork's dashboard waits until its queries have run as the forker -->
-			<div v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout && !forkReady" class="p-4">
+			<div v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !forkReady" class="p-4">
 				<ForkPreparing :nothing-ran="forkNothingRan" />
 			</div>
 			<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
 			<ArtifactFrame
-				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
+				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id"
 				:key="artifactFrameKey"
 				:report-id="report.id"
 				:report="report"
@@ -938,11 +920,6 @@
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
-
-			<!-- Empty state for grid view -->
-			<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 dark:text-gray-400 h-full">
-				No dashboard items yet.
-			</div>
 
 			<!-- A document or image opened from a read_file card. Reuses the
 			     same viewer the card renders, at panel size. -->
@@ -968,7 +945,6 @@
 					:key="panelData.key"
 					:tool-execution="panelData.toolExecution"
 					:expanded="true"
-					@addWidget="handleAddWidgetFromPreview"
 					@toggleSplitScreen="toggleSplitScreen"
 					@editQuery="handleEditQuery"
 				/>
@@ -1008,6 +984,7 @@ import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
@@ -1017,8 +994,9 @@ import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import CreateDocTool from '~/components/tools/CreateDocTool.vue'
 import EditDocTool from '~/components/tools/EditDocTool.vue'
 import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
+import SubmitListTool from '~/components/tools/SubmitListTool.vue'
 import EditNoteTool from '~/components/tools/EditNoteTool.vue'
-import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+import MemoryTool from '~/components/tools/MemoryTool.vue'
 import RouteModelTool from '~/components/tools/RouteModelTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -1079,7 +1057,6 @@ import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
-import DashboardComponent from '~/components/DashboardComponent.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
@@ -1616,9 +1593,6 @@ const forkThisReport = async () => {
 // Browser tab / shortcut name — otherwise it falls back to the report UUID in
 // the URL. Falls back to a friendly default while the report loads.
 useHead(() => ({ title: report.value?.title || 'Report' }))
-const visualizations = ref<any[]>([])
-const dashboardRef = ref<any | null>(null)
-const textWidgetsIds = ref<string[]>([])
 
 // Report summary (queries + instructions independent of message pagination)
 const summaryQueries = ref<any[]>([])
@@ -1872,6 +1846,60 @@ function visibleInstructions(m: ChatMessage) {
 	return m._loaded_instructions || []
 }
 
+// ---- Agent check-in (trigger_source='checkin') strip helpers ----
+// The strip's prompt.meta carries {checkin_id, outcome, run_completion_id,
+// notify_subject}; outcome is stamped after the follow-up run finishes.
+const expandedCheckinIds = ref<Set<string>>(new Set())
+function checkinMeta(m: any): any {
+	return (m as any)?.trigger_source === 'checkin' ? (m?.prompt?.meta || {}) : null
+}
+// The run's reply for a strip: linked by meta once stamped, else the next
+// check-in system message after the strip.
+function checkinReply(strip: any): any {
+	const id = checkinMeta(strip)?.run_completion_id
+	if (id) return messages.value.find((x: any) => x.id === id) || null
+	const i = messages.value.indexOf(strip)
+	for (let j = i + 1; j < messages.value.length; j++) {
+		const x: any = messages.value[j]
+		if (x.role === 'external') break
+		if (x.role === 'system' && x.trigger_source === 'checkin') return x
+	}
+	return null
+}
+// Outcome of a check-in strip. The server stamps meta.outcome just after the
+// run ends — which can land after the page's end-of-run refresh — so derive it
+// from the reply itself until then (a successful notify call ⇒ sent).
+function checkinOutcome(strip: any): string {
+	const meta = checkinMeta(strip) || {}
+	if (meta.outcome) return meta.outcome
+	if (strip?.status === 'in_progress') return 'running'
+	const reply = checkinReply(strip)
+	if (!reply || reply.status === 'in_progress') return strip?.status === 'error' ? 'failed' : 'running'
+	const notified = (reply.completion_blocks || []).some((b: any) => {
+		const te = b?.tool_execution
+		if (!te || te.tool_name !== 'notify') return false
+		return te.status ? te.status === 'success' : te.success !== false
+	})
+	if (notified) return 'sent'
+	if (reply.status === 'error' || strip?.status === 'error') return 'failed'
+	return 'ran_quiet'
+}
+function isQuietCheckinStrip(m: any): boolean {
+	return m?.role === 'external' && (m as any)?.trigger_source === 'checkin' && checkinOutcome(m) === 'ran_quiet'
+}
+function toggleCheckinExpand(id: string) {
+	const next = new Set(expandedCheckinIds.value)
+	if (next.has(id)) next.delete(id)
+	else next.add(id)
+	expandedCheckinIds.value = next
+}
+function isQuietCheckinReplyCollapsed(msg: any): boolean {
+	const strip = messages.value.find((x: any) =>
+		x.role === 'external' && (x as any).trigger_source === 'checkin' && checkinReply(x)?.id === msg.id)
+	if (!strip || checkinOutcome(strip) !== 'ran_quiet') return false
+	return !expandedCheckinIds.value.has(strip.id)
+}
+
 function isScheduledSystemExpanded(msg: ChatMessage): boolean {
 	// Find the preceding user message with the same scheduled_prompt_id
 	const idx = messages.value.indexOf(msg)
@@ -1951,6 +1979,7 @@ function webhookSourceIcon(source?: string): string {
 		// Machine-turn events (trigger_source doubles as external_platform)
 		case 'eval_run': return 'heroicons-beaker'
 		case 'wait': return 'heroicons-clock'
+		case 'checkin': return 'heroicons-arrow-path-rounded-square'
 		default: return 'heroicons-bolt'
 	}
 }
@@ -1968,6 +1997,18 @@ function machineEventLabel(m: any): string {
 	}
 	if (meta && src === 'wait') {
 		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return t('events.checkin.running')
+		if (outcome === 'failed') return t('events.checkin.failed')
+		if (outcome === 'sent') {
+			return meta?.notify_subject
+				? t('events.checkin.sentWithSubject', { subject: meta.notify_subject })
+				: t('events.checkin.sent')
+		}
+		if (outcome === 'ran_quiet') return t('events.checkin.quiet')
+		return t('events.checkin.label')
 	}
 	return m.prompt?.summary || m.prompt?.content
 }
@@ -2009,11 +2050,23 @@ function machineEventIcon(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'heroicons-arrow-path'
+		if (outcome === 'failed') return 'heroicons-x-circle'
+		return outcome === 'sent' ? 'heroicons-bell-alert' : 'heroicons-arrow-path-rounded-square'
+	}
 	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
 }
 function machineEventIconClass(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'text-blue-400 animate-spin'
+		if (outcome === 'failed') return 'text-red-400'
+		if (outcome === 'sent') return 'text-blue-500'
+	}
 	return 'text-gray-400 dark:text-gray-500'
 }
 // Inbound webhook events expand to show the delivery that caused the run —
@@ -2337,7 +2390,6 @@ async function onForkHydrated() {
     forkHydrating.value = false
     artifactFrameKey.value += 1
     await enrichForkedQueries()
-    if (hasLegacyLayout.value) await loadVisualizations()
 }
 
 onBeforeUnmount(() => {
@@ -2365,7 +2417,7 @@ const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
-const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
+const rightPanelView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
 
 // A document/image opened from a read_file card into the side panel. Transient
 // by nature — it exists only while a file is selected, which is why it gets a
@@ -2379,6 +2431,9 @@ const panelFile = ref<{
 	imageFileIds?: string[] | null
 	name?: string
 } | null>(null)
+// Same return-path bookkeeping as the data pane below.
+const filePanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'data'>('artifact')
+const filePanelOpenedSplit = ref(false)
 
 function openFilePreview(payload: any) {
 	if (!payload?.fileId) return
@@ -2386,7 +2441,11 @@ function openFilePreview(payload: any) {
 	// Mobile keeps the inline/modal behaviour — mobileView is a separate closed
 	// union and opening a second surface there is its own piece of work.
 	if (isMobile.value) return
-	if (!isSplitScreen.value) toggleSplitScreen()
+	if (rightPanelView.value !== 'file') filePanelReturnView.value = rightPanelView.value
+	if (!isSplitScreen.value) {
+		filePanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
 	rightPanelView.value = 'file'
 }
 
@@ -2408,7 +2467,15 @@ function leftWidthFor(view: string): number {
 
 function closeFilePanel() {
 	panelFile.value = null
-	if (rightPanelView.value === 'file') rightPanelView.value = 'artifact'
+	const openedSplit = filePanelOpenedSplit.value
+	filePanelOpenedSplit.value = false
+	if (rightPanelView.value !== 'file') return
+	// A data view only exists while its result is open.
+	const back = filePanelReturnView.value
+	rightPanelView.value = back === 'data' && !panelData.value ? 'artifact' : back
+	// Opening the file is what opened the panel, so closing it closes the
+	// panel too instead of landing on whatever tab sat underneath.
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
 
 // A query result (create_data / read_query / …) opened from its inline card
@@ -2423,7 +2490,10 @@ const panelData = ref<{
 } | null>(null)
 // The view that was showing when the data pane opened, so closing it goes
 // back there (dashboard, agent, summary…) rather than always to the dashboard.
-const dataPanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+const dataPanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+// Whether opening the data pane is what opened the side panel. If so, closing
+// it closes the panel too — there was no view underneath to go back to.
+const dataPanelOpenedSplit = ref(false)
 
 function openDataPanel(payload: { toolExecution: any; title?: string; visual?: boolean }) {
 	const te = payload?.toolExecution
@@ -2436,16 +2506,22 @@ function openDataPanel(payload: { toolExecution: any; title?: string; visual?: b
 	}
 	if (isMobile.value) return
 	if (rightPanelView.value !== 'data') dataPanelReturnView.value = rightPanelView.value
-	if (!isSplitScreen.value) toggleSplitScreen()
+	if (!isSplitScreen.value) {
+		dataPanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
 	rightPanelView.value = 'data'
 }
 
 function closeDataPanel() {
 	panelData.value = null
+	const openedSplit = dataPanelOpenedSplit.value
+	dataPanelOpenedSplit.value = false
 	if (rightPanelView.value !== 'data') return
 	// A file view only exists while its file is open.
 	const back = dataPanelReturnView.value
 	rightPanelView.value = back === 'file' && !panelFile.value ? 'artifact' : back
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
 
 // Mobile view mode (full-screen single section on narrow screens)
@@ -2456,6 +2532,29 @@ function checkMobile() {
 	isMobile.value = window.innerWidth < 768
 }
 
+// On mobile the chat is unmounted while another tab is shown, so its scroll
+// position would reset to the top on return. Remember where the reader was
+// (pre-flush: the old container is still in the DOM) and put them back.
+let chatScrollSnapshot: { top: number; following: boolean } | null = null
+watch(mobileView, (view, prev) => {
+	if (!isMobile.value) return
+	if (prev === 'chat' && view !== 'chat') {
+		const el = scrollContainer.value
+		chatScrollSnapshot = el ? { top: el.scrollTop, following: isFollowing.value } : null
+	} else if (view === 'chat' && prev !== 'chat') {
+		const snap = chatScrollSnapshot
+		chatScrollSnapshot = null
+		nextTick(() => {
+			if (!snap || snap.following) { forceScrollToBottom(); return }
+			const el = scrollContainer.value
+			if (!el) return
+			isFollowing.value = false
+			el.scrollTop = snap.top
+			lastScrollTop = el.scrollTop
+		})
+	}
+})
+
 if (import.meta.client) {
 	checkMobile()
 	window.addEventListener('resize', checkMobile)
@@ -2464,10 +2563,8 @@ if (import.meta.client) {
 // Completion id currently wired up to forward Office.js results back to the backend.
 const currentOfficeJsCompletionId = ref<string | null>(null)
 
-// Legacy report detection: has artifacts vs legacy dashboard_layout_versions
 const hasArtifacts = ref(false)
 const reportArtifacts = ref<any[]>([])
-const hasLegacyLayout = ref(false)
 
 // Toggle states
 const collapsedReasoning = ref<Set<string>>(new Set())
@@ -2537,6 +2634,9 @@ function hasClarifyBlock(m: ChatMessage): boolean {
 }
 
 function getToolComponent(toolName: string) {
+	// Native per-list tools (submit_<list>) stream under their own name
+	// before the gateway rewrite to submit_list.
+	if (toolName?.startsWith('submit_')) return SubmitListTool
 	switch (toolName) {
     // 'create_data_model' removed
 		case 'create_widget':
@@ -2551,7 +2651,9 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'create_dashboard':
 			return CreateDashboardTool
-		case 'create_artifact':
+		case 'manage_artifact_resources':
+            return ManageArtifactResourcesTool
+        case 'create_artifact':
 			return CreateArtifactTool
 		case 'read_artifact':
 			return ReadArtifactTool
@@ -2571,10 +2673,14 @@ function getToolComponent(toolName: string) {
 			return EditDocTool
 		case 'create_note':
 			return CreateNoteTool
+		case 'submit_list':
+			return SubmitListTool
 		case 'edit_note':
 			return EditNoteTool
-		case 'update_user_memory':
-			return UpdateUserMemoryTool
+		case 'create_memory':
+		case 'edit_memory':
+		case 'search_memory':
+			return MemoryTool
 		case 'route_model':
 			return RouteModelTool
 		case 'read_resources':
@@ -2781,11 +2887,13 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 		return t('reportView.thoughtProcess')
 	}
 
-	// Prefer planner-provided reasoning duration when available
+	// Measured reasoning time. A tool's code generation (create_data,
+	// inspect_data) streams its reasoning into this same block, so the two add.
 	const metricsAny: any = (block.plan_decision as any)?.metrics || (block.plan_decision as any)?.metrics_json
-	const thinkingMs: number | undefined = metricsAny?.thinking_ms
-	if (typeof thinkingMs === 'number' && isFinite(thinkingMs) && thinkingMs >= 0) {
-		const secs = Math.max(0, Math.round(thinkingMs / 1000))
+	const measured = [metricsAny?.thinking_ms, (block.tool_execution as any)?.sub_timings_json?.codegen_reasoning_ms]
+		.filter((ms): ms is number => typeof ms === 'number' && isFinite(ms) && ms >= 0)
+	if (measured.length) {
+		const secs = Math.max(0, Math.round(measured.reduce((a, b) => a + b, 0) / 1000))
 		return t('reportView.thoughtForSeconds', { seconds: secs })
 	}
 
@@ -2804,11 +2912,8 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
 	}
 
-	// Fallback to duration from tool execution if available
-	if (block.tool_execution?.duration_ms) {
-		const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
-		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
-	}
+	// No reasoning time recorded. The tool's own duration is not one — it covers
+	// code generation and execution, and already shows on the tool row.
 
 	// Default fallback
 	return t('reportView.thoughtProcess')
@@ -2843,7 +2948,13 @@ watch(
 
 // Split screen toggles reflow the chat column; keep the bottom pinned only
 // when the reader was already following.
-watch(() => isSplitScreen.value, () => {
+watch(() => isSplitScreen.value, (open) => {
+    // Once the user closes the panel themselves, a later close of the data /
+    // file tab must not collapse a panel they reopened some other way.
+    if (!open) {
+        dataPanelOpenedSplit.value = false
+        filePanelOpenedSplit.value = false
+    }
     nextTick(() => setTimeout(followScrollToBottom, 80))
 })
 
@@ -2973,9 +3084,13 @@ function jumpToLatest() {
   forceScrollToBottom()
 }
 
+// Land at the bottom once, then keep catching up with content that mounts
+// late — but as background follow-scrolls, so a reader who has already
+// started scrolling up keeps their place. (Forcing every catch-up re-engaged
+// following and yanked them back down ~650ms after load.)
 function scheduleInitialScroll() {
-    const delays = [0, 80, 160, 320, 640]
-    for (const delay of delays) setTimeout(forceScrollToBottom, delay)
+    forceScrollToBottom()
+    for (const delay of [80, 160, 320, 640]) setTimeout(followScrollToBottom, delay)
 }
 
 // Resolve which completion block a tool.* streaming event targets.
@@ -3015,6 +3130,27 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			detail: { report_id, artifact_id: artifactId, select: ownStream }
 		}))
 		void checkHasArtifacts()
+	}
+	// The server titled the report from the prompt (it fires seconds after
+	// send, while the run is still going). Report-scoped, not tied to a chat
+	// message, so it is handled before the sysMessage guard below.
+	if (eventType === 'report.title.updated') {
+		const newTitle = typeof payload?.title === 'string' ? payload.title.trim() : ''
+		const sameReport = !payload?.report_id || String(payload.report_id) === String(report_id)
+		if (newTitle && sameReport && report.value && report.value.title !== newTitle) {
+			// Patching report.value drives the header input (ReportHeader watches
+			// it and types the title in) and the browser tab via useHead.
+			report.value = { ...report.value, title: newTitle }
+			// And the sidebar list in layouts/default.vue, which already listens
+			// for this. `generated: true` tells it to play the reveal animation
+			// rather than swapping the text silently, as a manual rename does.
+			try {
+				window.dispatchEvent(new CustomEvent('report:updated', {
+					detail: { id: report_id, title: newTitle, generated: true }
+				}))
+			} catch {}
+		}
+		return
 	}
 	if (!eventType || sysMessageIndex === -1) return
 
@@ -3462,13 +3598,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					}
 
-					// When create_dashboard streams a completed block, broadcast layout change so previews refresh membership
-					if (payload.tool_name === 'create_dashboard' && payload.payload && payload.payload.stage === 'block.completed') {
-						try {
-							window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: report_id, action: 'added' } }))
-						} catch {}
-					}
-
 					// Visualizations resolved for create_artifact / edit_artifact
 					if ((payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact') && payload.payload) {
 						if (payload.payload.stage === 'visualizations_resolved' && Array.isArray(payload.payload.visualizations)) {
@@ -3644,6 +3773,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.duration_ms !== undefined) {
 						blockWithTool.tool_execution.duration_ms = payload.duration_ms
 					}
+					if (payload.sub_timings_json) {
+						;(blockWithTool.tool_execution as any).sub_timings_json = payload.sub_timings_json
+					}
 					if (payload.created_widget_id) {
 						blockWithTool.tool_execution.created_widget_id = payload.created_widget_id
 					}
@@ -3654,9 +3786,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.created_visualization_ids && Array.isArray(payload.created_visualization_ids) && payload.created_visualization_ids.length > 0) {
 						blockWithTool.tool_execution.created_visualizations = payload.created_visualization_ids.map((id: string) => ({ id }))
 					}
-					// If the dashboard was created successfully, refresh widgets and open the dashboard pane
+					// If the dashboard was created successfully, open the dashboard pane
 					if (payload.tool_name === 'create_dashboard' && payload.status === 'success') {
-						try { await loadVisualizations() } catch (e) { /* noop */ }
 						if (!isSplitScreen.value) toggleSplitScreen()
 					}
 					// If the artifact was created successfully, mark all slides as done and dispatch event
@@ -3885,9 +4016,15 @@ function onReportFilesChanged() {
 	}, 500)
 }
 
+let completionLoadGeneration = 0
 async function loadCompletions({ skipEstimate = false } = {}) {
+	const generation = ++completionLoadGeneration
 	try {
 		const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
+		// A refresh may have started before a new prompt. Its snapshot cannot
+		// replace optimistic messages or newer streamed blocks. The owning
+		// stream reloads canonical rows once it finishes.
+		if (generation !== completionLoadGeneration || currentController) return
 		const response = data.value as any
 		if (error?.value || !response) {
 			// useMyFetch resolves with { error } instead of throwing on the client.
@@ -3943,6 +4080,8 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 					result_json: b.tool_execution.result_json,
 					arguments_json: b.tool_execution.arguments_json,
 					duration_ms: b.tool_execution.duration_ms,
+					// Split of duration_ms (codegen, its reasoning, execution) for the thought label
+					sub_timings_json: b.tool_execution.sub_timings_json,
 					created_widget_id: b.tool_execution.created_widget_id,
 					created_step_id: b.tool_execution.created_step_id,
 					created_widget: b.tool_execution.created_widget,
@@ -4173,6 +4312,8 @@ async function loadPreviousCompletions() {
                     result_json: b.tool_execution.result_json,
                     arguments_json: b.tool_execution.arguments_json,
                     duration_ms: b.tool_execution.duration_ms,
+                    // Split of duration_ms (codegen, its reasoning, execution) for the thought label
+                    sub_timings_json: b.tool_execution.sub_timings_json,
                     created_widget_id: b.tool_execution.created_widget_id,
                     created_step_id: b.tool_execution.created_step_id,
                     created_widget: b.tool_execution.created_widget,
@@ -4290,35 +4431,6 @@ async function loadReport() {
 	} catch {}
 }
 
-async function loadVisualizations() {
-	try {
-		const { data, error } = await useMyFetch(`/api/queries?report_id=${report_id}`, { method: 'GET' })
-		if (error.value) throw error.value
-		const queries = Array.isArray(data.value) ? data.value : []
-		const list: any[] = []
-		for (const q of queries) {
-			for (const v of (q?.visualizations || [])) {
-				if (v && v.id) list.push(v)
-			}
-		}
-		visualizations.value = list
-	} catch (e) {
-		visualizations.value = []
-	}
-}
-
-// Fast dashboard refresh triggered by editor save
-async function refreshDashboardFast() {
-    try {
-        const dash = dashboardRef.value
-        if (dash && typeof dash.refreshLayout === 'function') {
-            await dash.refreshLayout()
-        }
-    } catch (e) {
-        // noop
-    }
-}
-
 // Ensure dashboard pane opens only when currently closed
 const handleOfficeJsResult = async (event: MessageEvent) => {
     // Only accept messages from the hosting taskpane (same-origin parent).
@@ -4433,20 +4545,6 @@ watch(
     }
 )
 
-async function loadActiveLayoutHasBlocks(): Promise<boolean> {
-    try {
-        const { data } = await useMyFetch(`/api/reports/${report_id}/layouts`)
-        const layouts = Array.isArray(data.value) ? (data.value as any[]) : []
-        const active = layouts.find((l: any) => l.is_active)
-        const result = !!(active && Array.isArray(active.blocks) && active.blocks.length > 0)
-        hasLegacyLayout.value = result
-        return result
-    } catch (e) {
-        hasLegacyLayout.value = false
-        return false
-    }
-}
-
 // One request per report open (not per card, and not repeated inside
 // ArtifactFrame): the latest artifact seeds both the shared
 // "Added to Dashboard" state and ArtifactFrame's initial selection.
@@ -4537,7 +4635,6 @@ onUnmounted(() => {
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', followScrollToBottom)
-	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
 	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
@@ -4558,53 +4655,6 @@ onUnmounted(() => {
 	stepDataCache.clear()
 })
 
-
-// Handle Add to dashboard from ToolWidgetPreview
-async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, visualization?: any }) {
-    try {
-        const viz = payload?.visualization
-        const widget = payload?.widget
-        if (viz?.id) {
-            const block = { type: 'visualization', visualization_id: viz.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
-        } else if (widget?.id) {
-            const block = { type: 'widget', widget_id: widget.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
-        } else {
-            return
-        }
-        
-        // Update the local widget status immediately to reflect the change in UI
-        // Find the tool execution that contains this widget and update its status
-        messages.value.forEach(message => {
-            if (message.completion_blocks) {
-                message.completion_blocks.forEach(block => {
-                    if (viz?.id && (block.tool_execution as any)?.created_visualizations) {
-                        const list = (block.tool_execution as any).created_visualizations as any[]
-                        const found = list.find(v => v?.id === viz.id)
-                        if (found) found.status = 'published'
-                    }
-                    if (widget?.id && block.tool_execution?.created_widget?.id === widget.id && block.tool_execution) {
-                        block.tool_execution.created_widget.status = 'published'
-                    }
-                })
-            }
-        })
-        
-        		if (!isSplitScreen.value) toggleSplitScreen()
-		await loadVisualizations()
-        // Ask dashboard to refresh layout immediately so item appears
-        try {
-            const dash = dashboardRef.value
-            if (dash && typeof dash.refreshLayout === 'function') await dash.refreshLayout()
-        } catch {}
-		// Scroll to bottom when dashboard opens after adding widget
-		await nextTick()
-        followScrollToBottom()
-    } catch (e) {
-        console.error('Failed to add widget from preview:', e)
-    }
-}
 
 // Handle opening an artifact from CreateArtifactTool
 async function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
@@ -4709,7 +4759,7 @@ function resolveRunningSystemId(): string | undefined {
 
 // Queue a prompt while a completion runs. The backend persists it as a
 // status='queued' user row; the dispatcher starts it when the run finishes.
-async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
 	const text = data.text.trim()
 	if (!text) return
 	try {
@@ -4722,6 +4772,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					mentions: data.mentions || [],
 					mode: data.mode || 'chat',
 					model_id: data.model_id || null,
+					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
 				},
 				queue: true
@@ -4859,7 +4910,7 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
-function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; files?: { id: string; filename: string; content_type: string }[] }) {
+function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
 
@@ -4908,6 +4959,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			mentions: data.mentions || [],
 			mode: data.mode || 'chat',
 			model_id: data.model_id || null,
+			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
@@ -4928,6 +4980,12 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 async function startStreaming(requestBody: any, sysId: string) {
 
+	const controller = currentController
+	const ownsStream = () => currentController === controller
+	let completionId = messages.value.find(m => m.id === sysId)?.system_completion_id
+	const ensureSys = () => messages.value.findIndex(m =>
+		m.id === sysId || (completionId && (m.id === completionId || m.system_completion_id === completionId))
+	)
 	kickoffStalled = false
 	lastKickoffByteAt = Date.now()
 	startKickoffWatchdog()
@@ -4936,7 +4994,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(requestBody),
-			signal: currentController?.signal,
+			signal: controller?.signal,
 			stream: true
 		}
 		const raw: any = await useMyFetch(`/reports/${report_id}/completions`, options as any)
@@ -4949,17 +5007,16 @@ async function startStreaming(requestBody: any, sysId: string) {
 		let buffer = ''
 		let currentEvent: string | null = null
 
-		const ensureSys = () => messages.value.findIndex(m => m.id === sysId)
-
 		while (true) {
 			const { done, value } = await reader.read()
 			if (done) {
 				break
 			}
+			if (!ownsStream()) return
 			lastKickoffByteAt = Date.now()
 
 			// Check if stream was aborted
-			if (currentController?.signal.aborted) {
+			if (controller?.signal.aborted) {
 				break
 			}
 
@@ -4967,6 +5024,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 
 			let nlIndex: number
 			while ((nlIndex = buffer.indexOf('\n')) >= 0) {
+				if (!ownsStream()) return
 				const line = buffer.slice(0, nlIndex).trimEnd()
 				buffer = buffer.slice(nlIndex + 1)
 
@@ -4975,8 +5033,6 @@ async function startStreaming(requestBody: any, sysId: string) {
 				} else if (line.startsWith('data:')) {
 					const dataStr = line.slice(5).trim()
 					if (dataStr === '[DONE]') {
-						isStreaming.value = false
-						currentController = null
 						// Refresh report data and context estimate after stream fully ends.
 						// force=true: without it refreshContextEstimate early-returns after
 						// its first fetch, leaving the context meter stale for the whole
@@ -4995,6 +5051,9 @@ async function startStreaming(requestBody: any, sysId: string) {
 					try {
 						const parsed = JSON.parse(dataStr)
 						const payload = parsed.data ?? parsed
+						if (currentEvent === 'completion.started' && payload?.system_completion_id) {
+							completionId = payload.system_completion_id
+						}
 						const idx = ensureSys()
 						if (idx !== -1) {
 							await handleStreamingEvent(currentEvent, payload, idx)
@@ -5007,8 +5066,9 @@ async function startStreaming(requestBody: any, sysId: string) {
 			}
 		}
 	} catch (err) {
+		if (!ownsStream()) return
 		console.error('Streaming error:', err)
-		const idx = messages.value.findIndex(m => m.id === sysId)
+		const idx = ensureSys()
 		if (idx !== -1) {
 			let errorMessage = 'An error occurred during streaming.'
 
@@ -5028,7 +5088,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 					// heartbeats), not a user stop. Reconnect to the run.
 					if (kickoffStalled) {
 						kickoffStalled = false
-						if (await recoverStreamAfterError(sysId)) return
+						if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 					}
 					if (sysMsg && sysMsg.system_completion_id) {
 						// This was likely a user stop, mark as stopped without error
@@ -5044,14 +5104,14 @@ async function startStreaming(requestBody: any, sysId: string) {
 					// running server-side, so reconnect to its watch stream
 					// instead of surfacing a false error. Only mark error when
 					// recovery itself fails.
-					if (await recoverStreamAfterError(sysId)) return
+					if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 					errorMessage = err.message.includes('Stream HTTP error')
 						? `Connection error: ${err.message}`
 						: `Error: ${err.message}`
 					messages.value[idx] = { ...messages.value[idx], status: 'error' }
 				}
 			} else {
-				if (await recoverStreamAfterError(sysId)) return
+				if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 				messages.value[idx] = { ...messages.value[idx], status: 'error' }
 			}
 			
@@ -5071,10 +5131,12 @@ async function startStreaming(requestBody: any, sysId: string) {
 			}
 		}
 	} finally {
-		stopKickoffWatchdog()
-		isStreaming.value = false
-		isCompletionInProgress.value = false
-		currentController = null
+		if (ownsStream()) {
+			stopKickoffWatchdog()
+			isStreaming.value = false
+			isCompletionInProgress.value = false
+			currentController = null
+		}
 	}
 }
 
@@ -5159,16 +5221,18 @@ function stopWatchWatchdog() {
 // the started event, or the API if the POST died before it arrived) and
 // re-attach via the watch stream. Returns false when there is nothing to
 // re-attach to (the caller then surfaces the error).
-async function recoverStreamAfterError(sysId: string): Promise<boolean> {
-	const idx = messages.value.findIndex(m => m.id === sysId)
+async function recoverStreamAfterError(sysId: string, stillOwner: () => boolean = () => true): Promise<boolean> {
+	const idx = findWatchMessageIndex(sysId, sysId)
 	if (idx === -1) return false
 	const msg = messages.value[idx]
 	if (msg.status && msg.status !== 'in_progress') return false
 	let cid = (msg as any).system_completion_id as string | undefined
+	if (!cid && !String(msg.id).startsWith('system-')) cid = String(msg.id)
 	if (!cid) {
 		// The POST may have created the completion server-side before dying.
 		try {
 			const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=5`)
+			if (!stillOwner()) return false
 			const list: any[] = (data.value as any)?.completions || []
 			const inprog = [...list].reverse().find((c: any) => c.role === 'system' && c.status === 'in_progress')
 			if (inprog) {
@@ -5177,7 +5241,7 @@ async function recoverStreamAfterError(sysId: string): Promise<boolean> {
 			}
 		} catch {}
 	}
-	if (!cid) return false
+	if (!cid || !stillOwner()) return false
 	startWatchStream(cid, { sysId, ownStream: true })
 	return true
 }
@@ -5216,7 +5280,7 @@ async function startWatchStream(completionId: string, opts: { sysId?: string; ow
 			} catch (e) {
 				// Aborted (superseded / watchdog) or network error — loop decides.
 			} finally {
-				stopWatchWatchdog()
+				if (stillMine()) stopWatchWatchdog()
 			}
 			if (!stillMine() || sawDone) return
 			idleAttempts = gotEvents ? 0 : idleAttempts + 1
@@ -5256,6 +5320,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 
 		let nlIndex: number
 		while ((nlIndex = buffer.indexOf('\n')) >= 0) {
+			if (watchGeneration !== gen) return { sawDone: false, gotEvents }
 			const line = buffer.slice(0, nlIndex).trimEnd()
 			buffer = buffer.slice(nlIndex + 1)
 
@@ -5276,7 +5341,10 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 					const parsed = JSON.parse(dataStr)
 					const payload = parsed.data ?? parsed
 					const idx = findWatchMessageIndex(completionId, sysId)
-					if (idx !== -1 || currentEvent === 'tool.finished') {
+					// Report-scoped events (artifacts, the generated title) are not
+					// tied to a chat message, so they must not be dropped when the
+					// watcher has no message row to attach to yet.
+					if (idx !== -1 || currentEvent === 'tool.finished' || currentEvent === 'report.title.updated') {
 						gotEvents = true
 						await handleStreamingEvent(currentEvent, payload, idx, { ownStream })
 						scheduleFollowScroll()
@@ -5396,12 +5464,11 @@ function stopScheduledCompletionsPoll() {
 
 onMounted(async () => {
 	// Load only the metadata needed to choose the initial workspace. Conversation,
-	// summary, and legacy-grid data have independent loading paths so one large
+	// and summary data have independent loading paths so one large
 	// payload cannot hold the entire report page behind a full-screen spinner.
 	const workspaceLoads = Promise.all([
 		loadReport(),
 		checkHasArtifacts(),
-		loadActiveLayoutHasBlocks(),
 		loadScheduledPrompts()
 	])
 	const slowLoads = loadCompletions()
@@ -5413,13 +5480,9 @@ onMounted(async () => {
 	// Resolves on the first status read; polling (if any) continues detached.
 	await watchForkHydration()
 
-	// Artifact reports load their filtered query/Step data inside ArtifactFrame;
-	// the broad unfiltered query list is only needed by the legacy grid. Summary
-	// data is awaited only when summary is the initial pane.
-	if (hasLegacyLayout.value) {
-		await loadVisualizations()
-	}
-	const opensSummary = !hasArtifacts.value && !hasLegacyLayout.value
+	// Artifact reports load their filtered query/Step data inside ArtifactFrame.
+	// Summary data is awaited only when summary is the initial pane.
+	const opensSummary = !hasArtifacts.value
 		&& ((report.value as any)?.query_count > 0
 			|| (report.value as any)?.instruction_count > 0
 			|| (report.value as any)?.has_scheduled_prompts)
@@ -5434,7 +5497,7 @@ onMounted(async () => {
 	// Auto-open right pane based on report metadata (available immediately from loadReport)
 	// Skip auto-open in Excel mode — the taskpane is too narrow for split screen
 	if (!isExcel.value) {
-		if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
+		if (hasArtifacts.value || (report.value as any)?.artifact_count > 0) {
 			isSplitScreen.value = true
 			rightPanelView.value = 'artifact'
 			leftPanelWidth.value = Math.round(window.innerWidth * 0.37)
@@ -5457,6 +5520,7 @@ onMounted(async () => {
 		} catch {}
 		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
 		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
+		const reasoning_effort = typeof route.query.reasoning_effort === 'string' ? route.query.reasoning_effort : null
 		// Images attached in the composer before this report existed. They are
 		// already on the report row; this only lets the first user bubble show
 		// its chips instead of appearing bare until a reload.
@@ -5465,7 +5529,7 @@ onMounted(async () => {
 			const rawFiles = typeof route.query.files === 'string' ? decodeURIComponent(route.query.files) : ''
 			if (rawFiles) files = JSON.parse(rawFiles)
 		} catch {}
-		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, files })
+		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, reasoning_effort: reasoning_effort || null, files })
 	} else if (route.query.prompt && messages.value.length == 0) {
 		// Pre-fill the prompt box without submitting (e.g. a training session draft).
 		prefillText.value = route.query.prompt as string
@@ -5485,8 +5549,6 @@ onMounted(async () => {
     // Aggressive initial scroll to handle async content mounting
 	scheduleInitialScroll()
     window.addEventListener('resize', followScrollToBottom)
-	// Attach scroll listener for infinite scroll up / follow-mode tracking
-	try { scrollContainer.value?.addEventListener('scroll', onScroll) } catch {}
 })
 
 </script>

@@ -824,10 +824,17 @@ class InstructionService:
             "pending_instruction_ids": sorted(pending_ids),
         }
 
-    async def search_knowledge(self, db, organization, current_user, q: str, limit: int = 20) -> dict:
+    async def search_knowledge(
+        self, db, organization, current_user, q: str, limit: int = 20,
+        data_source_id: Optional[str] = None,
+    ) -> dict:
         """Cross-entity search for the /agents 'Search everything' box. Returns a
         grouped shape (distinct from the instruction list): matching agents
-        (data sources) AND matching instructions, each visibility-scoped."""
+        (data sources) AND matching instructions, each visibility-scoped.
+
+        With `data_source_id` the search is scoped to that agent: only
+        instructions attached to it (as its tree group lists them — global ones
+        live in their own group), and no agents."""
         from app.services.data_source_service import DataSourceService
 
         q = (q or "").strip()
@@ -839,8 +846,12 @@ class InstructionService:
             db=db, organization=organization, current_user=current_user,
             skip=0, limit=limit, search=q,
             include_own=True, include_drafts=True, include_archived=True,
+            data_source_ids=[data_source_id] if data_source_id else None,
+            include_global=False,
         )
         instructions = inst_resp.get("items", [])
+        if data_source_id:
+            return {"agents": [], "instructions": instructions}
 
         # Agents: filter the caller's visible data sources by name (small list).
         ql = q.lower()

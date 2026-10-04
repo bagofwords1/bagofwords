@@ -140,15 +140,21 @@ class WebhookService:
         )
         return [self._to_schema(w) for w in res.scalars().all()]
 
-    async def _get_or_404(self, db, webhook_id) -> Webhook:
-        res = await db.execute(select(Webhook).where(Webhook.id == webhook_id, Webhook.deleted_at.is_(None)))
+    async def _get_or_404(self, db, webhook_id, report_id) -> Webhook:
+        # Always scoped to the report the route authorized: a webhook id from
+        # another report (or a report_id-less trigger) must not resolve here.
+        res = await db.execute(select(Webhook).where(
+            Webhook.id == webhook_id,
+            Webhook.report_id == report_id,
+            Webhook.deleted_at.is_(None),
+        ))
         wh = res.scalar_one_or_none()
         if not wh:
             raise HTTPException(status_code=404, detail="Webhook not found")
         return wh
 
-    async def update_webhook(self, db, webhook_id, data: WebhookUpdate) -> WebhookSchema:
-        wh = await self._get_or_404(db, webhook_id)
+    async def update_webhook(self, db, report_id, webhook_id, data: WebhookUpdate) -> WebhookSchema:
+        wh = await self._get_or_404(db, webhook_id, report_id)
         for field in ("name", "source", "auth_mode", "auth_header_name", "classify_enabled", "classifier_prompt", "is_active"):
             val = getattr(data, field)
             if val is not None:
@@ -157,13 +163,13 @@ class WebhookService:
         await db.refresh(wh)
         return self._to_schema(wh)
 
-    async def delete_webhook(self, db, webhook_id) -> None:
-        wh = await self._get_or_404(db, webhook_id)
+    async def delete_webhook(self, db, report_id, webhook_id) -> None:
+        wh = await self._get_or_404(db, webhook_id, report_id)
         wh.deleted_at = datetime.utcnow()
         await db.commit()
 
-    async def rotate_secret(self, db, webhook_id) -> WebhookSchema:
-        wh = await self._get_or_404(db, webhook_id)
+    async def rotate_secret(self, db, report_id, webhook_id) -> WebhookSchema:
+        wh = await self._get_or_404(db, webhook_id, report_id)
         secret = Webhook.generate_secret()
         wh.set_secret(secret)
         await db.commit()
@@ -237,6 +243,7 @@ class WebhookService:
             task_template=data.task_template,
             mode=data.mode or "chat",
             model_id=data.model_id,
+            reasoning_effort=data.reasoning_effort,
             project_id=project_id,
             is_active=data.is_active,
         )
@@ -831,6 +838,7 @@ class WebhookService:
                     content=agent_prompt,
                     mode=wh.mode or "chat",
                     model_id=wh.model_id,
+                    reasoning_effort=getattr(wh, "reasoning_effort", None),
                 )),
                 current_user=user,
                 organization=organization,

@@ -288,6 +288,7 @@ import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import CreateDocTool from '~/components/tools/CreateDocTool.vue'
@@ -305,6 +306,7 @@ import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
 import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
+import SubmitListTool from '~/components/tools/SubmitListTool.vue'
 import EditNoteTool from '~/components/tools/EditNoteTool.vue'
 import RouteModelTool from '~/components/tools/RouteModelTool.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
@@ -321,7 +323,7 @@ import RunEvalTool from '~/components/tools/RunEvalTool.vue'
 import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
-import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+import MemoryTool from '~/components/tools/MemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import SendEmailTool from '~/components/tools/SendEmailTool.vue'
@@ -540,6 +542,15 @@ function hasCompletedContent(block: any): boolean {
 function getThoughtProcessLabel(block: any): string {
     if (block.status === 'stopped') return 'Thought Process'
 
+    // Measured reasoning: the planner's plus the tool's code generation, which
+    // streams into this same block.
+    const pm = block.plan_decision?.metrics || block.plan_decision?.metrics_json
+    const measured = [pm?.thinking_ms, block.tool_execution?.sub_timings_json?.codegen_reasoning_ms]
+        .filter((ms: any) => typeof ms === 'number' && isFinite(ms) && ms >= 0)
+    if (measured.length) {
+        return `Thought for ${Math.round(measured.reduce((a: number, b: number) => a + b, 0) / 1000)}s`
+    }
+
     if (block.started_at && block.completed_at) {
         const startTime = new Date(block.started_at).getTime()
         const endTime = new Date(block.completed_at).getTime()
@@ -549,15 +560,14 @@ function getThoughtProcessLabel(block: any): string {
         return `Thought for ${durationSeconds}s`
     }
 
-    if (block.tool_execution?.duration_ms) {
-        const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
-        return `Thought for ${durationSeconds}s`
-    }
-
+    // The tool's own duration is not reasoning time; it already shows on the tool row.
     return 'Thought Process'
 }
 
 function getToolComponent(toolName: string) {
+    // Native per-list tools (submit_<list>) stream under their own name
+    // before the gateway rewrite to submit_list.
+    if (toolName?.startsWith('submit_')) return SubmitListTool
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
@@ -594,6 +604,8 @@ function getToolComponent(toolName: string) {
             return ReadFileTool
         case 'attach_file':
             return AttachFileTool
+        case 'manage_artifact_resources':
+            return ManageArtifactResourcesTool
         case 'create_artifact':
             return CreateArtifactTool
         case 'edit_artifact':
@@ -646,6 +658,8 @@ function getToolComponent(toolName: string) {
             return SetReportAgentsTool
         case 'create_note':
             return CreateNoteTool
+        case 'submit_list':
+            return SubmitListTool
         case 'edit_note':
             return EditNoteTool
         case 'route_model':
@@ -675,8 +689,10 @@ function getToolComponent(toolName: string) {
             return ClarifyTool
         case 'wait':
             return WaitTool
-        case 'update_user_memory':
-            return UpdateUserMemoryTool
+        case 'create_memory':
+        case 'edit_memory':
+        case 'search_memory':
+            return MemoryTool
         case 'create_dashboard':
             return CreateDashboardTool
         case 'send_email':

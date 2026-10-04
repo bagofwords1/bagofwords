@@ -54,7 +54,10 @@
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
             <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-            <input v-model="search" type="text" :placeholder="$t('agentsPage.searchPlaceholder')" class="w-full h-9 ps-8 pe-2 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
+            <input v-model="search" type="text" :placeholder="$t('agentsPage.searchPlaceholder')" class="w-full h-9 ps-8 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" :class="search ? 'pe-8' : 'pe-2'" @keydown.escape="search = ''" />
+            <button v-if="search" type="button" class="absolute end-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="search = ''">
+              <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+            </button>
           </div>
           <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-md' }">
             <button type="button" class="relative h-8 w-8 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" :title="$t('agentsPage.filters')">
@@ -278,7 +281,7 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
+              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :active="panelView?.kind === 'instructions' && panelView?.agentId === agent.id" :open="isOpen('instr:' + agent.id)" @toggle="onPanelRowClick('instructions', agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <div>
@@ -300,6 +303,16 @@
                 <LibraryIcon class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 text-start truncate">{{ $t('agentsPage.queries') }}</span>
                 <span v-if="queryCounts[agent.id]" class="text-xs tabular-nums shrink-0 text-gray-400 dark:text-gray-500">{{ queryCounts[agent.id] }}</span>
+              </button>
+
+              <!-- Lists: typed tables the agent fills through its submit_<list>
+                   tools. A leaf row like Queries — the pane lists them, and a
+                   list opens its rows in place. -->
+              <button v-if="!agentAccessBlocked(agent)" type="button" data-testid="agent-lists-row" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'lists' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openListsPanel(agent.id)">
+                <span class="w-3 shrink-0"></span>
+                <UIcon name="i-heroicons-list-bullet" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+                <span class="flex-1 text-start truncate">{{ $t('agentsPage.lists') }}</span>
+                <span v-if="listCounts[agent.id]" class="text-xs tabular-nums shrink-0 text-gray-400 dark:text-gray-500">{{ listCounts[agent.id] }}</span>
               </button>
 
               <!-- Evals: the chevron expands the suite tree, the LABEL still opens
@@ -428,7 +441,7 @@
               <div v-else class="mx-auto w-full max-w-[640px] px-5 pb-12 pt-4 sm:px-8 sm:pt-5">
                 <div class="text-center" data-testid="agent-hero">
                   <div class="mb-2 flex justify-center">
-                    <AgentIconPicker v-if="agentDetail && agentCanUpdate" :model-value="agentDetail.icon" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :connections="agentDetail.connections || []" icon-only icon-class="h-7 w-7" @change="setAgentIcon" />
+                    <AgentIconPicker v-if="agentDetail && agentCanUpdate" :model-value="agentDetail.icon" :icon-token="agentDetail.icon_token" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :connections="agentDetail.connections || []" icon-only icon-class="h-7 w-7" @change="setAgentIcon" />
                     <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon-token="agentDetail.icon_token" :icon="agentDetail.icon" class="h-7 w-7" />
                   </div>
                   <h2 dir="auto" class="break-words text-lg font-semibold leading-7 text-gray-900 dark:text-white">{{ agentDetail?.name || agentViewName }}</h2>
@@ -600,12 +613,47 @@
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
+            <!-- Instructions: the agent's full list, with a server-side search
+                 over titles AND bodies (the tree only has titles). Rows are the
+                 same InstrLeaf as the tree, so status/pending/load-mode read
+                 the same, and a click opens the instruction in this pane. -->
+            <div v-if="panelView.kind === 'instructions'" :key="'instructions-' + panelView.agentId" class="flex flex-col h-full min-h-0" data-testid="agent-instructions-panel">
+              <div class="shrink-0 px-3 pt-3 pb-2 flex items-center gap-2">
+                <div class="relative flex-1">
+                  <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                  <input ref="panelSearchInput" :value="agentSearch[panelView.agentId] || ''" type="text" :placeholder="$t('agentsPage.searchAgentInstructions')" data-testid="agent-instructions-search" class="w-full h-8 ps-8 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" :class="agentSearch[panelView.agentId] ? 'pe-8' : 'pe-2'" @input="onAgentSearch(panelView.agentId, ($event.target as HTMLInputElement).value)" @keydown.escape="onAgentSearch(panelView.agentId, '')" />
+                  <button v-if="agentSearch[panelView.agentId]" type="button" class="absolute end-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="onAgentSearch(panelView.agentId, '')">
+                    <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <span v-if="!panelInstructionsLoading" class="text-xs tabular-nums text-gray-400 dark:text-gray-500 shrink-0" data-testid="agent-instructions-count">{{ panelInstructions.length }}</span>
+                <button v-if="canAddInstrFor(panelView.agentId)" type="button" class="h-8 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1 shrink-0" @click="openCreate({ agentId: panelView.agentId })"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.addShort') }}</button>
+              </div>
+              <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-3 space-y-0.5">
+                <div v-if="panelInstructionsLoading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:20px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+                <template v-else>
+                  <InstrLeaf v-for="ins in panelInstructions" :key="ins.id" :ins="ins" :indent="0" snippet />
+                  <EmptyHint v-if="!panelInstructions.length" :text="agentSearch[panelView.agentId] ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!agentSearch[panelView.agentId] && canAddInstrFor(panelView.agentId)" @add="openCreate({ agentId: panelView.agentId })" :pad="20" />
+                </template>
+              </div>
+            </div>
             <AgentQueriesPanel
-              v-if="panelView.kind === 'queries'"
+              v-else-if="panelView.kind === 'queries'"
               :key="'queries-' + panelView.agentId"
               :ds-id="panelView.agentId"
               @select="openQuery(panelView.agentId, $event)"
               @created="onQueryCreated(panelView.agentId, $event)"
+            />
+            <AgentListsPanel
+              v-else-if="panelView.kind === 'lists'"
+              :key="'lists-' + panelView.agentId"
+              :ds-id="panelView.agentId"
+              :list-id="listView"
+              :row-id="listRowView"
+              :can-manage="canManageAgent(panelView.agentId)"
+              @open="openList"
+              @row="(id: string | null) => { listRowView = id }"
+              @changed="fetchListCounts"
             />
             <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" @open-instruction="openInstructionById" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
@@ -1180,6 +1228,7 @@ import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructi
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import EntityDetailPanel from '~/components/entity/EntityDetailPanel.vue'
 import AgentQueriesPanel from '~/components/entity/AgentQueriesPanel.vue'
+import AgentListsPanel from '~/components/lists/AgentListsPanel.vue'
 import LibraryIcon from '~/components/icons/LibraryIcon.vue'
 import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
@@ -1266,21 +1315,57 @@ const search = ref('')
 // flat grouped results view instead of the lazy tree (the tree only has loaded
 // rows, so client-side search can't see everything).
 let searchTimer: any = null
+let searchRequest = 0
 const runSearch = async (q: string) => {
   const term = (q || '').trim()
+  const req = ++searchRequest
   if (!term) { searchResults.value = null; searching.value = false; return }
   searching.value = true
   try {
     const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query: { q: term, limit: 30 } })
+    // A newer query superseded this response.
+    if (req !== searchRequest) return
     searchResults.value = { agents: data.value?.agents || [], instructions: data.value?.instructions || [] }
-  } catch (e) { console.error(e); searchResults.value = { agents: [], instructions: [] } }
-  finally { searching.value = false }
+  } catch (e) { console.error(e); if (req === searchRequest) searchResults.value = { agents: [], instructions: [] } }
+  finally { if (req === searchRequest) searching.value = false }
+}
+// Per-agent instruction search (the search box in the Instructions pane that
+// an agent's Instructions row opens). Server-side, so it matches the body too —
+// list rows only carry a preview. Keyed by agent id so each agent keeps its
+// own query; a null result means no search is active there.
+const agentSearch = ref<Record<string, string>>({})
+const agentSearchResults = ref<Record<string, Instruction[] | null>>({})
+const agentSearching = ref<Set<string>>(new Set())
+const agentSearchTimers: Record<string, any> = {}
+const agentSearchRequests: Record<string, number> = {}
+const setAgentSearching = (id: string, on: boolean) => {
+  const next = new Set(agentSearching.value); on ? next.add(id) : next.delete(id); agentSearching.value = next
+}
+const runAgentSearch = async (id: string, term: string, req: number) => {
+  setAgentSearching(id, true)
+  try {
+    const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query: { q: term, limit: 50, data_source_id: id } })
+    if (req !== agentSearchRequests[id]) return
+    agentSearchResults.value = { ...agentSearchResults.value, [id]: data.value?.instructions || [] }
+  } catch (e) { console.error(e); if (req === agentSearchRequests[id]) agentSearchResults.value = { ...agentSearchResults.value, [id]: [] } }
+  finally { if (req === agentSearchRequests[id]) setAgentSearching(id, false) }
+}
+const onAgentSearch = (id: string, q: string) => {
+  agentSearch.value = { ...agentSearch.value, [id]: q }
+  if (agentSearchTimers[id]) clearTimeout(agentSearchTimers[id])
+  const term = q.trim()
+  const req = agentSearchRequests[id] = (agentSearchRequests[id] || 0) + 1
+  if (!term) { agentSearchResults.value = { ...agentSearchResults.value, [id]: null }; setAgentSearching(id, false); return }
+  // Swap the pane to the results view (spinner) right away, not after the debounce.
+  if (!agentSearchResults.value[id]) agentSearchResults.value = { ...agentSearchResults.value, [id]: [] }
+  setAgentSearching(id, true)
+  agentSearchTimers[id] = setTimeout(() => runAgentSearch(id, term, req), 250)
 }
 watch(search, (q) => {
   if (searchTimer) clearTimeout(searchTimer)
   // Typing a query leaves the "Pending changes" view (search takes over the pane).
   if (q.trim() && pendingView.value) pendingView.value = false
-  if (!q.trim()) { searchResults.value = null; searching.value = false; return }
+  if (!q.trim()) { searchRequest++; searchResults.value = null; searching.value = false; return }
   searchTimer = setTimeout(() => runSearch(q), 250)
 })
 
@@ -1624,6 +1709,29 @@ const onQueryDeleted = () => {
   queryView.value = null
   fetchQueryCounts()
 }
+
+// ── Lists (typed per-agent record tables) ─────────────────
+// Same shape as Queries: a leaf row opening a pane. The open list id lives
+// here (not in the panel) because the URL reflects it: /agents/<id>/lists/<list>.
+const listCounts = ref<Record<string, number>>({})
+const listView = ref<string | null>(null)
+// The row open in a list's side panel (deep-linkable: /agents/<id>/lists/<list>/<row>).
+const listRowView = ref<string | null>(null)
+const fetchListCounts = async () => {
+  try {
+    const { data } = await useMyFetch<any>('/api/agent_lists/counts', { method: 'GET' })
+    if (data.value?.by_agent) listCounts.value = { ...data.value.by_agent }
+  } catch (e) { console.error('Failed to load list counts', e) }
+}
+const openListsPanel = (agentId: string) => {
+  if (panelView.value?.kind === 'lists' && panelView.value?.agentId === agentId) {
+    listView.value = null
+    return
+  }
+  listView.value = null
+  openPanel('lists', agentId)
+}
+const openList = (listId: string | null) => { listView.value = listId; listRowView.value = null }
 
 // ── Eval suites tree ──────────────────────────────────────
 // Suites render as folders under each agent's Evals group, and test cases as
@@ -2082,19 +2190,42 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), instructions: t('agentsPage.instructions'), queries: t('agentsPage.queries'), lists: t('agentsPage.lists'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'lists' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
+  if (kind !== 'lists') listView.value = null
   panelView.value = { kind, agentId }
+  if (kind === 'instructions') {
+    // The pane lists the same rows as the tree group; make sure they are loaded.
+    loadGroup(agentId)
+    // A query left from an earlier visit may be stale (rows edited since) — re-run it.
+    if ((agentSearch.value[agentId] || '').trim()) onAgentSearch(agentId, agentSearch.value[agentId])
+    if (!isMobile.value) nextTick(() => panelSearchInput.value?.focus())
+  }
 }
+const panelSearchInput = ref<HTMLInputElement | null>(null)
+// Rows for the Instructions pane: the scoped search hits while a query is
+// active, otherwise the agent's full list. The tree's filter popover applies
+// to both, as it does to the tree.
+const panelInstructions = computed(() => {
+  const id = panelView.value?.kind === 'instructions' ? panelView.value.agentId : ''
+  if (!id) return []
+  const hits = agentSearchResults.value[id]
+  return hits ? applyFilters(hits) : listForAgent(id)
+})
+const panelInstructionsLoading = computed(() => {
+  const id = panelView.value?.kind === 'instructions' ? panelView.value.agentId : ''
+  if (!id) return false
+  return agentSearchResults.value[id] ? agentSearching.value.has(id) : groupLoading(id)
+})
 // Org-wide evals view — not bound to any agent.
 const openGlobalEvals = () => {
   clearRightPane()
@@ -2127,9 +2258,10 @@ const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
 // Row-click on Tables/Tools opens the editable panel immediately (like clicking
 // an agent). Re-clicking the already-open row just collapses the tree node.
-const onPanelRowClick = (kind: 'tables' | 'tools' | 'files', agentId: string) => {
-  if (panelView.value?.kind === kind && panelView.value?.agentId === agentId) { expand(kind + ':' + agentId); return }
-  if (!isOpen(kind + ':' + agentId)) expand(kind + ':' + agentId)
+const onPanelRowClick = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
+  const key = (kind === 'instructions' ? 'instr:' : kind + ':') + agentId
+  if (panelView.value?.kind === kind && panelView.value?.agentId === agentId) { expand(key); return }
+  if (!isOpen(key)) expand(key)
   openPanel(kind, agentId)
 }
 
@@ -2234,13 +2366,19 @@ const setAgentCatalog = async (catalogId: string | null) => {
 const setAgentIcon = async (token: string | null) => {
   const id = agentView.value?.agentId; if (!id) return
   const prev = agentDetail.value?.icon ?? null
-  if (agentDetail.value) agentDetail.value.icon = token
+  const prevToken = agentDetail.value?.icon_token ?? null
+  // Drop the resolved token optimistically so a reset doesn't keep showing the
+  // old override; the server's re-resolved token replaces it below.
+  if (agentDetail.value) { agentDetail.value.icon = token; agentDetail.value.icon_token = token }
   try {
-    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { icon: token } })
-    const a = agents.value.find(x => x.id === id); if (a) { a.icon = token; agents.value = [...agents.value] }
+    const { data, error } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'PUT', body: { icon: token } })
+    if (error?.value) throw error.value
+    const iconToken = data.value?.icon_token ?? token
+    if (agentDetail.value) agentDetail.value.icon_token = iconToken
+    const a = agents.value.find(x => x.id === id); if (a) { a.icon = token; a.icon_token = iconToken; agents.value = [...agents.value] }
     toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
   } catch (e: any) {
-    if (agentDetail.value) agentDetail.value.icon = prev
+    if (agentDetail.value) { agentDetail.value.icon = prev; agentDetail.value.icon_token = prevToken }
     toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
   }
 }
@@ -2718,18 +2856,11 @@ const backToTree = () => {
   editing.value = false
 }
 // The counts in the agent overview act as shortcuts into the tree sections,
-// mirroring a click on the matching tree row. Tables/Tools/Files open their
-// editable panel (which also expands the tree node); Instructions has no
-// right-pane panel, so we expand its tree node instead. On mobile the tree is
-// hidden behind the detail pane, so for Instructions we fall back to it.
+// mirroring a click on the matching tree row: each opens its right-pane panel
+// (which also expands the tree node).
 const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
   expand('agent:' + agentId, true)
-  if (kind === 'instructions') {
-    expand('instr:' + agentId, true)
-    if (isMobile.value) backToTree()
-  } else {
-    onPanelRowClick(kind, agentId)
-  }
+  onPanelRowClick(kind, agentId)
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
@@ -3883,6 +4014,16 @@ const restore = async (v: any) => {
 // Tree/list rows carry `preview` instead of the body; the detail pane still has
 // the full `text` once an instruction is opened.
 const displayTitle = (ins: Instruction) => instructionRowLabel(ins)
+// One line of body for the pane rows: the light row's `preview`, else the full
+// row's text. Markdown heading marks and the title line itself are dropped so
+// the snippet never just repeats the label above it.
+const instructionSnippet = (ins: Instruction) => {
+  const body = String((ins as any).preview ?? ins.text ?? '')
+  const title = displayTitle(ins).trim()
+  const lines = body.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).filter(Boolean)
+  const line = lines.find(l => l !== title) || ''
+  return line.length > 160 ? line.slice(0, 160) + '…' : line
+}
 
 // ── Markdown export ─────────────────────────────────────
 // The body is already markdown; the title and description live in their own
@@ -4002,11 +4143,15 @@ const InstrLeaf = defineComponent({
     // this scope ('global' | agentId). Only passed inside directory-aware groups.
     dragScope: { type: String, default: '' },
     draggable: Boolean,
+    // Render a one-line body snippet under the title. The Instructions pane
+    // sets it: a search matches the body, so the row should show why it hit.
+    snippet: Boolean,
   },
   setup(props) {
     return () => {
       const ins = props.ins
       const sel = selectedId.value === ins.id
+      const snippetText = props.snippet ? instructionSnippet(ins) : ''
       const pending = isPending(ins)
       const visibleState = visibleInstructionState(ins)
       // Inactive (draft/archived) rows stay muted even while a change is
@@ -4023,7 +4168,7 @@ const InstrLeaf = defineComponent({
         role: 'button',
         tabindex: 0,
         draggable: props.draggable ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 text-start select-none', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
+        class: ['group w-full flex items-center gap-2 rounded-md text-[13px] transition-colors min-w-0 text-start select-none', snippetText ? 'py-1.5' : 'h-8', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
         // WebkitUserDrag: Safari refuses to start a drag on a plain element
         // (especially one with user-select: none) unless it is asked to treat
         // the element itself as the drag source. No effect in Chrome/Firefox.
@@ -4035,7 +4180,12 @@ const InstrLeaf = defineComponent({
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(visibleState)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(visibleState) }),
         (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
-        createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
+        snippetText
+          ? createElement('span', { class: 'flex-1 min-w-0 flex flex-col text-start' }, [
+              createElement('span', { class: ['truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
+              createElement('span', { class: 'truncate text-[11px] leading-4 text-gray-400 dark:text-gray-500', dir: 'auto' }, snippetText),
+            ])
+          : createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
         pending ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
@@ -4252,7 +4402,7 @@ const FilterSection = defineComponent({
 // router navigation) so the address bar updates without re-running the global
 // middleware (auth/onboarding/permissions) or remounting/flickering the page.
 const route = useRoute()
-const PANEL_KINDS = ['tables', 'tools', 'queries', 'evals', 'settings'] as const
+const PANEL_KINDS = ['tables', 'tools', 'queries', 'lists', 'evals', 'settings'] as const
 
 // The URL that reflects the current right-pane state. Only one of agent /
 // panel / instruction views is open at a time (each open() clears the others).
@@ -4262,7 +4412,7 @@ const explorerUrl = (): string => {
   // A query open inside the queries panel gets the deeper URL, so the link a
   // reader shares opens that query and not the agent's whole list.
   if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
-  if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind].filter(Boolean).join('/')}`
+  if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind, panelView.value.kind === 'lists' ? listView.value : '', panelView.value.kind === 'lists' && listView.value ? listRowView.value : ''].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
   if (selectedId.value && !creating.value) return `/agents/instructions/${selectedId.value}`
   return '/agents'
@@ -4275,7 +4425,7 @@ const syncUrl = () => {
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
 // in the URL from one place, so all open and close paths stay in sync.
-watch([panelView, agentView, selectedId, queryView, () => creating.value], () => syncUrl())
+watch([panelView, agentView, selectedId, queryView, listView, listRowView, () => creating.value], () => syncUrl())
 
 // Restore the view from the URL on load and on back/forward navigation.
 const restoreFromRoute = () => {
@@ -4333,10 +4483,12 @@ const restoreFromRoute = () => {
   if (!agent) return
   // /agents/<id>/<panel>
   if (panel && (PANEL_KINDS as readonly string[]).includes(panel)) {
+    if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }
     if (panelView.value?.kind === panel && panelView.value?.agentId === agentId) return
     expand('agent:' + agentId, true)
     if ((panel === 'tables' || panel === 'tools') && !isOpen(panel + ':' + agentId)) expand(panel + ':' + agentId)
     openPanel(panel, agentId)
+    if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }
     return
   }
   // /agents/<id>
@@ -4378,7 +4530,7 @@ onMounted(async () => {
   // Lazy tree: load agents + aggregate counts only (no instruction rows). Each
   // group's rows load on first expand. fetchCounts also feeds the pending dots
   // and the "N pending" badge, so fetchPendingMap is no longer on the hot path.
-  await Promise.all([fetchAgents(), fetchCatalogs(), fetchConnections(), fetchCounts(), fetchQueryCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  await Promise.all([fetchAgents(), fetchCatalogs(), fetchConnections(), fetchCounts(), fetchQueryCounts(), fetchListCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   instrLoading.value = false
   // fetchCounts already populated the per-row "pending" dot set from its own
   // response, so no separate org-wide /pending-changes sweep is needed here.

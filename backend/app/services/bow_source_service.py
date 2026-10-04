@@ -14,7 +14,6 @@ from app.models.report_data_source_association import report_data_source_associa
 from app.schemas.bow_source_schema import BowQuery, MAX_ROWS, MAX_GROUPS
 from app.services.diagnosis.compiler import compile_query, tool_match_conditions, stale_clause
 from app.services.diagnosis.service import diagnosis_service, RunQueryParams, _utc_naive
-from app.services.diagnosis.rollup import pending_clause
 
 
 RUN_FIELDS = {
@@ -90,10 +89,10 @@ class BowSourceService:
         if exclude_report_id:
             from sqlalchemy import or_
             base.append(or_(AE.report_id.is_(None), AE.report_id != str(exclude_report_id)))
-        # Do not let an unindexed rollup disappear behind a filter on its empty columns.
-        pending = await db.scalar(diagnosis_service._from(select(func.count())).where(*base, pending_clause(now)))
-        if pending:
-            raise ValueError("BOW history is still indexing; retry after indexing completes")
+        # Runs the rollup has not indexed yet are answered like runs still in
+        # progress: included, with empty rollup columns. Indexing never blocks a
+        # query; the scheduled sweep (diagnosis/sweep.py) bounds how long a run
+        # can stay unindexed.
         clause = compile_query(parsed.ast, ctx)
         if clause is not None:
             base.append(clause)

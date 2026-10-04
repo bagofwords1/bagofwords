@@ -1,6 +1,6 @@
-# Custom queries + FAST acceleration (Postgres) — design
+# Custom tables + FAST acceleration (Postgres) — design
 
-A **custom query** is a named, materialized relation on a connection. An admin
+A **custom table** is a named, materialized relation on a connection. An admin
 authors SQL once in the source dialect; it runs on a schedule; agents query the
 *result* locally via DuckDB instead of hitting the source. Full-table
 acceleration is not a separate feature — it is `SELECT * FROM t`.
@@ -30,7 +30,7 @@ phase 2.
 **In (v1, Postgres only):**
 - Behind the `enable_custom_queries` org setting — **beta, off by default**, and
   fails closed (a settings lookup that errors leaves the feature disabled).
-- Create / test / save / delete custom queries on a connection (`manage_connection`).
+- Create / test / save / delete custom tables on a connection (`manage_connection`).
 - Materialize each to an encrypted DuckDB artifact on a schedule (interval or daily-at-time).
 - Agents query them through a DuckDB-backed client, in DuckDB SQL.
 - Schema context + codegen hints so the model knows a relation is local and how fresh it is.
@@ -38,16 +38,16 @@ phase 2.
 - `system_only` connections only.
 
 **Out (v1):**
-- **RLS — phase 2.** No row filtering; a custom query returns the same rows to every user of an agent that has it activated.
+- **RLS — phase 2.** No row filtering; a custom table returns the same rows to every user of an agent that has it activated.
 - Incremental / append refresh — **full reload only**.
 - FAST on introspected tables (raw `ConnectionTable` rows) — v1 accelerates *queries*, not tables.
 - Connectors other than Postgres.
 - `user_required` connections.
-- Live (non-materialized) views. A custom query is always materialized; inlining its SQL into agent-generated SQL would require rewriting generated SQL, which we are deliberately not doing.
+- Live (non-materialized) views. A custom table is always materialized; inlining its SQL into agent-generated SQL would require rewriting generated SQL, which we are deliberately not doing.
 
 ## Data model
 
-Custom queries live in `ConnectionTable` rather than a new model, so activation
+Custom tables live in `ConnectionTable` rather than a new model, so activation
 (`DataSourceTable.is_active`), per-user overlays, `table_stats`, and schema
 context rendering all keep working with no changes.
 
@@ -79,7 +79,7 @@ populated from the test run and is required — the agent's schema context, the
 DuckDB schema, and phase-2 RLS predicates all depend on it. `pks` / `fks` are
 stored as empty lists.
 
-New unique constraint: `(connection_id, name)` — a custom query must not collide
+New unique constraint: `(connection_id, name)` — a custom table must not collide
 with an introspected table name on the same connection.
 
 Migration under `backend/alembic/versions/`.
@@ -89,7 +89,7 @@ Migration under `backend/alembic/versions/`.
 `ConnectionService.refresh_schema` (`connection_service.py:1061`) upserts
 `ConnectionTable` rows from live introspection. It **must exclude
 `kind='bow'` rows** from its upsert and any stale-row sweep, or a scheduled
-reindex will silently delete every custom query. This needs an explicit test.
+reindex will silently delete every custom table. This needs an explicit test.
 
 ## Storage & refresh
 
@@ -114,7 +114,7 @@ reindex will silently delete every custom query. This needs an explicit test.
 
 ## Bounding extraction
 
-A custom query is the one place a deliberately huge scan can happen. A
+A custom table is the one place a deliberately huge scan can happen. A
 `SELECT *` against a 2-billion-row table must not take the process down. Three
 independent layers, all required:
 
@@ -148,7 +148,7 @@ than every client.
 
 A new `FastQueryClient` (DuckDB-backed) is constructed in
 `DataSourceService.construct_clients` (`data_source_service.py:2143`) for each
-connection that has at least one **activated** custom query, keyed
+connection that has at least one **activated** custom table, keyed
 `"{agent}:{connection}::fast"`.
 
 `connect()` builds a fresh in-memory DuckDB per call, attaches each activated
@@ -171,7 +171,7 @@ connection's artifact, `read_parquet('/etc/…')`, or exfiltrate via
 1.5 during the sandbox loop.
 
 Registering **only activated relations** is the authorization boundary, and it
-is structural: an agent cannot name a custom query it has not been given. This
+is structural: an agent cannot name a custom table it has not been given. This
 is the same mechanism phase 2 will extend with RLS predicates.
 
 `description` states the dialect (DuckDB SQL), the available relations, and each
@@ -179,7 +179,7 @@ relation's `as_of`.
 
 ## Agent context & codegen
 
-- `schema_context_builder.py` renders custom queries under the fast connection.
+- `schema_context_builder.py` renders custom tables under the fast connection.
 - `tables_schema_section.py` adds `fast="true"` and `as_of="..."` to the table tag.
 - `coder.py` needs **no prompt restructuring** — `<connection_clients>` is built
   from `client.description` (`coder.py:277`), so the fast client describes
@@ -229,16 +229,16 @@ the existing `/{connection_id}/tables` endpoint (`:890`).
 
 ## UI
 
-**`ConnectionDetailModal.vue`** — a "Custom queries" section showing the count
+**`ConnectionDetailModal.vue`** — a "Custom tables" section showing the count
 and the list, with create / edit / delete.
 
-**`/agents/:id/tables`** — custom queries appear alongside tables with a badge,
-plus a "New custom query" action for admins holding `manage_connection` on that
+**`/agents/:id/tables`** — custom tables appear alongside tables with a badge,
+plus a "New custom table" action for admins holding `manage_connection` on that
 connection. An agent may have several connections and the permission is
 per-connection, so the action is enabled per row, not per page.
 
 > The modal must state plainly that the effect is connection-wide:
-> *"This custom query is created on Postgres (prod) and can be activated by any
+> *"This custom table is created on Postgres (prod) and can be activated by any
 > agent using that connection."* Creating it from an agent page makes it look
 > agent-local; it is not.
 
@@ -265,7 +265,7 @@ manual **Refresh**, **Delete**.
 - `system_only` connections only; the option is hidden on `user_required`.
 - Only activated relations are attached and registered in the DuckDB session.
 - Audit-log create / update / delete / manual refresh.
-- Artifacts are deleted when the custom query or its connection is deleted.
+- Artifacts are deleted when the custom table or its connection is deleted.
 
 ### Encryption is the sandbox boundary
 
@@ -304,7 +304,7 @@ Defense in depth, still worth doing:
 - Extraction of a large result holds bounded memory (batch-sized, not result-sized).
 - Failed refresh preserves the previous artifact and records the error.
 - `FastQueryClient.connect` registers only activated relations; an unactivated
-  custom query is not nameable.
+  custom table is not nameable.
 - Schema context renders `fast` / `as_of`.
 - Sandbox validator rejects `pd.read_parquet(...)`.
 - Serving session refuses `ATTACH`, `read_parquet('/etc/...')`, and `COPY ... TO`.
@@ -316,9 +316,9 @@ Defense in depth, still worth doing:
 
 **E2E** (via the `sandbox-feedback-loop` skill — used both while building and to
 verify against a real Postgres)
-- Create a custom query on the Postgres connection, ask the agent a question
+- Create a custom table on the Postgres connection, ask the agent a question
   that uses it, assert the answer and the freshness indicator.
-- **The assertion that matters most is the negative one:** once a custom query is
+- **The assertion that matters most is the negative one:** once a custom table is
   active, an agent turn issues **zero queries to Postgres**. Verifiable from the
   backend logs, and it is the whole feature in a single check.
 
@@ -329,7 +329,7 @@ added, and the reasons are worth carrying forward.
 
 - **Cached relations are attributed to the `::fast` client in schema context.**
   This is the most important delta and it was not in the plan. The context
-  originally rendered a custom query under its *source* connection, and the
+  originally rendered a custom table under its *source* connection, and the
   coder is instructed to map a table's `<connection name>` onto a client_key
   suffix — so it sent generated SQL to the live client, where the relation does
   not exist. Every query against a cached relation failed. Cached relations now
@@ -354,10 +354,28 @@ added, and the reasons are worth carrying forward.
   duration and cached row count.
 - **Tool output badges cached reads** with a bolt in `create_data`,
   `inspect_data` and `describe_tables`.
+- **Power BI custom tables are DAX, and the source was designed against a live
+  tenant** (`fast/powerbi_source.py`). Three measured facts shaped it: the
+  `executeQueries` endpoint truncates at 100,000 rows *or* 1,000,000 values with
+  HTTP 200 and no flag (`GENERATESERIES(1, 150000)` came back as exactly 100,000
+  rows; a 12-column table stopped at 83,333); DAX's `WINDOW` refuses to page a
+  base table ("Relation parameter may have duplicate rows"); and `COUNTROWS` is
+  one cheap request for an exact count. So the estimate is exact, the preview is
+  a `TOPN`, and anything over the per-response ceiling is fetched in value
+  windows over a numeric or date column picked from a sample, then verified
+  against the count — a shortfall fails the refresh and keeps the previous
+  artifact. Blank cursors are fetched separately rather than lost. A DAX text
+  names tables but not the model, so the target semantic model is resolved from
+  the tables it references against the indexed catalog, with an explicit pin
+  (`metadata_json.target`, the modal's "Semantic model" picker) winning and an
+  ambiguous match refused. Verified end to end: 250,000 synthetic rows in 7
+  windows with every value present, and real model tables with dates typed as
+  timestamps. The service principal bypasses Power BI's own RLS, which is why the
+  `system_only` gate matters here; the platform's row policies apply on the copy.
 
 ## Phases
 
-1. **This doc** — custom queries, materialization, schedule, delete, count,
+1. **This doc** — custom tables, materialization, schedule, delete, count,
    Postgres, agent querying.
 2. **RLS** — predicates bound to user attributes, per-session filtered catalog,
    "preview as user" tester, conformance check

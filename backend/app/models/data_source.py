@@ -56,6 +56,9 @@ class DataSource(BaseSchema):
     # default (OrganizationSettings.config['agent_automation_defaults']). None /
     # empty means "fully inherit the org default".
     automation_settings = Column(JSON, nullable=True)
+    # Watermark for the nightly agent dream: drafts, feedback and usage up to
+    # here have been consolidated.
+    agent_dreamed_at = Column(DateTime, nullable=True)
 
     # Lifecycle of the reliability loop, orthogonal to publish_status. The
     # automation system writes this; humans set publish_status. Keeping them

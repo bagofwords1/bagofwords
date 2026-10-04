@@ -34,6 +34,7 @@ def _e2e_force_enterprise_license():
         org_name="e2e-tests",
         features=[
             "audit_logs",
+            "audit_log_streams",
             "step_retention_config",
             "scim",
             "custom_roles",
@@ -54,6 +55,21 @@ def _e2e_force_enterprise_license():
     finally:
         ee_license._cached_license = saved_cached
         ee_license._cache_initialized = saved_initialized
+
+
+@pytest.fixture(autouse=True)
+def _e2e_reapply_enterprise_license(_e2e_force_enterprise_license):
+    """Re-apply the session license before each test.
+
+    License tests call ``clear_license_cache()`` on teardown, which drops the
+    session fake for every later test on the same worker, so enterprise-gated
+    connectors would 402 depending on test order. Tests that need community
+    mode still clear or patch the cache inside their own fixtures/body.
+    """
+    ee_license._cached_license = _e2e_force_enterprise_license
+    ee_license._cache_initialized = True
+    ee_license._db_license_key = None
+    yield
 
 
 @pytest.fixture(autouse=True)

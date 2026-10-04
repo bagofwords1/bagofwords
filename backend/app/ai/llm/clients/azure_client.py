@@ -1,5 +1,6 @@
 import json
 
+from app.ai.llm.clients.chat_effort import apply_chat_reasoning, create_chat_stream
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from openai import AzureOpenAI, AsyncAzureOpenAI
@@ -13,6 +14,9 @@ from app.ai.llm.types import (
     LLMUsage,
     Message,
     MessageStopEvent,
+    ReasoningStartEvent,
+    ReasoningDeltaEvent,
+    ReasoningCompleteEvent,
     TextDeltaEvent,
     ToolSpec,
     ToolUseCompleteEvent,
@@ -87,69 +91,75 @@ class AzureClient(LLMClient):
             })
         return content
 
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
+        """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
+
+        OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
+        system message renders at position 0, so splitting the stable half out
+        is what makes a one-shot call cacheable here too — no marker to attach.
+        """
         # For Azure, model_id is the deployment (deployment name)
         temperature = self._resolve_temperature(model_id)
 
-        chat_completion = self.client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": self._build_content(prompt, images),
-                }
-            ],
-            model=model_id,
-            temperature=temperature,
-        )
+        _msgs = [{"role": "user", "content": self._build_content(prompt, images)}]
+        if system:
+            _msgs = [{"role": "system", "content": system}] + _msgs
+        params = {"messages": _msgs, "model": model_id, "temperature": temperature}
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        chat_completion = self.client.chat.completions.create(**params)
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
         content = chat_completion.choices[0].message.content or ""
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None, thinking: Optional[dict] = None
     ) -> AsyncGenerator[str, None]:
         # For Azure, model_id is the deployment (deployment name)
         temperature = self._resolve_temperature(model_id)
 
-        stream = await self.async_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": self._build_content(prompt, images),
-                }
-            ],
-            model=model_id,
-            temperature=temperature,
-            stream=True
-        )
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        params = {"model": model_id, "messages": [{"role": "user", "content": self._build_content(prompt, images)}],
+                  "temperature": temperature, "stream": True}
+        if max_output_tokens is not None:
+            params["max_completion_tokens"] = max_output_tokens
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        stream = await client.chat.completions.create(**params)
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if not chunk.choices:
-                # heartbeat/control packets; may still carry usage
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    # heartbeat/control packets; may still carry usage
+                    usage = self._extract_usage(getattr(chunk, "usage", None))
+                    if usage.prompt_tokens or usage.completion_tokens:
+                        prompt_tokens = usage.prompt_tokens or prompt_tokens
+                        completion_tokens = usage.completion_tokens or completion_tokens
+                    continue
+
+                if max_output_tokens is not None and getattr(chunk.choices[0], "finish_reason", None) == "length":
+                    raise ValueError("Model output limit reached")
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+
                 usage = self._extract_usage(getattr(chunk, "usage", None))
                 if usage.prompt_tokens or usage.completion_tokens:
                     prompt_tokens = usage.prompt_tokens or prompt_tokens
                     completion_tokens = usage.completion_tokens or completion_tokens
-                continue
-            
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
 
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
-
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await (getattr(stream, "aclose", None) or stream.close)()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[dict]:
@@ -298,27 +308,22 @@ class AzureClient(LLMClient):
                 disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        _reasoning_model_prefixes = ("o1", "o3", "o4", "gpt-5")
-        if thinking and any(model_id.startswith(p) or f"/{p}" in model_id for p in _reasoning_model_prefixes):
-            budget = thinking.get("budget_tokens")
-            if thinking.get("type") == "adaptive" or not budget:
-                request_kwargs["reasoning_effort"] = "medium"
-            elif budget >= 10000:
-                request_kwargs["reasoning_effort"] = "high"
-            elif budget >= 3000:
-                request_kwargs["reasoning_effort"] = "medium"
-            else:
-                request_kwargs["reasoning_effort"] = "low"
+        efforts = apply_chat_reasoning(self, model_id, request_kwargs, thinking)
+        reasoning_text = ""
+        reasoning_active = False
 
         open_calls: dict[int, dict] = {}
+        reasoning_tokens = 0
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
         stop_reason: str | None = None
 
-        stream = await self.async_client.chat.completions.create(**request_kwargs)
+        stream = await create_chat_stream(self.async_client, request_kwargs, efforts)
         async for chunk in stream:
             usage = self._extract_usage(getattr(chunk, "usage", None))
+            if usage.reasoning_tokens:
+                reasoning_tokens = usage.reasoning_tokens
             if usage.prompt_tokens:
                 prompt_tokens = usage.prompt_tokens
             if usage.completion_tokens:
@@ -341,6 +346,19 @@ class AzureClient(LLMClient):
             # "'NoneType' object has no attribute 'content'".
             if delta is None:
                 continue
+            # Compatible servers use either of these fields. Only emit text
+            # actually supplied by the provider; never synthesize reasoning.
+            reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+            if isinstance(reasoning, str) and reasoning:
+                if not reasoning_active:
+                    yield ReasoningStartEvent()
+                    reasoning_active = True
+                reasoning_text += reasoning
+                yield ReasoningDeltaEvent(text=reasoning)
+            if reasoning_active and (delta.content or delta.tool_calls):
+                yield ReasoningCompleteEvent(text=reasoning_text)
+                reasoning_active = False
+                reasoning_text = ""
 
             if delta.content:
                 yield TextDeltaEvent(text=delta.content)
@@ -382,6 +400,8 @@ class AzureClient(LLMClient):
             )
 
         _stop_map = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
+        if reasoning_active:
+            yield ReasoningCompleteEvent(text=reasoning_text)
         yield MessageStopEvent(
             stop_reason=_stop_map.get(stop_reason or "", "other"),
             raw_stop_reason=stop_reason,
@@ -391,11 +411,13 @@ class AzureClient(LLMClient):
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         )
         self._set_last_usage(LLMUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         ))
 
     def test_connection(self):
@@ -413,17 +435,25 @@ class AzureClient(LLMClient):
             completion = raw.get("completion_tokens") or 0
             details = raw.get("prompt_tokens_details") or {}
             cache_read = (details.get("cached_tokens") if isinstance(details, dict) else 0) or 0
+            # Reasoning tokens ride inside completion_tokens and bill at the
+            # output rate; tracked separately so thinking spend is attributable.
+            out_details = raw.get("completion_tokens_details") or {}
+            reasoning = (out_details.get("reasoning_tokens") if isinstance(out_details, dict) else 0) or 0
             return LLMUsage(
                 prompt_tokens=int(prompt or 0),
                 completion_tokens=int(completion or 0),
                 cache_read_tokens=int(cache_read or 0),
+                reasoning_tokens=int(reasoning or 0),
             )
         prompt = getattr(raw, "prompt_tokens", 0) or getattr(raw, "prompt_tokens_cost", 0) or 0
         completion = getattr(raw, "completion_tokens", 0) or getattr(raw, "completion_tokens_cost", 0) or 0
         details = getattr(raw, "prompt_tokens_details", None)
         cache_read = getattr(details, "cached_tokens", 0) if details is not None else 0
+        out_details = getattr(raw, "completion_tokens_details", None)
+        reasoning = getattr(out_details, "reasoning_tokens", 0) if out_details is not None else 0
         return LLMUsage(
             prompt_tokens=int(prompt or 0),
             completion_tokens=int(completion or 0),
             cache_read_tokens=int(cache_read or 0),
+            reasoning_tokens=int(reasoning or 0),
         )

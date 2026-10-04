@@ -45,6 +45,9 @@
     "newAgent": "סוכן",
     "newAgentDesc": "חיבור נתונים, כלים וטבלאות",
     "searchPlaceholder": "חיפוש בכל מקום…",
+    "clearSearch": "ניקוי חיפוש",
+    "searchAgentInstructions": "חיפוש הנחיות…",
+    "noResults": "אין תוצאות.",
     "filters": "מסננים",
     "filterStatus": "סטטוס",
     "filterLoading": "טעינה",
@@ -333,7 +336,8 @@
     "filterCatalog": "קטלוג",
     "noCatalog": "ללא קטלוג",
     "catalogs": "קטלוגים",
-    "manageCatalogs": "ניהול קטלוגים…"
+    "manageCatalogs": "ניהול קטלוגים…",
+    "lists": "רשימות"
   },
   "smoke": {
     "hello": "שלום",
@@ -466,6 +470,11 @@
         "title": "⚡ \"{name}\" הופעל — {summary}",
         "body": "החקירה הושלמה — פתחו את הסשן לצפייה בממצאים."
       }
+    },
+    "checkin": {
+      "badge": "מעקב",
+      "openReport": "פתח דוח",
+      "assistantFallback": "אנליסט AI"
     }
   },
   "auth": {
@@ -629,7 +638,28 @@
     "modelAutoHint": "הנתב בוחר את המודל המתאים",
     "autoAgentsHint": "כל סוכן שיש לך גישה אליו",
     "loadingDataSources": "טוען מקורות נתונים…",
-    "noDataSources": "לא נמצאו מקורות נתונים"
+    "noDataSources": "לא נמצאו מקורות נתונים",
+    "effort": {
+      "title": "מאמץ",
+      "default": "ברירת מחדל",
+      "levels": {
+        "off": "מהיר",
+        "low": "נמוך",
+        "medium": "בינוני",
+        "high": "גבוה",
+        "max": "מקסימלי"
+      },
+      "searchModels": "חיפוש מודלים…",
+      "noMatches": "אין מודלים תואמים",
+      "otherProvider": "אחר",
+      "anyModel": "חל על המודל שירוץ",
+      "notSupported": "למודל זה אין הגדרת מאמץ",
+      "providerDefault": "ברירת המחדל של המודל",
+      "modelDefault": "ברירת מחדל של מנהל: {level}",
+      "runsAs": "רץ כ-{level} במודל זה",
+      "faster": "מהיר יותר",
+      "smarter": "חכם יותר"
+    }
   },
   "reports": {
     "title": "דוחות",
@@ -785,7 +815,8 @@
     },
     "inProject": "בפרויקט {name}",
     "sharedEmpty": "אין דוחות משותפים",
-    "sharedEmptyHint": "דוחות שאחרים ישתפו איתך יופיעו כאן."
+    "sharedEmptyHint": "דוחות שאחרים ישתפו איתך יופיעו כאן.",
+    "artifactLoadFailed": "לא ניתן לטעון את הגלריה. יש לרענן את הדף ולנסות שוב."
   },
   "projects": {
     "title": "פרויקטים",
@@ -904,6 +935,11 @@
     "llm": "LLM",
     "exec": "ביצוע",
     "selectItem": "בחר פריט מהעץ להצגת פרטים",
+    "tabs": {
+      "conversation": "שיחה",
+      "timeline": "ציר זמן",
+      "details": "פרטים"
+    },
     "userPrompt": "הנחיית משתמש",
     "instructionsCount": "{count} הנחיות",
     "alwaysCount": "{count} תמיד",
@@ -938,7 +974,96 @@
     "tokensCount": "{count} טוקנים",
     "llmUsageTooltip": "שימוש ב-LLM בשיחה זו",
     "turnTokensTooltip": "טוקני LLM של המתכנן בסבב זה",
-    "turnUsageTooltip": "שימוש ב-LLM בסבב זה"
+    "turnUsageTooltip": "שימוש ב-LLM בסבב זה",
+    "setup": "הכנה",
+    "setupTooltip": "הזמן מתחילת הריצה ועד תחילת הצעד הראשון (בניית הקשר וכו')",
+    "overhead": "אחר",
+    "overheadTooltip": "זמן שאינו משויך לצעד: שמירה, רענון הקשר בין צעדים, סיום",
+    "segment_planner": "LLM מתכנן",
+    "segment_tool_llm": "LLM של הכלי",
+    "segment_tool_exec": "הרצת הכלי",
+    "segment_setup": "הכנה",
+    "plannerShort": "תכנון",
+    "toolShort": "כלי",
+    "stepTiming": "תזמון הצעד",
+    "stepTotal": "סך הצעד",
+    "firstToken": "זמן עד הטוקן הראשון",
+    "thinking": "חשיבה",
+    "tool": "כלי",
+    "machineTurn": "תור אוטומטי ({source})",
+    "checkin": {
+      "title": "מעקב יזום של הסוכן",
+      "runTurn": "הרצת מעקב (יזום של הסוכן)",
+      "noFollowUp": "לא תוכנן מעקב",
+      "noReason": "המתכנן לא נתן סיבה.",
+      "due": "מתוזמן ל-{when}",
+      "note": "הערה לעצמי",
+      "planReason": "למה מעקב",
+      "judge": "שופט",
+      "focus": "מיקוד",
+      "whyRun": "למה השופט הריץ את המעקב",
+      "plannerUsage": "מתכנן",
+      "judgeUsage": "שופט",
+      "status": {
+        "not_proposed": "לא הוצע",
+        "rejected": "נדחה",
+        "planned": "מתוכנן",
+        "cancelled": "בוטל",
+        "skipped": "דולג",
+        "running": "רץ",
+        "ran_quiet": "רץ בשקט",
+        "sent": "נשלחה התראה",
+        "failed": "נכשל"
+      },
+      "decision": {
+        "run": "להריץ",
+        "skip": "לדלג"
+      },
+      "reason": {
+        "disabled": "ההגדרה כבויה",
+        "pending_exists_user": "כבר יש למשתמש מעקב ממתין",
+        "pending_exists_report": "כבר יש לדוח מעקב ממתין",
+        "weekly_cap": "הגיע למגבלה השבועית",
+        "org_daily_cap": "הארגון הגיע למגבלה היומית",
+        "report_deleted": "הדוח נמחק",
+        "access_lost": "הגישה בוטלה",
+        "judge_skip": "השופט דילג",
+        "run_failed": "ההרצה נכשלה",
+        "invalid_judge_output": "תשובת השופט לא תקינה",
+        "opted_out": "המשתמש ביטל הסכמה",
+        "fire_error": "שגיאה במהלך הבדיקה",
+        "stale_running": "נותר במצב ריצה (הפעלה מחדש)"
+      },
+      "outcome": {
+        "sent": "נשלחה התראה למשתמש",
+        "sentWithSubject": "נשלחה התראה למשתמש: {subject}",
+        "ran_quiet": "רץ בשקט — אין מה לדווח",
+        "planned": "ממתין למועד",
+        "running": "רץ כעת",
+        "skipped": "השופט דילג — לא רץ דבר",
+        "failed": "הרצת המעקב נכשלה — לא נשלח דבר",
+        "rejected": "לא תוזמן: {reason}",
+        "cancelled": "בוטל: {reason}"
+      }
+    },
+    "memory": {
+      "title": "זיכרון",
+      "summary": "{injected} מתוך {total} רשומות נכללו · {chars} תווים",
+      "privateNote": "הזיכרון פרטי לבעליו — מוצגים רק מזהים ומקטעים.",
+      "refused": "נדחה",
+      "tier": {
+        "always": "תמיד",
+        "matched": "תואם"
+      }
+    },
+    "export": {
+      "button": "ייצוא",
+      "turnJson": "הורדת תור זה (JSON)",
+      "conversationJson": "הורדת השיחה (JSON)",
+      "copyTurn": "העתקת תור זה כ-JSON",
+      "copied": "ה-JSON של המעקב הועתק ללוח",
+      "failed": "לא ניתן לייצא את המעקב"
+    }
   },
   "reportView": {
     "tabChat": "צ'אט",
@@ -1504,10 +1629,11 @@
       "multiHint": "בחרו את כל האפשרויות המתאימות",
       "submit": "שליחה"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "מעדכן זיכרון…",
+      "checking": "בודק בזיכרון…",
       "updated": "הזיכרון עודכן",
-      "failed": "עדכון הזיכרון נכשל"
+      "checked": "נבדק בזיכרון"
     },
     "routeModel": {
       "routedTo": "נותב אל",
@@ -1599,6 +1725,41 @@
       "pathLabel": "נתיב:",
       "attachedAsSessionFile": "צורף לשיחה זו כקובץ סשן",
       "showPagePreviews": "הצג תצוגות מקדימות של עמודים ({n})"
+    },
+    "submitList": {
+      "saving": "שומר לרשימה…",
+      "saved": "נשמר ב-{name}",
+      "added": "{n} נוספו",
+      "updated": "{n} עודכנו",
+      "unchanged": "{n} ללא שינוי",
+      "failed": "לא נשמר ב-{name}",
+      "retry": "הסוכן התבקש לתקן",
+      "open": "פתיחת הרשימה",
+      "downloadCsv": "הורדת CSV",
+      "list": "רשימה",
+      "savingTo": "שומר ל-{name}…",
+      "writing": "רשומה אחת | {n} רשומות",
+      "kept": "עריכה אחת נשמרה | {n} עריכות נשמרו",
+      "keptEdit": "ערך זה נערך ידנית, ולכן ערך הסוכן לא הוחל",
+      "errorsCount": "שגיאה אחת | {n} שגיאות",
+      "openRow": "פתיחת השורה",
+      "action": {
+        "inserted": "נוספה",
+        "updated": "עודכנה",
+        "unchanged": "ללא שינוי"
+      }
+    },
+    "resource": {
+      "failed": "שינוי המשאב נכשל",
+      "create": "משאב נוצר",
+      "update": "משאב עודכן",
+      "delete": "משאב נמחק",
+      "working": "הגדרת משאב",
+      "stopped": "נעצר",
+      "unchanged": "המשאב ללא שינוי",
+      "preserved": "הרשומות הקיימות נשמרו.",
+      "changed": "שינויים",
+      "noChanges": "לא הוחלו שינויים."
     }
   },
   "entityCreate": {
@@ -2470,7 +2631,191 @@
       "daysAbbr": "{n} ימ׳",
       "rangeCount": "{start}–{end} מתוך {total}",
       "prev": "‹ הקודם",
-      "next": "הבא ›"
+      "next": "הבא ›",
+      "tabs": {
+        "activity": "פעילות",
+        "streams": "הזרמות"
+      },
+      "actorAgent": "דרך סוכן",
+      "actorSystem": "מערכת",
+      "searchPlaceholder": "חיפוש פעולות, משתמשים, כותרות…",
+      "filters": {
+        "user": "משתמש",
+        "allUsers": "כל המשתמשים",
+        "resource": "משאב",
+        "allResources": "כל המשאבים",
+        "range": "זמן",
+        "rangeAll": "כל הזמן",
+        "range24h": "24 השעות האחרונות",
+        "range7d": "7 הימים האחרונים",
+        "range30d": "30 הימים האחרונים",
+        "filterActions": "סינון פעולות…",
+        "noOptions": "אין תוצאות"
+      },
+      "export": {
+        "button": "ייצוא",
+        "json": "הורדת JSON (NDJSON)",
+        "csv": "הורדת CSV",
+        "hint": "מייצא את התצוגה המסוננת הנוכחית, מהישן לחדש.",
+        "failed": "הייצוא נכשל"
+      },
+      "drawer": {
+        "title": "פרטי האירוע",
+        "close": "סגירה",
+        "who": "מי",
+        "when": "מתי",
+        "where": "מאיפה",
+        "what": "מה",
+        "details": "פרטים",
+        "rawJson": "JSON גולמי",
+        "copy": "העתקה",
+        "copied": "הועתק",
+        "actor": "מבצע",
+        "actorType": "סוג מבצע",
+        "timeUtc": "UTC",
+        "timeLocal": "זמן מקומי",
+        "relative": "יחסי",
+        "ip": "כתובת IP",
+        "userAgent": "סוכן משתמש (דפדפן)",
+        "action": "פעולה",
+        "resourceType": "סוג משאב",
+        "resourceId": "מזהה משאב",
+        "open": "פתיחה",
+        "agentRun": "הרצת סוכן",
+        "executionMode": "מצב הרצה",
+        "none": "—",
+        "noDetails": "אין פרטים נוספים",
+        "fields": {
+          "title": "כותרת",
+          "tool": "כלי",
+          "data_source": "מקור נתונים",
+          "connection": "חיבור",
+          "queries": "שאילתות",
+          "row_count": "שורות",
+          "reason": "סיבה",
+          "error": "שגיאה",
+          "changed": "שינויים",
+          "state": "מצב",
+          "destination": "יעד",
+          "format": "פורמט"
+        },
+        "actorKinds": {
+          "user": "משתמש",
+          "agent": "סוכן (בשם המשתמש)",
+          "system": "מערכת"
+        }
+      },
+      "streams": {
+        "title": "הזרמות יומן",
+        "subtitle": "שליחת כל אירוע ביקורת למערכת ה-SIEM או לדלי האחסון שלכם. אחרי כל תקלה, המסירה ממשיכה מהאירוע האחרון שנשלח.",
+        "empty": "עדיין אין הזרמות יומן",
+        "emptyHint": "הוסיפו הזרמה כדי לשלוח אירועי ביקורת ל-Datadog, Splunk, Microsoft Sentinel, S3, Google Cloud Storage, וובהוק או syslog.",
+        "add": "הוספת הזרמה",
+        "edit": "עריכה",
+        "delete": "מחיקה",
+        "deleteConfirm": "למחוק את ההזרמה \"{name}\"? אירועים יפסיקו להישלח אליה.",
+        "pause": "השהיה",
+        "resume": "חידוש",
+        "state": {
+          "active": "פעילה",
+          "inactive": "מושהית",
+          "error": "שגיאה",
+          "invalid": "פרטי התחברות שגויים"
+        },
+        "delivered": "{n} נמסרו",
+        "pending": "{n} ממתינים",
+        "lag": "באיחור של {time}",
+        "lastDelivered": "מסירה אחרונה {time}",
+        "never": "אף פעם",
+        "lastError": "שגיאה אחרונה",
+        "nextAttempt": "ניסיון חוזר {time}",
+        "manageRequired": "רק חברים עם הרשאת ניהול הגדרות יכולים לשנות הזרמות יומן.",
+        "form": {
+          "titleNew": "הוספת הזרמת יומן",
+          "titleEdit": "עריכת הזרמת יומן",
+          "name": "שם",
+          "namePlaceholder": "למשל Splunk ייצור",
+          "destination": "יעד",
+          "chooseDestination": "בחרו לאן לשלוח את האירועים",
+          "startFrom": "להתחיל מ",
+          "startNow": "אירועים חדשים בלבד",
+          "startBeginning": "כולל כל ההיסטוריה",
+          "actionFilter": "רק פעולות שמתחילות ב",
+          "actionFilterHint": "קידומות מופרדות בפסיקים, כמו tool., member. — השאירו ריק כדי לשלוח הכול.",
+          "advanced": "הגדרות מתקדמות",
+          "test": "שליחת אירוע בדיקה",
+          "testing": "שולח…",
+          "testOk": "אירוע הבדיקה נמסר",
+          "testFailed": "הבדיקה נכשלה: {error}",
+          "save": "שמירת הזרמה",
+          "saving": "שומר…",
+          "cancel": "ביטול",
+          "back": "חזרה",
+          "secretStored": "שמור — השאירו כמו שהוא כדי לשמור",
+          "externalIdHint": "הכניסו את ה-External ID הזה למדיניות האמון של תפקיד ה-IAM.",
+          "required": "שדה חובה"
+        },
+        "destinations": {
+          "datadog": "Datadog",
+          "splunk": "Splunk",
+          "sentinel": "Microsoft Sentinel",
+          "s3": "Amazon S3",
+          "gcs": "Google Cloud Storage",
+          "https": "וובהוק HTTPS",
+          "syslog": "Syslog על גבי TLS"
+        },
+        "destinationHints": {
+          "datadog": "API לקליטת לוגים",
+          "splunk": "HTTP Event Collector",
+          "sentinel": "Logs Ingestion API ‏(DCR)",
+          "s3": "אובייקט NDJSON לכל אצווה",
+          "gcs": "אובייקטי NDJSON עם מפתחות HMAC",
+          "https": "POST של JSON חתום",
+          "syslog": "RFC 5424, ‏JSON או CEF"
+        },
+        "fields": {
+          "url": "כתובת נקודת קצה",
+          "auth_header_name": "שם כותרת האימות",
+          "auth_header_value": "ערך כותרת האימות",
+          "hmac_secret": "סוד חתימה (HMAC)",
+          "headers": "כותרות נוספות (אובייקט JSON)",
+          "verify_tls": "אימות תעודת TLS",
+          "site": "אתר Datadog",
+          "api_key": "מפתח API",
+          "service": "שירות",
+          "tags": "תגיות",
+          "intake_url": "כתובת קליטה מותאמת",
+          "hec_url": "כתובת HEC",
+          "token": "טוקן HEC",
+          "index": "אינדקס",
+          "sourcetype": "Sourcetype",
+          "tenant_id": "מזהה דייר (Tenant)",
+          "client_id": "מזהה לקוח",
+          "client_secret": "סוד לקוח",
+          "dce_url": "נקודת קצה לאיסוף נתונים",
+          "dcr_immutable_id": "מזהה DCR קבוע",
+          "stream_name": "שם הזרם",
+          "authority_url": "כתובת רשות (Authority)",
+          "bucket": "דלי (Bucket)",
+          "region": "אזור",
+          "prefix": "קידומת מפתח",
+          "role_arn": "ARN של התפקיד",
+          "external_id": "External ID",
+          "access_key_id": "מזהה מפתח גישה",
+          "secret_access_key": "מפתח גישה סודי",
+          "gzip": "דחיסת אובייקטים ב-gzip",
+          "endpoint_url": "כתובת נקודת קצה מותאמת",
+          "sts_endpoint_url": "נקודת קצה STS מותאמת",
+          "host": "שרת",
+          "port": "פורט",
+          "tls": "שימוש ב-TLS",
+          "format": "פורמט הודעה",
+          "ca_cert": "תעודת CA ‏(PEM)",
+          "app_name": "שם האפליקציה",
+          "client_cert": "תעודת לקוח (PEM)",
+          "client_key": "מפתח לקוח (PEM)"
+        }
+      }
     },
     "aiSettingsPage": {
       "title": "הגדרות בינה מלאכותית",
@@ -2478,9 +2823,39 @@
       "beta": "תכונת בטא",
       "locked": "הגדרה זו נעולה ולא ניתן לשנותה.",
       "notEditable": "(לא ניתן לעריכה ישירה)",
-      "aiAgentsTitle": "סוכני בינה מלאכותית",
-      "aiAgentsSubtitle": "הגדר סוכנים ויכולות בינה מלאכותית הזמינים לחברי הארגון שלך.",
       "noSettings": "אין הגדרות בינה מלאכותית זמינות.",
+      "sectionSummary": "{n} הגדרות",
+      "sectionSummaryOn": "{n} הגדרות · {on} פעילות",
+      "sections": {
+        "data": {
+          "title": "גישה לנתונים ופרטיות",
+          "description": "מה ה-AI יכול לראות ולהכניס לשיחה"
+        },
+        "capabilities": {
+          "title": "יכולות הסוכן",
+          "description": "מה הסוכן יכול לעשות בזמן מתן תשובה"
+        },
+        "learning": {
+          "title": "למידה וזיכרון",
+          "description": "איך ה-AI לומד ממשתמשים, ממשוב ומשימוש"
+        },
+        "tools": {
+          "title": "כלים ו-MCP",
+          "description": "שרתי MCP חיצוניים וכלי API מותאמים"
+        },
+        "limits": {
+          "title": "מגבלות",
+          "description": "מגבלות שורות, זמני המתנה, ניסיונות חוזרים וגודל הקשר"
+        },
+        "workspace": {
+          "title": "סביבת עבודה",
+          "description": "Webhooks, פיצולים ושמירת נתונים"
+        },
+        "other": {
+          "title": "אחר",
+          "description": "הגדרות שעדיין לא שויכו לקבוצה"
+        }
+      },
       "llmAccessWarning": "שינוי הגדרה זו משפיע על פרטיות הנתונים. תידרש אישור.",
       "llmModalTitleEnable": "אפשר גישת LLM לנתונים",
       "llmModalTitleDisable": "בטל גישת LLM לנתונים",
@@ -2490,7 +2865,7 @@
       "llmImpactInspectTool": "בדוק נתונים",
       "llmImpactAccuracy": "דיוק וביצועי ניתוח מופחתים",
       "llmImpactColumns": "הבינה המלאכותית תראה רק שמות עמודות וסטטיסטיקה, ללא ערכים ממשיים",
-      "llmFileUploadsNote": "העלאות קבצים אינן מושפעות מהגדרה זו וימשיכו להיות גלויות לבינה המלאכותית (ניתן להשבית העלאות קבצים בנפרד).",
+      "llmFileUploadsNote": "העלאות קבצים אינן מושפעות מהגדרה זו וימשיכו להיות גלויות לבינה המלאכותית.",
       "llmConfirmLabel": "הקלד {phrase} לאישור",
       "llmConfirmPhrase": "אני בטוח",
       "llmConfirmPlaceholder": "אני בטוח",
@@ -2613,6 +2988,10 @@
           "name": "גודל תוצאת MCP מוטמעת",
           "description": "כמה מתוצאת כלי MCP / API מותאם הסוכן רואה ישירות בהקשר שלו, בתווים. התשובה המלאה תמיד נשמרת לקובץ ללא קשר לערך הזה; ההגדרה קובעת רק כמה המודל יכול לקרוא בלי לפתוח את הקובץ. הגדילו כדי שהסוכן יוכל לענות מתוך מערך תוצאות שלם במקום מדגם; הקטינו כדי לחסוך בטוקנים לכל קריאה. 0 מפיק מדגם של 3 רשומות. מוגבל לטווח 0-500000."
         },
+        "mcp_create_data_preview_rows": {
+          "name": "שורות תצוגה מקדימה של נתוני MCP",
+          "description": "כמה שורות תוצאה create_data מחזיר ללקוח MCP חיצוני (Claude, Cursor וכו׳) בתשובה. התוצאה המלאה תמיד נשמרת בדוח; ההגדרה קובעת רק כמה מהן המודל של הלקוח מקבל ישירות. לקוח יכול לבקש פחות שורות, אף פעם לא יותר. מוגבל גם על ידי 'הגבלת מספר שורות'. מוגבל לטווח 1-10000."
+        },
         "enable_web_fetch": {
           "name": "שליפה מהאינטרנט",
           "description": "מאפשר לסוכן לשלוף את תוכנן של כתובות HTTP ו-HTTPS ציבוריות. מוחזרות רק תשובות טקסטואליות, וגופים גדולים נחתכים."
@@ -2630,12 +3009,24 @@
           "description": "המספר המרבי של שורות שעליהן הקוד שנוצר יאמן מודל. מקורות גדולים יותר נדגמים לגודל זה לפני האימון. מינימום 1000."
         },
         "enable_custom_queries": {
-          "name": "שאילתות מותאמות (בטא)",
+          "name": "טבלאות מותאמות (בטא)",
           "description": "מאפשר למנהלי חיבורים להגדיר SQL ש-BOW ממַמֵש לעותק מקומי מוצפן לפי לוח זמנים, כך שהסוכנים עונים מהתוצאה השמורה במקום לשאול את המקור בכל תור. בטא: כבוי כברירת מחדל."
         },
         "enable_agent_notes": {
           "name": "פתקי סוכן",
           "description": "מאפשר לסוכן לנהל פתקי עבודה לכל דוח (מעין טיוטה) שהוא כותב וקורא תוך כדי מענה — תוכניות, ממצאים ומשימות. הפתקים מוצגים בדוח אך אינם ידע משותף. כשההגדרה כבויה, כלי הפתקים מוסתרים והפתקים אינם מוזרקים להקשר."
+        },
+        "enable_user_memory": {
+          "name": "זיכרון משתמש",
+          "description": "מאפשר לסוכן לזכור עובדות על כל משתמש בין שיחות — העבודה שלו, פרויקטים, דדליינים ואירועים, מה שהוא עוקב אחריו והקיצורים שלו. כללים לגבי אופן המענה נשארים בהנחיות. כל משתמש יכול לראות, לערוך ולמחוק את הזיכרון שלו. הזיכרון מתעדכן במהלך הלילה."
+        },
+        "enable_agent_dreaming": {
+          "name": "למידה לילית של סוכנים",
+          "description": "בכל לילה הסוכנים עוברים על ההצעות הממתינות, המשוב והשימוש, ומציעים שיפור מאוחד אחד לכל סוכן. מה שקורה איתו נקבע לפי הגדרת הלמידה העצמית של כל סוכן."
+        },
+        "ai_suggestion_expiry_days": {
+          "name": "פקיעת הצעות AI שלא נבדקו אחרי (ימים)",
+          "description": "הנחיות שהוצעו על ידי ה-AI ועדיין ממתינות אחרי מספר ימים זה נסגרות כפגות תוקף (לא נדחות) בלמידה הלילית. הצעות שפג תוקפן עדיין נחשבות כראיה אם אותו דפוס חוזר. 0 משאיר אותן פתוחות לתמיד."
         },
         "max_instructions_in_context": {
           "name": "מקסימום הנחיות בהקשר",
@@ -2668,6 +3059,22 @@
         "llm_fallback": {
           "name": "גיבוי LLM",
           "description": "ארגוני. כשהמודל הפעיל נכשל בשל הגבלת קצב, עומס אצל הספק או שגיאת רשת, הבקשה נשלחת אוטומטית שוב למודל הבא בסדר הגיבוי (שמוגדר בעמוד ה-LLM) למשך שארית הריצה. ההחלפה תמיד מדווחת בצ'אט. כבוי כברירת מחדל; ההפעלה מחייבת רישיון ארגוני."
+        },
+        "enable_agent_checkins": {
+          "name": "מעקב יזום של הסוכן",
+          "description": "מאפשר לסוכן לחזור לשיחה ביוזמתו כשיש משהו ששווה לבדוק שוב (למשל אחרי רענון נתונים). המעקב רץ בשם המשתמש באותו דוח, ומודיע לו רק כשמשהו השתנה באופן משמעותי."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "מעקבים למשתמש בשבוע",
+          "description": "מספר המעקבים המרבי שמשתמש אחד יכול לקבל ב-7 ימים."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "הרצות מעקב ביום",
+          "description": "תקרה להרצות מעקב בכל הארגון ביום (הגבלת עלות)."
+        },
+        "enable_artifact_resources": {
+          "name": "משאבי תוצרים",
+          "description": "אפשרו לתוצרים להשתמש ברשומות שמורות, בקבצים פרטיים ובפעולות AI מאושרות. הרשאות השיתוף והמשאבים הקיימות עדיין חלות."
         }
       }
     },
@@ -2758,7 +3165,7 @@
       "fallbackOn": "מודל גיבוי פעיל",
       "fallbackPrimary": "ראשי",
       "imageGenDefaultBlocked": "מודלי ברירת מחדל לא יכולים להיות מודלים ליצירת תמונות. הפוך מודל אחר לברירת המחדל תחילה.",
-      "imageGenTooltip": "האם המודל הזה יוצר תמונות (לדוגמה gpt-image-1). מפעיל אותו עבור הכלי generate_image ולהטמעת תמונות שנוצרו בתוצרים. מודלי תמונה אינם מופיעים בבורר המודלים בצ׳אט ואינם יכולים לשמש כברירת מחדל.",
+      "imageGenTooltip": "האם המודל הזה יוצר תמונות (לדוגמה gpt-image-2.5-sunburst). מפעיל אותו עבור הכלי generate_image ולהטמעת תמונות שנוצרו בתוצרים. מודלי תמונה אינם מופיעים בבורר המודלים בצ׳אט ואינם יכולים לשמש כברירת מחדל.",
       "modelAdded": "המודל נוסף",
       "modelCardHint": "לחץ על שורת מודל כדי לפתוח את ההגדרות שלו",
       "modelDeleted": "המודל נמחק",
@@ -2766,7 +3173,36 @@
       "modelsCount": "{count} מודלים",
       "providerLabel": "ספק",
       "providerSettingsTooltip": "הגדרות ספק",
-      "save": "שמירה"
+      "save": "שמירה",
+      "reasoning": {
+        "title": "חשיבה",
+        "tooltip": "איך המודל מקבל את רמת המאמץ שהמשתמשים בוחרים (נמוך / בינוני / גבוה / מקסימלי).",
+        "modes": {
+          "auto": "אוטומטי (לפי קטלוג המודלים)",
+          "like": "מתנהג כמו מודל אחר",
+          "generic": "כללי (reasoning_effort)",
+          "custom": "שדות בקשה מותאמים בלבד",
+          "off": "כבוי"
+        },
+        "likeLabel": "מתנהג כמו",
+        "likePlaceholder": "למשל gpt-6-luna",
+        "defaultLevel": "רמת ברירת מחדל",
+        "unsupported": "מאמץ אינו רלוונטי למודל זה",
+        "savedSettings": "הגדרות שמורות",
+        "rawTitle": "שדות בקשה גולמיים לכל רמה (מתקדם)",
+        "rawHelp": "JSON שממוזג לבקשה לספק כשמשתמשים ברמה זו. מפתחות קיימים ממוזגים; השאר נשלחים כמו שהם.",
+        "ranAs": "רץ כ-{level}",
+        "tokens": "טוקני חשיבה",
+        "saveToTest": "שמרו כדי לבדוק את השינויים",
+        "testTooltip": "שליחת בקשה אחת עם כלים ברמה זו",
+        "test": "בדיקה",
+        "rawNotObject": "חייב להיות אובייקט JSON",
+        "rawInvalid": "JSON לא תקין",
+        "fixRaw": "תקנו קודם את השדות הלא תקינים",
+        "likeRequired": "הזינו את המודל שזה מתנהג כמוהו",
+        "customRequired": "מצב מותאם דורש שדות לפחות לרמה אחת",
+        "saveFailed": "לא ניתן לשמור את הגדרות החשיבה"
+      }
     },
     "licensePage": {
       "title": "רישיון",
@@ -3162,7 +3598,7 @@
     "retry": "ניסיון חוזר",
     "reindex": "אינדוקס מחדש",
     "lastIndexed": "אינדוקס אחרון",
-    "customQueries": "שאילתות מותאמות",
+    "customQueries": "טבלאות מותאמות",
     "schemaDiscovery": "גילוי סכימה",
     "stop": "עצירה",
     "stopping": "עוצר…",
@@ -3381,7 +3817,22 @@
     "userNotFound": "המשתמש לא נמצא בארגון",
     "copyFailed": "ההעתקה נכשלה",
     "includeDataTab": "כלול לשונית נתונים",
-    "includeDataTabDesc": "המשתמשים המוזמנים יראו את ההיסטוריה המלאה של הנתונים והתהליך בו נעשה שימוש ליצירת הדוח"
+    "includeDataTabDesc": "המשתמשים המוזמנים יראו את ההיסטוריה המלאה של הנתונים והתהליך בו נעשה שימוש ליצירת הדוח",
+    "allowChat": "אפשר צ'אט",
+    "allowChatDesc": "חברי סביבת העבודה המחוברים יכולים לשאול שאלות על הדשבורד הזה",
+    "chatScope": "מקורות המידע של הצ'אט",
+    "chatScopeAgents": "סוכני הדוח",
+    "chatScopeAgentsDesc": "הצ'אט יכול להריץ שאילתות חיות לקריאה בלבד מול הסוכנים שנבחרו",
+    "chatScopeDataOnly": "נתוני הדשבורד בלבד",
+    "chatScopeDataOnlyDesc": "הצ'אט עונה רק מהנתונים שכבר מופיעים בדשבורד הזה",
+    "chatNoAgents": "אין סוכנים מחוברים לדוח הזה — הצ'אט יענה מנתוני הדשבורד בלבד.",
+    "chatModel": "מודל ברירת מחדל",
+    "chatModelDesc": "המודל שבו הצ'אט משתמש עבור הצופים. צופים ללא גישה אליו יעברו לברירת המחדל שלהם.",
+    "chatModelOrgDefault": "ברירת המחדל של הארגון ({name})",
+    "chatModelOrgDefaultPlain": "ברירת המחדל של הארגון",
+    "chatModelReport": "כמו בדוח ({name})",
+    "chatModelReportPlain": "כמו בדוח",
+    "chatModelUnavailable": "מודל לא זמין — נעשה שימוש בברירת המחדל"
   },
   "publish": {
     "published": "פורסם",
@@ -3401,6 +3852,8 @@
     "copyClipboardFailed": "לא ניתן להעתיק ללוח"
   },
   "errors": {
+    "saml_unavailable": "הגדרות ההתחברות הארגונית אינן זמינות. יש לפנות למנהל המערכת.",
+    "saml_login_failed": "ההתחברות הארגונית נכשלה. יש לנסות שוב או לפנות למנהל המערכת.",
     "generic": "משהו השתבש. נסו שוב.",
     "network": "שגיאת רשת. בדקו את החיבור.",
     "unauthorized": "אין לכם הרשאה לפעולה זו.",
@@ -3442,7 +3895,35 @@
       "model_id_required": "מזהה המודל לא יכול להיות ריק",
       "model_id_not_editable": "ניתן לערוך את מזהה המודל רק עבור מודלים מותאמים אישית בספקי Azure, AWS Bedrock או ספקים מותאמים (תואמי OpenAI)",
       "model_id_duplicate": "המודל '{model_id}' כבר קיים אצל ספק זה"
-    }
+    },
+    "data_source.in_use": "הסוכן \"{agent}\" עדיין בשימוש ({reference}), ולכן אי אפשר למחוק אותו. שום דבר לא נמחק.",
+    "memory.disabled": "זיכרון המשתמש כבוי בארגון הזה.",
+    "memory.not_found": "רשומת הזיכרון הזו לא קיימת.",
+    "memory.text_required": "כתבו מה לזכור.",
+    "memory.text_too_long": "עד 280 תווים.",
+    "memory.too_many_tags": "עד 4 תגיות.",
+    "memory.tags_required": "הוסיפו לפחות תגית אחת.",
+    "memory.invalid_date": "התאריך אינו תקין.",
+    "memory.sensitive": "הזיכרון לא יכול להכיל סודות, סיסמאות או פרטים אישיים רגישים.",
+    "memory.looks_like_rule": "זה כלל לגבי אופן המענה — הוסיפו אותו להנחיות האישיות שלכם. הזיכרון שומר עובדות עליכם.",
+    "memory.full": "הזיכרון מלא. מחקו קודם כמה רשומות.",
+    "memory.not_active": "הרשומה הזו כבר שונתה או נשכחה.",
+    "audit_stream.not_found": "הזרמת היומן לא נמצאה.",
+    "audit_stream.invalid_destination": "יעד הזרמה לא מוכר.",
+    "audit_stream.missing_field": "חסר שדה חובה: {field}.",
+    "audit_stream.invalid_field": "ערך לא תקין עבור {field}.",
+    "audit_log.export_too_large": "הייצוא מוגבל ל-{limit} אירועים והסינון הזה תואם ל-{total}. צמצמו את הסינון או השתמשו בהזרמת יומן.",
+    "ARTIFACT_RESOURCE_VALIDATION": "בקשת משאב לא תקינה",
+    "ARTIFACT_RESOURCE_NOT_FOUND": "המשאב לא נמצא",
+    "ARTIFACT_RESOURCE_FORBIDDEN": "אין הרשאה לגשת למשאב",
+    "ARTIFACT_RESOURCE_UNAUTHENTICATED": "יש להתחבר כדי להמשיך",
+    "ARTIFACT_RESOURCE_CONFLICT": "המשאב השתנה; יש לרענן ולנסות שוב",
+    "ARTIFACT_RESOURCE_QUOTA_EXCEEDED": "הגעת למגבלת המשאב",
+    "ARTIFACT_RESOURCE_RATE_LIMITED": "יותר מדי בקשות; יש לנסות שוב מאוחר יותר",
+    "ARTIFACT_RESOURCE_UNAVAILABLE": "המשאב אינו זמין",
+    "ARTIFACT_RESOURCE_INTERRUPTED": "הבקשה נקטעה",
+    "ARTIFACT_RESOURCE_ABORTED": "הבקשה בוטלה",
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "גרסת SDK אינה נתמכת"
   },
   "email": {
     "dashboardShare": {
@@ -3636,16 +4117,6 @@
     "menuData": "נתונים"
   },
   "toolbar": {
-    "collapse": "כיווץ",
-    "switchToArtifact": "מעבר לתצוגת ארטיפקט",
-    "dashboard": "דשבורד",
-    "addComponent": "הוסף רכיב",
-    "addText": "הוסף טקסט",
-    "theme": "ערכת נושא",
-    "rerun": "הרצת הדוח מחדש",
-    "openInNewTab": "פתח את הדשבורד בלשונית חדשה",
-    "fullscreen": "מסך מלא",
-    "shareDashboard": "שיתוף דשבורד",
     "polishDashboard": "ליטוש דשבורד"
   },
   "artifactFrame": {
@@ -3711,44 +4182,8 @@
     "partialRenderFailed": "חלק מהדשבורד מבוסס על נתונים שאין לך הרשאה אליהם, ולכן לא ניתן היה להציג אותו. בקשו גישה מבעלי הדשבורד."
   },
   "filter": {
-    "addFilters": "הוסף מסננים",
-    "title": "מסננים",
-    "clear": "ניקוי",
-    "loading": "טוען…",
-    "noData": "אין נתונים לסינון",
-    "refresh": "רענן",
-    "noFilters": "לא הוחלו מסננים",
-    "addFilter": "הוסף מסנן",
-    "columnPlaceholder": "עמודה",
-    "searchPlaceholder": "חיפוש…",
-    "valuePlaceholder": "ערך",
     "selectColumn": "בחר עמודה",
-    "visualization": "ויזואליזציה",
-    "orDivider": "או",
-    "andDivider": "וגם",
-    "rowsCount": "{shown} מתוך {total} שורות",
-    "apply": "החל",
-    "op": {
-      "equals": "שווה ל",
-      "notEquals": "לא שווה ל",
-      "contains": "מכיל",
-      "notContains": "לא מכיל",
-      "startsWith": "מתחיל ב",
-      "endsWith": "מסתיים ב",
-      "isEmpty": "ריק",
-      "isNotEmpty": "לא ריק",
-      "in": "מתוך",
-      "notIn": "לא מתוך",
-      "greaterThan": "גדול מ",
-      "lessThan": "קטן מ",
-      "greaterOrEqual": "גדול או שווה",
-      "lessOrEqual": "קטן או שווה",
-      "between": "בין",
-      "before": "לפני",
-      "after": "אחרי",
-      "isTrue": "אמת",
-      "isFalse": "שקר"
-    }
+    "visualization": "ויזואליזציה"
   },
   "slideViewer": {
     "loading": "טוען שקופיות...",
@@ -4122,6 +4557,7 @@
       "chip_slow": "איטיות",
       "chip_expensive": "יקרות",
       "chip_retried": "ניסיונות חוזרים",
+      "rangeAll": "כל הזמנים",
       "range24h": "24 השעות האחרונות",
       "range7d": "7 הימים האחרונים",
       "range30d": "30 הימים האחרונים",
@@ -4615,6 +5051,7 @@
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "הדף לא נמצא",
+    "notFoundHint": "הדף שחיפשת לא קיים או שאין לך גישה אליו.",
     "genericTitle": "משהו השתבש",
     "unknownError": "שגיאה לא ידועה",
     "goHome": "לדף הבית"
@@ -4638,7 +5075,8 @@
     "menuItem": "פרופיל",
     "nav": {
       "general": "כללי",
-      "instructions": "הוראות מותאמות אישית",
+      "instructions": "הנחיות אישיות",
+      "memory": "זיכרון",
       "usage": "שימוש",
       "apiKeys": "מפתחות API",
       "appearance": "מראה"
@@ -4666,7 +5104,11 @@
       "defaultModelSaved": "מודל ברירת המחדל עודכן",
       "defaultModelFailed": "עדכון מודל ברירת המחדל נכשל",
       "directorySubtitle": "פרטי התפקיד מסונכרנים מספק הזהויות של הארגון. גלויים ל-AI כהקשר.",
-      "directoryTitle": "פרופיל מהספרייה הארגונית"
+      "directoryTitle": "פרופיל מהספרייה הארגונית",
+      "checkinsTitle": "מעקב יזום של הסוכן",
+      "checkinsSubtitle": "מאפשר לסוכן לחזור לשיחה ביוזמתו כשיש משהו ששווה לבדוק שוב (למשל אחרי רענון נתונים). הוא ישלח לך התראה רק כשמשהו השתנה באופן משמעותי.",
+      "checkinsSaved": "העדפת המעקב נשמרה",
+      "checkinsFailed": "לא ניתן לשמור את העדפת המעקב"
     },
     "instructions": {
       "title": "הוראות מותאמות אישית",
@@ -4718,8 +5160,36 @@
     },
     "memory": {
       "title": "זיכרון",
-      "subtitle": "מה שה-AI למד וזכר עליך בארגון הזה — ההעדפות שלך, הסגנון, וניתוחים שאהבת. הוא מעדכן זאת תוך כדי העבודה; אפשר לערוך או לנקות כאן.",
-      "placeholder": "ה-AI עדיין לא שמר דבר בזיכרון. ככל שתשתף אותו בהעדפות שלך, הוא יזכור אותן כאן."
+      "subtitle": "עובדות שה-AI זוכר עליך בארגון הזה — העבודה, הפרויקטים, התאריכים, מה שאת/ה עוקב/ת אחריו והקיצורים שלך. רק את/ה יכול/ה לראות אותן.",
+      "vsInstructions": "איך ה-AI צריך לענות לך (פורמט, יחידות, אורך) אינו זיכרון — אלה ההנחיות האישיות שלך.",
+      "instructionsLink": "הנחיות אישיות",
+      "count": "{count} מתוך {cap} רשומות",
+      "forgetAll": "לשכוח הכול",
+      "forgetAllTitle": "לשכוח הכול?",
+      "forgetAllBody": "ה-AI ישכח את כל {count} הרשומות שהוא זוכר עליך בארגון הזה. אי אפשר לבטל את הפעולה.",
+      "forgetAllConfirm": "לשכוח הכול",
+      "empty": "עדיין לא נשמר כלום. תוך כדי עבודה, ה-AI שומר כאן עובדות — כמו הפרויקטים, הדדליינים או הפגישות הקרובות שלך.",
+      "add": "הוספה",
+      "past": "עבר",
+      "fromReport": "מתוך {title}",
+      "untitledReport": "דוח",
+      "loadFailed": "לא ניתן לטעון את הזיכרון שלך",
+      "saveFailed": "לא ניתן לשמור את השינוי",
+      "saved": "הזיכרון נשמר",
+      "forgotten": "נשכח",
+      "forgotAll": "הכול נשכח",
+      "source": {
+        "user": "נוסף על ידך",
+        "agent": "נשמר על ידי ה-AI",
+        "dream": "נרשם בלילה"
+      },
+      "form": {
+        "placeholder": "עובדה עליך, לדוגמה: מוביל/ה את פרויקט הנטישה של רבעון 3",
+        "tags": "תגיות, מופרדות בפסיקים",
+        "dateHint": "אפשר להוסיף תאריך אם זה קשור לתאריך"
+      },
+      "searchPlaceholder": "חיפוש בזיכרון…",
+      "noMatches": "אין זיכרונות תואמים."
     }
   },
   "commandPalette": {
@@ -4984,7 +5454,15 @@
   },
   "events": {
     "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
-    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}"
+    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}",
+    "checkin": {
+      "label": "מעקב",
+      "running": "חוזר לשיחה הזו למעקב…",
+      "sent": "מעקב — נשלחה אליך התראה",
+      "sentWithSubject": "מעקב — נשלחה אליך התראה: {subject}",
+      "quiet": "נבדק שוב: אין חדש",
+      "failed": "המעקב נכשל"
+    }
   },
   "sessionEvents": {
     "run_stopped": "ההרצה הופסקה",
@@ -5171,8 +5649,8 @@
     "loadingPrompts": "טוען בקשות…",
     "selectedCount": "{count} נבחרו",
     "selectTables": "בחירת טבלאות",
-    "customQuery": "שאילתה מותאמת",
-    "customQueriesOff": "שאילתות מותאמות כבויות",
+    "customQuery": "טבלה מותאמת",
+    "customQueriesOff": "טבלאות מותאמות כבויות",
     "enableCustomQueries": "הפעלה בהגדרות AI",
     "reload": "רענון",
     "editQuery": "עריכת {name}",
@@ -5259,5 +5737,179 @@
     "failed": "לא ניתן היה לשמור את הקטלוג",
     "confirmDiscard": "לבטל את השינויים שלא נשמרו בקטלוג הזה?",
     "confirmDelete": "למחוק את הקטלוג \"{name}\"? הסוכנים שבו יישארו, בלי קטלוג."
+  },
+  "quota": {
+    "resetsOn": "מתאפס ב-{date}"
+  },
+  "agentAutomation": {
+    "nightlyTitle": "למידה לילית",
+    "nightlyDescription": "בכל לילה, הופך תיקונים חוזרים, משוב ושימוש להצעה מאוחדת אחת לסוכן הזה. היא מטופלת לפי ההגדרה שלמעלה כמו כל הצעה אחרת.",
+    "nightlyOrgOff": "הלמידה הלילית כבויה בארגון הזה (הגדרות AI)."
+  },
+  "nightlyBuild": {
+    "merged": "מוזגה",
+    "expired": "פג תוקף",
+    "mergedTip": "שולבה בהצעה של הלמידה הלילית. זו לא דחייה של בודק.",
+    "expiredTip": "נסגרה אחרי שלא נבדקה בזמן שהוגדר בארגון. עדיין נחשבת כראיה אם הדפוס חוזר."
+  },
+  "lists": {
+    "title": "רשימות",
+    "newList": "רשימה חדשה",
+    "empty": "אין רשימות עדיין",
+    "emptyHint": "רשימה היא טבלה שהסוכן ממלא. הגדירו את השדות ובקשו מהסוכן לחלץ אותם ממסמכים, מיילים או תוצאות שאילתות.",
+    "emptyViewer": "לסוכן זה אין עדיין רשימות.",
+    "fieldsCount": "שדה אחד | {n} שדות",
+    "rowsCount": "שורה אחת | {n} שורות",
+    "loading": "טוען…",
+    "back": "רשימות",
+    "exportCsv": "ייצוא CSV",
+    "exportWithEvidence": "ייצוא עם מקורות",
+    "editFields": "עריכת שדות",
+    "deleteList": "מחיקת רשימה",
+    "deleteConfirmTitle": "למחוק את „{name}”?",
+    "deleteConfirmBody": "הרשימה והשורות שלה יוסרו, והסוכנים יפסיקו לשמור אליה.",
+    "delete": "מחיקה",
+    "cancel": "ביטול",
+    "save": "שמירה",
+    "saving": "שומר…",
+    "create": "יצירת רשימה",
+    "more": "פעולות נוספות",
+    "noRows": "אין שורות עדיין",
+    "noRowsHint": "בקשו מהסוכן בדוח חדש, למשל „חלץ את כל החוזים אל {name}”.",
+    "saveHint": "הסוכנים שומרים כאן עם",
+    "queryHint": "לשאילתות:",
+    "updated": "עודכן",
+    "editor": {
+      "newTitle": "רשימה חדשה",
+      "editTitle": "עריכת רשימה",
+      "name": "שם",
+      "namePlaceholder": "לדוגמה: חוזים",
+      "description": "תיאור",
+      "descriptionPlaceholder": "מה מייצגת כל שורה, וכל מה שהסוכן צריך לדעת",
+      "fields": "שדות",
+      "fieldName": "field_name",
+      "fieldDescription": "תארו את הערך. זו ההנחיה לסוכן.",
+      "type": "סוג",
+      "required": "חובה",
+      "key": "מפתח",
+      "keyHint": "שורות עם אותו מפתח מתעדכנות במקום להתווסף",
+      "enumValues": "ערכים מותרים, מופרדים בפסיקים",
+      "addField": "הוספת שדה",
+      "removeField": "הסרת שדה",
+      "requireEvidence": "לדרוש ציטוט מהמקור לערכים שחולצו",
+      "nameRule": "שמות שדות באותיות לטיניות קטנות, ספרות ו-_",
+      "types": {
+        "string": "טקסט",
+        "number": "מספר",
+        "integer": "מספר שלם",
+        "boolean": "כן / לא",
+        "date": "תאריך",
+        "enum": "בחירה"
+      },
+      "breakingSaved": "נשמר כגרסה {v}. שורות קיימות יסומנו כמיושנות עד לחילוץ מחדש.",
+      "saved": "הרשימה נשמרה",
+      "created": "הרשימה נוצרה",
+      "saveFailed": "לא ניתן לשמור את הרשימה",
+      "allowViewerSubmissions": "כל מי שיכול להשתמש בסוכן יכול לשמור שורות מהצ׳אט (אחרת רק מנהלי הסוכן)",
+      "keepHumanEdits": "שמירת עריכות ידניות: הסוכן לא ידרוס ערך שמישהו שינה ידנית"
+    },
+    "row": {
+      "status": {
+        "found": "נמצא",
+        "not_found": "לא נמצא",
+        "ambiguous": "לא חד-משמעי",
+        "inferred": "הוסק"
+      },
+      "source": "מקור",
+      "page": "עמ׳ {n}",
+      "verified": "הציטוט נמצא במקור",
+      "unverified": "הציטוט לא אותר במקור",
+      "edited": "נערך ידנית. הסוכן לא ידרוס אותו.",
+      "unlock": "לאפשר לסוכן לעדכן",
+      "history": "היסטוריה",
+      "revert": "שחזור",
+      "deleteRow": "מחיקת שורה",
+      "saveChanges": "שמירת שינויים",
+      "conflict": "השורה השתנתה מאז שפתחתם אותה, ולכן נטענה מחדש.",
+      "saved": "השורה עודכנה",
+      "deleted": "השורה נמחקה",
+      "stale": "חולץ בגרסה קודמת של השדות",
+      "openReport": "פתיחת הדוח",
+      "agent": "סוכן",
+      "action": {
+        "insert": "הוסיף",
+        "update": "עדכן",
+        "revert": "שחזר",
+        "unlock": "שחרר נעילה"
+      },
+      "yes": "כן",
+      "no": "לא",
+      "noHistory": "אין שינויים עדיין"
+    },
+    "toastDeleted": "הרשימה נמחקה",
+    "toastError": "משהו השתבש",
+    "loadMore": "טעינת עוד",
+    "justNow": "זה עתה",
+    "clearRows": "ריקון כל השורות",
+    "clearConfirmTitle": "לרוקן את כל השורות מ-„{name}”?",
+    "clearConfirmBody": "כל {n} השורות וההיסטוריה שלהן יימחקו. השדות של הרשימה, כלי השמירה שלה והטבלה נשארים, כך שהסוכן יוכל למלא אותה שוב.",
+    "clear": "ריקון שורות",
+    "deleteRowsTitle": "למחוק שורה אחת? | למחוק {n} שורות?",
+    "deleteRowsBody": "השורות שנבחרו וההיסטוריה שלהן יימחקו. לא ניתן לבטל פעולה זו.",
+    "selectedCount": "{n} נבחרו",
+    "clearSelection": "ניקוי הבחירה",
+    "selectAll": "בחירת כל השורות",
+    "selectRow": "בחירת שורה",
+    "toastRowsDeleted": "שורה אחת נמחקה | {n} שורות נמחקו"
+  },
+  "schemaIdentity": {
+    "viewing": "תצוגה:",
+    "myAccount": "החשבון שלי",
+    "serviceAccount": "חשבון שירות",
+    "sharedConnection": "חיבור משותף",
+    "sharedSchema": "סכמה משותפת",
+    "changeIdentity": "שינוי זהות לשאילתות",
+    "refresh": "רענון סכימה",
+    "refreshMyFor": "רענון {name} · החשבון שלי",
+    "refreshSharedFor": "רענון {name} · סכימה משותפת",
+    "refreshing": "מרענן…",
+    "unknown": "רענון הסכימה האחרון: לא ידוע",
+    "refreshedAt": "רענון הסכימה האחרון: {time}",
+    "attemptedAt": "ניסיון הרענון האחרון: {time}",
+    "updated": "הסכימה עודכנה.",
+    "partial": "לא ניתן היה לרענן חלק מהמודלים. העמודות הקודמות שלהם נשמרו.",
+    "failed": "רענון הסכימה לא הושלם. נסו שוב.",
+    "connectRequired": "חברו את החשבון כדי לראות את הטבלאות שלו."
+  },
+"artifactResources": {
+    "readOnlyLabel": "לקריאה בלבד",
+    "sort": "מיון רשומות",
+    "applyFilter": "החלה",
+    "clearFilter": "ניקוי המסנן",
+    "true": "נכון",
+    "false": "לא נכון",
+    "inspect": "משאבים",
+    "readOnly": "נתוני התוצר לצפייה בלבד",
+    "data": "סייר נתונים",
+    "analytics": "ניתוח שימוש",
+    "collection": "בחירת אוסף",
+    "refresh": "רענון",
+    "schema": "מבנה האוסף",
+    "filterField": "שדה לסינון",
+    "filterValue": "שווה ל",
+    "filter": "סינון",
+    "empty": "אין נתונים להצגה",
+    "pageRows": "רשומה אחת בעמוד | {count} רשומות בעמוד",
+    "next": "לעמוד הבא",
+    "details": "פרטי הרשומה",
+    "views": "צפיות",
+    "viewers": "צופים מזוהים ייחודיים",
+    "anonymousNote": "ביקורים אנונימיים נספרים כצפיות, לא כאנשים ייחודיים.",
+    "embedded": "מוטמע",
+    "standalone": "עמוד משותף",
+    "days": "{count} הימים האחרונים",
+    "failed": "לא ניתן לטעון את נתוני התוצר",
+    "newest": "החדשים ביותר תחילה",
+    "oldest": "הישנים ביותר תחילה"
   }
 }

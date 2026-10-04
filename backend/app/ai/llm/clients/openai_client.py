@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from app.ai.llm.clients.chat_effort import apply_chat_reasoning, create_chat_stream
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 import uuid
@@ -18,6 +19,9 @@ from app.ai.llm.types import (
     LLMUsage,
     Message,
     MessageStopEvent,
+    ReasoningStartEvent,
+    ReasoningDeltaEvent,
+    ReasoningCompleteEvent,
     TextDeltaEvent,
     ToolSpec,
     ToolUseCompleteEvent,
@@ -150,10 +154,10 @@ class OpenAi(LLMClient):
         quality: Optional[str] = None,
         images: Optional[list[ImageInput]] = None,
     ) -> ImageOutput:
-        """Generate an image via the OpenAI Images API (e.g. gpt-image-1).
+        """Generate an image via the OpenAI Images API (e.g. gpt-image-2.5-sunburst).
 
         Uses the sync SDK off-thread (mirrors how the OpenAI-compatible client
-        runs elsewhere). gpt-image-1 always returns base64 (no url option), so we
+        runs elsewhere). GPT Image models return base64 (no url option), so we
         read ``b64_json`` directly. Reference ``images`` are not wired into the
         edit endpoint yet — text-to-image only for now.
         """
@@ -189,47 +193,66 @@ class OpenAi(LLMClient):
             usage=usage,
         )
 
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
-        chat_completion = self.client.chat.completions.create(
-            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
-        )
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
+        """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
+
+        OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
+        system message renders at position 0, so splitting the stable half out
+        is what makes a one-shot call cacheable here too — no marker to attach.
+        """
+        params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
+        if system:
+            params["messages"] = [{"role": "system", "content": system}] + list(params["messages"])
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        chat_completion = self.client.chat.completions.create(**params)
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
         content = chat_completion.choices[0].message.content or ""
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None, thinking: Optional[dict] = None
     ) -> AsyncGenerator[str, None]:
-        stream = await self.async_client.chat.completions.create(
-            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True)
-        )
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True)
+        if max_output_tokens is not None:
+            params["max_completion_tokens"] = max_output_tokens
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        stream = await client.chat.completions.create(**params)
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if not chunk.choices:
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    usage = self._extract_usage(getattr(chunk, "usage", None))
+                    if usage.prompt_tokens or usage.completion_tokens:
+                        prompt_tokens = usage.prompt_tokens or prompt_tokens
+                        completion_tokens = usage.completion_tokens or completion_tokens
+                    continue
+
+                if max_output_tokens is not None and getattr(chunk.choices[0], 'finish_reason', None) == 'length':
+                    raise RuntimeError('Output token limit reached')
+                content = chunk.choices[0].delta.content
+                if content is not None:
+                    yield content
+
                 usage = self._extract_usage(getattr(chunk, "usage", None))
                 if usage.prompt_tokens or usage.completion_tokens:
                     prompt_tokens = usage.prompt_tokens or prompt_tokens
                     completion_tokens = usage.completion_tokens or completion_tokens
-                continue
 
-            content = chunk.choices[0].delta.content
-            if content is not None:
-                yield content
-
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
-
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await (getattr(stream, "aclose", None) or stream.close)()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _extract_usage(raw: Any) -> LLMUsage:
@@ -244,19 +267,27 @@ class OpenAi(LLMClient):
             completion = raw.get("completion_tokens") or 0
             details = raw.get("prompt_tokens_details") or {}
             cache_read = (details.get("cached_tokens") if isinstance(details, dict) else 0) or 0
+            # Reasoning tokens ride inside completion_tokens and bill at the
+            # output rate; tracked separately so thinking spend is attributable.
+            out_details = raw.get("completion_tokens_details") or {}
+            reasoning = (out_details.get("reasoning_tokens") if isinstance(out_details, dict) else 0) or 0
             return LLMUsage(
                 prompt_tokens=int(prompt or 0),
                 completion_tokens=int(completion or 0),
                 cache_read_tokens=int(cache_read or 0),
+                reasoning_tokens=int(reasoning or 0),
             )
         prompt = getattr(raw, "prompt_tokens", 0) or getattr(raw, "prompt_tokens_cost", 0) or 0
         completion = getattr(raw, "completion_tokens", 0) or getattr(raw, "completion_tokens_cost", 0) or 0
         details = getattr(raw, "prompt_tokens_details", None)
         cache_read = getattr(details, "cached_tokens", 0) if details is not None else 0
+        out_details = getattr(raw, "completion_tokens_details", None)
+        reasoning = getattr(out_details, "reasoning_tokens", 0) if out_details is not None else 0
         return LLMUsage(
             prompt_tokens=int(prompt or 0),
             completion_tokens=int(completion or 0),
             cache_read_tokens=int(cache_read or 0),
+            reasoning_tokens=int(reasoning or 0),
         )
 
     # ------------------------------------------------------------------
@@ -390,7 +421,7 @@ class OpenAi(LLMClient):
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
-        thinking: Optional[dict] = None,  # accepted for parity; reasoning needs Responses-API migration
+        thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         oai_messages: list[dict] = []
@@ -429,8 +460,9 @@ class OpenAi(LLMClient):
                 disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        if model_id.startswith(("o1", "o3")) or model_id in {"o1", "o3"}:
-            request_kwargs["reasoning_effort"] = "medium"
+        efforts = apply_chat_reasoning(self, model_id, request_kwargs, thinking)
+        reasoning_text = ""
+        reasoning_active = False
 
         # tool_calls accumulator keyed by index: {id, minted, name, args_buffer}
         open_calls: dict[int, dict] = {}
@@ -438,15 +470,18 @@ class OpenAi(LLMClient):
         # Per-request, so the same index in a later turn never reuses an id an
         # earlier turn already put in the transcript.
         _call_prefix = f"call_{uuid.uuid4().hex[:8]}"
+        reasoning_tokens = 0
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
         stop_reason: str | None = None
 
-        stream = await self.async_client.chat.completions.create(**request_kwargs)
+        stream = await create_chat_stream(self.async_client, request_kwargs, efforts)
         async for chunk in stream:
             # Usage arrives on the final chunk (stream_options include_usage)
             usage = self._extract_usage(getattr(chunk, "usage", None))
+            if usage.reasoning_tokens:
+                reasoning_tokens = usage.reasoning_tokens
             if usage.prompt_tokens:
                 prompt_tokens = usage.prompt_tokens
             if usage.completion_tokens:
@@ -465,6 +500,22 @@ class OpenAi(LLMClient):
                 stop_reason = choice.finish_reason
 
             # Text delta
+            if delta is None:
+                continue
+            # Compatible servers use either of these fields. Only emit text
+            # actually supplied by the provider; never synthesize reasoning.
+            reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+            if isinstance(reasoning, str) and reasoning:
+                if not reasoning_active:
+                    yield ReasoningStartEvent()
+                    reasoning_active = True
+                reasoning_text += reasoning
+                yield ReasoningDeltaEvent(text=reasoning)
+            if reasoning_active and (delta.content or delta.tool_calls):
+                yield ReasoningCompleteEvent(text=reasoning_text)
+                reasoning_active = False
+                reasoning_text = ""
+
             if delta.content:
                 yield TextDeltaEvent(text=delta.content)
 
@@ -529,6 +580,8 @@ class OpenAi(LLMClient):
 
         # Map OpenAI finish_reason to our vocabulary
         _stop_map = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
+        if reasoning_active:
+            yield ReasoningCompleteEvent(text=reasoning_text)
         yield MessageStopEvent(
             stop_reason=_stop_map.get(stop_reason or "", "other"),
             raw_stop_reason=stop_reason,
@@ -538,9 +591,11 @@ class OpenAi(LLMClient):
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         )
         self._set_last_usage(LLMUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         ))

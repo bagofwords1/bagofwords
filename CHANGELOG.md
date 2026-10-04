@@ -1,11 +1,91 @@
 # Release Notes
 
+## Version 0.0.575 (October 3, 2026)
+- Added artifact resources: persistent records, files and AI streaming (#1220) — default off in organization settings
+- Added audit log streams to Datadog, Splunk, Microsoft Sentinel, Amazon S3, Google Cloud Storage, HTTPS webhooks and syslog (#1232) — Settings → Audit Logs → Streams
+- Added an event details drawer, user, resource and time filters, and JSON/CSV export to the audit log
+- Fixed audit log rows overlapping on actions with more than two parts
+- Fixed AI tool audit events being dropped under load or when the database was briefly unavailable
+- Made six connectors available without an enterprise license and unified license checks (#1225)
+- Fixed report scrolling, dashboard refresh, reasoning settings and access checks; updated the not-found page (#1227, #1228, #1230, #1231)
+
+## Version 0.0.574 (October 3, 2026)
+- Added SAML single sign-on with any SAML 2.0 identity provider (#1219) — configured under `saml_providers` in `bow-config.yaml`
+- Replaced the reasoning effort buttons with a Faster ↔ Smarter slider in the model picker (#1223)
+- Fixed the fastest effort still running OpenAI models at medium reasoning (#1223)
+
+## Version 0.0.573 (September 29, 2026)
+- Added Claude Sonnet 5.5 (`claude-sonnet-5-5`) as an Anthropic preset — the new Anthropic default for new providers
+- Added GPT-6.1 Sol (`gpt-6.1-sol`) as an OpenAI preset
+- Replaced GPT Image 1 with GPT Image 2.5 Sunburst and Flare for image generation — GPT Image 1 shuts down December 1, 2026
+- Fixed new image models reaching existing organizations unusable by image generation and listed in the chat model picker
+- Fixed cached-token cost for GPT-6 Sol and GPT-6.1 Sol being overstated
+
+## Version 0.0.572 (September 29, 2026)
+- Removed the "User overnight learning" setting — overnight memory upkeep now follows the User memory setting
+- Agent check-ins are now on by default — turn off with the `enable_agent_checkins` org setting
+
+## Version 0.0.571 (September 28, 2026)
+- Added agent check-ins: the agent schedules its own follow-up and notifies you only when something changed (#1200) — `enable_agent_checkins` org setting (default off)
+- Added per-user memory: the agent saves, edits and searches personal facts, managed from a new Memory tab in your profile (#1201) — `enable_user_memory` org setting (default on)
+- Added Agent Lists: typed tables an agent fills in from documents, emails or query results, with evidence, row history and CSV export (#1203)
+- Added overnight learning: agents merge repeated suggestions into one nightly suggestion, and each user's memory and follow-up check-ins are kept current overnight (#1205) — `enable_agent_dreaming` and `enable_user_dreaming` org settings (default on)
+- Added an expiry for unreviewed instruction suggestions (#1205) — `ai_suggestion_expiry_days` org setting (default 30, `0` = never)
+- Added reasoning effort (Default, Low, Medium, High, Max) and search to the model picker, saved per conversation, scheduled task, trigger, prompt and eval case (#1206)
+- Fixed Bedrock Sonnet 5 rejecting thinking requests, Azure GPT-6 failing tool calls on Chat Completions, and Gemini ignoring the reasoning level (#1206)
+- Fixed connector-backed agents showing a generic icon in the agent header and settings instead of their brand logo (#1204)
+- Fixed BOW monitoring queries and dashboards failing with "BOW history is still indexing" (#1202)
+- Fixed a hardcoded SSL verification bypass in the OpenAI Responses client flagged by Snyk (#1199)
+
+## Version 0.0.570 (September 24, 2026)
+- Added a member's own usage quota under their name in the sidebar, with the full breakdown in the account menu (#1196)
+- Added Infor EPM (Application Engine) connector (#1178)
+- Added default model setting for dashboard chat (#1180)
+- Fixed connection timestamps shown in the wrong timezone (#1179)
+- Fixed transcript rendering, artifact caching, default reasoning effort, and "Thought for" showing tool run time instead of reasoning time (#1181)
+- Fixed parallel data steps failing with "greenlet_spawn" errors (#1182)
+- Fixed revoked columns and unchecked @table mentions reaching the agent prompt (#1183)
+- Faster agent runs: lighter step saves, context refreshes, and token streaming (#1184, #1185, #1186, #1187)
+- Fixed deleting an agent linked to a project wiping its content before failing (#1193)
+- Fixed generated code hidden in monitoring traces for users with code access (#1194)
+- Fixed unlinking a connection from an agent failing on PostgreSQL (#1195)
+- Fixed a reached org usage quota being reported as a provider failure (#1197)
+
+## Version 0.0.569 (September 22, 2026)
+- Added GPT-6 Sol and GPT-6 Luna as OpenAI presets — GPT-6 Luna is the new small default
+
+## Version 0.0.568 (September 22, 2026)
+- Added Claude Opus 5.5 (`claude-opus-5-5`) as an Anthropic preset: 1M context, 128K max output, $4/$20 per million tokens
+- Fixed Claude Opus 5 failing at low, medium or high effort — it was sent a fixed thinking budget the model rejects
+
+## Version 0.0.567 (September 20, 2026)
+- Fixed report titles never being generated on PostgreSQL deployments — every report stayed "untitled report". Generating the title at prompt time (#1160) made it the first LLM call of a run, and that call's quota pre-check, which runs in a worker thread, was executing on an event loop of its own; the first check of a run reads the database, and asyncpg refuses a connection borrowed across loops. The agent now binds the usage context to the run's loop before any threaded call, so the check comes back to the right loop (SQLite deployments were unaffected — its driver tolerated the cross-loop access, which is why this slipped through)
+
+## Version 0.0.566 (September 20, 2026)
+- Reports are named the moment you hit send, instead of after the run: the title is generated from the prompt itself and streamed to every open client, so the sidebar entry, the report header and the browser tab stop reading "untitled report" seconds into a run rather than minutes. The header types the new title in and the sidebar row reveals it (both respect reduced-motion), and a title you set by hand is never overwritten — including when you rename the report while generation is still in flight (#1160)
+- Renaming a report from its header updates the sidebar immediately and saves once; pressing Enter used to leave the sidebar stale and fire two saves with two confirmations (#1160)
+
+## Version 0.0.565 (September 19, 2026)
+- Fixed cache-read costs being overstated 4x for Claude Fable 5.1 and Mythos 5.1, which bill a cache hit at 0.025x input where the rest of the Claude family pays 0.1x (#1158)
+
+## Version 0.0.564 (September 19, 2026)
+- Agent-loop prompt caching now actually holds across a run: the static context stopped changing shape mid-run, the one-shot prompts (code generation, visualization, follow-ups) send a cacheable system half, and the cache entry lives an hour instead of five minutes — measured 12–37% off a run's LLM cost with the same analyses produced — set `BOW_PROMPT_CACHE_TTL=5m` to go back to the short TTL (#1159)
+- Prompt caching on Amazon Bedrock for Claude and Nova models, off via `BOW_BEDROCK_PROMPT_CACHE=0` (#1159)
+- Cached tokens are priced by model family and cache TTL rather than by provider account: Claude on Vertex no longer bills cached tokens at $0, Claude on Azure no longer has an OpenAI-shaped discount subtracted from a cost that never included those tokens, and a 1-hour cache write bills at 2x instead of 1.25x. The Cost page gains a cache hit rate per provider, shown as "not reported" where the provider sends no cache telemetry rather than as 0% (#1159)
+- Models absent from the preset catalog no longer record $0 spend when an admin supplied their cost rates (#1159)
+- Claude Fable 5.1 (`claude-fable-5-1`) is a selectable Anthropic preset: 1M context, 128K max output, $10/$50 per million tokens. Not a default — at 2x Opus 5 and ~3.3x the Sonnet 5 default, moving an organization onto it is an admin's cost decision; Claude Fable 5 stays available (#1158)
+
 ## Version 0.0.563 (September 17, 2026)
+- Custom queries are now called custom tables everywhere (settings, the agent tables page, the authoring modal, agent context, every locale), and Power BI joins the sources they can be built on. A Power BI custom table is a DAX query (one EVALUATE) that BOW materializes on a schedule; the semantic model is detected from the tables the DAX references or pinned from a new "Semantic model" picker. Designed against a live tenant: executeQueries truncates at 100,000 rows or 1,000,000 values with no error, so results are counted with COUNTROWS, fetched in value windows over a numeric or date column when they exceed one response, and refused if any row is missing. Agents then query the cached copy with plain SQL instead of writing DAX against the rate-limited API
 - Artifacts get a parent identity with per-artifact version chains; every write site shares one version factory and the migration backfills existing rows without guessing lineage (#1079)
 - The agent Files tab is a file browser with folder tree, search and in-place previews for connected file sources, sharing read_file's scope checks and audit trail (#1139)
 - RTL: chevrons and arrows relying on the directional auto-flip now actually flip (#1147)
 - The agent Files tree and the Uploaded panel stay in sync on upload and delete (#1148)
 - Indexing runs no longer stay "running" forever: heartbeat, stale-run reaping, idle-based stage timeouts and a last-activity indicator (#1150)
+- Clicking an agent's Instructions row on the agents page opens its instruction list in the right pane, with a search that matches instruction bodies (server-side, scoped to that agent) and a clear button; the "Search everything" box gets a clear button too (#1155)
+- "All time" on the monitoring Explore, Cost and Diagnosis pages now covers the organization's whole history instead of the last 30 days; Diagnosis gains an "All time" preset with monthly buckets for old orgs, and the KPI cards drop the made-up trend for all time (#1156)
+- Security: `@nuxtjs/mdc` bumped from 0.17 to 0.22 to clear a high-severity Snyk finding (SNYK-JS-NUXTJSMDC-19883915); the markdown render API is unchanged (#1157)
+- Docker deployments no longer need `BOW_ENCRYPTION_KEY` set by hand: `start.sh` resolves it from the env var, then a keyfile (`BOW_ENCRYPTION_KEY_FILE`, default on a new `app_data` volume, also usable with Docker secrets), otherwise generating one and persisting it before the workers fork so every worker shares it. An unwritable keyfile still falls back to a temporary key, now with a loud warning instead of silent per-restart credential loss (#1002)
 
 ## Version 0.0.562 (September 16, 2026)
 - Shorter generated code with stdout carried into retries, and a bounded Power BI DAX guide (#1145)

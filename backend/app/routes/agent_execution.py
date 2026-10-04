@@ -98,4 +98,6 @@ async def get_report_conversation(
 ):
     """Get the whole report conversation as ordered turns for the trace modal."""
     await scope.assert_report_visible(db, report_id)
-    return await console_service.get_report_conversation(db, organization, report_id)
+    return await console_service.get_report_conversation(
+        db, organization, report_id, viewer_id=str(current_user.id)
+    )

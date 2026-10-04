@@ -205,3 +205,146 @@ def test_bow_execution_completes_with_an_active_agent_write_transaction(world, t
         assert result['runs'].sum() == sum(map(len, world['ids'].values()))
         assert report.bow_source_access
     run_service(world, 'admin', {"dataset":"runs"}, execute)
+
+
+# Runs the rollup never indexed. "abandoned": the process died mid-turn, so the
+# run is still "in_progress" past STALE_AFTER and no finish hook will ever index
+# it. "unhooked": it finished on a path that skips the finish hook. Both are
+# normal production history; neither may take a query down with it.
+UNINDEXED = {
+    "abandoned": {"status": "in_progress", "hours_ago": 2, "tools": [{"name": "create_data", "status": "success"}]},
+    "unhooked": {"status": "completed", "hours_ago": 5, "tools": [{"name": "create_data", "status": "success"}]},
+}
+
+
+def seed_unindexed(world, seed_agent_executions, kind):
+    from datetime import datetime, timedelta
+    spec = UNINDEXED[kind]
+    # Seeded after the world's rollup, on a report both roles can see, so it stays unindexed.
+    return seed_agent_executions(world["org_id"], world["reports"]["b"], [{
+        "user_id": world["admin"]["user_id"], "prompt": f"{kind} question", "status": spec["status"],
+        "created_at": datetime.utcnow().replace(microsecond=0) - timedelta(hours=spec["hours_ago"]), "tools": spec["tools"]}])[0]
+
+
+@pytest.mark.parametrize("kind", sorted(UNINDEXED))
+@pytest.mark.parametrize("actor", ["admin", "manager_b"])
+def test_unindexed_runs_never_block_a_bow_query(world, seed_agent_executions, kind, actor):
+    run_id = seed_unindexed(world, seed_agent_executions, kind)
+
+    runs = run_service(world, actor, {"dataset": "runs", "query": ""})
+    assert run_id in set(runs.run_id)
+    calls = run_service(world, actor, {"dataset": "tool_calls", "query": "tool:create_data"})
+    assert run_id in set(calls.run_id)
+    # A filter the unindexed run does not match still answers for everything else.
+    other = run_service(world, actor, {"dataset": "runs", "query": "revenue"})
+    assert run_id not in set(other.run_id) and len(other) > 0
+    counts = run_service(world, actor, {"dataset": "runs", "group_by": ["status"], "metrics": [{"op": "count", "name": "runs"}]})
+    visible = sum(map(len, world["ids"].values())) if actor == "admin" else len(world["ids"]["b"])
+    assert counts.runs.sum() == visible + 1
+
+
+def test_saved_bow_query_answers_while_history_is_unindexed(world, seed_agent_executions, test_client):
+    """The dashboard path: a saved query over bow.tool_calls re-runs with an unindexed run in range."""
+    run_id = seed_unindexed(world, seed_agent_executions, "abandoned")
+    headers = {"Authorization": f"Bearer {world['admin']['token']}", "X-Organization-Id": world["org_id"]}
+    report = test_client.post("/api/reports", json={"title": "Gap dashboard", "mode": "training"}, headers=headers)
+    assert report.status_code in (200, 201), report.text
+    assert test_client.put(f"/api/reports/{report.json()['id']}", json={"mode": "training"}, headers=headers).status_code == 200
+    query = test_client.post("/api/queries", json={"title": "Calls", "report_id": report.json()["id"]}, headers=headers)
+    assert query.status_code == 200, query.text
+    code = '''def generate_df(ds_clients, excel_files):
+    return ds_clients["bow"].execute_query({"dataset": "tool_calls", "query": "tool:create_data", "columns": ["run_id", "tool"]})
+'''
+    ran = test_client.post(f"/api/queries/{query.json()['id']}/run", json={"code": code}, headers=headers)
+    assert ran.status_code == 200, ran.text
+    assert not ran.json().get("error"), ran.text
+    rerun = test_client.post(f"/api/queries/{query.json()['id']}/run", json={"mode": "viewer"}, headers=headers)
+    assert rerun.status_code == 200, rerun.text
+    assert run_id in {row["run_id"] for row in rerun.json()["data"]["rows"]}
+
+
+@pytest.mark.parametrize("kind", sorted(UNINDEXED))
+def test_scheduled_sweep_indexes_runs_left_unindexed_after_startup(world, seed_agent_executions, kind):
+    """The startup sweep runs once; a run orphaned by that very restart only turns
+    stale later. The scheduled sweep must index it without another restart."""
+    from unittest.mock import patch
+    from app.models.agent_execution import AgentExecution
+    from app.services.diagnosis.rollup import count_pending
+    from app.services.diagnosis.sweep import scheduled_sweep
+    run_id = seed_unindexed(world, seed_agent_executions, kind)
+
+    async def check(db, _user, _df):
+        assert await count_pending(db, AgentExecution.organization_id == world["org_id"]) == 1
+        with patch("app.core.scheduler.claim_scheduled_run", return_value=True):
+            await scheduled_sweep(async_sessionmaker(db.bind, expire_on_commit=False))
+        assert await count_pending(db, AgentExecution.organization_id == world["org_id"]) == 0
+        row = await db.get(AgentExecution, run_id, populate_existing=True)
+        assert row.rollup_version is not None and row.prompt_text == f"{kind} question"
+    run_service(world, "admin", {"dataset": "runs", "time_range": {"relative": "1h"}}, check)
+
+
+def test_scheduled_sweep_skips_a_fire_another_worker_claimed(world, seed_agent_executions):
+    from unittest.mock import patch
+    from app.models.agent_execution import AgentExecution
+    from app.services.diagnosis.rollup import count_pending
+    from app.services.diagnosis.sweep import scheduled_sweep
+    seed_unindexed(world, seed_agent_executions, "unhooked")
+
+    async def check(db, _user, _df):
+        with patch("app.core.scheduler.claim_scheduled_run", return_value=False):
+            assert await scheduled_sweep(async_sessionmaker(db.bind, expire_on_commit=False)) == 0
+        assert await count_pending(db, AgentExecution.organization_id == world["org_id"]) == 1
+    run_service(world, "admin", {"dataset": "runs", "time_range": {"relative": "1h"}}, check)
+
+
+def test_sweep_indexes_runs_whose_text_the_database_rejects(world, seed_agent_executions):
+    """A NUL byte (driver errors, pasted binary) is legal in the source JSON but
+    not in a Postgres TEXT column. The run is indexed without it, not skipped."""
+    from datetime import datetime, timedelta
+    from unittest.mock import patch
+    from app.models.agent_execution import AgentExecution
+    from app.services.diagnosis.rollup import count_pending
+    from app.services.diagnosis.sweep import scheduled_sweep
+    run_id = seed_agent_executions(world["org_id"], world["reports"]["b"], [{
+        "user_id": world["admin"]["user_id"], "prompt": "pasted\x00prompt", "status": "error",
+        "error": "driver said bad\x00byte", "created_at": datetime.utcnow() - timedelta(hours=3)}])[0]
+
+    async def check(db, _user, _df):
+        with patch("app.core.scheduler.claim_scheduled_run", return_value=True):
+            await scheduled_sweep(async_sessionmaker(db.bind, expire_on_commit=False))
+        assert await count_pending(db, AgentExecution.organization_id == world["org_id"]) == 0
+        row = await db.get(AgentExecution, run_id, populate_existing=True)
+        assert "\x00" not in row.error_text and "bad" in row.error_text and "byte" in row.error_text
+        assert "\x00" not in row.prompt_text and "pasted" in row.prompt_text
+    run_service(world, "admin", {"dataset": "runs", "time_range": {"relative": "1h"}}, check)
+
+
+def test_one_run_the_sweep_cannot_index_does_not_hold_back_the_rest(world, seed_agent_executions):
+    """Any run whose rollup cannot be computed is skipped alone; every other
+    pending run in its batch and after it is still indexed, and queries answer."""
+    from datetime import datetime, timedelta
+    from unittest.mock import patch
+    from app.models.agent_execution import AgentExecution
+    from app.services.diagnosis.rollup import count_pending
+    from app.services.diagnosis.sweep import scheduled_sweep
+    now = datetime.utcnow().replace(microsecond=0)
+
+    def seed(prompt, hours, **extra):
+        return seed_agent_executions(world["org_id"], world["reports"]["b"], [{
+            "user_id": world["admin"]["user_id"], "prompt": prompt, "status": "completed",
+            "created_at": now - timedelta(hours=hours), **extra}])[0]
+
+    newer = seed("newer ok", 2)
+    broken = seed("broken usage", 3, token_usage_json={"total_tokens": "n/a"})
+    older = seed("older ok", 4)
+
+    async def check(db, _user, _df):
+        with patch("app.core.scheduler.claim_scheduled_run", return_value=True):
+            await scheduled_sweep(async_sessionmaker(db.bind, expire_on_commit=False))
+        for run_id in (newer, older):
+            row = await db.get(AgentExecution, run_id, populate_existing=True)
+            assert row.rollup_version is not None, run_id
+        assert await count_pending(db, AgentExecution.organization_id == world["org_id"]) <= 1
+    run_service(world, "admin", {"dataset": "runs", "time_range": {"relative": "1h"}}, check)
+    df = run_service(world, "admin", {"dataset": "runs", "query": ""})
+    assert {newer, broken, older} <= set(df.run_id)

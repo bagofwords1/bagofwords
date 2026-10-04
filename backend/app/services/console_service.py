@@ -47,6 +47,7 @@ from app.models.completion_feedback import CompletionFeedback
 from app.models.step import Step
 from sqlalchemy.orm import aliased
 from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
+from app.ai.llm import pricing
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
 from app.models.usage_policy import UsageEvent
@@ -58,6 +59,10 @@ from app.models.group_membership import GroupMembership
 from app.schemas.console_schema import CostMetrics, CostBreakdownItem, CostTimeSeriesPoint
 
 logger = get_logger(__name__)
+
+# "All time" starts on the organization's creation day; this floor only applies
+# to a legacy org row with no created_at at all.
+ALL_TIME_FALLBACK_FLOOR = datetime(2020, 1, 1)
 
 # LLM usage scopes that are NOT part of answering a user's turn. These are
 # background / observability calls recorded against the report for cost
@@ -79,6 +84,9 @@ _NON_TURN_USAGE_SCOPE_PREFIXES = (
 _NON_TURN_USAGE_SCOPES = (
     "tool_call_judge",
     "webhook_classifier",
+    # Agent check-ins: planner/judge are priced on their own check-in card.
+    "checkin_planner",
+    "checkin_judge",
 )
 
 
@@ -100,10 +108,12 @@ def _is_anthropic_family(provider_type: Optional[str], model_id: Optional[str] =
     through Vertex, Bedrock or Azure still reports cache_read/cache_creation
     separately from prompt_tokens. Keying on the provider alone under-counted
     every Claude deployment that wasn't the first-party API.
+
+    Delegates to app.ai.llm.pricing so token accounting here and cost
+    accounting in LLMUsageRecorderService can never disagree about which family
+    a row belongs to — they did, and the console was the one that had it right.
     """
-    if (provider_type or "") == "anthropic":
-        return True
-    return "claude" in (model_id or "").lower()
+    return pricing.resolve_family(provider_type, model_id) == pricing.ANTHROPIC
 
 
 def _row_total_tokens_expr():
@@ -201,27 +211,48 @@ class ConsoleService:
         # Treat naive datetime as UTC-naive
         return dt
 
-    def _normalize_date_range(self, start_date: Optional[datetime], end_date: Optional[datetime]) -> tuple[datetime, datetime]:
-        """Normalize date range to ensure end_date includes the full day"""
-        
+    @staticmethod
+    def all_time_floor(organization: Organization) -> datetime:
+        """The start of "all time" for an organization: the day it was created.
+        Nothing in an org predates the org, so this bounds every query without
+        a `min(created_at)` round trip, and keeps the day-by-day zero-fill in
+        the timeseries endpoints proportional to the org's age."""
+        created = getattr(organization, "created_at", None)
+        if created is None:
+            created = ALL_TIME_FALLBACK_FLOOR
+        return created.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def _normalize_date_range(
+        self,
+        start_date: Optional[datetime],
+        end_date: Optional[datetime],
+        organization: Organization,
+    ) -> tuple[datetime, datetime]:
+        """Normalize a date range to whole days (UTC-naive).
+
+        A missing end is "now". A missing start is "all time" — the org's
+        creation day — because that is what every console page sends for its
+        "All time" period. (This used to default to the last 30 days, so "All
+        time" silently showed a month.)
+        """
+
         # Normalize timezone to UTC-naive if provided
         if end_date:
             end_date = self._to_utc_naive(end_date)
         if start_date:
             start_date = self._to_utc_naive(start_date)
 
-        # Default to last 30 days if no dates provided (UTC-naive)
         if not end_date:
             end_date = datetime.utcnow()
         if not start_date:
-            start_date = end_date - timedelta(days=30)
-            
+            start_date = self.all_time_floor(organization)
+
         # Ensure end_date includes the full day (set to end of day)
         end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-        
-        # Ensure start_date starts from beginning of day  
+
+        # Ensure start_date starts from beginning of day
         start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        
+
         return start_date, end_date
     
     async def get_organization_metrics(
@@ -232,7 +263,7 @@ class ConsoleService:
     ) -> SimpleMetrics:
         """Get organization metrics with optional date filtering"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Base filters
@@ -377,13 +408,12 @@ class ConsoleService:
     ) -> MetricsComparison:
         """Get metrics with previous period comparison"""
         
-        # Default to last 30 days if no dates provided, normalize to UTC-naive
-        end_date = params.end_date or datetime.utcnow()
-        start_date = params.start_date or (end_date - timedelta(days=30))
+        # No start means "all time" (see _normalize_date_range). There is no
+        # period before all time to compare against, so `changes` is empty and
+        # the cards show plain totals instead of a made-up trend.
+        all_time = params.start_date is None
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
 
-        end_date = self._to_utc_naive(end_date)
-        start_date = self._to_utc_naive(start_date)
-        
         # Calculate period length and previous period dates
         period_length = end_date - start_date
         prev_end_date = start_date
@@ -401,7 +431,7 @@ class ConsoleService:
         previous_metrics = await self.get_organization_metrics(db, organization, prev_params)
         
         # Calculate changes
-        changes = self._calculate_changes(current_metrics, previous_metrics)
+        changes = {} if all_time else self._calculate_changes(current_metrics, previous_metrics)
         
         return MetricsComparison(
             current=current_metrics,
@@ -451,7 +481,7 @@ class ConsoleService:
     ) -> TimeSeriesMetrics:
         """Get time-series metrics data for charts"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Build data source filter subquery if needed
@@ -634,7 +664,7 @@ class ConsoleService:
     ) -> TableUsageMetrics:
         """Get table usage statistics using precomputed TableStats within date range"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # TableStats carries its own data_source_id, so the agent filter applies
@@ -703,7 +733,7 @@ class ConsoleService:
     ) -> TableJoinsHeatmap:
         """Get table joins heatmap showing which tables are used together"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         ds_filter_subquery = self._reports_in_scope(params)
 
         # Get all steps within date range for this organization
@@ -779,7 +809,7 @@ class ConsoleService:
         params: MetricsQueryParams
     ) -> ToolUsageMetrics:
         """Count tool executions for specific tools within date range, mapped to friendly labels."""
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Build data source filter subquery if needed
@@ -841,7 +871,7 @@ class ConsoleService:
         params: MetricsQueryParams
     ) -> LLMUsageMetrics:
         """Aggregate token/cost usage per LLM model for the selected date range."""
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         ds_report_ids = self._reports_in_scope(params)
 
         total_cost_expr = func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0)
@@ -863,6 +893,8 @@ class ConsoleService:
                 completion_tokens_expr.label('completion_tokens'),
                 cache_read_tokens_expr.label('cache_read_tokens'),
                 cache_creation_tokens_expr.label('cache_creation_tokens'),
+                func.coalesce(func.sum(LLMUsageRecord.cache_write_1h_tokens), 0).label('cache_write_1h_tokens'),
+                func.coalesce(func.sum(LLMUsageRecord.reasoning_tokens), 0).label('reasoning_tokens'),
                 input_cost_expr.label('input_cost'),
                 output_cost_expr.label('output_cost'),
                 total_cost_expr.label('total_cost'),
@@ -906,13 +938,20 @@ class ConsoleService:
             #   - OpenAI/Azure already fold cached tokens INTO prompt_tokens
             #     (and have no cache_creation concept), so adding cache_read
             #     again would over-count. Mirror the cost model's split.
-            if (row.provider_type or "") == "anthropic":
+            # Use the shared family helper rather than the provider string:
+            # Claude on Vertex/Bedrock/Azure reports Anthropic-shaped usage and
+            # was being totalled with the OpenAI rule right here.
+            if _is_anthropic_family(row.provider_type, row.model_id):
                 row_total_tokens = (
                     prompt_tokens + completion_tokens
                     + cache_read_tokens + cache_creation_tokens
                 )
             else:
                 row_total_tokens = prompt_tokens + completion_tokens
+            row_cache_hit_rate = pricing.cache_hit_rate(
+                prompt_tokens, cache_read_tokens, cache_creation_tokens,
+                row.provider_type, row.model_id,
+            )
             total_calls += int(row.total_calls or 0)
             total_prompt_tokens += prompt_tokens
             total_completion_tokens += completion_tokens
@@ -934,6 +973,9 @@ class ConsoleService:
                     completion_tokens=completion_tokens,
                     cache_read_tokens=cache_read_tokens,
                     cache_creation_tokens=cache_creation_tokens,
+                    cache_write_1h_tokens=int(getattr(row, "cache_write_1h_tokens", 0) or 0),
+                    reasoning_tokens=int(getattr(row, "reasoning_tokens", 0) or 0),
+                    cache_hit_rate=row_cache_hit_rate,
                     total_tokens=row_total_tokens,
                     input_cost_usd=input_cost,
                     output_cost_usd=output_cost,
@@ -1067,7 +1109,7 @@ class ConsoleService:
         therefore exceed the headline total by design. Records with no
         report/data-source/user/group resolve to an "Unattributed" bucket.
         """
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
         group_by = (group_by or "model").lower()
         if group_by not in ("model", "provider", "user", "data_source", "group", "scope"):
@@ -1338,7 +1380,7 @@ class ConsoleService:
     ) -> TopUsersMetrics:
         """Get top users by activity"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Get current period user metrics (simplified without trend calculation)
@@ -1429,7 +1471,7 @@ class ConsoleService:
     ) -> RecentNegativeFeedbackMetrics:
         """Get recent negative feedback with completion context"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         ds_filter_subquery = self._reports_in_scope(params)
         # The agent filter reaches feedback through the completion's report.
         feedback_report_filter = None
@@ -1875,6 +1917,7 @@ class ConsoleService:
         total_codegen_llm_ms = 0.0
         total_db_ms = 0.0
         iterations: List[IterationTimingSchema] = []
+        seen_decisions: set[str] = set()
         for b in blocks:
             tool_ms: float | None = None
             sub_timings = None
@@ -1903,10 +1946,16 @@ class ConsoleService:
                     # No sub_timings at all — entire tool duration is execution
                     total_db_ms += tool_ms
 
+            # Full planner LLM call for this iteration (thinking is only a
+            # slice of it). A decision that fans out into several tools yields
+            # several blocks; attribute its planner time to the first only.
             llm_ms: float | None = None
-            if b.plan_decision and b.plan_decision.metrics_json:
-                m = b.plan_decision.metrics_json
-                llm_ms = m.get("thinking_ms") or m.get("generation_ms")
+            pd = b.plan_decision
+            if pd and pd.metrics_json and pd.id not in seen_decisions:
+                m = pd.metrics_json
+                llm_ms = m.get("total_duration_ms") or m.get("thinking_ms") or m.get("generation_ms")
+            if pd:
+                seen_decisions.add(pd.id)
 
             iterations.append(IterationTimingSchema(
                 loop_index=b.loop_index,
@@ -2024,11 +2073,84 @@ class ConsoleService:
             raise ValueError("Agent execution not found for completion")
         return await self.get_agent_execution_trace(db, organization, ae.id)
 
+    async def _turn_memory_sections(self, db: AsyncSession, rows, ae_ids, viewer_id: Optional[str]) -> dict:
+        """Per-turn memory activity. Text only when the viewer owns the memory
+        (the turn's user); admins and everyone else see handles/counts."""
+        from app.models.memory_entry import MemoryEntry
+        from app.schemas.agent_execution_trace_schema import TurnMemorySchema, TurnMemoryItemSchema
+
+        memory_tools = ("create_memory", "edit_memory", "search_memory")
+        tool_rows: dict[str, list] = {}
+        if ae_ids:
+            q = (
+                select(ToolExecution)
+                .where(ToolExecution.agent_execution_id.in_(ae_ids), ToolExecution.tool_name.in_(memory_tools))
+                .order_by(ToolExecution.created_at.asc())
+            )
+            for te in (await db.execute(q)).scalars().all():
+                tool_rows.setdefault(str(te.agent_execution_id), []).append(te)
+
+        # Entry texts, loaded only for turns the viewer owns.
+        owned_ids: set[str] = set()
+        for r in rows:
+            mc = r.memory_context_json if isinstance(r.memory_context_json, dict) else {}
+            if viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id):
+                for it in (mc.get("injection") or {}).get("injected") or []:
+                    if it.get("id"):
+                        owned_ids.add(str(it["id"]))
+        texts: dict[str, str] = {}
+        if owned_ids:
+            q = select(MemoryEntry.id, MemoryEntry.text).where(
+                MemoryEntry.id.in_(list(owned_ids)), MemoryEntry.user_id == str(viewer_id)
+            )
+            texts = {str(i): (t or "") for i, t in (await db.execute(q)).all()}
+
+        out: dict[str, TurnMemorySchema] = {}
+        for r in rows:
+            ae = str(r.ae_id)
+            mc = r.memory_context_json if isinstance(r.memory_context_json, dict) else {}
+            tes = tool_rows.get(ae, [])
+            if not mc and not tes:
+                continue
+            owner = bool(viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id))
+            inj = mc.get("injection") or {}
+            mem = TurnMemorySchema(
+                owner_view=owner,
+                chars=int(inj.get("chars") or 0),
+                total_entries=int(inj.get("total_entries") or 0),
+                hidden=int(inj.get("hidden") or 0),
+            )
+            for it in inj.get("injected") or []:
+                mem.injected.append(TurnMemoryItemSchema(
+                    handle=it.get("handle"), dated=it.get("dated"), tier=it.get("tier"),
+                    text=texts.get(str(it.get("id"))) if owner else None,
+                ))
+            for te in tes:
+                args = te.arguments_json if isinstance(te.arguments_json, dict) else {}
+                res = te.result_json if isinstance(te.result_json, dict) else {}
+                text = None
+                if owner:
+                    text = args.get("text") or args.get("query") or None
+                mem.tool_calls.append(TurnMemoryItemSchema(
+                    tool=te.tool_name, action=args.get("action"),
+                    handle=res.get("handle") or args.get("handle"),
+                    dated=bool(args.get("date")) if te.tool_name == "create_memory" else None,
+                    success=bool(te.success), text=text,
+                ))
+            for ref in mc.get("refusals") or []:
+                mem.refusals.append(TurnMemoryItemSchema(
+                    tool=ref.get("tool"), code=ref.get("code"), handle=ref.get("handle"),
+                    text=ref.get("text") if owner else None,
+                ))
+            out[ae] = mem
+        return out
+
     async def get_report_conversation(
         self,
         db: AsyncSession,
         organization: Organization,
         report_id: str,
+        viewer_id: Optional[str] = None,
     ) -> ConversationTraceResponse:
         """Return a whole report conversation as ordered user→assistant turns.
 
@@ -2060,10 +2182,13 @@ class ConsoleService:
                 AgentExecution.status.label('ae_status'),
                 AgentExecution.total_duration_ms.label('total_duration_ms'),
                 AgentExecution.created_at.label('created_at'),
+                AgentExecution.user_id.label('ae_user_id'),
+                AgentExecution.memory_context_json.label('memory_context_json'),
                 SystemCompletion.completion.label('assistant_completion'),
                 UserCompletion.id.label('user_completion_id'),
                 UserCompletion.prompt.label('user_prompt'),
                 UserCompletion.role.label('user_role'),
+                UserCompletion.trigger_source.label('trigger_source'),
                 UserCompletion.external_platform.label('external_platform'),
                 UserCompletion.instructions_effectiveness.label('instructions_effectiveness'),
                 UserCompletion.context_effectiveness.label('context_effectiveness'),
@@ -2223,6 +2348,10 @@ class ConsoleService:
             tail = _re.sub(r'\s+', ' ', tail).strip()
             return tail
 
+        checkins = await self._report_checkins(db, organization, str(report.id))
+        checkin_by_run = {c.run_completion_id: c.id for c in checkins if c.run_completion_id}
+        memory_by_ae = await self._turn_memory_sections(db, rows, ae_ids, viewer_id)
+
         turns: List[ConversationTurnSchema] = []
         failed_turns = 0
         negative_feedback_turns = 0
@@ -2243,6 +2372,8 @@ class ConsoleService:
                 user_completion_id=str(r.user_completion_id) if r.user_completion_id else None,
                 user_prompt=_text(r.user_prompt)[:2000],
                 role=r.user_role or 'user',
+                trigger_source=r.trigger_source,
+                checkin_id=checkin_by_run.get(str(r.completion_id)) if r.completion_id else None,
                 completion_id=str(r.completion_id) if r.completion_id else None,
                 agent_execution_id=str(r.ae_id),
                 assistant_content=_clean_answer(r.assistant_completion)[:2000],
@@ -2264,6 +2395,7 @@ class ConsoleService:
                 llm_cost_usd=turn_llm_cost_usd,
                 created_at=r.created_at,
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
+                memory=memory_by_ae.get(str(r.ae_id)),
             ))
 
         # Conversation-level origin platform = first turn that carries one
@@ -2319,7 +2451,58 @@ class ConsoleService:
             total_llm_tokens=total_llm_tokens,
             total_llm_cost_usd=total_llm_cost_usd,
             turns=turns,
+            checkins=checkins,
         )
+
+    async def _report_checkins(self, db: AsyncSession, organization: Organization, report_id: str) -> list:
+        """Every agent check-in row for the report, with planner/judge LLM usage
+        (llm_usage_records scoped checkin_planner / checkin_judge, keyed by the
+        check-in id)."""
+        from app.models.agent_checkin import AgentCheckin
+        from app.schemas.agent_execution_trace_schema import CheckinTraceSchema
+
+        rows = (await db.execute(
+            select(AgentCheckin).where(
+                AgentCheckin.report_id == report_id,
+                AgentCheckin.organization_id == str(organization.id),
+                AgentCheckin.deleted_at.is_(None),
+            ).order_by(AgentCheckin.created_at.asc())
+        )).scalars().all()
+        if not rows:
+            return []
+        ids = [str(r.id) for r in rows]
+        usage: dict = {}
+        uq = (
+            select(
+                LLMUsageRecord.scope_ref_id,
+                LLMUsageRecord.scope,
+                func.coalesce(func.sum(_row_total_tokens_expr()), 0),
+                func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
+            )
+            .where(
+                LLMUsageRecord.scope.in_(("checkin_planner", "checkin_judge")),
+                LLMUsageRecord.scope_ref_id.in_(ids),
+            )
+            .group_by(LLMUsageRecord.scope_ref_id, LLMUsageRecord.scope)
+        )
+        for ref_id, scope, tokens, cost in (await db.execute(uq)).all():
+            usage[(str(ref_id), scope)] = (int(tokens or 0) or None, round(float(cost or 0), 6) or None)
+        out = []
+        for r in rows:
+            p_tok, p_cost = usage.get((str(r.id), "checkin_planner"), (None, None))
+            j_tok, j_cost = usage.get((str(r.id), "checkin_judge"), (None, None))
+            out.append(CheckinTraceSchema(
+                id=str(r.id), status=r.status, status_reason=r.status_reason,
+                source_completion_id=r.source_completion_id, run_completion_id=r.run_completion_id,
+                note=r.note, plan_reason=r.plan_reason, due_at=r.due_at,
+                judge_decision=r.judge_decision, judge_reason=r.judge_reason, judge_focus=r.judge_focus,
+                judged_at=r.judged_at, notified=bool(r.notified), notify_subject=r.notify_subject,
+                sent_at=r.sent_at,
+                planner_llm_tokens=p_tok, planner_llm_cost_usd=p_cost,
+                judge_llm_tokens=j_tok, judge_llm_cost_usd=j_cost,
+                created_at=r.created_at,
+            ))
+        return out
 
     async def get_agent_execution_summaries(
         self,
@@ -2334,7 +2517,7 @@ class ConsoleService:
         security_data_source_ids: Optional[list] = None,
     ) -> AgentExecutionSummariesResponse:
         """Aggregate agent executions joined with completion, feedback, tool counts, and report/user metadata."""
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
         parsed_user_ids = self._parse_user_ids(params.user_ids)
 
@@ -2657,7 +2840,7 @@ class ConsoleService:
         params: MetricsQueryParams
     ) -> Dict[str, int]:
         """Get dashboard metrics for diagnosis page."""
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
         parsed_user_ids = self._parse_user_ids(params.user_ids)
 

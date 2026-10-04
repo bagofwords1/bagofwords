@@ -44,26 +44,18 @@
               <button class="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 text-xs flex items-center border border-gray-200 dark:border-gray-800 h-8">
                 <Icon name="heroicons-cpu-chip" class="w-4 h-4" />
                 <span class="ms-1 truncate max-w-[260px] text-start">{{ selectedModelLabel }}</span>
+                <span v-if="selectedEffort" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-[10px] leading-4">{{ $t(`prompt.effort.levels.${selectedEffort}`) }}</span>
               </button>
             </UTooltip>
             <template #panel="{ close }">
-              <div class="p-2 text-xs max-h-64 overflow-y-auto w-[260px]">
-                <div
-                  v-for="m in models"
-                  :key="m.id || m.model_id"
-                  class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center"
-                  @click="() => { selectModel(m); close(); }"
-                >
-                  <div class="me-2">
-                    <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
-                  </div>
-                  <div class="flex flex-col flex-1 text-start min-w-0">
-                    <span class="font-medium truncate">{{ m.name || m.model_id }}</span>
-                    <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name || m.provider_name || '' }}</span>
-                  </div>
-                  <Icon v-if="selectedModelId === (m.id || m.model_id)" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
-                </div>
-              </div>
+              <ModelPickerPanel
+                :models="models"
+                :model-value="selectedModelId"
+                :effort="selectedEffort"
+                @update:model-value="(id) => selectModel(models.find(m => (m.id || m.model_id) === id))"
+                @update:effort="selectEffort"
+                @close="close"
+              />
             </template>
           </UPopover>
         </div>
@@ -89,7 +81,7 @@ import MentionInput from '@/components/prompt/MentionInput.vue'
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
-import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
+import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
 
 const props = defineProps({
   report_id: { type: String, default: '' },
@@ -103,12 +95,15 @@ const props = defineProps({
   // down, and loadModels() then emitted the org default over it — so a chosen
   // model looked like it never saved.
   selectedModelId: { type: String, default: '' },
+  // Reasoning level saved with the case (prompt_json.reasoning_effort); '' = Default.
+  selectedEffort: { type: String, default: '' },
 })
 
 const emit = defineEmits([
   'update:modelValue',
   'update:selectedDataSources',
   'update:selectedModelId',
+  'update:selectedEffort',
   'update:uploadedFiles',
   'update:mentions'
 ])
@@ -119,6 +114,15 @@ const selectedDataSources = ref<any[]>([])
 const uploadedFiles = ref<any[]>([])
 const models = ref<any[]>([])
 const selectedModelId = ref<string>(props.selectedModelId || '')
+const selectedEffort = ref<string | null>(props.selectedEffort || null)
+function selectEffort(v: string | null) {
+  selectedEffort.value = v
+  emit('update:selectedEffort', v || '')
+}
+watch(() => props.selectedEffort, (v) => {
+  const next = v || null
+  if (next !== selectedEffort.value) selectedEffort.value = next
+})
 
 // Legacy popper used across app for consistent placement
 const popperLegacy = computed(() => ({ strategy: 'absolute' as const, placement: 'bottom-start' as const, offset: [ 0, 8 ] }))
@@ -150,7 +154,7 @@ function selectModel(m: any) {
 async function loadModels() {
   try {
     const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
-    // Exclude image-generation models (e.g. gpt-image-1) — not chat models.
+    // Exclude image-generation models (e.g. gpt-image-2.5-sunburst) — not chat models.
     const list = ((data as any)?.value || []).filter((m: any) => !m?.supports_image_generation)
     models.value = list
     // Prefer the user's personal default, then regular default, then small default, then first

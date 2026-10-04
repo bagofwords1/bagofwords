@@ -219,7 +219,7 @@ const latestStdoutError = computed(() => {
 })
 
 // Group tables by connection type for display
-// Cached (BOW custom query) relations — a tool call that read one never
+// Cached (BOW custom table) relations — a tool call that read one never
 // touched the source database. Names come from the agent list (fetched once
 // per page); the report payload doesn't carry them.
 const { ensureLoaded: ensureCachedNames, isCachedTable } = useCachedTableNames()

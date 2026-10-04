@@ -281,6 +281,18 @@ class NetworkDirClient(DataSourceClient):
         how to map the recovered id back to the on-disk bytes."""
         return recover_filename(path.relative_to(self._root()).as_posix())
 
+    def _entries(self, paths) -> List[Dict[str, Any]]:
+        """`_entry` over a listing, skipping files that vanished between the
+        walk and the stat (temp files, a concurrent delete): the listing is a
+        snapshot, and one missing entry must not fail the whole call."""
+        out: List[Dict[str, Any]] = []
+        for p in paths:
+            try:
+                out.append(self._entry(p))
+            except FileNotFoundError:
+                continue
+        return out
+
     def _entry(self, path: Path) -> Dict[str, Any]:
         stat = path.stat()
         rel = self._rel_id(path)
@@ -357,7 +369,7 @@ class NetworkDirClient(DataSourceClient):
         rec = self.recursive if recursive is None else bool(recursive)
         files = self._iter_files(base, rec)
         files.sort(key=lambda p: p.as_posix().lower())
-        return [self._entry(p) for p in files]
+        return self._entries(files)
 
     def read_file(
         self,
@@ -580,7 +592,10 @@ class NetworkDirClient(DataSourceClient):
             if not matched and content:
                 matched = q in self._file_text(p).lower()
             if matched:
-                results.append(self._entry(p))
+                try:
+                    results.append(self._entry(p))
+                except FileNotFoundError:
+                    continue  # vanished between the walk and the stat
                 if len(results) >= max_results:
                     break
         return results
@@ -650,7 +665,11 @@ class NetworkDirClient(DataSourceClient):
                     fnmatch.fnmatch(p.name.lower(), pat) or fnmatch.fnmatch(rel.lower(), pat)
                 ):
                     continue
-                candidates.append({"id": rel, "path": rel, "size": p.stat().st_size})
+                try:
+                    size = p.stat().st_size
+                except FileNotFoundError:
+                    continue  # vanished between the walk and the stat
+                candidates.append({"id": rel, "path": rel, "size": size})
 
         def _read(entry: Dict[str, Any]) -> bytes:
             return self._resolve(entry["id"], must_exist=True).read_bytes()

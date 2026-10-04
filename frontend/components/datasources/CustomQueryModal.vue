@@ -5,7 +5,7 @@
       <div class="flex items-start justify-between mb-3">
         <div>
           <h2 class="text-lg font-semibold dark:text-white">
-            {{ editing ? 'Edit custom query' : 'New custom query' }}
+            {{ editing ? 'Edit custom table' : 'New custom table' }}
           </h2>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             Runs on a schedule and is stored locally, so agents answer from a
@@ -53,7 +53,8 @@
       <!-- ============ QUERY ============ -->
       <div v-show="tab === 'query'">
         <!-- Connection picker. An agent can have several; the query runs against
-             exactly one, and the SQL below is written in that source's dialect. -->
+             exactly one, and the query below is written in that source's dialect
+             (SQL, or DAX on Power BI). -->
         <div class="mb-3">
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Connection</label>
           <div v-if="editing" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -87,7 +88,35 @@
             </template>
           </USelectMenu>
           <p v-if="!editing && availableConnections.length > 1" class="text-[10px] text-gray-400 mt-1">
-            Switching connections clears the preview — the SQL is dialect- and schema-specific.
+            Switching connections clears the preview — the query is dialect- and schema-specific.
+          </p>
+        </div>
+
+        <!-- Power BI is addressed per semantic model, and a DAX text only names
+             tables. Detection from those names is the default; the picker is
+             for the case where the same table name lives in two models, or the
+             catalog has not been indexed yet. -->
+        <div v-if="isDax" class="mb-3" data-testid="cq-target-row">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Semantic model</label>
+          <select
+            v-model="targetDatasetId" data-testid="cq-target"
+            class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 dark:bg-gray-900 dark:text-white"
+          >
+            <option value="">Detect from the tables the DAX references</option>
+            <option v-for="t in targets" :key="t.datasetId" :value="t.datasetId">
+              {{ t.datasetName }}{{ t.workspaceName ? ` (${t.workspaceName})` : '' }} — {{ t.tables.length }} table{{ t.tables.length === 1 ? '' : 's' }}
+            </option>
+          </select>
+          <p class="text-[10px] text-gray-400 mt-1">
+            <template v-if="currentTarget">
+              Tables in this model: {{ currentTarget.tables.slice(0, 12).join(', ') }}{{ currentTarget.tables.length > 12 ? ', …' : '' }}
+            </template>
+            <template v-else-if="targets.length">
+              Table names in the DAX must match the model's; quote names with spaces, e.g. 'Order Details'.
+            </template>
+            <template v-else>
+              No semantic models in the catalog yet — index the connection first, or the DAX cannot be routed to a model.
+            </template>
           </p>
         </div>
 
@@ -112,11 +141,12 @@
         </div>
 
         <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-          SQL <span class="text-gray-400">— in {{ activeConnectionType }} dialect</span>
+          <template v-if="isDax">DAX <span class="text-gray-400">— one EVALUATE against a Power BI semantic model</span></template>
+          <template v-else>SQL <span class="text-gray-400">— in {{ activeConnectionType }} dialect</span></template>
         </label>
         <textarea
           v-model="form.definition_sql" data-testid="cq-sql" rows="8" spellcheck="false"
-          placeholder="SELECT ..."
+          :placeholder="isDax ? 'EVALUATE SUMMARIZECOLUMNS(Sales[Region], &quot;Revenue&quot;, SUM(Sales[Revenue]))' : 'SELECT ...'"
           class="w-full text-xs font-mono border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-2 dark:bg-gray-900 dark:text-white"
         />
 
@@ -254,7 +284,7 @@
           >
             <Spinner v-if="deleting" class="w-3.5 h-3.5" />
             <UIcon v-else name="heroicons-trash" class="w-3.5 h-3.5" />
-            Delete custom query
+            Delete custom table
           </button>
         </div>
       </div>
@@ -522,14 +552,39 @@ const activeConnectionType = computed(() => activeConnection.value?.type || prop
 const connectionOptions = computed(() =>
   availableConnections.value.map((c) => ({ id: c.id, name: c.name, type: c.type })))
 
-// The SQL is written in the source's dialect against its schema, so a preview
+// The query is written in the source's dialect against its schema, so a preview
 // taken on one connection says nothing about another — drop it on switch
 // rather than letting a stale result satisfy the save gate.
 watch(selectedConnectionId, (next, prev) => {
   if (!prev || next === prev) return
   preview.value = null
   previewError.value = ''
+  targetDatasetId.value = ''
+  loadTargets()
 })
+
+// ---------------------------------------------------------------------------
+// Targets (Power BI semantic models)
+// ---------------------------------------------------------------------------
+// A DAX custom table runs against one semantic model. The backend resolves it
+// from the tables the DAX references; this picker is the explicit override,
+// sent along with preview and save so both address the same model.
+const isDax = computed(() => (activeConnectionType.value || '').toLowerCase() === 'powerbi')
+const targets = ref<any[]>([])
+const targetDatasetId = ref('')
+const currentTarget = computed(() => targets.value.find((t) => t.datasetId === targetDatasetId.value) || null)
+function targetPayload() {
+  const t = currentTarget.value
+  return t ? { datasetId: t.datasetId, workspaceId: t.workspaceId, datasetName: t.datasetName } : null
+}
+async function loadTargets() {
+  targets.value = []
+  if (!isDax.value || !activeConnection.value?.id) return
+  try {
+    const { data, error } = await useMyFetch(`/connections/${activeConnection.value.id}/custom-queries/targets`, { method: 'GET' })
+    if (!error.value) targets.value = (data.value as any[]) || []
+  } catch { /* the picker simply stays empty; detection still works */ }
+}
 
 const tabs = computed(() => [
   { key: 'query', label: 'Query', disabled: false },
@@ -576,6 +631,8 @@ watch(() => props.modelValue, (open) => {
   rlsPreviewUserId.value = ''
   loadRlsFromCq()
   selectedConnectionId.value = props.cq?.connection_id || props.connectionId || (availableConnections.value[0]?.id || '')
+  targetDatasetId.value = props.cq?.target?.datasetId || ''
+  loadTargets()
   if (props.cq) {
     form.name = props.cq.name || ''
     form.description = props.cq.description || ''
@@ -767,7 +824,7 @@ async function runPreview() {
   try {
     const { data, error } = await useMyFetch(
       `/connections/${activeConnection.value.id}/custom-queries/preview`,
-      { method: 'POST', body: { definition_sql: form.definition_sql } },
+      { method: 'POST', body: { definition_sql: form.definition_sql, target: targetPayload() } },
     )
     if (error.value) {
       previewError.value = error.value?.data?.detail || 'Query failed'
@@ -792,6 +849,11 @@ async function onSave() {
       refresh_interval_minutes: form.refresh_interval_minutes,
       refresh_at_time: form.refresh_schedule_mode === 'time' ? form.refresh_at_time : null,
     }
+    if (isDax.value) {
+      // Always sent on a DAX table: an empty object clears a previous pin
+      // (the update route treats an omitted field as "keep").
+      body.target = targetPayload() || {}
+    }
     if (!editing.value && props.activateForDatasourceId) {
       // Enabled on the agent it was created from; every other agent on the
       // connection gets it inactive, same as a regular table.
@@ -807,7 +869,7 @@ async function onSave() {
     }
     const saved: any = data.value
     toast.add({
-      title: editing.value ? 'Custom query updated' : 'Custom query cached',
+      title: editing.value ? 'Custom table updated' : 'Custom table cached',
       description: `${saved.name} — ${(saved.no_rows || 0).toLocaleString()} rows cached locally`,
       color: 'green',
     })
@@ -848,7 +910,7 @@ async function onDelete() {
       toast.add({ title: 'Delete failed', description: error.value?.data?.detail || 'Failed', color: 'red' })
       return
     }
-    toast.add({ title: 'Custom query deleted', color: 'green' })
+    toast.add({ title: 'Custom table deleted', color: 'green' })
     emit('deleted')
     close()
   } finally {

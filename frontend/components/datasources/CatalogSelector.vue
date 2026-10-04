@@ -15,13 +15,6 @@
 
       <!-- One selection and graph across table connections, including onboarding. -->
       <div v-if="tableConnections.length" class="mb-6">
-        <div class="flex flex-wrap gap-x-4 gap-y-2 mb-2 px-1">
-          <div v-for="conn in tableConnections" :key="conn.id" class="flex items-center gap-2">
-            <DataSourceIcon :type="conn.type" class="w-4 h-4" />
-            <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ conn.name }}</span>
-            <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ conn.type }}</span>
-          </div>
-        </div>
         <TablesSelector
           ref="tablesRef"
           :ds-id="dsId"
@@ -64,7 +57,6 @@
 </template>
 
 <script setup lang="ts">
-import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import TablesSelector from '@/components/datasources/TablesSelector.vue'
 import ToolsSelector from '@/components/datasources/ToolsSelector.vue'
 import FileSourceScope from '@/components/datasources/FileSourceScope.vue'

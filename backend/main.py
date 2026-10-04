@@ -55,7 +55,6 @@ from app.routes import (
     project,
     agent_catalog,
     test,
-    widget,
     query,
     visualization,
     entity,
@@ -69,8 +68,8 @@ from app.routes import (
     review,
     notification,
     demo_data_source,
-    text_widget,
     user_profile,
+    user_memory,
     llm,
     git,
     organization_settings,
@@ -109,6 +108,7 @@ from app.routes import (
     agent_yaml,
     eval_yaml,
     data_source_tools,
+    agent_lists,
     changelog,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
@@ -136,7 +136,6 @@ app = FastAPI(
     openapi_tags=[
         {"name": "auth", "description": "Authentication operations"},
         {"name": "reports", "description": "Report management"},
-        {"name": "widgets", "description": "Widget operations"},
         {"name": "data_sources", "description": "Data source management"},
         {"name": "organizations", "description": "Organization management"},
         {"name": "users", "description": "User management"},
@@ -195,6 +194,7 @@ fastapi_users = create_fastapi_users(get_user_manager, auth_backend, oauth_provi
 current_user = fastapi_users.current_user(active=True)
 
 app.include_router(user_profile.router, prefix="/api")
+app.include_router(user_memory.router, prefix="/api")
 
 # Determine auth mode
 auth_mode = getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'
@@ -264,7 +264,6 @@ app.include_router(agent_catalog.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")
 app.include_router(test.router, prefix="/api")
-app.include_router(widget.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(visualization.router, prefix="/api")
 app.include_router(entity.router, prefix="/api")
@@ -275,7 +274,6 @@ app.include_router(file_reference.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(rbac.router, prefix="/api")
 app.include_router(usage_limits.router, prefix="/api")
-app.include_router(text_widget.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
@@ -306,10 +304,13 @@ app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
+app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
+from app.routes import artifact_resources
+app.include_router(artifact_resources.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 
@@ -457,6 +458,19 @@ async def startup_event():
     if not is_scheduler_leader:
         logger.info("Scheduler leader lock not acquired — skipping job registration in this worker")
 
+    # Tool-audit events that could not reach the database before a previous
+    # shutdown were spilled to disk; put them into audit_logs now. Leader-only
+    # so a multi-worker start does not race the same files (each file is also
+    # claimed by atomic rename). Background task: a large spill never delays
+    # serving.
+    if is_scheduler_leader:
+        try:
+            import asyncio as _asyncio
+            from app.ee.audit.tool_audit import replay_spilled_tool_audit_events
+            app.state.tool_audit_replay_task = _asyncio.create_task(replay_spilled_tool_audit_events())
+        except Exception as e:
+            logger.error(f"Failed to start tool audit spill replay: {e}")
+
     # Organizations created before a pre-built skill was flagged
     # default_enabled get it installed once, here. Leader-only so multiple
     # workers do not race the same check-then-install; a background task so a
@@ -487,6 +501,44 @@ async def startup_event():
             logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
         except Exception as e:
             logger.error(f"Failed to schedule purge job: {e}")
+
+    # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
+    if is_scheduler_leader:
+        try:
+            from app.services.checkin_service import sweep_stale_checkins
+            scheduler.add_job(
+                sweep_stale_checkins,
+                trigger="interval",
+                hours=1,
+                id="checkin_stale_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: checkin_stale_sweep every 1 hour")
+        except Exception as e:
+            logger.error(f"Failed to schedule check-in stale sweep: {e}")
+
+    # Overnight learning: hourly sweep that runs the nightly user dreams
+    # (01:00-03:00 org-local) and agent dreams (03:00-05:00 org-local).
+    # Leader-only; each unit runs at most once per org-local night.
+    if is_scheduler_leader:
+        try:
+            from app.services.dreams.runtime import overnight_sweep
+            scheduler.add_job(
+                overnight_sweep,
+                trigger="interval",
+                hours=1,
+                id="overnight_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: overnight_sweep every 1 hour")
+        except Exception as e:
+            logger.warning(f"Failed to schedule overnight_sweep: {e}")
 
     # Background warmup of QVD Parquet caches so the first create_data/inspect_data
     # on a 1-5GB QVD doesn't block the UI for minutes.
@@ -562,6 +614,46 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule schema reindex sweep job: {e}")
 
+    # Tool-audit spill files left by a database outage: replay them while the
+    # service runs, not only at startup. Every worker's scheduler fires it
+    # (shared job store); files are claimed by atomic rename, so that is safe.
+    if is_scheduler_leader:
+        try:
+            from app.ee.audit.tool_audit import scheduled_spill_replay
+            scheduler.add_job(
+                scheduled_spill_replay,
+                trigger="interval",
+                seconds=60,
+                id="tool_audit_spill_replay",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=60,
+            )
+            logger.info("Scheduled job: tool_audit_spill_replay every 60 seconds")
+        except Exception as e:
+            logger.error(f"Failed to schedule tool audit spill replay job: {e}")
+
+    # Audit log streams: deliver new audit events to each org's SIEM/bucket.
+    # Leader-only; each stream is additionally claimed with a row lease so
+    # multiple hosts never double-send. No-ops without the license feature.
+    if is_scheduler_leader:
+        try:
+            from app.ee.audit.streams.exporter import scheduled_export_tick
+            scheduler.add_job(
+                scheduled_export_tick,
+                trigger="interval",
+                seconds=int(os.environ.get("BOW_AUDIT_STREAM_INTERVAL_SECONDS", "15")),
+                id="audit_stream_export",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=60,
+            )
+            logger.info("Scheduled job: audit_stream_export")
+        except Exception as e:
+            logger.error(f"Failed to schedule audit stream export job: {e}")
+
     # Background connection-status refresher: re-tests system_only connections
     # whose cached status is stale past the TTL (~5 min). Read endpoints serve
     # the cached status and never live-test — this job is what keeps the
@@ -581,6 +673,27 @@ async def startup_event():
             logger.info("Scheduled job: connection_status_sweep every 5 minutes")
         except Exception as e:
             logger.error(f"Failed to schedule connection status sweep job: {e}")
+
+    # Diagnosis rollup sweep: the startup pass runs once per process, but runs
+    # keep becoming pending afterwards (a run orphaned by a restart turns stale
+    # an hour later). This indexes them without waiting for the next restart.
+    if is_scheduler_leader:
+        try:
+            from app.services.diagnosis.sweep import SCHEDULE_MINUTES, SCHEDULED_JOB_ID, enabled, scheduled_sweep
+            if enabled():
+                scheduler.add_job(
+                    scheduled_sweep,
+                    trigger="interval",
+                    minutes=SCHEDULE_MINUTES,
+                    id=SCHEDULED_JOB_ID,
+                    replace_existing=True,
+                    coalesce=True,
+                    max_instances=1,
+                    misfire_grace_time=SCHEDULE_MINUTES * 60,
+                )
+                logger.info(f"Scheduled job: {SCHEDULED_JOB_ID} every {SCHEDULE_MINUTES} minutes")
+        except Exception as e:
+            logger.error(f"Failed to schedule diagnosis rollup sweep job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):
@@ -762,3 +875,7 @@ if __name__ == "__main__":
         reload_excludes=["uploads/*", "**/uploads/*", "*.parquet", "*.pbix", "*.qvd"],
         workers=20
     )
+
+# Bound new resource payloads without changing legacy upload contracts.
+from app.services.artifact_body_limit import ArtifactBodyLimit
+app.add_middleware(ArtifactBodyLimit)

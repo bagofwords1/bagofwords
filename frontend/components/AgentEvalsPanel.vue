@@ -743,6 +743,8 @@ function triggerLabel(t?: string) {
         instruction_change: 'Instruction change',
         global_change: 'Global change',
         manual: 'Manual',
+        suggestion: 'Suggestion',
+        nightly: 'Nightly learning',
     } as Record<string, string>)[t || ''] || t || '—'
 }
 function autoStatusClass(s?: string) {

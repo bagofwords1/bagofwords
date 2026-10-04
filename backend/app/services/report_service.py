@@ -246,6 +246,7 @@ class ReportService:
         include_data_tab: bool | None = None,
         artifact_chat_enabled: bool | None = None,
         artifact_chat_data_source_ids: list[str] | None = None,
+        artifact_chat_model_id: str | None = None,
     ) -> dict:
         """Set visibility for artifact or conversation sharing.
 
@@ -344,6 +345,21 @@ class ReportService:
                     if unknown:
                         raise HTTPException(status_code=400, detail="Unknown data source in artifact_chat_data_source_ids")
                 report.artifact_chat_data_source_ids = ids
+
+        if share_type == 'artifact' and artifact_chat_model_id is not None:
+            from app.services.artifact_chat_service import ORG_DEFAULT_CHAT_MODEL
+            if artifact_chat_model_id == "":
+                report.artifact_chat_model_id = None
+            elif artifact_chat_model_id == ORG_DEFAULT_CHAT_MODEL:
+                report.artifact_chat_model_id = ORG_DEFAULT_CHAT_MODEL
+            else:
+                # Same gate as ReportUpdate.model_id: the owner must be able to
+                # use the model they hand to viewers (exists, enabled, granted).
+                from app.services.llm_service import LLMService
+                await LLMService().validate_model_for_user(
+                    db, organization, current_user, artifact_chat_model_id
+                )
+                report.artifact_chat_model_id = artifact_chat_model_id
 
         # Sync legacy fields for backward compatibility
         if share_type == 'artifact':
@@ -537,6 +553,9 @@ class ReportService:
             "shared_group_ids": shared_group_ids or [],
             "shared_run_identity": report.shared_run_identity,
             "include_data_tab": report.include_data_tab,
+            "artifact_chat_enabled": bool(report.artifact_chat_enabled),
+            "artifact_chat_data_source_ids": report.artifact_chat_data_source_ids,
+            "artifact_chat_model_id": report.artifact_chat_model_id,
             "conversation_share_token": report.conversation_share_token if share_type == 'conversation' and visibility != 'none' else None,
         }
 
@@ -708,6 +727,7 @@ class ReportService:
             mode=getattr(report, "mode", "chat"),
             # Report-level LLM override (null = user/org default resolves at run time)
             model_id=getattr(report, "model_id", None),
+            reasoning_effort=getattr(report, "reasoning_effort", None),
             # Agent focus (subset of attached agents whose full schema is in context)
             focused_data_source_ids=getattr(report, "focused_data_source_ids", None) or [],
             # Conversation sharing
@@ -720,6 +740,7 @@ class ReportService:
             include_data_tab=bool(getattr(report, "include_data_tab", True)),
             artifact_chat_enabled=bool(getattr(report, "artifact_chat_enabled", False)),
             artifact_chat_data_source_ids=getattr(report, "artifact_chat_data_source_ids", None),
+            artifact_chat_model_id=getattr(report, "artifact_chat_model_id", None),
             artifact_shared_user_ids=[
                 str(s.user_id) for s in (report.shares or [])
                 if s.share_type == 'artifact' and s.user_id and s.deleted_at is None
@@ -899,6 +920,8 @@ class ReportService:
         # it is set below, after the same strict check the update path runs.
         requested_model_id = report_data.model_id
         del report_data.model_id
+        requested_reasoning_effort = report_data.reasoning_effort
+        del report_data.reasoning_effort
 
         # Create the report object
         report = Report(**report_data.dict())
@@ -941,6 +964,7 @@ class ReportService:
                 db, organization, current_user, requested_model_id
             )
             report.model_id = requested_model_id
+        report.reasoning_effort = requested_reasoning_effort
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'
@@ -967,10 +991,13 @@ class ReportService:
         )
         db.add(empty_layout)
 
-        # Associate files only if there are any (skip unnecessary query)
+        # Associate files only if there are any (skip unnecessary query).
+        # Same gate as data sources below: attaching makes a file readable
+        # through this report, so only files the creator may already see go on
+        # (org-scoped; anything else is dropped).
         if file_uuids:
-            file_result = await db.execute(select(File).filter(File.id.in_(file_uuids)))
-            files = file_result.scalars().all()
+            from app.services.file_access_service import filter_viewable_files
+            files = await filter_viewable_files(db, current_user, organization, file_uuids)
             report.files.extend(files)
 
         # Associate data sources only if there are any (skip unnecessary query)
@@ -1104,6 +1131,10 @@ class ReportService:
                     )
                 except Exception:
                     pass
+        # Reasoning level stored beside model_id. None = omitted (unchanged),
+        # "" = clear back to Default.
+        if getattr(report_data, 'reasoning_effort', None) is not None:
+            report.reasoning_effort = report_data.reasoning_effort or None
         # Project membership (move). Sentinel-aware like model_id:
         #   None -> untouched, "" -> back to root, <id> -> move into project
         # (requires view access on the target). The route's owner_only gate
@@ -1709,6 +1740,15 @@ class ReportService:
 
         logger.info(f"Deleted {len(scheduled_prompts)} scheduled prompt(s) for archived report(s): {report_ids}")
 
+    async def _cancel_checkins_for_reports(self, db: AsyncSession, report_ids) -> None:
+        """Archived reports: cancel their pending agent check-ins
+        (cancelled:report_deleted) and remove the checkin:* jobs."""
+        try:
+            from app.services.checkin_service import checkin_service
+            await checkin_service.cancel_for_reports(db, list(report_ids or []))
+        except Exception:
+            logger.warning(f"Failed to cancel check-ins for archived report(s): {report_ids}", exc_info=True)
+
     async def archive_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
@@ -1718,6 +1758,7 @@ class ReportService:
         report.status = 'archived'
         await self._delete_scheduled_prompts_for_reports(db, [str(report.id)])
         await db.commit()
+        await self._cancel_checkins_for_reports(db, [str(report.id)])
         await db.refresh(report)
 
         # Audit log
@@ -2144,30 +2185,6 @@ class ReportService:
 
         return schema
 
-    async def get_public_layouts(self, db: AsyncSession, report_id: str, user=None):
-        # Ensure report exists and has artifact visibility.
-        # lazyload("*") — the visibility check needs the report row only, not
-        # the selectin cascade (all step data, artifacts, completions, ...).
-        result = await db.execute(
-            select(Report).options(lazyload("*"))
-            .where(Report.id == report_id).where(Report.report_type == 'regular')
-        )
-        report = result.scalar_one_or_none()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        await self._check_visibility(db, report, 'artifact_visibility', user)
-
-        rows = await db.execute(
-            select(DashboardLayoutVersion).options(lazyload("*"))
-            .where(DashboardLayoutVersion.report_id == report_id).order_by(
-                DashboardLayoutVersion.created_at.asc()
-            )
-        )
-        layouts = rows.scalars().all()
-
-        from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
-        return [DashboardLayoutVersionSchema.from_orm(l) for l in layouts]
-
     async def get_public_queries(self, db: AsyncSession, report_id: str, artifact_id: str | None = None, user=None):
         """Get queries for a shared report.
 
@@ -2374,7 +2391,8 @@ class ReportService:
         # Fetch the artifact and verify it belongs to this report
         from app.models.artifact import ArtifactVersion
         artifact_result = await db.execute(
-            select(ArtifactVersion).options(lazyload("*")).where(
+            select(ArtifactVersion).options(lazyload("*"))
+            .where(
                 ArtifactVersion.id == artifact_id,
                 ArtifactVersion.report_id == report_id,
                 ArtifactVersion.deleted_at.is_(None)
@@ -2965,6 +2983,7 @@ class ReportService:
         if count:
             await self._delete_scheduled_prompts_for_reports(db, archived_ids)
             await db.commit()
+            await self._cancel_checkins_for_reports(db, archived_ids)
 
             # Audit log
             try:

@@ -25,6 +25,20 @@ def _agent_on_dir(tmp_path, create_user, login_user, whoami, create_data_source,
 
 
 @pytest.mark.e2e
+def test_agent_connection_list_exposes_catalog_shape(tmp_path, test_client, create_user, login_user, whoami, create_data_source):
+    endpoint, headers = _agent_on_dir(
+        tmp_path, create_user, login_user, whoami, create_data_source, test_client,
+    )
+    connection_list = endpoint.split('/connections/')[0] + '/connections'
+    response = test_client.get(connection_list, headers=headers)
+    assert response.status_code == 200, response.text
+    connections = response.json()
+    assert connections
+    assert connections[0]['data_shape'] == 'files'
+    assert connections[0]['catalog_ownership'] == 'shared'
+
+
+@pytest.mark.e2e
 def test_browse_returns_scope_relative_paths_and_hides_off_scope_files(
     tmp_path, test_client, create_user, login_user, whoami, create_data_source,
 ):

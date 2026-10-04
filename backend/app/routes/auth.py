@@ -6,7 +6,10 @@ from pydantic import BaseModel
 from app.services.auth_providers import build_authorize_url, handle_callback
 from app.core.auth import get_user_manager
 
+from app.routes.saml_auth import router as saml_router
+
 router = APIRouter()
+router.include_router(saml_router)
 
 
 class LoginCodeExchange(BaseModel):

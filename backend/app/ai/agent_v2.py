@@ -5,65 +5,24 @@ import os
 import re as _re_mod
 import time as _time
 import uuid as _uuid_mod
+import copy
 from collections import Counter
 from datetime import datetime
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from typing import Dict, List, Optional
 from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 logger = logging.getLogger(__name__)
 
 
-# Substring triggers that bump a completion's reasoning_effort to "high".
-# Matched case-insensitive against the user-submitted prompt text only —
-# not system prompts, instructions, or rendered context. See
-# _detect_thinking_trigger / _resolve_reasoning_effort below.
-THINKING_TRIGGERS = (
-    "think hard",
-    "think harder",
-    "ultrathink",
-    "think step by step",
-    "think carefully",
-    "think deeply",
-    "deep dive",
-    "be thorough",
+from app.ai.llm.reasoning import (
+    THINKING_TRIGGERS, _detect_thinking_trigger, _effort_to_thinking_config,
+    _resolve_reasoning_effort,
 )
 
-# Map a user-facing effort level to the Anthropic ``thinking`` request param.
-# "off" returns None (no thinking sent). Anthropic 4.6+ supports
-# ``adaptive`` (model decides budget); older 4.x needs an explicit
-# budget_tokens. On Sonnet 5 / Opus 4.7+ / Fable 5, budget_tokens is removed
-# from the API (400 if sent) — adaptive is the only thinking mode, so those
-# models must always get adaptive regardless of effort.
-def _effort_to_thinking_config(effort: Optional[str], model_id: Optional[str]) -> Optional[dict]:
-    if not effort or effort == "off":
-        return None
-    e = str(effort).lower()
-    supports_adaptive = bool(model_id) and any(
-        tag in model_id
-        for tag in (
-            "sonnet-4-6", "opus-4-6", "opus-4-7", "sonnet-4-7",
-            "sonnet-5", "opus-4-8", "fable-5", "mythos",
-        )
-    )
-    if supports_adaptive:
-        return {"type": "adaptive"}
-    if e == "low":
-        return {"type": "enabled", "budget_tokens": 1024}
-    if e == "medium":
-        return {"type": "enabled", "budget_tokens": 5000}
-    if e == "high":
-        return {"type": "enabled", "budget_tokens": 15000}
-    return None
-
-
-def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
-    if not prompt_text:
-        return False
-    p = prompt_text.lower()
-    return any(kw in p for kw in THINKING_TRIGGERS)
 
 
 def repeated_call_action(actions: list, threshold: int) -> Optional[str]:
@@ -125,7 +84,8 @@ def capabilities_for_report_files(has_files: bool) -> set:
 # nothing the planner needs next turn (an ack + an id). They render as one-line
 # acks inside a batch aggregate, and a bookkeeping-only step must never evict
 # the previous substantive observation (see _carry_substantive_observation).
-_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "update_user_memory"})
+_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "create_memory", "edit_memory"})
+MEMORY_TOOL_NAMES = frozenset({"create_memory", "edit_memory", "search_memory"})
 
 
 def _observation_failed(observation) -> bool:
@@ -198,6 +158,20 @@ _VISION_IMAGE_RETENTION_LOOPS = 3
 # re-send its whole gallery on every call.
 _FOLLOWUP_IMAGE_LIMIT = 2
 
+
+
+# Numeric split of a tool's duration for the live chat (codegen, its reasoning,
+# execution). Per-query entries are left out: they carry SQL text, which the
+# REST serializer redacts by code visibility and a live event must not leak.
+_TIMING_SPLIT_KEYS = ("codegen_ms", "codegen_reasoning_ms", "execution_ms")
+
+
+def _timing_split(tool_execution):
+    timings = getattr(tool_execution, "sub_timings_json", None)
+    if not isinstance(timings, dict):
+        return None
+    split = {k: timings[k] for k in _TIMING_SPLIT_KEYS if timings.get(k) is not None}
+    return split or None
 
 class ToolInvocationState:
     """Created-object state for one tool invocation.
@@ -339,22 +313,6 @@ def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> f
     return max(0.2, nxt)
 
 
-def _resolve_reasoning_effort(
-    *,
-    per_completion: Optional[str],
-    prompt_text: Optional[str],
-    model_default: Optional[str],
-) -> str:
-    """Resolution order: per-completion > trigger words > model default > off."""
-    if per_completion:
-        return per_completion.lower()
-    if _detect_thinking_trigger(prompt_text):
-        return "high"
-    if model_default:
-        return str(model_default).lower()
-    return "off"
-
-
 from app.ai.code_execution.code_execution import ml_training_settings
 from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.agents.notes_context import build_notes_context
@@ -388,7 +346,7 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
-from sqlalchemy import select, func, update as sa_update
+from sqlalchemy import select, func, update as sa_update, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
@@ -408,6 +366,12 @@ from app.core.otel import get_tracer
 
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 tracer = get_tracer(__name__)
+
+# Titles a report can carry before anyone (or anything) has named it: the empty
+# string, and the literal the frontend creates every report with. Generation
+# only ever overwrites one of these, so a user rename — or a title an earlier
+# turn already generated — always wins.
+PLACEHOLDER_REPORT_TITLES = ("", "untitled report")
 
 # Tools available to shared-artifact viewer chat (report_type='artifact_chat').
 # Read/query only: the viewer may ask questions and run fresh queries against
@@ -508,6 +472,9 @@ class AgentV2:
         self._fallback_controller = None
         self._fallback_engaged = False
         self.head_completion = head_completion
+        # Scalar copy (see report_id note below): machine-turn source of the
+        # head completion, e.g. 'checkin' for an agent check-in run.
+        self._head_trigger_source = getattr(head_completion, "trigger_source", None) if head_completion is not None else None
         # Stamp the asker's identity for LLM header injection BEFORE the
         # planner below constructs its LLM client — provider header_injection
         # rules resolve at client construction. Membership role/attributes need
@@ -834,6 +801,30 @@ class AgentV2:
         if not self._notes_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('create_note', 'edit_note')]
 
+        # Check-in runs (the agent following up on its own) never create
+        # recurring work or re-arm themselves, and reach the user only through
+        # `notify` (whose check-in guardrails send_email would bypass).
+        if getattr(self, "_head_trigger_source", None) == "checkin":
+            _checkin_hidden = ('create_scheduled_task', 'edit_scheduled_task', 'wait', 'send_email')
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in _checkin_hidden]
+        # User memory (create/edit/search_memory) is gated by the org setting and
+        # only offered on human-initiated turns with a user — never on machine
+        # turns (scheduled runs, webhooks, wait wakes, check-ins, evals), which
+        # still RECEIVE the <memory> block since they run as the user.
+        from app.services.memory_service import is_memory_enabled as _mem_enabled
+        from app.ai.tools.implementations._memory_common import is_machine_turn as _is_machine_turn
+        self._memory_enabled = _mem_enabled(self.organization_settings)
+        self._memory_injected_ids: list[str] = []
+        self._memory_trace: dict = {}
+        _mem_user = getattr(self.head_completion, 'user', None) if self.head_completion else None
+        if (
+            not self._memory_enabled
+            or _mem_user is None
+            or _is_machine_turn(self.head_completion)
+            or getattr(self, "is_eval_run", False)
+        ):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in MEMORY_TOOL_NAMES]
+
         # Shared-artifact viewer chat runs read/query-only: no artifact or
         # dashboard mutations, no comms, no automation, no agent-scope tools
         # (the roster is a server-synced hard scope — see ArtifactChatService).
@@ -887,6 +878,11 @@ class AgentV2:
             timeout=TimeoutPolicy(start_timeout_s=10, idle_timeout_s=180, hard_timeout_s=300),
         )
         
+        # Report-title generation runs concurrently with the planner (kicked off
+        # from main_execution the moment the prompt is read) and is awaited in
+        # main_execution's finally. Holding the reference here is what keeps the
+        # loop from garbage-collecting a suspended task mid-LLM-call.
+        self._title_task: Optional[asyncio.Task] = None
         # Initialize Reporter for title generation
         self.reporter = Reporter(
             model=self.small_model,
@@ -1012,34 +1008,151 @@ class AgentV2:
 
         ``user_note`` is the per-org admin-managed note on the asker's
         Membership row (same source as the members table UI). ``user_memory``
-        is the agent-curated durable memory on the same row, written by the
-        update_user_memory tool. ``profile_attributes`` is the job info synced
-        from the org's identity provider (Entra ID Graph /me). Returns
-        ``(None, None, None, None)`` for system/non-user runs.
+        is the rendered tiered <memory> body built from the user's memory
+        entries (see MemoryContextBuilder) — None when the org turned user
+        memory off or the user has none. ``profile_attributes`` is the job
+        info synced from the org's identity provider (Entra ID Graph /me).
+        Returns ``(None, None, None, None)`` for system/non-user runs.
         """
         user = getattr(self.head_completion, 'user', None) if self.head_completion else None
         if not user or not self.organization:
             return None, None, None, None
         user_name = getattr(user, 'name', None)
         user_note = None
-        user_memory = None
         profile_attributes = None
         try:
             from app.models.membership import Membership
             result = await self.db.execute(
-                select(Membership.note, Membership.memory, Membership.profile_attributes).where(
+                select(Membership.note, Membership.profile_attributes).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
                 )
             )
             row = result.first()
             if row is not None:
-                user_note, user_memory, profile_attributes = row[0], row[1], row[2]
+                user_note, profile_attributes = row[0], row[1]
         except Exception:
             user_note = None
-            user_memory = None
             profile_attributes = None
+        user_memory = await self._build_memory_block(user)
         return user_name, user_note, user_memory, profile_attributes
+
+    async def _memory_prompt_texts(self) -> list[str]:
+        """Keyword sources for memory matching: this turn's prompt plus the
+        previous few user prompts in the report. Cached per run."""
+        cached = getattr(self, "_memory_prompt_texts_cache", None)
+        if cached is not None:
+            return cached
+        texts: list[str] = []
+        try:
+            head_prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
+            if isinstance(head_prompt, dict) and head_prompt.get("content"):
+                texts.append(str(head_prompt.get("content")))
+            if self.report is not None:
+                from app.models.completion import Completion as _C
+                rows = (await self.db.execute(
+                    select(_C.prompt)
+                    .where(
+                        _C.report_id == str(self.report_id),
+                        _C.role == "user",
+                        _C.id != (str(self.head_completion.id) if self.head_completion else ""),
+                    )
+                    .order_by(_C.turn_index.desc())
+                    .limit(3)
+                )).scalars().all()
+                for p in rows:
+                    if isinstance(p, dict) and p.get("content"):
+                        texts.append(str(p.get("content"))[:2000])
+        except Exception:
+            logger.debug("memory prompt texts failed", exc_info=True)
+        self._memory_prompt_texts_cache = texts
+        return texts
+
+    def _memory_object_tags(self) -> list[str]:
+        """Object tags present in this turn: the report and its agents."""
+        tags: list[str] = []
+        try:
+            if self.report is not None:
+                tags.append(f"report:{self.report_id}")
+            ids = set(str(x) for x in (getattr(self, "loaded_agent_ids", None) or []))
+            for ds in (getattr(self.report, "data_sources", None) or []) if self.report is not None else []:
+                if getattr(ds, "id", None):
+                    ids.add(str(ds.id))
+            for ds_id in sorted(ids):
+                tags.append(f"agent:{ds_id}")
+                tags.append(f"data_source:{ds_id}")
+        except Exception:
+            pass
+        return tags
+
+    async def _build_memory_block(self, user) -> Optional[str]:
+        """Rendered <memory> body for this turn, or None. Gated by the
+        enable_user_memory org setting. Records which entries were injected
+        (search_memory excludes them) and the trace metadata (handles, tiers,
+        size — never text)."""
+        if not getattr(self, "_memory_enabled", True) or user is None or self.organization is None:
+            return None
+        try:
+            from app.ai.context.builders.memory_context_builder import MemoryContextBuilder
+            ctx = await MemoryContextBuilder(self.db, str(self.organization.id), str(user.id)).build(
+                prompt_texts=await self._memory_prompt_texts(),
+                report_title=getattr(self.report, "title", None) if self.report is not None else None,
+                object_tags=self._memory_object_tags(),
+                user_name=getattr(user, "name", None),
+            )
+        except Exception:
+            logger.warning("Failed to build memory context", exc_info=True)
+            return None
+        self._memory_injected_ids[:] = ctx.injected_ids
+        self._memory_trace["injection"] = ctx.trace()
+        return ctx.body or None
+
+    def _memory_hint(self) -> Optional[str]:
+        """One line next to the ask when the user's own message carries a fact
+        about them (→ memory) or a rule for how to answer them (→ apply it in
+        this conversation; rules are never memory). Pure code: the model still
+        decides whether anything is worth keeping."""
+        try:
+            names = {getattr(t, "name", None) for t in (self.planner.tool_catalog or [])}
+            prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
+            message = prompt.get("content", "") if isinstance(prompt, dict) else ""
+            from app.services.memory_rules import fact_signals, rule_signals
+            facts = fact_signals(message) if "create_memory" in names else []
+            rules = rule_signals(message) if "create_memory" in names else []
+        except Exception:
+            return None
+        parts: list[str] = []
+        if facts:
+            parts.append(
+                f"This message may state a fact about the user ({', '.join(facts)}). If it's lasting and "
+                "<memory> doesn't hold it yet, save it with create_memory (one fact per entry; resolve "
+                "relative dates to absolute ISO dates) alongside your other tool calls, without announcing it."
+            )
+        if rules:
+            parts.append(
+                "This message tells you how the user wants answers. Apply it now and for the rest of this "
+                "conversation — if it corrects your last answer, rewrite that answer in the new way from "
+                "data you already have, never just acknowledge. It is a rule, not a fact about the user, "
+                "so never save it to memory."
+            )
+        if not parts:
+            return None
+        return "<memory_hint>" + " ".join(parts) + "</memory_hint>"
+
+    async def _stamp_memory_trace(self) -> None:
+        """Put this run's memory metadata on the agent execution. Set on the
+        run's own execution object so finish_agent_execution commits it in
+        the same transaction — a second session writing that row here would
+        wait on the run's own open transaction (SQLite write lock / Postgres
+        row lock) and stall the turn."""
+        trace = getattr(self, "_memory_trace", None)
+        execution = getattr(self, "current_execution", None)
+        if not trace or execution is None:
+            return
+        try:
+            execution.memory_context_json = dict(trace)
+        except Exception:
+            logger.debug("memory trace stamp failed", exc_info=True)
 
     def _current_focus_key(self) -> tuple:
         """Stable key of (persisted focus, run working set) for change
@@ -1918,7 +2031,7 @@ class AgentV2:
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
-                    user_memory=user_memory,
+                    user_memory=None,  # personal memory never feeds the org-instruction harness
                     user_profile_attributes=user_profile_attributes,
                     notes_enabled=harness_notes_enabled,
                     notes_context=(await build_notes_context(self.db, str(self.report_id)) if harness_notes_enabled and self.report else None),
@@ -1927,7 +2040,9 @@ class AgentV2:
 
                 # Run the planner and capture the final decision
                 final_decision = None
-                async for evt in knowledge_planner.execute(planner_input, self.sigkill_event):
+                async for evt in knowledge_planner.execute(
+                    planner_input, self.sigkill_event, thinking=self._thinking_config
+                ):
                     if evt.type == "planner.decision.final":
                         final_decision = evt.data
                         break
@@ -2095,9 +2210,12 @@ class AgentV2:
                         "report": self.report,
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
+                        "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
+                        "memory_trace": getattr(self, "_memory_trace", {}),
                         "project_files": await self._get_project_files(),
                         "project_manager": self.project_manager,
                         "model": self.model,
+                        "reasoning_effort": getattr(self, "_reasoning_effort", None),
                         "small_model": self.small_model,
                         "routing_controller": self._routing_controller,
                         "sigkill_event": self.sigkill_event,
@@ -2110,6 +2228,9 @@ class AgentV2:
                         # write_csv) so parallel tool batches don't use the
                         # non-concurrency-safe AsyncSession at the same time.
                         "tool_db_lock": self._tool_db_lock,
+                        # Short-lived sessions for tool-side READS that must not
+                        # touch the shared session (see _tool_db_lock).
+                        "read_session_maker": self._session_maker,
                         "usage_limit_context": self.usage_limit_context,
                         "training_build_id": self.training_build_id,
                         "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -2154,6 +2275,9 @@ class AgentV2:
                                 pass
 
                     tool_output = None
+                    runtime_ctx["reasoning_callback"] = self._coder_reasoning_callback(
+                        str(harness_decision_block.id) if harness_decision_block else None
+                    )
                     try:
                         tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _harness_emit)
                     except Exception as run_err:
@@ -2241,6 +2365,7 @@ class AgentV2:
                                 "result_summary": observation.get("summary", "") if observation else "",
                                 "result_json": safe_result_json,
                                 "duration_ms": getattr(tool_execution, "duration_ms", None),
+                                "sub_timings_json": _timing_split(tool_execution),
                             },
                         ))
                     except Exception:
@@ -2413,55 +2538,143 @@ class AgentV2:
             # Restore the original mode
             self.mode = prior_mode
 
-    async def _generate_title_background(self, messages_context: str, plan_info: list, report_id: str):
-        """Generate and persist the report title in its own DB session.
+    def _bind_usage_context_loop(self) -> None:
+        """Tell the usage context which loop the run belongs to.
 
-        Awaited inline by the caller (see main_execution) rather than spawned as a
-        fire-and-forget task — a discarded asyncio.create_task is only weakly
-        referenced by the loop and was routinely garbage-collected on Postgres
-        (pooled connections recycle the instant the response finishes) before its
-        LLM call returned, silently skipping the title.
+        `LLM.inference` is sync, so its quota pre-check is dispatched through
+        `UsageLimitContext.run_blocking`. With no loop wired, run_blocking
+        falls back to `asyncio.run()` and the check executes on a loop of its
+        own. That survives only while the quota cache is warm: on the run's
+        FIRST call the check reads the DB, and a connection created on this
+        loop cannot be used from that one — asyncpg raises "got Future
+        attached to a different loop" (aiosqlite happens to tolerate it,
+        which is why this only ever showed up on Postgres).
 
-        `report_id` is passed in as a plain string and the report is re-fetched in
-        this method's own session, so we never touch a `self.report` that may be
-        detached from a closed session ("Instance is not bound to a Session").
+        Title generation made that first call move to the start of the run, so
+        it hit exactly this and every report stayed "untitled report" on
+        Postgres deployments. Binding the loop makes run_blocking marshal the
+        check back here instead — the same wiring
+        `code_execution.execute_code_async` does before its own thread hop.
         """
-        import logging
-        logger = logging.getLogger(__name__)
+        if self.usage_limit_context is None:
+            return
+        try:
+            self.usage_limit_context.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop (sync caller): nothing to bind.
+            pass
+
+    def _start_title_generation(self, prompt_text: str) -> None:
+        """Kick off report-title generation the instant the prompt is read.
+
+        The title used to be generated after the planner loop finished, so a
+        report sat on "untitled report" in the sidebar for the whole run (often
+        minutes). The prompt alone is what the title is really derived from, so
+        it runs here instead, concurrently with context priming and planning,
+        and lands in the UI seconds after send (see `report.title.updated`).
+
+        The task reference is kept on `self` and awaited in main_execution's
+        finally: a discarded `asyncio.create_task` is only weakly referenced by
+        the loop and was routinely garbage-collected mid-LLM-call on Postgres,
+        which is what silently skipped the title before.
+
+        Gated on the title VALUE, not on "is this the first completion", so a
+        transient failure retries on the next turn instead of leaving the report
+        untitled forever.
+        """
+        if self._title_task is not None:
+            return
+        if not self.report or not self.head_completion:
+            return
+        current_title = (getattr(self.report, "title", "") or "").strip().lower()
+        if current_title not in PLACEHOLDER_REPORT_TITLES:
+            return
+        if not (prompt_text or "").strip():
+            return
+        # Capture the id as a plain string now, while self.db is open: the task
+        # re-fetches in its own session, so reading self.report_id later (after
+        # the request session closes) can't raise "Instance is not bound to a
+        # Session" — the bug that used to skip title generation on Postgres.
+        report_id = str(self.report_id)
+        # The title call is the run's first LLM call and runs in a worker
+        # thread, so the quota pre-check must be able to come back to this
+        # loop — see _bind_usage_context_loop.
+        self._bind_usage_context_loop()
+        self._title_task = asyncio.create_task(
+            self._generate_title_background(prompt_text, report_id),
+            name="agent.report_title",
+        )
+
+    async def _await_title_generation(self) -> None:
+        """Let the title task land before the turn closes.
+
+        It is kicked off at prompt time and normally finished long before the
+        planner is, so this is usually a no-op — but awaiting keeps the task
+        strongly referenced to the end, and guarantees the SSE event is enqueued
+        before [DONE] in the rare case the run is faster than the small model.
+        Shielded + bounded so a stuck title call can never pin the turn open.
+        """
+        task = self._title_task
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=30)
+        except Exception as e:
+            logger.warning(f"Report title still pending at turn end: {e}")
+
+    async def _generate_title_background(self, prompt_text: str, report_id: str):
+        """Generate, persist and stream the report title in its own DB session.
+
+        Persisting is a single conditional UPDATE rather than read-check-write:
+        this now runs while the user is looking at the report and may rename it
+        by hand in the same second, and the WHERE clause makes that rename win
+        without a TOCTOU window. `rowcount` also tells us whether we actually
+        titled the report, which is what gates the SSE event — no event when
+        another turn (or the user) got there first.
+        """
         try:
             SessionLocal = self._session_maker
             async with SessionLocal() as session:
                 try:
-                    title = await self.reporter.generate_report_title(messages_context, plan_info)
+                    title = await self.reporter.generate_report_title(prompt_text)
                     if not title or not title.strip():
                         logger.warning("Title generation returned empty result")
                         return
                     title = title.strip()
-                    # Re-fetch report using select query (more reliable than session.get with UUID).
-                    # lazyload("*") suppresses Report's lazy="selectin" cascade (14 rels +
-                    # downstream DS/widget/query graph) — update_report_title only touches title.
-                    from sqlalchemy.orm import lazyload as _lazyload
-                    stmt = select(Report).where(Report.id == report_id).options(_lazyload("*"))
-                    result = await session.execute(stmt)
-                    report = result.scalar_one_or_none()
-                    if not report:
-                        logger.warning(f"Report not found for title update: {report_id}")
-                        return
-                    # Only write while the title is still a placeholder. The caller
-                    # now gates on the same condition, but it can run on multiple
-                    # turns (value-gated, self-healing); re-checking here under a
-                    # fresh read avoids clobbering a real title a concurrent turn
-                    # may have just set.
-                    existing = (report.title or "").strip()
-                    if existing.lower() not in ("", "untitled report"):
+                    result = await session.execute(
+                        sa_update(Report)
+                        .where(
+                            Report.id == report_id,
+                            func.lower(func.trim(func.coalesce(Report.title, ""))).in_(
+                                PLACEHOLDER_REPORT_TITLES
+                            ),
+                        )
+                        .values(title=title)
+                    )
+                    await session.commit()
+                    if not result.rowcount:
                         logger.info(f"Report {report_id} already titled; skipping")
                         return
-                    await self.project_manager.update_report_title(session, report, title)
                     logger.info(f"Report title updated to: {title}")
                 except Exception as e:
                     logger.error(f"Failed to generate/update report title: {e}")
+                    return
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
+            return
+
+        # Stream it: the report page swaps its header/tab title and hands the
+        # sidebar (layouts/default.vue) the new value, both animated, without
+        # waiting for the run to finish and refetch the report.
+        try:
+            await self._emit_sse_event(SSEEvent(
+                event="report.title.updated",
+                completion_id=str(self.system_completion_id) if self.system_completion_id else None,
+                agent_execution_id=str(self.current_execution.id) if self.current_execution else None,
+                data={"report_id": report_id, "title": title},
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to emit report.title.updated: {e}")
 
     async def _handle_context_overflow(self, provider_message: Optional[str]) -> None:
         """React to a context_length rejection before the retry runs.
@@ -2582,6 +2795,17 @@ class AgentV2:
         except Exception as e:
             logger.warning(f"Auto compaction skipped: {e}")
 
+    def _checkins_enabled(self) -> bool:
+        """Agent check-ins org setting (lab, off by default). Checked first so a
+        disabled org never spawns the planning task or pays for an LLM call."""
+        if self.mode == "training" or self.is_eval_run:
+            return False
+        try:
+            from app.services.checkin_policy import feature_enabled
+            return feature_enabled(self.organization_settings)
+        except Exception:
+            return False
+
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
@@ -2684,30 +2908,73 @@ class AgentV2:
         Excludes full schemas and instructions to avoid redundant storage.
         Only saves what was actually sent to the LLM.
         """
-        # Start with full view but we'll replace large sections
-        data = view.model_dump()
-        
+        # Usage summaries first; a section whose summary was built is then left
+        # out of the dump entirely (it used to be dumped in full — schemas and
+        # instructions are the largest parts of the view — and discarded).
+        schemas_usage = None
+        instructions_usage = None
         try:
-            # Replace full schemas with usage tracking only
             if view.static.schemas:
-                schemas_usage = view.static.schemas.get_usage_snapshot(top_k_per_ds=top_k_schema)
-                data["schemas_usage"] = schemas_usage.model_dump()
-                # Remove full schemas to save space
-                if "static" in data and "schemas" in data["static"]:
-                    data["static"]["schemas"] = None
-            
-            # Replace full instructions with usage tracking only
-            if view.static.instructions and view.static.instructions.items:
-                data["instructions_usage"] = [
-                    item.model_dump() for item in view.static.instructions.items
-                ]
-                # Remove full instructions to save space
-                if "static" in data and "instructions" in data["static"]:
-                    data["static"]["instructions"] = None
+                schemas_usage = view.static.schemas.get_usage_snapshot(top_k_per_ds=top_k_schema).model_dump()
         except Exception:
-            pass  # Usage tracking is optional, don't fail if it errors
-        
-        return data
+            schemas_usage = None  # Usage tracking is optional, don't fail if it errors
+        try:
+            if view.static.instructions and view.static.instructions.items:
+                instructions_usage = [item.model_dump() for item in view.static.instructions.items]
+        except Exception:
+            instructions_usage = None
+
+        drop = set()
+        if schemas_usage is not None:
+            drop.add("schemas")
+        if instructions_usage is not None:
+            drop.add("instructions")
+        data = view.model_dump(exclude={"static": drop} if drop else None)
+
+        if schemas_usage is not None:
+            data["schemas_usage"] = schemas_usage
+            data.setdefault("static", {})["schemas"] = None
+        if instructions_usage is not None:
+            data["instructions_usage"] = instructions_usage
+            data.setdefault("static", {})["instructions"] = None
+        # Snapshots are readable in the trace by admins; user memory is private.
+        from app.services.memory_privacy import scrub_context_snapshot
+        return scrub_context_snapshot(data)
+
+    async def _save_post_tool_snapshots(self, view, tool_execution_ids: list):
+        """One post_tool context snapshot for a finished tool batch, back-filled
+        onto each tool execution. Background off single-writer; inline (on the
+        writer session) in single-writer mode."""
+        exec_id = str(self.current_execution.id)
+        snap_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
+
+        async def _save():
+            try:
+                from app.models.agent_execution import AgentExecution as _AE
+                from app.models.tool_execution import ToolExecution as _TE
+                async with self._writes_session() as bg_db:
+                    bg_exec = (await bg_db.execute(
+                        select(_AE).options(lazyload("*")).where(_AE.id == exec_id)
+                    )).scalar_one_or_none()
+                    if not bg_exec:
+                        return
+                    snap = await self.project_manager.save_context_snapshot(
+                        bg_db, agent_execution=bg_exec,
+                        kind="post_tool", context_view_json=snap_data,
+                    )
+                    if not snap:
+                        return
+                    await bg_db.execute(
+                        sa_update(_TE).where(_TE.id.in_(tool_execution_ids)).values(context_snapshot_id=str(snap.id))
+                    )
+                    await bg_db.commit()
+            except Exception as _e:
+                logger.warning(f"[agent] post_snap failed: {_e!r}")
+
+        if self._use_single_write_session():
+            await _save()
+        else:
+            asyncio.create_task(_save())
 
     async def _save_context_snapshot_background(self, kind: str, context_view_json: dict, prompt_text: str = ""):
         """Save context snapshot. Routes through _writes_session so single-
@@ -2716,8 +2983,11 @@ class AgentV2:
         try:
             async with self._writes_session() as session:
                 try:
-                    # Re-fetch agent execution in this session
-                    agent_execution = await session.get(type(self.current_execution), self.current_execution.id)
+                    # Re-fetch agent execution in this session (columns only)
+                    _AE = type(self.current_execution)
+                    agent_execution = (await session.execute(
+                        select(_AE).options(lazyload("*")).where(_AE.id == str(self.current_execution.id))
+                    )).scalar_one_or_none()
                     if agent_execution:
                         await self.project_manager.save_context_snapshot(
                             session,
@@ -2945,6 +3215,81 @@ class AgentV2:
             except Exception:
                 pass
 
+    def _coder_reasoning_callback(self, block_id):
+        """Each parallel invocation owns a stream; summaries never enter code
+        or the planner transcript.
+
+        Off single-writer (Postgres), reads and writes go through a short-lived
+        session of their own, never `self.db`: the coder streams while sibling
+        tools of a parallel batch use the shared session, and a snapshot commit
+        that collided with them (asyncpg "another operation is in progress")
+        ended in a shared-session rollback, which expires every loaded object —
+        the agent's next plain attribute read then raised MissingGreenlet.
+
+        In single-writer mode (always on SQLite) the agent's session is the only
+        writer and holds the write lock through the tool run, so a second
+        session would wait out busy_timeout on every snapshot and stall codegen
+        into the tool's hard timeout. There the writes stay on `self.db`, under
+        `_tool_db_lock` like every other shared-session writer."""
+        from app.models.completion_block import CompletionBlock
+        from app.streaming.reasoning_streamer import ReasoningTextStreamer
+        streamer = None
+        execution = self.current_execution
+        # Identity read, never a lazy load — `execution` may already be expired.
+        _identity = sa_inspect(execution).identity if execution is not None else None
+        execution_id = str(_identity[0]) if _identity else None
+        completion_id = str(self.system_completion_id)
+        single_writer = self._use_single_write_session()
+
+        async def callback(event):
+            nonlocal streamer
+            if not block_id or not execution_id or (streamer is None and not event.text):
+                return
+            if streamer is None:
+                _read = select(CompletionBlock.reasoning).where(CompletionBlock.id == block_id)
+                if single_writer:
+                    async with self._tool_db_lock:
+                        initial = await self.db.scalar(_read) or ""
+                else:
+                    async with self._session_maker() as session:
+                        initial = await session.scalar(_read) or ""
+                async def persist(reasoning, content):
+                    _write = (
+                        sa_update(CompletionBlock)
+                        .where(CompletionBlock.id == block_id)
+                        .values(reasoning=reasoning)
+                    )
+                    if single_writer:
+                        async with self._tool_db_lock:
+                            try:
+                                await self.db.execute(_write)
+                                await self.db.commit()
+                            except Exception:
+                                await self.db.rollback()
+                                raise
+                    else:
+                        async with self._session_maker() as session:
+                            await session.execute(_write)
+                            await session.commit()
+                    # Keep the shared session's copy (if loaded) in step with
+                    # the row, so later reads there — transcript rebuild —
+                    # don't see stale text. Pure in-memory: no IO, not dirty.
+                    shared = self.db.sync_session
+                    cached = shared.identity_map.get(shared.identity_key(CompletionBlock, block_id))
+                    if cached is not None:
+                        set_committed_value(cached, "reasoning", reasoning)
+                async def next_seq():
+                    # In-memory counter only; no IO on the shared session.
+                    return await self.project_manager.next_seq(None, execution)
+                streamer = ReasoningTextStreamer(
+                    emit=self._emit_sse_event, seq_fn=next_seq,
+                    completion_id=completion_id,
+                    agent_execution_id=execution_id,
+                    block_id=block_id, persist=persist, initial_reasoning=initial,
+                )
+            await streamer.append(event)
+        return callback
+
     async def _capture_telemetry_background(self, event_name: str, properties: dict):
         """Capture telemetry in background to avoid blocking main execution."""
         try:
@@ -3146,6 +3491,9 @@ class AgentV2:
         """
         from app.ai.llm import LLM
         self.model = model
+        self._thinking_config = _effort_to_thinking_config(
+            getattr(self, "_reasoning_effort", None), getattr(model, "model_id", None)
+        )
         if cause == "routing":
             self._routing_escalated = True
         else:
@@ -3348,6 +3696,21 @@ class AgentV2:
         task = asyncio.create_task(_runner(), name=f"agent.bg_write.{label}")
         self._pending_writes.append(task)
         return task
+
+    def _single_writer_guard(self):
+        """Serialize a writer against the shared session only when it writes
+        through it.
+
+        In single-writer mode (always on SQLite) ``_writes_session()`` yields
+        ``self.db``, so parallel tools must take ``_tool_db_lock``. Otherwise
+        each writer opens its own short-lived session and never touches
+        ``self.db``; holding the lock there only made parallel tools queue
+        behind each other's step/visualization persistence (measured on
+        Postgres: ~70s of lock hold per three-tool batch).
+        """
+        if self._use_single_write_session():
+            return self._tool_db_lock
+        return nullcontext()
 
     def _use_single_write_session(self) -> bool:
         """Whether this agent run should route writes through the single
@@ -4083,10 +4446,20 @@ class AgentV2:
             # Extract user prompt early for intelligent instruction search
             prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
 
+            # Bind the usage context to this loop before anything offloads an
+            # LLM call to a worker thread. Done here as well as in
+            # _start_title_generation so it lands before any tool derives a
+            # child context (for_source copies `loop` at derivation time).
+            self._bind_usage_context_loop()
+
+            # Title the report from that prompt right now, in parallel with
+            # context priming and planning, instead of after the run (see
+            # _start_title_generation). Awaited in the finally below.
+            self._start_title_generation(prompt_text)
+
             # Resolve extended-thinking effort once per completion. Order:
             #   per-completion prompt.reasoning_effort > trigger words > model.config.reasoning_effort > "off"
-            # Only Anthropic honors the resulting thinking config today;
-            # other providers receive None / ignore. See _effort_to_thinking_config.
+            # Each provider adapter translates the shared effort configuration.
             _per_completion_effort = (
                 self.head_completion.prompt.get("reasoning_effort")
                 if self.head_completion.prompt else None
@@ -4365,6 +4738,10 @@ class AgentV2:
             # they are never stripped by a filter that doesn't know about them,
             # and before routing/fallback so the catalog is final by loop start.
             await self._register_native_mcp_tools()
+            # Agent Lists: one native submit_<list> tool per list on the report's
+            # agents. Registered once, after MCP tools, so the tools block (the
+            # first prompt-cache breakpoint) is stable for the whole run.
+            await self._register_list_tools()
             await self._setup_model_routing()
             await self._setup_llm_fallback()
 
@@ -4410,6 +4787,15 @@ class AgentV2:
                     # planner LLM call + tool execution so concurrent completions
                     # don't starve the connection pool (idle-in-transaction).
                     await self._release_db_between_steps()
+
+                    # The browser-tool policy check (own session, several permission
+                    # queries) doesn't depend on the warm refresh: start it now so it
+                    # overlaps; the planner-input build below awaits it where it used
+                    # to run it.
+                    _browser_catalog_task = asyncio.create_task(self._refresh_browser_tool_catalog())
+                    _browser_catalog_task.add_done_callback(
+                        lambda t: t.cancelled() or t.exception()  # mark retrieved if never awaited
+                    )
 
                     # Refresh warm context (skip on first loop - already done above)
                     if loop_index > 0:
@@ -4514,7 +4900,7 @@ class AgentV2:
                                 logger.exception("instruction re-scope on focus change failed")
                             self._rendered_focus_key = _focus_key
                             _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
-                        await self._refresh_browser_tool_catalog()
+                        await _browser_catalog_task
                         planner_input = PlannerInput(
                             organization_name=self.organization.name,
                             organization_ai_analyst_name=self.ai_analyst_name,
@@ -4563,6 +4949,7 @@ class AgentV2:
                             user_name=user_name,
                             user_note=user_note,
                             user_memory=user_memory,
+                            memory_hint=self._memory_hint(),
                             user_profile_attributes=user_profile_attributes,
                             # Org setting drives parallel emission end-to-end: cap > 1
                             # relaxes the one-tool-per-turn prompt rule and lifts the
@@ -4874,6 +5261,17 @@ class AgentV2:
                             # SSE bandwidth for long answers.
                             action_present = decision.action is not None
                             if action_present:
+                                action_payload = decision.action.model_dump()
+                                # A submit_<list> call streams a record count
+                                # (planner _progress); name the list so the
+                                # card can say where it is writing.
+                                route = (getattr(self, "_list_tool_routing", None) or {}).get(action_payload.get("name"))
+                                if route and isinstance(action_payload.get("arguments"), dict):
+                                    progress = dict(action_payload["arguments"].get("_progress") or {})
+                                    progress["list_name"] = route.get("list_name")
+                                    progress["list_id"] = route.get("list_id")
+                                    progress["data_source_id"] = route.get("data_source_id")
+                                    action_payload["arguments"] = {"_progress": progress}
                                 event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event="decision.partial",
@@ -4885,7 +5283,7 @@ class AgentV2:
                                         "reasoning": None,
                                         "assistant": None,
                                         "final_answer": None,
-                                        "action": decision.action.model_dump() if decision.action else None,
+                                        "action": action_payload,
                                     }
                                 ))
                     
@@ -5500,6 +5898,10 @@ class AgentV2:
                                 except Exception as _eb_exc:
                                     logger.warning(f"[agent] extra-block upsert failed: {_eb_exc!r}")
                                     _action_block_ids.append(None)
+                            # Tool executions of this batch that get a post-tool context
+                            # snapshot, saved once after the batch (see below).
+                            _post_snap_tool_exec_ids: list = []
+
                             async def _run_one(tool_index: int, action, _block_id_for_action, _inv, _view):
                                 """Run ONE planner action end-to-end and return its outcome.
 
@@ -5526,6 +5928,7 @@ class AgentV2:
                                 # the gateway path, so native registration changes how
                                 # the model SEES the tool, not how we execute it.
                                 tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
+                                tool_name, tool_input = self._rewrite_list_action(tool_name, tool_input)
                                 # Server-owned grouping metadata never comes from model arguments.
                                 tool_input = dict(tool_input or {})
                                 tool_input.pop("_verification_group_id", None)
@@ -5767,6 +6170,8 @@ class AgentV2:
                                         "report": self.report,
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
+                                        "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
+                                        "memory_trace": getattr(self, "_memory_trace", {}),
                                         "widget": self.widget,
                                         "step": self.step,
                                         "current_widget": _inv.current_widget,
@@ -5776,6 +6181,7 @@ class AgentV2:
                                         "project_files": await self._get_project_files(),
                                         "project_manager": self.project_manager,
                                         "model": self.model,
+                                        "reasoning_effort": getattr(self, "_reasoning_effort", None),
                                         "small_model": self.small_model,
                                         "routing_controller": self._routing_controller,
                                         "sigkill_event": self.sigkill_event,
@@ -5787,6 +6193,9 @@ class AgentV2:
                                         # site: serialize tool-side shared-session
                                         # reads across parallel tool batches.
                                         "tool_db_lock": self._tool_db_lock,
+                                        # Short-lived sessions for tool-side READS that must not
+                                        # touch the shared session (see _tool_db_lock).
+                                        "read_session_maker": self._session_maker,
                                         "loaded_agent_ids": self.loaded_agent_ids,
                                         "used_agent_ids": self.used_agent_ids,
                                         "_file_enum_seen": self._file_enum_seen,
@@ -5816,7 +6225,7 @@ class AgentV2:
                                     # Streaming side-effects (query/step/viz creation) write through
                                     # the shared session guard; created objects land on _inv so a
                                     # concurrent sibling invocation can't cross-attribute them.
-                                    async with self._tool_db_lock:
+                                    async with self._single_writer_guard():
                                         await self._handle_streaming_event(tool_name, ev, tool_input, inv=_inv)
                                     # Forward events to UI — keyed by block/tool_execution so the
                                     # frontend can route concurrent streams to the right card.
@@ -5848,33 +6257,37 @@ class AgentV2:
                                         span.set_attribute("report.id", str(self.report_id))
                                     if tool_execution is not None:
                                         span.set_attribute("tool_execution.id", str(tool_execution.id))
+                                    runtime_ctx["reasoning_callback"] = self._coder_reasoning_callback(_block_id_for_action)
                                     tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
                                     span.set_attribute("tool.result_type", type(tool_result).__name__)
 
 
-                                async with self._tool_db_lock:
-                                    # Capture training_build_id if set by create_instruction tool
-                                    if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                                        self.training_build_id = runtime_ctx["training_build_id"]
+                                # Capture training_build_id if set by create_instruction tool
+                                if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                                    self.training_build_id = runtime_ctx["training_build_id"]
 
-                                    # Extract observation, output, and sub_timings from tool result
-                                    if isinstance(tool_result, dict) and "observation" in tool_result:
-                                        observation = tool_result["observation"]
-                                        tool_output = tool_result.get("output")
-                                        tool_sub_timings = tool_result.get("sub_timings")
-                                    else:
-                                        observation = tool_result
-                                        tool_output = None
-                                        tool_sub_timings = None
+                                # Extract observation, output, and sub_timings from tool result
+                                if isinstance(tool_result, dict) and "observation" in tool_result:
+                                    observation = tool_result["observation"]
+                                    tool_output = tool_result.get("output")
+                                    tool_sub_timings = tool_result.get("sub_timings")
+                                else:
+                                    observation = tool_result
+                                    tool_output = None
+                                    tool_sub_timings = None
 
-                                    if tool_input.get("_verification_group_id"):
-                                        for payload in (tool_output, observation):
-                                            if isinstance(payload, dict):
-                                                payload["verification_group_id"] = tool_input["_verification_group_id"]
+                                if tool_input.get("_verification_group_id"):
+                                    for payload in (tool_output, observation):
+                                        if isinstance(payload, dict):
+                                            payload["verification_group_id"] = tool_input["_verification_group_id"]
 
-                                    # Handle tool outputs and manage widget/step state
+                                # Handle tool outputs and manage widget/step state. Writes
+                                # go through _writes_session(), so the shared-session lock
+                                # is only needed when that is self.db (single-writer).
+                                async with self._single_writer_guard():
                                     await self._handle_tool_output(tool_name, tool_input, observation, tool_output, inv=_inv)
 
+                                async with self._tool_db_lock:
                                     # Extract created objects from observation, with fallback to orchestrator state
                                     created_widget_id = None
                                     created_step_id = None
@@ -5886,9 +6299,10 @@ class AgentV2:
                                     if not created_step_id and _inv.current_step_id:
                                         created_step_id = _inv.current_step_id
 
-                                    # Refresh context (needed for next planner iteration — in-memory, no DB write here)
-                                    post_view = await self._refresh_warm_traced("post_tool_before_block_update", loop_index=loop_index)
-                                    await self._update_context_token_metadata(post_view)
+                                    # No per-tool warm refresh here: its view only fed the token
+                                    # meter and the post-tool snapshot, and a batch of N tools
+                                    # did N of them under _tool_db_lock. Both now come from the
+                                    # one post-batch refresh ("post_tool_next_iteration").
 
                                     # Build created_visualization_ids with fallback to orchestrator state
                                     created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
@@ -5955,35 +6369,9 @@ class AgentV2:
                                             observation=observation,
                                         )
 
-                                    # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
-                                    _post_snap_exec_id = str(self.current_execution.id)
-                                    _post_snap_tool_exec_id = str(tool_execution.id)
-                                    _post_snap_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
-
-                                    async def _bg_post_snap():
-                                        try:
-                                            from app.models.agent_execution import AgentExecution as _AE
-                                            from app.models.tool_execution import ToolExecution as _TE
-                                            async with self._writes_session() as bg_db:
-                                                bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
-                                                if bg_exec:
-                                                    snap = await self.project_manager.save_context_snapshot(
-                                                        bg_db, agent_execution=bg_exec,
-                                                        kind="post_tool", context_view_json=_post_snap_data,
-                                                    )
-                                                    # Back-fill context_snapshot_id onto the tool execution row
-                                                    bg_te = await bg_db.get(_TE, _post_snap_tool_exec_id)
-                                                    if bg_te and snap:
-                                                        bg_te.context_snapshot_id = str(snap.id)
-                                                        bg_db.add(bg_te)
-                                                        await bg_db.commit()
-                                        except Exception as _e:
-                                            logger.warning(f"[agent] post_snap failed: {_e!r}")
-
-                                    if self._use_single_write_session():
-                                        await _bg_post_snap()
-                                    else:
-                                        asyncio.create_task(_bg_post_snap())
+                                    # Post-tool context snapshot: saved after the batch from the
+                                    # post-batch view (not user-facing, not needed for the next loop).
+                                    _post_snap_tool_exec_ids.append(str(tool_execution.id))
 
                                     # Telemetry: tool finished (in-memory counters — no IO)
                                     self._tool_call_counts[tool_name] += 1
@@ -6155,6 +6543,7 @@ class AgentV2:
                                             # Include query_id for hydration in frontend previews when available
                                             "result_json": ({**safe_result_json, "query_id": (str(_inv.current_query.id) if getattr(_inv, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
                                             "duration_ms": tool_execution.duration_ms,
+                                            "sub_timings_json": _timing_split(tool_execution),
                                             "created_widget_id": created_widget_id,
                                             "created_step_id": created_step_id,
                                             "created_visualization_ids": created_visualization_ids,
@@ -6395,7 +6784,24 @@ class AgentV2:
 
                             # Refresh for next iteration
                             view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
-                            schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+                            await self._update_context_token_metadata(view)
+                            if _post_snap_tool_exec_ids:
+                                await self._save_post_tool_snapshots(view, list(_post_snap_tool_exec_ids))
+                            # NOTE: schemas_excerpt is deliberately NOT recomputed here.
+                            # It used to be reassigned from `view.static.schemas.render()`,
+                            # which bypassed _render_schemas_with_roster() and so:
+                            #   1. dropped the roster/focus policy from loop 1 onward —
+                            #      every attached agent's full schema shipped regardless
+                            #      of report.focused_data_source_ids; and
+                            #   2. swapped render_combined()'s <data_source> vocabulary for
+                            #      render()'s <agent> vocabulary mid-run, which changed
+                            #      messages[0] between iterations and invalidated the
+                            #      message prompt cache on every turn (cache_read stayed
+                            #      pinned to the system+tools prefix).
+                            # `static` is primed once per run and does not change on a warm
+                            # refresh, so the value from the pre-loop render at the top of
+                            # main_execution is already correct; a genuine focus change is
+                            # handled by the _current_focus_key() re-render in the loop head.
                             history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
                             # Refresh active_artifact after tools that create/edit artifacts
@@ -6437,17 +6843,26 @@ class AgentV2:
                     # — so an unnecessary rollback would sabotage the retry it
                     # is meant to enable. After a genuine rollback, eagerly
                     # re-load the objects (and relationships) the loop reads via
-                    # plain attribute access.
+                    # plain attribute access. A best-effort path that rolled
+                    # back on its own (its session left active again) leaves
+                    # the same expired objects behind, so reload those too —
+                    # otherwise every retry dies on the same MissingGreenlet.
                     try:
-                        if not self.db.is_active:
-                            await self.db.rollback()
-                            for _obj in (
+                        _core = [
+                            _o for _o in (
                                 self.report, self.organization, self.head_completion,
                                 self.system_completion, self.current_execution,
                                 self.model, self.widget, self.step,
-                            ):
-                                if _obj is None:
-                                    continue
+                            ) if _o is not None
+                        ]
+                        _poisoned = not self.db.is_active
+                        if _poisoned:
+                            await self.db.rollback()
+                        if _poisoned or any(
+                            getattr(sa_inspect(_o, raiseerr=False), "expired_attributes", None)
+                            for _o in _core
+                        ):
+                            for _obj in _core:
                                 try:
                                     await self.db.refresh(_obj)
                                 except Exception:
@@ -6584,6 +6999,26 @@ class AgentV2:
                 except Exception as _harness_exc:
                     logger.warning(f"[agent] knowledge harness dispatch failed: {_harness_exc!r}")
 
+                # Agent check-ins: a separate, silent planning step (not a
+                # harness tool — the harness only runs on its own triggers and
+                # emits visible blocks). Setting off → no task, no LLM call.
+                # Eligibility (human-initiated turn only) and the planner run in
+                # a background task with its own session: no SSE, no blocks.
+                try:
+                    if not completion_errored and self._checkins_enabled():
+                        from app.services.checkin_service import checkin_service as _checkins
+                        from app.core.fire_and_forget import spawn as _spawn
+                        _spawn(_checkins.dispatch_after_turn(
+                            organization_id=str(self.organization.id) if self.organization else None,
+                            user_id=self._asker_user_id,
+                            report_id=self.report_id,
+                            head_completion_id=str(self.head_completion.id) if self.head_completion else None,
+                            system_completion_id=str(self.system_completion_id) if self.system_completion else None,
+                            small_model_id=str(getattr(self.small_model or self.model, "id", "") or "") or None,
+                        ))
+                except Exception as _checkin_exc:
+                    logger.warning(f"[agent] checkin dispatch failed: {_checkin_exc!r}")
+
             # Save final context snapshot (recompute metadata so counts/tokens are up to date)
             view = await self._refresh_warm_traced("final_snapshot")
             await self._update_context_token_metadata(view)
@@ -6608,48 +7043,10 @@ class AgentV2:
             else:
                 asyncio.create_task(_bg_final_snap())
             
-            # Generate report title while the report still has no real title.
-            #
-            # Run INLINE (awaited) — like follow-ups above, and unlike the old
-            # fire-and-forget asyncio.create_task. A discarded create_task keeps
-            # only a weak reference in the loop, so on Postgres — where the
-            # request's pooled connection is recycled the moment the response
-            # finishes — the suspended task was routinely garbage-collected before
-            # its small-model LLM call returned, leaving the report stuck on the
-            # placeholder title. Awaiting here keeps self.db alive and lands the
-            # write before main_execution returns.
-            #
-            # Gate on the title VALUE (empty or the frontend's "untitled report"
-            # placeholder), not on "is this the first completion". The old
-            # first-completion gate made generation one-shot: a single transient
-            # failure left the report untitled forever. Value-gating is
-            # self-healing — a later turn retries until a real title sticks.
-            try:
-                current_title = (getattr(self.report, "title", "") or "").strip() if self.report else ""
-                if self.head_completion and self.report and not completion_errored and current_title.lower() in ("", "untitled report"):
-                    # Generate title (small model)
-                    messages_section = await self.context_hub.message_builder.build(max_messages=5)
-                    messages_context = messages_section.render()
-
-                    # Extract plan information from current execution
-                    plan_info = []
-                    if current_plan_decision:
-                        if hasattr(current_plan_decision, 'action_name') and current_plan_decision.action_name:
-                            plan_info.append({"action": current_plan_decision.action_name})
-
-                    # Capture the report id as a plain string NOW, while self.db is
-                    # still open. _generate_title_background re-fetches by this id in
-                    # its own session, so reading self.report_id later (after the
-                    # session closes) can't raise "Instance is not bound to a Session"
-                    # (the bug that silently skipped title generation, esp. on Postgres).
-                    report_id_for_title = str(self.report_id)
-
-                    await self._generate_title_background(messages_context, plan_info, report_id_for_title)
-            except Exception as e:
-                # Don't fail the entire execution if title generation fails
-                import logging
-                _fallback_logger = logging.getLogger(__name__)
-                _fallback_logger.warning(f"Failed to start title generation: {e}")
+            # The report title is generated at prompt time now, not here — it
+            # was kicked off from _start_title_generation before the planner
+            # ran, and streamed to the UI as soon as it landed. Nothing left to
+            # do at the end of the turn; the finally awaits the task.
 
             # Follow-up suggestions (web sessions only, when org setting is on).
             # Generated INLINE here — not as a fire-and-forget task like the title
@@ -6687,6 +7084,7 @@ class AgentV2:
                 status = 'error'
             else:
                 status = 'success'
+            await self._stamp_memory_trace()
             await self.project_manager.finish_agent_execution(
                 self.db,
                 agent_execution=self.current_execution,
@@ -6803,6 +7201,7 @@ class AgentV2:
             # Handle errors and finish execution with error status
             if self.current_execution:
                 error_payload = {"message": str(e), "type": type(e).__name__}
+                await self._stamp_memory_trace()
                 await self.project_manager.finish_agent_execution(
                     self.db,
                     agent_execution=self.current_execution,
@@ -6860,6 +7259,10 @@ class AgentV2:
                 pass
             raise
         finally:
+            # Let the prompt-time title task finish (and enqueue its SSE event)
+            # before the stream closes. Runs on the error path too: a turn that
+            # failed still deserves a titled report in the sidebar.
+            await self._await_title_generation()
             try:
                 from app.ai.tools.implementations._browser_common import session_manager
                 if self.current_execution:
@@ -6980,6 +7383,7 @@ class AgentV2:
             user_name=user_name,
             user_note=user_note,
             user_memory=user_memory,
+            memory_hint=self._memory_hint(),
             user_profile_attributes=user_profile_attributes,
         )
 
@@ -7415,6 +7819,47 @@ class AgentV2:
             logger.warning("[agent] native MCP tool registration skipped: %s", e)
             self._native_mcp_routing = {}
 
+    def _rewrite_list_action(self, tool_name: str, tool_input):
+        """Translate a native ``submit_<list>`` call into the submit_list gateway.
+
+        Same contract as ``_rewrite_native_mcp_action``: the model sees one tool
+        per list with the list's own schema (so the provider constrains decoding
+        against it), execution runs on a single code path. Unknown names pass
+        through and fail normal tool resolution.
+        """
+        routing = getattr(self, "_list_tool_routing", None)
+        if not routing or not isinstance(tool_name, str):
+            return tool_name, tool_input
+        route = routing.get(tool_name)
+        if not route:
+            return tool_name, tool_input
+        args = tool_input if isinstance(tool_input, dict) else {}
+        records = args.get("records")
+        rewritten = {"list_id": route["list_id"], "records": records if isinstance(records, list) else []}
+        logger.info("[agent] list tool %s -> submit_list(%s)", tool_name, route["list_id"])
+        return "submit_list", rewritten
+
+    async def _register_list_tools(self) -> None:
+        """Append one planner tool per Agent List on the report's agents."""
+        from app.ai.tools.list_tool_registry import build_list_tools
+
+        self._list_tool_routing = {}
+        if not self.report:
+            return
+        try:
+            user = getattr(self, "user", None) or (getattr(self.head_completion, "user", None) if self.head_completion else None)
+            descriptors, routing = await build_list_tools(self.db, self.report, user, self.organization)
+            if not descriptors:
+                return
+            existing = {t.name for t in (self.planner.tool_catalog or [])}
+            added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
+            self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
+            self._list_tool_routing = {k: v for k, v in routing.items() if k not in existing}
+            logger.info("[agent] registered %d list tool(s): %s", len(added), ", ".join(d.name for d in added))
+        except Exception as e:
+            logger.warning("[agent] list tool registration skipped: %s", e)
+            self._list_tool_routing = {}
+
     async def _refresh_browser_tool_catalog(self):
         from app.ai.tools.artifact_verification import refresh_browser_tool_catalog
 
@@ -7503,10 +7948,19 @@ class AgentV2:
         try:
             async with self._writes_session() as fresh_db:
                 # Re-fetch what we actually need into the fresh session so
-                # any subsequent update_*/refresh ops bind to a live conn.
-                exec_obj = await fresh_db.get(AgentExecution, exec_id) if exec_id else None
-                report_obj = await fresh_db.get(Report, report_id) if report_id else None
-                cur_step = await fresh_db.get(Step, cur_step_id) if cur_step_id else None
+                # any subsequent update ops bind to a live conn. lazyload("*"):
+                # only columns are read here, and a plain get() pulled each
+                # row's eager graph (Report: widgets, steps, queries, ...) on
+                # every data-writing progress event.
+                async def _load(model, pk):
+                    if not pk:
+                        return None
+                    return (await fresh_db.execute(
+                        select(model).options(lazyload("*")).where(model.id == pk)
+                    )).scalar_one_or_none()
+                exec_obj = await _load(AgentExecution, exec_id)
+                report_obj = await _load(Report, report_id)
+                cur_step = await _load(Step, cur_step_id)
 
                 if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
                     if stage == "data_model_type_determined":
@@ -7520,29 +7974,17 @@ class AgentV2:
                         )
 
                         if data_model_type and report_obj and not cur_step:
-                            # Create query (transitional service may still create a widget under the hood)
-                            try:
-                                inv.current_query = await self.project_manager.create_query_v2(
-                                    fresh_db, report_obj, query_title
-                                )
-                            except Exception:
-                                inv.current_query = None
-
-                            # Create step under the query
+                            # Query (+ anchor widget), its default step and a draft
+                            # visualization with only the type in view — one commit.
                             initial_data_model = {"type": data_model_type, "columns": [], "series": []}
-                            inv.current_step = await self.project_manager.create_step_for_query(
-                                fresh_db, inv.current_query, query_title, "chart", initial_data_model
+                            inv.current_query, inv.current_step, inv.current_visualization = (
+                                await self.project_manager.create_query_step_visualization(
+                                    fresh_db, report_obj, query_title,
+                                    initial_data_model=initial_data_model,
+                                    viz_view={"type": data_model_type},
+                                )
                             )
                             inv.current_step_id = str(inv.current_step.id)
-                            await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-
-                            # Create visualization (draft) with only type in view
-                            try:
-                                inv.current_visualization = await self.project_manager.create_visualization_v2(
-                                    fresh_db, str(report_obj.id), str(inv.current_query.id), query_title, view={"type": data_model_type}, status="draft"
-                                )
-                            except Exception:
-                                inv.current_visualization = None
 
                             # Emit early query/visualization creation events
                             try:
@@ -7610,7 +8052,7 @@ class AgentV2:
                                      for col in current_data_model["columns"]):
                                 current_data_model["columns"].append(column)
                                 await self.project_manager.update_step_with_data_model(
-                                    fresh_db, cur_step, current_data_model
+                                    fresh_db, cur_step, current_data_model, refresh=False
                                 )
                                 # Emit artifact delta per column
                                 try:
@@ -7640,7 +8082,7 @@ class AgentV2:
                             current_data_model = getattr(cur_step, "data_model", {}) or {}
                             current_data_model["series"] = series
                             await self.project_manager.update_step_with_data_model(
-                                fresh_db, cur_step, current_data_model
+                                fresh_db, cur_step, current_data_model, refresh=False
                             )
                             # Emit artifact delta for series update
                             try:
@@ -7669,7 +8111,7 @@ class AgentV2:
                             if is_valid is False and cur_step:
                                 error_msg = payload.get("error") or "Validation failed"
                                 await self.project_manager.update_step_status(
-                                    fresh_db, cur_step, "error", status_reason=str(error_msg)
+                                    fresh_db, cur_step, "error", status_reason=str(error_msg), refresh=False
                                 )
                         except Exception:
                             pass
@@ -7682,11 +8124,14 @@ class AgentV2:
                         # If for some reason earlier streaming did not create query/step/visualization, create them now
                         if data_model and not cur_step and report_obj:
                             try:
-                                inv.current_query = await self.project_manager.create_query_v2(fresh_db, report_obj, query_title)
-                                inv.current_step = await self.project_manager.create_step_for_query(fresh_db, inv.current_query, query_title, "chart", {"type": data_model.get("type"), "columns": [], "series": []})
+                                inv.current_query, inv.current_step, inv.current_visualization = (
+                                    await self.project_manager.create_query_step_visualization(
+                                        fresh_db, report_obj, query_title,
+                                        initial_data_model={"type": data_model.get("type"), "columns": [], "series": []},
+                                        viz_view={"type": data_model.get("type")},
+                                    )
+                                )
                                 inv.current_step_id = str(inv.current_step.id)
-                                await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-                                inv.current_visualization = await self.project_manager.create_visualization_v2(fresh_db, str(report_obj.id), str(inv.current_query.id), query_title, view={"type": data_model.get("type")}, status="draft")
                                 # Emit creation events
                                 seq = await self.project_manager.next_seq(fresh_db, exec_obj)
                                 await self._emit_sse_event(SSEEvent(event="query.created", completion_id=sys_completion_id, agent_execution_id=exec_id, seq=seq, data={"query_id": str(inv.current_query.id), "report_id": report_id, "title": query_title}))
@@ -7701,36 +8146,15 @@ class AgentV2:
                         try:
                             query_title = (tool_input and (tool_input.get("title") or tool_input.get("widget_title"))) or "Untitled Query"
                             if not cur_step and report_obj:
-                                # Create query and step with a default table view
-                                try:
-                                    inv.current_query = await self.project_manager.create_query_v2(
-                                        fresh_db, report_obj, query_title
+                                # Query, default step and a draft table visualization — one commit.
+                                inv.current_query, inv.current_step, inv.current_visualization = (
+                                    await self.project_manager.create_query_step_visualization(
+                                        fresh_db, report_obj, query_title,
+                                        initial_data_model={"type": "table", "columns": [], "series": []},
+                                        viz_view={"type": "table"},
                                     )
-                                except Exception:
-                                    inv.current_query = None
-
-                                inv.current_step = await self.project_manager.create_step_for_query(
-                                    fresh_db,
-                                    inv.current_query,
-                                    query_title,
-                                    "chart",
-                                    {"type": "table", "columns": [], "series": []},
                                 )
                                 inv.current_step_id = str(inv.current_step.id)
-                                await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-
-                                # Create a draft visualization with table view
-                                try:
-                                    inv.current_visualization = await self.project_manager.create_visualization_v2(
-                                        fresh_db,
-                                        str(report_obj.id),
-                                        str(inv.current_query.id),
-                                        query_title,
-                                        view={"type": "table"},
-                                        status="draft",
-                                    )
-                                except Exception:
-                                    inv.current_visualization = None
 
                                 # Emit creation events
                                 try:
@@ -7792,6 +8216,43 @@ class AgentV2:
             logger = logging.getLogger(__name__)
             logger.error(f"Error handling streaming event {stage} for {tool_name}: {e}")
             # Don't re-raise; this is streaming and shouldn't break the main flow
+
+    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id):
+        """Emit TableUsageEvents for a finished step (data model first, then
+        tables_by_source; the recorder dedupes). Best-effort, never raises."""
+        try:
+            await self.project_manager.emit_table_usage(
+                db=db, report=report_obj, step=step_obj, data_model=data_model,
+                user_id=user_id, user_role=None,
+            )
+        except Exception:
+            pass
+        if tables_by_source:
+            try:
+                await self.project_manager.emit_table_usage_from_tables_by_source(
+                    db=db, report=report_obj, step=step_obj, tables_by_source=tables_by_source,
+                    user_id=user_id, user_role=None, source_type="sql",
+                )
+            except Exception:
+                pass
+
+    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id):
+        """Background variant on a short-lived session of its own. The step's
+        status/data were committed before this was scheduled."""
+        if not report_id or not step_id:
+            return
+        async with self._session_maker() as db:
+            report_obj = (await db.execute(
+                select(Report)
+                .options(lazyload("*"), selectinload(Report.data_sources).options(lazyload("*")))
+                .where(Report.id == report_id)
+            )).unique().scalar_one_or_none()
+            step_obj = (await db.execute(
+                select(Step).options(lazyload("*")).where(Step.id == step_id)
+            )).scalar_one_or_none()
+            if report_obj is None or step_obj is None:
+                return
+            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id)
 
     async def _handle_tool_output(self, tool_name: str, tool_input: dict, observation: dict, tool_output: dict = None, inv=None):
         """Handle tool outputs and manage final state updates.
@@ -7885,6 +8346,7 @@ class AgentV2:
 
                     if step_obj and success and widget_data:
                         # If tool provided a minimal data_model (type/series), merge it into the step before deriving view
+                        merged = None
                         try:
                             if isinstance(data_model_from_tool, dict) and data_model_from_tool:
                                 existing_dm = (getattr(step_obj, "data_model", {}) or {}).copy()
@@ -7909,69 +8371,44 @@ class AgentV2:
                                 for key in ("series", "group_by", "sort", "limit", "filters"):
                                     if data_model_from_tool.get(key) is not None:
                                         merged[key] = data_model_from_tool.get(key)
-                                await self.project_manager.update_step_with_data_model(fresh_db, step_obj, merged)
-                                # Refresh the object to read the updated data_model
-                                await fresh_db.refresh(step_obj)
                         except Exception:
-                            pass
-                        # Update step with code
-                        await self.project_manager.update_step_with_code(
-                            fresh_db, step_obj, code
-                        )
-                        # Update step with full data (not just preview)
-                        await self.project_manager.update_step_with_data(
-                            fresh_db, step_obj, widget_data
-                        )
-
-                        # Persist declared parameters onto the Query (the stable
-                        # identity) and the run's resolved values onto the Step.
-                        try:
-                            _tool_params = tool_output.get("parameters")
-                            _tool_applied = tool_output.get("applied_params")
-                            if _tool_params:
-                                await self.project_manager.update_query_parameters(
-                                    fresh_db, step_obj, _tool_params, _tool_applied
-                                )
-                        except Exception:
-                            pass
-
-                        # Update step status
-                        await self.project_manager.update_step_status(
-                            fresh_db, step_obj, "success"
+                            merged = None
+                        # Data model, code, full data (not just preview), declared
+                        # parameters (onto the Query, the stable identity) with the
+                        # run's resolved values, and status — one commit. The UI
+                        # fetches the step after tool.finished; this commit precedes it.
+                        await self.project_manager.finalize_tool_step(
+                            fresh_db, step_obj,
+                            code=code,
+                            data=widget_data,
+                            data_model=merged,
+                            parameters=tool_output.get("parameters"),
+                            applied_params=tool_output.get("applied_params"),
+                            status="success",
                         )
 
-                        # Emit table usage events based on the step's data model (align with legacy agent)
-                        try:
-                            await self.project_manager.emit_table_usage(
-                                db=fresh_db,
-                                report=report_obj,
-                                step=step_obj,
-                                data_model=getattr(step_obj, "data_model", {}) or {},
-                                user_id=head_user_id,
-                                user_role=None
+                        # Table-usage analytics: the data model's tables, then every
+                        # source table passed to create_data (`tables_by_source` covers
+                        # joined tables the result columns omit). No UI event depends
+                        # on these rows, so off single-writer they are recorded on a
+                        # background session (drained before completion.finished)
+                        # instead of adding their round trips to the tool's latency.
+                        _tbs = None
+                        if tool_name == "create_data" and isinstance(tool_input, dict):
+                            _tbs = tool_input.get("tables_by_source") or None
+                        _usage_data_model = getattr(step_obj, "data_model", {}) or {}
+                        if self._use_single_write_session():
+                            await self._record_step_table_usage(
+                                fresh_db, report_obj, step_obj, _usage_data_model, _tbs, head_user_id,
                             )
-                        except Exception:
-                            pass
-
-                        # `tables_by_source` records every source table passed to create_data.
-                        # It complements the data model, whose columns can describe only
-                        # the resulting dataset and otherwise omit joined tables.
-                        try:
-                            if tool_name == "create_data":
-                                if isinstance(tool_input, dict):
-                                    tbs = tool_input.get("tables_by_source")
-                                    if tbs:
-                                        await self.project_manager.emit_table_usage_from_tables_by_source(
-                                            db=fresh_db,
-                                            report=report_obj,
-                                            step=step_obj,
-                                            tables_by_source=tbs,
-                                            user_id=head_user_id,
-                                            user_role=None,
-                                            source_type="sql",
-                                        )
-                        except Exception:
-                            pass
+                        else:
+                            self._schedule_bg_write(
+                                "table_usage",
+                                self._record_step_table_usage_bg(
+                                    report_id, str(step_obj.id), copy.deepcopy(_usage_data_model),
+                                    copy.deepcopy(_tbs), head_user_id,
+                                ),
+                            )
 
                         # Finalize visualization view.encoding and status
                         try:
@@ -8004,8 +8441,9 @@ class AgentV2:
                                             view["options"] = merged_options
                                     except Exception:
                                         pass
-                                await self.project_manager.update_visualization_view(fresh_db, viz_obj, view)
-                                await self.project_manager.set_visualization_status(fresh_db, viz_obj, "success")
+                                # View + status in one commit, before visualization.updated
+                                # (the UI refetches on it).
+                                await self.project_manager.finalize_visualization(fresh_db, viz_obj, view, "success")
                                 # Emit visualization.updated
                                 try:
                                     seq = await self.project_manager.next_seq(fresh_db, exec_obj)

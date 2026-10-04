@@ -11,3 +11,32 @@
 # pyarrow 16.1.0) are current and unaffected.
 language-settings:
   python: '3.12'
+# Open-source vulnerability ignores (client-side policy applied by `snyk test`).
+# Snyk resolves the OSS policy file relative to the directory of the manifest
+# being tested, not the repository root, so a scan of the backend project
+# (requirements_versioned.txt) does not read the repo-root .snyk. The
+# backend-relevant accepted-risk ignore below is duplicated here so the backend
+# project's scan honors the same triage. The repo-root .snyk keeps it too (for
+# root-context runs); when it is changed on expiry/re-review, update both.
+ignore:
+  # Timing Attack in oauthlib (High). Fixed only in oauthlib 4.0.0, but that
+  # version is NOT installable in this tree: databricks-sql-connector hard-caps
+  # oauthlib<4.0.0,>=3.1.0 on every published version up to and including the
+  # latest (4.6.0), so no upgrade can remediate it without dropping the
+  # Databricks connector. The vulnerable code path is server-side OAuth
+  # signature/token *verification* (constant-time comparison when validating
+  # inbound requests). This backend uses oauthlib only as an OAuth1 *client* —
+  # requests_oauthlib.OAuth1 signs outbound requests in
+  # app/data_sources/clients/netsuite_client.py — and never verifies inbound
+  # OAuth signatures, so the vulnerable path is not reached. Databricks auth in
+  # this deployment uses a personal access token, not the oauthlib OAuth flow.
+  # Time-boxed; re-review when databricks-sql-connector relaxes its oauthlib cap.
+  SNYK-PYTHON-OAUTHLIB-20305255:
+    - '*':
+        reason: >-
+          No installable fix (fixed in oauthlib 4.0.0; databricks-sql-connector
+          hard-caps oauthlib<4.0.0 on all versions incl. latest 4.6.0). Vuln is
+          in server-side OAuth verification; this backend uses oauthlib only as
+          an OAuth1 client (outbound request signing in netsuite_client.py), so
+          the path is not reached. Re-review when the databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z

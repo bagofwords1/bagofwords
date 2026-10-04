@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON
+from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON, Boolean, false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
@@ -15,14 +15,6 @@ class Membership(BaseSchema):
     # no expiry enforced (legacy rows / non-invite memberships).
     invite_expires_at = Column(DateTime, nullable=True)
     note = Column(String, nullable=True)
-    # Per-user, per-org agent memory. Small, curated, agent-written durable
-    # facts about this user (preferences, writing style, analyses they liked).
-    # Full-document rewrite via the update_user_memory tool; the user can
-    # view/edit it in their profile. Capped at MEMBERSHIP_MEMORY_MAX_LENGTH
-    # chars so it can be always-injected without bloating context. Distinct
-    # from ``note`` (user-authored profile) and from Notes (per-report
-    # scratchpad).
-    memory = Column(String, nullable=True)
     # Per-user default LLM model for this org. Soft reference (no FK): a stale
     # value falls back to the org default at resolve time.
     default_llm_model_id = Column(String(36), nullable=True)
@@ -43,6 +35,13 @@ class Membership(BaseSchema):
     # <user_profile> context block alongside ``note``/``memory``. JSON object of
     # attribute name -> value ({} / NULL when nothing is synced).
     profile_attributes = Column(JSON, nullable=True)
+    # Per-user opt-out of agent check-ins (the agent's own follow-ups) in this
+    # org. Only meaningful while the org's enable_agent_checkins setting is on;
+    # respected at plan time (no planner call) and at fire time.
+    checkins_opt_out = Column(Boolean, nullable=False, default=False, server_default=false())
+    # Nightly user dream watermark: human-initiated activity up to here has
+    # been reflected on.
+    user_dreamed_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="memberships")
     organization = relationship("Organization", back_populates="memberships")

@@ -112,6 +112,8 @@
                 :initialSelectedDataSources="initialDataSources"
                 :initialMode="initialMode"
                 :initialModel="initialModel"
+                :initialEffort="initialEffort"
+                :persistSelection="false"
                 :textareaContent="initialContent"
                 :hideScheduleButton="true"
                 :hideSubmitButton="true"
@@ -415,6 +417,9 @@ const reportTitle = computed(() => props.scheduledPrompt?.report?.title || t('sc
 const initialContent = computed(() => props.scheduledPrompt?.prompt?.content || props.draftContent || '')
 const initialMode = computed(() => (props.scheduledPrompt?.prompt?.mode as 'chat' | 'training') || 'chat')
 const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || props.draftModel || '')
+// A new task starts at Default: the host report's level is not copied, so a
+// scheduled run's cost is chosen here on purpose.
+const initialEffort = computed(() => props.scheduledPrompt?.prompt?.reasoning_effort || '')
 const initialDataSources = computed(() => props.initialDataSources || [])
 
 const taskTitle = ref<string>(props.scheduledPrompt?.title || '')
@@ -655,16 +660,17 @@ watch(() => props.scheduledPrompt, (sp) => {
 
 // ---- Handle PromptBoxV2 submit (for new scheduled prompts) ----
 
-async function handlePromptSubmit(payload: { text: string; mentions: any[]; mode: string; model_id: string; files?: any[] }) {
+async function handlePromptSubmit(payload: { text: string; mentions: any[]; mode: string; model_id: string; reasoning_effort?: string | null; files?: any[] }) {
     await saveScheduledPrompt({
         content: payload.text,
         mentions: payload.mentions,
         mode: payload.mode,
         model_id: payload.model_id,
+        reasoning_effort: payload.reasoning_effort || null,
     })
 }
 
-function getCurrentPrompt(): { content: string; mentions?: any[]; mode?: string; model_id?: string } {
+function getCurrentPrompt(): { content: string; mentions?: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null } {
     const box = promptBoxRef.value
     const fallback = props.scheduledPrompt?.prompt || {}
     return {
@@ -674,6 +680,8 @@ function getCurrentPrompt(): { content: string; mentions?: any[]; mode?: string;
         // Trust the box when mounted — its getModel() maps Auto to null. Use
         // `??` so a deliberate Auto (null) isn't overridden by the saved model.
         model_id: box ? (box.getModel?.() ?? undefined) : fallback.model_id,
+        // Paired with the model; null = Default.
+        reasoning_effort: box ? (box.getEffort?.() ?? null) : (fallback.reasoning_effort ?? null),
     }
 }
 
@@ -762,7 +770,7 @@ async function syncReportDataSources() {
 
 // Persist the current form state (create or update) and return the raw fetch
 // response. Side-effect free so both the Save button and Run now can reuse it.
-async function persistScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string }) {
+async function persistScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
     // Apply data-source selection to the report first so an immediate "Run now"
     // (which reads report.data_sources at trigger time) uses the chosen agents.
     await syncReportDataSources()
@@ -789,7 +797,7 @@ async function persistScheduledPrompt(prompt: { content: string; mentions?: any[
     })
 }
 
-async function saveScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string }) {
+async function saveScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
     isSaving.value = true
     try {
         const response = await persistScheduledPrompt(prompt)

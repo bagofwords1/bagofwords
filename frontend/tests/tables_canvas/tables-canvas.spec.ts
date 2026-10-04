@@ -358,7 +358,7 @@ test('connection filters stay shared in combined onboarding', async ({page,reque
   expect((await allTables(request)).tables.filter((table:any)=>table.is_active).map((table:any)=>table.name).sort()).toEqual(['companies','orders'])
 })
 
-test('cached custom query shares draft and Save without requiring its source tables', async ({page,request,context}) => {
+test('cached custom table shares draft and Save without requiring its source tables', async ({page,request,context}) => {
   const setting = (value:boolean) => request.put(`${seed.base_url}/api/organization/settings`, {headers,data:{config:{enable_custom_queries:{value}}}})
   expect((await setting(true)).ok()).toBeTruthy()
   const source = (await allTables(request)).tables.find((table:any)=>table.name==='orders')

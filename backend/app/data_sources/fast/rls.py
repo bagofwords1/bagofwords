@@ -1,6 +1,6 @@
 """Row-level security on accelerated relations.
 
-A custom query is materialized once with a shared credential, so every agent
+A custom table is materialized once with a shared credential, so every agent
 that activates it sees the same rows. RLS makes that copy safe to expose to
 people who should each see a slice of it, by filtering at read time against who
 is asking.

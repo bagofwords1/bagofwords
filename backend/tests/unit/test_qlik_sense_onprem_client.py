@@ -9,6 +9,7 @@ and credentials are synthetic.
 
 import json
 import os
+import ssl
 import stat
 import sys
 from typing import Any, Dict, List
@@ -16,6 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.data_sources.clients._qix_common import build_ssl_context
 from app.data_sources.clients.qlik_sense_onprem_client import (
     QlikSenseOnPremClient,
     _mask_secrets,
@@ -477,11 +479,42 @@ class TestSetup:
         assert client._verify_arg() == client._ca_path
         client.close()
 
-    def test_verify_arg_without_root_ca_is_the_flag(self):
-        client = make_client(verify_ssl=False)
+    @pytest.mark.parametrize("root_ca", [None, CERT_PEM], ids=["no_root_ca", "root_ca"])
+    def test_verify_ssl_off_disables_verification_even_with_root_ca(self, root_ca):
+        """The Verify SSL toggle is authoritative: a saved root.pem must not
+        silently keep verification (and its hostname check) on."""
+        client = make_client(root_ca=root_ca, verify_ssl=False)
         client.connect()
         assert client._verify_arg() is False
         client.close()
+
+    def test_verify_ssl_on_without_root_ca_uses_system_trust(self):
+        client = make_client(verify_ssl=True)
+        client.connect()
+        assert client._verify_arg() is True
+        client.close()
+
+
+class TestEngineSslContext:
+    """The Engine WebSocket follows the same rule as QRS."""
+
+    @pytest.mark.parametrize("with_ca", [False, True])
+    def test_verify_ssl_off_disables_verification_even_with_ca(self, tmp_path, with_ca):
+        ca_file = None
+        if with_ca:
+            ca_file = tmp_path / "root.pem"
+            ca_file.write_text(CERT_PEM)
+        ctx = build_ssl_context(verify_ssl=False, ca_file=str(ca_file) if ca_file else None)
+        assert ctx.verify_mode == ssl.CERT_NONE
+        assert ctx.check_hostname is False
+
+    def test_verify_ssl_on_with_ca_verifies_against_it(self, tmp_path):
+        ca_file = tmp_path / "root.pem"
+        ca_file.write_text(CERT_PEM)
+        ctx = build_ssl_context(verify_ssl=True, ca_file=str(ca_file))
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx.check_hostname is True
+        assert ctx.cert_store_stats()["x509"] >= 1
 
 
 # ---------------------------------------------------------------------------

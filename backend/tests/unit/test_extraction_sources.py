@@ -359,7 +359,7 @@ def test_a_decimal_too_wide_for_duckdb_is_widened_to_float():
     """Oracle returns NUMBER-without-precision — what AVG() and most arithmetic
     produce — as a decimal of precision 39+, and DuckDB tops out at 38.
     Extraction died on `SELECT AVG(amount) ... GROUP BY ...`, which is close to
-    the most ordinary custom query anyone would write. Verified against Oracle
+    the most ordinary custom table anyone would write. Verified against Oracle
     Free 23ai."""
     import decimal
 

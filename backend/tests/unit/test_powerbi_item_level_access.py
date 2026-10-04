@@ -132,7 +132,94 @@ def test_rls_model_without_role_membership_is_not_added():
     t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries",
             _resp(401, {"error": {"code": "RLSNotAuthorizedForModel"}}))
 
-    assert _client(t).get_schemas(prior_tables=PRIOR) == []
+    c = _client(t)
+    assert c.get_schemas(prior_tables=PRIOR) == []
+    # ...and the user is told why. Power BI named the cause, so reporting it is
+    # repetition, not diagnosis: "HTTP 401" sends them to an admin for Build
+    # permission they already hold, and never mentions the RLS role that is
+    # the actual fix.
+    [diag] = c.discovery_diagnostics
+    assert diag["datasetName"] == "shared_orders"
+    assert "row-level security (RLS)" in diag["reason"]
+    assert c.index_stats()["unreadable_dataset_count"] == 1
+
+
+def test_unnamed_refusal_is_reported_as_nothing():
+    """A service principal is refused on an RLS model with a bare 401 — no
+    error code (docs/feedback-loops/powerbi-obo-rls.md). We cannot tell that
+    from a plain lack of Build permission, so we must not name a cause, and
+    must not file a diagnostic saying one thing or the other."""
+    t = _Tenant()
+    _no_listing(t)
+    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries", _resp(401, {}))
+
+    c = _client(t)
+    assert c.get_schemas(prior_tables=PRIOR) == []
+    assert c.discovery_diagnostics == []
+
+
+def test_rls_refusal_names_rls_in_the_connection_test():
+    """The same 401 through test_connection. The body carries only an error
+    CODE, so a reader of `message` alone reports a bare HTTP 401."""
+    t = _Tenant()
+    t.route("GET", "/groups", _resp(200, {"value": [{"id": "ws-1", "name": "sales"}]}))
+    t.route("GET", "/groups/ws-1/datasets",
+            _resp(200, {"value": [{"id": "ds-rls", "name": "jtlv3"}]}))
+    t.route("POST", "/groups/ws-1/datasets/ds-rls/executeQueries",
+            _resp(401, {"error": {"code": "RLSNotAuthorizedForModel"}}))
+
+    result = _client(t).test_connection()
+
+    assert result["success"] is False
+    assert "jtlv3" in result["message"]
+    assert "row-level security (RLS)" in result["message"]
+    # A known cause is stated, not advised around. The generic paragraph opens
+    # by telling the reader to make the identity a workspace Member — which on
+    # an RLS model disables RLS instead of fixing the access.
+    assert "Member or Contributor" not in result["message"]
+    assert "Build permission" not in result["message"]
+
+
+def test_a_named_cause_survives_a_later_bare_refusal():
+    """Probing a second workspace must not overwrite the one refusal we can
+    explain — otherwise the RLS finding disappears behind a generic 401."""
+    t = _Tenant()
+    t.route("GET", "/groups", _resp(200, {"value": [
+        {"id": "ws-rls", "name": "verify-rls"},
+        {"id": "ws-2", "name": "sales"},
+    ]}))
+    t.route("GET", "/groups/ws-rls/datasets",
+            _resp(200, {"value": [{"id": "ds-rls", "name": "jtlv3"}]}))
+    t.route("GET", "/groups/ws-2/datasets",
+            _resp(200, {"value": [{"id": "ds-2", "name": "orders"}]}))
+    t.route("POST", "/groups/ws-rls/datasets/ds-rls/executeQueries",
+            _resp(401, {"error": {"code": "RLSNotAuthorizedForModel"}}))
+    t.route("POST", "/groups/ws-2/datasets/ds-2/executeQueries", _resp(401, {}))
+
+    result = _client(t).test_connection()
+
+    assert result["success"] is False
+    assert "jtlv3" in result["message"]
+    assert "row-level security (RLS)" in result["message"]
+
+
+def test_connection_test_keeps_power_bis_own_message_when_it_sends_one():
+    """A 401 that DOES carry a message must still show it — naming the cause
+    is an addition, never a replacement for what Power BI said."""
+    t = _Tenant()
+    t.route("GET", "/groups", _resp(200, {"value": [{"id": "ws-1", "name": "sales"}]}))
+    t.route("GET", "/groups/ws-1/datasets",
+            _resp(200, {"value": [{"id": "ds-1", "name": "orders"}]}))
+    t.route("POST", "/groups/ws-1/datasets/ds-1/executeQueries",
+            _resp(401, {"error": {"message": "Effective identity is required"}}))
+
+    result = _client(t).test_connection()
+
+    assert result["success"] is False
+    assert "Effective identity is required" in result["message"]
+    assert "row-level security (RLS)" not in result["message"]
+    # Cause unknown → the pre-existing generic guidance still applies.
+    assert "Member or Contributor" in result["message"]
 
 
 def test_listed_datasets_are_not_probed():

@@ -262,8 +262,15 @@ class FileService:
 
         return True
         
-    async def get_files(self, db: AsyncSession, organization: Organization):
+    async def get_files(self, db: AsyncSession, organization: Organization, current_user: User):
+        """Files the user may list: their own uploads plus the libraries of
+        agents and projects they can see (every file, for a full admin)."""
+        from app.services.file_access_service import visible_files_clause
+
         stmt = select(File).filter(File.organization_id == organization.id)
+        scope = await visible_files_clause(db, current_user, organization)
+        if scope is not None:
+            stmt = stmt.filter(scope)
         result = await db.execute(stmt)
         files = result.scalars().all()
 
@@ -279,13 +286,21 @@ class FileService:
 
         return files
 
-    async def get_files_by_report(self, db: AsyncSession, report_id: str, organization: Organization):
-        from app.models.report_data_source_association import report_data_source_association
+    async def get_files_by_report(self, db: AsyncSession, report_id: str, organization: Organization, current_user: User):
+        from sqlalchemy.orm import lazyload
 
-        stmt = select(Report).filter(Report.id == report_id)
+        from app.models.report_data_source_association import report_data_source_association
+        from app.services.file_access_service import user_can_view_report
+
+        stmt = select(Report).options(lazyload("*")).filter(
+            Report.id == report_id, Report.organization_id == organization.id,
+        )
         result = await db.execute(stmt)
         report = result.scalar_one_or_none()
-        if not report:
+        # A report's files are its conversation's attachments, so they follow
+        # the conversation's sharing. 404 rather than 403 so private report
+        # ids don't leak.
+        if not report or not await user_can_view_report(db, current_user, organization, report):
             raise HTTPException(status_code=404, detail="Report not found")
 
         # Query files with completion_id from the association table

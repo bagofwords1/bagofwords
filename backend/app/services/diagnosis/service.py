@@ -414,17 +414,22 @@ class DiagnosisService:
             gran, step = "hour", timedelta(hours=1)
         elif span <= timedelta(days=92):
             gran, step = "day", timedelta(days=1)
-        else:
+        elif span <= timedelta(weeks=MAX_BUCKETS):
             gran, step = "week", timedelta(days=7)
+        else:
+            # "All time" on an org older than MAX_BUCKETS weeks: months, so the
+            # chart still spans the whole range instead of cutting off the
+            # most recent years.
+            gran, step = "month", None
 
         dialect = _dialect(db)
-        # Bucket by local calendar hour/day; weeks are folded from days below.
+        # Bucket by local calendar hour/day/month; weeks are folded from days below.
         if dialect == "postgresql":
             shifted = AE.created_at + func.make_interval(0, 0, 0, 0, 0, off)
-            fmt = "YYYY-MM-DD\"T\"HH24" if gran == "hour" else "YYYY-MM-DD"
+            fmt = {"hour": "YYYY-MM-DD\"T\"HH24", "month": "YYYY-MM"}.get(gran, "YYYY-MM-DD")
             bucket = func.to_char(shifted, fmt)
         else:
-            fmt = "%Y-%m-%dT%H" if gran == "hour" else "%Y-%m-%d"
+            fmt = {"hour": "%Y-%m-%dT%H", "month": "%Y-%m"}.get(gran, "%Y-%m-%d")
             bucket = func.strftime(fmt, AE.created_at, f"{off} minutes")
 
         matched_case = case((q_clause, 1), else_=0) if q_clause is not None else literal(1)
@@ -448,13 +453,22 @@ class DiagnosisService:
             cur = local_start.replace(minute=0, second=0, microsecond=0)
             key = lambda d: d.strftime("%Y-%m-%dT%H")  # noqa: E731
             iso = lambda d: d.strftime("%Y-%m-%dT%H:00")  # noqa: E731
+        elif gran == "month":
+            cur = local_start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            key = lambda d: d.strftime("%Y-%m")  # noqa: E731
+            iso = key
         else:
             cur = local_start.replace(hour=0, minute=0, second=0, microsecond=0)
             key = lambda d: d.strftime("%Y-%m-%d")  # noqa: E731
             iso = lambda d: d.strftime("%Y-%m-%d")  # noqa: E731
 
         buckets = []
-        if gran == "week":
+        if gran == "month":
+            while cur <= local_end and len(buckets) < MAX_BUCKETS:
+                v = rows.get(key(cur), (0, 0, 0))
+                buckets.append({"bucket": iso(cur), "total": v[0], "matched": v[1], "matched_errors": v[2]})
+                cur = (cur.replace(day=28) + timedelta(days=4)).replace(day=1)
+        elif gran == "week":
             while cur <= local_end and len(buckets) < MAX_BUCKETS:
                 t = m = e = 0
                 for i in range(7):

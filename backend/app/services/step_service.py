@@ -75,6 +75,47 @@ class StepService:
             )
         return self._df_from_step_data(resolution.data), step
 
+    async def get_step_authorized(self, db: AsyncSession, step_id: str, current_user: User, organization):
+        """Load a step for display, with the same gate as export: the step's
+        report must be in the caller's org and viewable by them. A non-owner
+        gets the viewer data policy, same as the query read path: their own
+        rows (or none when the snapshot is withheld), no code when withheld,
+        and applied_params without the creator's identity-derived values.
+        Returns a StepSchema; the Step row itself is never modified."""
+        from app.errors import AppError, ErrorCode
+        from app.models.query import Query
+        from app.schemas.step_schema import StepSchema
+        from app.services.viewer_data_policy import resolve_step_data, redact_applied_params
+
+        step = await self.get_step_by_id(db, step_id)
+        report = step.widget.report if step and step.widget else None
+        if report is None or str(report.organization_id) != str(organization.id):
+            raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
+        await self._authorize_report_view(db, report, current_user, organization)
+
+        schema = StepSchema.from_orm(step)
+        if str(report.user_id) == str(current_user.id):
+            return schema
+
+        resolution = await resolve_step_data(db, step, report, current_user)
+        parameters = (await db.execute(
+            select(Query.parameters).where(Query.id == step.query_id)
+        )).scalar_one_or_none() if step.query_id else None
+        update = {
+            "data": resolution.data,
+            "viewer_result": resolution.viewer_result,
+            "snapshot_withheld": resolution.withheld,
+            # Same boundary as data/code: the snapshot's params carry the
+            # creator's identity, not this reader's.
+            "applied_params": redact_applied_params(
+                getattr(step, "applied_params", None), parameters, withheld=resolution.withheld,
+            ),
+        }
+        if resolution.withheld:
+            # No code either — SQL leaks schema/table/filter details.
+            update["code"] = ""
+        return schema.model_copy(update=update)
+
     async def _authorize_report_view(self, db: AsyncSession, report, current_user: User, organization) -> None:
         """Raise unless current_user may view `report` (owner / org full-admin /
         artifact visibility). Mirrors the artifact GET gate."""
@@ -277,8 +318,13 @@ class StepService:
         organization_settings=None,
         params: Optional[dict] = None,
         param_specs: Optional[list] = None,
+        return_raw_df: bool = False,
     ) -> dict:
         """Execute a step's saved code and return the formatted result frame.
+
+        ``return_raw_df`` returns the executed DataFrame itself (not capped or
+        formatted) — for callers that page through the full result, such as
+        read_query's offset/limit reads past the saved snapshot.
 
         Pure execution — persists nothing. `current_user` decides whose
         data-source credentials are used when `db_clients` isn't prebuilt.
@@ -356,6 +402,8 @@ class StepService:
             )
             if identity_err:
                 raise ParamError(identity_err)
+        if return_raw_df:
+            return df
         df = await asyncio.to_thread(executor.format_df_for_widget, df)
         return df
 

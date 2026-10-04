@@ -16,7 +16,15 @@ class LLMClient(ABC):
         self._last_usage = LLMUsage()
 
     @abstractmethod
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None):
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None, thinking: Optional[dict] = None):
+        """One-shot completion; thinking uses the same policy as native streaming.
+
+        ``system`` carries the run-invariant half of the prompt. Clients whose
+        provider supports prompt caching mark it as a cache breakpoint, which is
+        the only way a one-shot call can cache at all: with everything in a
+        single user message there is nothing stable to attach a marker to.
+        """
         pass
 
     @abstractmethod

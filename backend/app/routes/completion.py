@@ -178,8 +178,8 @@ async def get_completions(report_id: str, current_user: User = Depends(current_u
 # and the per-completion SSE watch stream, both of which are authenticated
 # and correct across uvicorn workers.
 
-@requires_permission('manage_settings')
 @router.get("/api/completions/{completion_id}/plans")
+@requires_permission('manage_settings')
 async def get_completion_plans(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.get_completion_plans(db, current_user, organization, completion_id)
 
@@ -201,10 +201,12 @@ async def get_completions_v2(
     """
     return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before)
 
-@requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/sigkill")
+@requires_permission('create_reports')
 async def update_completion_sigkill(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
-    return await completion_service.update_completion_sigkill(db, completion_id, current_user, organization)
+    completion = await completion_service.update_completion_sigkill(db, completion_id, current_user, organization)
+    # Not the ORM row: its relationship graph recurses in the JSON encoder.
+    return {"id": str(completion.id), "status": completion.status}
 
 
 @router.delete("/api/completions/{completion_id}/queued")
@@ -235,8 +237,8 @@ async def steer_completion(
     return await completion_service.steer_completion(db, completion_id, body, current_user, organization)
 
 
-@requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/tool-results/{tool_call_id}")
+@requires_permission('create_reports')
 async def submit_tool_result(
     completion_id: str,
     tool_call_id: str,
@@ -250,8 +252,8 @@ async def submit_tool_result(
     return await completion_service.submit_tool_result(db, completion_id, tool_call_id, body, current_user, organization)
 
 
-@requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/tool_executions/{tool_execution_id}/clarify_response")
+@requires_permission('create_reports')
 async def submit_clarify_response(
     completion_id: str,
     tool_execution_id: str,
@@ -392,8 +394,8 @@ async def respond_to_mcp_tool_confirmation(
     return {"status": "ok", "approved": approved, "remembered": remember}
 
 
-@requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/tool_executions/{tool_execution_id}/cancel_wait")
+@requires_permission('create_reports')
 async def cancel_wait(
     completion_id: str,
     tool_execution_id: str,

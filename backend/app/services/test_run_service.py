@@ -637,7 +637,9 @@ class TestRunService:
                     # and websocket 'update_completion' is emitted for AgentV2 to cancel promptly.
                     for sc in sys_completions:
                         try:
-                            await self.completions.update_completion_sigkill(db, str(sc.id), current_user, organization)
+                            await self.completions.update_completion_sigkill(
+                                db, str(sc.id), current_user, organization, authorize=False
+                            )
                         except Exception:
                             pass
                 except Exception:
@@ -906,6 +908,7 @@ class TestRunService:
                 mentions=p.get("mentions"),
                 mode=p.get("mode"),
                 model_id=p.get("model_id"),
+                reasoning_effort=p.get("reasoning_effort"),
             )
             completion_data = CompletionCreate(prompt=prompt)
 
@@ -1027,6 +1030,7 @@ class TestRunService:
                     mentions=p.get("mentions"),
                     mode=p.get("mode"),
                     model_id=p.get("model_id"),
+                    reasoning_effort=p.get("reasoning_effort"),
                 )
                 async with async_session() as session:
                     # Synchronous path: blocks until this turn's agent is done.
@@ -1668,6 +1672,7 @@ class TestRunService:
             mentions=p.get("mentions"),
             mode=p.get("mode"),
             model_id=p.get("model_id"),
+            reasoning_effort=p.get("reasoning_effort"),
         )
         completion_data = CompletionCreate(prompt=prompt)
         # Get build_id from the run
@@ -2019,6 +2024,7 @@ class TestRunService:
                     mentions=p.get("mentions"),
                     mode=p.get("mode"),
                     model_id=p.get("model_id"),
+                    reasoning_effort=p.get("reasoning_effort"),
                 )
 
                 # Resolve models

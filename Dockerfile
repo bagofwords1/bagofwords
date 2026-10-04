@@ -34,6 +34,11 @@ COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
 # (S4U) for on-prem SQL Server SSO; it builds against libkrb5-dev above.
 RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project --extra kerberos
 
+# pyspark is used only as a Spark Connect client (gRPC to a remote cluster), so
+# its ~250 bundled JVM jars (324 MB) never run — the image has no Java. They
+# carried most of the image's critical/high CVEs (netty, jackson, avro, ...).
+RUN rm -rf /opt/venv/lib/python3*/site-packages/pyspark/jars
+
 # Copy the full backend source after deps are installed
 COPY ./backend /app/backend
 RUN rm -f /app/backend/db/app.db
@@ -221,7 +226,7 @@ RUN mkdir -p /app/certs && \
 # These paths match volume mounts in docker-compose.yaml; they must exist with
 # app-user ownership so Docker seeds named volumes with writable perms on first run.
 RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding \
-             /app/backend/branding_uploads /app/backend/logs && \
+             /app/backend/branding_uploads /app/backend/logs /app/backend/data && \
     chown -R app:app /app
 
 WORKDIR /app

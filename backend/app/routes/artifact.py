@@ -246,6 +246,21 @@ def _parse_slides_from_html(html_code: str) -> List[Dict[str, Any]]:
     return slides
 
 
+# Keys in artifact.content that only the server writes (rendered slide
+# previews are read back from disk by path). Client payloads never set them.
+_SERVER_OWNED_CONTENT_KEYS = ("preview_images",)
+
+
+def _without_server_owned_keys(content: Optional[dict], keep_from: Optional[dict] = None) -> Optional[dict]:
+    if content is None:
+        return None
+    cleaned = {k: v for k, v in content.items() if k not in _SERVER_OWNED_CONTENT_KEYS}
+    for key in _SERVER_OWNED_CONTENT_KEYS:
+        if keep_from and key in keep_from:
+            cleaned[key] = keep_from[key]
+    return cleaned
+
+
 @router.post("", response_model=ArtifactSchema)
 @requires_permission('update_reports')
 async def create_artifact(
@@ -255,6 +270,18 @@ async def create_artifact(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Create a new artifact for a report."""
+    # The report comes from the body, so the decorator can't scope it: the
+    # caller must own a report in this organization.
+    report = (await db.execute(
+        select(ReportModel).where(
+            ReportModel.id == str(payload.report_id),
+            ReportModel.organization_id == str(organization.id),
+            ReportModel.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if report is None or str(report.user_id) != str(current_user.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+    payload = payload.model_copy(update={"content": _without_server_owned_keys(payload.content)})
     artifact = await service.create(
         db,
         payload,
@@ -352,6 +379,11 @@ async def update_artifact(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Update an existing artifact."""
+    if payload.content is not None:
+        existing = await service.get(db, artifact_id)
+        payload = payload.model_copy(update={
+            "content": _without_server_owned_keys(payload.content, keep_from=(existing.content if existing else None)),
+        })
     artifact = await service.update(db, artifact_id, payload)
     if not artifact:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
@@ -742,11 +774,16 @@ async def get_slide_preview(
     if slide_index < 0 or slide_index >= len(preview_images):
         raise HTTPException(status_code=404, detail=f"Slide {slide_index} not found")
 
-    # Preview images are stored relative to uploads folder
-    uploads_dir = Path(__file__).parent.parent.parent / "uploads"
-    image_path = uploads_dir / preview_images[slide_index]
+    # Preview images are stored relative to uploads/pptx_previews. The path
+    # lives in artifact.content, which is caller-writable, so never trust it.
+    from app.core.path_safety import UnsafePathError, safe_join
+    previews_dir = Path(__file__).parent.parent.parent / "uploads" / "pptx_previews"
+    try:
+        image_path = safe_join(previews_dir, str(preview_images[slide_index]).removeprefix("pptx_previews/"))
+    except UnsafePathError:
+        raise HTTPException(status_code=404, detail="Preview image not found")
 
-    if not image_path.exists():
+    if not image_path.is_file():
         raise HTTPException(status_code=404, detail="Preview image not found")
 
     return FileResponse(

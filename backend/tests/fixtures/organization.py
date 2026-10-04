@@ -89,3 +89,33 @@ def get_user_organizations(test_client):
         return response.json()
     
     return _get_organizations
+
+@pytest.fixture
+def backdate_organization():
+    """Move an organization's ``created_at`` into the past.
+
+    "All time" on the console starts on the org's creation day, and seeded
+    runs (see ``seed_agent_executions``) are given arbitrary past timestamps,
+    so a test that wants runs older than the org must age the org first. No
+    API can change an org's creation time — a direct DB write is the only way.
+    """
+    def _backdate(org_id, days):
+        import os
+        from datetime import datetime, timedelta
+        from sqlalchemy import create_engine, text
+
+        url = os.environ["TEST_DATABASE_URL"]
+        sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+        engine = create_engine(sync_url)
+        created_at = datetime.utcnow() - timedelta(days=days)
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE organizations SET created_at = :created_at WHERE id = :id"),
+                    {"created_at": created_at, "id": org_id},
+                )
+        finally:
+            engine.dispose()
+        return created_at
+
+    return _backdate

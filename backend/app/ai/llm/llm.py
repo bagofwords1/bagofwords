@@ -20,6 +20,7 @@ from .types import (
     LLMUsage,
     Message,
     ToolSpec,
+    TextDeltaEvent,
     UsageEvent,
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
@@ -29,6 +30,7 @@ from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
 from app.ai.llm.header_injection import build_provider_headers
+from app.ai.llm.reasoning import needs_responses_for_tools, reasoning_mode, reasoning_params, _effort_to_thinking_config
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from app.settings.logging_config import get_logger
@@ -45,6 +47,19 @@ tracer = get_tracer(__name__)
 # later calls from worker threads (e.g. asyncio.to_thread(llm.inference))
 # can still schedule usage recording via run_coroutine_threadsafe.
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
+
+
+def bind_usage_loop(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    """Remember the app's event loop for usage recording.
+
+    ``LLM.inference`` is sync and usually runs in a worker thread
+    (``asyncio.to_thread``); it schedules its usage write onto ``_MAIN_LOOP``,
+    which is otherwise only captured by an earlier *async* LLM call. Call this
+    from async code before off-loading when the sync call may be the first LLM
+    call in the process (e.g. a scheduler job right after a restart), or its
+    usage record is silently dropped."""
+    global _MAIN_LOOP
+    _MAIN_LOOP = loop or asyncio.get_running_loop()
 
 # Strong references to in-flight usage-record tasks. asyncio only keeps a weak
 # reference to tasks created via loop.create_task(), so a fire-and-forget task
@@ -236,6 +251,17 @@ def _retry_delay(attempt: int) -> float:
     return min(0.5 * (2 ** attempt), 4.0) + random.uniform(0, 0.25)
 
 
+def _provider_error_message(exc: BaseException) -> str:
+    """The provider's own error text when it is embedded in an SDK error
+    ("Error code: 400 - {'error': {'message': "Unknown parameter: 'reasoning'." …"),
+    else the exception text."""
+    text = str(exc)
+    m = re.search(r"""['"]message['"]:\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""", text)
+    if m:
+        return (m.group(1) or m.group(2) or text).strip()
+    return text
+
+
 class LLM:
     def __init__(
         self,
@@ -243,7 +269,9 @@ class LLM:
         usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
         usage_context: Optional[UsageLimitContext] = None,
         pii_redactor: Optional[PiiRedactor] = None,
+        reasoning_effort: Optional[str] = None,
     ):
+        self._default_reasoning_effort = reasoning_effort
         self.model = model
         self.model_id = model.model_id
         self.provider = model.provider.provider_type
@@ -312,12 +340,13 @@ class LLM:
         custom_headers = build_provider_headers(additional_config) or None
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
-            if base_url and not self.model_id.startswith("gpt-6"):
+            if base_url and not needs_responses_for_tools(self._capability_model_id()) and not additional_config.get("use_responses_api"):
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
                 self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers)
             else:
-                # Native OpenAI and GPT-6 (including gateways) use Responses;
-                # GPT-6 tool calling is not supported on Chat Completions.
+                # Native OpenAI, GPT-6 and GPT-5.6 (including gateways) use
+                # Responses: their tool calling on Chat Completions only works
+                # with reasoning effort "none" (GPT-6 fails there by default).
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
                     base_url=base_url,
@@ -367,6 +396,16 @@ class LLM:
                 # token-provider hook (Foundry serves the deployment-scoped route
                 # too, so that fallback stays correct there).
                 use_responses_api = bool(additional_config.get("use_responses_api", False))
+                # GPT-6 / GPT-5.6 deployments reject function tools with any
+                # reasoning effort on Chat Completions (GPT-6 even at its
+                # default), so an agent run needs Responses. Key auth only —
+                # the Responses path has no Entra token hook.
+                if (
+                    not use_responses_api
+                    and azure_ad_token_provider is None
+                    and needs_responses_for_tools(self._capability_model_id())
+                ):
+                    use_responses_api = True
                 if use_responses_api and azure_ad_token_provider is not None:
                     logger.warning(
                         "Azure provider uses Entra ID auth; ignoring use_responses_api "
@@ -406,7 +445,14 @@ class LLM:
             verify_ssl = self.model.provider.additional_config.get("verify_ssl", True) if self.model.provider.additional_config else True
             # Use empty string for api_key if not provided (some local servers don't need auth)
             api_key = self.api_key or ""
-            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature, default_headers=custom_headers)
+            if additional_config.get("use_responses_api"):
+                self.client = OpenAIResponsesClient(
+                    api_key=api_key, base_url=base_url,
+                    temperature=configured_temperature, default_headers=custom_headers,
+                    verify_ssl=verify_ssl,
+                )
+            else:
+                self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature, default_headers=custom_headers)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")
@@ -433,6 +479,17 @@ class LLM:
             self.client = self._build_vertex_client(additional_config, configured_temperature, custom_headers)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
+
+        # Explicit capability identity for opaque deployment/gateway aliases.
+        # Never infer API capabilities from an arbitrary deployment name.
+        # Reasoning settings the admin set on the model card travel on the
+        # client so every adapter applies the same mode / raw request fields.
+        model_config = getattr(self.model, "config", None) or {}
+        _mode = reasoning_mode(model_config)
+        if _mode == "like" and isinstance(model_config.get("reasoning_model_id"), str):
+            self.client.reasoning_model_id = model_config["reasoning_model_id"]
+        self.client.reasoning_mode = _mode
+        self.client.reasoning_params = reasoning_params(model_config)
 
     def _build_vertex_client(self, additional_config: dict, configured_temperature, custom_headers):
         """Pick the transport for a Vertex model and build its client.
@@ -539,6 +596,14 @@ class LLM:
         else:
             credential = DefaultAzureCredential()
         return get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
+
+    def _capability_model_id(self) -> str:
+        """The model whose API capabilities apply: an admin's "behaves like"
+        model for opaque deployment names, else the model id itself."""
+        cfg = getattr(self.model, "config", None) or {}
+        if isinstance(cfg, dict) and reasoning_mode(cfg) == "like" and isinstance(cfg.get("reasoning_model_id"), str):
+            return cfg["reasoning_model_id"]
+        return self.model_id
 
     @staticmethod
     def _azure_v1_base_url(endpoint_url: str) -> str:
@@ -707,10 +772,22 @@ class LLM:
 
         return new_system, new_messages
 
+    def _effective_thinking(self, thinking: Optional[dict] = None) -> Optional[dict]:
+        # Small-default is an execution policy, not merely a model selection.
+        # Explicit off is translated by each adapter to its supported minimum.
+        if getattr(self.model, "is_small_default", False) is True:
+            return {"type": "disabled"}
+        if thinking is not None:
+            return thinking
+        return _effort_to_thinking_config(
+            getattr(self, "_default_reasoning_effort", None), self._capability_model_id()
+        )
+
     def inference(
         self,
         prompt: str,
         *,
+        system: Optional[str] = None,
         images: Optional[list[ImageInput]] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
@@ -720,15 +797,24 @@ class LLM:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
-            prompt = self._apply_pii(prompt, self._get_pii_redactor_sync(), span)
+            _redactor = self._get_pii_redactor_sync()
+            prompt = self._apply_pii(prompt, _redactor, span)
+            if system:
+                # The system half goes to the provider too, so it gets the same
+                # redaction pass as the user half.
+                system = self._apply_pii(system, _redactor, span)
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
-            prompt_tokens_estimate = self._count_tokens(prompt)
+            prompt_tokens_estimate = self._count_tokens(prompt) + self._count_tokens(system or "")
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
             self._check_usage_limit_sync(prompt_tokens_estimate, should_record=should_record)
             response = None
+            thinking = self._effective_thinking()
+            policy_kwargs = {"thinking": thinking} if thinking is not None else {}
             for _attempt in range(_MAX_SYNC_RETRIES + 1):
                 try:
-                    response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
+                    response = self.client.inference(
+                        model_id=self.model_id, prompt=prompt, images=images, system=system, **policy_kwargs,
+                    )
                     break
                 except Exception as e:
                     if _attempt >= _MAX_SYNC_RETRIES or not _is_transient_llm_error(
@@ -762,6 +848,11 @@ class LLM:
                 scope_ref_id=usage_scope_ref_id,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                cache_read_tokens=usage.cache_read_tokens,
+                cache_creation_tokens=usage.cache_creation_tokens,
+                cache_write_5m_tokens=usage.cache_write_5m_tokens,
+                cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                reasoning_tokens=usage.reasoning_tokens,
                 should_record=should_record,
             )
             self._record_usage_limit_sync(
@@ -775,6 +866,30 @@ class LLM:
             )
             return sanitized
 
+    async def _text_stream_with_policy(self, prompt, images, *, max_output_tokens=None):
+        from contextlib import aclosing
+
+        thinking = self._effective_thinking()
+        # Bounded extraction must retain the adapters' no-retry, output-limit
+        # and truncation checks. Apply the same policy on that legacy route.
+        if thinking is None or max_output_tokens is not None:
+            options = {"max_output_tokens": max_output_tokens} if max_output_tokens is not None else {}
+            if thinking is not None:
+                options["thinking"] = thinking
+            async with aclosing(self.client.inference_stream(
+                model_id=self.model_id, prompt=prompt, images=images, **options
+            )) as stream:
+                async for chunk in stream:
+                    yield chunk
+            return
+        async with aclosing(self.client.inference_stream_v2(
+            model_id=self.model_id, messages=[Message(role="user", content=prompt)],
+            images=images, thinking=thinking,
+        )) as stream:
+            async for event in stream:
+                if isinstance(event, TextDeltaEvent):
+                    yield event.text
+
     async def inference_stream(
         self,
         prompt: str,
@@ -784,13 +899,19 @@ class LLM:
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
         prompt_tokens_estimate: Optional[int] = None,
+        preserve_text: bool = False,
+        max_output_tokens: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
-        with tracer.start_as_current_span("llm.inference_stream") as span:
+        from app.ai.llm.private_stream import private_provider_logs
+        with tracer.start_as_current_span("llm.inference_stream") as span, private_provider_logs(usage_scope == 'artifact'):
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
             prompt = self._apply_pii(prompt, await self._aget_pii_redactor(), span)
-            logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
+            if usage_scope == 'artifact':
+                logger.debug("Artifact model stream: %s (content omitted)", self.model_id)
+            else:
+                logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
             started_payload = False
             prefix = ""
             prompt_tokens = prompt_tokens_estimate if prompt_tokens_estimate is not None else self._estimate_tokens_fast(prompt)
@@ -801,31 +922,59 @@ class LLM:
             stream_start = time.monotonic()
             ttft_recorded = False
             try:
-                async for chunk in self.client.inference_stream(model_id=self.model_id, prompt=prompt, images=images):
-                    if chunk is None:
-                        continue
-                    if not isinstance(chunk, str):
-                        try:
-                            chunk = str(chunk)
-                        except Exception:
+                from contextlib import aclosing
+                options = {"max_output_tokens": max_output_tokens} if max_output_tokens is not None else {}
+                async with aclosing(self._text_stream_with_policy(prompt, images, **options)) as provider_stream:
+                    async for chunk in provider_stream:
+                        if chunk is None:
+                            continue
+                        if not isinstance(chunk, str):
+                            try:
+                                chunk = str(chunk)
+                            except Exception:
+                                continue
+
+                        if preserve_text:
+                            if chunk and not ttft_recorded:
+                                ttft_ms = (time.monotonic() - stream_start) * 1000
+                                span.set_attribute("llm.ttft_ms", ttft_ms)
+                                span.add_event("ttft", {"ttft_ms": ttft_ms})
+                                ttft_recorded = True
+                            completion_tokens += self._estimate_tokens_fast(chunk)
+                            streamed_chunks.append(chunk)
+                            yield chunk
                             continue
 
-                    if "```" in chunk:
-                        chunk = chunk.replace("```", "")
+                        if "```" in chunk:
+                            chunk = chunk.replace("```", "")
 
-                    if not started_payload:
-                        prefix += chunk
-                        prefix = re.sub(r"^\s*```(?:[A-Za-z]+)?\s*", "", prefix)
-                        prefix = re.sub(r"^\s*(?:json|JSON|python|PYTHON)\s*\r?\n", "", prefix)
-                        if re.fullmatch(r"\s*(?:json|JSON|python|PYTHON)\s*", prefix or ""):
-                            continue
-                        prefix = re.sub(r"^\s+", "", prefix)
+                        if not started_payload:
+                            prefix += chunk
+                            prefix = re.sub(r"^\s*```(?:[A-Za-z]+)?\s*", "", prefix)
+                            prefix = re.sub(r"^\s*(?:json|JSON|python|PYTHON)\s*\r?\n", "", prefix)
+                            if re.fullmatch(r"\s*(?:json|JSON|python|PYTHON)\s*", prefix or ""):
+                                continue
+                            prefix = re.sub(r"^\s+", "", prefix)
 
-                        m = re.search(r"[\{\[]", prefix)
-                        if not m:
-                            if re.search(r"\S", prefix):
+                            m = re.search(r"[\{\[]", prefix)
+                            if not m:
+                                if re.search(r"\S", prefix):
+                                    started_payload = True
+                                    emission = prefix
+                                    prefix = ""
+                                    if not ttft_recorded:
+                                        ttft_ms = (time.monotonic() - stream_start) * 1000
+                                        span.set_attribute("llm.ttft_ms", ttft_ms)
+                                        span.add_event("ttft", {"ttft_ms": ttft_ms})
+                                        ttft_recorded = True
+                                    completion_tokens += self._estimate_tokens_fast(emission)
+                                    streamed_chunks.append(emission)
+                                    yield emission
+                                else:
+                                    continue
+                            else:
                                 started_payload = True
-                                emission = prefix
+                                emission = prefix[m.start():]
                                 prefix = ""
                                 if not ttft_recorded:
                                     ttft_ms = (time.monotonic() - stream_start) * 1000
@@ -835,57 +984,54 @@ class LLM:
                                 completion_tokens += self._estimate_tokens_fast(emission)
                                 streamed_chunks.append(emission)
                                 yield emission
-                            else:
-                                continue
                         else:
-                            started_payload = True
-                            emission = prefix[m.start():]
-                            prefix = ""
-                            if not ttft_recorded:
-                                ttft_ms = (time.monotonic() - stream_start) * 1000
-                                span.set_attribute("llm.ttft_ms", ttft_ms)
-                                span.add_event("ttft", {"ttft_ms": ttft_ms})
-                                ttft_recorded = True
-                            completion_tokens += self._estimate_tokens_fast(emission)
-                            streamed_chunks.append(emission)
-                            yield emission
-                    else:
-                        if "```" in chunk:
-                            chunk = chunk.replace("```", "")
-                        completion_tokens += self._estimate_tokens_fast(chunk)
-                        streamed_chunks.append(chunk)
-                        yield chunk
+                            if "```" in chunk:
+                                chunk = chunk.replace("```", "")
+                            completion_tokens += self._estimate_tokens_fast(chunk)
+                            streamed_chunks.append(chunk)
+                            yield chunk
             except Exception as e:
+                if usage_scope == 'artifact':
+                    # Provider errors can quote private input. Retain usage and
+                    # failure classification without persisting user content.
+                    span.set_status(StatusCode.ERROR, "Artifact model stream failed")
+                    raise RuntimeError("Artifact model stream failed") from None
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise RuntimeError(f"LLM streaming failed (provider={self.provider}, model={self.model_id}): {e}") from e
-            usage = LLMUsage()
-            if hasattr(self.client, "pop_last_usage"):
-                usage = self.client.pop_last_usage()
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
-            else:
-                completion_tokens = self._estimate_tokens_fast("".join(streamed_chunks)) or completion_tokens
+            finally:
+                usage = LLMUsage()
+                if hasattr(self.client, "pop_last_usage"):
+                    usage = self.client.pop_last_usage()
+                if usage.prompt_tokens or usage.completion_tokens:
+                    prompt_tokens = usage.prompt_tokens or prompt_tokens
+                    completion_tokens = usage.completion_tokens or completion_tokens
+                else:
+                    completion_tokens = self._estimate_tokens_fast("".join(streamed_chunks)) or completion_tokens
 
-            span.set_attribute("llm.prompt_tokens", prompt_tokens)
-            span.set_attribute("llm.completion_tokens", completion_tokens)
-            span.set_attribute("llm.stream_chunks", len(streamed_chunks))
+                span.set_attribute("llm.prompt_tokens", prompt_tokens)
+                span.set_attribute("llm.completion_tokens", completion_tokens)
+                span.set_attribute("llm.stream_chunks", len(streamed_chunks))
 
-            self._schedule_usage_record(
-                scope=usage_scope,
-                scope_ref_id=usage_scope_ref_id,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                should_record=should_record,
-            )
-            await self._record_usage_limit_async(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                scope=usage_scope,
-                scope_ref_id=usage_scope_ref_id,
-                should_record=should_record,
-            )
+                self._schedule_usage_record(
+                    scope=usage_scope,
+                    scope_ref_id=usage_scope_ref_id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cache_read_tokens=usage.cache_read_tokens,
+                    cache_creation_tokens=usage.cache_creation_tokens,
+                    cache_write_5m_tokens=usage.cache_write_5m_tokens,
+                    cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                    reasoning_tokens=usage.reasoning_tokens,
+                    should_record=should_record,
+                )
+                await self._record_usage_limit_async(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    scope=usage_scope,
+                    scope_ref_id=usage_scope_ref_id,
+                    should_record=should_record,
+                )
 
     async def inference_stream_v2(
         self,
@@ -911,6 +1057,7 @@ class LLM:
         or, as fallback, the prompt_tokens_estimate plus a UsageEvent count).
         """
         target_model_id = model_id or self.model_id
+        thinking = self._effective_thinking(thinking)
         with tracer.start_as_current_span("llm.inference_stream_v2") as span:
             span.set_attribute("llm.model_id", target_model_id)
             span.set_attribute("llm.provider", self.provider)
@@ -934,6 +1081,9 @@ class LLM:
             completion_tokens = 0
             cache_read_tokens = 0
             cache_creation_tokens = 0
+            cache_write_5m_tokens = 0
+            cache_write_1h_tokens = 0
+            reasoning_tokens = 0
             stream_start = time.monotonic()
             ttft_recorded = False
 
@@ -1014,6 +1164,13 @@ class LLM:
                                 span.set_attribute(
                                     "llm.cache_creation_tokens", cache_creation_tokens
                                 )
+                            if getattr(evt, "cache_write_5m_tokens", 0) or getattr(evt, "cache_write_1h_tokens", 0):
+                                cache_write_5m_tokens = evt.cache_write_5m_tokens
+                                cache_write_1h_tokens = evt.cache_write_1h_tokens
+                                span.set_attribute("llm.cache_write_1h_tokens", cache_write_1h_tokens)
+                            if getattr(evt, "reasoning_tokens", 0):
+                                reasoning_tokens = evt.reasoning_tokens
+                                span.set_attribute("llm.reasoning_tokens", reasoning_tokens)
 
                         yield evt
                     break
@@ -1072,6 +1229,9 @@ class LLM:
                 completion_tokens=completion_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
+                cache_write_5m_tokens=cache_write_5m_tokens,
+                cache_write_1h_tokens=cache_write_1h_tokens,
+                reasoning_tokens=reasoning_tokens,
                 should_record=should_record,
             )
             await self._record_usage_limit_async(
@@ -1089,7 +1249,7 @@ class LLM:
         if not getattr(self.model, "supports_image_generation", False):
             raise ValueError(
                 f"Model '{self.model_id}' does not support image generation. "
-                "Select an image-generation model (e.g. gpt-image-1)."
+                "Select an image-generation model (e.g. gpt-image-2.5-sunburst)."
             )
 
     async def generate_image(
@@ -1179,6 +1339,80 @@ class LLM:
         return {
             "success": True,
             "message": "Successfully connected to LLM",
+        }
+
+    _API_NAMES = {
+        "OpenAi": "Chat Completions",
+        "AzureClient": "Chat Completions",
+        "OpenAIResponsesClient": "Responses",
+        "Anthropic": "Messages",
+        "BedrockClient": "Converse",
+        "Google": "generateContent",
+    }
+
+    def api_name(self) -> str:
+        """The provider API this model's requests go through — raw reasoning
+        fields must use that API's parameter names."""
+        return self._API_NAMES.get(type(self.client).__name__, type(self.client).__name__)
+
+    async def test_agent_call(self, effort: Optional[str] = None) -> dict:
+        """One tiny request shaped like an agent turn: a function tool plus,
+        optionally, a reasoning effort. The plain connection test streams text
+        with no tools, which passes for endpoints that then fail every agent
+        run (e.g. GPT-6 on Chat Completions rejects tools at its default
+        effort). Reports what the effort ran as and whether reasoning came back.
+        """
+        from app.ai.llm.reasoning import (
+            _effort_to_thinking_config, clamp_effort, efforts_for_client, client_mode,
+        )
+        from app.ai.llm.types import Message, ToolSpec, ReasoningDeltaEvent, UsageEvent, TextDeltaEvent, ToolUseCompleteEvent
+
+        efforts = efforts_for_client(self.client, self.model_id)
+        runs_as = clamp_effort(effort, efforts) if effort else None
+        thinking = _effort_to_thinking_config(effort, self._capability_model_id()) if effort else None
+        tool = ToolSpec(
+            name="get_row_count",
+            description="Return the number of rows in a table.",
+            input_schema={"type": "object", "properties": {"table": {"type": "string"}}},
+        )
+        started = time.monotonic()
+        reasoning_chars = 0
+        reasoning_tokens = 0
+        got_output = False
+        try:
+            async for event in self.inference_stream_v2(
+                messages=[Message(role="user", content="Reply with the single word: ok")],
+                tools=[tool],
+                thinking=thinking,
+                should_record=False,
+            ):
+                if isinstance(event, ReasoningDeltaEvent):
+                    reasoning_chars += len(event.text or "")
+                elif isinstance(event, UsageEvent):
+                    reasoning_tokens = max(reasoning_tokens, int(event.reasoning_tokens or 0))
+                elif isinstance(event, (TextDeltaEvent, ToolUseCompleteEvent)):
+                    got_output = True
+        except Exception as e:
+            logger.warning("LLM agent-call test failed: provider=%s, model=%s, effort=%s, error=%s",
+                           self.provider, self.model_id, effort, e)
+            return {
+                "success": False,
+                "message": _provider_error_message(e),
+                "effort": effort,
+                "runs_as": runs_as,
+                "mode": client_mode(self.client),
+                "api": self.api_name(),
+            }
+        return {
+            "success": got_output,
+            "message": "OK" if got_output else "The model returned no output",
+            "effort": effort,
+            "runs_as": runs_as,
+            "mode": client_mode(self.client),
+            "api": self.api_name(),
+            "reasoning_tokens": reasoning_tokens,
+            "reasoning_chars": reasoning_chars,
+            "latency_ms": int((time.monotonic() - started) * 1000),
         }
 
     def _coerce_response(self, response) -> tuple[str, LLMUsage]:
@@ -1387,6 +1621,9 @@ class LLM:
         completion_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_5m_tokens: int = 0,
+        cache_write_1h_tokens: int = 0,
+        reasoning_tokens: int = 0,
         should_record: bool,
     ):
         if not should_record or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
@@ -1433,6 +1670,9 @@ class LLM:
                             completion_tokens=completion_tokens or 0,
                             cache_read_tokens=cache_read_tokens or 0,
                             cache_creation_tokens=cache_creation_tokens or 0,
+                            cache_write_5m_tokens=cache_write_5m_tokens or 0,
+                            cache_write_1h_tokens=cache_write_1h_tokens or 0,
+                            reasoning_tokens=reasoning_tokens or 0,
                             organization_id=attribution.get("organization_id"),
                             user_id=attribution.get("user_id"),
                             report_id=attribution.get("report_id"),
