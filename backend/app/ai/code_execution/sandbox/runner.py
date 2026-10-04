@@ -534,7 +534,11 @@ def _call_supervised(fn: Callable[[], Any], child: _ChildProcess, deadline: floa
     orphaned queries at the source, so nothing here can outlive them.
 
     Completion is signalled through a pipe the supervision loop selects on,
-    so a fast handler returns immediately rather than at the next tick."""
+    so a fast handler returns immediately rather than at the next tick. The
+    worker owns the pipe's write end and closes it itself: an abandoned
+    worker finishes after the runner has moved on, and closing the write
+    end here would let its late write land in whatever descriptor reused
+    that number (a DB socket, another job's pipe)."""
     holder: Dict[str, Any] = {}
     wake_r, wake_w = os.pipe()
 
@@ -546,11 +550,17 @@ def _call_supervised(fn: Callable[[], Any], child: _ChildProcess, deadline: floa
         finally:
             try:
                 os.write(wake_w, b"x")
-            except OSError:
+            except OSError:  # runner already gone: read end closed (EPIPE)
                 pass
+            os.close(wake_w)
 
     t = threading.Thread(target=_target, name="bow_sandbox_rpc", daemon=True)
-    t.start()
+    try:
+        t.start()
+    except BaseException:
+        os.close(wake_w)
+        os.close(wake_r)
+        raise
     try:
         while t.is_alive():
             if wake_r in _wait_for_child(child, deadline, cancel_event, limits, [wake_r]):
@@ -558,7 +568,6 @@ def _call_supervised(fn: Callable[[], Any], child: _ChildProcess, deadline: floa
         t.join()
     finally:
         os.close(wake_r)
-        os.close(wake_w)
     if "exc" in holder:
         raise holder["exc"]
     return holder.get("value")

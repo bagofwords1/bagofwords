@@ -547,6 +547,42 @@ def generate_df(ds_clients, excel_files):
     assert time.monotonic() - t0 < 2.5
 
 
+def test_abandoned_rpc_handler_writes_nothing_into_reused_descriptors():
+    """A query still running when the sandbox times out is abandoned, and
+    finishes later. Whatever it does then must not reach descriptors the
+    process has opened in the meantime (DB sockets, other jobs' pipes)."""
+    release = threading.Event()
+    code = """
+def generate_df(ds_clients, excel_files):
+    return ds_clients["main"].execute_query("SELECT slow")
+"""
+
+    def slow_query(key, args, kwargs):
+        release.wait(timeout=10)
+        return pd.DataFrame({"a": [1]})
+
+    limits = SandboxLimits(timeout_seconds=1, memory_mb=0, cpu_seconds=0, require_landlock=False)
+    with pytest.raises(SandboxTimeoutError):
+        run_job(SandboxJob(mode="data", code=code, client_keys=["main"]), execute_query=slow_query, limits=limits)
+
+    # Freshly opened descriptors take the lowest free numbers, i.e. the ones
+    # the runner just released.
+    pipes = [os.pipe() for _ in range(16)]
+    try:
+        release.set()
+        for t in threading.enumerate():
+            if t.name == "bow_sandbox_rpc":
+                t.join(timeout=5)
+        for r, _ in pipes:
+            os.set_blocking(r, False)
+            with pytest.raises(BlockingIOError):
+                os.read(r, 16)
+    finally:
+        for r, w in pipes:
+            os.close(r)
+            os.close(w)
+
+
 def test_partial_frame_cannot_outlive_the_wall_clock():
     """A child that writes part of a frame and stalls must still be killed
     at the deadline: frame reads are supervised, never blocking."""
