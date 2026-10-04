@@ -15,6 +15,7 @@ Both sides import this module, so it must stay light (stdlib + pandas/pyarrow).
 """
 from __future__ import annotations
 
+import datetime
 import json
 import numbers
 import struct
@@ -252,6 +253,18 @@ def arrow_to_dataframe(payload: bytes, meta: Optional[Dict[str, Any]] = None) ->
     return df
 
 
+def _json_default(value: Any) -> Any:
+    # Query arguments cross child → parent as JSON (never pickle). Map the
+    # non-JSON types generated code commonly passes as SQL params to what
+    # render_sql_with_params produces from the originals: a set renders as
+    # an IN list and a datetime as its isoformat. Anything else stays text.
+    if isinstance(value, set):
+        return list(value)
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    return str(value)
+
+
 def json_safe(value: Any) -> Any:
-    """Round-trip `value` through JSON (default=str) so it is wire-safe."""
-    return json.loads(json.dumps(value, default=str, ensure_ascii=False))
+    """Round-trip `value` through JSON so it is wire-safe."""
+    return json.loads(json.dumps(value, default=_json_default, ensure_ascii=False))

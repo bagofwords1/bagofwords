@@ -458,6 +458,30 @@ def test_protocol_refuses_oversized_frames():
         protocol.read_message(buf)
 
 
+def test_query_params_render_the_same_sql_as_in_process(monkeypatch):
+    # Query arguments cross the boundary as JSON. Params that are not JSON
+    # types (a set built from a column, a datetime) must still render the
+    # SQL they rendered when the code ran in the API process.
+    code = """
+def generate_df(ds_clients, excel_files):
+    import datetime
+    ids = set(pd.DataFrame({"i": [42, 7, 42, 19]})["i"])
+    c = ds_clients["db"]
+    c.execute_query("select * from t where id in :ids", params={"ids": ids})
+    c.execute_query("select * from t where ts >= :ts and d = :d",
+                    params={"ts": datetime.datetime(2023, 11, 5, 8, 30), "d": datetime.date(2023, 12, 31)})
+    return pd.DataFrame({"a": [1]})
+"""
+    rendered = {}
+    for mode in ("inprocess", "subprocess"):
+        monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+        client = _StubClient()
+        _run(code, {"db": client})
+        rendered[mode] = [q for q, _, _ in client.calls]
+    assert len(rendered["subprocess"]) == 2
+    assert rendered["subprocess"] == rendered["inprocess"]
+
+
 def test_child_meta_cannot_multiply_the_parents_decode_work():
     # object_columns is chosen by the child. Repeated or malformed entries
     # must not turn into repeated whole-column copies in the API worker.
