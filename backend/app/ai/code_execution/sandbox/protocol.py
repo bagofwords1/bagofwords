@@ -238,9 +238,14 @@ def arrow_to_dataframe(payload: bytes, meta: Optional[Dict[str, Any]] = None) ->
     columns = meta.get("columns")
     if columns is not None and len(columns) == len(df.columns):
         df.columns = columns
-    for i in meta.get("object_columns") or []:
-        if not (isinstance(i, int) and 0 <= i < len(df.columns)):
-            continue
+    # `meta` comes from the child: restore each valid column once, however
+    # many times (or in whatever shape) the list names it. Each restore
+    # copies a whole column, so repeats would let the child pin the parent.
+    object_columns = meta.get("object_columns")
+    if not isinstance(object_columns, list):
+        object_columns = []
+    ncols = len(df.columns)
+    for i in sorted({i for i in object_columns if type(i) is int and 0 <= i < ncols}):
         restored = df.iloc[:, i].astype(object)
         restored[restored.isna()] = None
         df.isetitem(i, restored)

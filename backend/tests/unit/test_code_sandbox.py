@@ -458,6 +458,23 @@ def test_protocol_refuses_oversized_frames():
         protocol.read_message(buf)
 
 
+def test_child_meta_cannot_multiply_the_parents_decode_work():
+    # object_columns is chosen by the child. Repeated or malformed entries
+    # must not turn into repeated whole-column copies in the API worker.
+    frame = pd.DataFrame({"n": range(100_000), "s": ["a"] * 100_000}, dtype=object)
+    payload, meta = protocol.dataframe_to_arrow(frame)
+    hostile = dict(meta, object_columns=meta["object_columns"] * 3000 + ["0", True, -1, 99, None, 1.0])
+
+    cpu0 = time.thread_time()
+    df = protocol.arrow_to_dataframe(payload, hostile)
+    cpu = time.thread_time() - cpu0
+
+    pd.testing.assert_frame_equal(df, protocol.arrow_to_dataframe(payload, meta))
+    # One restore per column costs milliseconds; 3000 repeats cost seconds.
+    assert cpu < 1.0, f"decode used {cpu:.2f}s CPU"
+    assert protocol.arrow_to_dataframe(payload, dict(meta, object_columns="0,1")).shape == frame.shape
+
+
 # ---------------------------------------------------------------------------
 # pptx
 # ---------------------------------------------------------------------------
