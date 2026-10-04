@@ -348,6 +348,35 @@ def generate_df(ds_clients, excel_files):
     assert protocol.arrow_to_dataframe(wide, meta)["w"].tolist() == [str(1 << 70), "1"]
 
 
+@pytest.mark.parametrize(
+    "build",
+    [
+        "df.assign(bucket=pd.cut(df.amount, [-1, 10, 50, 1000]))",
+        "df.assign(bucket=pd.qcut(df.amount, 3))",
+        "df.groupby(pd.cut(df.amount, [-1, 10, 50, 1000]), observed=False).size().to_frame('n')",
+        "df.groupby(pd.qcut(df.amount, 4).rename('bucket'), observed=False).amount.sum().reset_index()",
+    ],
+    ids=["cut-column", "qcut-column", "cut-index", "qcut-reset-index"],
+)
+def test_binned_frames_cross_the_boundary(build):
+    # pd.cut / pd.qcut buckets convert to Arrow but not back to pandas. A
+    # frame holding them (as a column or as the index of a groupby) must
+    # still reach the parent, with the bucket labels as text.
+    code = f"""
+def generate_df(ds_clients, excel_files):
+    df = pd.DataFrame({{"amount": [3, 17, 42, 99, 250, 7, 61, 12]}})
+    return {build}
+"""
+    expected = eval(build, {"pd": pd}, {"df": pd.DataFrame({"amount": [3, 17, 42, 99, 250, 7, 61, 12]})})
+    df, _, _ = _run(code)
+    assert df.shape == expected.shape
+    for col in expected.columns:
+        if isinstance(expected[col].dtype, pd.CategoricalDtype):
+            assert df[col].tolist() == expected[col].astype(str).tolist()
+    if isinstance(expected.index, pd.CategoricalIndex):
+        assert df.index.tolist() == expected.index.astype(str).tolist()
+
+
 def test_abort_before_the_query_thread_registers_still_cancels_the_query(monkeypatch):
     # The runner's abort thread and the wrapper's query thread race at job
     # cancellation. If the abort lands before the query thread is running,

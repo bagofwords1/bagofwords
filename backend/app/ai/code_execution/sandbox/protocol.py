@@ -140,6 +140,30 @@ def _as_nullable_integers(series: pd.Series) -> pd.Series | None:
     return pd.Series(pd.array(data, dtype=dtype), index=series.index)
 
 
+def _decodes(table) -> bool:
+    """Whether the parent will be able to turn `table` back into pandas.
+
+    Some frames convert to Arrow but not back: a categorical of Intervals
+    (`pd.cut` / `pd.qcut` buckets, or an index built from one) writes pandas
+    metadata that `to_pandas` cannot read. That failure depends on the
+    schema, not the data, so decoding the first row is enough to catch it.
+    """
+    try:
+        table.slice(0, 1).to_pandas()
+        return True
+    except Exception:
+        return False
+
+
+def _ipc_bytes(table) -> bytes:
+    import pyarrow as pa
+
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table)
+    return sink.getvalue().to_pybytes()
+
+
 def dataframe_to_arrow(df: pd.DataFrame) -> Tuple[bytes, Dict[str, Any]]:
     """Serialize `df` to Arrow IPC stream bytes plus a small meta dict.
 
@@ -162,10 +186,8 @@ def dataframe_to_arrow(df: pd.DataFrame) -> Tuple[bytes, Dict[str, Any]]:
     }
     try:
         table = pa.Table.from_pandas(df, preserve_index=None)
-        sink = pa.BufferOutputStream()
-        with pa.ipc.new_stream(sink, table.schema) as writer:
-            writer.write_table(table)
-        return sink.getvalue().to_pybytes(), meta
+        if _decodes(table):
+            return _ipc_bytes(table), meta
     except Exception:
         pass
 
@@ -176,9 +198,9 @@ def dataframe_to_arrow(df: pd.DataFrame) -> Tuple[bytes, Dict[str, Any]]:
         name = f"c{i}"
         series = df.iloc[:, i]
         try:
-            pa.array(series)
-            wire[name] = series
-            continue
+            if _decodes(pa.Table.from_pandas(pd.DataFrame({"c": series}), preserve_index=False)):
+                wire[name] = series
+                continue
         except Exception:
             pass
         retyped = _as_nullable_integers(series) if series.dtype == object else None
@@ -188,15 +210,22 @@ def dataframe_to_arrow(df: pd.DataFrame) -> Tuple[bytes, Dict[str, Any]]:
         wire[name] = _stringify_column(series)
         meta["stringified"].append(str(col))
     meta["columns"] = [c if isinstance(c, (str, int, float, bool)) or c is None else str(c) for c in original_columns]
+    table = None
     try:
         table = pa.Table.from_pandas(wire, preserve_index=None)
     except Exception:
-        # Index itself untypeable — drop it.
-        table = pa.Table.from_pandas(wire.reset_index(drop=True), preserve_index=False)
-    sink = pa.BufferOutputStream()
-    with pa.ipc.new_stream(sink, table.schema) as writer:
-        writer.write_table(table)
-    return sink.getvalue().to_pybytes(), meta
+        pass
+    if table is None or not _decodes(table):
+        # Index untypeable or undecodable (e.g. a CategoricalIndex of
+        # Intervals from a groupby on a pd.cut column): send its labels as
+        # text, and drop it only if even that fails.
+        try:
+            table = pa.Table.from_pandas(wire.set_axis(wire.index.map(str), axis=0), preserve_index=None)
+        except Exception:
+            table = None
+        if table is None or not _decodes(table):
+            table = pa.Table.from_pandas(wire.reset_index(drop=True), preserve_index=False)
+    return _ipc_bytes(table), meta
 
 
 def arrow_to_dataframe(payload: bytes, meta: Optional[Dict[str, Any]] = None) -> pd.DataFrame:

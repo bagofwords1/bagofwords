@@ -718,7 +718,18 @@ def run_job(
                 rk = header.get("kind")
                 if rk == "dataframe":
                     meta = header.get("meta") or {}
-                    result.df = arrow_to_dataframe(body, meta)
+                    try:
+                        result.df = arrow_to_dataframe(body, meta)
+                    except Exception as e:
+                        exc = SandboxExecutionError(
+                            "ResultTransferError",
+                            f"the DataFrame returned by generate_df could not be transferred "
+                            f"({type(e).__name__}: {e}); convert unusual column types to plain "
+                            "values (e.g. .astype(str)) before returning",
+                        )
+                        if result.stdout:
+                            exc.captured_stdout = result.stdout[-2000:]
+                        raise exc from e
                     if meta.get("stringified"):
                         log.info("code sandbox: columns converted to text for transport: %s", meta["stringified"])
                 elif rk == "pptx":
