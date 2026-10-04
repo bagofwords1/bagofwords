@@ -297,6 +297,9 @@ def test_retired_publication_pins_do_not_restrict_shared_history(artifact_api):
             draft = await new_version(db, row, user_id=row.user_id, content={"code": "draft"})
             report = await db.get(Report, report_id)
             report.artifact_visibility = "public"
+            # Dashboards are shared one by one: publish them the way the API does.
+            from app.services import artifact_access
+            await artifact_access.apply_report_setting_to_artifacts(db, report)
             # A retired pin cannot be produced through the API anymore.
             from app.models.artifact_resource import ArtifactPublication
             db.add(ArtifactPublication(artifact_id=row.artifact_id, version_id=row.id, revision=1))

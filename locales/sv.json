@@ -3652,6 +3652,7 @@
     "shareDashboard": "Dela instrumentpanel",
     "share": "Dela",
     "shareDashboardDesc": "Kontrollera vem som kan se den här instrumentpanelen.",
+    "thisDashboardOnlyDesc": "Kontrollera vem som kan se den här instrumentpanelen. Övriga instrumentpaneler i konversationen behåller sin egen åtkomst.",
     "shareConversationDesc": "Kontrollera vem som kan se den här konversationen och dess meddelanden.",
     "access": "Åtkomst",
     "shareWith": "Dela med",
@@ -3693,7 +3694,8 @@
     "chatModelOrgDefaultPlain": "Organisationens standard",
     "chatModelReport": "Samma som rapporten ({name})",
     "chatModelReportPlain": "Samma som rapporten",
-    "chatModelUnavailable": "Modellen är inte tillgänglig — standard används"
+    "chatModelUnavailable": "Modellen är inte tillgänglig — standard används",
+    "viewerSettingsApplyToAll": "De här inställningarna gäller alla instrumentpaneler i den här konversationen."
   },
   "publish": {
     "published": "Publicerad",

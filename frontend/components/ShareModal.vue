@@ -72,6 +72,12 @@
                 </button>
             </div>
 
+            <!-- Sharing is per dashboard, but the viewer settings below are
+                 stored on the conversation: say so once, above them. -->
+            <p v-if="perArtifact && isShared" class="text-[11px] text-gray-400 mb-3" data-testid="viewer-settings-scope">
+                {{ $t('share.viewerSettingsApplyToAll') }}
+            </p>
+
             <!-- Include Data Tab option (dashboards only): whether viewers of
                  the shared artifact page see the Data tab listing the queries
                  behind the report. The conversation share has no such tab. -->
@@ -230,6 +236,7 @@
             <NotifyRecipientPicker
                 v-if="smtpEnabled && isShared"
                 :report-id="report.id"
+                :artifact-id="artifactId || undefined"
                 :notification-type="shareType === 'artifact' ? 'share_dashboard' : 'share_conversation'"
                 :share-url="shareUrl" />
         </div>
@@ -244,9 +251,18 @@ const props = withDefaults(defineProps<{
     shareType: 'artifact' | 'conversation'
     title: string
     compact?: boolean
+    // The dashboard being shared (parent artifact id, stable across
+    // versions). Dashboards are shared one by one; without it the modal falls
+    // back to sharing every dashboard of the report at once.
+    artifactId?: string | null
 }>(), {
     compact: false,
+    artifactId: null,
 })
+
+const perArtifact = computed(() => props.shareType === 'artifact' && !!props.artifactId)
+// This dashboard's own visibility as last saved (perArtifact only).
+const artifactVisibility = ref('none')
 
 const toast = useToast()
 const { t } = useI18n()
@@ -339,11 +355,12 @@ const visibilityField = computed(() =>
 
 const isShared = computed(() => currentVisibility.value !== 'none')
 
-const shareDescription = computed(() =>
-    props.shareType === 'artifact'
+const shareDescription = computed(() => {
+    if (perArtifact.value) return t('share.thisDashboardOnlyDesc')
+    return props.shareType === 'artifact'
         ? t('share.shareDashboardDesc')
         : t('share.shareConversationDesc')
-)
+})
 
 const selectedOption = computed(() =>
     visibilityOptions.value.find(o => o.value === currentVisibility.value) || visibilityOptions.value[0]
@@ -358,7 +375,8 @@ const buttonIcon = computed(() => selectedOption.value.icon)
 
 const shareUrl = computed(() => {
     if (props.shareType === 'artifact') {
-        return `${window.location.origin}/r/${props.report.id}`
+        const base = `${window.location.origin}/r/${props.report.id}`
+        return perArtifact.value ? `${base}?artifact=${encodeURIComponent(props.artifactId as string)}` : base
     }
     const token = conversationShareToken.value || props.report?.conversation_share_token
     return token ? `${window.location.origin}/c/${token}` : ''
@@ -473,7 +491,7 @@ const fetchVisibility = async () => {
         const res = await useMyFetch(`/reports/${props.report.id}`, { method: 'GET' })
         if (res.data.value) {
             const data = res.data.value as any
-            currentVisibility.value = data[visibilityField.value] || 'none'
+            if (!perArtifact.value) currentVisibility.value = data[visibilityField.value] || 'none'
             hasRls.value = !!data.has_rls
             hasUserScoped.value = !!data.has_user_scoped
             if (data.shared_run_identity !== undefined) {
@@ -527,11 +545,28 @@ const fetchVisibility = async () => {
 }
 
 const fetchShares = async () => {
+    if (perArtifact.value) return fetchArtifactSharing()
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/shares/${props.shareType}`)
         if (res.data.value) {
             sharedEntries.value = res.data.value as any[]
         }
+    } catch { /* silent */ }
+}
+
+// One dashboard's visibility + people. Owner-only endpoint: anyone else
+// (an admin or project viewer looking at the report) just sees no state.
+const fetchArtifactSharing = async () => {
+    const artifactId = props.artifactId
+    if (!artifactId) return
+    try {
+        const res = await useMyFetch(`/reports/${props.report.id}/artifacts/${artifactId}/sharing`)
+        // The user may have switched dashboards while this was in flight.
+        if (res.error.value || !res.data.value || artifactId !== props.artifactId) return
+        const data = res.data.value as any
+        artifactVisibility.value = data.visibility || 'none'
+        currentVisibility.value = artifactVisibility.value
+        sharedEntries.value = data.shares || []
     } catch { /* silent */ }
 }
 
@@ -552,13 +587,21 @@ const saveVisibility = async (visibility: string, userIds?: string[], groupIds?:
         // path (onIncludeDataTabChange), and omitting it means the backend
         // leaves the stored value alone — so a visibility change or an invite
         // can never overwrite the setting with a stale local ref.
-        const res = await useMyFetch(`/reports/${props.report.id}/visibility/${props.shareType}`, {
+        const url = perArtifact.value
+            ? `/reports/${props.report.id}/artifacts/${props.artifactId}/visibility`
+            : `/reports/${props.report.id}/visibility/${props.shareType}`
+        const res = await useMyFetch(url, {
             method: 'PUT',
             body,
         })
         if (res.error.value) throw res.error.value
 
-        if (props.report) {
+        if (perArtifact.value) {
+            artifactVisibility.value = visibility
+            // The report keeps the most open of its dashboards' settings.
+            const reportVisibility = (res.data.value as any)?.report_artifact_visibility
+            if (props.report && reportVisibility) props.report.artifact_visibility = reportVisibility
+        } else if (props.report) {
             props.report[visibilityField.value] = visibility
         }
         // Surface the resulting report_shared / artifact_shared session-event strip.
@@ -582,15 +625,19 @@ const saveVisibility = async (visibility: string, userIds?: string[], groupIds?:
     }
 }
 
+// The viewer settings share the report's visibility endpoint. Per dashboard
+// they are written alone (no visibility = leave every grant as is); the
+// whole-report fallback re-sends the current visibility unchanged, and
+// omitting shared_user_ids leaves the recipient list untouched.
+const settingsVisibility = () => (perArtifact.value ? {} : { visibility: currentVisibility.value })
+
 const onRunIdentityChange = async (value: boolean) => {
     const identity = value ? 'creator' : 'viewer'
     isSaving.value = true
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
             method: 'PUT',
-            // Re-sends the current visibility unchanged; omitting
-            // shared_user_ids leaves the recipient list untouched.
-            body: { visibility: currentVisibility.value, run_identity: identity },
+            body: { ...settingsVisibility(), run_identity: identity },
         })
         if (res.error.value) throw res.error.value
         if (props.report) props.report.shared_run_identity = identity
@@ -608,9 +655,7 @@ const onIncludeDataTabChange = async (value: boolean) => {
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
             method: 'PUT',
-            // Re-sends the current visibility unchanged; omitting
-            // shared_user_ids leaves the recipient list untouched.
-            body: { visibility: currentVisibility.value, include_data_tab: value },
+            body: { ...settingsVisibility(), include_data_tab: value },
         })
         if (res.error.value) throw res.error.value
         if (props.report) props.report.include_data_tab = value
@@ -631,7 +676,7 @@ const saveChatSettings = async (body: Record<string, any>, revert: () => void) =
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
             method: 'PUT',
-            body: { visibility: currentVisibility.value, ...body },
+            body: { ...settingsVisibility(), ...body },
         })
         if (res.error.value) throw res.error.value
         toast.add({ title: t('share.sharingUpdated'), color: 'green' })
@@ -683,7 +728,7 @@ const onChatAgentsChange = async () => {
 }
 
 const onVisibilityChange = async (value: string) => {
-    const prev = props.report?.[visibilityField.value] || 'none'
+    const prev = perArtifact.value ? artifactVisibility.value : (props.report?.[visibilityField.value] || 'none')
     if (value === prev) return
 
     const userIds = value === 'shared' ? sharedUserIds() : undefined
@@ -742,7 +787,7 @@ const copyLink = async () => {
 
 const openModal = async () => {
     modalOpen.value = true
-    currentVisibility.value = props.report?.[visibilityField.value] || 'none'
+    currentVisibility.value = perArtifact.value ? artifactVisibility.value : (props.report?.[visibilityField.value] || 'none')
     conversationShareToken.value = props.report?.conversation_share_token ?? null
     runAsCreator.value = props.report?.shared_run_identity === 'creator'
     includeDataTab.value = props.report?.include_data_tab !== false
@@ -754,9 +799,22 @@ const openModal = async () => {
 watch(
     () => props.report?.[visibilityField.value],
     (val) => {
-        if (val && !modalOpen.value) {
+        if (val && !modalOpen.value && !perArtifact.value) {
             currentVisibility.value = val
         }
+    },
+    { immediate: true }
+)
+
+// Per dashboard, the button reflects the selected dashboard's own sharing.
+watch(
+    () => props.artifactId,
+    () => {
+        if (!perArtifact.value) return
+        artifactVisibility.value = 'none'
+        if (!modalOpen.value) currentVisibility.value = 'none'
+        sharedEntries.value = []
+        fetchArtifactSharing()
     },
     { immediate: true }
 )

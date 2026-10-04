@@ -55,6 +55,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "Sent via Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "Dashboards in this report:",
             "subject": "{report_title} - Scheduled prompt results",
             "greeting": "Hi,",
             "intro": "Your scheduled report “{report_title}” has finished running.",
@@ -101,6 +102,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "Enviado desde Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "Paneles de este informe:",
             "subject": "{report_title} - Resultados del informe programado",
             "greeting": "Hola:",
             "intro": "Tu informe programado «{report_title}» ha terminado de ejecutarse.",
@@ -147,6 +149,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "נשלח מאת Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "הדשבורדים בדוח הזה:",
             "subject": "{report_title} - תוצאות פרומפט מתוזמן",
             "greeting": "שלום,",
             "intro": "הדוח המתוזמן שלך »{report_title}« סיים לרוץ.",
@@ -193,6 +196,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "Envoyé via Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "Tableaux de bord de ce rapport :",
             "subject": "{report_title} - Résultats de la requête planifiée",
             "greeting": "Bonjour,",
             "intro": "Votre rapport planifié « {report_title} » a terminé son exécution.",
@@ -239,6 +243,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "Skickat via Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "Instrumentpaneler i den här rapporten:",
             "subject": "{report_title} - Resultat av schemalagd prompt",
             "greeting": "Hej,",
             "intro": "Din schemalagda rapport ”{report_title}” har körts klart.",
@@ -285,6 +290,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "أُرسلت من Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "لوحات التحكم في هذا التقرير:",
             "subject": "{report_title} - نتائج المهمة المُجدوَلة",
             "greeting": "مرحبًا،",
             "intro": "انتهى تشغيل تقريرك المُجدوَل «{report_title}».",
@@ -331,6 +337,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "Отправлено через Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "Дашборды в этом отчёте:",
             "subject": "{report_title} - Результаты запланированного запроса",
             "greeting": "Здравствуйте,",
             "intro": "Ваш запланированный отчёт «{report_title}» завершил выполнение.",
@@ -377,6 +384,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "Gesendet über Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "Dashboards in diesem Bericht:",
             "subject": "{report_title} - Ergebnisse des geplanten Prompts",
             "greeting": "Hallo,",
             "intro": "Ihr geplanter Bericht „{report_title}“ wurde ausgeführt.",
@@ -423,6 +431,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "Enviado via Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "Painéis deste relatório:",
             "subject": "{report_title} - Resultados da solicitação agendada",
             "greeting": "Olá,",
             "intro": "Seu relatório agendado \"{report_title}\" terminou de ser executado.",
@@ -469,6 +478,7 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "footer": "Inviato tramite Bag of Words",
         },
         SCHEDULED_PROMPT: {
+            "dashboards_heading": "Dashboard di questo report:",
             "subject": "{report_title} - Risultati del prompt pianificato",
             "greeting": "Ciao,",
             "intro": "Il tuo report pianificato \"{report_title}\" ha terminato l'esecuzione.",

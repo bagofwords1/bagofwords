@@ -208,7 +208,7 @@ class InboxService:
 
     async def notify_share(
         self, db: AsyncSession, *, report, share_type: str,
-        user_ids: List[str], actor_user,
+        user_ids: List[str], actor_user, artifact=None,
     ) -> List[Notification]:
         """Notify-first share delivery: create the durable in-app notification
         for the users a report was shared with. Email (when sent) is a downstream
@@ -217,13 +217,14 @@ class InboxService:
         Centralises the share copy so both the share-grant path
         (``set_visibility``) and the explicit notify action call it; the shared
         ``group_key`` dedups across the two so a user is notified once per
-        (report, share_type)."""
+        (report, share_type). A dashboard share that names one ``artifact``
+        links to and is titled after that dashboard, and dedups per artifact."""
         if not user_ids:
             return []
         is_conv = share_type == "conversation"
         ntype = "share_conversation" if is_conv else "share_artifact"
         sender = getattr(actor_user, "name", None) or getattr(actor_user, "email", None) or "Someone"
-        rtitle = getattr(report, "title", None) or "Untitled"
+        rtitle = getattr(artifact, "title", None) or getattr(report, "title", None) or "Untitled"
         if is_conv:
             title = f"{sender} shared a conversation with you"
             body = f'{sender} shared "{rtitle}" with you.'
@@ -242,6 +243,8 @@ class InboxService:
         if is_conv:
             token = getattr(report, "conversation_share_token", None)
             link = f"/c/{token}" if token else f"/reports/{report.id}"
+        elif artifact is not None:
+            link = f"/r/{report.id}?artifact={artifact.id}"
         else:
             link = f"/r/{report.id}"
         return await self.notify_users(
@@ -257,8 +260,10 @@ class InboxService:
             # `i18n` lets the inbox re-render the copy in the viewer's locale;
             # the English title/body above stay as the fallback.
             subject={"kind": "report", "report_id": str(report.id), "share_type": share_type,
+                     **({"artifact_id": str(artifact.id)} if artifact is not None else {}),
                      "i18n": {"actor": sender, "report": rtitle}},
-            group_key=f"share:{share_type}:{report.id}",
+            group_key=(f"share:{share_type}:{report.id}:{artifact.id}" if artifact is not None
+                       else f"share:{share_type}:{report.id}"),
         )
 
     # ---- read --------------------------------------------------------------

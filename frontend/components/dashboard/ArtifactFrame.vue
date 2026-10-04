@@ -212,7 +212,10 @@
         </UTooltip>
 
         <!-- Share Dashboard -->
-        <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')" />
+        <!-- Rendered once a dashboard is selected: without an artifact id the
+             modal falls back to whole-report sharing, which would overwrite
+             every dashboard's own setting. -->
+        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :artifact-id="selectedArtifact.artifact_id" :title="$t('share.shareDashboard')" />
       </div>
     </div>
 
@@ -1487,12 +1490,15 @@ const isEditingDoc = ref(false);
 const docEditorRef = ref<any>(null);
 
 // --- Rename the dashboard ------------------------------------------------
-// "The dashboard" is two records to the user: the report (its card on
-// /dashboards, the sidebar entry, the browser tab) and the selected artifact
-// version (the label in the dropdown above, the /r/{id} tab). Renaming one
-// without the other looked like the rename silently failed, so both are
-// written. Both endpoints are owner-only (update_reports + owner_only), so
-// the pencil is hidden for everyone else rather than failing on click.
+// With a single dashboard, "the dashboard" is two records to the user: the
+// report (its card on /dashboards, the sidebar entry, the browser tab) and
+// the artifact (the label in the dropdown above, the /r/{id} tab). Renaming
+// one without the other looked like the rename silently failed, so both are
+// written. A report with several dashboards keeps its own title: renaming
+// one of them must not name the whole conversation (and every viewer's card
+// of it) after that one. Both endpoints are owner-only (update_reports +
+// owner_only), so the pencil is hidden for everyone else rather than failing
+// on click.
 const isRenaming = ref(false);
 const renameDraft = ref('');
 const isSavingRename = ref(false);
@@ -1539,11 +1545,13 @@ async function saveRename() {
     if (error.value) throw error.value;
 
     const saved = (data.value as any)?.title || title;
+    const renamedParent = artifactsList.value.find(a => a.id === id)?.artifact_id;
+    const dashboardCount = new Set(artifactsList.value.map(a => a.artifact_id || a.id)).size;
 
-    // The report title is what every list renders (see /dashboards). Keep it
-    // in step, then tell the page and the sidebar — the same event
-    // loadReport() fires when the server generates a title.
-    if (props.report?.id) {
+    // The report title is what every list renders (see /dashboards). With a
+    // single dashboard keep it in step, then tell the page and the sidebar —
+    // the same event loadReport() fires when the server generates a title.
+    if (props.report?.id && dashboardCount <= 1) {
       const { error: reportError } = await useMyFetch(`/api/reports/${props.report.id}`, {
         method: 'PUT',
         body: { title: saved },
@@ -1556,7 +1564,9 @@ async function saveRename() {
     // Patch local state instead of refetching: the list endpoint is the same
     // one the report page seeds us from, and a refetch would race an
     // in-flight generation and could snap the selection.
-    artifactsList.value = artifactsList.value.map(a => a.id === id ? { ...a, title: saved } : a);
+    // The title lives on the dashboard (every version of it carries it).
+    artifactsList.value = artifactsList.value.map(a =>
+      a.id === id || (renamedParent && a.artifact_id === renamedParent) ? { ...a, title: saved } : a);
     if (selectedArtifact.value?.id === id) {
       selectedArtifact.value = { ...selectedArtifact.value, title: saved };
     }
@@ -1611,7 +1621,8 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
   if (props.report) {
     // /r/{id} itself enforces access — an unshared report is still viewable
     // there by its owner.
-    view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
+    const artifactParam = selectedArtifact.value?.artifact_id ? `?artifact=${encodeURIComponent(selectedArtifact.value.artifact_id)}` : '';
+    view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}${artifactParam}`, '_blank', 'noopener') });
   }
 
   if (resourcesAvailable.value && selectedArtifact.value?.artifact_id && !props.verificationPreview) {

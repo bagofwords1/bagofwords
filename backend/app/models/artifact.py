@@ -42,6 +42,16 @@ class Artifact(BaseSchema):
 
     title = Column(String(255), nullable=True, default="Untitled Artifact")
 
+    # Who may open this artifact on the shared page /r/{report_id}:
+    # 'none' | 'shared' | 'internal' | 'public' (same values as the report's
+    # conversation_visibility). Each dashboard is shared on its own; grants for
+    # 'shared' live in artifact_shares. New artifacts start private, even in a
+    # report whose other dashboards are shared. Report.artifact_visibility is
+    # kept as the most open value across a report's artifacts (see
+    # artifact_access.sync_report_aggregate) for the readers that only ask
+    # "is anything in this report shared".
+    visibility = Column(String(20), nullable=False, default='none', server_default='none')
+
     # Never loaded implicitly: a version's content JSON can be ~100kB.
     versions = relationship(
         "ArtifactVersion",

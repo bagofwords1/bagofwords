@@ -3766,6 +3766,7 @@
     "shareDashboard": "שיתוף דשבורד",
     "share": "שיתוף",
     "shareDashboardDesc": "קבעו מי יכול לצפות בלוח המחוונים הזה.",
+    "thisDashboardOnlyDesc": "קבעו מי יכול לצפות בדשבורד הזה. לדשבורדים האחרים בשיחה יש הרשאות משלהם.",
     "shareConversationDesc": "קבעו מי יכול לצפות בשיחה הזו ובהודעות שלה.",
     "access": "גישה",
     "shareWith": "שיתוף עם",
@@ -3807,7 +3808,8 @@
     "chatModelOrgDefaultPlain": "ברירת המחדל של הארגון",
     "chatModelReport": "כמו בדוח ({name})",
     "chatModelReportPlain": "כמו בדוח",
-    "chatModelUnavailable": "מודל לא זמין — נעשה שימוש בברירת המחדל"
+    "chatModelUnavailable": "מודל לא זמין — נעשה שימוש בברירת המחדל",
+    "viewerSettingsApplyToAll": "ההגדרות האלה חלות על כל הדשבורדים בשיחה."
   },
   "publish": {
     "published": "פורסם",

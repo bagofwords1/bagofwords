@@ -109,6 +109,17 @@ class GetVisualizationMCPTool(MCPTool):
             db, viz.report_id, user, organization
         ):
             return {"error": f"Visualization {visualization_id} not found"}
+        # Dashboards are shared one by one: the visualization's query must be
+        # behind a dashboard this caller may open (same not-found answer).
+        from sqlalchemy.orm import lazyload
+        from app.models.report import Report
+        from app.services import artifact_access
+        report = (await db.execute(
+            select(Report).options(lazyload("*")).where(Report.id == viz.report_id)
+        )).scalar_one_or_none()
+        allowed = await artifact_access.visible_query_ids(db, report, user) if report else set()
+        if allowed is not None and str(viz.query_id) not in allowed:
+            return {"error": f"Visualization {visualization_id} not found"}
 
         # Get the step (prefer default_step, fallback to latest)
         step = None
@@ -181,6 +192,13 @@ class GetArtifactDataMCPTool(MCPTool):
         if not artifact or not await self._assert_can_view_report(
             db, artifact.report_id, user, organization
         ):
+            return {"error": f"Artifact {artifact_id} not found"}
+        # The report gate opens when any of its dashboards does; this one must too.
+        from fastapi import HTTPException
+        from app.services import artifact_access
+        try:
+            await artifact_access.assert_can_view_artifact(db, artifact.report, artifact.artifact_id, user)
+        except HTTPException:
             return {"error": f"Artifact {artifact_id} not found"}
 
         report = artifact.report

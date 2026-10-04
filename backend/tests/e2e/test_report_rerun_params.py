@@ -578,6 +578,9 @@ async def _publish(report_id):
         report = await db.get(Report, report_id)
         report.artifact_visibility = "public"
         report.status = "published"
+        # Dashboards are shared one by one: publish them the way the API does.
+        from app.services import artifact_access
+        await artifact_access.apply_report_setting_to_artifacts(db, report)
         await db.commit()
 
 

@@ -337,6 +337,20 @@ async def get_artifact(
     return ArtifactSchema.model_validate(artifact)
 
 
+async def _visible_artifact_ids(db, report_id, user, organization):
+    """Artifacts of the report this caller may open (None = all). Dashboards
+    are shared one by one; the decorator only proved access to the report."""
+    from sqlalchemy.orm import lazyload
+    from app.services import artifact_access
+    report = (await db.execute(
+        select(ReportModel).options(lazyload("*")).where(
+            ReportModel.id == report_id,
+            ReportModel.organization_id == organization.id,
+        )
+    )).scalar_one()
+    return await artifact_access.visible_artifact_ids(db, report, user, admin_sees_all=True)
+
+
 @router.get("/report/{report_id}", response_model=List[ArtifactListSchema])
 @requires_permission('view_reports', model=ReportModel, owner_only=True, allow_public=True)
 async def list_artifacts_by_report(
@@ -345,12 +359,15 @@ async def list_artifacts_by_report(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """List all artifacts for a report."""
+    """List all artifacts for a report — the ones the caller may open."""
     artifacts = await service.list_by_report(
         db,
         report_id,
         organization_id=str(organization.id) if organization else None,
     )
+    visible = await _visible_artifact_ids(db, report_id, current_user, organization)
+    if visible is not None:
+        artifacts = [a for a in artifacts if str(a.artifact_id) in visible]
     return [ArtifactListSchema.model_validate(a) for a in artifacts]
 
 
@@ -362,8 +379,9 @@ async def get_latest_artifact(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Get the latest artifact for a report."""
-    artifact = await service.get_latest_by_report(db, report_id)
+    """Get the latest artifact for a report among the ones the caller may open."""
+    visible = await _visible_artifact_ids(db, report_id, current_user, organization)
+    artifact = await service.get_latest_by_report(db, report_id, artifact_ids=visible)
     if not artifact:
         raise HTTPException(status_code=404, detail="No artifacts found for this report")
     return ArtifactSchema.model_validate(artifact)

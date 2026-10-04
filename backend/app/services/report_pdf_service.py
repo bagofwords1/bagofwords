@@ -31,7 +31,7 @@ import re
 import signal
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from app.services.artifact_libs import get_inline_scripts
@@ -723,8 +723,17 @@ class ReportPdfService:
             pass
         await asyncio.sleep(self.SETTLE_SECONDS)
 
-    async def generate_for_report(self, report_id: str) -> Optional[str]:
+    async def generate_for_report(
+        self,
+        report_id: str,
+        artifact_ids: Optional[Iterable[str]] = None,
+        version_id: Optional[str] = None,
+    ) -> Optional[str]:
         """Generate a PDF for the latest artifact of a report.
+
+        artifact_ids limits the pick to those artifacts (parent ids) — the
+        ones a viewer may open, or the one dashboard being shared; version_id
+        pins one version of them.
 
         Returns:
             Absolute filesystem path to the PDF, or None on failure.
@@ -767,6 +776,10 @@ class ReportPdfService:
                         .order_by(ArtifactVersion.created_at.desc())
                         .limit(1)
                     )
+                    if artifact_ids is not None:
+                        stmt = stmt.where(ArtifactVersion.artifact_id.in_([str(a) for a in artifact_ids]))
+                    if version_id:
+                        stmt = stmt.where(ArtifactVersion.id == str(version_id))
                     result = await db.execute(stmt)
                     artifact = result.scalar_one_or_none()
                     if artifact is not None and artifact.content:

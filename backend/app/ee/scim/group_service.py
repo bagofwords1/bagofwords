@@ -38,6 +38,7 @@ from app.models.group import Group
 from app.models.group_membership import GroupMembership
 from app.models.membership import Membership
 from app.models.report_share import ReportShare
+from app.models.artifact_share import ArtifactShare
 from app.models.resource_grant import ResourceGrant
 from app.models.role_assignment import RoleAssignment
 from app.models.usage_policy import UsagePolicyAssignment
@@ -524,11 +525,13 @@ class ScimGroupService:
 
     async def delete_group(self, db: AsyncSession, organization_id: str, group_id: str) -> None:
         group = await self._get(db, organization_id, group_id)
-        # Nothing may keep pointing at the group: report_shares holds a real
-        # foreign key (Postgres would refuse the delete), and role assignments,
+        # Nothing may keep pointing at the group: report_shares and
+        # artifact_shares hold a real foreign key (Postgres would refuse the
+        # delete), and role assignments,
         # resource grants and quota assignments reference it by principal id,
         # so they would be left as orphans the APIs keep listing.
         await db.execute(delete(ReportShare).where(ReportShare.group_id == group.id))
+        await db.execute(delete(ArtifactShare).where(ArtifactShare.group_id == group.id))
         await db.execute(
             delete(RoleAssignment)
             .where(RoleAssignment.organization_id == organization_id)

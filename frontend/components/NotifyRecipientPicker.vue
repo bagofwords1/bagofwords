@@ -61,6 +61,9 @@ const props = defineProps<{
     reportId: string
     notificationType: 'share_dashboard' | 'share_conversation' | 'schedule_report'
     shareUrl: string
+    // Dashboard shares: the dashboard being shared, so the mail's PDF and the
+    // in-app link are that dashboard.
+    artifactId?: string
 }>()
 
 const emit = defineEmits<{
@@ -175,6 +178,7 @@ const send = async () => {
                 recipients: recipients.value,
                 share_url: props.shareUrl,
                 message: message.value || undefined,
+                artifact_id: props.artifactId || undefined,
             },
         })
         if (res.error.value) throw res.error.value

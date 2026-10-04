@@ -220,6 +220,9 @@ async def _seed(rows_per_step: int):
             title="Dashboard",
             contents=[{"code": fake_code, "visualization_ids": viz_ids}] * N_ARTIFACT_VERSIONS,
         )
+        # Dashboards are shared one by one: publish this one with the report.
+        from app.services import artifact_access
+        await artifact_access.apply_report_setting_to_artifacts(db, report)
 
         await db.commit()
 

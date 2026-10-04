@@ -11,7 +11,16 @@
     {% if summary_html %}
     {{ summary_html | safe }}
     {% endif %}
+    {% if dashboard_links %}
+    <p>{{ t.dashboards_heading }}</p>
+    <ul style="margin:8px 0; padding-inline-start:20px;">
+      {% for link in dashboard_links %}
+      <li><a href="{{ link.url }}">{{ link.title }}</a></li>
+      {% endfor %}
+    </ul>
+    {% else %}
     <p><a href="{{ report_url }}">{{ t.cta_text }}</a></p>
+    {% endif %}
     <p style="color:#999;">{{ t.footer }}</p>
   </div>
 </body>

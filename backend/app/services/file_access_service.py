@@ -104,7 +104,6 @@ async def visible_files_clause(
 
 
 CONVERSATION = ("conversation_visibility",)
-CONVERSATION_OR_ARTIFACT = ("conversation_visibility", "artifact_visibility")
 
 
 async def user_can_view_report(
@@ -216,6 +215,19 @@ def _embedded_ids(content) -> set[str]:
     return ids
 
 
+async def _can_open_any(db: AsyncSession, report: Report, user: User, artifact_ids: set[str]) -> bool:
+    """True when the caller may open at least one of these dashboards of the
+    report on its shared page (artifact_access: per-dashboard sharing)."""
+    from app.services import artifact_access
+    for artifact_id in artifact_ids:
+        try:
+            await artifact_access.assert_can_view_artifact(db, report, artifact_id, user)
+            return True
+        except HTTPException:
+            continue
+    return False
+
+
 async def _embedded_in_viewable_artifact(
     db: AsyncSession, user: User, organization: Organization, file: File
 ) -> bool:
@@ -232,7 +244,7 @@ async def _embedded_in_viewable_artifact(
     # open are scanned (plus the caller's own), so a request never walks every
     # artifact in the org.
     rows = (await db.execute(
-        select(ArtifactVersion.report_id, ArtifactVersion.content)
+        select(ArtifactVersion.report_id, ArtifactVersion.artifact_id, ArtifactVersion.content)
         .join(Report, Report.id == ArtifactVersion.report_id)
         .where(
             ArtifactVersion.organization_id == str(organization.id),
@@ -245,7 +257,14 @@ async def _embedded_in_viewable_artifact(
             cast(ArtifactVersion.content, String).contains(str(file.id)),
         )
     )).all()
-    report_ids = {str(rid) for rid, content in rows if str(file.id) in _embedded_ids(content)}
+    # Dashboards are shared one by one: the embed extends to whoever may open
+    # the dashboard that embeds the file, not to viewers of another
+    # dashboard of the same report.
+    embedding: dict[str, set[str]] = {}
+    for rid, parent_id, content in rows:
+        if str(file.id) in _embedded_ids(content):
+            embedding.setdefault(str(rid), set()).add(str(parent_id))
+    report_ids = set(embedding)
     if not report_ids:
         return False
 
@@ -256,8 +275,9 @@ async def _embedded_in_viewable_artifact(
         )
     )).scalars().all()
     for report in reports:
-        if not await user_can_view_report(db, user, organization, report, CONVERSATION_OR_ARTIFACT):
-            continue
+        if not await user_can_view_report(db, user, organization, report, CONVERSATION):
+            if not await _can_open_any(db, report, user, embedding[str(report.id)]):
+                continue
         owner = await db.get(User, str(report.user_id))
         if owner is not None and await _owner_can_view_file(db, owner, organization, file):
             return True
