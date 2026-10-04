@@ -7,7 +7,6 @@ before dropping privileges and must stay small and side-effect free.
 from __future__ import annotations
 
 import inspect
-import os
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -63,11 +62,6 @@ def file_to_attrs(file_obj: Any) -> Dict[str, Any]:
                 v = getattr(file_obj, k)
                 if isinstance(v, _SIMPLE_TYPES):
                     attrs[k] = v
-    if "path" in attrs and attrs["path"] is not None:
-        # FileService stores paths relative to the backend working directory
-        # (`uploads/files/...`). The child runs from its own scratch dir, so
-        # resolve here, on the parent's cwd, before the path crosses over.
-        attrs["path"] = os.path.abspath(str(attrs["path"]))
     return attrs
 
 

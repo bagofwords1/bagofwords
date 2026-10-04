@@ -143,6 +143,31 @@ def _child_environment(scratch_dir: str) -> Dict[str, str]:
     return env
 
 
+def _stage_files(files: List[Dict[str, Any]], scratch_dir: str) -> None:
+    """Make each file's stored `path` work from the child's scratch dir.
+
+    FileService stores paths relative to the API process's cwd
+    (`uploads/files/...`), and generated code sees that exact string, as it
+    did in-process: the prompt shows it, `read_text(<that literal>)` and
+    comparisons on `.path` rely on it. The child runs from `scratch_dir`, so
+    each relative path is linked there to the real file (Landlock checks the
+    target, which `_fs_policy` allows). A relative path that would resolve
+    outside the scratch dir is sent as absolute instead.
+    """
+    for attrs in files:
+        path = attrs.get("path")
+        if not path or os.path.isabs(str(path)):
+            continue
+        rel = os.path.normpath(str(path))
+        if rel in (".", "..") or rel.startswith(".." + os.sep):
+            attrs["path"] = os.path.abspath(str(path))
+            continue
+        link = os.path.join(scratch_dir, rel)
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        if not os.path.lexists(link):
+            os.symlink(os.path.abspath(str(path)), link)
+
+
 def _fs_policy(job: SandboxJob, scratch_dir: str) -> Dict[str, List[str]]:
     """Landlock view for the child: interpreter + libraries read-only, the
     run's own files read-only, one scratch dir read-write, nothing else.
@@ -619,10 +644,12 @@ def run_job(
     try:
         child = _acquire_child()
         scratch_dir = child.scratch_dir
+        files = [file_to_attrs(f) for f in (job.files or [])]
+        _stage_files(files, scratch_dir)
         payload = {
             "mode": job.mode,
             "code": job.code,
-            "files": [file_to_attrs(f) for f in (job.files or [])],
+            "files": files,
             "loadables": job.loadables,
             "params": dict(job.params or {}),
             "client_keys": list(job.client_keys or []),

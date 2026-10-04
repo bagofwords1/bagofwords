@@ -544,28 +544,42 @@ def test_ruleset_attr_layout_matches_abi():
 # Review findings on PR #1095
 # ---------------------------------------------------------------------------
 
-def test_relative_upload_paths_resolve_in_the_child(tmp_path: Path, monkeypatch):
-    """FileService stores upload paths relative to the backend cwd; the child
-    runs from its own scratch dir, so the path must be resolved before it
-    crosses the boundary."""
+@pytest.mark.parametrize(
+    "read",
+    [
+        "pd.read_csv(excel_files[0].path)",
+        # The prompt shows the stored relative path, so generated (and saved)
+        # code uses it literally, for read_text and for picking a file.
+        "pd.read_csv(io.StringIO(read_text({rel!r})))",
+        "pd.read_csv([f for f in excel_files if f.path == {rel!r}][0].path)",
+    ],
+    ids=["path-attr", "read-text-literal", "match-on-path"],
+)
+def test_relative_upload_paths_work_in_the_child(tmp_path: Path, monkeypatch, read):
+    """FileService stores upload paths relative to the backend cwd and the
+    child runs from its own scratch dir. Code must still see the stored path
+    unchanged, and be able to read the file through it."""
     monkeypatch.chdir(tmp_path)
-    rel = Path("uploads") / "files" / "sample.csv"
-    rel.parent.mkdir(parents=True)
-    rel.write_text("a,b\n1,2\n3,4\n")
+    rel = str(Path("uploads") / "files" / "sample.csv")
+    Path(rel).parent.mkdir(parents=True)
+    Path(rel).write_text("a,b\n1,2\n3,4\n")
 
     class _File:
-        path = str(rel)
+        path = rel
         filename = "sample.csv"
         content_type = "text/csv"
 
-    code = """
+    code = f"""
 def generate_df(ds_clients, excel_files):
-    return pd.read_csv(excel_files[0].path)
+    import io
+    return {read.format(rel=rel)}
 """
     df, _, _ = StreamingCodeExecutor(organization_settings=None).execute_code(
         code=code, ds_clients={}, excel_files=[_File()]
     )
     assert df["a"].tolist() == [1, 3]
+    # Cleaning up the job's scratch dir must not touch the upload itself.
+    assert Path(rel).read_text().startswith("a,b")
 
 
 def test_blocking_rpc_cannot_outlive_the_wall_clock():
