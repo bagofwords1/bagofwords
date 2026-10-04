@@ -531,7 +531,7 @@ def test_streaming_uses_authorized_operation_and_preserves_text(
         assert uploaded.status_code == 200
         file_id = uploaded.json()["id"]
 
-    async def controlled_provider(self, model_id, prompt, images=None, *, max_output_tokens=None):
+    async def controlled_provider(self, model_id, prompt, images=None, *, max_output_tokens=None, thinking=None):
         import logging
 
         assert max_output_tokens == 4096
