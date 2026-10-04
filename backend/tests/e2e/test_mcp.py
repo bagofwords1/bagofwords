@@ -291,7 +291,7 @@ def test_mcp_tools_list(
     # JSON-RPC tools/list additionally filters out tools whose
     # required_ds_permission the caller lacks (see routes/mcp.py), so the count
     # here is one lower than the unfiltered REST endpoint.
-    assert len(tools) == 13
+    assert len(tools) == 14
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -299,6 +299,7 @@ def test_mcp_tools_list(
     assert "inspect_data" in tool_names
     assert "create_data" in tool_names
     assert "create_artifact" in tool_names
+    assert "manage_artifact_resources" in tool_names
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
@@ -473,7 +474,7 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 14
+    assert len(tools) == 15
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -481,6 +482,7 @@ def test_mcp_rest_tools_endpoint(
     assert "inspect_data" in tool_names
     assert "create_data" in tool_names
     assert "create_artifact" in tool_names
+    assert "manage_artifact_resources" in tool_names
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names

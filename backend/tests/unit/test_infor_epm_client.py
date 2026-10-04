@@ -322,3 +322,109 @@ class TestMdxCellParser:
         text = "=====\nROW | COORDINATES\n[Region].[Region].[North]\tNUM\t3\n"
         df, _ = parse_mdx_cells(text)
         assert len(df) == 1 and df.loc[0, "Region"] == "North"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("async_mode", [True, False])
+async def test_service_account_authenticates_discovery_and_queries(engine, async_mode):
+    from urllib.parse import parse_qs
+    from requests.auth import HTTPBasicAuth
+    from app.schemas.data_source_registry import REGISTRY
+    from app.models.connection import Connection
+    from app.services.connection_service import ConnectionService
+
+    schema = REGISTRY["infor_epm"].credentials_auth.by_auth["ion_service_account"].schema
+    credentials = schema(
+        gateway_token_url=TOKEN_URL,
+        gateway_client_id="synthetic-client",
+        gateway_client_secret="synthetic-secret",
+        gateway_service_account_key="service+account@example.test",
+        gateway_service_account_secret="synthetic&secret=+value",
+        gateway_scope="epm.read",
+    ).model_dump()
+    issued = []
+
+    def token_endpoint(url, data=None, **kwargs):
+        request = requests.Request("POST", url, data=data, auth=kwargs.get("auth")).prepare()
+        assert request.headers["Authorization"] == HTTPBasicAuth(
+            credentials["gateway_client_id"], credentials["gateway_client_secret"]
+        )(requests.Request("POST", url).prepare()).headers["Authorization"]
+        fields = parse_qs(request.body)
+        assert fields == {
+            "grant_type": ["password"],
+            "username": [credentials["gateway_service_account_key"]],
+            "password": [credentials["gateway_service_account_secret"]],
+            "scope": ["epm.read"],
+        }
+        assert kwargs["verify"] is True
+        token = f"synthetic-token-{len(issued)}"
+        issued.append(token)
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"access_token": token, "expires_in": 3600}
+        return response
+
+    connection = Connection(
+        type="infor_epm", auth_policy="system_only",
+        config={"api_url": API, "olap_database": "DEMO_OLAP",
+                "async_mode": async_mode, "poll_interval_sec": 0.05},
+    )
+    connection.encrypt_credentials({"auth_type": "ion_service_account", **credentials})
+    client = await ConnectionService().construct_client(None, connection)
+    engine.first_poll_running = False
+    with patch("app.data_sources.clients.infor_epm_client.requests.post", side_effect=token_endpoint), \
+         patch("app.data_sources.clients.infor_epm_client.time.monotonic", return_value=100) as clock:
+        assert client.test_connection()["success"]
+        assert client.get_schemas()
+        assert len(issued) == 1  # Discovery reuses the valid token.
+        clock.return_value = 4000  # Query renews an expired token.
+        assert not client.execute_query("SELECT {} ON COLUMNS FROM [Sales]").empty
+        assert len(issued) == 2
+
+        # Reject a poll in async mode, or the process request in sync mode.
+        original = engine.session_post
+        rejected = []
+        def gateway(session, url, **kwargs):
+            if not rejected and (not async_mode or url.endswith("getasyncresult")):
+                rejected.append(url)
+                return MagicMock(status_code=401)
+            return original(session, url, **kwargs)
+        with patch.object(requests.Session, "post", new=gateway):
+            assert client.get_schemas()
+        assert len(issued) == 3
+
+
+@pytest.mark.parametrize("field", ["gateway_service_account_key", "gateway_service_account_secret"])
+def test_incomplete_service_account_is_rejected_before_network(engine, field):
+    client = _client(**{field: "synthetic-value"})
+    assert client.test_connection()["success"] is False
+    assert engine.token_requests == 0
+    assert engine.calls == []
+
+
+@pytest.mark.parametrize("operation", ["get_schemas", "execute_query"])
+def test_service_account_rejected_auth_stops_before_process_request(engine, operation):
+    client = _client(gateway_service_account_key="synthetic-key",
+                     gateway_service_account_secret="synthetic-secret")
+    calls = []
+    def denied(url, **kwargs):
+        calls.append(url)
+        return MagicMock(status_code=401)
+    with patch("app.data_sources.clients.infor_epm_client.requests.post", side_effect=denied):
+        args = ("SELECT {} ON COLUMNS FROM [Sales]",) if operation == "execute_query" else ()
+        with pytest.raises(InforEpmError):
+            getattr(client, operation)(*args)
+    assert len(calls) == 1
+    assert engine.calls == []
+
+
+def test_service_account_fields_are_required_and_masked():
+    from pydantic import ValidationError
+    from app.schemas.data_sources.configs import InforEpmServiceAccountCredentials
+    fields = InforEpmServiceAccountCredentials.model_json_schema()["properties"]
+    for field in ("gateway_service_account_key", "gateway_service_account_secret"):
+        assert fields[field]["ui:type"] == "password"
+        with pytest.raises(ValidationError):
+            InforEpmServiceAccountCredentials(
+                gateway_token_url=TOKEN_URL, gateway_client_id="synthetic-client",
+                gateway_client_secret="synthetic-secret", **{field: "synthetic-value"},
+            )

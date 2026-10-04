@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.0.577 (October 4, 2026)
+- Added ION service-account authentication for Infor EPM connections
+
+## Version 0.0.576 (October 4, 2026)
+- Added SCIM group provisioning from Microsoft Entra ID, Okta and other identity providers (#1236) — synced groups are managed by the IdP and their members can't be edited in Settings
+- Fixed Prometheus indexing failing on VictoriaMetrics servers that cap matched series, and labels missing for some metrics on large servers (#1237)
+- Fixed scheduled agents sending the same email twice to one recipient in a single run (#1239)
+- Fixed eight high-severity PDF parsing vulnerabilities by upgrading pypdf to 6.19.0 (#1238)
+
 ## Version 0.0.575 (October 3, 2026)
 - Added artifact resources: persistent records, files and AI streaming (#1220) — default off in organization settings
 - Added audit log streams to Datadog, Splunk, Microsoft Sentinel, Amazon S3, Google Cloud Storage, HTTPS webhooks and syslog (#1232) — Settings → Audit Logs → Streams

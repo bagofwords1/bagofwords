@@ -124,6 +124,23 @@ def _parse_scim_filter(filter_str: Optional[str]) -> dict:
     return {attr: value}
 
 
+def _scim_bool(value) -> bool:
+    """SCIM boolean from a PATCH value.
+
+    Entra apps without the `aadOptscim062020` flag send booleans as strings
+    ("False"), and bool("False") is True — which would turn a deprovisioning
+    PATCH into a no-op that leaves the user able to sign in.
+    """
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1"):
+            return True
+        if lowered in ("false", "0"):
+            return False
+        raise HTTPException(status_code=400, detail=f"Invalid boolean value: {value!r}")
+    return bool(value)
+
+
 def _user_to_scim(user: User, membership: Optional[Membership] = None, base_url: str = "") -> ScimUser:
     """Convert internal User to SCIM User representation."""
     name_parts = (user.name or "").split(" ", 1)
@@ -426,7 +443,7 @@ class ScimUserService:
         """Set a single user attribute from SCIM path/key."""
         attr_lower = attr.lower()
         if attr_lower == "active":
-            user.is_active = bool(value)
+            user.is_active = _scim_bool(value)
         elif attr_lower == "username":
             user.email = str(value)
         elif attr_lower == "displayname":

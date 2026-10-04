@@ -176,6 +176,7 @@ from app.schemas.data_sources.configs import (
     # Infor EPM (Application Engine REST API)
     InforEpmConfig,
     InforEpmIonCredentials,
+    InforEpmServiceAccountCredentials,
     InforEpmTokenCredentials,
     # Microsoft Analysis Services (SSAS — XMLA)
     AnalysisServicesConfig,
@@ -1971,6 +1972,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                 "ion_oauth": AuthVariant(
                     title="ION API Gateway",
                     schema=InforEpmIonCredentials,
+                    scopes=["system"],
+                ),
+                "ion_service_account": AuthVariant(
+                    title="ION Service Account",
+                    schema=InforEpmServiceAccountCredentials,
                     scopes=["system"],
                 ),
                 "bearer_token": AuthVariant(
