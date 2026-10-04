@@ -551,12 +551,18 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         Keeps the frames inside the generated code (reported as <string>) and
         the final exception line — the sandbox internals above them are noise
-        the repair model can't act on.
+        the repair model can't act on. Code run in the sandbox raised in the
+        child process; its traceback (with the <string> frames) arrives as
+        `traceback_text`, while `exc.__traceback__` only covers the runner.
         """
         import traceback as _tb
 
-        lines = _tb.format_exception(type(exc), exc, exc.__traceback__)
-        flat = "".join(lines).splitlines()
+        child_tb = getattr(exc, "traceback_text", "") or ""
+        if child_tb:
+            flat = child_tb.splitlines()
+        else:
+            lines = _tb.format_exception(type(exc), exc, exc.__traceback__)
+            flat = "".join(lines).splitlines()
         kept = [l for l in flat if '<string>' in l]
         # Final line always carries the exception type + message
         if flat:

@@ -521,6 +521,29 @@ print("saved")
     assert log == "saved\n"
 
 
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_pptx_repair_text_points_at_the_failing_line(tmp_path: Path, monkeypatch, mode):
+    # The repair prompt needs the line in the generated script that failed,
+    # wherever the script ran.
+    from app.ai.code_execution.pptx_executor import PptxCodeExecutor
+    from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    code = """
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])
+title = visualizations[3]["title"]
+prs.save(_pptx_output_path)
+"""
+    with pytest.raises(Exception) as caught:
+        PptxCodeExecutor().execute_pptx_code(
+            code=code, visualizations=[{"title": "only one"}], report={}, output_path=tmp_path / "d.pptx", images={}
+        )
+    text = CreateArtifactTool._pptx_error_text(caught.value)
+    assert '<string>", line 4' in text
+    assert "IndexError" in text
+
+
 # ---------------------------------------------------------------------------
 # Landlock bindings (the syscall itself is exercised only where the kernel
 # has the LSM; the ABI probe and fail-open contract are testable everywhere)
