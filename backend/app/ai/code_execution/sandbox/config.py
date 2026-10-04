@@ -15,7 +15,12 @@ what the host can enforce, which is a deployment property.
     BOW_SANDBOX_REQUIRE_LANDLOCK  1 → require filesystem and TCP confinement.
                                   Defaults to 1 in production, 0 in development.
     BOW_SANDBOX_MAX_RESULT_MB     Maximum child result sent to the API worker.
-                                  Default 64 MB.
+                                  Default 128 MB.
+    BOW_SANDBOX_MAX_RESULT_CELLS  Maximum values (rows x columns, nested values
+                                  included) in a returned DataFrame. Bounds
+                                  what decoding costs the API worker, whatever
+                                  the payload size. Default: one per 8 bytes of
+                                  BOW_SANDBOX_MAX_RESULT_MB (~16.7M at 128 MB).
 """
 from __future__ import annotations
 
@@ -28,7 +33,7 @@ MODE_INPROCESS = "inprocess"
 
 DEFAULT_TIMEOUT_SECONDS = 600
 DEFAULT_MEMORY_MB = 4096
-DEFAULT_MAX_RESULT_MB = 64
+DEFAULT_MAX_RESULT_MB = 128
 
 
 def _int_env(name: str, default: int, *, minimum: int = 0) -> int:
@@ -53,6 +58,11 @@ class SandboxLimits:
     cpu_seconds: int
     require_landlock: bool
     max_result_mb: int = DEFAULT_MAX_RESULT_MB
+    max_result_cells: int = 0  # 0 → derived from max_result_mb
+
+    def __post_init__(self):
+        if self.max_result_cells <= 0:
+            object.__setattr__(self, "max_result_cells", self.max_result_mb * 1024 * 1024 // 8)
 
     @classmethod
     def from_env(cls) -> "SandboxLimits":
@@ -66,6 +76,7 @@ class SandboxLimits:
                 "1" if os.environ.get("ENVIRONMENT", "development").lower() == "production" else "0",
             ).strip() == "1",
             max_result_mb=_int_env("BOW_SANDBOX_MAX_RESULT_MB", DEFAULT_MAX_RESULT_MB, minimum=1),
+            max_result_cells=_int_env("BOW_SANDBOX_MAX_RESULT_CELLS", 0),
         )
 
     def as_dict(self) -> dict:
@@ -75,4 +86,5 @@ class SandboxLimits:
             "cpu_seconds": self.cpu_seconds,
             "require_landlock": self.require_landlock,
             "max_result_mb": self.max_result_mb,
+            "max_result_cells": self.max_result_cells,
         }

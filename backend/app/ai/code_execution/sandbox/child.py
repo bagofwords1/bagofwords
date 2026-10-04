@@ -31,6 +31,7 @@ import numpy as np  # noqa: F401
 import pandas as pd
 
 from app.ai.code_execution.sandbox import landlock, seccomp
+from app.ai.code_execution.sandbox.config import DEFAULT_MAX_RESULT_MB
 from app.ai.code_execution.sandbox.namespace import (
     SandboxFile,
     build_loadable_closures,
@@ -372,7 +373,7 @@ def run(in_fd: int, out_fd: int) -> int:
     try:
         if job.get("mode") == "pptx":
             pptx_bytes = _run_pptx_job(job, scratch_dir)
-            if len(pptx_bytes) > int(limits.get("max_result_mb", 64)) * 1024 * 1024:
+            if len(pptx_bytes) > int(limits.get("max_result_mb", DEFAULT_MAX_RESULT_MB)) * 1024 * 1024:
                 raise ValueError("sandbox result too large for the configured parent memory budget")
             sys.stdout = real_stdout
             write_message(writer, {"t": "result", "kind": "pptx", "stdout": capture.getvalue()}, pptx_bytes)
@@ -384,8 +385,16 @@ def run(in_fd: int, out_fd: int) -> int:
         if df is None:
             write_message(writer, {"t": "result", "kind": "none", "stdout": stdout_text})
             return 0
+        max_cells = int(limits.get("max_result_cells") or 0)
+        cells = len(df) * max(1, len(df.columns))
+        if max_cells and cells > max_cells:
+            raise ValueError(
+                f"generate_df returned {len(df):,} rows x {len(df.columns)} columns "
+                f"({cells:,} values); the sandbox transfers at most {max_cells:,}. "
+                "Aggregate, filter or return fewer rows."
+            )
         arrow_bytes, meta = dataframe_to_arrow(df)
-        if len(arrow_bytes) > int(limits.get("max_result_mb", 64)) * 1024 * 1024:
+        if len(arrow_bytes) > int(limits.get("max_result_mb", DEFAULT_MAX_RESULT_MB)) * 1024 * 1024:
             raise ValueError("sandbox result too large for the configured parent memory budget")
         write_message(writer, {"t": "result", "kind": "dataframe", "stdout": stdout_text, "meta": meta}, arrow_bytes)
         return 0

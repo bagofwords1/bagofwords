@@ -41,6 +41,7 @@ from app.ai.code_execution.sandbox.protocol import (
     MAX_FRAME_BYTES,
     MAX_HEADER_BYTES,
     ProtocolError,
+    ResultTooLargeError,
     arrow_to_dataframe,
     encode_frame_header,
 )
@@ -808,14 +809,20 @@ def run_job(
                 if rk == "dataframe":
                     meta = header.get("meta") or {}
                     try:
-                        result.df = arrow_to_dataframe(body, meta)
+                        result.df = arrow_to_dataframe(body, meta, max_cells=limits.max_result_cells)
                     except Exception as e:
-                        exc = SandboxExecutionError(
-                            "ResultTransferError",
-                            f"the DataFrame returned by generate_df could not be transferred "
-                            f"({type(e).__name__}: {e}); convert unusual column types to plain "
-                            "values (e.g. .astype(str)) before returning",
-                        )
+                        if isinstance(e, ResultTooLargeError):
+                            message = (
+                                f"the DataFrame returned by generate_df is too large to transfer: {e}; "
+                                "aggregate, filter or return fewer rows"
+                            )
+                        else:
+                            message = (
+                                f"the DataFrame returned by generate_df could not be transferred "
+                                f"({type(e).__name__}: {e}); convert unusual column types to plain "
+                                "values (e.g. .astype(str)) before returning"
+                            )
+                        exc = SandboxExecutionError("ResultTransferError", message)
                         if result.stdout:
                             exc.captured_stdout = result.stdout[-2000:]
                         raise exc from e

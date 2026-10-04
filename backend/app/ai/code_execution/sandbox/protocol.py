@@ -38,6 +38,10 @@ class ProtocolError(RuntimeError):
     pass
 
 
+class ResultTooLargeError(ProtocolError):
+    """A returned DataFrame exceeds what the parent agreed to decode."""
+
+
 def encode_frame_header(header: Dict[str, Any], payload: bytes = b"") -> bytes:
     """Frame prefix plus JSON header; the payload follows it on the wire."""
     body = json.dumps(header, default=str, ensure_ascii=False).encode("utf-8")
@@ -229,9 +233,113 @@ def dataframe_to_arrow(df: pd.DataFrame) -> Tuple[bytes, Dict[str, Any]]:
     return _ipc_bytes(table), meta
 
 
-def arrow_to_dataframe(payload: bytes, meta: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+# ---------------------------------------------------------------------------
+# Pre-decode check of an Arrow IPC stream (child → parent).
+#
+# Arrow can describe a huge table in a few bytes: a null-typed column of N
+# rows has no buffers at all, and IPC body compression expands on read.
+# `read_all()` decompresses and `to_pandas()` materializes, both in the API
+# worker with no memory limit, so the stream is checked first, from its
+# flatbuffer message metadata only: no compression (our child never writes
+# it), only schema / dictionary / record-batch messages, and the total
+# number of values across every array (FieldNode lengths, nested included)
+# under a cap. Format: https://arrow.apache.org/docs/format/Columnar.html
+# ---------------------------------------------------------------------------
+
+_MSG_SCHEMA, _MSG_DICTIONARY_BATCH, _MSG_RECORD_BATCH = 1, 2, 3
+# The walk below is a Python loop over messages and array nodes. Honest
+# results have one node per column (plus nested children) and a handful of
+# messages; these caps keep a payload of empty nodes/messages from turning
+# the check itself into a CPU sink.
+_MAX_IPC_MESSAGES = 10_000
+_MAX_IPC_NODES = 100_000
+
+
+def _fb_read(fmt: str, buf: bytes, pos: int):
+    size = struct.calcsize(fmt)
+    if pos < 0 or pos + size > len(buf):
+        raise ProtocolError("malformed Arrow IPC metadata")
+    return struct.unpack_from(fmt, buf, pos)[0]
+
+
+def _fb_field(buf: bytes, table: int, index: int) -> Optional[int]:
+    """Absolute position of field `index` of the flatbuffer table at
+    `table`, or None when the field is absent (default value)."""
+    vtable = table - _fb_read("<i", buf, table)
+    vtable_size = _fb_read("<H", buf, vtable)
+    entry = 4 + 2 * index
+    if entry + 2 > vtable_size:
+        return None
+    offset = _fb_read("<H", buf, vtable + entry)
+    return table + offset if offset else None
+
+
+def _fb_deref(buf: bytes, pos: int) -> int:
+    return pos + _fb_read("<I", buf, pos)
+
+
+def check_arrow_stream(payload: bytes, max_cells: int) -> None:
+    """Raise unless `payload` is an uncompressed Arrow IPC stream holding at
+    most `max_cells` values. Reads metadata only; decodes nothing."""
+    pos, cells, messages, nodes_seen = 0, 0, 0, 0
+    while pos < len(payload):
+        messages += 1
+        if messages > _MAX_IPC_MESSAGES:
+            raise ProtocolError("too many Arrow IPC messages")
+        meta_len = _fb_read("<i", payload, pos)
+        pos += 4
+        if meta_len == -1:  # continuation marker, then the real length
+            meta_len = _fb_read("<i", payload, pos)
+            pos += 4
+        if meta_len == 0:  # end of stream
+            return
+        if meta_len < 0:
+            raise ProtocolError("malformed Arrow IPC stream")
+        meta = pos
+        message = _fb_deref(payload, meta)
+        header_type_at = _fb_field(payload, message, 1)
+        header_type = _fb_read("<B", payload, header_type_at) if header_type_at else 0
+        body_len_at = _fb_field(payload, message, 3)
+        body_len = _fb_read("<q", payload, body_len_at) if body_len_at else 0
+        if header_type in (_MSG_RECORD_BATCH, _MSG_DICTIONARY_BATCH):
+            header_at = _fb_field(payload, message, 2)
+            if header_at is None:
+                raise ProtocolError("malformed Arrow IPC metadata")
+            batch = _fb_deref(payload, header_at)
+            if header_type == _MSG_DICTIONARY_BATCH:
+                data_at = _fb_field(payload, batch, 1)
+                if data_at is None:
+                    raise ProtocolError("malformed Arrow IPC metadata")
+                batch = _fb_deref(payload, data_at)
+            if _fb_field(payload, batch, 3) is not None:
+                raise ProtocolError("compressed Arrow IPC is not accepted")
+            nodes_at = _fb_field(payload, batch, 1)
+            if nodes_at is not None:
+                nodes = _fb_deref(payload, nodes_at)
+                count = _fb_read("<I", payload, nodes)
+                nodes_seen += count
+                if nodes_seen > _MAX_IPC_NODES:
+                    raise ProtocolError("too many Arrow arrays")
+                for i in range(count):
+                    cells += _fb_read("<q", payload, nodes + 4 + 16 * i)
+                    if cells > max_cells:
+                        raise ResultTooLargeError(
+                            f"it holds more than {max_cells:,} values (rows x columns)"
+                        )
+        elif header_type != _MSG_SCHEMA:
+            raise ProtocolError(f"unexpected Arrow IPC message type {header_type}")
+        if body_len < 0:
+            raise ProtocolError("malformed Arrow IPC metadata")
+        pos = meta + meta_len + body_len
+    raise ProtocolError("truncated Arrow IPC stream")
+
+
+def arrow_to_dataframe(payload: bytes, meta: Optional[Dict[str, Any]] = None, *,
+                       max_cells: Optional[int] = None) -> pd.DataFrame:
     import pyarrow as pa
 
+    if max_cells is not None:
+        check_arrow_stream(payload, max_cells)
     with pa.ipc.open_stream(pa.BufferReader(payload)) as reader:
         table = reader.read_all()
     df = table.to_pandas()

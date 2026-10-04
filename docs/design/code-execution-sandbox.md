@@ -63,7 +63,8 @@ format_df_for_widget           ◀── Arrow ───  DataFrame → Arrow IP
 | Filesystem | Landlock: interpreter/libs read-only, this run's uploaded files read-only, one scratch dir read-write, nothing else (`/proc` is not exposed — `/proc/<pid>/environ` of the parent would leak the key) | when the kernel supports it |
 | TCP | Landlock net (ABI ≥ 4, kernel ≥ 6.7): no bind, no connect | when the kernel supports it |
 | stdout | capped at 2 MB in the child | always |
-| Result payload | child checks Arrow/PPTX size; parent rejects oversized frames before reading them | 64 MB |
+| Result payload | child checks Arrow/PPTX size; parent rejects oversized frames before reading them | 128 MB |
+| Result decode | parent checks the Arrow stream's metadata before decoding: no compression, at most `BOW_SANDBOX_MAX_RESULT_CELLS` values, so a few bytes cannot make the API worker allocate gigabytes | ~16.7M values |
 | Process creation | Linux seccomp denies fork/vfork/process clone; threads remain available | Linux |
 
 Cancelling the tool (user stop, tool timeout) sets a cancel event the runner
@@ -120,7 +121,8 @@ Landlock as the kernel offers. It only stops refusing when part is missing:
 | `BOW_SANDBOX_MEMORY_MB` | `RLIMIT_AS` for the child, `0` disables | `4096` |
 | `BOW_SANDBOX_CPU_SECONDS` | `RLIMIT_CPU`, `0` disables | = timeout |
 | `BOW_SANDBOX_REQUIRE_LANDLOCK` | `1` → require Landlock filesystem and TCP confinement; `0` explicitly permits weaker confinement | `1` in production, `0` in development |
-| `BOW_SANDBOX_MAX_RESULT_MB` | Maximum Arrow or PPTX payload accepted from the child | `64` |
+| `BOW_SANDBOX_MAX_RESULT_MB` | Maximum Arrow or PPTX payload accepted from the child | `128` |
+| `BOW_SANDBOX_MAX_RESULT_CELLS` | Maximum values (rows × columns, nested included) in a returned DataFrame | one per 8 bytes of `BOW_SANDBOX_MAX_RESULT_MB` (~16.7M) |
 | `BOW_SANDBOX_ZYGOTE` | `0` disables the fork server (each run then spawns a full interpreter, ~0.7 s) | `1` |
 
 Thread-count hints (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`,

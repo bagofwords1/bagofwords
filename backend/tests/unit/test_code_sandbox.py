@@ -482,6 +482,94 @@ def generate_df(ds_clients, excel_files):
     assert rendered["subprocess"] == rendered["inprocess"]
 
 
+def _ipc(table, **write_options) -> bytes:
+    import pyarrow as pa
+
+    sink = pa.BufferOutputStream()
+    options = pa.ipc.IpcWriteOptions(**write_options) if write_options else None
+    with pa.ipc.new_stream(sink, table.schema, options=options) as writer:
+        writer.write_table(table)
+    return sink.getvalue().to_pybytes()
+
+
+@pytest.mark.parametrize(
+    "build, rows",
+    [
+        # No buffers at all: a few hundred bytes for any number of rows.
+        (lambda pa, n: pa.table({"a": pa.nulls(n)}), 60_000_000),
+        (lambda pa, n: pa.table({"a": pa.nulls(n), "b": pa.nulls(n)}), 9_000_000),
+    ],
+    ids=["null-column", "two-null-columns"],
+)
+def test_tiny_payload_cannot_make_the_parent_allocate_huge_frames(build, rows):
+    # The child sends Arrow bytes the parent decodes in the API worker. A
+    # payload far under the byte limit must not describe more values than
+    # the parent agreed to materialize; it is refused before decoding.
+    import pyarrow as pa
+
+    payload = _ipc(build(pa, rows))
+    assert len(payload) < 64 * 1024
+    with pytest.raises(protocol.ResultTooLargeError):
+        protocol.arrow_to_dataframe(payload, {}, max_cells=SandboxLimits.from_env().max_result_cells)
+
+
+@pytest.mark.parametrize("codec", ["zstd", "lz4"])
+def test_compressed_payload_is_refused_before_decompression(codec):
+    # Our child never compresses; a compressed stream expands on read, which
+    # would happen in the API worker before any size check on the result.
+    import pyarrow as pa
+
+    payload = _ipc(pa.table({"s": pa.array(["y" * 200] * 5000)}), compression=codec)
+    with pytest.raises(protocol.ProtocolError, match="compressed"):
+        protocol.arrow_to_dataframe(payload, {}, max_cells=10**9)
+
+
+def test_hostile_result_frame_fails_the_run_without_decoding_it():
+    # End to end: code that writes its own result frame (bypassing the
+    # child's serializer) gets a clean, retryable error, not an API worker
+    # allocating the table it describes.
+    code = """
+def generate_df(ds_clients, excel_files):
+    import os, sys
+    import pyarrow as pa
+    from app.ai.code_execution.sandbox.protocol import write_message
+    sink = pa.BufferOutputStream()
+    table = pa.table({"a": pa.nulls(400_000_000)})
+    with pa.ipc.new_stream(sink, table.schema) as w:
+        w.write_table(table)
+    f = sys._getframe()
+    while "writer" not in f.f_locals:
+        f = f.f_back
+    write_message(f.f_locals["writer"], {"t": "result", "kind": "dataframe", "stdout": "", "meta": {}},
+                  sink.getvalue().to_pybytes())
+    os._exit(0)
+"""
+    with pytest.raises(SandboxExecutionError, match="too large") as caught:
+        run_job(SandboxJob(mode="data", code=code))
+    assert caught.value.exc_type == "ResultTransferError"
+
+
+def test_honest_result_over_the_value_limit_says_how_to_fix_it(monkeypatch):
+    monkeypatch.setenv("BOW_SANDBOX_MAX_RESULT_CELLS", "5000")
+    small = "def generate_df(ds_clients, excel_files):\n    return pd.DataFrame({'a': range(2000), 'b': range(2000)})\n"
+    big = "def generate_df(ds_clients, excel_files):\n    return pd.DataFrame({'a': range(3000), 'b': range(3000)})\n"
+    assert len(run_job(SandboxJob(mode="data", code=small)).df) == 2000
+    with pytest.raises(SandboxExecutionError, match="fewer rows"):
+        run_job(SandboxJob(mode="data", code=big))
+
+
+def test_result_limits_default_to_128_mb_and_a_derived_value_cap(monkeypatch):
+    for name in ("BOW_SANDBOX_MAX_RESULT_MB", "BOW_SANDBOX_MAX_RESULT_CELLS"):
+        monkeypatch.delenv(name, raising=False)
+    limits = SandboxLimits.from_env()
+    assert limits.max_result_mb == 128
+    assert limits.max_result_cells == 128 * 1024 * 1024 // 8
+    monkeypatch.setenv("BOW_SANDBOX_MAX_RESULT_MB", "256")
+    assert SandboxLimits.from_env().max_result_cells == 256 * 1024 * 1024 // 8
+    monkeypatch.setenv("BOW_SANDBOX_MAX_RESULT_CELLS", "1000")
+    assert SandboxLimits.from_env().max_result_cells == 1000
+
+
 def test_child_meta_cannot_multiply_the_parents_decode_work():
     # object_columns is chosen by the child. Repeated or malformed entries
     # must not turn into repeated whole-column copies in the API worker.
