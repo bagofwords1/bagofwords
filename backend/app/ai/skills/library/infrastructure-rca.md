@@ -1,9 +1,9 @@
 ---
 key: infrastructure-rca
 title: Infrastructure root cause analysis
-description: Use when something broke or degraded in the infrastructure — find the event, build a timeline from logs, metrics and alerts, then separate cause from symptom.
+description: Use for root cause analysis when something broke or degraded — find when it started from metrics, traces, logs or alerts, then separate cause from symptom.
 category: general
-version: "1.1"
+version: "1.2"
 modes: [chat]
 tags: [observability, diagnostics]
 ---
@@ -72,6 +72,40 @@ Then widen once: was anything already degraded *before* the first alert? Alerts
 have thresholds, so the metric moved earlier than the alert did. Find the first
 moment the metric left its normal band, not the first moment someone was paged.
 
+### No alerts — only raw metrics, traces and logs
+
+Often there is nothing that "fired": just raw time-series tables (one row per
+component, KPI, timestamp, value), spans and log lines. Then you detect the
+event yourself, and the usual mistake is comparing the window against the few
+minutes right before it. That baseline is too short — routine spikes look
+extreme against it, and a fault already under way at the window start looks
+normal. Instead:
+
+1. **Learn normal from a long baseline.** Per component × KPI series, compute
+   percentile thresholds over the whole day (or the same window on previous
+   days): P95/P99 for things that fail high (CPU, memory, disk, latency, error
+   count), P5 for things that fail low (success rate, throughput). Do this in
+   SQL with `GROUP BY` and percentile aggregates; pull only the aggregates and
+   the window back.
+2. **Discount noisy series.** A series that crosses its threshold often on an
+   ordinary day (more than a few percent of samples) carries little signal —
+   per-core CPU spikes and bursty disk counters are typical. A counter that is
+   normally zero looks infinitely anomalous on any non-zero value; judge it by
+   what it counts, not its z-score. Prefer series that are quiet and then break.
+3. **A fault is a sustained run, not a point.** Look for consecutive samples
+   beyond the threshold, clearly beyond it. Drop isolated single samples and
+   runs that barely cross the line.
+4. **The start time is the first sample of the run** — not the peak and not
+   the window boundary. If the run begins exactly at the window's first sample,
+   check the minutes before the window: a series that was already abnormal there
+   is probably not this incident's trigger, so keep looking.
+5. **Confirm across signals before naming a cause.** Metrics narrow where and
+   when; then check the business KPIs (did success rate or latency degrade, and
+   from when?), traces (among faulty components, the most downstream faulty one
+   in the call chain is the usual root cause; the upstream ones are victims) and
+   logs (errors, GC / out-of-memory, timeouts on that component). Several faulty
+   components with no call relationship can be separate failures.
+
 ## 3. Build the timeline
 
 One ordered list, in the note, with a source against each entry: first metric
@@ -138,6 +172,15 @@ These fail suddenly after a long silent ramp, so the trigger and the cause can b
 days apart.
 
 ## 7. Report
+
+**Before concluding, close your own caveats.** If you are about to write "I did
+not check X" and X could change the answer — traces, logs, the minutes before
+the window, a second candidate — run that check first. A caveat is for what you
+*cannot* see, not for what you did not look at.
+
+When the user asks a narrow question (just the start time, just the component),
+answer it directly with the key evidence and skip the note, doc and diagram
+below. The investigation still needs the same rigor; only the write-up shrinks.
 
 Deliver with `create_doc` when this will be read by anyone but the asker.
 In this order:
