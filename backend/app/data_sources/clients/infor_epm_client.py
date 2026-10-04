@@ -56,7 +56,7 @@ class InforEpmClient(DataSourceClient):
     Application Engine processes instead: three BI# processes (``BOW_GetCubeList``,
     ``BOW_GetCubeSchema``, ``BOW_ExecuteMdx``) run inside the farm on a named
     OLAP connection and are published as REST endpoints behind the ION API
-    Gateway, where a client-credentials token is all the caller needs.
+    Gateway using client credentials or an ION service-account token.
 
     Process contract (all return one string):
 
@@ -96,6 +96,8 @@ class InforEpmClient(DataSourceClient):
         gateway_client_secret: str | None = None,
         gateway_scope: str | None = None,
         bearer_token: str | None = None,
+        gateway_service_account_key: str | None = None,
+        gateway_service_account_secret: str | None = None,
     ):
         self.api_url = (api_url or "").strip().rstrip("/")
         self.olap_database = (olap_database or "").strip()
@@ -113,6 +115,8 @@ class InforEpmClient(DataSourceClient):
         self.gateway_client_secret = gateway_client_secret
         self.gateway_scope = (gateway_scope or "").strip() or None
         self.bearer_token = (bearer_token or "").strip() or None
+        self.gateway_service_account_key = gateway_service_account_key
+        self.gateway_service_account_secret = gateway_service_account_secret
 
         self._http: requests.Session | None = None
         self._token_expires_at = 0.0
@@ -130,12 +134,19 @@ class InforEpmClient(DataSourceClient):
         if not self.olap_database:
             raise RuntimeError("olap_database is required")
         if not self.bearer_token:
+            if bool(self.gateway_service_account_key) != bool(self.gateway_service_account_secret):
+                raise RuntimeError("Both service account key and service account secret are required")
             if not self.gateway_token_url:
                 raise RuntimeError("gateway_token_url is required (or a bearer_token)")
             if not (self.gateway_client_id and self.gateway_client_secret):
                 raise RuntimeError("gateway_client_id and gateway_client_secret are required")
         self._http = requests.Session()
-        self._ensure_token()
+        try:
+            self._ensure_token()
+        except Exception:
+            self._http.close()
+            self._http = None
+            raise
 
     def _ensure_token(self):
         if self.bearer_token:
@@ -148,10 +159,19 @@ class InforEpmClient(DataSourceClient):
             "client_id": self.gateway_client_id,
             "client_secret": self.gateway_client_secret,
         }
+        token_auth = {}
+        if self.gateway_service_account_key:
+            data = {
+                "grant_type": "password",
+                "username": self.gateway_service_account_key,
+                "password": self.gateway_service_account_secret,
+            }
+            token_auth["auth"] = (self.gateway_client_id, self.gateway_client_secret)
         if self.gateway_scope:
             data["scope"] = self.gateway_scope
         response = requests.post(
-            self.gateway_token_url, data=data, timeout=self.timeout_sec, verify=self.verify_ssl
+            self.gateway_token_url, data=data, timeout=self.timeout_sec, verify=self.verify_ssl,
+            **token_auth,
         )
         if response.status_code >= 300:
             raise InforEpmHttpError(response.status_code, "ION API Gateway token exchange failed")
@@ -159,6 +179,8 @@ class InforEpmClient(DataSourceClient):
             payload = response.json()
         except ValueError as exc:
             raise InforEpmError("ION API Gateway token exchange returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise InforEpmError("ION API Gateway token exchange returned invalid JSON object")
         token = payload.get("access_token")
         if not token:
             raise InforEpmError("ION API Gateway token exchange returned no access_token")
