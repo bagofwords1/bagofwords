@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from app.services.report_service import ReportService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
-from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema, ReportActivityResponse
+from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ArtifactVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema, ReportActivityResponse
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.models.user import User
 
@@ -300,6 +300,40 @@ async def get_report_shares(
     return await report_service.get_shares(db, report_id, share_type)
 
 
+@router.put("/reports/{report_id}/artifacts/{artifact_id}/visibility")
+@requires_permission('publish_reports', model=Report, owner_only=True)
+async def set_artifact_visibility(
+    report_id: str,
+    artifact_id: str,
+    payload: ArtifactVisibilityUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Share one dashboard of the report on its own.
+
+    artifact_id is the artifact's parent id (stable across versions).
+    """
+    return await report_service.set_artifact_visibility(
+        db, report_id, artifact_id, payload.visibility,
+        payload.shared_user_ids, payload.shared_group_ids,
+        current_user, organization,
+    )
+
+
+@router.get("/reports/{report_id}/artifacts/{artifact_id}/sharing")
+@requires_permission('publish_reports', model=Report, owner_only=True)
+async def get_artifact_sharing(
+    report_id: str,
+    artifact_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """One dashboard's visibility and the users/groups it is shared with."""
+    return await report_service.get_artifact_sharing(db, report_id, artifact_id)
+
+
 @router.get("/reports/{report_id}/artifact_chat/agents")
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def get_artifact_chat_agents(
@@ -449,6 +483,20 @@ async def notify_report(
         if not await is_outbound_available(db, str(organization.id), purpose="system"):
             raise HTTPException(status_code=400, detail="Email notifications are not available (SMTP not configured)")
 
+    # A dashboard share names the dashboard: its link and PDF are that one.
+    shared_artifact = None
+    if payload.type == NotificationType.SHARE_DASHBOARD and payload.artifact_id:
+        from app.models.artifact import Artifact
+        shared_artifact = (await db.execute(
+            select(Artifact).where(
+                Artifact.id == payload.artifact_id,
+                Artifact.report_id == report.id,
+                Artifact.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if shared_artifact is None:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+
     # Build share_url for schedule type if not provided
     share_url = payload.share_url or f"{app_settings.bow_config.base_url}/r/{report.id}"
 
@@ -472,6 +520,7 @@ async def notify_report(
                 await inbox_service.notify_share(
                     db, report=report, share_type=share_type,
                     user_ids=user_ids, actor_user=current_user,
+                    artifact=shared_artifact if share_type == 'artifact' else None,
                 )
         except Exception:
             logger.warning("notify_report in-app notification failed", exc_info=True)
@@ -486,6 +535,7 @@ async def notify_report(
         sender_name=current_user.name or current_user.email,
         message=payload.message,
         report_id=str(report.id),
+        artifact_id=str(shared_artifact.id) if shared_artifact else None,
         locale=_locale_from_org(organization),
         # Without these the share mail bypasses the org's configured SMTP server
         # and goes out via the global bow-config relay.
@@ -600,11 +650,16 @@ async def get_public_file_embed_token(
     # (1) report is publicly accessible — raises if not.
     await report_service.get_public_report(db, report_id, user=user)
 
-    # (2) file is embedded in one of this report's artifacts.
+    # (2) file is embedded in one of this report's artifacts that the caller
+    # may open — dashboards are shared one by one.
     from app.models.artifact import ArtifactVersion
-    artifacts = (await db.execute(
-        select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
-    )).scalars().all()
+    from app.services import artifact_access
+    report_row = (await db.execute(select(Report).where(Report.id == report_id))).scalar_one()
+    visible = await artifact_access.visible_artifact_ids(db, report_row, user)
+    stmt = select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
+    if visible is not None:
+        stmt = stmt.where(ArtifactVersion.artifact_id.in_(visible))
+    artifacts = (await db.execute(stmt)).scalars().all()
     embedded = any(
         isinstance(a.content, dict)
         and any(str(f.get("id")) == file_id for f in (a.content.get("files") or []) if isinstance(f, dict))
@@ -710,6 +765,7 @@ _PDF_EXPORT_TIMEOUT_SECONDS = 330
 @router.get("/r/{report_id}/export_pdf")
 async def export_public_report_pdf(
     report_id: str,
+    artifact_id: str | None = Query(None, description="Export this artifact version; defaults to the newest dashboard the caller may open"),
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
@@ -723,12 +779,19 @@ async def export_public_report_pdf(
     """
     # Raises 401/403/404 exactly like the page's other public endpoints.
     schema = await report_service.get_public_report(db, report_id, user=user)
+    # Only the artifacts this caller may open (each dashboard is shared on its own).
+    visible_versions = await report_service.get_public_artifacts(db, report_id, user=user)
+    if artifact_id and not any(str(a.id) == artifact_id for a in visible_versions):
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    visible_parents = {str(a.artifact_id) for a in visible_versions}
 
     from app.services.report_pdf_service import ReportPdfService
 
     async def _generate_locked() -> str | None:
         async with _pdf_export_locks[str(report_id)]:
-            return await ReportPdfService().generate_for_report(str(report_id))
+            return await ReportPdfService().generate_for_report(
+                str(report_id), artifact_ids=visible_parents, version_id=artifact_id,
+            )
 
     try:
         pdf_path = await _asyncio.wait_for(
@@ -1034,8 +1097,21 @@ async def get_report_notes(
 ):
     """Return the agent's working notes for this report (read-only), newest last."""
     from sqlalchemy import select
+    from sqlalchemy.orm import lazyload
     from app.models.note import Note
     from app.schemas.note_schema import NoteSchema
+    from app.services import artifact_access
+
+    # The notes cover the whole conversation, every dashboard included: a
+    # viewer of some dashboards gets the same 404 as for a missing report.
+    report = (await db.execute(
+        select(Report).options(lazyload("*")).where(Report.id == report_id)
+    )).scalar_one_or_none()
+    if report is None or not (
+        await artifact_access.has_full_access(db, report, current_user)
+        or await artifact_access.is_full_admin(db, report, current_user)
+    ):
+        raise HTTPException(status_code=404, detail="Report not found")
     result = await db.execute(
         select(Note)
         .where(Note.report_id == report_id, Note.deleted_at.is_(None))

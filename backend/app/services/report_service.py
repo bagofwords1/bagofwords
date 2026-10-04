@@ -67,7 +67,17 @@ class ReportService:
 
         visibility_field: 'artifact_visibility' or 'conversation_visibility'
         Raises 401 if login needed, 403 if denied, or passes silently if allowed.
+
+        Dashboards are shared one by one: for 'artifact_visibility' on a report
+        that has artifacts, the caller passes when they may open at least one
+        of them (see artifact_access). The report-level fields below only
+        decide for reports with no artifact yet, and for the conversation.
         """
+        from app.services import artifact_access
+        if visibility_field == 'artifact_visibility' and await artifact_access.report_has_live_artifacts(db, report.id):
+            await artifact_access.assert_can_view_any(db, report, user)
+            return
+
         from app.services.bow_source_access import assert_read
         await assert_read(db, getattr(report, "bow_source_access", None), user)
         from app.models.membership import Membership
@@ -76,17 +86,8 @@ class ReportService:
         # Project membership grants read access to both surfaces (a project is
         # a sharing boundary): anyone who can view the containing project can
         # view its reports, regardless of per-report visibility settings.
-        if user is not None and getattr(report, 'project_id', None):
-            from app.services.project_service import project_service
-            from app.models.project import Project
-            proj = (await db.execute(
-                select(Project).where(
-                    Project.id == report.project_id,
-                    Project.deleted_at.is_(None),
-                )
-            )).scalar_one_or_none()
-            if proj is not None and await project_service.user_can_view_project(db, user, proj):
-                return
+        if await artifact_access.project_grants_view(db, report, user):
+            return
 
         visibility = getattr(report, visibility_field, 'none') or 'none'
 
@@ -152,11 +153,12 @@ class ReportService:
 
     async def _emit_share_event(
         self, db, *, report, share_type, visibility, shared_user_ids, current_user,
-        shared_group_ids=None,
+        shared_group_ids=None, artifact_title=None,
     ) -> None:
         """Emit a silent report_shared / artifact_shared (or the unshared/off
         counterpart) event when sharing changes. share_type ∈ {conversation,
-        artifact}; visibility ∈ {none, shared, internal, public}."""
+        artifact}; visibility ∈ {none, shared, internal, public}. artifact_title
+        names the one dashboard that changed; it defaults to the report title."""
         from app.services.session_event_service import SessionEventService
         from app.ai.context.session_events import (
             REPORT_SHARED, REPORT_UNPUBLISHED, ARTIFACT_SHARED, ARTIFACT_UNSHARED,
@@ -188,7 +190,7 @@ class ReportService:
             kind = REPORT_SHARED if is_conv else ARTIFACT_SHARED
             meta = {"visibility": visibility, "shared_with": shared_with, "share_type": share_type}
             if not is_conv:
-                meta["title"] = report.title or "Artifact"
+                meta["title"] = artifact_title or report.title or "Artifact"
             await SessionEventService.emit_safe(
                 db, report=report, kind=kind, user=current_user, commit=False, meta=meta,
             )
@@ -200,7 +202,7 @@ class ReportService:
         else:
             kind = REPORT_UNPUBLISHED if is_conv else ARTIFACT_UNSHARED
             content = ("Conversation sharing was turned off" if is_conv
-                       else f'"{report.title or "Artifact"}" was made private')
+                       else f'"{artifact_title or report.title or "Artifact"}" was made private')
             await SessionEventService.emit_safe(
                 db, report=report, kind=kind, user=current_user, commit=False,
                 content=content, meta={"visibility": "none", "share_type": share_type},
@@ -237,7 +239,7 @@ class ReportService:
         db: AsyncSession,
         report_id: str,
         share_type: str,
-        visibility: str,
+        visibility: str | None,
         shared_user_ids: list[str] | None,
         current_user: User,
         organization: Organization,
@@ -259,29 +261,31 @@ class ReportService:
         use ('viewer' | 'creator'); None leaves the current setting unchanged
         include_data_tab: artifact only — show viewers the Data tab on
         /r/{id}; None leaves the current setting unchanged
+
+        For share_type 'artifact' these viewer settings are report-wide while
+        sharing itself is per dashboard (set_artifact_visibility). A None
+        visibility writes only the settings and leaves every grant alone; a
+        given visibility still shares the whole report as before, applying
+        it to every dashboard of the report.
         """
         from app.models.report_share import ReportShare
-        from app.models.group import Group
+        from app.services import artifact_access
 
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
 
+        visibility_given = visibility is not None
+        if not visibility_given:
+            if share_type != 'artifact':
+                raise HTTPException(status_code=422, detail="visibility is required")
+            visibility = report.artifact_visibility or 'none'
+            shared_user_ids = None
+            shared_group_ids = None
+
         # Group grants must reference groups of the report's own organization.
-        if shared_group_ids:
-            shared_group_ids = [str(g) for g in shared_group_ids]
-            valid_rows = (await db.execute(
-                select(Group.id).where(
-                    Group.id.in_(shared_group_ids),
-                    Group.organization_id == str(organization.id),
-                    Group.deleted_at.is_(None),
-                )
-            )).all()
-            valid_ids = {str(r[0]) for r in valid_rows}
-            unknown = [g for g in shared_group_ids if g not in valid_ids]
-            if unknown:
-                raise HTTPException(status_code=400, detail="Unknown group in shared_group_ids")
+        shared_group_ids = await self._validate_share_group_ids(db, shared_group_ids, organization)
 
         from app.services.bow_source_access import assert_shareable
         await assert_shareable(db, report.id, visibility == 'public')
@@ -363,7 +367,8 @@ class ReportService:
 
         # Sync legacy fields for backward compatibility
         if share_type == 'artifact':
-            report.status = 'published' if visibility != 'none' else 'draft'
+            if visibility_given:
+                report.status = 'published' if visibility != 'none' else 'draft'
         elif share_type == 'conversation':
             if visibility != 'none':
                 report.conversation_share_enabled = True
@@ -377,7 +382,9 @@ class ReportService:
         # run-identity-only PUT, which sends neither list, changes nothing).
         newly_added_user_ids: list[str] = []
         newly_added_group_ids: list[str] = []
-        if visibility == 'shared':
+        if not visibility_given:
+            pass  # settings-only write: grants untouched
+        elif visibility == 'shared':
             if shared_user_ids is not None:
                 # Snapshot who already had this share so we only notify *new* recipients.
                 existing_rows = (await db.execute(
@@ -439,6 +446,10 @@ class ReportService:
                 )
             )
 
+        # Sharing the whole report: every dashboard takes the same setting.
+        if share_type == 'artifact' and visibility_given:
+            await artifact_access.apply_report_setting_to_artifacts(db, report)
+
         await db.commit()
         await db.refresh(report)
 
@@ -482,27 +493,9 @@ class ReportService:
         # Notify-first: the durable in-app notification is the canonical record of
         # "shared with you" — created here on the share grant itself (email stays
         # the explicit opt-in action). Non-fatal: sharing must not depend on it.
-        notify_user_ids = list(newly_added_user_ids)
-        if newly_added_group_ids:
-            # A newly shared group notifies its registered members too.
-            try:
-                from app.models.group_membership import GroupMembership
-                member_rows = (await db.execute(
-                    select(GroupMembership.user_id).where(
-                        GroupMembership.group_id.in_(newly_added_group_ids),
-                        GroupMembership.user_id.isnot(None),
-                        GroupMembership.deleted_at.is_(None),
-                    )
-                )).all()
-                seen = set(notify_user_ids)
-                seen.add(str(report.user_id))
-                seen.add(str(current_user.id))
-                for (uid,) in member_rows:
-                    if str(uid) not in seen:
-                        notify_user_ids.append(str(uid))
-                        seen.add(str(uid))
-            except Exception:
-                logger.warning("failed to expand group members for share notification", exc_info=True)
+        notify_user_ids = await self._share_notify_user_ids(
+            db, report, current_user, newly_added_user_ids, newly_added_group_ids,
+        )
         if notify_user_ids:
             try:
                 from app.services.inbox_service import inbox_service
@@ -557,6 +550,263 @@ class ReportService:
             "artifact_chat_data_source_ids": report.artifact_chat_data_source_ids,
             "artifact_chat_model_id": report.artifact_chat_model_id,
             "conversation_share_token": report.conversation_share_token if share_type == 'conversation' and visibility != 'none' else None,
+        }
+
+    async def _validate_share_group_ids(self, db, shared_group_ids, organization):
+        """Group grants must reference live groups of the caller's organization."""
+        if not shared_group_ids:
+            return shared_group_ids
+        from app.models.group import Group
+        shared_group_ids = [str(g) for g in shared_group_ids]
+        valid_rows = (await db.execute(
+            select(Group.id).where(
+                Group.id.in_(shared_group_ids),
+                Group.organization_id == str(organization.id),
+                Group.deleted_at.is_(None),
+            )
+        )).all()
+        valid_ids = {str(r[0]) for r in valid_rows}
+        if any(g not in valid_ids for g in shared_group_ids):
+            raise HTTPException(status_code=400, detail="Unknown group in shared_group_ids")
+        return shared_group_ids
+
+    async def _share_notify_user_ids(
+        self, db, report, current_user, newly_added_user_ids, newly_added_group_ids,
+    ) -> list[str]:
+        """Users to notify about a new share: the newly added users plus the
+        registered members of newly added groups (never the owner or actor)."""
+        notify_user_ids = list(newly_added_user_ids)
+        if newly_added_group_ids:
+            # A newly shared group notifies its registered members too.
+            try:
+                from app.models.group_membership import GroupMembership
+                member_rows = (await db.execute(
+                    select(GroupMembership.user_id).where(
+                        GroupMembership.group_id.in_(newly_added_group_ids),
+                        GroupMembership.user_id.isnot(None),
+                        GroupMembership.deleted_at.is_(None),
+                    )
+                )).all()
+                seen = set(notify_user_ids)
+                seen.add(str(report.user_id))
+                seen.add(str(current_user.id))
+                for (uid,) in member_rows:
+                    if str(uid) not in seen:
+                        notify_user_ids.append(str(uid))
+                        seen.add(str(uid))
+            except Exception:
+                logger.warning("failed to expand group members for share notification", exc_info=True)
+        return notify_user_ids
+
+    async def _load_report_artifact(self, db, report_id: str, artifact_id: str):
+        from app.models.artifact import Artifact
+        report = (await db.execute(
+            select(Report).options(lazyload("*")).where(Report.id == report_id)
+        )).scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        artifact = (await db.execute(
+            select(Artifact).options(lazyload("*")).where(
+                Artifact.id == str(artifact_id),
+                Artifact.report_id == str(report_id),
+                Artifact.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        return report, artifact
+
+    async def set_artifact_visibility(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        artifact_id: str,
+        visibility: str,
+        shared_user_ids: list[str] | None,
+        shared_group_ids: list[str] | None,
+        current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Share one artifact (dashboard) of a report on its own.
+
+        artifact_id is the parent artifact id (stable across versions), so the
+        setting survives every later edit of the dashboard. Grant lists follow
+        set_visibility: None leaves that principal kind unchanged, and any
+        visibility other than 'shared' clears the artifact's grants. The
+        report-level fields are re-derived from all artifacts afterwards.
+        """
+        from app.models.artifact_share import ArtifactShare
+        from app.services import artifact_access
+
+        report, artifact = await self._load_report_artifact(db, report_id, artifact_id)
+        shared_group_ids = await self._validate_share_group_ids(db, shared_group_ids, organization)
+
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, visibility == 'public')
+        previous_visibility = artifact.visibility or 'none'
+        artifact.visibility = visibility
+
+        newly_added_user_ids: list[str] = []
+        newly_added_group_ids: list[str] = []
+        if visibility == 'shared':
+            if shared_user_ids is not None:
+                existing_uids = {str(r[0]) for r in (await db.execute(
+                    select(ArtifactShare.user_id).where(
+                        ArtifactShare.artifact_id == artifact.id,
+                        ArtifactShare.user_id.isnot(None),
+                        ArtifactShare.deleted_at.is_(None),
+                    )
+                )).all()}
+                await db.execute(delete(ArtifactShare).where(
+                    ArtifactShare.artifact_id == artifact.id,
+                    ArtifactShare.user_id.isnot(None),
+                ))
+                for uid in dict.fromkeys(str(u) for u in shared_user_ids):
+                    db.add(ArtifactShare(artifact_id=artifact.id, report_id=report.id, user_id=uid))
+                newly_added_user_ids = [str(u) for u in shared_user_ids if str(u) not in existing_uids]
+            if shared_group_ids is not None:
+                existing_gids = {str(r[0]) for r in (await db.execute(
+                    select(ArtifactShare.group_id).where(
+                        ArtifactShare.artifact_id == artifact.id,
+                        ArtifactShare.group_id.isnot(None),
+                        ArtifactShare.deleted_at.is_(None),
+                    )
+                )).all()}
+                await db.execute(delete(ArtifactShare).where(
+                    ArtifactShare.artifact_id == artifact.id,
+                    ArtifactShare.group_id.isnot(None),
+                ))
+                for gid in dict.fromkeys(shared_group_ids):
+                    db.add(ArtifactShare(artifact_id=artifact.id, report_id=report.id, group_id=gid))
+                newly_added_group_ids = [g for g in shared_group_ids if g not in existing_gids]
+        else:
+            await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == artifact.id))
+
+        await artifact_access.sync_report_aggregate(db, report)
+        await db.commit()
+        await db.refresh(report)
+        await db.refresh(artifact)
+
+        # Same strict-mode thumbnail rule as set_visibility.
+        try:
+            from app.services.viewer_data_policy import report_snapshot_withheld
+            if await report_snapshot_withheld(db, str(report.id)):
+                from app.services.thumbnail_service import ThumbnailService
+                await ThumbnailService().clear_for_report(str(report.id))
+        except Exception:
+            logger.warning("Failed to clear thumbnails for strict report %s", report.id, exc_info=True)
+
+        sharing_changed = (
+            previous_visibility != visibility
+            or shared_user_ids is not None
+            or shared_group_ids is not None
+        )
+        if sharing_changed:
+            try:
+                await self._emit_share_event(
+                    db, report=report, share_type='artifact', visibility=visibility,
+                    shared_user_ids=shared_user_ids, current_user=current_user,
+                    shared_group_ids=shared_group_ids, artifact_title=artifact.title,
+                )
+            except Exception:
+                pass
+
+        notify_user_ids = await self._share_notify_user_ids(
+            db, report, current_user, newly_added_user_ids, newly_added_group_ids,
+        )
+        if notify_user_ids:
+            try:
+                from app.services.inbox_service import inbox_service
+                await inbox_service.notify_share(
+                    db, report=report, share_type='artifact',
+                    user_ids=notify_user_ids, actor_user=current_user, artifact=artifact,
+                )
+            except Exception:
+                logger.warning("share in-app notification failed", exc_info=True)
+
+        try:
+            await telemetry.capture(
+                "artifact_visibility_changed",
+                {"report_id": str(report.id), "artifact_id": str(artifact.id), "visibility": visibility},
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="artifact.visibility_changed",
+                user_id=str(current_user.id),
+                resource_type="artifact",
+                resource_id=str(artifact.id),
+                details={
+                    "title": artifact.title,
+                    "report_id": str(report.id),
+                    "visibility": visibility,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "artifact_id": str(artifact.id),
+            "visibility": visibility,
+            "shared_user_ids": shared_user_ids or [],
+            "shared_group_ids": shared_group_ids or [],
+            "report_artifact_visibility": report.artifact_visibility,
+        }
+
+    async def get_artifact_sharing(self, db: AsyncSession, report_id: str, artifact_id: str) -> dict:
+        """One artifact's visibility and the users/groups it is shared with,
+        in the same row shape as get_shares."""
+        from app.models.artifact_share import ArtifactShare
+        from app.models.group_membership import GroupMembership
+
+        report, artifact = await self._load_report_artifact(db, report_id, artifact_id)
+        shares = (await db.execute(
+            select(ArtifactShare)
+            .options(selectinload(ArtifactShare.user), selectinload(ArtifactShare.group))
+            .where(
+                ArtifactShare.artifact_id == artifact.id,
+                ArtifactShare.deleted_at.is_(None),
+            )
+        )).scalars().all()
+
+        group_ids = [str(s.group_id) for s in shares if s.group_id]
+        member_counts: dict[str, int] = {}
+        if group_ids:
+            count_rows = (await db.execute(
+                select(GroupMembership.group_id, func.count(GroupMembership.id))
+                .where(
+                    GroupMembership.group_id.in_(group_ids),
+                    GroupMembership.deleted_at.is_(None),
+                )
+                .group_by(GroupMembership.group_id)
+            )).all()
+            member_counts = {str(gid): cnt for gid, cnt in count_rows}
+
+        return {
+            "artifact_id": str(artifact.id),
+            "title": artifact.title,
+            "visibility": artifact.visibility or 'none',
+            "shares": [
+                {
+                    "id": str(s.id),
+                    "principal_type": "group" if s.group_id else "user",
+                    "user_id": str(s.user_id) if s.user_id else None,
+                    "user_name": s.user.name if s.user else None,
+                    "user_email": s.user.email if s.user else None,
+                    "group_id": str(s.group_id) if s.group_id else None,
+                    "group_name": s.group.name if s.group else None,
+                    "member_count": member_counts.get(str(s.group_id), 0) if s.group_id else None,
+                    "share_type": "artifact",
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in shares
+            ],
         }
 
     async def get_shares(
@@ -773,6 +1023,15 @@ class ReportService:
         # the 'run on my behalf' toggle (hidden otherwise — it's a no-op on
         # system-only credentials), RLS presence disables it.
         from app.services.viewer_data_policy import has_rls_relations, has_user_scoped_connections
+        # Who each dashboard is shared with, and who gets the scheduled email,
+        # are the owner's settings. A viewer of one dashboard must not learn
+        # who another dashboard is shared with from them.
+        if current_user is None or str(report.user_id) != str(current_user.id):
+            report_schema.artifact_shared_user_ids = []
+            report_schema.artifact_shared_group_ids = []
+            report_schema.conversation_shared_user_ids = []
+            report_schema.conversation_shared_group_ids = []
+            report_schema.notification_subscribers = None
         report_schema.has_rls = await has_rls_relations(db, str(report.id))
         report_schema.has_user_scoped = await has_user_scoped_connections(db, str(report.id))
 
@@ -1081,10 +1340,10 @@ class ReportService:
         if report_data.status:
             report.status = report_data.status
             # Sync artifact_visibility with legacy status field
-            if report_data.status == 'published':
-                report.artifact_visibility = 'public'
-            elif report_data.status == 'draft':
-                report.artifact_visibility = 'none'
+            if report_data.status in ('published', 'draft'):
+                report.artifact_visibility = 'public' if report_data.status == 'published' else 'none'
+                from app.services import artifact_access
+                await artifact_access.apply_report_setting_to_artifacts(db, report)
         # Persist theme updates if present in payload
         if hasattr(report_data, 'theme_name') and report_data.theme_name is not None:
             report.theme_name = report_data.theme_name
@@ -1303,6 +1562,29 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Report not found")
         return report
 
+    async def _all_artifacts_query_ids(self, db: AsyncSession, report_id: str) -> list[str]:
+        """Union of the query ids behind the newest version of every live
+        dashboard/deck of the report, in artifact creation order."""
+        from app.models.artifact import Artifact, ArtifactVersion
+        parents = (await db.execute(
+            select(Artifact.id).where(
+                Artifact.report_id == str(report_id),
+                Artifact.deleted_at.is_(None),
+                Artifact.mode.in_(("page", "slides")),
+            ).order_by(Artifact.created_at)
+        )).scalars().all()
+        query_ids: list[str] = []
+        for parent_id in parents:
+            newest = (await db.execute(
+                select(ArtifactVersion.id).where(
+                    ArtifactVersion.artifact_id == str(parent_id),
+                    ArtifactVersion.deleted_at.is_(None),
+                ).order_by(ArtifactVersion.created_at.desc()).limit(1)
+            )).scalar_one_or_none()
+            if newest:
+                query_ids.extend(await self._artifact_query_ids(db, report_id, str(newest)))
+        return list(dict.fromkeys(query_ids))
+
     async def _artifact_query_ids(
         self, db: AsyncSession, report_id: str, artifact_id: str | None = None
     ) -> list[str]:
@@ -1337,20 +1619,8 @@ class ReportService:
             ).where(Artifact.mode.in_(("page", "slides")))
         artifact_row = (await db.execute(artifact_stmt)).first()
         content = artifact_row[0] if artifact_row else None
-        viz_ids = list(dict.fromkeys(
-            str(v) for v in ((content or {}).get("visualization_ids") or []) if v
-        ))
-
-        query_ids: list[str] = []
-        if viz_ids:
-            viz_result = await db.execute(
-                select(Visualization.query_id).where(
-                    Visualization.id.in_(viz_ids),
-                    Visualization.deleted_at.is_(None),
-                )
-            )
-            query_ids = list(dict.fromkeys(str(q) for (q,) in viz_result.all() if q))
-        return query_ids
+        from app.services import artifact_access
+        return await artifact_access.query_ids_for_contents(db, [content])
 
     async def rerun_report_steps(
         self,
@@ -1361,11 +1631,18 @@ class ReportService:
         artifact_id: str | None = None,
         notify_subscribers: bool = False,
         regenerate_thumbnail: bool = True,
+        all_artifacts: bool = False,
     ) -> dict:
+        """all_artifacts: refresh the queries behind every live dashboard/deck
+        of the report instead of one (the scheduled run: each dashboard is
+        shared on its own, so none may be left on stale data)."""
         logger.info(f"Executing report rerun for report_id: {report_id}")
         report = await self._load_report_for_rerun(db, report_id)
 
-        query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
+        if all_artifacts:
+            query_ids = await self._all_artifacts_query_ids(db, report_id)
+        else:
+            query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
 
         steps_total = 0
         steps_succeeded = 0
@@ -1512,6 +1789,41 @@ class ReportService:
             "last_run_at": report.last_run_at,
         }
 
+    async def _viewer_artifact_version(self, db, report, user, version_id: str | None) -> str | None:
+        """The artifact version a viewer action targets: the requested one when
+        the viewer may open its dashboard (404 otherwise), else the newest
+        dashboard/deck version among the ones they may open."""
+        from app.models.artifact import Artifact, ArtifactVersion
+        from app.services import artifact_access
+        if version_id:
+            version = (await db.execute(
+                select(ArtifactVersion).options(lazyload("*")).where(
+                    ArtifactVersion.id == str(version_id),
+                    ArtifactVersion.report_id == str(report.id),
+                    ArtifactVersion.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            if version is None:
+                raise HTTPException(status_code=404, detail="Not found")
+            await artifact_access.assert_can_view_artifact(db, report, version.artifact_id, user)
+            return str(version.id)
+        visible = await artifact_access.visible_artifact_ids(db, report, user)
+        stmt = (
+            select(ArtifactVersion.id)
+            .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+            .where(
+                ArtifactVersion.report_id == str(report.id),
+                ArtifactVersion.deleted_at.is_(None),
+                Artifact.mode.in_(("page", "slides")),
+            )
+            .order_by(ArtifactVersion.created_at.desc())
+            .limit(1)
+        )
+        if visible is not None:
+            stmt = stmt.where(ArtifactVersion.artifact_id.in_(visible))
+        row = (await db.execute(stmt)).first()
+        return str(row[0]) if row else None
+
     async def viewer_rerun_report_steps(
         self,
         db: AsyncSession,
@@ -1644,7 +1956,8 @@ class ReportService:
         steps_succeeded = 0
         steps_failed = 0
 
-        query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
+        artifact_id = await self._viewer_artifact_version(db, report, current_user, artifact_id)
+        query_ids = await self._artifact_query_ids(db, report_id, artifact_id) if artifact_id else []
         targets, unrunnable = await self._rerun_target_steps(db, query_ids)
         for step_id, code in targets:
             steps_total += 1
@@ -1792,6 +2105,9 @@ class ReportService:
         else:
             report.status = 'published'
             report.artifact_visibility = 'public'
+        # The legacy toggle publishes the whole report: every dashboard follows.
+        from app.services import artifact_access
+        await artifact_access.apply_report_setting_to_artifacts(db, report)
 
         await db.commit()
         await db.refresh(report)
@@ -2131,6 +2447,24 @@ class ReportService:
             ))
         return {"activity": activity}
 
+    async def _listing_visible_artifacts(self, db: AsyncSession, reports, user) -> dict:
+        """Per listed report the caller does not own, the parent ids of the
+        dashboards they may open (artifact_access). Reports missing from the
+        map show every dashboard: the caller's own, and all of them for an
+        org full admin. Listing cards (thumbnail, counts, modes, widgets) are
+        built from these so a card never shows a dashboard the caller cannot
+        open."""
+        from app.services import artifact_access
+        others = [r for r in reports if str(r.user_id) != str(user.id)]
+        if not others or await artifact_access.is_full_admin(db, others[0], user):
+            return {}
+        visible: dict = {}
+        for r in others:
+            ids = await artifact_access.visible_artifact_ids(db, r, user)
+            if ids is not None:
+                visible[str(r.id)] = ids
+        return visible
+
     async def get_public_report(self, db: AsyncSession, report_id: str, user=None) -> ReportSchema:
         # Load only what ReportSchema serializes. Report's mapper-level
         # lazy="selectin" relationships would otherwise hydrate the entire
@@ -2166,6 +2500,13 @@ class ReportService:
         await self._check_visibility(db, report, 'artifact_visibility', user)
         
         schema = ReportSchema.from_orm(report)
+        # Widgets and layout blocks name the report's queries; a viewer of
+        # some dashboards only gets them through /queries, scoped to those
+        # dashboards (the share page itself does not read either list).
+        from app.services import artifact_access
+        if await artifact_access.visible_query_ids(db, report, user) is not None:
+            schema.widgets = []
+            schema.dashboard_layout_versions = []
         # Enrich fork lineage
         await self._enrich_fork_lineage(db, report, schema)
         # Attach minimal general settings from organization settings
@@ -2201,6 +2542,10 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
         await self._check_visibility(db, report, 'artifact_visibility', user)
+        # Dashboards are shared one by one: only the queries behind the ones
+        # this caller may open (None = all).
+        from app.services import artifact_access
+        allowed = await artifact_access.visible_query_ids(db, report, user)
 
         # If artifact_id provided, filter to only queries used by that artifact
         query_ids_filter = None
@@ -2214,14 +2559,8 @@ class ReportService:
                 )
             )
             artifact = artifact_result.scalar_one_or_none()
-            if artifact and artifact.content:
-                visualization_ids = artifact.content.get("visualization_ids", [])
-                if visualization_ids:
-                    # Get query_ids from visualizations
-                    viz_result = await db.execute(
-                        select(Visualization.query_id).where(Visualization.id.in_(visualization_ids))
-                    )
-                    query_ids_filter = [row[0] for row in viz_result.all() if row[0]]
+            if artifact and artifact.content and artifact.content.get("visualization_ids"):
+                query_ids_filter = await artifact_access.query_ids_for_contents(db, [artifact.content])
 
         # Fetch queries that have a successful step, eagerly load visualizations.
         # lazyload("*") stops Query.steps (every version, full data) / widget /
@@ -2243,6 +2582,8 @@ class ReportService:
         # Apply artifact filter if present
         if query_ids_filter is not None:
             query_stmt = query_stmt.where(Query.id.in_(query_ids_filter))
+        if allowed is not None:
+            query_stmt = query_stmt.where(Query.id.in_(list(allowed)))
 
         queries_result = await db.execute(query_stmt)
         queries = queries_result.scalars().all()
@@ -2271,6 +2612,12 @@ class ReportService:
         )
         query = query_result.scalar_one_or_none()
         if not query:
+            raise HTTPException(status_code=404, detail="Not found")
+        # Same 404 as a missing query: a viewer of other dashboards of this
+        # report learns nothing about this one.
+        from app.services import artifact_access
+        allowed = await artifact_access.visible_query_ids(db, report, user)
+        if allowed is not None and str(query.id) not in allowed:
             raise HTTPException(status_code=404, detail="Not found")
 
         # Get the default step (or latest successful step if no default)
@@ -2364,14 +2711,19 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Not found")
         await self._check_visibility(db, report, 'artifact_visibility', user)
 
-        # Fetch artifacts for this report
+        # Fetch the versions of the artifacts this caller may open — each
+        # dashboard is shared on its own.
         from app.models.artifact import ArtifactVersion
-        artifacts_result = await db.execute(
+        from app.services import artifact_access
+        visible = await artifact_access.visible_artifact_ids(db, report, user)
+        stmt = (
             select(ArtifactVersion).options(lazyload("*"))
             .where(ArtifactVersion.report_id == report_id, ArtifactVersion.deleted_at.is_(None))
             .order_by(ArtifactVersion.created_at.desc())
         )
-        artifacts = artifacts_result.scalars().all()
+        if visible is not None:
+            stmt = stmt.where(ArtifactVersion.artifact_id.in_(visible))
+        artifacts = (await db.execute(stmt)).scalars().all()
 
         from app.schemas.artifact_schema import ArtifactListSchema
         return [ArtifactListSchema.model_validate(a) for a in artifacts]
@@ -2401,6 +2753,8 @@ class ReportService:
         artifact = artifact_result.scalar_one_or_none()
         if not artifact:
             raise HTTPException(status_code=404, detail="Not found")
+        from app.services import artifact_access
+        await artifact_access.assert_can_view_artifact(db, report, artifact.artifact_id, user)
 
         from app.schemas.artifact_schema import ArtifactSchema
         return ArtifactSchema.model_validate(artifact)
@@ -2668,12 +3022,16 @@ class ReportService:
                             )
                         )).all()
                     }
-                    for rid, am_mode in (await db.execute(
-                        select(Artifact.report_id, Artifact.mode).where(
+                    visible_by_report = await self._listing_visible_artifacts(db, reports, current_user)
+                    for rid, aid, am_mode in (await db.execute(
+                        select(Artifact.report_id, Artifact.id, Artifact.mode).where(
                             Artifact.report_id.in_(report_ids),
                             Artifact.deleted_at.is_(None),
                         )
                     )).all():
+                        visible = visible_by_report.get(str(rid))
+                        if visible is not None and str(aid) not in visible:
+                            continue
                         modes_by_report.setdefault(str(rid), set()).add(am_mode)
                     scheduled_report_ids = {
                         str(row[0]) for row in (await db.execute(
@@ -2829,6 +3187,9 @@ class ReportService:
             # query for the page, then per report the same selection key as
             # before — prefer the dashboard (page mode), then newest.
             thumbs_by_report: dict[str, str] = {}
+            # Dashboards are shared one by one: a card shows only what the
+            # caller may open (thumbnail, counts, modes).
+            visible_by_report = await self._listing_visible_artifacts(db, reports, current_user)
             if report_ids:
                 from app.models.artifact import Artifact, ArtifactVersion
                 th_result = await db.execute(
@@ -2837,15 +3198,21 @@ class ReportService:
                         ArtifactVersion.thumbnail_path,
                         Artifact.mode,
                         ArtifactVersion.created_at,
+                        Artifact.id,
                     )
                     .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
                     .where(
                         ArtifactVersion.report_id.in_(report_ids),
                         ArtifactVersion.thumbnail_path.isnot(None),
+                        ArtifactVersion.deleted_at.is_(None),
+                        Artifact.deleted_at.is_(None),
                     )
                 )
                 best: dict[str, tuple] = {}
-                for rid, thumb_path, art_mode, created in th_result.all():
+                for rid, thumb_path, art_mode, created, parent_id in th_result.all():
+                    visible = visible_by_report.get(str(rid))
+                    if visible is not None and str(parent_id) not in visible:
+                        continue
                     key = (art_mode != 'page', -(created.timestamp() if created else 0))
                     rid = str(rid)
                     if rid not in best or key < best[rid][0]:
@@ -2894,8 +3261,15 @@ class ReportService:
                 # Summary counts (from batched GROUP BY queries above)
                 report_schema.query_count = query_counts.get(str(report.id), 0)
                 # Live parents only — same rule as the detail path's COUNT.
-                live_artifacts = [a for a in (report.artifacts or []) if a.deleted_at is None]
+                visible = visible_by_report.get(str(report.id))
+                live_artifacts = [
+                    a for a in (report.artifacts or [])
+                    if a.deleted_at is None and (visible is None or str(a.id) in visible)
+                ]
                 report_schema.artifact_count = len(live_artifacts)
+                if visible is not None:
+                    # Widget titles name every query of the report.
+                    report_schema.widgets = []
 
                 # Active scheduled prompts (from batch query)
                 active_sp_count = active_sp_counts.get(str(report.id), 0)
@@ -3273,7 +3647,10 @@ class ReportService:
             organization = await db.get(Organization, organization_id)
 
             # Now call rerun_report_steps with the fresh db and loaded objects
-            await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True)
+            await self.rerun_report_steps(
+                db, report_id, current_user, organization,
+                notify_subscribers=True, all_artifacts=True,
+            )
 
     async def refresh_on_view_rerun(self, db: AsyncSession, report_id: str, user=None) -> dict:
         """Rerun a shared report's queries because a viewer opened /r/{id}.
@@ -3377,6 +3754,11 @@ class ReportService:
             db, report_id, owner, organization,
             notify_subscribers=False,      # a page view is not a scheduled run
             regenerate_thumbnail=False,    # no headless browser per viewer
+            # last_run_at (and so the staleness gate) is per report, while a
+            # viewer may open any of its dashboards via ?artifact= — refresh
+            # them all, or the one on screen could stay stale behind a gate
+            # closed by another dashboard's rerun.
+            all_artifacts=True,
         )
         run["skipped"] = False
         return run

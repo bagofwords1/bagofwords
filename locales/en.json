@@ -3828,6 +3828,7 @@
     "shareDashboard": "Share Dashboard",
     "share": "Share",
     "shareDashboardDesc": "Control who can view this dashboard.",
+    "thisDashboardOnlyDesc": "Control who can view this dashboard. Other dashboards in this conversation keep their own access.",
     "shareConversationDesc": "Control who can view this conversation and its messages.",
     "access": "Access",
     "shareWith": "Share with",
@@ -3869,7 +3870,8 @@
     "chatModelOrgDefaultPlain": "Organization default",
     "chatModelReport": "Same as report ({name})",
     "chatModelReportPlain": "Same as report",
-    "chatModelUnavailable": "Unavailable model — using default"
+    "chatModelUnavailable": "Unavailable model — using default",
+    "viewerSettingsApplyToAll": "These settings apply to every dashboard in this conversation."
   },
   "publish": {
     "published": "Published",

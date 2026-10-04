@@ -220,7 +220,11 @@ VISIBILITY_LITERAL = Literal["none", "shared", "internal", "public"]
 
 class ReportVisibilityUpdate(BaseModel):
     """Update visibility for either artifact or conversation sharing."""
-    visibility: VISIBILITY_LITERAL
+    # Required for 'conversation'. For 'artifact', a given visibility shares
+    # every dashboard of the report at once; omitted = write only the viewer
+    # settings below (dashboards are shared one by one via
+    # PUT /reports/{id}/artifacts/{artifact_id}/visibility).
+    visibility: Optional[VISIBILITY_LITERAL] = None
     shared_user_ids: Optional[List[str]] = None  # required when visibility == 'shared'
     # Group grants: every member of a listed group can view. None = leave
     # the current group shares unchanged (mirrors shared_user_ids semantics).
@@ -242,6 +246,15 @@ class ReportVisibilityUpdate(BaseModel):
     # ReportUpdate.model_id: omitted = leave unchanged; "" = clear (inherit the
     # report's model); "org_default" = the organization default model.
     artifact_chat_model_id: Optional[str] = None
+
+
+class ArtifactVisibilityUpdate(BaseModel):
+    """Share one artifact (dashboard) of a report on its own."""
+    visibility: VISIBILITY_LITERAL
+    # Same semantics as ReportVisibilityUpdate: None leaves that principal
+    # kind's grants unchanged; any visibility but 'shared' clears them.
+    shared_user_ids: Optional[List[str]] = None
+    shared_group_ids: Optional[List[str]] = None
 
 
 class ViewerRunResultSchema(BaseModel):

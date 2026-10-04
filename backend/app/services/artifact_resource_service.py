@@ -123,7 +123,9 @@ class ArtifactResources:
         ).scalar_one_or_none()
         if report is None or report.status == "archived":
             fail("NOT_FOUND", "Artifact not found", 404)
-        await ReportService()._check_visibility(db, report, "artifact_visibility", user)
+        # This artifact's own sharing, not the report's: dashboards are shared one by one.
+        from app.services import artifact_access
+        await artifact_access.assert_can_view_artifact(db, report, artifact.id, user)
         from app.services.artifact_resource_policy import require_artifact_resources
         await require_artifact_resources(db, artifact.organization_id)
         groups = []

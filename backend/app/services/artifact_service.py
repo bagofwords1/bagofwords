@@ -1,4 +1,4 @@
-from typing import Any, Optional, List
+from typing import Any, Iterable, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -48,6 +48,9 @@ async def new_artifact(
 
     Extra keyword arguments (thumbnail_path, screenshot_base64, created_at,
     ...) are set on the version row as-is.
+
+    Sharing: a new artifact starts private (artifacts.visibility defaults to
+    'none'), even in a report whose other dashboards are shared.
     """
     parent = Artifact(
         report_id=_id(report_id),
@@ -322,13 +325,15 @@ class ArtifactService:
         return list(res.scalars().all())
 
     async def get_latest_by_report(
-        self, db: AsyncSession, report_id: str, include_docs: bool = False
+        self, db: AsyncSession, report_id: str, include_docs: bool = False,
+        artifact_ids: Optional[Iterable[str]] = None,
     ) -> Optional[ArtifactVersion]:
         """Get the most recent artifact for a report.
 
         By default docs (mode='doc') are excluded: every existing consumer of
         "the report's latest artifact" means the dashboard/slides deliverable.
-        Pass include_docs=True to consider docs too.
+        Pass include_docs=True to consider docs too. artifact_ids limits the
+        pick to those artifacts (parent ids), e.g. the ones a viewer may open.
         """
         stmt = (
             select(ArtifactVersion)
@@ -344,6 +349,8 @@ class ArtifactService:
             .order_by(ArtifactVersion.created_at.desc())
             .limit(1)
         )
+        if artifact_ids is not None:
+            stmt = stmt.where(ArtifactVersion.artifact_id.in_([str(a) for a in artifact_ids]))
         if not include_docs:
             # Explicit join beats the column_property's correlated subquery
             # on this hot path.
@@ -409,6 +416,17 @@ class ArtifactService:
             if parent is not None and parent.deleted_at is None:
                 parent.deleted_at = now
                 db.add(parent)
+                # The report-level dashboard fields aggregate the live
+                # artifacts; one left the set. With none left the report
+                # goes back to private.
+                from app.models.report import Report
+                from app.services import artifact_access
+                await db.flush()
+                report = (await db.execute(
+                    select(Report).options(lazyload("*")).where(Report.id == str(parent.report_id))
+                )).scalar_one_or_none()
+                if report is not None:
+                    await artifact_access.sync_report_aggregate(db, report, reset_when_empty=True)
 
         await db.commit()
         return True

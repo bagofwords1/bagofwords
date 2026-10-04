@@ -3652,6 +3652,7 @@
     "shareDashboard": "Condividi dashboard",
     "share": "Condividi",
     "shareDashboardDesc": "Controlla chi può visualizzare questa dashboard.",
+    "thisDashboardOnlyDesc": "Controlla chi può visualizzare questa dashboard. Le altre dashboard di questa conversazione mantengono il proprio accesso.",
     "shareConversationDesc": "Controlla chi può visualizzare questa conversazione e i suoi messaggi.",
     "access": "Accesso",
     "shareWith": "Condividi con",
@@ -3693,7 +3694,8 @@
     "chatModelOrgDefaultPlain": "Predefinito dell'organizzazione",
     "chatModelReport": "Come nel report ({name})",
     "chatModelReportPlain": "Come nel report",
-    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito"
+    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito",
+    "viewerSettingsApplyToAll": "Queste impostazioni si applicano a tutte le dashboard di questa conversazione."
   },
   "publish": {
     "published": "Pubblicato",

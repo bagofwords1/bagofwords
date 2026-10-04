@@ -148,12 +148,15 @@ def render_scheduled_prompt_email(
     report_url: str,
     exec_summary: Optional[dict] = None,
     summary_html: str = "",
+    dashboard_links: Optional[list[dict]] = None,
 ) -> tuple[str, str]:
     """Render (subject, html) for a scheduled-prompt result email.
 
     `summary_html` is pre-rendered HTML (from the caller's markdown->HTML
     conversion). It's trusted to be safe; do not pass user-controlled
-    content without sanitization."""
+    content without sanitization. `dashboard_links` ([{title, url}]) lists
+    one link per dashboard instead of the single report link; titles are
+    auto-escaped by the template."""
     t = strings_for(locale, SCHEDULED_PROMPT)
     dir_ = direction_for(locale)
     # scheduled_prompt.html.jinja2 renders {{ intro_sentence }} without
@@ -174,6 +177,7 @@ def render_scheduled_prompt_email(
         intro_sentence=intro_sentence,
         report_url=report_url,
         summary_html=summary_html,
+        dashboard_links=dashboard_links or [],
     )
     return subject, html
 

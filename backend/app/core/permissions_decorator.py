@@ -174,25 +174,17 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                         if admin_view or project_view:
                             pass  # Org admin / project collaborator viewing: skip the ownership gate
                         elif allow_public and vis_obj is not None and hasattr(vis_obj, 'artifact_visibility'):
-                            vis = getattr(vis_obj, 'artifact_visibility', 'none') or 'none'
-                            if vis in ('public', 'internal'):
-                                pass  # Allow org members to access
-                            elif vis == 'shared':
-                                # Check if user is in the report's share list
-                                from app.models.report_share import ReportShare
-                                share_stmt = select(ReportShare).where(
-                                    ReportShare.report_id == vis_obj.id,
-                                    ReportShare.user_id == user.id,
-                                    ReportShare.share_type == 'artifact',
-                                    ReportShare.deleted_at.is_(None),
-                                )
-                                share_result = await db.execute(share_stmt)
-                                if not share_result.scalar_one_or_none() and not is_owner:
+                            # Dashboards are shared one by one: an artifact
+                            # version follows its own artifact's sharing, a
+                            # report opens when any of its artifacts does
+                            # (reports with none fall back to the report's own
+                            # setting inside can_view).
+                            if not is_owner:
+                                from app.services import artifact_access
+                                parent_id = getattr(obj, 'artifact_id', None) if obj is not vis_obj else None
+                                if not await artifact_access.can_view(db, vis_obj, user, artifact_id=parent_id):
                                     await _audit_access_denied(db, user, organization, permission, func.__name__)
                                     raise HTTPException(status_code=403, detail="Only the owner can perform this action")
-                            elif not is_owner:
-                                await _audit_access_denied(db, user, organization, permission, func.__name__)
-                                raise HTTPException(status_code=403, detail="Only the owner can perform this action")
                         elif allow_public and hasattr(obj, 'status') and obj.status == 'published':
                             pass  # Legacy fallback for non-report models
                         elif not is_owner:

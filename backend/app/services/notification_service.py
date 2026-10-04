@@ -74,6 +74,7 @@ class NotificationService:
         locale: Optional[str] = None,
         db=None,
         organization_id: Optional[str] = None,
+        artifact_id: Optional[str] = None,
     ) -> NotifyResponse:
         """Send notifications across multiple channels. Failures in one channel don't block others.
 
@@ -90,6 +91,7 @@ class NotificationService:
             "sender_name": sender_name,
             "message": message,
             "report_id": report_id,
+            "artifact_id": artifact_id,
             "locale": _valid_locale(locale),
             "db": db,
             "organization_id": organization_id,
@@ -404,7 +406,10 @@ class NotificationService:
                         )
                     else:
                         pdf_service = ReportPdfService()
-                        pdf_path = await pdf_service.generate_for_report(report_id)
+                        artifact_id = context.get("artifact_id")
+                        pdf_path = await pdf_service.generate_for_report(
+                            report_id, artifact_ids=[artifact_id] if artifact_id else None,
+                        )
                         if pdf_path:
                             pdf_file = Path(pdf_path)
                             if pdf_file.exists():
@@ -561,15 +566,65 @@ class NotificationService:
 
         Called as a fire-and-forget task after rerun_report_steps completes.
         subscribers: [{"type": "user", "id": "..."}, {"type": "email", "address": "..."}]
+
+        Dashboards are shared one by one, so each subscriber gets one link per
+        dashboard of the report they may open (an address that is not a user
+        only gets the public ones). Subscribers with the same list share one
+        email; a subscriber who may open none gets the report link as before.
         """
-        await self.send_scheduled_prompt_results(
-            report_id=report_id,
-            report_title=report_title,
-            subscribers=subscribers,
-            report_url=report_url,
-            exec_summary=None,
-            locale=locale,
-        )
+        groups: dict[tuple, list] = {}
+        try:
+            groups = await self._group_subscribers_by_dashboards(report_id, report_url, subscribers)
+        except Exception as e:
+            logger.warning("Failed to resolve dashboard links for scheduled report %s: %s", report_id, e)
+            groups = {(): list(subscribers or [])}
+        for links, group in groups.items():
+            await self.send_scheduled_prompt_results(
+                report_id=report_id,
+                report_title=report_title,
+                subscribers=group,
+                report_url=report_url,
+                exec_summary=None,
+                locale=locale,
+                dashboard_links=[{"title": title, "url": url} for title, url in links],
+            )
+
+    async def _group_subscribers_by_dashboards(self, report_id: str, report_url: str, subscribers: list) -> dict[tuple, list]:
+        """{((title, url), ...): [subscriber, ...]} — the dashboards each
+        subscriber may open, newest first, linked as {report_url}?artifact=<id>."""
+        from sqlalchemy import select
+        from sqlalchemy.orm import lazyload
+        from app.dependencies import async_session_maker
+        from app.models.artifact import Artifact
+        from app.models.report import Report
+        from app.models.user import User
+        from app.services import artifact_access
+
+        groups: dict[tuple, list] = {}
+        async with async_session_maker() as db:
+            report = (await db.execute(
+                select(Report).options(lazyload("*")).where(Report.id == report_id)
+            )).scalar_one_or_none()
+            if report is None:
+                return {(): list(subscribers or [])}
+            artifacts = (await db.execute(
+                select(Artifact.id, Artifact.title).where(
+                    Artifact.report_id == str(report_id),
+                    Artifact.deleted_at.is_(None),
+                ).order_by(Artifact.created_at.desc())
+            )).all()
+            for sub in subscribers or []:
+                user = None
+                if sub.get("type") == "user" and sub.get("id"):
+                    user = await db.get(User, sub["id"])
+                visible = await artifact_access.visible_artifact_ids(db, report, user)
+                links = tuple(
+                    (title or "Untitled", f"{report_url}?artifact={aid}")
+                    for aid, title in artifacts
+                    if visible is None or str(aid) in visible
+                )
+                groups.setdefault(links, []).append(sub)
+        return groups
 
     async def send_automation_failure(
         self,
@@ -619,10 +674,13 @@ class NotificationService:
         report_url: str,
         exec_summary: Optional[dict] = None,
         locale: Optional[str] = None,
+        dashboard_links: Optional[list[dict]] = None,
     ):
         """Send notification after a scheduled prompt execution completes.
 
         exec_summary: {"iterations": N, "queries": N, "artifacts": N, "last_content": "..."}
+        dashboard_links: [{"title", "url"}] — one link per dashboard instead of
+        the single report link.
         """
         if not subscribers:
             return
@@ -666,6 +724,7 @@ class NotificationService:
             report_url=report_url,
             exec_summary=exec_summary,
             summary_html=summary_html,
+            dashboard_links=dashboard_links,
         )
 
         # Attach artifact PDF if artifacts were created in this execution.

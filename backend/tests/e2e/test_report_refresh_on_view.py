@@ -145,6 +145,32 @@ def test_refresh_on_view_reruns_for_an_anonymous_viewer(
 
 
 @pytest.mark.e2e
+def test_refresh_on_view_refreshes_every_dashboard_of_the_report(
+    create_report, create_user, login_user, whoami, set_visibility, schedule_report, test_client
+):
+    """Dashboards are opened one by one (/r/{id}?artifact=...) but the
+    staleness gate is per report: a view must refresh the older dashboard
+    too, or a rerun of the newest one would close the gate over stale data."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    report = create_report(title="Two dashboards", user_token=token, org_id=org_id, data_sources=[])
+    older = _run(_seed_artifact(report["id"]))
+    newer = _run(_seed_artifact(report["id"]))
+    _publish(set_visibility, report["id"], token, org_id)
+    schedule_report(report["id"], "None", user_token=token, org_id=org_id, refresh_on_view=True)
+
+    body = _view(test_client, report["id"]).json()
+
+    assert body["skipped"] is False
+    assert body["steps_total"] == 2
+    for seeded in (older, newer):
+        rows = (_run(_read_step(seeded["step_id"])) or {}).get("rows")
+        assert rows, "a dashboard of the report was left stale by the view's refresh"
+
+
+@pytest.mark.e2e
 def test_refresh_on_view_is_rate_limited_by_the_staleness_gate(
     create_report, create_user, login_user, whoami, set_visibility, schedule_report, test_client
 ):

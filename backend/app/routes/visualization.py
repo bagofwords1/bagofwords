@@ -55,8 +55,8 @@ async def get_visualization(
 ):
     v, report = await _get_visualization_and_report(db, visualization_id, organization)
     # Same gate as reading the report's steps: owner, org admin, project
-    # collaborator, or the report's artifact visibility.
-    await StepService()._authorize_report_view(db, report, current_user, organization)
+    # collaborator, or a shared dashboard that shows this visualization's query.
+    await StepService()._authorize_report_view(db, report, current_user, organization, query_id=v.query_id)
     return VisualizationSchema.model_validate(v)
 
 

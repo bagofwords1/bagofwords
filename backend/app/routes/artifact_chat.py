@@ -9,7 +9,7 @@ member, and operate on the viewer's own hidden chat report
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, lazyload
@@ -121,6 +121,7 @@ async def get_chat_status(
 async def create_chat_completion(
     report_id: str,
     completion: CompletionCreate,
+    artifact_id: str | None = Query(None, description="The artifact version on screen; chat answers about it"),
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(current_user),
 ):
@@ -146,7 +147,7 @@ async def create_chat_completion(
     completion.prompt.mode = 'chat'
     completion.prompt.platform = 'artifact_chat'
     completion.prompt.platform_context = await artifact_chat_service.build_platform_context(
-        db, report, agent_ids
+        db, report, agent_ids, user=user, artifact_id=artifact_id,
     )
     try:
         completion.queue = False

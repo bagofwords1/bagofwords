@@ -3652,6 +3652,7 @@
     "shareDashboard": "Compartilhar painel",
     "share": "Compartilhar",
     "shareDashboardDesc": "Controle quem pode visualizar este painel.",
+    "thisDashboardOnlyDesc": "Controle quem pode visualizar este painel. Os outros painéis desta conversa mantêm o próprio acesso.",
     "shareConversationDesc": "Controle quem pode visualizar esta conversa e suas mensagens.",
     "access": "Acesso",
     "shareWith": "Compartilhar com",
@@ -3693,7 +3694,8 @@
     "chatModelOrgDefaultPlain": "Padrão da organização",
     "chatModelReport": "Igual ao relatório ({name})",
     "chatModelReportPlain": "Igual ao relatório",
-    "chatModelUnavailable": "Modelo indisponível — usando o padrão"
+    "chatModelUnavailable": "Modelo indisponível — usando o padrão",
+    "viewerSettingsApplyToAll": "Estas configurações se aplicam a todos os painéis desta conversa."
   },
   "publish": {
     "published": "Publicado",

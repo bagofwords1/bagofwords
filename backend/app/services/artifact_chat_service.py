@@ -227,13 +227,19 @@ class ArtifactChatService:
         await db.commit()
         return chat_report
 
-    async def build_platform_context(self, db, source: Report, agent_ids: list[str]) -> dict:
+    async def build_platform_context(
+        self, db, source: Report, agent_ids: list[str], user=None, artifact_id: str | None = None,
+    ) -> dict:
         """The artifact-chat platform_context injected into the planner prompt.
 
         Always carries the dashboard's identity; in data-only mode (no agents)
         it also carries the artifact's visualization data — resolved LIVE from
         the source report's latest artifact, never copied, so it is exactly as
         fresh as the dashboard itself.
+
+        Only artifacts the viewer may open are considered (dashboards are
+        shared one by one); artifact_id, a version id, prefers the one on
+        screen.
         """
         from app.models.artifact import ArtifactVersion
         from app.services.artifact_payload import collect_visualizations
@@ -243,12 +249,21 @@ class ArtifactChatService:
             "scope": "agents" if agent_ids else "data_only",
         }
 
-        artifact = (await db.execute(
+        from app.services import artifact_access
+        visible = await artifact_access.visible_artifact_ids(db, source, user)
+        stmt = (
             select(ArtifactVersion)
             .where(ArtifactVersion.report_id == str(source.id), ArtifactVersion.deleted_at.is_(None))
             .order_by(ArtifactVersion.created_at.desc())
             .limit(1)
-        )).scalar_one_or_none()
+        )
+        if visible is not None:
+            stmt = stmt.where(ArtifactVersion.artifact_id.in_(visible))
+        artifact = None
+        if artifact_id:
+            artifact = (await db.execute(stmt.where(ArtifactVersion.id == str(artifact_id)))).scalar_one_or_none()
+        if artifact is None:
+            artifact = (await db.execute(stmt)).scalar_one_or_none()
         if artifact is None:
             return ctx
 

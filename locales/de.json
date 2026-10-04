@@ -3652,6 +3652,7 @@
     "shareDashboard": "Dashboard teilen",
     "share": "Teilen",
     "shareDashboardDesc": "Steuern Sie, wer dieses Dashboard sehen kann.",
+    "thisDashboardOnlyDesc": "Steuern Sie, wer dieses Dashboard sehen kann. Die anderen Dashboards in dieser Unterhaltung behalten ihren eigenen Zugriff.",
     "shareConversationDesc": "Steuern Sie, wer diese Unterhaltung und ihre Nachrichten sehen kann.",
     "access": "Zugriff",
     "shareWith": "Teilen mit",
@@ -3693,7 +3694,8 @@
     "chatModelOrgDefaultPlain": "Standard der Organisation",
     "chatModelReport": "Wie im Bericht ({name})",
     "chatModelReportPlain": "Wie im Bericht",
-    "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet"
+    "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet",
+    "viewerSettingsApplyToAll": "Diese Einstellungen gelten für alle Dashboards in dieser Unterhaltung."
   },
   "publish": {
     "published": "Veröffentlicht",

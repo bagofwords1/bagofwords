@@ -26,7 +26,7 @@
                 class="flex-1 flex flex-col items-center justify-center px-6 text-center" data-testid="chat-signin-prompt">
                 <Icon name="heroicons:lock-closed" class="w-8 h-8 text-gray-300 mb-3" />
                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Sign in to ask questions about this dashboard.</p>
-                <a :href="`/users/sign-in?redirect=/r/${reportId}`"
+                <a :href="`/users/sign-in?redirect=${encodeURIComponent($route.fullPath)}`"
                     class="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Sign in</a>
             </div>
 
@@ -134,7 +134,8 @@
 import { ref, computed, nextTick } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const props = defineProps<{ reportId: string; raised?: boolean; lift?: number }>()
+// artifactId: the artifact version on screen — chat answers about that dashboard.
+const props = defineProps<{ reportId: string; artifactId?: string; raised?: boolean; lift?: number }>()
 
 const bottomPx = computed(() => (props.raised ? 64 : 16) + (props.lift || 0))
 
@@ -255,7 +256,8 @@ async function send() {
     scrollToBottom()
 
     try {
-        const res: any = await useMyFetch(`/r/${props.reportId}/chat/completions`, {
+        const artifactQuery = props.artifactId ? `?artifact_id=${encodeURIComponent(props.artifactId)}` : ''
+        const res: any = await useMyFetch(`/r/${props.reportId}/chat/completions${artifactQuery}`, {
             method: 'POST',
             stream: true,
             body: JSON.stringify({ prompt: { content }, stream: true }),

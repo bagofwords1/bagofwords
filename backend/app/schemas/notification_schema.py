@@ -24,6 +24,9 @@ class NotifyRequest(BaseModel):
     recipients: List[str] = Field(..., min_items=1, max_items=20)
     share_url: Optional[str] = None
     message: Optional[str] = Field(None, max_length=500)
+    # Dashboard shares: the artifact (parent id) being shared, so the in-app
+    # link and the attached PDF are that dashboard rather than the newest one.
+    artifact_id: Optional[str] = None
 
     @validator("recipients", each_item=True)
     def validate_email(cls, v):

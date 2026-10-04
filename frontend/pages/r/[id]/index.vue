@@ -11,7 +11,7 @@
                     ? 'You need to sign in to view this dashboard.'
                     : 'You don\'t have permission to view this dashboard. Ask the owner to share it with you.' }}
             </p>
-            <a v-if="accessError === 'login'" :href="`/users/sign-in?redirect=/r/${$route.params.id}`"
+            <a v-if="accessError === 'login'" :href="`/users/sign-in?redirect=${encodeURIComponent($route.fullPath)}`"
                 class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
                 Sign in
             </a>
@@ -267,6 +267,7 @@
         <ArtifactChatBubble
             v-if="reportLoaded && report?.artifact_chat_enabled"
             :report-id="String($route.params.id)"
+            :artifact-id="artifact?.id"
             :raised="report.general?.bow_credit !== false"
             :lift="cornerLift"
         />
@@ -507,7 +508,9 @@ async function handleExportPdf() {
     isExportingPdf.value = true;
     exportPdfError.value = null;
     try {
-        const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/export_pdf`, {
+        // Pin the export to the artifact actually on screen, like pptx/html.
+        const query = artifact.value?.id ? `?artifact_id=${encodeURIComponent(artifact.value.id)}` : '';
+        const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/export_pdf${query}`, {
             responseType: 'blob' as any,
             // ofetch's default retry list includes 409/504 — exactly what a
             // failed/timed-out export returns — and a silent retry re-runs a
@@ -736,11 +739,23 @@ async function loadArtifact() {
         if (error.value) throw error.value;
         if (data.value && Array.isArray(data.value) && data.value.length > 0) {
             hasArtifacts.value = true;
-            // Prefer the newest dashboard/deck (the list is created_at desc):
-            // a doc saved after the dashboard must not take over the shared
-            // page — same rule as the backend's get_latest_by_report.
+            // The list holds only the dashboards this viewer may open, newest
+            // first. ?artifact=<id> names one dashboard (each is shared on its
+            // own): show its newest version, or say why it can't be shown —
+            // never silently swap in a different dashboard. Without it, prefer
+            // the newest dashboard/deck: a doc saved after the dashboard must
+            // not take over the shared page — same rule as the backend's
+            // get_latest_by_report.
             const rows = data.value as any[];
-            const latestArtifactId = (rows.find(a => a.mode !== 'doc') || rows[0]).id;
+            const requested = typeof route.query.artifact === 'string' ? route.query.artifact : null;
+            if (requested && !rows.some(a => a.artifact_id === requested)) {
+                accessError.value = currentUser.value ? 'denied' : 'login';
+                return;
+            }
+            const pick = requested
+                ? rows.find(a => a.artifact_id === requested)
+                : (rows.find(a => a.mode !== 'doc') || rows[0]);
+            const latestArtifactId = pick.id;
             // Use public artifact endpoint
             const { data: fullArtifact, error: detailError } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
             if (detailError.value || !fullArtifact.value) throw detailError.value || new Error("Missing artifact response");

@@ -3652,6 +3652,7 @@
     "shareDashboard": "مشاركة لوحة التحكم",
     "share": "مشاركة",
     "shareDashboardDesc": "تحكم بمن يمكنه عرض لوحة التحكم هذه.",
+    "thisDashboardOnlyDesc": "تحكم بمن يمكنه عرض لوحة التحكم هذه. تحتفظ لوحات التحكم الأخرى في هذه المحادثة بصلاحيات الوصول الخاصة بها.",
     "shareConversationDesc": "تحكم بمن يمكنه عرض هذه المحادثة ورسائلها.",
     "access": "الوصول",
     "shareWith": "مشاركة مع",
@@ -3693,7 +3694,8 @@
     "chatModelOrgDefaultPlain": "الافتراضي للمؤسسة",
     "chatModelReport": "كما في التقرير ({name})",
     "chatModelReportPlain": "كما في التقرير",
-    "chatModelUnavailable": "النموذج غير متاح — يتم استخدام الافتراضي"
+    "chatModelUnavailable": "النموذج غير متاح — يتم استخدام الافتراضي",
+    "viewerSettingsApplyToAll": "تنطبق هذه الإعدادات على جميع لوحات التحكم في هذه المحادثة."
   },
   "publish": {
     "published": "منشورة",

@@ -65,7 +65,7 @@ class StepService:
             # Cross-org / orphan → indistinguishable from not-found.
             raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
 
-        await self._authorize_report_view(db, report, current_user, organization)
+        await self._authorize_report_view(db, report, current_user, organization, query_id=step.query_id)
 
         resolution = await resolve_step_data(db, step, report, current_user)
         if resolution.withheld:
@@ -91,7 +91,7 @@ class StepService:
         report = step.widget.report if step and step.widget else None
         if report is None or str(report.organization_id) != str(organization.id):
             raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
-        await self._authorize_report_view(db, report, current_user, organization)
+        await self._authorize_report_view(db, report, current_user, organization, query_id=step.query_id)
 
         schema = StepSchema.from_orm(step)
         if str(report.user_id) == str(current_user.id):
@@ -116,9 +116,11 @@ class StepService:
             update["code"] = ""
         return schema.model_copy(update=update)
 
-    async def _authorize_report_view(self, db: AsyncSession, report, current_user: User, organization) -> None:
+    async def _authorize_report_view(self, db: AsyncSession, report, current_user: User, organization, *, query_id) -> None:
         """Raise unless current_user may view `report` (owner / org full-admin /
-        artifact visibility). Mirrors the artifact GET gate."""
+        artifact visibility) and, since dashboards are shared one by one, the
+        query `query_id` behind one of the dashboards they may open. Mirrors
+        the artifact GET gate."""
         from app.errors import AppError, ErrorCode
         from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
         from app.services.report_service import ReportService
@@ -133,6 +135,10 @@ class StepService:
         try:
             await ReportService()._check_visibility(db, report, 'artifact_visibility', current_user)
         except Exception:
+            raise AppError.forbidden(ErrorCode.ACCESS_DENIED, "You don't have access to this report")
+        from app.services import artifact_access
+        allowed = await artifact_access.visible_query_ids(db, report, current_user)
+        if allowed is not None and str(query_id) not in allowed:
             raise AppError.forbidden(ErrorCode.ACCESS_DENIED, "You don't have access to this report")
 
     def _df_from_step_data(self, data) -> pd.DataFrame:

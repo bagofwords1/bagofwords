@@ -186,6 +186,37 @@ def test_shared_dashboard_exposes_only_its_embedded_files(test_client, cast, set
 
 
 @pytest.mark.e2e
+def test_file_embedded_in_a_private_dashboard_stays_closed(test_client, cast):
+    """Dashboards are shared one by one: opening one dashboard of a report
+    does not open the files another, private dashboard embeds."""
+    org_id, owner, other = cast["org_id"], cast["owner"], cast["other"]
+    report_id = _report(test_client, owner["token"], org_id)
+    embedded = _upload(test_client, owner["token"], org_id, report_id=report_id).json()["id"]
+
+    def dashboard(content):
+        resp = test_client.post("/api/artifacts", json={
+            "report_id": report_id, "mode": "page", "title": "d", "content": content,
+        }, headers=_h(owner["token"], org_id))
+        assert resp.status_code == 200, resp.text
+        return resp.json()["artifact_id"]
+
+    shared = dashboard({"code": "<div/>"})
+    private = dashboard({"code": "<BowFile />", "files": [{"id": embedded, "content_type": "text/csv"}]})
+    resp = test_client.put(f"/api/reports/{report_id}/artifacts/{shared}/visibility",
+                           json={"visibility": "shared", "shared_user_ids": [other["user_id"]]},
+                           headers=_h(owner["token"], org_id))
+    assert resp.status_code == 200, resp.text
+
+    assert not _can_read(test_client, other["token"], org_id, embedded)
+
+    resp = test_client.put(f"/api/reports/{report_id}/artifacts/{private}/visibility",
+                           json={"visibility": "shared", "shared_user_ids": [other["user_id"]]},
+                           headers=_h(owner["token"], org_id))
+    assert resp.status_code == 200, resp.text
+    assert _can_read(test_client, other["token"], org_id, embedded)
+
+
+@pytest.mark.e2e
 def test_agent_files_follow_agent_access(test_client, cast, sqlite_data_source):
     org_id, admin, other = cast["org_id"], cast["admin"], cast["other"]
     ds = sqlite_data_source(name=f"agent-{uuid.uuid4().hex[:6]}", user_token=admin, org_id=org_id)

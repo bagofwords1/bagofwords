@@ -3652,6 +3652,7 @@
     "shareDashboard": "Partager le tableau de bord",
     "share": "Partager",
     "shareDashboardDesc": "Contrôlez qui peut voir ce tableau de bord.",
+    "thisDashboardOnlyDesc": "Contrôlez qui peut voir ce tableau de bord. Les autres tableaux de bord de cette conversation gardent leur propre accès.",
     "shareConversationDesc": "Contrôlez qui peut voir cette conversation et ses messages.",
     "access": "Accès",
     "shareWith": "Partager avec",
@@ -3693,7 +3694,8 @@
     "chatModelOrgDefaultPlain": "Par défaut de l'organisation",
     "chatModelReport": "Identique au rapport ({name})",
     "chatModelReportPlain": "Identique au rapport",
-    "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé"
+    "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé",
+    "viewerSettingsApplyToAll": "Ces paramètres s'appliquent à tous les tableaux de bord de cette conversation."
   },
   "publish": {
     "published": "Publié",
