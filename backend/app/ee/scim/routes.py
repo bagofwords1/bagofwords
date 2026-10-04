@@ -12,9 +12,12 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.ee.license import require_enterprise
 from app.ee.scim.auth import scim_auth
+from app.ee.scim.errors import ScimRoute, SCIM_MEDIA_TYPE
+from app.ee.scim.group_service import ScimGroupService
 from app.ee.scim.service import ScimTokenService, ScimUserService
 from app.ee.scim.schemas import (
     ScimUserCreate, ScimPatchOp, ScimListResponse, ScimUser,
+    ScimGroup, ScimGroupCreate, ScimGroupListResponse,
     ScimTokenCreate, ScimTokenResponse, ScimTokenCreated,
 )
 from app.ee.scim.constants import SERVICE_PROVIDER_CONFIG, SCHEMAS, RESOURCE_TYPES
@@ -23,15 +26,21 @@ from app.models.organization import Organization
 
 scim_token_service = ScimTokenService()
 scim_user_service = ScimUserService()
+scim_group_service = ScimGroupService()
 
 
 class SCIMResponse(JSONResponse):
-    media_type = "application/scim+json"
+    media_type = SCIM_MEDIA_TYPE
 
 
 # --- SCIM Provisioning Router (Bearer token auth, mounted at /scim/v2) ---
 
-scim_router = APIRouter(prefix="/scim/v2", tags=["scim"], default_response_class=SCIMResponse)
+scim_router = APIRouter(
+    prefix="/scim/v2",
+    tags=["scim"],
+    default_response_class=SCIMResponse,
+    route_class=ScimRoute,
+)
 
 
 # Discovery endpoints
@@ -157,6 +166,138 @@ async def delete_user(
         db=db,
         organization_id=str(organization.id),
         user_id=user_id,
+    )
+    return Response(status_code=204)
+
+
+# Group endpoints
+#
+# Unset attributes (externalId, or members when excluded via
+# attributes/excludedAttributes) are omitted from the body, as RFC 7643 asks.
+
+@scim_router.get(
+    "/Groups", response_model=ScimGroupListResponse,
+    response_model_exclude_none=True, response_model_by_alias=True,
+)
+async def list_groups(
+    request: Request,
+    filter: Optional[str] = Query(None),
+    startIndex: int = Query(1, ge=1),
+    count: int = Query(100, ge=0, le=100),
+    attributes: Optional[str] = Query(None),
+    excludedAttributes: Optional[str] = Query(None),
+    organization: Organization = Depends(scim_auth),
+    db: AsyncSession = Depends(get_async_db),
+):
+    return await scim_group_service.list_groups(
+        db=db,
+        organization_id=str(organization.id),
+        filter_str=filter,
+        start_index=startIndex,
+        count=count,
+        attributes=attributes,
+        excluded_attributes=excludedAttributes,
+        base_url=str(request.base_url).rstrip("/"),
+    )
+
+
+@scim_router.post(
+    "/Groups", response_model=ScimGroup, status_code=201,
+    response_model_exclude_none=True, response_model_by_alias=True,
+)
+async def create_group(
+    request: Request,
+    response: Response,
+    data: ScimGroupCreate,
+    organization: Organization = Depends(scim_auth),
+    db: AsyncSession = Depends(get_async_db),
+):
+    group = await scim_group_service.create_group(
+        db=db,
+        organization_id=str(organization.id),
+        data=data,
+        base_url=str(request.base_url).rstrip("/"),
+    )
+    response.headers["Location"] = group.meta.location
+    return group
+
+
+@scim_router.get(
+    "/Groups/{group_id}", response_model=ScimGroup,
+    response_model_exclude_none=True, response_model_by_alias=True,
+)
+async def get_group(
+    request: Request,
+    group_id: str,
+    attributes: Optional[str] = Query(None),
+    excludedAttributes: Optional[str] = Query(None),
+    organization: Organization = Depends(scim_auth),
+    db: AsyncSession = Depends(get_async_db),
+):
+    return await scim_group_service.get_group(
+        db=db,
+        organization_id=str(organization.id),
+        group_id=group_id,
+        attributes=attributes,
+        excluded_attributes=excludedAttributes,
+        base_url=str(request.base_url).rstrip("/"),
+    )
+
+
+@scim_router.put(
+    "/Groups/{group_id}", response_model=ScimGroup,
+    response_model_exclude_none=True, response_model_by_alias=True,
+)
+async def replace_group(
+    request: Request,
+    group_id: str,
+    data: ScimGroupCreate,
+    organization: Organization = Depends(scim_auth),
+    db: AsyncSession = Depends(get_async_db),
+):
+    return await scim_group_service.replace_group(
+        db=db,
+        organization_id=str(organization.id),
+        group_id=group_id,
+        data=data,
+        base_url=str(request.base_url).rstrip("/"),
+    )
+
+
+@scim_router.patch(
+    "/Groups/{group_id}", response_model=ScimGroup,
+    response_model_exclude_none=True, response_model_by_alias=True,
+)
+async def patch_group(
+    request: Request,
+    group_id: str,
+    data: ScimPatchOp,
+    attributes: Optional[str] = Query(None),
+    excludedAttributes: Optional[str] = Query(None),
+    organization: Organization = Depends(scim_auth),
+    db: AsyncSession = Depends(get_async_db),
+):
+    return await scim_group_service.patch_group(
+        db=db,
+        organization_id=str(organization.id),
+        group_id=group_id,
+        patch=data,
+        attributes=attributes,
+        excluded_attributes=excludedAttributes,
+        base_url=str(request.base_url).rstrip("/"),
+    )
+
+
+@scim_router.delete("/Groups/{group_id}", status_code=204)
+async def delete_group(
+    group_id: str,
+    organization: Organization = Depends(scim_auth),
+    db: AsyncSession = Depends(get_async_db),
+):
+    await scim_group_service.delete_group(
+        db=db,
+        organization_id=str(organization.id),
+        group_id=group_id,
     )
     return Response(status_code=204)
 

@@ -152,6 +152,7 @@ class NotifyService:
         recipient_emails: Optional[List[str]] = None,
         source: str = SOURCE_REPORT_TOOL,
         system_completion: Any = None,
+        agent_execution_id: Optional[str] = None,
         notification_type: str = "notify",
         subject_extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -211,7 +212,8 @@ class NotifyService:
             # system_completion (so the owner's reply re-attaches to their report).
             sc = system_completion if r.is_self else None
             channel, ok, err = await self._external_nudge(
-                db, organization, report, r, subject, body, body_format, attachment_specs, sc
+                db, organization, report, r, subject, body, body_format, attachment_specs, sc,
+                agent_execution_id,
             )
             if channel:
                 (d.delivered if ok else d.failed).append(channel)
@@ -241,6 +243,7 @@ class NotifyService:
     async def _external_nudge(
         self, db, organization, report, recipient: ResolvedRecipient,
         subject, body, body_format, attachment_specs, system_completion,
+        agent_execution_id=None,
     ) -> Tuple[Optional[str], bool, Optional[str]]:
         """Try the recipient's preferred verified chat platform, else email.
 
@@ -265,7 +268,7 @@ class NotifyService:
 
         return await self._send_email(
             db, organization, report, recipient, subject, body, body_format,
-            attachment_specs, system_completion,
+            attachment_specs, system_completion, agent_execution_id,
         )
 
     async def _try_chat(
@@ -315,7 +318,7 @@ class NotifyService:
 
     async def _send_email(
         self, db, organization, report, recipient, subject, body, body_format,
-        attachment_specs, system_completion,
+        attachment_specs, system_completion, agent_execution_id=None,
     ) -> Tuple[str, bool, Optional[str]]:
         from app.services.email_send_service import EmailSendService
 
@@ -330,6 +333,7 @@ class NotifyService:
                 report=report,
                 organization=organization,
                 system_completion=system_completion,
+                agent_execution_id=agent_execution_id,
             )
             return "email", bool(out.success), (None if out.success else out.error)
         except Exception as e:  # noqa: BLE001

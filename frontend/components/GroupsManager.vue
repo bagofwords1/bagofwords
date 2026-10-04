@@ -154,7 +154,7 @@
                                 <td class="px-4 py-2 whitespace-nowrap">
                                     <div class="flex gap-2">
                                         <UButton
-                                            v-if="useCan('manage_groups')"
+                                            v-if="useCan('manage_groups') && !isScimManaged(group)"
                                             variant="ghost"
                                             size="xs"
                                             icon="i-heroicons-pencil"
@@ -236,10 +236,12 @@
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
                 <h3 class="text-lg font-semibold">{{ selectedGroup?.name }} {{ $t('groupsManager.membersSuffix') }}</h3>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ $t('groupsManager.manageMembersHint') }}</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                    {{ isScimManaged(selectedGroup) ? $t('groupsManager.managedByScimHint') : $t('groupsManager.manageMembersHint') }}
+                </p>
 
                 <!-- Add member -->
-                <div v-if="useCan('manage_groups')" class="flex gap-2 mb-4">
+                <div v-if="canEditMembers" class="flex gap-2 mb-4">
                     <USelectMenu
                         v-model="memberToAdd"
                         :options="addableMemberOptions"
@@ -292,7 +294,7 @@
                             </div>
                         </div>
                         <UButton
-                            v-if="useCan('manage_groups')"
+                            v-if="canEditMembers"
                             variant="ghost"
                             size="xs"
                             color="red"
@@ -404,6 +406,14 @@ const groupsColspan = computed(() => 5 + (showQuotaColumn.value ? 1 : 0) + (useC
 // Members modal state
 const showMembersModal = ref(false)
 const selectedGroup = ref<GroupData | null>(null)
+
+// A SCIM-pushed group's name and members belong to the identity provider; the
+// API refuses hand edits (409 group.managed_by_scim), so don't offer them.
+// Roles and quotas on the group stay editable here.
+function isScimManaged(group: GroupData | null): boolean {
+    return group?.external_provider === 'scim'
+}
+const canEditMembers = computed(() => useCan('manage_groups') && !isScimManaged(selectedGroup.value))
 const groupMembers = ref<GroupMember[]>([])
 const groupMembersLoading = ref(false)
 const memberToAdd = ref<string | null>(null)
