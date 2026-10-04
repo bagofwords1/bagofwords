@@ -328,10 +328,8 @@ async def test_sigkill_hook_emits_run_stopped_event(db):
     sys.status = "in_progress"
     await db.commit()
 
-    # organization=None keeps the (EE) audit-log branch out of this unit test;
-    # the session-event emit is what we're exercising.
     await CompletionService().update_completion_sigkill(
-        db, str(sys.id), current_user=user, organization=None
+        db, str(sys.id), current_user=user, organization=org
     )
 
     rows = (await db.execute(
@@ -362,7 +360,7 @@ async def test_sigkill_on_finished_run_emits_no_event(db):
     assert sys.status == "success"  # already finished
 
     await CompletionService().update_completion_sigkill(
-        db, str(sys.id), current_user=user, organization=None
+        db, str(sys.id), current_user=user, organization=org
     )
 
     rows = (await db.execute(

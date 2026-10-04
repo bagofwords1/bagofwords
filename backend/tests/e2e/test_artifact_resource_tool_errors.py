@@ -31,11 +31,11 @@ def _definition(name, **fields):
 
 
 @pytest.fixture
-def report_ctx(monkeypatch, create_user, login_user, whoami, create_report, test_client):
-    monkeypatch.setenv("BOW_ARTIFACT_RESOURCES_ENABLED", "true")
+def report_ctx(create_user, login_user, whoami, create_report, test_client, update_organization_settings):
     user = create_user()
     token = login_user(user["email"], user["password"])
     org = whoami(token)["organizations"][0]["id"]
+    update_organization_settings({"enable_artifact_resources": {"value": True}}, user_token=token, org_id=org)
     report = create_report(user_token=token, org_id=org)
     # Stands in for the agent's own loaded rows (execution, plan): state no
     # authoring tool reads, so nothing incidentally reloads it.

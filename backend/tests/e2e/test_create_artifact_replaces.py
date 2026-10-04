@@ -250,10 +250,10 @@ def test_duplicate_and_list_speak_artifact_id(
 @pytest.mark.parametrize('with_resources', [False, True])
 def test_non_analytical_pages_keep_a_stable_resource_identity(
     create_report, create_user, login_user, whoami, test_client, stub_render_validation,
-    monkeypatch, with_resources,
+    update_organization_settings, with_resources,
 ):
-    monkeypatch.setenv('BOW_ARTIFACT_RESOURCES_ENABLED', 'true')
     report, token, org = _make_report(create_report, create_user, login_user, whoami, 'Non analytical app')
+    update_organization_settings({'enable_artifact_resources': {'value': True}}, user_token=token, org_id=org)
     definitions = [{'name': 'notes', 'fields': {'title': {'type': 'string', 'required': True}}}] if with_resources else []
     result = _run(_run_create(report['id'], {'prompt': 'A small app', 'code': PAGE_CODE, 'resources': definitions}))
     output = result['output']
@@ -269,10 +269,10 @@ def test_non_analytical_pages_keep_a_stable_resource_identity(
 @pytest.mark.parametrize('resupply', [False, True])
 def test_resource_rebuild_preserves_definitions_data_and_sdk_metadata(
     create_report, create_user, login_user, whoami, test_client, stub_render_validation,
-    monkeypatch, resupply,
+    update_organization_settings, resupply,
 ):
-    monkeypatch.setenv('BOW_ARTIFACT_RESOURCES_ENABLED', 'true')
     report, token, org = _make_report(create_report, create_user, login_user, whoami, 'Rebuild app')
+    update_organization_settings({'enable_artifact_resources': {'value': True}}, user_token=token, org_id=org)
     definitions = [{'name': 'n' * 63, 'fields': {'title': {'type': 'string', 'required': True}}}]
     first = _run(_run_create(report['id'], {'prompt': 'Notes', 'code': PAGE_CODE, 'resources': definitions}))
     assert first['output'].get('artifact_id'), first
