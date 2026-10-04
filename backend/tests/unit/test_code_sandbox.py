@@ -552,6 +552,48 @@ def test_partial_frame_cannot_outlive_the_wall_clock():
         os.close(fake.stderr_fd)
 
 
+def test_child_that_stops_reading_cannot_outlive_the_wall_clock():
+    """A child that sends an RPC and then never reads the reply must still
+    be killed at the deadline. The reply (a query result) is larger than a
+    pipe buffer, so an unsupervised write to the child would block the API
+    worker for as long as the child chooses to sleep."""
+    code = """
+def generate_df(ds_clients, excel_files):
+    import sys, time
+    from app.ai.code_execution.sandbox.protocol import write_message
+    f = sys._getframe()
+    while "rpc" not in f.f_locals:
+        f = f.f_back
+    write_message(f.f_locals["rpc"]._w, {
+        "t": "rpc", "id": 1, "method": "execute_query",
+        "client": "main", "args": ["SELECT big"], "kwargs": {},
+    })
+    time.sleep(30)
+"""
+
+    def big_query(key, args, kwargs):
+        # Distinct values (~4 MB pickled): identical strings would be
+        # memoized by pickle and fit in the pipe buffer.
+        return pd.DataFrame({"payload": [f"{i:08d}" * 128 for i in range(4096)]})
+
+    limits = SandboxLimits(timeout_seconds=1, memory_mb=0, cpu_seconds=0, require_landlock=False)
+    outcome = {}
+
+    def _target():
+        try:
+            run_job(SandboxJob(mode="data", code=code, client_keys=["main"]), execute_query=big_query, limits=limits)
+        except BaseException as e:  # noqa: BLE001 - asserted below
+            outcome["exc"] = e
+
+    t0 = time.monotonic()
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    worker.join(timeout=5)
+    assert not worker.is_alive(), "runner blocked writing to a child that stopped reading"
+    assert isinstance(outcome.get("exc"), SandboxTimeoutError)
+    assert time.monotonic() - t0 < 2.5
+
+
 def test_forked_child_uses_its_own_scratch_dir():
     """Each job gets a private cwd/TMPDIR; nothing written by one job is
     visible to the next, and the fork server's directory is never used."""

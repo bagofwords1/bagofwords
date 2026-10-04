@@ -37,10 +37,14 @@ class ProtocolError(RuntimeError):
     pass
 
 
-def write_message(stream: BinaryIO, header: Dict[str, Any], payload: bytes = b"") -> None:
+def encode_frame_header(header: Dict[str, Any], payload: bytes = b"") -> bytes:
+    """Frame prefix plus JSON header; the payload follows it on the wire."""
     body = json.dumps(header, default=str, ensure_ascii=False).encode("utf-8")
-    stream.write(_FRAME.pack(len(body), len(payload)))
-    stream.write(body)
+    return _FRAME.pack(len(body), len(payload)) + body
+
+
+def write_message(stream: BinaryIO, header: Dict[str, Any], payload: bytes = b"") -> None:
+    stream.write(encode_frame_header(header, payload))
     if payload:
         stream.write(payload)
     stream.flush()

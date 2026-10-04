@@ -41,7 +41,7 @@ from app.ai.code_execution.sandbox.protocol import (
     MAX_HEADER_BYTES,
     ProtocolError,
     arrow_to_dataframe,
-    write_message,
+    encode_frame_header,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,6 +194,7 @@ class _ChildProcess:
                  proc: Optional[subprocess.Popen] = None):
         self.pid = pid
         self.to_child = os.fdopen(to_child, "wb", buffering=0)
+        os.set_blocking(self.to_child.fileno(), False)
         self.from_child = os.fdopen(from_child, "rb", buffering=0)
         os.set_blocking(self.from_child.fileno(), False)
         self.stderr_fd = stderr_fd
@@ -420,9 +421,11 @@ def _acquire_child() -> _ChildProcess:
 
 
 def _wait_for_child(child: _ChildProcess, deadline: float, cancel_event: Optional[threading.Event],
-                    limits: SandboxLimits, fds: List[int], timeout: float = 0.25) -> List[int]:
+                    limits: SandboxLimits, fds: List[int], timeout: float = 0.25,
+                    write_fds: List[int] = ()) -> List[int]:
     """One supervision tick: enforce cancel/deadline, drain stderr, and
-    return the fds in `fds` that are readable (possibly none)."""
+    return the fds in `fds` that are readable and the fds in `write_fds`
+    that are writable (possibly none)."""
     if cancel_event is not None and cancel_event.is_set():
         child.kill()
         raise SandboxCancelled("code execution cancelled")
@@ -431,26 +434,30 @@ def _wait_for_child(child: _ChildProcess, deadline: float, cancel_event: Optiona
         child.kill()
         raise SandboxTimeoutError(limits.timeout_seconds)
     watch = list(fds) + [child.stderr_fd]
-    ready = _poll_readable(watch, min(timeout, remaining))
+    ready = _poll_readable(watch, min(timeout, remaining), write_fds)
     if child.stderr_fd in ready:
         child.drain_stderr()
     return [fd for fd in ready if fd != child.stderr_fd]
 
 
-def _poll_readable(fds: List[int], timeout: float) -> List[int]:
-    """fds with data (or EOF/error) to read, waiting at most `timeout` s.
+def _poll_readable(fds: List[int], timeout: float, write_fds: List[int] = ()) -> List[int]:
+    """fds with data (or EOF/error) to read, plus `write_fds` with room to
+    write (or an error), waiting at most `timeout` s.
 
     poll(2), not select(2): select refuses any descriptor numbered 1024 or
     higher (FD_SETSIZE), and a busy API worker (or an e2e test process)
-    hands out pipe descriptors well past that. HUP/ERR count as readable so
-    a dead child surfaces as EOF on the next read, as it did with select.
+    hands out pipe descriptors well past that. HUP/ERR count as ready so
+    a dead child surfaces as EOF / EPIPE on the next read or write, as it
+    did with select.
     """
     if not hasattr(select, "poll"):  # pragma: no cover - non-Linux fallback
-        ready, _, _ = select.select(fds, [], [], timeout)
-        return list(ready)
+        ready_r, ready_w, _ = select.select(fds, write_fds, [], timeout)
+        return list(ready_r) + list(ready_w)
     poller = select.poll()
     for fd in fds:
         poller.register(fd, select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR)
+    for fd in write_fds:
+        poller.register(fd, select.POLLOUT | select.POLLHUP | select.POLLERR)
     try:
         events = poller.poll(max(0.0, timeout) * 1000.0)
     except InterruptedError:  # pragma: no cover - retried by the caller's loop
@@ -478,6 +485,27 @@ def _read_exact_with_deadline(child: _ChildProcess, n: int, deadline: float,
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
+
+
+def _write_with_deadline(child: _ChildProcess, header: Dict[str, Any], payload: bytes, deadline: float,
+                         cancel_event: Optional[threading.Event], limits: SandboxLimits) -> None:
+    """Write one frame to the child under the same supervision as reads. A
+    child that stops reading fills the pipe; a blocking write would then
+    hold the API worker past the wall clock and the cancel event for as
+    long as the child chooses. A child that has exited reads as EOF."""
+    fd = child.to_child.fileno()
+    for buf in (encode_frame_header(header, payload), payload):
+        view = memoryview(buf)
+        while view:
+            if fd not in _wait_for_child(child, deadline, cancel_event, limits, [], write_fds=[fd]):
+                continue
+            try:
+                n = os.write(fd, view)
+            except BlockingIOError:
+                continue
+            except BrokenPipeError:
+                raise EOFError("sandbox pipe closed")
+            view = view[n:]
 
 
 def _read_with_deadline(child: _ChildProcess, deadline: float, cancel_event: Optional[threading.Event], limits: SandboxLimits):
@@ -590,8 +618,16 @@ def run_job(
             "fs": _fs_policy(job, scratch_dir),
             "scratch_dir": scratch_dir,
         }
-        write_message(child.to_child, {"t": "job"}, pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
         deadline = time.monotonic() + limits.timeout_seconds
+
+        def _send(header: Dict[str, Any], body: bytes = b"") -> None:
+            try:
+                _write_with_deadline(child, header, body, deadline, cancel_event, limits)
+            except EOFError:
+                child.drain_stderr()
+                _raise_for_child_death(child, limits)
+
+        _send({"t": "job"}, pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
 
         while True:
             try:
@@ -659,7 +695,7 @@ def run_job(
                     raise
                 except BaseException as e:  # noqa: BLE001 - forwarded to the child as its exception
                     rpc_exceptions[int(rid)] = e
-                    write_message(child.to_child, {
+                    _send({
                         "t": "rpc_result", "id": rid, "ok": False,
                         "exc_type": type(e).__name__, "message": str(e),
                     })
@@ -668,13 +704,13 @@ def run_job(
                     blob = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
                 except Exception as e:
                     rpc_exceptions[int(rid)] = e
-                    write_message(child.to_child, {
+                    _send({
                         "t": "rpc_result", "id": rid, "ok": False,
                         "exc_type": "TypeError",
                         "message": f"query result of type {type(value).__name__} cannot be passed into the sandbox: {e}",
                     })
                     continue
-                write_message(child.to_child, {"t": "rpc_result", "id": rid, "ok": True}, blob)
+                _send({"t": "rpc_result", "id": rid, "ok": True}, blob)
                 continue
 
             if kind == "result":
