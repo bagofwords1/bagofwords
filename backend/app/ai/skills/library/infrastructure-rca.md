@@ -3,7 +3,7 @@ key: infrastructure-rca
 title: Infrastructure root cause analysis
 description: Use for root cause analysis when something broke or degraded — find when it started from metrics, traces, logs or alerts, then separate cause from symptom.
 category: general
-version: "1.2"
+version: "1.3"
 modes: [chat]
 tags: [observability, diagnostics]
 ---
@@ -81,6 +81,15 @@ minutes right before it. That baseline is too short — routine spikes look
 extreme against it, and a fault already under way at the window start looks
 normal. Instead:
 
+0. **Anchor on the user-visible symptom first.** Before hunting through
+   resource metrics, pull the business/service KPIs per minute for the window
+   and the hour before it: end-to-end response time, success/error rate,
+   throughput (requests, or completed spans per minute). The first minute they
+   break is your anchor: the root cause starts at it or shortly before it. A
+   resource anomaly well before the anchor with no impact at the time is
+   usually not the trigger; one that starts at the anchor is a strong
+   candidate. If the business KPIs never move, say so — the incident may be
+   internal, and resource metrics carry the whole answer.
 1. **Learn normal from a long baseline.** Per component × KPI series, compute
    percentile thresholds over the whole day (or the same window on previous
    days): P95/P99 for things that fail high (CPU, memory, disk, latency, error
@@ -104,7 +113,30 @@ normal. Instead:
    from when?), traces (among faulty components, the most downstream faulty one
    in the call chain is the usual root cause; the upstream ones are victims) and
    logs (errors, GC / out-of-memory, timeouts on that component). Several faulty
-   components with no call relationship can be separate failures.
+   components with no call relationship can be separate failures. This step is
+   not optional: before answering, run at least one query on a signal other
+   than the one that produced your candidate.
+
+**Network faults hide from resource metrics.** Latency, packet loss and
+connection problems usually leave CPU, memory and disk flat, so a search over
+resource KPIs alone finds some unrelated spike instead. When the business KPIs
+degrade (step 0) but no resource fault starts at the same minute, treat it as a
+network-shaped fault and look where it shows:
+
+- **Service KPIs**: a step up in response time or down in success rate is often
+  the cleanest timestamp you will get.
+- **Traces, per component per minute**: span *counts* (throughput drops when
+  calls stall or are lost) and *tail* latency (P99/max), never the average —
+  slow or lost calls often show as fewer completed spans, not longer ones.
+  Compare each component's change to its peers: the one whose calls changed
+  first or most is the candidate.
+- **Network KPIs, if collected**: retransmits, TCP connection states,
+  packets in/out, bandwidth.
+- **Logs**: timeouts, connection resets, retries on the candidate component.
+
+Some faults leave almost no trace in the data. If after these checks nothing
+breaks at a clear minute, say that the evidence is weak rather than promoting
+the largest resource spike to root cause.
 
 ## 3. Build the timeline
 
