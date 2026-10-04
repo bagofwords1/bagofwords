@@ -17,6 +17,7 @@ import os
 import re
 import tempfile
 import logging
+from sqlalchemy.exc import IntegrityError
 
 from app.ai.tools.schemas.send_email import (
     EmailAttachmentSpec,
@@ -155,6 +156,27 @@ def _write_temp(content: bytes, suffix: str) -> str:
 class EmailSendService:
     """Resolve report-scoped attachments and send a free-form email."""
 
+    @staticmethod
+    async def _claim_agent_delivery(db, agent_execution_id: str, recipient: str) -> bool:
+        """Persist a unique claim before the irreversible provider call.
+
+        A provider timeout can mean the message was accepted, so a claim is
+        intentionally retained even if the send later reports an error.
+        """
+        from app.models.email_delivery_claim import EmailDeliveryClaim
+
+        try:
+            async with db.begin_nested():
+                db.add(EmailDeliveryClaim(
+                    agent_execution_id=agent_execution_id,
+                    recipient=recipient.strip().lower(),
+                ))
+                await db.flush()
+        except IntegrityError:
+            return False
+        await db.commit()
+        return True
+
     async def send(
         self,
         db,
@@ -168,6 +190,7 @@ class EmailSendService:
         organization: Any = None,
         system_completion: Any = None,
         user: Any = None,
+        agent_execution_id: Optional[str] = None,
     ) -> SendEmailOutput:
         """Send an email to ``recipient`` with the given attachments.
 
@@ -232,6 +255,17 @@ class EmailSendService:
             body = self._append_report_link(
                 body, subtype, report, can_reply=bool(integration and integration.get("inbound"))
             )
+
+            if agent_execution_id and not await self._claim_agent_delivery(
+                db, agent_execution_id, recipient
+            ):
+                return SendEmailOutput(
+                    success=False,
+                    recipient=recipient,
+                    subject=subject,
+                    attachments=attachment_results,
+                    error="An email was already attempted for this recipient in this agent run.",
+                )
 
             send_result = await notification_service.send_custom_email(
                 recipients=[recipient],
