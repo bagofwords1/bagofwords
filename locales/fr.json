@@ -313,7 +313,11 @@
     "tipRunSuite": "Exécuter cette suite",
     "runSuiteFailed": "Échec de l'exécution de la suite",
     "exportInstructions": "Exporter le pack de l'agent — instructions, configuration et évaluations (.zip)",
-    "sharedManagedElsewhere": "Partagé avec des agents que vous ne gérez pas — modifiable uniquement par quelqu'un ayant autorité sur tous."
+    "sharedManagedElsewhere": "Partagé avec des agents que vous ne gérez pas — modifiable uniquement par quelqu'un ayant autorité sur tous.",
+    "filterCatalog": "Catalogue",
+    "noCatalog": "Sans catalogue",
+    "catalogs": "Catalogues",
+    "manageCatalogs": "Gérer les catalogues…"
   },
   "smoke": {
     "hello": "Bonjour",
@@ -1830,7 +1834,11 @@
     "modelAccess": "Accès aux modèles",
     "modelAccessHint": "Modèles restreints",
     "noRestrictedModels": "Aucun modèle restreint",
-    "connection": "Connexion"
+    "connection": "Connexion",
+    "bulk": {
+      "allCatalogs": "Tous les catalogues",
+      "noCatalog": "Sans catalogue"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Rechercher des groupes...",
@@ -5680,5 +5688,29 @@
     "failed": "Impossible de charger les données de l’artefact",
     "newest": "Plus récents en premier",
     "oldest": "Plus anciens en premier"
+  },
+  "agentCatalogs": {
+    "title": "Catalogues d'agents",
+    "subtitle": "Regroupez les agents par équipe ou par domaine. Les catalogues servent uniquement à organiser et à filtrer ; ils ne modifient pas qui peut accéder à un agent.",
+    "newPlaceholder": "Nom du nouveau catalogue",
+    "empty": "Aucun catalogue pour l'instant",
+    "pickOne": "Sélectionnez un catalogue pour le modifier",
+    "createFirst": "Créez un catalogue pour commencer à regrouper des agents",
+    "name": "Nom",
+    "description": "Description",
+    "optional": "Facultatif",
+    "agents": "Agents",
+    "searchAgents": "Rechercher des agents...",
+    "selectAllShown": "Tout sélectionner parmi les affichés ({n})",
+    "noAgentsMatch": "Aucun agent ne correspond",
+    "inCatalog": "Dans {name}",
+    "movesFrom": "Sera déplacé depuis {name}",
+    "delete": "Supprimer le catalogue",
+    "discard": "Annuler les modifications",
+    "save": "Enregistrer",
+    "saved": "Catalogue enregistré",
+    "failed": "Impossible d'enregistrer le catalogue",
+    "confirmDiscard": "Annuler les modifications non enregistrées de ce catalogue ?",
+    "confirmDelete": "Supprimer le catalogue « {name} » ? Ses agents sont conservés et n'ont plus de catalogue."
   }
 }

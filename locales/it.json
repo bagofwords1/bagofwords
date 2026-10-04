@@ -313,7 +313,11 @@
     "tipRunSuite": "Esegui questa suite",
     "runSuiteFailed": "Impossibile eseguire la suite",
     "exportInstructions": "Esporta il pacchetto dell'agente — istruzioni, configurazione ed eval (.zip)",
-    "sharedManagedElsewhere": "Condivisa con agenti che non gestisci — modificabile solo da chi ha autorità su tutti."
+    "sharedManagedElsewhere": "Condivisa con agenti che non gestisci — modificabile solo da chi ha autorità su tutti.",
+    "filterCatalog": "Catalogo",
+    "noCatalog": "Nessun catalogo",
+    "catalogs": "Cataloghi",
+    "manageCatalogs": "Gestisci cataloghi…"
   },
   "smoke": {
     "hello": "Ciao",
@@ -1830,7 +1834,11 @@
     "modelAccess": "Accesso ai modelli",
     "modelAccessHint": "Modelli con restrizioni",
     "noRestrictedModels": "Nessun modello con restrizioni",
-    "connection": "Connessione"
+    "connection": "Connessione",
+    "bulk": {
+      "allCatalogs": "Tutti i cataloghi",
+      "noCatalog": "Nessun catalogo"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Cerca gruppi...",
@@ -5680,5 +5688,29 @@
     "failed": "Impossibile caricare i dati dell’artefatto",
     "newest": "Più recenti prima",
     "oldest": "Meno recenti prima"
+  },
+  "agentCatalogs": {
+    "title": "Cataloghi di agenti",
+    "subtitle": "Raggruppa gli agenti per team o ambito. I cataloghi servono solo a organizzare e filtrare: non cambiano chi può accedere a un agente.",
+    "newPlaceholder": "Nome del nuovo catalogo",
+    "empty": "Ancora nessun catalogo",
+    "pickOne": "Seleziona un catalogo per modificarlo",
+    "createFirst": "Crea un catalogo per iniziare a raggruppare gli agenti",
+    "name": "Nome",
+    "description": "Descrizione",
+    "optional": "Facoltativo",
+    "agents": "Agenti",
+    "searchAgents": "Cerca agenti...",
+    "selectAllShown": "Seleziona tutti quelli mostrati ({n})",
+    "noAgentsMatch": "Nessun agente corrispondente",
+    "inCatalog": "In {name}",
+    "movesFrom": "Verrà spostato da {name}",
+    "delete": "Elimina catalogo",
+    "discard": "Annulla modifiche",
+    "save": "Salva",
+    "saved": "Catalogo salvato",
+    "failed": "Impossibile salvare il catalogo",
+    "confirmDiscard": "Annullare le modifiche non salvate a questo catalogo?",
+    "confirmDelete": "Eliminare il catalogo \"{name}\"? I suoi agenti vengono mantenuti e restano senza catalogo."
   }
 }

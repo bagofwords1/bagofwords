@@ -329,7 +329,11 @@
     "tipRunSuite": "Ejecutar esta suite",
     "runSuiteFailed": "No se pudo ejecutar la suite",
     "exportInstructions": "Exportar paquete del agente: instrucciones, configuración y evaluaciones (.zip)",
-    "lists": "Listas"
+    "lists": "Listas",
+    "filterCatalog": "Catálogo",
+    "noCatalog": "Sin catálogo",
+    "catalogs": "Catálogos",
+    "manageCatalogs": "Gestionar catálogos…"
   },
   "smoke": {
     "hello": "Hola",
@@ -1878,7 +1882,11 @@
     "modelAccess": "Acceso a modelos",
     "modelAccessHint": "Modelos restringidos",
     "noRestrictedModels": "No hay modelos restringidos",
-    "connection": "Conexión"
+    "connection": "Conexión",
+    "bulk": {
+      "allCatalogs": "Todos los catálogos",
+      "noCatalog": "Sin catálogo"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Buscar grupos...",
@@ -5841,5 +5849,29 @@
     "failed": "No se pudieron cargar los datos",
     "newest": "Más recientes primero",
     "oldest": "Más antiguos primero"
+  },
+  "agentCatalogs": {
+    "title": "Catálogos de agentes",
+    "subtitle": "Agrupa los agentes por equipo o área. Los catálogos solo sirven para organizar y filtrar; no cambian quién puede acceder a un agente.",
+    "newPlaceholder": "Nombre del nuevo catálogo",
+    "empty": "Aún no hay catálogos",
+    "pickOne": "Selecciona un catálogo para editarlo",
+    "createFirst": "Crea un catálogo para empezar a agrupar agentes",
+    "name": "Nombre",
+    "description": "Descripción",
+    "optional": "Opcional",
+    "agents": "Agentes",
+    "searchAgents": "Buscar agentes...",
+    "selectAllShown": "Seleccionar todos los mostrados ({n})",
+    "noAgentsMatch": "Ningún agente coincide",
+    "inCatalog": "En {name}",
+    "movesFrom": "Se moverá desde {name}",
+    "delete": "Eliminar catálogo",
+    "discard": "Descartar",
+    "save": "Guardar",
+    "saved": "Catálogo guardado",
+    "failed": "No se pudo guardar el catálogo",
+    "confirmDiscard": "¿Descartar los cambios no guardados de este catálogo?",
+    "confirmDelete": "¿Eliminar el catálogo \"{name}\"? Sus agentes se conservan y quedan sin catálogo."
   }
 }

@@ -313,7 +313,11 @@
     "tipRunSuite": "Diese Suite ausführen",
     "runSuiteFailed": "Suite konnte nicht ausgeführt werden",
     "exportInstructions": "Agent-Paket exportieren — Anweisungen, Konfiguration & Evals (.zip)",
-    "sharedManagedElsewhere": "Mit Agenten geteilt, die du nicht verwaltest — bearbeitbar nur für jemanden mit Rechten über alle."
+    "sharedManagedElsewhere": "Mit Agenten geteilt, die du nicht verwaltest — bearbeitbar nur für jemanden mit Rechten über alle.",
+    "filterCatalog": "Katalog",
+    "noCatalog": "Kein Katalog",
+    "catalogs": "Kataloge",
+    "manageCatalogs": "Kataloge verwalten…"
   },
   "smoke": {
     "hello": "Hallo",
@@ -1830,7 +1834,11 @@
     "modelAccess": "Modellzugriff",
     "modelAccessHint": "Eingeschränkte Modelle",
     "noRestrictedModels": "Keine eingeschränkten Modelle",
-    "connection": "Verbindung"
+    "connection": "Verbindung",
+    "bulk": {
+      "allCatalogs": "Alle Kataloge",
+      "noCatalog": "Kein Katalog"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Gruppen suchen ...",
@@ -5680,5 +5688,29 @@
     "failed": "Artefaktdaten konnten nicht geladen werden",
     "newest": "Neueste zuerst",
     "oldest": "Älteste zuerst"
+  },
+  "agentCatalogs": {
+    "title": "Agentenkataloge",
+    "subtitle": "Gruppieren Sie Agenten nach Team oder Bereich. Kataloge dienen nur zum Ordnen und Filtern – sie ändern nicht, wer auf einen Agenten zugreifen kann.",
+    "newPlaceholder": "Name des neuen Katalogs",
+    "empty": "Noch keine Kataloge",
+    "pickOne": "Wählen Sie einen Katalog aus, um ihn zu bearbeiten",
+    "createFirst": "Erstellen Sie einen Katalog, um Agenten zu gruppieren",
+    "name": "Name",
+    "description": "Beschreibung",
+    "optional": "Optional",
+    "agents": "Agenten",
+    "searchAgents": "Agenten suchen...",
+    "selectAllShown": "Alle angezeigten auswählen ({n})",
+    "noAgentsMatch": "Keine passenden Agenten",
+    "inCatalog": "In {name}",
+    "movesFrom": "Wird aus {name} verschoben",
+    "delete": "Katalog löschen",
+    "discard": "Verwerfen",
+    "save": "Speichern",
+    "saved": "Katalog gespeichert",
+    "failed": "Der Katalog konnte nicht gespeichert werden",
+    "confirmDiscard": "Ungespeicherte Änderungen an diesem Katalog verwerfen?",
+    "confirmDelete": "Katalog „{name}“ löschen? Seine Agenten bleiben erhalten und haben danach keinen Katalog."
   }
 }
