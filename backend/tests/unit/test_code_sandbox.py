@@ -583,6 +583,25 @@ def generate_df(ds_clients, excel_files):
             os.close(w)
 
 
+def test_child_closing_stderr_does_not_make_the_runner_spin():
+    """A closed stderr pipe polls ready forever. The runner must stop
+    watching it rather than burn a CPU core in its supervision loop for as
+    long as the child keeps running."""
+    code = """
+def generate_df(ds_clients, excel_files):
+    import os, time
+    os.close(2)
+    time.sleep(2)
+    return pd.DataFrame({"ok": [1]})
+"""
+    cpu0 = time.thread_time()
+    df = run_job(SandboxJob(mode="data", code=code)).df
+    cpu = time.thread_time() - cpu0
+    assert df["ok"].tolist() == [1]
+    # An idle supervision loop costs milliseconds; a spinning one ~2 s.
+    assert cpu < 0.5, f"runner used {cpu:.2f}s CPU while the child slept"
+
+
 def test_partial_frame_cannot_outlive_the_wall_clock():
     """A child that writes part of a frame and stalls must still be killed
     at the deadline: frame reads are supervised, never blocking."""
@@ -596,6 +615,7 @@ def test_partial_frame_cannot_outlive_the_wall_clock():
             self.from_child = os.fdopen(rfd, "rb", buffering=0)
             os.set_blocking(rfd, False)
             self.stderr_fd = os.open(os.devnull, os.O_RDONLY)
+            self.stderr_eof = False
             self.killed = False
 
         def drain_stderr(self):

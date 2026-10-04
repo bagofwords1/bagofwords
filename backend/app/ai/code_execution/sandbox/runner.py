@@ -199,6 +199,7 @@ class _ChildProcess:
         os.set_blocking(self.from_child.fileno(), False)
         self.stderr_fd = stderr_fd
         os.set_blocking(self.stderr_fd, False)
+        self.stderr_eof = False
         self.scratch_dir = scratch_dir
         self._zygote = zygote
         self._proc = proc
@@ -241,12 +242,19 @@ class _ChildProcess:
     # -- io ----------------------------------------------------------------
 
     def drain_stderr(self) -> None:
+        if self.stderr_eof:
+            return
         try:
             chunk = os.read(self.stderr_fd, 4096)
         except (BlockingIOError, OSError):
             return
         if chunk:
             self.stderr_tail.append(chunk)
+        else:
+            # Writer closed (the child exited or closed fd 2). The fd now
+            # polls ready forever; stop watching it or every supervision
+            # tick returns at once and the runner spins.
+            self.stderr_eof = True
 
     def stderr_text(self) -> str:
         return b"".join(self.stderr_tail).decode("utf-8", "replace")[-_STDERR_TAIL_BYTES:]
@@ -433,7 +441,7 @@ def _wait_for_child(child: _ChildProcess, deadline: float, cancel_event: Optiona
     if remaining <= 0:
         child.kill()
         raise SandboxTimeoutError(limits.timeout_seconds)
-    watch = list(fds) + [child.stderr_fd]
+    watch = list(fds) + ([] if child.stderr_eof else [child.stderr_fd])
     ready = _poll_readable(watch, min(timeout, remaining), write_fds)
     if child.stderr_fd in ready:
         child.drain_stderr()
