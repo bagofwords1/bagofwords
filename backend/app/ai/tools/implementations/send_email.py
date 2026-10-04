@@ -185,6 +185,7 @@ class SendEmailTool(Tool):
                 organization=runtime_ctx.get("organization"),
                 system_completion=runtime_ctx.get("system_completion"),
                 user=runtime_ctx.get("user"),
+                agent_execution_id=runtime_ctx.get("agent_execution_id"),
             )
         except Exception as e:
             logger.exception("Failed to send email: %s", e)

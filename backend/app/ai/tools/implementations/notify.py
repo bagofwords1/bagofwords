@@ -178,6 +178,7 @@ class NotifyTool(Tool):
                 attachment_specs=data.attachments,
                 recipient_emails=data.recipients,
                 system_completion=runtime_ctx.get("system_completion"),
+                agent_execution_id=runtime_ctx.get("agent_execution_id"),
                 **extra,
             )
             if checkin is not None and result.get("success"):
