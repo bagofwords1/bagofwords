@@ -1411,19 +1411,25 @@ const selectedArtifactLabel = computed(() => {
   return t('artifactFrame.selectArtifact');
 });
 
-// "Use this version" appears when the selection is NOT the newest row of its
-// MODE (the list is created_at desc). Why mode and not artifact_id: versions
-// of one artifact always share its mode, so "newest of my artifact" is a
-// subset of "newest of my mode" — and pre-migration history has one parent
-// per version (backfill didn't guess lineage), where an artifact_id-only rule
-// would make every old version "latest of itself" and hide the revert button
-// from all existing data. The old rule (first row overall) was buggy the
-// other way: the newest DOC showed the button merely because a newer
-// dashboard existed above it.
+// "Use this version" appears when the selection is NOT the newest version of
+// its own artifact (the list is created_at desc). Two dashboards in one report
+// are separate artifacts, so a v1 is never offered a revert just because a
+// sibling dashboard is newer.
+// Pre-migration history is the exception: backfill gave every old version a
+// parent of its own, reusing the version id (artifact_id === id), so those
+// rows carry no lineage. For them keep the per-mode rule, otherwise every old
+// version would be "latest of itself" and the revert button would vanish from
+// existing data.
 const isLatestSelected = computed(() => {
   if (!selectedArtifactId.value || artifactsList.value.length === 0) return true;
   const selected = artifactsList.value.find(a => a.id === selectedArtifactId.value);
   if (!selected) return true;
+  const newestOfArtifact = selected.artifact_id
+    ? artifactsList.value.find(a => a.artifact_id === selected.artifact_id)
+    : undefined;
+  if (newestOfArtifact && newestOfArtifact.id !== selected.id) return false;
+  const isBackfilled = !selected.artifact_id || selected.artifact_id === selected.id;
+  if (!isBackfilled) return true;
   const newestOfMode = artifactsList.value.find(a => a.mode === selected.mode);
   return !newestOfMode || newestOfMode.id === selected.id;
 });
