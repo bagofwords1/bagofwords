@@ -130,7 +130,7 @@
                 </span>
                 <NuxtLink
                     v-if="isOwner"
-                    :to="`/reports/${report_id}`"
+                    :to="`/reports/${reportId}`"
                     class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
                 >
                     <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
@@ -164,7 +164,7 @@
                      auto-run can't succeed (anonymous, missing connection,
                      run failure). -->
                 <div v-if="showViewerGate" class="absolute inset-0 z-20 flex items-center justify-center bg-white/85 dark:bg-gray-900/85">
-                    <ViewerRunGate :state="gateState" :report-id="String($route.params.id)"
+                    <ViewerRunGate :state="gateState" :report-id="reportId"
                         :is-running="isRunning" :source-errors="dataSourceErrors"
                         :error-message="gateErrorMessage" :source-type="gateSourceType" @run="handleRun" />
                 </div>
@@ -243,7 +243,7 @@
                 <!-- Snapshot withheld: the data tables would be empty — show the
                      same viewer gate as the Report tab. -->
                 <div v-if="showViewerGate" class="flex items-center justify-center h-full">
-                    <ViewerRunGate :state="gateState" :report-id="String($route.params.id)"
+                    <ViewerRunGate :state="gateState" :report-id="reportId"
                         :is-running="isRunning" :source-errors="dataSourceErrors"
                         :error-message="gateErrorMessage" :source-type="gateSourceType" @run="handleRun" />
                 </div>
@@ -255,6 +255,7 @@
                         v-for="viz in toolExecutions"
                         :key="viz.id"
                         :tool-execution="viz"
+                        :host-report-id="reportId"
                         :readonly="true"
                         :initial-collapsed="true"
                     />
@@ -266,7 +267,7 @@
              availability — sign-in prompt for anonymous, member check inside) -->
         <ArtifactChatBubble
             v-if="reportLoaded && report?.artifact_chat_enabled"
-            :report-id="String($route.params.id)"
+            :report-id="reportId"
             :artifact-id="artifact?.id"
             :raised="report.general?.bow_credit !== false"
             :lift="cornerLift"
@@ -284,7 +285,13 @@ import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
 
 const route = useRoute();
-const report_id = route.params.id;
+// /r/{report_id}?artifact={id} is the long link; /r/{slug} names one
+// dashboard and is resolved once on mount to that same pair
+// (resolveLinkName). A slug is never UUID-shaped, so the shape decides.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const routeParam = String(route.params.id);
+const reportId = ref<string>(UUID_RE.test(routeParam) ? routeParam : '');
+const requestedArtifactId = ref<string | null>(typeof route.query.artifact === 'string' ? route.query.artifact : null);
 const { data: currentUser } = useAuth();
 
 const report = ref<any>({
@@ -419,7 +426,7 @@ async function handleRun() {
     runError.value = null;
     try {
         const artifactParam = artifact.value?.id ? `?artifact_id=${artifact.value.id}` : '';
-        const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/run${artifactParam}`, { method: 'POST' });
+        const { data, error: fetchError } = await useMyFetch(`/api/r/${reportId.value}/run${artifactParam}`, { method: 'POST' });
         if (fetchError.value) throw fetchError.value;
         const run = (data.value || {}) as any;
         dataSourceErrors.value = run.data_source_errors || [];
@@ -467,7 +474,7 @@ async function handleExportPptx() {
         // letting the server pick "latest" — they can differ.
         const query = artifact.value?.id ? `?artifact_id=${encodeURIComponent(artifact.value.id)}` : '';
         const { data, error: fetchError } = await useMyFetch(
-            `/api/r/${report_id}/export_pptx${query}`,
+            `/api/r/${reportId.value}/export_pptx${query}`,
             {
                 responseType: 'blob' as any,
                 // Same reasoning as the other two: a silent ofetch retry on
@@ -510,7 +517,7 @@ async function handleExportPdf() {
     try {
         // Pin the export to the artifact actually on screen, like pptx/html.
         const query = artifact.value?.id ? `?artifact_id=${encodeURIComponent(artifact.value.id)}` : '';
-        const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/export_pdf${query}`, {
+        const { data, error: fetchError } = await useMyFetch(`/api/r/${reportId.value}/export_pdf${query}`, {
             responseType: 'blob' as any,
             // ofetch's default retry list includes 409/504 — exactly what a
             // failed/timed-out export returns — and a silent retry re-runs a
@@ -563,7 +570,7 @@ async function handleExportHtml() {
         // letting the server pick "latest" — they can differ.
         const query = artifact.value?.id ? `?artifact_id=${encodeURIComponent(artifact.value.id)}` : '';
         const { data, error: fetchError } = await useMyFetch(
-            `/api/r/${report_id}/export_html${query}`,
+            `/api/r/${reportId.value}/export_html${query}`,
             {
                 responseType: 'blob' as any,
                 // Same reasoning as the PDF export: a silent ofetch retry on
@@ -621,7 +628,7 @@ async function handleFork() {
     if (isForking.value) return;
     isForking.value = true;
     try {
-        const { data, error: fetchError } = await useMyFetch(`/api/reports/${report_id}/fork`, {
+        const { data, error: fetchError } = await useMyFetch(`/api/reports/${reportId.value}/fork`, {
             method: 'POST',
             body: {},
         });
@@ -704,7 +711,7 @@ const accessError = ref<'login' | 'denied' | null>(null);
 // Fetch report info
 async function loadReport() {
     try {
-        const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}`);
+        const { data, error: fetchError } = await useMyFetch(`/api/r/${reportId.value}`);
         if (fetchError.value) {
             const status = (fetchError.value as any)?.statusCode || (fetchError.value as any)?.status;
             if (status === 401) {
@@ -735,7 +742,7 @@ async function loadArtifact() {
     artifactLoadFailed.value = false;
     try {
         // Use public endpoint - no auth required
-        const { data, error } = await useMyFetch(`/api/r/${report_id}/artifacts`);
+        const { data, error } = await useMyFetch(`/api/r/${reportId.value}/artifacts`);
         if (error.value) throw error.value;
         if (data.value && Array.isArray(data.value) && data.value.length > 0) {
             hasArtifacts.value = true;
@@ -747,7 +754,7 @@ async function loadArtifact() {
             // not take over the shared page — same rule as the backend's
             // get_latest_by_report.
             const rows = data.value as any[];
-            const requested = typeof route.query.artifact === 'string' ? route.query.artifact : null;
+            const requested = requestedArtifactId.value;
             if (requested && !rows.some(a => a.artifact_id === requested)) {
                 accessError.value = currentUser.value ? 'denied' : 'login';
                 return;
@@ -757,7 +764,7 @@ async function loadArtifact() {
                 : (rows.find(a => a.mode !== 'doc') || rows[0]);
             const latestArtifactId = pick.id;
             // Use public artifact endpoint
-            const { data: fullArtifact, error: detailError } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
+            const { data: fullArtifact, error: detailError } = await useMyFetch(`/api/r/${reportId.value}/artifacts/${latestArtifactId}`);
             if (detailError.value || !fullArtifact.value) throw detailError.value || new Error("Missing artifact response");
             if (fullArtifact.value) {
                 artifact.value = fullArtifact.value;
@@ -779,13 +786,13 @@ async function loadVisualizationData(artifactId?: string) {
         // Use public endpoint - no auth required
         // If artifactId provided, filter to only queries used by that artifact
         const queryParams = artifactId ? `?artifact_id=${artifactId}` : '';
-        const { data: queriesRes } = await useMyFetch(`/api/r/${report_id}/queries${queryParams}`);
+        const { data: queriesRes } = await useMyFetch(`/api/r/${reportId.value}/queries${queryParams}`);
         const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
         // Fetch all steps in parallel — awaiting each one serially made the
         // page's time-to-render scale linearly with the number of queries.
         const stepResults = await Promise.all(
-            queries.map((query) => useMyFetch(`/api/r/${report_id}/queries/${(query as any).id}/step`))
+            queries.map((query) => useMyFetch(`/api/r/${reportId.value}/queries/${(query as any).id}/step`))
         );
 
         const vizData = [];
@@ -986,11 +993,11 @@ async function resolveParamOptions(
             if (!rows && !fetchedAll) {
                 fetchedAll = true;
                 try {
-                    const { data } = await useMyFetch(`/api/r/${report_id}/queries`);
+                    const { data } = await useMyFetch(`/api/r/${reportId.value}/queries`);
                     const all = Array.isArray(data.value) ? (data.value as any[]) : [];
                     const missing = all.filter(q => !rowsByQueryId.has(String(q.id)));
                     const steps = await Promise.all(
-                        missing.map(q => useMyFetch(`/api/r/${report_id}/queries/${q.id}/step`)));
+                        missing.map(q => useMyFetch(`/api/r/${reportId.value}/queries/${q.id}/step`)));
                     missing.forEach((q, i) => {
                         rowsByQueryId.set(String(q.id), (steps[i].data.value as any)?.data?.rows || []);
                         if (q.title) titleToId.set(String(q.title).toLowerCase(), String(q.id));
@@ -1255,7 +1262,7 @@ async function loadArtifactFiles() {
     if (!Array.isArray(files) || files.length === 0) { filesData.value = []; return; }
     filesData.value = await Promise.all(files.map(async (f: any) => {
         try {
-            const { data } = await useMyFetch(`/api/r/${report_id}/files/${f.id}/embed_token`);
+            const { data } = await useMyFetch(`/api/r/${reportId.value}/files/${f.id}/embed_token`);
             return { id: f.id, content_type: f.content_type, filename: f.filename, url: (data.value as any)?.url || '' };
         } catch (e) {
             return { id: f.id, content_type: f.content_type, filename: f.filename, url: '' };
@@ -1289,7 +1296,7 @@ async function refreshOnView() {
 
     isRefreshingOnView.value = true;
     try {
-        const { data, error: rerunError } = await useMyFetch(`/api/r/${report_id}/rerun`, { method: 'POST' });
+        const { data, error: rerunError } = await useMyFetch(`/api/r/${reportId.value}/rerun`, { method: 'POST' });
         const run = data.value as any;
         // Declined, failed, or nothing actually reran — leave the rendered data
         // alone. Reloading it would cost a round trip to redraw the same rows.
@@ -1308,7 +1315,32 @@ async function refreshOnView() {
     }
 }
 
+// /r/{slug}: ask which dashboard the name opens (the server applies that
+// dashboard's own access rules, as on the long link), then load that pair.
+// Arriving on an earlier name, or in other casing, moves the address bar to
+// the current name in place — a router navigation would remount the page.
+async function resolveLinkName(): Promise<boolean> {
+    const { data, error: fetchError } = await useMyFetch(`/api/artifact-links/${encodeURIComponent(routeParam)}`);
+    if (fetchError.value || !data.value) {
+        const status = (fetchError.value as any)?.statusCode || (fetchError.value as any)?.status;
+        if (status === 401) accessError.value = 'login';
+        else if (status === 403) accessError.value = 'denied';
+        else navigateTo('/not_found');
+        return false;
+    }
+    const link = data.value as { report_id: string; artifact_id: string; slug: string | null };
+    reportId.value = link.report_id;
+    requestedArtifactId.value = link.artifact_id;
+    if (link.slug && link.slug !== routeParam) {
+        const path = `/r/${link.slug}${window.location.search}${window.location.hash}`;
+        window.history.replaceState({ ...window.history.state, current: path }, '', path);
+    }
+    return true;
+}
+
 onMounted(async () => {
+    if (!reportId.value && !(await resolveLinkName())) return;
+
     // Load report and artifact in parallel first (viewer identity alongside —
     // it gates nothing; anonymous viewers just get current_user=null)
     await Promise.all([

@@ -3695,7 +3695,15 @@
     "chatModelReport": "Wie im Bericht ({name})",
     "chatModelReportPlain": "Wie im Bericht",
     "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet",
-    "viewerSettingsApplyToAll": "Diese Einstellungen gelten für alle Dashboards in dieser Unterhaltung."
+    "viewerSettingsApplyToAll": "Diese Einstellungen gelten für alle Dashboards in dieser Unterhaltung.",
+    "linkNameEdit": "Linknamen bearbeiten",
+    "linkNamePlaceholder": "sales-2026",
+    "linkNameHint": "Englische Kleinbuchstaben, Ziffern und Bindestriche · {min}–{max} Zeichen",
+    "linkNameRemove": "Linknamen entfernen",
+    "linkNameRemoveConfirm": "Bereits versendete Links mit diesem Namen funktionieren nicht mehr. Entfernen?",
+    "linkNameSaved": "Linkname gespeichert",
+    "linkNameRemoved": "Linkname entfernt",
+    "linkNameFailed": "Linkname konnte nicht gespeichert werden"
   },
   "publish": {
     "published": "Veröffentlicht",
@@ -3723,6 +3731,8 @@
     "notFound": "Nicht gefunden.",
     "validation": "Bitte überprüfen Sie das Formular und versuchen Sie es erneut.",
     "artifact.not_found": "Artefakt nicht gefunden",
+    "artifact.slug_taken": "Dieser Linkname ist bereits vergeben",
+    "artifact.slug_invalid": "Verwende {min}–{max} englische Kleinbuchstaben, Ziffern und einzelne Bindestriche",
     "access.denied": "Zugriff verweigert",
     "account.disabled": "Ihr Konto wurde deaktiviert. Wenden Sie sich an Ihren Administrator.",
     "connection.not_found": "Verbindung nicht gefunden",

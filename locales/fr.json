@@ -3695,7 +3695,15 @@
     "chatModelReport": "Identique au rapport ({name})",
     "chatModelReportPlain": "Identique au rapport",
     "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé",
-    "viewerSettingsApplyToAll": "Ces paramètres s'appliquent à tous les tableaux de bord de cette conversation."
+    "viewerSettingsApplyToAll": "Ces paramètres s'appliquent à tous les tableaux de bord de cette conversation.",
+    "linkNameEdit": "Modifier le nom du lien",
+    "linkNamePlaceholder": "sales-2026",
+    "linkNameHint": "Lettres anglaises minuscules, chiffres et tirets · {min} à {max} caractères",
+    "linkNameRemove": "Supprimer le nom du lien",
+    "linkNameRemoveConfirm": "Les liens déjà envoyés avec ce nom cesseront de fonctionner. Le supprimer ?",
+    "linkNameSaved": "Nom du lien enregistré",
+    "linkNameRemoved": "Nom du lien supprimé",
+    "linkNameFailed": "Impossible d'enregistrer le nom du lien"
   },
   "publish": {
     "published": "Publié",
@@ -3723,6 +3731,8 @@
     "notFound": "Introuvable.",
     "validation": "Veuillez vérifier le formulaire et réessayer.",
     "artifact.not_found": "Artefact introuvable",
+    "artifact.slug_taken": "Ce nom de lien est déjà pris",
+    "artifact.slug_invalid": "Utilisez {min} à {max} lettres anglaises minuscules, chiffres et tirets simples",
     "access.denied": "Accès refusé",
     "account.disabled": "Votre compte a été désactivé. Contactez votre administrateur.",
     "connection.not_found": "Connexion introuvable",

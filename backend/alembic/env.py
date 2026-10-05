@@ -106,6 +106,7 @@ from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
 from app.models.report_share import ReportShare
 from app.models.artifact_share import ArtifactShare
+from app.models.artifact_slug_history import ArtifactSlugHistory
 from app.models.report_star import ReportStar
 from app.models.report_view import ReportView
 from app.models.step_user_result import StepUserResult

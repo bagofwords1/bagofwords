@@ -3695,7 +3695,15 @@
     "chatModelReport": "Igual ao relatório ({name})",
     "chatModelReportPlain": "Igual ao relatório",
     "chatModelUnavailable": "Modelo indisponível — usando o padrão",
-    "viewerSettingsApplyToAll": "Estas configurações se aplicam a todos os painéis desta conversa."
+    "viewerSettingsApplyToAll": "Estas configurações se aplicam a todos os painéis desta conversa.",
+    "linkNameEdit": "Editar nome do link",
+    "linkNamePlaceholder": "sales-2026",
+    "linkNameHint": "Letras minúsculas em inglês, dígitos e hífens · {min}–{max} caracteres",
+    "linkNameRemove": "Remover nome do link",
+    "linkNameRemoveConfirm": "Os links já enviados com este nome deixarão de funcionar. Remover?",
+    "linkNameSaved": "Nome do link salvo",
+    "linkNameRemoved": "Nome do link removido",
+    "linkNameFailed": "Não foi possível salvar o nome do link"
   },
   "publish": {
     "published": "Publicado",
@@ -3723,6 +3731,8 @@
     "notFound": "Não encontrado.",
     "validation": "Verifique o formulário e tente novamente.",
     "artifact.not_found": "Artefato não encontrado",
+    "artifact.slug_taken": "Este nome de link já está em uso",
+    "artifact.slug_invalid": "Use {min}–{max} letras minúsculas em inglês, dígitos e hífens simples",
     "access.denied": "Acesso negado",
     "account.disabled": "Sua conta foi desativada. Entre em contato com seu administrador.",
     "connection.not_found": "Conexão não encontrada",

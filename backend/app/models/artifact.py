@@ -52,6 +52,13 @@ class Artifact(BaseSchema):
     # "is anything in this report shared".
     visibility = Column(String(20), nullable=False, default='none', server_default='none')
 
+    # Optional readable name for the share link: /r/{slug} opens this
+    # artifact like /r/{report_id}?artifact={id} does. Unique across all
+    # organizations (the link carries no org). Never UUID-shaped, so /r/{x}
+    # can tell a slug from a report id. Earlier slugs live in
+    # artifact_slug_history and keep resolving here.
+    slug = Column(String(80), nullable=True, unique=True, index=True)
+
     # Never loaded implicitly: a version's content JSON can be ~100kB.
     versions = relationship(
         "ArtifactVersion",
@@ -70,12 +77,12 @@ class ArtifactVersion(BaseSchema):
     - slides mode: { "slides": [{ "code": "...", "title": "..." }, ...] }
     - doc mode: { "markdown": "..." }
 
-    `title` and `mode` are read-through column_properties resolved from the
-    parent Artifact — they arrive with every normal SELECT and work in WHERE
+    `title`, `mode` and `slug` are read-through column_properties resolved
+    from the parent Artifact (`slug` deferred — see its comment) — they arrive with every normal SELECT and work in WHERE
     clauses, but three traps follow from that:
 
     - a `load_only(...)` on this model MUST include `title`, `mode` and
-      `artifact_id`, otherwise the first attribute access lazy-loads and
+      `artifact_id` (and `slug` if it is read), otherwise the first attribute access lazy-loads and
       raises MissingGreenlet under async;
     - an instance that was only flushed needs `await db.refresh()` before
       reading `.title` / `.mode`;
@@ -83,7 +90,7 @@ class ArtifactVersion(BaseSchema):
       an UPDATE of the parent (artifact_service.new_version(title=...)).
 
     Construct rows via artifact_service.new_artifact()/new_version(), which
-    own the version numbering; the constructor refuses title/mode kwargs.
+    own the version numbering; the constructor refuses title/mode/slug kwargs.
     """
     __tablename__ = 'artifact_versions'
 
@@ -163,13 +170,24 @@ class ArtifactVersion(BaseSchema):
         .scalar_subquery(),
         expire_on_flush=False,
     )
+    # The parent's share-link name, for listings that build /r/{slug}.
+    # Deferred: only those listings read it, so other version loads don't pay
+    # for the subquery — a query that reads it must undefer() / load_only() it.
+    slug = column_property(
+        select(Artifact.slug)
+        .where(Artifact.id == artifact_id)
+        .correlate_except(Artifact)
+        .scalar_subquery(),
+        deferred=True,
+        expire_on_flush=False,
+    )
 
     def __init__(self, **kw):
         # column_property attributes swallow constructor kwargs silently;
         # fail loudly instead — these fields live on the parent Artifact.
-        if 'title' in kw or 'mode' in kw:
+        if 'title' in kw or 'mode' in kw or 'slug' in kw:
             raise TypeError(
-                "title/mode live on the parent Artifact — create versions via "
+                "title/mode/slug live on the parent Artifact — create versions via "
                 "artifact_service.new_artifact()/new_version()"
             )
         super().__init__(**kw)

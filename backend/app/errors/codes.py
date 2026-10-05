@@ -54,6 +54,8 @@ class ErrorCode(str, Enum):
     REPORT_NOT_FOUND = "report.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
+    ARTIFACT_SLUG_TAKEN = "artifact.slug_taken"
+    ARTIFACT_SLUG_INVALID = "artifact.slug_invalid"
     FILE_NOT_FOUND = "file.not_found"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"

@@ -3695,7 +3695,15 @@
     "chatModelReport": "Как в отчёте ({name})",
     "chatModelReportPlain": "Как в отчёте",
     "chatModelUnavailable": "Модель недоступна — используется модель по умолчанию",
-    "viewerSettingsApplyToAll": "Эти настройки применяются ко всем дашбордам в этом разговоре."
+    "viewerSettingsApplyToAll": "Эти настройки применяются ко всем дашбордам в этом разговоре.",
+    "linkNameEdit": "Изменить имя ссылки",
+    "linkNamePlaceholder": "sales-2026",
+    "linkNameHint": "Строчные английские буквы, цифры и дефисы · {min}–{max} символов",
+    "linkNameRemove": "Удалить имя ссылки",
+    "linkNameRemoveConfirm": "Уже отправленные ссылки с этим именем перестанут работать. Удалить?",
+    "linkNameSaved": "Имя ссылки сохранено",
+    "linkNameRemoved": "Имя ссылки удалено",
+    "linkNameFailed": "Не удалось сохранить имя ссылки"
   },
   "publish": {
     "published": "Опубликовано",
@@ -3723,6 +3731,8 @@
     "notFound": "Не найдено.",
     "validation": "Проверьте форму и попробуйте снова.",
     "artifact.not_found": "Артефакт не найден",
+    "artifact.slug_taken": "Это имя ссылки уже занято",
+    "artifact.slug_invalid": "Используйте {min}–{max} строчных английских букв, цифр и одиночных дефисов",
     "access.denied": "Доступ запрещён",
     "account.disabled": "Ваша учётная запись отключена. Обратитесь к администратору.",
     "connection.not_found": "Подключение не найдено",

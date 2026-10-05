@@ -3695,7 +3695,15 @@
     "chatModelReport": "Samma som rapporten ({name})",
     "chatModelReportPlain": "Samma som rapporten",
     "chatModelUnavailable": "Modellen är inte tillgänglig — standard används",
-    "viewerSettingsApplyToAll": "De här inställningarna gäller alla instrumentpaneler i den här konversationen."
+    "viewerSettingsApplyToAll": "De här inställningarna gäller alla instrumentpaneler i den här konversationen.",
+    "linkNameEdit": "Redigera länknamn",
+    "linkNamePlaceholder": "sales-2026",
+    "linkNameHint": "Små engelska bokstäver, siffror och bindestreck · {min}–{max} tecken",
+    "linkNameRemove": "Ta bort länknamn",
+    "linkNameRemoveConfirm": "Länkar som redan skickats med det här namnet slutar fungera. Ta bort det?",
+    "linkNameSaved": "Länknamnet sparades",
+    "linkNameRemoved": "Länknamnet togs bort",
+    "linkNameFailed": "Det gick inte att spara länknamnet"
   },
   "publish": {
     "published": "Publicerad",
@@ -3723,6 +3731,8 @@
     "notFound": "Hittades inte.",
     "validation": "Kontrollera formuläret och försök igen.",
     "artifact.not_found": "Artefakten hittades inte",
+    "artifact.slug_taken": "Det här länknamnet är redan upptaget",
+    "artifact.slug_invalid": "Använd {min}–{max} små engelska bokstäver, siffror och enstaka bindestreck",
     "access.denied": "Åtkomst nekad",
     "account.disabled": "Ditt konto har inaktiverats. Kontakta din administratör.",
     "connection.not_found": "Anslutningen hittades inte",

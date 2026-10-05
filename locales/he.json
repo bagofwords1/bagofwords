@@ -3809,7 +3809,15 @@
     "chatModelReport": "כמו בדוח ({name})",
     "chatModelReportPlain": "כמו בדוח",
     "chatModelUnavailable": "מודל לא זמין — נעשה שימוש בברירת המחדל",
-    "viewerSettingsApplyToAll": "ההגדרות האלה חלות על כל הדשבורדים בשיחה."
+    "viewerSettingsApplyToAll": "ההגדרות האלה חלות על כל הדשבורדים בשיחה.",
+    "linkNameEdit": "עריכת השם בקישור",
+    "linkNamePlaceholder": "sales-2026",
+    "linkNameHint": "אותיות באנגלית קטנות, ספרות ומקפים · {min}–{max} תווים",
+    "linkNameRemove": "הסרת השם מהקישור",
+    "linkNameRemoveConfirm": "קישורים שכבר נשלחו עם השם הזה יפסיקו לעבוד. להסיר אותו?",
+    "linkNameSaved": "השם בקישור נשמר",
+    "linkNameRemoved": "השם הוסר מהקישור",
+    "linkNameFailed": "לא ניתן היה לשמור את השם בקישור"
   },
   "publish": {
     "published": "פורסם",
@@ -3837,6 +3845,8 @@
     "notFound": "לא נמצא.",
     "validation": "בדקו את הטופס ונסו שוב.",
     "artifact.not_found": "הפריט לא נמצא",
+    "artifact.slug_taken": "השם הזה כבר תפוס",
+    "artifact.slug_invalid": "יש להשתמש ב-{min}–{max} אותיות באנגלית קטנות, ספרות ומקפים בודדים",
     "access.denied": "הגישה נדחתה",
     "account.disabled": "החשבון שלך הושבת. פנה למנהל המערכת.",
     "connection.not_found": "החיבור לא נמצא",

@@ -461,6 +461,9 @@ const props = defineProps<{
   // Show the Edit button even in readonly mode (readonly hides the whole
   // bottom action bar; hosts like the Data modal want edit without the bar)
   canEdit?: boolean
+  // The report this widget belongs to, when the host page knows it better
+  // than the route does (/r/{slug}: the route param is a link name).
+  hostReportId?: string
 }>()
 const emit = defineEmits(['toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
@@ -478,7 +481,7 @@ const isAddingToDashboard = ref(false)
 const artifactVizIds = ref<string[]>([])
 const chartContainerRef = ref<HTMLElement | null>(null)
 const route = useRoute()
-const reportId = computed(() => String(route.params.id || ''))
+const reportId = computed(() => String(props.hostReportId || route.params.id || ''))
 const reportThemeName = ref<string | null>(null)
 const reportOverrides = ref<Record<string, any> | null>(null)
 const reportDataSources = ref<string[]>([])

@@ -307,6 +307,7 @@ class ArtifactService:
                     ArtifactVersion.report_id,
                     ArtifactVersion.title,
                     ArtifactVersion.mode,
+                    ArtifactVersion.slug,
                     ArtifactVersion.version,
                     ArtifactVersion.status,
                     ArtifactVersion.created_at,

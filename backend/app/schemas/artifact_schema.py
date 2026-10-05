@@ -115,6 +115,8 @@ class ArtifactListSchema(BaseModel):
     report_id: str
     title: Optional[str]
     mode: str
+    # Share-link name (/r/{slug}); None until the owner sets one.
+    slug: Optional[str] = None
     version: int
     status: str = "completed"
     created_at: datetime

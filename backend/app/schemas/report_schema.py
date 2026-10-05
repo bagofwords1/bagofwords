@@ -248,6 +248,11 @@ class ReportVisibilityUpdate(BaseModel):
     artifact_chat_model_id: Optional[str] = None
 
 
+class ArtifactSlugUpdate(BaseModel):
+    """Name one artifact's share link (/r/{slug}); null or blank clears it."""
+    slug: Optional[str] = None
+
+
 class ArtifactVisibilityUpdate(BaseModel):
     """Share one artifact (dashboard) of a report on its own."""
     visibility: VISIBILITY_LITERAL

@@ -3871,7 +3871,15 @@
     "chatModelReport": "Same as report ({name})",
     "chatModelReportPlain": "Same as report",
     "chatModelUnavailable": "Unavailable model — using default",
-    "viewerSettingsApplyToAll": "These settings apply to every dashboard in this conversation."
+    "viewerSettingsApplyToAll": "These settings apply to every dashboard in this conversation.",
+    "linkNameEdit": "Edit link name",
+    "linkNamePlaceholder": "sales-2026",
+    "linkNameHint": "Lowercase English letters, digits and hyphens · {min}–{max} characters",
+    "linkNameRemove": "Remove link name",
+    "linkNameRemoveConfirm": "Links already sent with this name will stop working. Remove it?",
+    "linkNameSaved": "Link name saved",
+    "linkNameRemoved": "Link name removed",
+    "linkNameFailed": "Couldn't save the link name"
   },
   "publish": {
     "published": "Published",
@@ -3899,6 +3907,8 @@
     "notFound": "Not found.",
     "validation": "Please check the form and try again.",
     "artifact.not_found": "Artifact not found",
+    "artifact.slug_taken": "This link name is already taken",
+    "artifact.slug_invalid": "Use {min}–{max} lowercase English letters, digits and single hyphens",
     "access.denied": "Access denied",
     "account.disabled": "Your account has been disabled. Contact your administrator.",
     "connection.not_found": "Connection not found",
