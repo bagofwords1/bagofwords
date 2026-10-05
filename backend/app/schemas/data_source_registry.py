@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel
@@ -301,6 +302,11 @@ class DataSourceRegistryEntry(BaseModel):
     # Optional explicit client path; if None, fallback to dynamic resolution
     client_path: Optional[str] = None
     dev_only: bool = False
+    # Optional Python module the client needs but we don't ship (e.g. a driver
+    # whose license forbids redistribution). When it isn't importable the entry
+    # is hidden from the new-connection catalog; existing connections still
+    # resolve and surface the client's own "install the driver" error.
+    requires_module: Optional[str] = None
     # Legacy flag — derived from `data_shape != "tables"`. Kept for backwards
     # compatibility with callers reading `client.is_document_based`. New code
     # should branch on `data_shape` directly.
@@ -438,6 +444,8 @@ def _is_dev_environment() -> bool:
 
 
 def _entry_visible(entry: DataSourceRegistryEntry) -> bool:
+    if entry.requires_module and importlib.util.find_spec(entry.requires_module) is None:
+        return False
     if not entry.dev_only:
         return True
     return _is_dev_environment()
@@ -590,6 +598,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=SapHanaCredentials, scopes=["system", "user"])
         }),
         client_path="app.data_sources.clients.sap_hana_client.SapHanaClient",
+        # hdbcli is under the SAP Developer License (proprietary, not
+        # redistributable), so it isn't bundled — self-hosters install it.
+        requires_module="hdbcli",
     ),
     "sap_datasphere": DataSourceRegistryEntry(
         type="sap_datasphere",

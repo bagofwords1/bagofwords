@@ -40,7 +40,10 @@ Community data source (NOT enterprise-gated).
   `backend/app/schemas/data_sources/configs.py`; registry entry (type
   `sap_hana`, explicit `client_path`, auth `userpass` with system+user
   scopes) in `backend/app/schemas/data_source_registry.py`.
-- `hdbcli>=2.29.25` dependency (manylinux wheels, no system libraries).
+- `hdbcli` driver — **not bundled** (SAP Developer License: proprietary, not
+  redistributable). Install it yourself (`pip install hdbcli`; manylinux wheels,
+  no system libraries); until then the connector is hidden from the catalog
+  (`requires_module="hdbcli"` on the registry entry).
 - `frontend/public/data_sources_icons/sap_hana.png` + type aliases
   (`hana`, `sap_datasphere`, `datasphere` → `sap_hana`) in
   `DataSourceIcon.vue`.
