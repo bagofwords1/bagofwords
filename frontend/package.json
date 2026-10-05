@@ -52,6 +52,7 @@
     "browserslist": ">=4.28.7 <5",
     "defu": ">=6.1.5",
     "nanoid": "^5.1.16",
+    "seroval": "^1.6.3",
     "dompurify": ">=3.4.11",
     "esbuild": ">=0.28.1",
     "linkify-it": ">=5.0.2 <6",
