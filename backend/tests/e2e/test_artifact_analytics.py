@@ -52,7 +52,6 @@ def test_views_are_counted_and_shown_to_the_owner_whatever_the_resources_switch(
         set_resources(client, headers, resources)
     enabled = bool(resources)
 
-    assert client.get(base + "/features", headers=headers).json() == {"resources": enabled, "analytics": True}
     assert client.get(base + "/resources", headers=headers).status_code == (200 if enabled else 404)
     assert count_view(client, base, headers, "embedded") == 200
     assert count_view(client, base, headers, "standalone") == 200
@@ -74,7 +73,7 @@ def test_turning_resources_off_keeps_counting_views(default_artifact):
 
 
 @pytest.mark.e2e
-def test_only_the_owner_is_offered_analytics_but_every_viewer_is_counted(default_artifact, invite_user_to_org):
+def test_only_the_owner_sees_analytics_but_every_viewer_is_counted(default_artifact, invite_user_to_org):
     client, base, headers, report_id = default_artifact
     member = invite_user_to_org(org_id=headers["X-Organization-Id"], admin_token=headers["Authorization"].split()[1])
     member_headers = {**headers, "Authorization": "Bearer " + member["token"]}
@@ -83,7 +82,6 @@ def test_only_the_owner_is_offered_analytics_but_every_viewer_is_counted(default
     )
     assert response.status_code == 200, response.text
 
-    assert client.get(base + "/features", headers=member_headers).json()["analytics"] is False
     assert client.get(base + "/analytics", headers=member_headers).status_code == 403
     assert count_view(client, base, member_headers) == 200
     assert count_view(client, base, headers) == 200

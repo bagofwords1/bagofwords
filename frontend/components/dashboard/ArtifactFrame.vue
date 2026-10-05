@@ -1033,7 +1033,7 @@ function postToRuntimeFrames(message: any) {
 }
 const resourceInspectorOpen = ref(false);
 const resourceInspectorView = ref<'resources' | 'analytics'>('resources');
-const artifactFeatures = ref({ resources: false, analytics: false });
+const resourcesAvailable = ref(false);
 
 
 useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you" }));
@@ -1381,14 +1381,13 @@ const artifactsList = ref<ArtifactItem[]>([]);
 const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
 watch(() => selectedArtifact.value?.artifact_id, async (id) => {
-  artifactFeatures.value = { resources: false, analytics: false };
+  resourcesAvailable.value = false;
   resourceInspectorOpen.value = false;
   if (!id || props.verificationPreview) return;
   try {
-    // Resources is an org switch (off by default); analytics is always on for the owner.
-    const result: any = await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/features`, {headers:{Authorization:token.value || ''}});
-    if (selectedArtifact.value?.artifact_id === id) artifactFeatures.value = { resources: !!result?.resources, analytics: !!result?.analytics };
-  } catch { /* Menu entries stay hidden when the artifact is not reachable. */ }
+    await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/context`, {headers:{Authorization:token.value || ''}});
+    if (selectedArtifact.value?.artifact_id === id) resourcesAvailable.value = true;
+  } catch { /* Disabled on existing installations until explicitly enabled. */ }
 }, {immediate:true});
 
 // Availability of PDF / PPTX / HTML for whatever is on screen; the public
@@ -1611,8 +1610,9 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
 
   if (selectedArtifact.value?.artifact_id && !props.verificationPreview) {
     const inspectors = [];
-    if (artifactFeatures.value.resources) inspectors.push({ label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } });
-    if (artifactFeatures.value.analytics) inspectors.push({ label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } });
+    if (resourcesAvailable.value) inspectors.push({ label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } });
+    // Analytics has no org switch; the API enforces owner-only on its own.
+    if (isReportOwner.value) inspectors.push({ label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } });
     view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);

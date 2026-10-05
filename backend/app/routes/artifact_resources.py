@@ -63,17 +63,6 @@ async def commit(db):
         fail("CONFLICT", "A resource name, unique value or request key already exists", 409)
 
 
-@router.get("/features")
-async def features(service=Depends(visibility_access)):
-    """Which artifact menu entries this viewer can open. Analytics is always on, for the owner only."""
-    from app.services.artifact_resource_policy import artifact_resources_enabled
-
-    return {
-        "resources": await artifact_resources_enabled(service.db, service.artifact.organization_id),
-        "analytics": bool(service.owner),
-    }
-
-
 @router.get("/resources")
 async def definitions(service=Depends(access)):
     return {"items": await service.definitions()}

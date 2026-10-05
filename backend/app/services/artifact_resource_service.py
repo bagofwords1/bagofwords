@@ -124,7 +124,7 @@ class ArtifactResources:
         if report is None or report.status == "archived":
             fail("NOT_FOUND", "Artifact not found", 404)
         await ReportService()._check_visibility(db, report, "artifact_visibility", user)
-        # resources=False: visibility only (view counting, analytics and the menu probe have no switch).
+        # resources=False: visibility only (view counting and analytics have no switch).
         if resources:
             from app.services.artifact_resource_policy import require_artifact_resources
             await require_artifact_resources(db, artifact.organization_id)
