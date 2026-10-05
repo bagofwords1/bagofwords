@@ -1608,11 +1608,12 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
   }
 
-  if (resourcesAvailable.value && selectedArtifact.value?.artifact_id && !props.verificationPreview) {
-    view.unshift(
-      { label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } },
-      { label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } }
-    );
+  if (selectedArtifact.value?.artifact_id && !props.verificationPreview) {
+    const inspectors = [];
+    if (resourcesAvailable.value) inspectors.push({ label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } });
+    // Analytics has no org switch; the API enforces owner-only on its own.
+    if (isReportOwner.value) inspectors.push({ label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } });
+    view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);
 });

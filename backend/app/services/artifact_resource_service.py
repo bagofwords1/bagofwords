@@ -98,7 +98,7 @@ class ArtifactResources:
         self.owner = bool(user and str(report.user_id) == self.actor)
 
     @classmethod
-    async def open(cls, db, artifact_id, user=None, organization_id=None, manage=False):
+    async def open(cls, db, artifact_id, user=None, organization_id=None, manage=False, resources=True):
         from app.services.report_service import ReportService
         from app.core.permission_resolver import principal_belongs_to_org
 
@@ -124,8 +124,10 @@ class ArtifactResources:
         if report is None or report.status == "archived":
             fail("NOT_FOUND", "Artifact not found", 404)
         await ReportService()._check_visibility(db, report, "artifact_visibility", user)
-        from app.services.artifact_resource_policy import require_artifact_resources
-        await require_artifact_resources(db, artifact.organization_id)
+        # resources=False: visibility only (view counting and analytics have no switch).
+        if resources:
+            from app.services.artifact_resource_policy import require_artifact_resources
+            await require_artifact_resources(db, artifact.organization_id)
         groups = []
         member = False
         if user:
