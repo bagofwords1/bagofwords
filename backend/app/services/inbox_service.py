@@ -233,7 +233,10 @@ class InboxService:
             body = f'{sender} shared the dashboard "{rtitle}" with you.'
         # Land the recipient on the surface that was actually shared — the same
         # URLs the share modals copy and the share emails carry:
-        #   artifact     -> /r/{id}      read-only dashboard viewer
+        #   artifact     -> /r/{id}?artifact={artifact_id}
+        #                                read-only viewer of that one dashboard;
+        #                                the long form, not /r/{slug}: this row
+        #                                is stored and a link name can change
         #   conversation -> /c/{token}   read-only transcript
         # Never /reports/{id}: that is the authoring workspace, which no share
         # grants. set_visibility mints conversation_share_token whenever

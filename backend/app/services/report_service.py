@@ -616,6 +616,12 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Artifact not found")
         return report, artifact
 
+    async def set_artifact_slug(self, db: AsyncSession, report_id: str, artifact_id: str, slug: str | None) -> dict:
+        """Name (or clear, with None) one artifact's share link /r/{slug}."""
+        from app.services import artifact_slug
+        _, artifact = await self._load_report_artifact(db, report_id, artifact_id)
+        return {"artifact_id": str(artifact.id), "slug": await artifact_slug.set_slug(db, artifact, slug)}
+
     async def set_artifact_visibility(
         self,
         db: AsyncSession,
@@ -792,6 +798,7 @@ class ReportService:
             "artifact_id": str(artifact.id),
             "title": artifact.title,
             "visibility": artifact.visibility or 'none',
+            "slug": artifact.slug,
             "shares": [
                 {
                     "id": str(s.id),
@@ -2716,8 +2723,9 @@ class ReportService:
         from app.models.artifact import ArtifactVersion
         from app.services import artifact_access
         visible = await artifact_access.visible_artifact_ids(db, report, user)
+        from sqlalchemy.orm import undefer
         stmt = (
-            select(ArtifactVersion).options(lazyload("*"))
+            select(ArtifactVersion).options(lazyload("*"), undefer(ArtifactVersion.slug))
             .where(ArtifactVersion.report_id == report_id, ArtifactVersion.deleted_at.is_(None))
             .order_by(ArtifactVersion.created_at.desc())
         )

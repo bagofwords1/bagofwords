@@ -591,7 +591,8 @@ class NotificationService:
 
     async def _group_subscribers_by_dashboards(self, report_id: str, report_url: str, subscribers: list) -> dict[tuple, list]:
         """{((title, url), ...): [subscriber, ...]} — the dashboards each
-        subscriber may open, newest first, linked as {report_url}?artifact=<id>."""
+        subscriber may open, newest first, linked as {report_url}?artifact=<id>
+        or, for a named dashboard, /r/{slug} (artifact_slug.share_path)."""
         from sqlalchemy import select
         from sqlalchemy.orm import lazyload
         from app.dependencies import async_session_maker
@@ -599,6 +600,7 @@ class NotificationService:
         from app.models.report import Report
         from app.models.user import User
         from app.services import artifact_access
+        from app.services.artifact_slug import share_path
 
         groups: dict[tuple, list] = {}
         async with async_session_maker() as db:
@@ -608,20 +610,20 @@ class NotificationService:
             if report is None:
                 return {(): list(subscribers or [])}
             artifacts = (await db.execute(
-                select(Artifact.id, Artifact.title).where(
+                select(Artifact).options(lazyload("*")).where(
                     Artifact.report_id == str(report_id),
                     Artifact.deleted_at.is_(None),
                 ).order_by(Artifact.created_at.desc())
-            )).all()
+            )).scalars().all()
             for sub in subscribers or []:
                 user = None
                 if sub.get("type") == "user" and sub.get("id"):
                     user = await db.get(User, sub["id"])
                 visible = await artifact_access.visible_artifact_ids(db, report, user)
                 links = tuple(
-                    (title or "Untitled", f"{report_url}?artifact={aid}")
-                    for aid, title in artifacts
-                    if visible is None or str(aid) in visible
+                    (a.title or "Untitled", f"{settings.bow_config.base_url}{share_path(a)}")
+                    for a in artifacts
+                    if visible is None or str(a.id) in visible
                 )
                 groups.setdefault(links, []).append(sub)
         return groups

@@ -3695,7 +3695,15 @@
     "chatModelReport": "كما في التقرير ({name})",
     "chatModelReportPlain": "كما في التقرير",
     "chatModelUnavailable": "النموذج غير متاح — يتم استخدام الافتراضي",
-    "viewerSettingsApplyToAll": "تنطبق هذه الإعدادات على جميع لوحات التحكم في هذه المحادثة."
+    "viewerSettingsApplyToAll": "تنطبق هذه الإعدادات على جميع لوحات التحكم في هذه المحادثة.",
+    "linkNameEdit": "تعديل اسم الرابط",
+    "linkNamePlaceholder": "sales-2026",
+    "linkNameHint": "أحرف إنجليزية صغيرة وأرقام وشرطات · {min}–{max} حرفًا",
+    "linkNameRemove": "إزالة اسم الرابط",
+    "linkNameRemoveConfirm": "ستتوقف الروابط التي أُرسلت بهذا الاسم عن العمل. هل تريد إزالته؟",
+    "linkNameSaved": "تم حفظ اسم الرابط",
+    "linkNameRemoved": "تمت إزالة اسم الرابط",
+    "linkNameFailed": "تعذّر حفظ اسم الرابط"
   },
   "publish": {
     "published": "منشورة",
@@ -3723,6 +3731,8 @@
     "notFound": "غير موجود.",
     "validation": "يُرجى التحقق من النموذج والمحاولة مجددًا.",
     "artifact.not_found": "العنصر غير موجود",
+    "artifact.slug_taken": "اسم الرابط هذا مستخدم بالفعل",
+    "artifact.slug_invalid": "استخدم {min}–{max} من الأحرف الإنجليزية الصغيرة والأرقام والشرطات المفردة",
     "access.denied": "تم رفض الوصول",
     "account.disabled": "تم تعطيل حسابك. يرجى التواصل مع المسؤول.",
     "connection.not_found": "الاتصال غير موجود",

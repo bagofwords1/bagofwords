@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from app.services.report_service import ReportService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
-from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ArtifactVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema, ReportActivityResponse
+from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ArtifactVisibilityUpdate, ArtifactSlugUpdate, ReportRerunResultSchema, ViewerRunResultSchema, ReportActivityResponse
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.models.user import User
 
@@ -332,6 +332,33 @@ async def get_artifact_sharing(
 ):
     """One dashboard's visibility and the users/groups it is shared with."""
     return await report_service.get_artifact_sharing(db, report_id, artifact_id)
+
+
+@router.put("/reports/{report_id}/artifacts/{artifact_id}/slug")
+@requires_permission('publish_reports', model=Report, owner_only=True)
+async def set_artifact_slug(
+    report_id: str,
+    artifact_id: str,
+    payload: ArtifactSlugUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Name one dashboard's share link: /r/{slug}. Same gate as sharing it."""
+    return await report_service.set_artifact_slug(db, report_id, artifact_id, payload.slug)
+
+
+@router.get("/artifact-links/{slug}")
+async def resolve_artifact_link(
+    slug: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """The report and artifact a share-link name opens, for a caller who may
+    open it. Lives outside /r/ so a name can never shadow a /r/{report_id}/...
+    route."""
+    from app.services import artifact_slug
+    return await artifact_slug.resolve(db, slug, user)
 
 
 @router.get("/reports/{report_id}/artifact_chat/agents")

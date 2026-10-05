@@ -61,14 +61,49 @@
                 {{ $t('share.publicPerUserNote') }}
             </p>
 
-            <!-- Share link -->
-            <div v-if="isShared && shareUrl" class="flex items-center gap-2 mb-6">
-                <input :value="shareUrl" type="text"
-                    class="flex-1 h-[32px] px-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 min-w-0"
-                    readonly />
-                <button @click="copyLink"
-                    class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
-                    <Icon :name="copied ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
+            <!-- Share link. A dashboard's link can carry a readable name
+                 (/r/{slug}); the pencil edits it in place. -->
+            <div v-if="isShared && shareUrl" class="mb-6">
+                <div v-if="!editingSlug" class="flex items-center gap-2">
+                    <input :value="shareUrl" type="text" dir="ltr" data-testid="share-link"
+                        class="flex-1 h-[32px] px-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 min-w-0"
+                        readonly />
+                    <button @click="copyLink"
+                        class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
+                        <Icon :name="copied ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
+                    </button>
+                    <UTooltip v-if="perArtifact" :text="$t('share.linkNameEdit')">
+                        <button @click="startEditSlug" data-testid="slug-edit" :aria-label="$t('share.linkNameEdit')"
+                            class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
+                            <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
+                        </button>
+                    </UTooltip>
+                </div>
+                <div v-else>
+                    <div class="flex items-center gap-2">
+                        <div dir="ltr"
+                            :class="['flex flex-1 items-center h-[32px] border rounded-lg min-w-0 bg-white dark:bg-gray-900',
+                                slugError ? 'border-red-400' : 'border-gray-300 dark:border-gray-600 focus-within:border-blue-500']">
+                            <span class="ps-2.5 text-xs text-gray-400 whitespace-nowrap truncate max-w-[55%]">{{ linkPrefix }}</span>
+                            <input ref="slugInputRef" v-model="slugDraft" type="text" maxlength="80" data-testid="slug-input"
+                                :placeholder="$t('share.linkNamePlaceholder')"
+                                class="flex-1 min-w-0 h-full pe-2.5 text-xs text-gray-900 dark:text-white bg-transparent outline-none"
+                                @input="slugError = ''" @keydown.enter.prevent="saveSlug" @keydown.esc.stop.prevent="cancelEditSlug" />
+                        </div>
+                        <UButton size="xs" color="blue" :loading="savingSlug" :disabled="!slugDraftValid" data-testid="slug-save" @click="saveSlug">
+                            {{ $t('common.save') }}
+                        </UButton>
+                        <UButton size="xs" color="gray" variant="ghost" :disabled="savingSlug" @click="cancelEditSlug">
+                            {{ $t('common.cancel') }}
+                        </UButton>
+                    </div>
+                    <p :class="['text-[11px] mt-1', slugError ? 'text-red-500' : 'text-gray-400']" data-testid="slug-hint">
+                        {{ slugError || $t('share.linkNameHint', { min: SLUG_MIN, max: SLUG_MAX }) }}
+                    </p>
+                </div>
+                <button v-if="perArtifact && linkSlug && !editingSlug" data-testid="slug-remove"
+                    class="mt-1 text-[11px] text-gray-500 hover:text-red-600 dark:text-gray-400" :disabled="savingSlug" @click="removeSlug">
+                    {{ $t('share.linkNameRemove') }}
                 </button>
             </div>
 
@@ -244,7 +279,12 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
+
+const emit = defineEmits<{
+    // The dashboard's share-link name changed (null = removed).
+    (e: 'slug-changed', payload: { artifactId: string; slug: string | null }): void
+}>()
 
 const props = withDefaults(defineProps<{
     report: any
@@ -266,6 +306,7 @@ const artifactVisibility = ref('none')
 
 const toast = useToast()
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 const { smtpEnabled } = useAppSettings()
 const modalOpen = ref(false)
 const isSaving = ref(false)
@@ -373,8 +414,86 @@ const buttonLabel = computed(() => {
 
 const buttonIcon = computed(() => selectedOption.value.icon)
 
+// Readable share-link name for this dashboard (/r/{slug}), per artifact.
+// The format check mirrors the server's (which also rejects reserved and
+// UUID-shaped names) so Save is only offered for a plausible name.
+const SLUG_MIN = 3
+const SLUG_MAX = 80
+const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const linkSlug = ref<string | null>(null)
+const editingSlug = ref(false)
+const slugDraft = ref('')
+const slugError = ref('')
+const savingSlug = ref(false)
+const slugInputRef = ref<HTMLInputElement | null>(null)
+const linkPrefix = computed(() => `${window.location.origin}/r/`)
+const normalizedSlugDraft = computed(() => slugDraft.value.trim().toLowerCase())
+const slugDraftValid = computed(() => {
+    const v = normalizedSlugDraft.value
+    return v.length >= SLUG_MIN && v.length <= SLUG_MAX && SLUG_RE.test(v)
+})
+
+const startEditSlug = () => {
+    slugDraft.value = linkSlug.value || ''
+    slugError.value = ''
+    editingSlug.value = true
+    nextTick(() => slugInputRef.value?.focus())
+}
+
+const cancelEditSlug = () => {
+    editingSlug.value = false
+    slugError.value = ''
+}
+
+const putSlug = async (slug: string | null): Promise<boolean> => {
+    const artifactId = props.artifactId
+    if (!artifactId) return false
+    savingSlug.value = true
+    try {
+        const res = await useMyFetch(`/reports/${props.report.id}/artifacts/${artifactId}/slug`, {
+            method: 'PUT',
+            body: { slug },
+        })
+        if (res.error.value) {
+            slugError.value = getErrorMessage(res.error.value, t('share.linkNameFailed'))
+            return false
+        }
+        if (artifactId !== props.artifactId) return false
+        linkSlug.value = (res.data.value as any)?.slug ?? null
+        emit('slug-changed', { artifactId, slug: linkSlug.value })
+        return true
+    } finally {
+        savingSlug.value = false
+    }
+}
+
+const saveSlug = async () => {
+    if (!slugDraftValid.value || savingSlug.value) return
+    if (normalizedSlugDraft.value === linkSlug.value) {
+        editingSlug.value = false
+        return
+    }
+    if (await putSlug(normalizedSlugDraft.value)) {
+        editingSlug.value = false
+        toast.add({ title: t('share.linkNameSaved'), color: 'green' })
+    }
+}
+
+// Removing frees the name and every earlier one: links already sent with
+// them stop working, so ask first.
+const removeSlug = async () => {
+    if (!window.confirm(t('share.linkNameRemoveConfirm'))) return
+    if (await putSlug(null)) {
+        toast.add({ title: t('share.linkNameRemoved'), color: 'green' })
+    } else if (slugError.value) {
+        toast.add({ title: slugError.value, color: 'red' })
+        slugError.value = ''
+    }
+}
+
 const shareUrl = computed(() => {
     if (props.shareType === 'artifact') {
+        if (perArtifact.value && linkSlug.value) return `${linkPrefix.value}${linkSlug.value}`
         const base = `${window.location.origin}/r/${props.report.id}`
         return perArtifact.value ? `${base}?artifact=${encodeURIComponent(props.artifactId as string)}` : base
     }
@@ -566,6 +685,7 @@ const fetchArtifactSharing = async () => {
         const data = res.data.value as any
         artifactVisibility.value = data.visibility || 'none'
         currentVisibility.value = artifactVisibility.value
+        linkSlug.value = data.slug ?? null
         sharedEntries.value = data.shares || []
     } catch { /* silent */ }
 }
@@ -787,6 +907,7 @@ const copyLink = async () => {
 
 const openModal = async () => {
     modalOpen.value = true
+    editingSlug.value = false
     currentVisibility.value = perArtifact.value ? artifactVisibility.value : (props.report?.[visibilityField.value] || 'none')
     conversationShareToken.value = props.report?.conversation_share_token ?? null
     runAsCreator.value = props.report?.shared_run_identity === 'creator'
@@ -814,6 +935,8 @@ watch(
         artifactVisibility.value = 'none'
         if (!modalOpen.value) currentVisibility.value = 'none'
         sharedEntries.value = []
+        linkSlug.value = null
+        editingSlug.value = false
         fetchArtifactSharing()
     },
     { immediate: true }

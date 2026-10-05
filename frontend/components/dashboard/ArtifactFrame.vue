@@ -215,7 +215,7 @@
         <!-- Rendered once a dashboard is selected: without an artifact id the
              modal falls back to whole-report sharing, which would overwrite
              every dashboard's own setting. -->
-        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :artifact-id="selectedArtifact.artifact_id" :title="$t('share.shareDashboard')" />
+        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :artifact-id="selectedArtifact.artifact_id" :title="$t('share.shareDashboard')" @slug-changed="onSlugChanged" />
       </div>
     </div>
 
@@ -577,6 +577,7 @@ interface ArtifactItem {
   created_at: string;
   mode: string;
   status?: string;
+  slug?: string | null;       // share-link name (/r/{slug}); on the parent, so every version carries it
 }
 
 const props = defineProps<{
@@ -1383,6 +1384,16 @@ async function fetchArtifactFiles(): Promise<any[]> {
 const artifactsList = ref<ArtifactItem[]>([]);
 const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
+// The selected dashboard's share-link name. Read from the list rows (the
+// detail payload doesn't carry it) and patched there when the ShareModal
+// saves one, like a rename.
+const selectedSlug = computed(() => {
+  const parent = selectedArtifact.value?.artifact_id;
+  return parent ? (artifactsList.value.find(a => a.artifact_id === parent)?.slug ?? null) : null;
+});
+const onSlugChanged = ({ artifactId, slug }: { artifactId: string; slug: string | null }) => {
+  artifactsList.value = artifactsList.value.map(a => (a.artifact_id === artifactId ? { ...a, slug } : a));
+};
 watch(() => selectedArtifact.value?.artifact_id, async (id) => {
   resourcesAvailable.value = false;
   resourceInspectorOpen.value = false;
@@ -1620,9 +1631,10 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
   ];
   if (props.report) {
     // /r/{id} itself enforces access — an unshared report is still viewable
-    // there by its owner.
+    // there by its owner. A named dashboard opens on its short link.
     const artifactParam = selectedArtifact.value?.artifact_id ? `?artifact=${encodeURIComponent(selectedArtifact.value.artifact_id)}` : '';
-    view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}${artifactParam}`, '_blank', 'noopener') });
+    const href = selectedSlug.value ? `/r/${selectedSlug.value}` : `/r/${props.report.id}${artifactParam}`;
+    view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(href, '_blank', 'noopener') });
   }
 
   if (resourcesAvailable.value && selectedArtifact.value?.artifact_id && !props.verificationPreview) {
