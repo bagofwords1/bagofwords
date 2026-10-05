@@ -5285,6 +5285,7 @@
     "empty": "Aucun élément pour l'instant",
     "scheduledTasks": "Tâches planifiées",
     "artifacts": "Artefacts",
+    "lists": "Listes",
     "default": "Par défaut",
     "document": "document",
     "showMore": "Afficher {count} de plus",
