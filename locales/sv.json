@@ -313,7 +313,11 @@
     "tipRunSuite": "Kör den här sviten",
     "runSuiteFailed": "Det gick inte att köra sviten",
     "exportInstructions": "Exportera agentpaket — instruktioner, konfiguration och utvärderingar (.zip)",
-    "sharedManagedElsewhere": "Delad med agenter du inte hanterar — kan bara redigeras av någon med behörighet över alla."
+    "sharedManagedElsewhere": "Delad med agenter du inte hanterar — kan bara redigeras av någon med behörighet över alla.",
+    "filterCatalog": "Katalog",
+    "noCatalog": "Ingen katalog",
+    "catalogs": "Kataloger",
+    "manageCatalogs": "Hantera kataloger…"
   },
   "smoke": {
     "hello": "Hej",
@@ -1830,7 +1834,11 @@
     "modelAccess": "Modellåtkomst",
     "modelAccessHint": "Begränsade modeller",
     "noRestrictedModels": "Inga begränsade modeller",
-    "connection": "Anslutning"
+    "connection": "Anslutning",
+    "bulk": {
+      "allCatalogs": "Alla kataloger",
+      "noCatalog": "Ingen katalog"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Sök grupper...",
@@ -5682,5 +5690,29 @@
     "failed": "Det gick inte att läsa artefaktdata",
     "newest": "Nyast först",
     "oldest": "Äldst först"
+  },
+  "agentCatalogs": {
+    "title": "Agentkataloger",
+    "subtitle": "Gruppera agenter efter team eller område. Kataloger används bara för att organisera och filtrera – de ändrar inte vem som har åtkomst till en agent.",
+    "newPlaceholder": "Namn på ny katalog",
+    "empty": "Inga kataloger ännu",
+    "pickOne": "Välj en katalog för att redigera den",
+    "createFirst": "Skapa en katalog för att börja gruppera agenter",
+    "name": "Namn",
+    "description": "Beskrivning",
+    "optional": "Valfritt",
+    "agents": "Agenter",
+    "searchAgents": "Sök agenter...",
+    "selectAllShown": "Markera alla som visas ({n})",
+    "noAgentsMatch": "Inga agenter matchar",
+    "inCatalog": "I {name}",
+    "movesFrom": "Flyttas från {name}",
+    "delete": "Ta bort katalog",
+    "discard": "Ignorera ändringar",
+    "save": "Spara",
+    "saved": "Katalogen har sparats",
+    "failed": "Det gick inte att spara katalogen",
+    "confirmDiscard": "Ignorera osparade ändringar i den här katalogen?",
+    "confirmDelete": "Ta bort katalogen \"{name}\"? Dess agenter behålls och hamnar utan katalog."
   }
 }

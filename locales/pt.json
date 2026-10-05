@@ -313,7 +313,11 @@
     "tipRunSuite": "Executar esta suíte",
     "runSuiteFailed": "Falha ao executar a suíte",
     "exportInstructions": "Exportar pacote do agente — instruções, configuração e avaliações (.zip)",
-    "sharedManagedElsewhere": "Compartilhada com agentes que você não gerencia — editável apenas por alguém com autoridade sobre todos eles."
+    "sharedManagedElsewhere": "Compartilhada com agentes que você não gerencia — editável apenas por alguém com autoridade sobre todos eles.",
+    "filterCatalog": "Catálogo",
+    "noCatalog": "Sem catálogo",
+    "catalogs": "Catálogos",
+    "manageCatalogs": "Gerenciar catálogos…"
   },
   "smoke": {
     "hello": "Olá",
@@ -1830,7 +1834,11 @@
     "modelAccess": "Acesso a modelos",
     "modelAccessHint": "Modelos restritos",
     "noRestrictedModels": "Nenhum modelo restrito",
-    "connection": "Conexão"
+    "connection": "Conexão",
+    "bulk": {
+      "allCatalogs": "Todos os catálogos",
+      "noCatalog": "Sem catálogo"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Buscar grupos...",
@@ -5682,5 +5690,29 @@
     "failed": "Não foi possível carregar os dados do artefato",
     "newest": "Mais recentes primeiro",
     "oldest": "Mais antigos primeiro"
+  },
+  "agentCatalogs": {
+    "title": "Catálogos de agentes",
+    "subtitle": "Agrupe agentes por equipe ou área. Os catálogos servem apenas para organizar e filtrar; não mudam quem pode acessar um agente.",
+    "newPlaceholder": "Nome do novo catálogo",
+    "empty": "Nenhum catálogo ainda",
+    "pickOne": "Selecione um catálogo para editá-lo",
+    "createFirst": "Crie um catálogo para começar a agrupar agentes",
+    "name": "Nome",
+    "description": "Descrição",
+    "optional": "Opcional",
+    "agents": "Agentes",
+    "searchAgents": "Pesquisar agentes...",
+    "selectAllShown": "Selecionar todos os exibidos ({n})",
+    "noAgentsMatch": "Nenhum agente corresponde",
+    "inCatalog": "Em {name}",
+    "movesFrom": "Será movido de {name}",
+    "delete": "Excluir catálogo",
+    "discard": "Descartar",
+    "save": "Salvar",
+    "saved": "Catálogo salvo",
+    "failed": "Não foi possível salvar o catálogo",
+    "confirmDiscard": "Descartar as alterações não salvas deste catálogo?",
+    "confirmDelete": "Excluir o catálogo \"{name}\"? Seus agentes são mantidos e ficam sem catálogo."
   }
 }

@@ -294,6 +294,8 @@ class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     # Distinct from is_active (connection health).
     publish_status: str = "published"
     reliability_status: str = "training"
+    # Organizational catalog (AgentCatalog id) or None. No access semantics.
+    catalog_id: Optional[str] = None
     use_llm_sync: bool = False
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     icon: Optional[str] = None
@@ -348,6 +350,8 @@ class DataSourceListItemSchema(AgentIconTokenMixin):
     # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
     publish_status: str = "published"
     reliability_status: str = "training"
+    # Organizational catalog (AgentCatalog id) or None. No access semantics.
+    catalog_id: Optional[str] = None
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     icon: Optional[str] = None
 
