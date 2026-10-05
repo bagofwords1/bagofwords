@@ -3,10 +3,10 @@ from sqlalchemy import select
 from app.models.organization_settings import OrganizationSettings
 
 
-async def _org_flag(db, organization_id, key, default):
+async def artifact_resources_enabled(db, organization_id):
     config = await db.scalar(select(OrganizationSettings.config).where(
         OrganizationSettings.organization_id == str(organization_id)))
-    value = (config or {}).get(key, default)
+    value = (config or {}).get('enable_artifact_resources', False)
     if isinstance(value, dict):
         if value.get('state') == 'locked':
             return False
@@ -14,22 +14,7 @@ async def _org_flag(db, organization_id, key, default):
     return value is True
 
 
-async def artifact_resources_enabled(db, organization_id):
-    return await _org_flag(db, organization_id, 'enable_artifact_resources', False)
-
-
-async def artifact_analytics_enabled(db, organization_id):
-    # On unless an admin turned it off: view counting needs no resources.
-    return await _org_flag(db, organization_id, 'enable_artifact_analytics', True)
-
-
 async def require_artifact_resources(db, organization_id):
     from app.services.artifact_resource_service import fail
     if not await artifact_resources_enabled(db, organization_id):
         fail('UNAVAILABLE', 'Artifact resources are disabled in organization settings. An organization admin can enable Artifact resources in AI settings.', 404)
-
-
-async def require_artifact_analytics(db, organization_id):
-    from app.services.artifact_resource_service import fail
-    if not await artifact_analytics_enabled(db, organization_id):
-        fail('UNAVAILABLE', 'Artifact analytics are disabled in organization settings. An organization admin can enable Artifact analytics in AI settings.', 404)

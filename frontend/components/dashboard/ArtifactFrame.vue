@@ -1385,7 +1385,7 @@ watch(() => selectedArtifact.value?.artifact_id, async (id) => {
   resourceInspectorOpen.value = false;
   if (!id || props.verificationPreview) return;
   try {
-    // Resources (off by default) and analytics (on by default) are separate org switches.
+    // Resources is an org switch (off by default); analytics is always on for the owner.
     const result: any = await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/features`, {headers:{Authorization:token.value || ''}});
     if (selectedArtifact.value?.artifact_id === id) artifactFeatures.value = { resources: !!result?.resources, analytics: !!result?.analytics };
   } catch { /* Menu entries stay hidden when the artifact is not reachable. */ }

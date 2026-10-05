@@ -2934,10 +2934,6 @@
         "enable_artifact_resources": {
           "name": "Risorse degli artefatti",
           "description": "Consenti agli artefatti di usare record persistenti, file privati e operazioni IA approvate. Restano valide le autorizzazioni di condivisione e delle risorse."
-        },
-        "enable_artifact_analytics": {
-          "name": "Analisi degli artefatti",
-          "description": "Conta le visualizzazioni delle dashboard e permette al proprietario di ogni dashboard di vedere visualizzazioni e spettatori unici. L'identità degli spettatori non viene mai mostrata."
         }
       }
     },

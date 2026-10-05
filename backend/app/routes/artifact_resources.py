@@ -24,19 +24,15 @@ router = APIRouter(prefix="/artifacts/{artifact_id}/runtime", tags=["artifact re
 
 
 async def access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
-    return await _admitted(artifact_id, request, db, user, "resources")
-
-
-async def analytics_access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
-    """View counting and analytics have their own switch, independent of resources."""
-    return await _admitted(artifact_id, request, db, user, "analytics")
+    return await _admitted(artifact_id, request, db, user, resources=True)
 
 
 async def visibility_access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
-    return await _admitted(artifact_id, request, db, user, None)
+    """Viewers only; no org switch. Used by view counting and analytics, which are always on."""
+    return await _admitted(artifact_id, request, db, user, resources=False)
 
 
-async def _admitted(artifact_id, request, db, user, feature):
+async def _admitted(artifact_id, request, db, user, resources):
     if (
         os.environ.get("BOW_ARTIFACT_RESOURCES_READ_ONLY") == "true"
         and request.method in ("POST", "DELETE")
@@ -45,7 +41,7 @@ async def _admitted(artifact_id, request, db, user, feature):
     ):
         fail("UNAVAILABLE", "Artifact resource writes are temporarily disabled", 503)
     org = request.headers.get("X-Organization-Id")
-    service = await ArtifactResources.open(db, artifact_id, user, org, feature=feature)
+    service = await ArtifactResources.open(db, artifact_id, user, org, resources=resources)
     category = "read"
     limit = 240
     if request.url.path.endswith("/stream"):
@@ -69,13 +65,12 @@ async def commit(db):
 
 @router.get("/features")
 async def features(service=Depends(visibility_access)):
-    """Which artifact menu entries this viewer can open; each switch is read separately."""
-    from app.services.artifact_resource_policy import artifact_resources_enabled, artifact_analytics_enabled
+    """Which artifact menu entries this viewer can open. Analytics is always on, for the owner only."""
+    from app.services.artifact_resource_policy import artifact_resources_enabled
 
-    org = service.artifact.organization_id
     return {
-        "resources": await artifact_resources_enabled(service.db, org),
-        "analytics": bool(service.owner) and await artifact_analytics_enabled(service.db, org),
+        "resources": await artifact_resources_enabled(service.db, service.artifact.organization_id),
+        "analytics": bool(service.owner),
     }
 
 
@@ -310,7 +305,7 @@ class ViewInput(BaseModel):
 
 
 @router.get("/view-token")
-async def view_token(surface: str = Query(pattern="^(embedded|standalone)$"), service=Depends(analytics_access)):
+async def view_token(surface: str = Query(pattern="^(embedded|standalone)$"), service=Depends(visibility_access)):
     import uuid
 
     return {
@@ -327,7 +322,7 @@ async def view_token(surface: str = Query(pattern="^(embedded|standalone)$"), se
 
 
 @router.post("/views")
-async def view(payload: ViewInput, service=Depends(analytics_access)):
+async def view(payload: ViewInput, service=Depends(visibility_access)):
     try:
         token = unseal(payload.token)
         if (
@@ -392,7 +387,7 @@ async def view(payload: ViewInput, service=Depends(analytics_access)):
 
 
 @router.get("/analytics")
-async def analytics(days: int = Query(default=30, ge=1, le=366), service=Depends(analytics_access)):
+async def analytics(days: int = Query(default=30, ge=1, le=366), service=Depends(visibility_access)):
     if not service.owner:
         fail("FORBIDDEN", "Only the report owner can inspect analytics", 403)
     since = (datetime.utcnow() - timedelta(days=days - 1)).date().isoformat()

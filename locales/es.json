@@ -3050,10 +3050,6 @@
         "enable_artifact_resources": {
           "name": "Recursos de artefactos",
           "description": "Permitir registros persistentes, archivos privados y operaciones de IA aprobadas en los artefactos. Se mantienen los permisos de recursos y uso compartido."
-        },
-        "enable_artifact_analytics": {
-          "name": "Analítica de artefactos",
-          "description": "Cuenta las visualizaciones de los paneles y permite que el propietario de cada panel vea las visualizaciones y los espectadores únicos. Nunca se muestra la identidad de los espectadores."
         }
       }
     },

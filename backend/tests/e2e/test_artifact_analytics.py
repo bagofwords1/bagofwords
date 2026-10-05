@@ -1,4 +1,4 @@
-"""Analytics has its own org switch: on by default, independent of resources."""
+"""View counting and owner analytics are always on: no org switch, independent of resources."""
 
 import asyncio
 import pytest
@@ -30,9 +30,10 @@ def default_artifact(test_client, create_user, login_user, whoami, create_report
     return test_client, f"/api/artifacts/{artifact}/runtime", headers, report["id"]
 
 
-def set_flags(client, headers, **flags):
-    config = {f"enable_artifact_{name}": {"value": value} for name, value in flags.items()}
-    response = client.put("/api/organization/settings", headers=headers, json={"config": config})
+def set_resources(client, headers, enabled):
+    response = client.put(
+        "/api/organization/settings", headers=headers, json={"config": {"enable_artifact_resources": {"value": enabled}}}
+    )
     assert response.status_code == 200, response.text
 
 
@@ -44,14 +45,15 @@ def count_view(client, base, headers, surface="embedded"):
 
 
 @pytest.mark.e2e
-def test_defaults_count_views_without_enabling_resources(default_artifact):
+@pytest.mark.parametrize("resources", [None, False, True])
+def test_views_are_counted_and_shown_to_the_owner_whatever_the_resources_switch(default_artifact, resources):
     client, base, headers, _ = default_artifact
-    config = client.get("/api/organization/settings", headers=headers).json()["config"]
-    assert config["enable_artifact_analytics"]["value"] is True
-    assert config["enable_artifact_resources"]["value"] is False
+    if resources is not None:
+        set_resources(client, headers, resources)
+    enabled = bool(resources)
 
-    assert client.get(base + "/features", headers=headers).json() == {"resources": False, "analytics": True}
-    assert client.get(base + "/resources", headers=headers).status_code == 404
+    assert client.get(base + "/features", headers=headers).json() == {"resources": enabled, "analytics": True}
+    assert client.get(base + "/resources", headers=headers).status_code == (200 if enabled else 404)
     assert count_view(client, base, headers, "embedded") == 200
     assert count_view(client, base, headers, "standalone") == 200
     analytics = client.get(base + "/analytics", headers=headers)
@@ -61,20 +63,14 @@ def test_defaults_count_views_without_enabling_resources(default_artifact):
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("resources", [False, True])
-def test_disabling_analytics_stops_counting_and_hides_it_regardless_of_resources(default_artifact, resources):
+def test_turning_resources_off_keeps_counting_views(default_artifact):
     client, base, headers, _ = default_artifact
+    set_resources(client, headers, True)
     assert count_view(client, base, headers) == 200
-    set_flags(client, headers, analytics=False, resources=resources)
+    set_resources(client, headers, False)
 
-    assert client.get(base + "/features", headers=headers).json() == {"resources": resources, "analytics": False}
-    assert count_view(client, base, headers) == 404
-    assert client.get(base + "/analytics", headers=headers).status_code == 404
-    assert client.get(base + "/resources", headers=headers).status_code == (200 if resources else 404)
-
-    # Turning it back on keeps what was counted before.
-    set_flags(client, headers, analytics=True)
-    assert client.get(base + "/analytics", headers=headers).json()["views"] == 1
+    assert count_view(client, base, headers) == 200
+    assert client.get(base + "/analytics", headers=headers).json()["views"] == 2
 
 
 @pytest.mark.e2e
@@ -92,17 +88,3 @@ def test_only_the_owner_is_offered_analytics_but_every_viewer_is_counted(default
     assert count_view(client, base, member_headers) == 200
     assert count_view(client, base, headers) == 200
     assert client.get(base + "/analytics", headers=headers).json()["authenticatedViewers"] == 2
-
-
-@pytest.mark.e2e
-def test_analytics_switch_is_admin_only(default_artifact, invite_user_to_org):
-    client, base, headers, _ = default_artifact
-    member = invite_user_to_org(org_id=headers["X-Organization-Id"], admin_token=headers["Authorization"].split()[1])
-    member_headers = {**headers, "Authorization": "Bearer " + member["token"]}
-    response = client.put(
-        "/api/organization/settings",
-        headers=member_headers,
-        json={"config": {"enable_artifact_analytics": {"value": False}}},
-    )
-    assert response.status_code == 403
-    assert client.get(base + "/features", headers=headers).json()["analytics"] is True
