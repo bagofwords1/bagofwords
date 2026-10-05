@@ -3130,6 +3130,10 @@
         "enable_artifact_resources": {
           "name": "Artifact resources",
           "description": "Allow artifacts to use persistent records, private files and approved AI operations. Existing sharing and resource permissions still apply."
+        },
+        "enable_artifact_analytics": {
+          "name": "Artifact analytics",
+          "description": "Count dashboard views and let each dashboard's owner see views and unique viewers. Viewer identities are never shown."
         }
       }
     },

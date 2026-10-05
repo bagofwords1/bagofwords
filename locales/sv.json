@@ -2934,6 +2934,10 @@
         "enable_artifact_resources": {
           "name": "Artefaktresurser",
           "description": "Tillåt artefakter att använda beständiga poster, privata filer och godkända AI-operationer. Befintliga delnings- och resursbehörigheter gäller fortfarande."
+        },
+        "enable_artifact_analytics": {
+          "name": "Artefaktanalys",
+          "description": "Räknar visningar av instrumentpaneler och låter varje instrumentpanels ägare se visningar och unika tittare. Tittarnas identitet visas aldrig."
         }
       }
     },

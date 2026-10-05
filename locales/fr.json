@@ -2934,6 +2934,10 @@
         "enable_artifact_resources": {
           "name": "Ressources des artefacts",
           "description": "Autoriser les enregistrements persistants, les fichiers privés et les opérations IA approuvées dans les artefacts. Les autorisations de partage et de ressources restent applicables."
+        },
+        "enable_artifact_analytics": {
+          "name": "Statistiques des artefacts",
+          "description": "Compte les vues des tableaux de bord et permet au propriétaire de chaque tableau de bord de voir les vues et les visiteurs uniques. L'identité des visiteurs n'est jamais affichée."
         }
       }
     },

@@ -1033,7 +1033,7 @@ function postToRuntimeFrames(message: any) {
 }
 const resourceInspectorOpen = ref(false);
 const resourceInspectorView = ref<'resources' | 'analytics'>('resources');
-const resourcesAvailable = ref(false);
+const artifactFeatures = ref({ resources: false, analytics: false });
 
 
 useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you" }));
@@ -1381,13 +1381,14 @@ const artifactsList = ref<ArtifactItem[]>([]);
 const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
 watch(() => selectedArtifact.value?.artifact_id, async (id) => {
-  resourcesAvailable.value = false;
+  artifactFeatures.value = { resources: false, analytics: false };
   resourceInspectorOpen.value = false;
   if (!id || props.verificationPreview) return;
   try {
-    await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/context`, {headers:{Authorization:token.value || ''}});
-    if (selectedArtifact.value?.artifact_id === id) resourcesAvailable.value = true;
-  } catch { /* Disabled on existing installations until explicitly enabled. */ }
+    // Resources (off by default) and analytics (on by default) are separate org switches.
+    const result: any = await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/features`, {headers:{Authorization:token.value || ''}});
+    if (selectedArtifact.value?.artifact_id === id) artifactFeatures.value = { resources: !!result?.resources, analytics: !!result?.analytics };
+  } catch { /* Menu entries stay hidden when the artifact is not reachable. */ }
 }, {immediate:true});
 
 // Availability of PDF / PPTX / HTML for whatever is on screen; the public
@@ -1608,11 +1609,11 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
   }
 
-  if (resourcesAvailable.value && selectedArtifact.value?.artifact_id && !props.verificationPreview) {
-    view.unshift(
-      { label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } },
-      { label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } }
-    );
+  if (selectedArtifact.value?.artifact_id && !props.verificationPreview) {
+    const inspectors = [];
+    if (artifactFeatures.value.resources) inspectors.push({ label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } });
+    if (artifactFeatures.value.analytics) inspectors.push({ label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } });
+    view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);
 });

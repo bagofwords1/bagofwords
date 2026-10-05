@@ -24,6 +24,19 @@ router = APIRouter(prefix="/artifacts/{artifact_id}/runtime", tags=["artifact re
 
 
 async def access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
+    return await _admitted(artifact_id, request, db, user, "resources")
+
+
+async def analytics_access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
+    """View counting and analytics have their own switch, independent of resources."""
+    return await _admitted(artifact_id, request, db, user, "analytics")
+
+
+async def visibility_access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
+    return await _admitted(artifact_id, request, db, user, None)
+
+
+async def _admitted(artifact_id, request, db, user, feature):
     if (
         os.environ.get("BOW_ARTIFACT_RESOURCES_READ_ONLY") == "true"
         and request.method in ("POST", "DELETE")
@@ -32,7 +45,7 @@ async def access(artifact_id: str, request: Request, db=Depends(get_async_db), u
     ):
         fail("UNAVAILABLE", "Artifact resource writes are temporarily disabled", 503)
     org = request.headers.get("X-Organization-Id")
-    service = await ArtifactResources.open(db, artifact_id, user, org)
+    service = await ArtifactResources.open(db, artifact_id, user, org, feature=feature)
     category = "read"
     limit = 240
     if request.url.path.endswith("/stream"):
@@ -52,6 +65,18 @@ async def commit(db):
     except IntegrityError:
         await db.rollback()
         fail("CONFLICT", "A resource name, unique value or request key already exists", 409)
+
+
+@router.get("/features")
+async def features(service=Depends(visibility_access)):
+    """Which artifact menu entries this viewer can open; each switch is read separately."""
+    from app.services.artifact_resource_policy import artifact_resources_enabled, artifact_analytics_enabled
+
+    org = service.artifact.organization_id
+    return {
+        "resources": await artifact_resources_enabled(service.db, org),
+        "analytics": bool(service.owner) and await artifact_analytics_enabled(service.db, org),
+    }
 
 
 @router.get("/resources")
@@ -285,7 +310,7 @@ class ViewInput(BaseModel):
 
 
 @router.get("/view-token")
-async def view_token(surface: str = Query(pattern="^(embedded|standalone)$"), service=Depends(access)):
+async def view_token(surface: str = Query(pattern="^(embedded|standalone)$"), service=Depends(analytics_access)):
     import uuid
 
     return {
@@ -302,7 +327,7 @@ async def view_token(surface: str = Query(pattern="^(embedded|standalone)$"), se
 
 
 @router.post("/views")
-async def view(payload: ViewInput, service=Depends(access)):
+async def view(payload: ViewInput, service=Depends(analytics_access)):
     try:
         token = unseal(payload.token)
         if (
@@ -367,7 +392,7 @@ async def view(payload: ViewInput, service=Depends(access)):
 
 
 @router.get("/analytics")
-async def analytics(days: int = Query(default=30, ge=1, le=366), service=Depends(access)):
+async def analytics(days: int = Query(default=30, ge=1, le=366), service=Depends(analytics_access)):
     if not service.owner:
         fail("FORBIDDEN", "Only the report owner can inspect analytics", 403)
     since = (datetime.utcnow() - timedelta(days=days - 1)).date().isoformat()

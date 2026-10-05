@@ -2934,6 +2934,10 @@
         "enable_artifact_resources": {
           "name": "Artefaktressourcen",
           "description": "Artefakten dauerhafte Datensätze, private Dateien und genehmigte KI-Operationen erlauben. Bestehende Freigabe- und Ressourcenberechtigungen gelten weiterhin."
+        },
+        "enable_artifact_analytics": {
+          "name": "Artefakt-Analysen",
+          "description": "Zählt Dashboard-Aufrufe und zeigt dem Eigentümer jedes Dashboards Aufrufe und eindeutige Betrachter. Die Identität der Betrachter wird nie angezeigt."
         }
       }
     },
