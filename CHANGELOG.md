@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.578 (October 5, 2026)
+- Fixed high-severity dependency vulnerabilities flagged by Snyk: upgraded the backend `mcp` client to 1.30.0 and the frontend `seroval` transitive to 1.6.8
+
 ## Version 0.0.577 (October 4, 2026)
 - Added ION service-account authentication for Infor EPM connections
 
