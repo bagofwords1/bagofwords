@@ -136,8 +136,10 @@ Discovery crawls the **catalog `assets`** collection with OData paging (`_list_a
 (`_parse_metadata_columns`, `:268`), and queries the analytical OData endpoint with
 server-side aggregation (`execute_query`, `:339`).
 
-**Dependency note:** `hdbcli>=2.29.25` is the only SAP dep in `pyproject.toml`. The
-Datasphere client uses `requests` + `defusedxml` only — no `pyodata`, no SOAP, no RFC.
+**Dependency note:** no SAP dependency ships in `pyproject.toml` — `hdbcli` was removed
+for licensing (see "Driver / library licensing" below); self-hosters who want SAP HANA
+install it themselves. The Datasphere client uses `requests` + `defusedxml` only — no
+`pyodata`, no SOAP, no RFC.
 
 ---
 
@@ -275,7 +277,8 @@ and delegated-auth substrate, differing only in discovery + query protocol + ide
   otherwise. Decide the deployment model before promising on-prem.
 - **Driver / library licensing:**
   - `hdbcli` — official HANA client; `pip`-installable but governed by the **SAP HANA
-    Client license**; the underlying client is **not redistributable**. Already a dep.
+    Client license** (PyPI: SAP Developer License); the underlying client is **not
+    redistributable**. Removed as a dep — the HANA connector requires a user-installed copy.
   - `pyodata` — **Apache-2.0, fully open**, no SAP driver. Cleanest choice for OData
     (S/4, BW-OData, Datasphere OData).
   - `requests` — safe/open; the right tool for BusinessObjects `/biprws` and SAC DES.

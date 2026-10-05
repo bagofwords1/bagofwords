@@ -17,9 +17,11 @@ class SapHanaClient(DataSourceClient):
     """SAP HANA / HANA Cloud / SAP Datasphere (Open SQL schema) client.
 
     Speaks plain SQL to the HANA SQL port via the official `hdbcli` DBAPI
-    driver. For SAP Datasphere, connect with a space database user
-    (SPACE#NAME) against the tenant's HANA Cloud endpoint (port 443, TLS) —
-    views marked "Expose for Consumption" appear in the space schema.
+    driver. hdbcli is not bundled (SAP Developer License — proprietary, not
+    redistributable); deployments that want this connector `pip install hdbcli`.
+    For SAP Datasphere, connect with a space database user (SPACE#NAME)
+    against the tenant's HANA Cloud endpoint (port 443, TLS) — views marked
+    "Expose for Consumption" appear in the space schema.
     """
 
     def __init__(self, host, port: int = 443, user: str = None, password: str = None,
@@ -62,7 +64,14 @@ class SapHanaClient(DataSourceClient):
     @contextmanager
     def connect(self) -> Generator["object", None, None]:
         """Yield an hdbcli DBAPI connection to SAP HANA."""
-        from hdbcli import dbapi
+        try:
+            from hdbcli import dbapi
+        except ImportError:
+            raise RuntimeError(
+                "SAP HANA driver (hdbcli) is not installed. It is not bundled with "
+                "Bag of Words because of its SAP license; install it on the server "
+                "with `pip install hdbcli` to use this connector."
+            )
 
         conn = None
         try:
