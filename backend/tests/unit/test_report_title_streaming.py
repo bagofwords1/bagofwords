@@ -257,11 +257,32 @@ async def test_reporter_prompt_omits_the_plan_when_there_is_none():
 
     await reporter.generate_report_title("Show me revenue by country")
     assert "Show me revenue by country" in captured[0]
-    assert "this plan" not in captured[0]
+    assert "<plan>" not in captured[0]
 
     await reporter.generate_report_title("Show me revenue by country", [{"action": "create_widget"}])
-    assert "this plan" in captured[1]
+    assert "<plan>" in captured[1]
     assert "create_widget" in captured[1]
+
+
+@pytest.mark.asyncio
+async def test_reporter_prompt_titles_vague_input_instead_of_replying():
+    """A short prompt ("hi") used to get a chat reply ("Please provide...")
+    saved as the title. The message must be fenced off as data, and the model
+    told to fall back to a generic title rather than ask for more."""
+    from app.ai.agents.reporter.reporter import Reporter
+
+    captured = []
+    reporter = Reporter.__new__(Reporter)
+    reporter.organization_settings = None
+    reporter.llm = SimpleNamespace(
+        inference=lambda text, **kw: captured.append(text) or "Data Exploration"
+    )
+
+    await reporter.generate_report_title("hi")
+    text = captured[0]
+    assert "<user_messages>\n        hi\n        </user_messages>" in text
+    assert "NEVER ask for more information" in text
+    assert '"hi" -> Data Exploration' in text
 
 
 @pytest.mark.asyncio
