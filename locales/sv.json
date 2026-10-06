@@ -2315,7 +2315,17 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "entraTitle": "Aktivera Entra-tokenutbyte",
+          "entraHelp": "Valfritt. Låt programmet byta en inloggad användares Microsoft Entra-token mot en BOW-token.",
+          "entraUnavailable": "Konfigurera först en tenantspecifik Entra-SSO-leverantör med access_as_user i bow-config.yaml.",
+          "entraProvider": "Entra-SSO-leverantör",
+          "externalEntraClient": "Externt Entra-program-ID (klient)",
+          "externalEntraHelp": "Entra-programmet som får anropa BOW för sina inloggade användare. Förvara hemligheten i det externa programmets backend.",
+          "entraTenant": "Tenant-ID",
+          "entraAudience": "Målgrupp för BOW API (v1-token)",
+          "entraScope": "Obligatoriskt omfång",
+          "entraRequirements": "Nya användare ansluts automatiskt med en giltig inbjudan eller aktiverad domänregistrering. Token gäller högst en timme. Omdirigerings-URI:er är valfria för program som enbart utbyter token."
         },
         "excel": {
           "title": "Excel-tillägg",
@@ -5652,7 +5662,7 @@
     "failed": "Schemauppdateringen slutfördes inte. Försök igen.",
     "connectRequired": "Anslut ditt konto för att se dess tabeller."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "Skrivskyddad",
     "sort": "Sortera poster",
     "applyFilter": "Tillämpa",

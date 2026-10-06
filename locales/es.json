@@ -2431,7 +2431,17 @@
           "invalidAuthorizationRequest": "A esta solicitud de autorización le falta información obligatoria.",
           "unsupportedAuthorizationRequest": "Esta aplicación debe usar Authorization Code con PKCE S256.",
           "unknownAuthorizationClient": "La aplicación o la URL de callback no está registrada.",
-          "authorizationFailed": "La autorización falló. Inténtalo de nuevo o contacta al administrador del espacio de trabajo."
+          "authorizationFailed": "La autorización falló. Inténtalo de nuevo o contacta al administrador del espacio de trabajo.",
+          "entraTitle": "Habilitar el intercambio de tokens de Entra",
+          "entraHelp": "Opcional. Permite que esta aplicación intercambie el token de acceso de Microsoft Entra de un usuario por un token de BOW.",
+          "entraUnavailable": "Primero configura un proveedor SSO de Entra específico del inquilino con access_as_user en bow-config.yaml.",
+          "entraProvider": "Proveedor SSO de Entra",
+          "externalEntraClient": "ID de aplicación (cliente) externa de Entra",
+          "externalEntraHelp": "La aplicación de Entra autorizada para llamar a BOW en nombre de sus usuarios. Guarda su secreto en el backend de la aplicación externa.",
+          "entraTenant": "ID de inquilino",
+          "entraAudience": "Audiencia de la API de BOW (tokens v1)",
+          "entraScope": "Ámbito requerido",
+          "entraRequirements": "Los usuarios nuevos se incorporan automáticamente con una invitación válida o una política de registro por dominio. Los tokens duran hasta una hora. Las URI de redirección son opcionales para aplicaciones que solo intercambian tokens."
         },
         "excel": {
           "title": "Complemento de Excel",
@@ -5813,7 +5823,7 @@
     "failed": "La actualización del esquema no se completó. Inténtalo de nuevo.",
     "connectRequired": "Conecta tu cuenta para ver sus tablas."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "Solo lectura",
     "sort": "Ordenar registros",
     "applyFilter": "Aplicar",

@@ -2315,7 +2315,17 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "entraTitle": "Abilita lo scambio di token Entra",
+          "entraHelp": "Facoltativo. Consente a questa applicazione di scambiare il token Microsoft Entra di un utente connesso con un token BOW.",
+          "entraUnavailable": "Configura prima un provider SSO Entra specifico del tenant con access_as_user in bow-config.yaml.",
+          "entraProvider": "Provider SSO Entra",
+          "externalEntraClient": "ID applicazione Entra esterna (client)",
+          "externalEntraHelp": "Applicazione Entra autorizzata a chiamare BOW per i propri utenti connessi. Conserva il segreto nel backend dell’applicazione esterna.",
+          "entraTenant": "ID tenant",
+          "entraAudience": "Destinatario API BOW (token v1)",
+          "entraScope": "Ambito richiesto",
+          "entraRequirements": "I nuovi utenti accedono automaticamente con un invito valido o una politica di registrazione per dominio abilitata. I token durano al massimo un’ora. Gli URI di reindirizzamento sono facoltativi per le app che usano solo lo scambio di token."
         },
         "excel": {
           "title": "Componente aggiuntivo Excel",
@@ -5652,7 +5662,7 @@
     "failed": "Aggiornamento dello schema non completato. Riprova.",
     "connectRequired": "Collega il tuo account per vedere le sue tabelle."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "Sola lettura",
     "sort": "Ordina record",
     "applyFilter": "Applica",
