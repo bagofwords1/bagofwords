@@ -145,7 +145,7 @@ async def _recover(user_id):
                     ):
                         continue
 
-                    async def provision(assertion):
+                    async def provision(assertion, cfg=cfg):
                         # missing_only: current orgs only, never a row that
                         # already exists (manual connect, Disconnect marker,
                         # service-account choice), only this login's app.

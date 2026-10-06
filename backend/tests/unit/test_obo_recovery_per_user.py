@@ -103,9 +103,10 @@ def test_recovery_for_many_connections_is_one_job_and_one_exchange(monkeypatch, 
 
 @pytest.mark.asyncio
 async def test_login_provisioning_does_not_undo_a_disconnect(obo_calls):
+    from sqlalchemy import select
+
     from app.services.connection_oauth_service import auto_provision_connection_credentials
     from app.services.connection_service import ConnectionService
-    from sqlalchemy import select
 
     async with async_session_maker() as db:
         org = Organization(name=f"o-{uuid.uuid4().hex}")
