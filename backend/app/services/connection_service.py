@@ -1241,6 +1241,8 @@ class ConnectionService:
         the data-source-level table is a separate, legacy store.
         """
         connection = await self.get_connection(db, connection_id, organization)
+        from app.services.credential_coordination import lock_credential_writes
+        await lock_credential_writes(db, str(current_user.id))
         result = await db.execute(
             select(UserConnectionCredentials).where(
                 UserConnectionCredentials.connection_id == str(connection.id),

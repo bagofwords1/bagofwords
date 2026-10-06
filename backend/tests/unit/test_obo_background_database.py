@@ -14,6 +14,7 @@ from app import dependencies
 from app.models.connection import Connection
 from app.models.data_source import DataSource
 from app.models.domain_connection import domain_connection
+from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
@@ -73,6 +74,8 @@ def test_background_login_provisions_credentials_and_catalogs(monkeypatch, conne
                 )
                 db.add_all([org, user])
                 await db.flush()
+                # Login provisioning now rechecks org membership before saving.
+                db.add(Membership(user_id=user.id, organization_id=org.id, role="member"))
                 ds = DataSource(name="delegated catalog", organization_id=org.id, owner_user_id=user.id)
                 db.add(ds)
                 await db.flush()

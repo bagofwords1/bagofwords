@@ -27,6 +27,7 @@ from app.models.user import User
 from app.services.connection_oauth_service import (
     ENTRA_OBO_CONNECTION_TYPES,
     auto_provision_connection_credentials,
+    sync_obo_catalogs,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,9 @@ async def _refresh_assertion(db, account, cfg):
                 codes = []
             logger.warning(
                 "Stored-login refresh rejected for user %s: HTTP %s, AADSTS codes %s",
-                account.user_id, response.status_code, codes,
+                account.user_id,
+                response.status_code,
+                codes,
             )
             return None
         tokens = response.json()
@@ -130,44 +133,57 @@ async def _recover(user_id):
             engine = create_async_database_engine_for_indexing()
             maker = async_sessionmaker(engine, expire_on_commit=False)
             async with maker() as db:
-                user = await db.get(User, user_id)
-                if not user or not user.is_active:
-                    return
-                accounts = (await db.scalars(select(OAuthAccount).where(OAuthAccount.user_id == user_id))).all()
-                for account in accounts:
-                    cfg = _get_oidc_config(account.oauth_name)
-                    if (
-                        not cfg
-                        or not cfg.enabled
-                        or not _is_entra_provider(account.oauth_name)
-                        or not cfg.client_id
-                        or not cfg.client_secret
-                    ):
-                        continue
+                from app.services.credential_coordination import provisioning_lock
 
-                    async def provision(assertion, cfg=cfg):
-                        # missing_only: current orgs only, never a row that
-                        # already exists (manual connect, Disconnect marker,
-                        # service-account choice), only this login's app.
-                        return await auto_provision_connection_credentials(
-                            db, user, assertion, missing_only=True, client_id=cfg.client_id,
-                        )
+                pending_catalogs = []
+                async with provisioning_lock(db, user_id) as acquired:
+                    if not acquired:
+                        return
+                    user = await db.get(User, user_id)
+                    if not user or not user.is_active:
+                        return
+                    accounts = (await db.scalars(select(OAuthAccount).where(OAuthAccount.user_id == user_id))).all()
+                    for account in accounts:
+                        cfg = _get_oidc_config(account.oauth_name)
+                        if (
+                            not cfg
+                            or not cfg.enabled
+                            or not _is_entra_provider(account.oauth_name)
+                            or not cfg.client_id
+                            or not cfg.client_secret
+                        ):
+                            continue
 
-                    summary = None
-                    if account.access_token and (not account.expires_at or account.expires_at > time.time() + 60):
-                        # A Graph profile token may have replaced the login
-                        # assertion. If rejected, refresh original scopes once.
-                        with suppress(ValueError, httpx.HTTPError):
-                            summary = await provision(account.access_token)
-                    if summary is None or (summary["failed"] and not summary["provisioned"]):
-                        assertion = await _refresh_assertion(db, account, cfg)
-                        if assertion:
-                            summary = await provision(assertion)
-                    if summary and summary["provisioned"]:
-                        logger.info(
-                            "Stored-login OBO recovered %d connection(s) for user %s",
-                            len(summary["provisioned"]), user_id,
-                        )
+                        async def provision(assertion, cfg=cfg):
+                            # missing_only: current orgs only, never a row that
+                            # already exists (manual connect, Disconnect marker,
+                            # service-account choice), only this login's app.
+                            return await auto_provision_connection_credentials(
+                                db,
+                                user,
+                                assertion,
+                                missing_only=True,
+                                client_id=cfg.client_id,
+                                catalog_targets=pending_catalogs,
+                            )
+
+                        summary = None
+                        if account.access_token and (not account.expires_at or account.expires_at > time.time() + 60):
+                            # A Graph profile token may have replaced the login
+                            # assertion. If rejected, refresh original scopes once.
+                            with suppress(ValueError, httpx.HTTPError):
+                                summary = await provision(account.access_token)
+                        if summary is None or (summary["failed"] and not summary["provisioned"]):
+                            assertion = await _refresh_assertion(db, account, cfg)
+                            if assertion:
+                                summary = await provision(assertion)
+                        if summary and summary["provisioned"]:
+                            logger.info(
+                                "Stored-login OBO recovered %d connection(s) for user %s",
+                                len(summary["provisioned"]),
+                                user_id,
+                            )
+                await sync_obo_catalogs(db, user, pending_catalogs)
     except Exception as exc:
         # Do not log assertions, refresh tokens, response bodies, or exception
         # messages (providers can echo credentials in them).

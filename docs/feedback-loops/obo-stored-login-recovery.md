@@ -15,7 +15,7 @@ Baseline test on the already-fixed background implementation: `test_missing_conn
 - It tries the stored access token if not known expired. If unavailable/rejected, it makes at most one refresh attempt with the original login scopes, then retries OBO once. It never substitutes a Graph-scoped refresh request or system credentials.
 - Credentials are written only after a successful exchange, and the existing catalog sync runs afterward. Existing rows, including inactive rows and service-account preferences, are not overwritten.
 - Explicit Disconnect clears tokens and retains an inactive marker to prevent silent reconnection. A future explicit sign-in can reconnect normally. Historical hard-deleted disconnects cannot be distinguished from never-provisioned users.
-- Retries are limited per process to one attempt per user per five minutes, at most 16 running jobs, a bounded 4096-key cooldown cache, and a 120-second job deadline. Multiple server workers have independent limits.
+- Retries are limited per process to one attempt per user per five minutes, at most 16 running jobs, a bounded 4096-key cooldown cache, and a 120-second job deadline. Multiple server workers have independent cooldown/admission limits; PostgreSQL advisory locks additionally exclude overlapping login/recovery jobs for the same user across workers.
 - Failures preserve Connect required and do not log raw provider response bodies, assertions, refresh tokens, or exception messages. Numeric AADSTS codes remain available.
 
 ## Review follow-up: per-user recovery
@@ -132,3 +132,114 @@ the target; its local ODBC/OpenSSL load failure was unrelated to token exchange.
 The final Power BI test does not use ODBC. Initial live-harness seeding omitted a
 required report slug; correcting the harness resolved that setup error without
 any application change.
+
+
+## Final concurrency verification — PostgreSQL, no migration
+
+On head `47d86e69a`, the new deterministic reproduction produced **7 failures**:
+Disconnect and membership removal during an exchange still produced credentials
+(admin and member), concurrent recovery/recovery and recovery/login both
+provisioned, and five connections made five identical rejected exchanges.
+The race was in `connection_oauth_service.py:899-1000`: eligibility/credential
+snapshots preceded network calls, with no database coordination at persistence.
+
+The final implementation uses two separate stable per-user advisory keys in
+`credential_coordination.py`:
+
+- `provisioning_lock`: nonblocking PostgreSQL session lock on a dedicated physical
+  connection, shared by login provisioning and recovery (including assertion
+  refresh). ORM commits cannot release it. Cancellation shields cleanup, explicitly
+  unlocks, and closes the physical connection. Nested calls in the same task/session
+  reuse ownership. Catalog crawling starts after this lock is released.
+- `lock_credential_writes`: short transaction lock shared by final provisioning,
+  manual OAuth Connect/failed-verification restoration, Disconnect and query-identity
+  writes. No remote calls happen while holding it. Final provisioning re-reads user,
+  membership, connection configuration and credential choices; shared row locks keep
+  the checked user/membership/connection state stable through commit. A changed
+  choice or ineligible user/connection discards the exchanged token.
+
+Failures, as well as successful exchanges, are cached per app/scope/secret identity
+within a batch. Manual Connect reuses an inactive Disconnect row. Failed manual
+verification restores its previous state only if a newer Connect/Disconnect has
+not changed the saved credential.
+
+These locks are not database-wide: other users and unrelated queries keep running.
+They require all participating workers to run this implementation. No migration,
+unique constraint, or cleanup of historical duplicates is introduced. PostgreSQL
+session-lock semantics require a direct or session-affine database connection;
+transaction-pooling middleware is not validated. SQLite has process-local job
+admission, not the cross-process PostgreSQL guarantee.
+
+### Commands and observed results
+
+Start a disposable PostgreSQL 16 database on localhost:55441 with database
+`obo_locks`, username `postgres`, synthetic password `local-test-only`, and apply
+existing migrations through the test fixture. From `backend`:
+
+```bash
+TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db \
+TEST_DATABASE_URL=postgresql://postgres:local-test-only@127.0.0.1:55441/obo_locks \
+uv run pytest --db=external -q \
+  tests/unit/test_obo_provisioning_concurrency.py \
+  tests/unit/test_obo_recovery_per_user.py \
+  tests/unit/test_obo_stored_login_recovery.py \
+  tests/unit/test_obo_background_database.py
+
+TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db \
+uv run pytest --db=sqlite -q \
+  tests/e2e/test_connection_oauth_flow.py \
+  tests/unit/test_obo_provisioning_concurrency.py
+```
+
+| Final verification | Observed |
+|---|---|
+| PostgreSQL concurrency + recovery + cross-loop regressions | **45 passed** |
+| SQLite OAuth callback flows + concurrency contracts | **37 passed** |
+| New coordination/recovery modules and new tests, Ruff | Passed |
+| Diff whitespace | Passed |
+| Live Entra + Power BI rerun on final implementation | Both users recovered; DAX HTTP 200; invalid tokens denied |
+
+The 15 concurrency cases cover both roles, Disconnect/manual Connect/membership
+removal/connection deactivation during paused HTTP, competing recovery/login jobs,
+other-user progress, cancellation/transport failure cleanup, failed-exchange
+cache, and failed manual verification racing a later user choice. The PostgreSQL
+cleanup test reads the server's actual advisory lock and attempts to acquire it
+from a separate physical connection; it also verifies no advisory locks remain.
+
+Live rerun: Demo1 recovered 63 tables/4 workspaces; Demo2 forced real refresh,
+renewed expiry and recovered 56 tables/2 workspaces; both constant read-only DAX
+queries succeeded. The same password-grant and SSE-preparation limitations from
+the live section above apply. Disposable databases and live tokens were removed.
+
+Development failures were caught and corrected: the first lock helper selected
+SQLAlchemy's synchronous `.engine` facade, causing MissingGreenlet; it now keeps
+an AsyncEngine or unwraps only an AsyncConnection. An intermediate suite saw
+mixed module versions while edits were in progress (7 TypeError recovery failures),
+and the old cross-loop fixture lacked membership (2 failures under the new final
+eligibility check). Added the missing member fixture and ran a fresh, consistent
+final process: all 45 passed. These intermediate failures are not counted as passes.
+The full repository suite, popup/MFA flow and production deployment remain untested.
+
+### Broad lint attribution
+
+A broader `ruff check --select F` reports 17 findings unchanged from base `47d86e69a`; comparing `(code, message)` per file introduced none. They are outside this change. New modules/tests pass their configured Ruff checks.
+
+| Finding at base | Classification / evidence |
+|---|---|
+| `backend/app/routes/connection.py:24` — F401 `app.models.membership.Membership` imported but unused | Existing lint; last touched `75850f14b`, already present at `47d86e69a` |
+| `backend/app/routes/connection.py:1039` — F841 Local variable `connection` is assigned to but never used | Existing lint; last touched `1aad2dce7`, already present at `47d86e69a` |
+| `backend/app/routes/connection.py:1346` — F811 Redefinition of unused `Membership` from line 24: `Membership` redefined here | Existing lint; last touched `e10b17fe5`, already present at `47d86e69a` |
+| `backend/app/services/connection_oauth_service.py:14` — F401 `urllib.parse.urlencode` imported but unused | Existing lint; last touched `4526c9d52`, already present at `47d86e69a` |
+| `backend/app/services/connection_oauth_service.py:18` — F401 `sqlalchemy.update` imported but unused | Existing lint; last touched `aee9f7eca`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:5` — F401 `importlib` imported but unused | Existing lint; last touched `27b3fb9f0`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:10` — F401 `uuid.UUID` imported but unused | Existing lint; last touched `27b3fb9f0`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:11` — F401 `uuid` imported but unused | Existing lint; last touched `27b3fb9f0`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:28` — F401 `app.models.user_connection_overlay.UserConnectionTable` imported but unused | Existing lint; last touched `27b3fb9f0`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:28` — F401 `app.models.user_connection_overlay.UserConnectionColumn` imported but unused | Existing lint; last touched `27b3fb9f0`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:32` — F401 `app.schemas.data_source_registry.list_available_data_sources` imported but unused | Existing lint; last touched `7a242196f`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:1285` — F811 Redefinition of unused `UserConnectionTable` from line 28: `UserConnectionTable` redefined here | Existing lint; last touched `86589db63`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:1328` — F811 Redefinition of unused `UserConnectionTable` from line 28: `UserConnectionTable` redefined here | Existing lint; last touched `ea63c4277`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:1525` — F541 f-string without any placeholders | Existing lint; last touched `888476432`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:1610` — F541 f-string without any placeholders | Existing lint; last touched `888476432`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:1784` — F541 f-string without any placeholders | Existing lint; last touched `888476432`, already present at `47d86e69a` |
+| `backend/app/services/connection_service.py:2309` — F541 f-string without any placeholders | Existing lint; last touched `315e713bb`, already present at `47d86e69a` |
