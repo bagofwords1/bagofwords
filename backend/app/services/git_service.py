@@ -159,13 +159,23 @@ class GitService:
                     # Public repo - no auth
                     remote_refs = git.cmd.Git().ls_remote(git_repo.repo_url)
 
-                # Verify that the configured branch exists
+                # Parse ls-remote output ("<sha>\t<ref>" per line) into exact branch names
+                branches = {
+                    line.split("\t", 1)[1].removeprefix("refs/heads/")
+                    for line in remote_refs.splitlines()
+                    if "\trefs/heads/" in line
+                }
                 branch_name = git_repo.branch or "main"
-                expected_ref = f"refs/heads/{branch_name}"
-                if expected_ref not in remote_refs:
+                if not branches:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Git branch '{branch_name}' not found in repository"
+                        detail="Repository is empty — push an initial commit (e.g. add a README) and try again"
+                    )
+                if branch_name not in branches:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Git branch '{branch_name}' not found in repository. "
+                               f"Available branches: {', '.join(sorted(branches)[:10])}"
                     )
 
                 return {"success": True, "message": "Connection successful"}
