@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.580 (October 6, 2026)
+- Fixed agents saving to an Agent List over and over instead of finishing after the first save (#1268)
+
 ## Version 0.0.579 (October 6, 2026)
 - Added prompt caching for Claude models behind an OpenAI-compatible gateway such as LiteLLM or OpenRouter (#1266)
 - Fixed SSO users' disconnected on-behalf-of connections not reconnecting on their next login (#1261)

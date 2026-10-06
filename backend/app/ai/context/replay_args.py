@@ -4,7 +4,12 @@ A ``submit_list`` call carries every extracted record — values, evidence
 quotes, notes — which can run to tens of KB. Once the call succeeded, all of
 that is already in the list (and the result names every row), so replaying it
 verbatim on every later step only burns context. The model still sees that the
-call happened, which list it targeted and how many records it sent.
+call happened, which list it targeted and which rows it sent.
+
+The stub keeps the schema's shape — ``records`` stays an array (of the sent
+``row_id``s) — and a note says the fields were omitted. A string in place of
+the array looked like a malformed call the model had made with placeholder
+data, and it re-submitted to "fix" it (BOW-103).
 
 Failed calls keep their full arguments: the agent needs what it sent to diff
 against the validation errors and fix it.
@@ -25,5 +30,11 @@ def compact_replayed_args(tool_name: str, args: Any, *, succeeded: bool) -> Any:
     if not isinstance(records, list):
         return args
     out = {k: v for k, v in args.items() if k != "records"}
-    out["records"] = f"<{len(records)} record(s) submitted and saved — see this call's result for row ids>"
+    out["records"] = [
+        {"row_id": r["row_id"]} for r in records if isinstance(r, dict) and r.get("row_id") is not None
+    ]
+    out["_replay_note"] = (
+        f"{len(records)} record(s) were sent in this call and saved; their fields are "
+        "omitted from this replay to save context. This call already succeeded — see its result."
+    )
     return out

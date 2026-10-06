@@ -78,6 +78,14 @@ class ToolCallPart:
     # opaque state. Carried here, replayed only to the issuing provider.
     signature: Optional[str] = None
     provider_name: Optional[str] = None
+    # A native tool (submit_<list>, mcp__…) executes as its gateway
+    # (submit_list, execute_mcp), and ``tool_name``/``args`` record the
+    # gateway call. The model only knows the native tool, so replay renders
+    # the call as it was issued — a gateway name the model never saw (and is
+    # not in its catalog) reads as a call that did not happen, and it calls
+    # again (BOW-103).
+    replay_name: Optional[str] = None
+    replay_args: Optional[dict] = None
     kind: Literal["tool_call"] = "tool_call"
 
 

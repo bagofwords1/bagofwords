@@ -241,8 +241,9 @@ class Transcript:
                         blocks.append({"type": "text", "text": p.text})
 
                 elif isinstance(p, ToolCallPart):
-                    args = compact_replayed_args(p.tool_name, p.args, succeeded=p.id not in failed_calls)
-                    blk = {"type": "tool_use", "id": p.id, "name": p.tool_name, "input": args}
+                    issued = p.replay_args if p.replay_name else p.args
+                    args = compact_replayed_args(p.tool_name, issued, succeeded=p.id not in failed_calls)
+                    blk = {"type": "tool_use", "id": p.id, "name": p.replay_name or p.tool_name, "input": args}
                     if p.signature and (not provider_name or p.provider_name == provider_name):
                         blk["signature"] = p.signature
                     blocks.append(blk)
