@@ -452,7 +452,12 @@ class LLM:
                     verify_ssl=verify_ssl,
                 )
             else:
-                self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature, default_headers=custom_headers)
+                # Claude behind the gateway caches only what the request marks;
+                # an admin whose endpoint rejects cache_control turns it off.
+                cache_markers = (_is_anthropic_model_id(self.model_id)
+                                 and additional_config.get("prompt_cache_markers", True) is not False)
+                self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature,
+                                     default_headers=custom_headers, prompt_cache_markers=cache_markers)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")

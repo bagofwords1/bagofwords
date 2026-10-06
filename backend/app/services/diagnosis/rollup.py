@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.llm import pricing
 from app.models.agent_execution import AgentExecution
 from app.models.completion import Completion
 from app.models.completion_feedback import CompletionFeedback
@@ -76,28 +77,37 @@ def _platform(user_c: Optional[Completion], sys_c: Optional[Completion], config_
     return "web"
 
 
+def _row_input_tokens(r) -> int:
+    """Input tokens with cache reads and writes included, for any provider."""
+    prompt = int(r.prompt_tokens or 0)
+    # One rule with cost and the console: OpenAI wire format (openai, custom
+    # gateways even when they front Claude, azure non-Claude deployments) counts
+    # cache inside prompt_tokens; Anthropic Messages and Bedrock Converse beside it.
+    if not pricing.cache_inside_prompt_tokens(r.provider_type, r.model_id):
+        prompt += int(r.cache_read_tokens or 0) + int(r.cache_creation_tokens or 0)
+    return prompt
+
+
 def _row_tokens(r) -> int:
-    total = int(r.prompt_tokens or 0) + int(r.completion_tokens or 0)
-    # Anthropic reports cached tokens separately; OpenAI/Azure fold them into
-    # prompt_tokens (mirrors ConsoleService._row_total_tokens_expr).
-    if (r.provider_type or "") == "anthropic":
-        total += int(r.cache_read_tokens or 0) + int(r.cache_creation_tokens or 0)
-    return total
+    return _row_input_tokens(r) + int(r.completion_tokens or 0)
 
 
 def _rollup_values(ae, head, user_c, sys_c, fb, tool_counts, usage_rows, cost_is_partial, turn_index, now) -> dict:
     """The rollup columns for one run, from already-loaded sources. Shared by
     the single-run refresh and the batched backfill so they cannot drift."""
     prompt_tokens = completion_tokens = total_tokens = 0
+    cache_read_tokens: Optional[int] = None
     total_cost: Optional[float] = None
     primary_model_id = primary_provider = None
     if usage_rows:
         total_cost = 0.0
+        cache_read_tokens = 0
         best = None
         best_key = (-1, -1)
         for r in usage_rows:
-            prompt_tokens += int(r.prompt_tokens or 0)
+            prompt_tokens += _row_input_tokens(r)
             completion_tokens += int(r.completion_tokens or 0)
+            cache_read_tokens += int(r.cache_read_tokens or 0)
             total_tokens += _row_tokens(r)
             total_cost += float(r.total_cost_usd or 0)
             key = (1 if (r.scope or "") in _PRIMARY_SCOPES else 0, _row_tokens(r))
@@ -130,6 +140,7 @@ def _rollup_values(ae, head, user_c, sys_c, fb, tool_counts, usage_rows, cost_is
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=total_tokens,
+        cache_read_tokens=cache_read_tokens,
         tool_count=tool_count,
         failed_tool_count=failed_tool_count,
         turn_index=turn_index,

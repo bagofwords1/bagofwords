@@ -1042,7 +1042,7 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     const providerType = providerForm.value.provider_type;
     const all = fieldsForProvider(providerType);
     // Exclude fields that have dedicated UI controls
-    let filtered = all.filter(f => !['verify_ssl', 'enable_web_search', 'use_responses_api', 'headers', 'header_injection'].includes(f.key));
+    let filtered = all.filter(f => !['verify_ssl', 'enable_web_search', 'use_responses_api', 'headers', 'header_injection', 'prompt_cache_markers'].includes(f.key));
     if (providerType === 'openai') {
         filtered = filtered.filter(f => f.key !== 'base_url');
     }
