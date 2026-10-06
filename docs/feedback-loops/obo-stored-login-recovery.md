@@ -46,7 +46,7 @@ Coverage includes the completion SSE client-preparation path, direct credential 
 
 Recovery starts on use, not immediately at deployment. Status polling or a later request sees the recovered credentials/catalog. The first request can still show Connect required until recovery finishes. Unknown/deleted historical credential rows cannot prove whether the user intentionally disconnected before this change. Users with existing credential rows but broken tokens/catalogs still use the normal refresh/reconnect paths.
 
-Live Entra consent, MFA/Conditional Access, provider configuration, and Fabric SQL execution remain a deployment verification step. If Microsoft requires interaction, manual Sign in remains necessary. No migration or frontend changes are required.
+Interactive popup behavior, MFA/Conditional Access challenges, and the customer production deployment remain deployment verification steps. Live Entra and Power BI results are recorded below; Fabric SQL was not the requested target. If Microsoft requires interaction, manual Sign in remains necessary. No migration or frontend changes are required.
 
 ## Observed verification
 
@@ -56,3 +56,58 @@ Live Entra consent, MFA/Conditional Access, provider configuration, and Fabric S
 - The first adjacent-suite run lacked local test-server permissions and stalled; it was stopped and rerun with those permissions, producing the 52-pass result. No remaining failures in the selected suites; the full suite was not run.
 
 An additional PostgreSQL verification run exhausted the disposable 512 MiB WAL filesystem after repeated full schema migrations (`pg_wal/xlogtemp: No space left on device`), causing 15 setup errors after 11 passing tests. Recreated the sandbox with 1 GiB tmpfs, `max_wal_size=128MB`, `min_wal_size=32MB`, and `checkpoint_timeout=30s` for the final rerun. These were test-environment errors, not an asserted baseline application defect.
+
+## Live Entra + Power BI verification — 2026-10-06
+
+Run against the supplied demo tenant using the actual Microsoft token endpoint,
+Power BI REST API, and the unmocked BOW recovery implementation, with a disposable
+PostgreSQL database. Each user was a member of a local organization with a public
+Power BI agent configured for `user_required` OAuth. No service-account fallback.
+
+| Case | Before recovery | After recovery | Real Power BI API |
+|---|---|---|---|
+| Demo1, stored login access token | 0 clients | 1 credential, 63 accessible catalog tables, `effective_auth=user` | 4 visible workspaces; DAX HTTP 200 |
+| Demo2, forced stored-token expiry | 0 clients | 1 credential, 56 accessible catalog tables, `effective_auth=user`; login expiry renewed | 2 visible workspaces; DAX HTTP 200 |
+| Invalid assertion + invalid refresh token | 0 clients | 0 credentials, 0 catalog tables, `effective_auth=none` | Access stayed denied |
+
+Both successful cases produced 2 client dictionary entries after recovery (the
+qualified connection key plus its single-connection alias, not two identities).
+The only DAX query was `EVALUATE ROW("connection_verified", 1)`; no remote data
+was changed. The catalog counts differ by user and reflect live delegated access.
+
+Authentication used the password grant for the supplied demo users to obtain
+real delegated login tokens with the configured API scope and `offline_access`.
+This verified live token acceptance, OBO, refresh, persisted credentials, catalog
+sync, and a Power BI query. It did **not** drive the popup UI or send a complete
+LLM-backed SSE request: it invoked the same `prepare_run_agents` service path
+that the completion SSE handler invokes. Demo2's local expiry metadata was set
+past expiry to force a real refresh-token exchange without waiting an hour.
+
+### Rerun
+
+Use a disposable local PostgreSQL database with BOW migrations applied (the
+script adds only local test fixtures). From `backend`, set non-secret identifiers
+and the two demo usernames through environment variables:
+
+```bash
+export TESTING=true
+export TEST_DATABASE_URL=postgresql://postgres:live-local-only@127.0.0.1:55440/obo_live
+export BOW_DATABASE_URL=sqlite:///db/app.db
+export BOW_LIVE_CLIENT_ID='<demo-app-client-id>'
+export BOW_LIVE_TENANT_ID='<demo-tenant-id>'
+export BOW_LIVE_USERS='<demo-user-1>,<demo-user-2>'
+# Optional BOW_LIVE_LOGIN_SCOPE overrides the configured API scope assumption.
+uv run python ../tools/agent/verify_obo_recovery_live.py
+```
+
+The script prompts invisibly for the app secret and the shared demo password
+(or reads `BOW_LIVE_CLIENT_SECRET` / `BOW_LIVE_USER_PASSWORD`). Tokens stay in
+process memory and the disposable database; remove the container/volume after
+verification. Do not run against a real BOW deployment database. The script
+requires a localhost database and `TESTING=true`.
+
+A preliminary Fabric SQL probe was stopped when the user clarified Power BI as
+the target; its local ODBC/OpenSSL load failure was unrelated to token exchange.
+The final Power BI test does not use ODBC. Initial live-harness seeding omitted a
+required report slug; correcting the harness resolved that setup error without
+any application change.
