@@ -51,6 +51,16 @@ class FileEntry(BaseModel):
         ),
     )
     web_url: Optional[str] = None
+    preview: Optional[str] = Field(
+        None,
+        description=(
+            "For EMAIL items, the first ~255 characters of the body as plain "
+            "text — enough to triage a message without opening it. None for "
+            "ordinary files."
+        ),
+    )
+    is_read: Optional[bool] = Field(None, description="For EMAIL items, whether the message is marked read.")
+    folder: Optional[str] = Field(None, description="For EMAIL items, the mail folder (or label) path when known.")
 
 
 # ----------------------------------------------------------- list_files
