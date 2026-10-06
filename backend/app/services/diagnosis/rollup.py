@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.llm import pricing
 from app.models.agent_execution import AgentExecution
 from app.models.completion import Completion
 from app.models.completion_feedback import CompletionFeedback
@@ -76,19 +77,13 @@ def _platform(user_c: Optional[Completion], sys_c: Optional[Completion], config_
     return "web"
 
 
-# Providers whose client reports cache reads/writes beside prompt_tokens rather
-# than inside it: the Anthropic Messages API (anthropic, and Claude on Vertex)
-# and the Bedrock Converse API (every model). OpenAI, Azure and custom
-# (OpenAI-compatible gateways such as LiteLLM, whatever model they front) fold
-# cached tokens into prompt_tokens. Keyed on the wire format, not the model
-# family: a Claude model behind a custom gateway arrives OpenAI-shaped.
-_CACHE_OUTSIDE_PROMPT = {"anthropic", "bedrock", "vertex"}
-
-
 def _row_input_tokens(r) -> int:
     """Input tokens with cache reads and writes included, for any provider."""
     prompt = int(r.prompt_tokens or 0)
-    if (r.provider_type or "").lower() in _CACHE_OUTSIDE_PROMPT:
+    # One rule with cost and the console: OpenAI wire format (openai, custom
+    # gateways even when they front Claude, azure non-Claude deployments) counts
+    # cache inside prompt_tokens; Anthropic Messages and Bedrock Converse beside it.
+    if not pricing.cache_inside_prompt_tokens(r.provider_type, r.model_id):
         prompt += int(r.cache_read_tokens or 0) + int(r.cache_creation_tokens or 0)
     return prompt
 

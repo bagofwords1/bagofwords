@@ -2,10 +2,11 @@
 for every provider: input includes cached tokens, cache read is a subset of
 input, and input + output is the run's token total.
 
-Providers disagree on the wire: the Anthropic Messages API (anthropic, Claude
-on Vertex) and Bedrock Converse report cache reads/writes beside the prompt
-count, while OpenAI-shaped clients (openai, azure, and custom gateways such as
-LiteLLM — even when they front a Claude model) fold them into it.
+Providers disagree on the wire: the Anthropic Messages API (anthropic, and
+Claude on Vertex or Azure) and Bedrock Converse report cache reads/writes beside
+the prompt count, while OpenAI-shaped clients (openai, Azure OpenAI
+deployments, and custom gateways such as LiteLLM — even when they front a
+Claude model) fold them into it. The Cost console follows the same rule.
 """
 import asyncio
 import os
@@ -32,6 +33,7 @@ CASES = [
     ("vertex_claude", [_usage("vertex", "claude-sonnet-4-5", 10, 5, cache_read=90, cache_write=20)], 120, 5, 90),
     ("openai", [_usage("openai", "gpt-6-luna", 6_000, 400, cache_read=2_500)], 6_000, 400, 2_500),
     ("azure", [_usage("azure", "gpt-4.1", 800, 70, cache_read=128)], 800, 70, 128),
+    ("azure_claude", [_usage("azure", "claude-haiku-4-5", 200, 10, cache_read=1_800, cache_write=100)], 2_100, 10, 1_800),
     ("custom_gateway_claude", [_usage("custom", "claude-haiku-4-5", 3_000, 100, cache_read=1_200)], 3_000, 100, 1_200),
     ("google", [_usage("google", "gemini-2.5-flash", 900, 30)], 900, 30, 0),
     ("mixed", [_usage("anthropic", "claude-haiku-4-5", 2_000, 300, cache_read=8_000),
@@ -57,6 +59,10 @@ def token_world(create_user, login_user, whoami, create_report, seed_agent_execu
     ids = seed_agent_executions(org_id, report["id"], runs)
     rollup_agent_executions()
     return {"org_id": org_id, "user_id": info["id"], "ids": ids, "token": token}
+
+
+def _headers(world):
+    return {"Authorization": f"Bearer {world['token']}", "X-Organization-Id": world["org_id"]}
 
 
 def _query(world, request):
@@ -134,3 +140,13 @@ def test_split_fields_are_offered_in_the_filter_builder(test_client, token_world
     fields = {f["name"]: f for f in resp.json()["fields"]}
     for name in ("tokens.in", "tokens.out", "tokens.cache_read"):
         assert fields[name]["builder"] and fields[name]["type"] == "number"
+
+
+def test_cost_console_totals_agree_with_the_run_split(test_client, token_world):
+    """The console totals the same usage rows; a cached prefix must be counted
+    once whichever wire format reported it."""
+    resp = test_client.get("/api/console/metrics/llm-usage", headers=_headers(token_world), params={
+        "start_date": (NOW - timedelta(days=2)).isoformat(), "end_date": (NOW + timedelta(days=1)).isoformat()})
+    assert resp.status_code == 200, resp.json()
+    expected = sum(c[2] + c[3] for c in CASES)
+    assert sum(i["total_tokens"] for i in resp.json()["items"]) == expected

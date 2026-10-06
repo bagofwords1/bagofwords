@@ -196,7 +196,30 @@ def _anthropic_read_rate_override(model_id: Optional[str]) -> Optional[float]:
     return None
 
 
+# Providers whose client always speaks the OpenAI wire format, whatever model
+# is behind them. A Claude model reached through one (a LiteLLM or OpenRouter
+# gateway) prices as Claude but reports usage OpenAI-shaped: cache reads and
+# writes are already inside prompt_tokens. Every other provider serves Claude
+# through the native Messages client (anthropic, azure, vertex) or Converse
+# (bedrock), which report them beside it.
+_OPENAI_WIRE_PROVIDERS = ("openai", "custom")
+
+
 def rates_for(provider_type: Optional[str], model_id: Optional[str] = None) -> CacheRates:
+    rates = _family_rates(provider_type, model_id)
+    if (provider_type or "").strip().lower() in _OPENAI_WIRE_PROVIDERS:
+        return replace(rates, cached_inside_prompt_tokens=True)
+    return rates
+
+
+def cache_inside_prompt_tokens(provider_type: Optional[str], model_id: Optional[str] = None) -> bool:
+    """Whether a usage row's prompt_tokens already counts its cache reads and
+    writes (OpenAI wire format) or reports them beside it (Anthropic Messages,
+    Bedrock Converse). The one rule token totals and cost both follow."""
+    return rates_for(provider_type, model_id).cached_inside_prompt_tokens
+
+
+def _family_rates(provider_type: Optional[str], model_id: Optional[str] = None) -> CacheRates:
     family = resolve_family(provider_type, model_id)
     rates = _RATES[family]
     # Anthropic-family only. `read` means different things per family — an
@@ -252,6 +275,10 @@ def cached_input_cost(
             continue
         multiplier = rates.write_multiplier(ttl)
         if multiplier:
+            # Inside prompt_tokens the write was already charged at full rate;
+            # only the premium over it is owed.
+            if rates.cached_inside_prompt_tokens:
+                multiplier -= 1.0
             cost += n * per_token * multiplier
 
     return max(cost, 0.0)
