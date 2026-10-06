@@ -4,7 +4,9 @@ Three routes were mispriced at once because the arithmetic branched on
 ``LLMProvider.provider_type``: Claude on Vertex matched no branch and billed
 cached tokens at $0, Claude on Azure Foundry took the OpenAI branch and had a
 50% rebate subtracted from a cost that never included those tokens, and Bedrock
-and Gemini had no branch at all. Separately, a 1-hour cache write bills at 2x
+and Gemini had no branch at all. The rate follows the family; whether cached
+tokens sit inside prompt_tokens follows the wire format, so Claude behind an
+OpenAI-compatible gateway (custom) prices at Claude's rates as a rebate. Separately, a 1-hour cache write bills at 2x
 where a 5-minute one bills at 1.25x, so collapsing the two understates spend
 wherever the longer TTL is in use.
 
@@ -45,32 +47,53 @@ def _cost(provider, model, prompt=0, read=0, w5=0, w1=0):
     )
 
 
+# Gateways speak the OpenAI wire format whatever model they front: the same
+# Claude call arrives with its cache reads and writes already inside
+# prompt_tokens, where the native routes report them beside it.
+OPENAI_WIRE = {"custom", "openai"}
+
+
+def _claude_call(provider, model, uncached=0, read=0, w5=0, w1=0):
+    """Cost of one Claude call, reported the way ``provider``'s client reports it."""
+    prompt = uncached + read + w5 + w1 if provider in OPENAI_WIRE else uncached
+    return _cost(provider, model, prompt=prompt, read=read, w5=w5, w1=w1)
+
+
 @pytest.mark.parametrize("provider,model", CLAUDE_ROUTES)
 def test_claude_prices_the_same_on_every_route(provider, model):
     """The account that serves Claude does not change what Claude costs."""
     assert pricing.resolve_family(provider, model) == pricing.ANTHROPIC
-    assert _cost(provider, model, read=100_000) == pytest.approx(100_000 * RATE / M * 0.10)
+    expected = (10_000 + 100_000 * 0.10 + 20_000 * 1.25 + 5_000 * 2.00) * RATE / M
+    assert _claude_call(provider, model, uncached=10_000, read=100_000, w5=20_000, w1=5_000) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("provider,model", CLAUDE_ROUTES)
 def test_cached_tokens_are_never_free_on_any_claude_route(provider, model):
     """The Vertex bug: cached tokens silently costing nothing."""
-    assert _cost(provider, model, read=50_000) > 0
-    assert _cost(provider, model, w5=50_000) > 0
-    assert _cost(provider, model, w1=50_000) > 0
+    assert _claude_call(provider, model, read=50_000) > 0
+    assert _claude_call(provider, model, w5=50_000) > 0
+    assert _claude_call(provider, model, w1=50_000) > 0
 
 
 @pytest.mark.parametrize("provider,model", CLAUDE_ROUTES)
 def test_cache_reads_add_to_claude_cost_rather_than_discounting_it(provider, model):
     """The Azure bug: an OpenAI-style rebate applied to an Anthropic response.
 
-    Anthropic reports cache reads OUTSIDE prompt_tokens, so a read can only
-    ever increase the bill. Subtracting made a cached-heavy call look cheaper
-    than the same call with no cache at all.
+    Reading more of the prompt from cache never makes the same uncached work
+    cheaper, whichever wire format reported it.
     """
-    uncached_only = _cost(provider, model, prompt=10_000)
-    with_reads = _cost(provider, model, prompt=10_000, read=100_000)
+    uncached_only = _claude_call(provider, model, uncached=10_000)
+    with_reads = _claude_call(provider, model, uncached=10_000, read=100_000)
     assert with_reads > uncached_only
+
+
+@pytest.mark.parametrize("model", ["claude-haiku-4-5-20251001", "my-gateway-alias-claude-sonnet-5"])
+def test_claude_behind_a_gateway_is_not_billed_twice_for_cached_input(model):
+    """LiteLLM-shaped usage: prompt_tokens already holds the 11,228 cached
+    tokens. Adding them on top billed the cached prefix at 1.1x instead of 0.1x."""
+    cost = _cost("custom", model, prompt=11_239, read=11_228)
+    assert cost == pytest.approx((11 + 11_228 * 0.10) * RATE / M)
+    assert cost < _cost("custom", model, prompt=11_239)
 
 
 def test_one_hour_writes_cost_more_than_five_minute_writes():
@@ -127,6 +150,11 @@ def test_hit_rate_denominator_follows_the_family():
     # Same underlying call: 9k of 10k input tokens served from cache.
     assert anthropic == pytest.approx(0.9)
     assert openai == pytest.approx(0.9)
+    gateway_claude = pricing.cache_hit_rate(
+        prompt_tokens=10_000, cache_read_tokens=9_000, cache_creation_tokens=0,
+        provider_type="custom", model_id="claude-haiku-4-5",
+    )
+    assert gateway_claude == pytest.approx(0.9)
 
 
 @pytest.mark.parametrize("provider,model", [

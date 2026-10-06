@@ -1,6 +1,6 @@
 from fastapi_users.db import SQLAlchemyBaseUserTable
 from app.models.base import Base
-from sqlalchemy import Column, String, ForeignKey
+from sqlalchemy import JSON, Column, String, ForeignKey
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from fastapi_users.db import SQLAlchemyBaseOAuthAccountTable
 import uuid
@@ -10,5 +10,8 @@ class OAuthAccount(SQLAlchemyBaseOAuthAccountTable[str], Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id", ondelete="cascade"), nullable=False)
+
+    entra_identity = Column(JSON, nullable=True)
+    entra_subject = Column(String(110), nullable=True, unique=True)
 
     user: Mapped["User"] = relationship("User", back_populates="oauth_accounts")

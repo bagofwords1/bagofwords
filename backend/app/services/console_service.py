@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text, literal, Integer, case, or_, not_
+from sqlalchemy import select, func, text, literal, Integer, case, or_, not_, and_
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.completion import Completion
@@ -101,43 +101,36 @@ def _turn_usage_scope_clause():
     return not_(is_non_turn)
 
 
-def _is_anthropic_family(provider_type: Optional[str], model_id: Optional[str] = None) -> bool:
-    """Whether usage came from an Anthropic-shaped response.
+def _cache_beside_prompt(provider_type: Optional[str], model_id: Optional[str] = None) -> bool:
+    """Whether a row's cache reads/writes are reported beside prompt_tokens
+    (Anthropic Messages, Bedrock Converse) and so must be added to its total,
+    rather than already counted inside it (OpenAI wire format, which a Claude
+    model behind a custom gateway also uses).
 
-    Cache-token semantics follow the model family, not the host: Claude served
-    through Vertex, Bedrock or Azure still reports cache_read/cache_creation
-    separately from prompt_tokens. Keying on the provider alone under-counted
-    every Claude deployment that wasn't the first-party API.
-
-    Delegates to app.ai.llm.pricing so token accounting here and cost
-    accounting in LLMUsageRecorderService can never disagree about which family
-    a row belongs to — they did, and the console was the one that had it right.
+    Delegates to app.ai.llm.pricing so token accounting here, cost accounting
+    in LLMUsageRecorderService and the run rollup follow one rule.
     """
-    return pricing.resolve_family(provider_type, model_id) == pricing.ANTHROPIC
+    return not pricing.cache_inside_prompt_tokens(provider_type, model_id)
 
 
 def _row_total_tokens_expr():
     """SQLAlchemy per-row token total that doesn't double-count cache, for use
-    inside func.sum(). Mirrors ConsoleService._row_total_tokens: Anthropic-shaped
-    responses report cache_read/cache_creation SEPARATELY from prompt_tokens (add
-    them in), while OpenAI/Gemini-shaped ones fold cache_read into prompt_tokens
-    already (must not re-add, or the cached prefix is counted twice). Models that
-    record no cache tokens make the else-branch a no-op.
-
-    The model id is matched as well as the provider so that Claude hosted on
-    Vertex/Bedrock/Azure is accounted the same way as the first-party API."""
+    inside func.sum(). The SQL form of _cache_beside_prompt: cache is already
+    inside prompt_tokens for the OpenAI wire format (openai and custom always;
+    azure unless it serves a Claude or Gemini deployment) and reported beside
+    it everywhere else. Rows that record no cache tokens make the branch a no-op."""
+    model = func.lower(func.coalesce(LLMUsageRecord.model_id, ""))
+    non_openai_model = or_(*(model.like(f"%{tag}%") for tag in ("claude", "anthropic", "gemini", "bison", "gecko")))
+    cache_inside = or_(
+        LLMUsageRecord.provider_type.in_(("openai", "custom")),
+        and_(LLMUsageRecord.provider_type == "azure", not_(non_openai_model)),
+    )
     return (
         LLMUsageRecord.prompt_tokens
         + LLMUsageRecord.completion_tokens
         + case(
-            (
-                or_(
-                    LLMUsageRecord.provider_type == "anthropic",
-                    LLMUsageRecord.model_id.ilike("%claude%"),
-                ),
-                LLMUsageRecord.cache_read_tokens + LLMUsageRecord.cache_creation_tokens,
-            ),
-            else_=0,
+            (cache_inside, 0),
+            else_=LLMUsageRecord.cache_read_tokens + LLMUsageRecord.cache_creation_tokens,
         )
     )
 
@@ -941,7 +934,7 @@ class ConsoleService:
             # Use the shared family helper rather than the provider string:
             # Claude on Vertex/Bedrock/Azure reports Anthropic-shaped usage and
             # was being totalled with the OpenAI rule right here.
-            if _is_anthropic_family(row.provider_type, row.model_id):
+            if _cache_beside_prompt(row.provider_type, row.model_id):
                 row_total_tokens = (
                     prompt_tokens + completion_tokens
                     + cache_read_tokens + cache_creation_tokens
@@ -1074,18 +1067,18 @@ class ConsoleService:
                           model_id: Optional[str] = None) -> int:
         """Token total that doesn't double-count cache.
 
-        Whether cache tokens are additive is a property of the MODEL FAMILY, not
-        of the hosting provider: Anthropic's API reports cache_read/cache_creation
-        separately from prompt_tokens, and it keeps doing so when the same model
-        is served through Vertex, Bedrock or Azure. OpenAI/Gemini-shaped
-        responses fold cache_read into prompt_tokens already, so re-adding it
-        would count the cached prefix twice.
+        Whether cache tokens are additive is a property of the wire format the
+        provider's client speaks (see _cache_beside_prompt): Anthropic's
+        Messages API — first-party, Vertex, Azure — and Bedrock Converse report
+        cache_read/cache_creation beside prompt_tokens; the OpenAI format,
+        including a Claude model behind a custom gateway, already counts them
+        inside it, so re-adding them would count the cached prefix twice.
 
         ``model_id`` is therefore the primary signal and provider_type the
         fallback for rows where the caller only has the group's provider (see
         get_cost_metrics' breakdown, where one group can span several models).
         """
-        if _is_anthropic_family(provider_type, model_id):
+        if _cache_beside_prompt(provider_type, model_id):
             return prompt + completion + cache_read + cache_creation
         return prompt + completion
 

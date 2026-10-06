@@ -58,9 +58,10 @@ class AgentExecution(BaseSchema):
     primary_model_id = Column(String, nullable=True)   # the planner's model
     primary_provider = Column(String, nullable=True)
     total_cost_usd = Column(Float, nullable=True)
-    prompt_tokens = Column(Integer, nullable=True)
+    prompt_tokens = Column(Integer, nullable=True)     # input, cache reads/writes included for every provider
     completion_tokens = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
+    cache_read_tokens = Column(Integer, nullable=True)  # subset of prompt_tokens; NULL = no per-call usage
     tool_count = Column(Integer, nullable=True)
     failed_tool_count = Column(Integer, nullable=True)
     turn_index = Column(Integer, nullable=True)        # 1-based position of the run in its report

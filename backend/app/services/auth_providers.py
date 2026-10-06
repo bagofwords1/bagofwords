@@ -468,6 +468,17 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         details={"provider": provider, "email": str(account_email)},
     )
 
+    # Record immutable identity for optional external-app exchange. Failure does
+    # not change ordinary SSO behavior; exchange stays unavailable until linked.
+    if id_token_raw and _is_entra_provider(provider):
+        try:
+            from app.services.entra_token_exchange import link_sso_identity
+            from app.dependencies import async_session_maker
+            async with async_session_maker() as identity_db:
+                await link_sso_identity(identity_db, user.id, cfg, account_id, id_token_raw)
+        except Exception as exc:
+            _auth_logger.warning("Entra identity binding unavailable (%s)", type(exc).__name__)
+
     # OIDC group sync — sync group claims from id_token into BOW Groups
     if getattr(cfg, 'sync_groups', False):
         try:
@@ -537,7 +548,8 @@ async def _record_login(user) -> None:
     from app.models.user import User as UserModel
     from sqlalchemy import update
     try:
-        now = datetime.now(timezone.utc)
+        # users.last_login is TIMESTAMP WITHOUT TIME ZONE; asyncpg rejects aware values.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         async with async_session_maker() as db:
             await db.execute(
                 update(UserModel).where(UserModel.id == str(user.id)).values(last_login=now)

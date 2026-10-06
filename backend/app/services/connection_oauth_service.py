@@ -841,6 +841,7 @@ async def auto_provision_connection_credentials(
     db: AsyncSession, user, login_access_token: str, *,
     missing_only: bool = False, client_id: Optional[str] = None,
     catalog_targets: Optional[list] = None,
+    organization_id: Optional[str] = None, tenant_id: Optional[str] = None,
 ) -> dict:
     from app.services.credential_coordination import provisioning_lock
 
@@ -849,6 +850,7 @@ async def auto_provision_connection_credentials(
             return {"provisioned": [], "skipped": [{"reason": "provisioning_in_progress"}], "failed": []}
         summary, pending = await _provision_connection_credentials(
             db, user, login_access_token, missing_only=missing_only, client_id=client_id,
+            organization_id=organization_id, tenant_id=tenant_id,
         )
     # Recovery holds the outer lock before refreshing the assertion. Let it
     # defer all catalog IO until that outer lock has also been released.
@@ -866,6 +868,7 @@ async def _provision_connection_credentials(
     *,
     missing_only: bool = False,
     client_id: Optional[str] = None,
+    organization_id: Optional[str] = None, tenant_id: Optional[str] = None,
 ) -> dict:
     """Auto-provision OAuth credentials for Entra-based connections after OIDC login.
 
@@ -916,6 +919,8 @@ async def _provision_connection_credentials(
                 )
             ),
         )
+    if organization_id:
+        stmt = stmt.where(Connection.organization_id == organization_id)
     result = await db.execute(stmt)
     connections = result.scalars().all()
 
@@ -956,6 +961,8 @@ async def _provision_connection_credentials(
             if conn_rows:
                 continue
             creds = connection.decrypt_credentials() or {}
+            if tenant_id and creds.get("tenant_id") != tenant_id:
+                continue
             if client_id and (creds.get("oauth_client_id") or creds.get("client_id")) != client_id:
                 continue
 
@@ -1023,6 +1030,7 @@ async def _provision_connection_credentials(
             Membership.deleted_at.is_(None),
         ).with_for_update(read=True))
         if (not active_user or not membership or not connection.is_active or connection.deleted_at
+                or (organization_id and str(connection.organization_id) != str(organization_id))
                 or connection.auth_policy != "user_required"
                 or "oauth" not in (connection.allowed_user_auth_modes or [])
                 or connection.type not in ENTRA_OBO_CONNECTION_TYPES

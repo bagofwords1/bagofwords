@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.579 (October 6, 2026)
+- Added prompt caching for Claude models behind an OpenAI-compatible gateway such as LiteLLM or OpenRouter (#1266)
+- Fixed SSO users' disconnected on-behalf-of connections not reconnecting on their next login (#1261)
+- Fixed SSO login failing on Postgres when recording the last login time (#1262)
+- Fixed PDF export of docs failing behind a proxy with an internal certificate authority (#1264)
+- Fixed Priority queries failing with a bare "400 Bad Request" instead of the server's error message (#1265)
+
 ## Version 0.0.578 (October 5, 2026)
 - Fixed high-severity dependency vulnerabilities flagged by Snyk: upgraded the backend `mcp` client to 1.30.0 and the frontend `seroval` transitive to 1.6.8
 

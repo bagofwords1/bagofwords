@@ -179,7 +179,7 @@
             <textarea
               v-model="formRedirectUris"
               rows="3"
-              required
+              :required="!formEntraEnabled"
               class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-blue-950"
               :placeholder="$t('settings.integrations.channels.oauth.redirectUriPlaceholder')"
             />
@@ -187,6 +187,40 @@
               {{ $t('settings.integrations.channels.oauth.oneUriPerLine') }}
             </p>
           </div>
+
+          <fieldset class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+            <label class="flex items-start justify-between gap-4">
+              <span>
+                <span class="block text-sm font-medium">{{ $t('settings.integrations.channels.oauth.entraTitle') }}</span>
+                <span class="mt-1 block text-xs leading-5 text-gray-500">{{ $t('settings.integrations.channels.oauth.entraHelp') }}</span>
+              </span>
+              <UToggle v-model="formEntraEnabled" :aria-label="$t('settings.integrations.channels.oauth.entraTitle')" />
+            </label>
+            <template v-if="formEntraEnabled">
+              <p v-if="!entraProviders.length" class="text-xs text-amber-700">{{ $t('settings.integrations.channels.oauth.entraUnavailable') }}</p>
+              <label class="block text-sm">
+                {{ $t('settings.integrations.channels.oauth.entraProvider') }}
+                <select v-model="formEntraProvider" required class="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2 dark:bg-gray-900">
+                  <option v-for="provider in entraProviders" :key="provider.name" :value="provider.name">{{ provider.label }}</option>
+                </select>
+              </label>
+              <label class="block text-sm">
+                {{ $t('settings.integrations.channels.oauth.externalEntraClient') }}
+                <input v-model="formExternalClient" required dir="ltr" type="text" class="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2 font-mono text-xs dark:bg-gray-900" />
+              </label>
+              <p class="text-xs leading-5 text-gray-500">{{ $t('settings.integrations.channels.oauth.externalEntraHelp') }}</p>
+              <div v-if="selectedEntraProvider" class="space-y-2 text-xs">
+                <div v-for="field in entraReferenceFields" :key="field.key">
+                  <span class="block text-gray-500">{{ field.label }}</span>
+                  <div class="flex items-center gap-2">
+                    <code dir="ltr" class="min-w-0 flex-1 break-all">{{ selectedEntraProvider[field.key] }}</code>
+                    <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-clipboard-document" :aria-label="$t('settings.integrations.channels.oauth.copy')" @click="copy(selectedEntraProvider[field.key])" />
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs leading-5 text-gray-500">{{ $t('settings.integrations.channels.oauth.entraRequirements') }}</p>
+            </template>
+          </fieldset>
 
           <label class="flex items-start justify-between gap-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
             <span>
@@ -299,6 +333,7 @@ interface OAuthClient {
   name: string
   redirect_uris: string[]
   scopes: string[]
+  entra_exchange?: { provider: string; external_client_id: string } | null
   trusted: boolean
   active_token_count: number
   last_used_at: string | null
@@ -326,6 +361,21 @@ const formName = ref('')
 const formRedirectUris = ref('')
 const formScopes = ref<string[]>(['app'])
 const formTrusted = ref(false)
+interface EntraProvider { name: string; label: string; tenant_id: string; audience: string; scope: string }
+const entraProviders = ref<EntraProvider[]>([])
+const formEntraEnabled = ref(false)
+const formEntraProvider = ref('')
+const formExternalClient = ref('')
+const selectedEntraProvider = computed(() => entraProviders.value.find(p => p.name === formEntraProvider.value))
+const entraReferenceFields = computed(() => [
+  { key: 'tenant_id' as const, label: t('settings.integrations.channels.oauth.entraTenant') },
+  { key: 'audience' as const, label: t('settings.integrations.channels.oauth.entraAudience') },
+  { key: 'scope' as const, label: t('settings.integrations.channels.oauth.entraScope') },
+])
+const exchangePayload = computed(() => formEntraEnabled.value
+  ? { provider: formEntraProvider.value, external_client_id: formExternalClient.value.trim() }
+  : {})
+
 
 const scopeOptions = computed(() => [
   { value: 'app', label: t('settings.integrations.channels.oauth.appScope'), description: t('settings.integrations.channels.oauth.appScopeDesc') },
@@ -333,7 +383,10 @@ const scopeOptions = computed(() => [
 ])
 
 const parseUris = (value: string) => value.split('\n').map(uri => uri.trim()).filter(Boolean)
-const canSubmit = computed(() => Boolean(formName.value.trim() && parseUris(formRedirectUris.value).length && formScopes.value.length))
+const canSubmit = computed(() => Boolean(formName.value.trim() && formScopes.value.length
+  && (parseUris(formRedirectUris.value).length || formEntraEnabled.value)
+  && (!formEntraEnabled.value || (selectedEntraProvider.value
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(formExternalClient.value.trim())))))
 const scopesChanged = computed(() => {
   if (!editingClient.value) return false
   return [...formScopes.value].sort().join(' ') !== [...editingClient.value.scopes].sort().join(' ')
@@ -400,6 +453,9 @@ function openCreate() {
   formRedirectUris.value = import.meta.client ? `${window.location.origin}/oauth/callback` : ''
   formScopes.value = ['app']
   formTrusted.value = false
+  formEntraEnabled.value = false
+  formEntraProvider.value = entraProviders.value[0]?.name || ''
+  formExternalClient.value = ''
   showAppModal.value = true
 }
 
@@ -410,6 +466,9 @@ function openEdit(client: OAuthClient) {
   formRedirectUris.value = client.redirect_uris.join('\n')
   formScopes.value = [...client.scopes]
   formTrusted.value = client.trusted
+  formEntraEnabled.value = Boolean(client.entra_exchange)
+  formEntraProvider.value = client.entra_exchange?.provider || entraProviders.value[0]?.name || ''
+  formExternalClient.value = client.entra_exchange?.external_client_id || ''
   showAppModal.value = true
 }
 
@@ -423,6 +482,11 @@ function revealCredentials(clientId: string, secret?: string) {
 async function loadBaseUrl() {
   const response = await useMyFetch('/settings')
   if (response.data.value) baseUrl.value = (response.data.value as any).base_url || ''
+}
+
+async function loadEntraProviders() {
+  const response = await useMyFetch('/api/oauth/entra-providers')
+  entraProviders.value = (response.data.value as EntraProvider[]) || []
 }
 
 async function loadClients() {
@@ -442,6 +506,7 @@ async function submitApp() {
           redirect_uris: parseUris(formRedirectUris.value),
           scopes: formScopes.value.join(' '),
           trusted: formTrusted.value,
+          entra_exchange: exchangePayload.value,
         },
       })
       if (response.error.value) throw response.error.value
@@ -458,6 +523,7 @@ async function submitApp() {
           redirect_uris: parseUris(formRedirectUris.value),
           scopes: formScopes.value.join(' '),
           trusted: formTrusted.value,
+          entra_exchange: exchangePayload.value,
         },
       })
       if (response.error.value) throw response.error.value
@@ -509,7 +575,7 @@ async function remove(client: OAuthClient) {
 onMounted(async () => {
   loading.value = true
   try {
-    await Promise.all([loadBaseUrl(), loadClients()])
+    await Promise.all([loadBaseUrl(), loadClients(), loadEntraProviders()])
   } finally {
     loading.value = false
   }

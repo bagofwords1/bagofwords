@@ -267,7 +267,8 @@ def seed_agent_executions():
     judge={"response", "instructions", "context"},
     feedback={"direction", "message"},
     tools=[{"name", "action", "status", "duration_ms", "attempt", "error"}],
-    usage=[{"model", "provider", "prompt_tokens", "completion_tokens", "cost", "scope"}].
+    usage=[{"model", "provider", "prompt_tokens", "completion_tokens", "cache_read_tokens",
+    "cache_creation_tokens", "cost", "scope"}].
     """
     def _seed(org_id, report_id, runs):
         from sqlalchemy import create_engine
@@ -407,6 +408,8 @@ def seed_agent_executions():
                             provider_type=provider_type,
                             prompt_tokens=u.get("prompt_tokens", 0),
                             completion_tokens=u.get("completion_tokens", 0),
+                            cache_read_tokens=u.get("cache_read_tokens", 0),
+                            cache_creation_tokens=u.get("cache_creation_tokens", 0),
                             total_cost_usd=u.get("cost", 0.0),
                             input_cost_usd=u.get("cost", 0.0),
                             output_cost_usd=0.0,

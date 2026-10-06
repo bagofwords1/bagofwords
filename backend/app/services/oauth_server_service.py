@@ -95,6 +95,7 @@ class OAuthServerService:
             "redirect_uris": json.loads(client.redirect_uris),
             "scopes": (client.scopes or "").split(),
             "trusted": bool(client.trusted),
+            "entra_exchange": client.entra_exchange,
             "active_token_count": active_token_count,
             "last_used_at": last_used_at.isoformat() if last_used_at else None,
             "last_issued_at": last_issued_at.isoformat() if last_issued_at else None,
@@ -111,6 +112,7 @@ class OAuthServerService:
         scopes: str,
         redirect_uris: Optional[list[str]] = None,
         trusted: bool = False,
+        entra_exchange: Optional[dict] = None,
     ) -> dict:
         """Create an OAuth client for an organization.
 
@@ -131,6 +133,7 @@ class OAuthServerService:
             redirect_uris=json.dumps(redirect_uris),
             scopes=scopes,
             trusted=trusted,
+            entra_exchange=entra_exchange,
         )
         db.add(client)
         await db.commit()
@@ -150,6 +153,8 @@ class OAuthServerService:
         redirect_uris: Optional[list[str]] = None,
         scopes: Optional[str] = None,
         trusted: Optional[bool] = None,
+        entra_exchange: Optional[dict] = None,
+        update_entra_exchange: bool = False,
     ) -> Optional[dict]:
         """Update an existing client's metadata, access surfaces, and trust.
 
@@ -178,6 +183,15 @@ class OAuthServerService:
             client.scopes = scopes
         if trusted is not None:
             client.trusted = trusted
+        exchange_changed = update_entra_exchange and client.entra_exchange != entra_exchange
+        if update_entra_exchange:
+            client.entra_exchange = entra_exchange
+        if exchange_changed:
+            await db.execute(update(OAuthAccessToken).where(
+                OAuthAccessToken.client_id == client.client_id,
+                OAuthAccessToken.refresh_token_hash.is_(None),
+                OAuthAccessToken.deleted_at.is_(None),
+            ).values(deleted_at=datetime.utcnow()))
         if scopes_changed:
             now = datetime.utcnow()
             # A scope edit changes the client's security boundary. Revoke both
@@ -640,6 +654,12 @@ class OAuthServerService:
         if not token_record or token_record.expires_at < datetime.utcnow():
             return None
 
+        if token_record.exchange_context:
+            from app.services.entra_token_exchange import active_config
+            try:
+                active_config(token_record.exchange_context)
+            except (ValueError, KeyError, TypeError):
+                return None
         scopes = frozenset((token_record.scope or "").split())
         if required_scope and required_scope not in scopes:
             return None
@@ -650,6 +670,8 @@ class OAuthServerService:
             .where(OAuthClient.deleted_at.is_(None))
         )).scalar_one_or_none()
         if not client:
+            return None
+        if token_record.exchange_context and client.entra_exchange != token_record.exchange_context:
             return None
         if not scopes.issubset(set((client.scopes or "").split())):
             return None

@@ -2315,7 +2315,17 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "entraTitle": "Entra-Tokenaustausch aktivieren",
+          "entraHelp": "Optional. Diese Anwendung darf das Microsoft-Entra-Zugriffstoken eines angemeldeten Benutzers gegen ein BOW-Token austauschen.",
+          "entraUnavailable": "Konfigurieren Sie zuerst einen mandantenspezifischen Entra-SSO-Anbieter mit access_as_user in bow-config.yaml.",
+          "entraProvider": "Entra-SSO-Anbieter",
+          "externalEntraClient": "Externe Entra-Anwendungs-ID (Client)",
+          "externalEntraHelp": "Die Entra-Anwendung, die BOW für angemeldete Benutzer aufrufen darf. Bewahren Sie ihr Geheimnis im Backend der externen Anwendung auf.",
+          "entraTenant": "Mandanten-ID",
+          "entraAudience": "BOW-API-Zielgruppe (v1-Token)",
+          "entraScope": "Erforderlicher Bereich",
+          "entraRequirements": "Neue Benutzer werden mit einer gültigen Einladung oder aktivierter Domänenregistrierung aufgenommen. Token gelten höchstens eine Stunde. Umleitungs-URIs sind für reine Tokenaustausch-Anwendungen optional."
         },
         "excel": {
           "title": "Excel-Add-in",
@@ -5652,7 +5662,7 @@
     "failed": "Die Schemaaktualisierung wurde nicht abgeschlossen. Versuchen Sie es erneut.",
     "connectRequired": "Verbinden Sie Ihr Konto, um dessen Tabellen zu sehen."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "Schreibgeschützt",
     "sort": "Einträge sortieren",
     "applyFilter": "Anwenden",
