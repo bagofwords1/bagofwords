@@ -1,38 +1,21 @@
 <template>
-    <!-- Trigger is optional: ArtifactFrame lists "Schedule" in its overflow
-         menu and opens this modal through the exposed open() instead. -->
-    <UTooltip v-if="!hideTrigger" :text="$t('artifactFrame.schedule')">
-        <button @click="cronModalOpen = true"
-            :class="compact
-                ? 'p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center'
-                : 'text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded'">
-            <Icon name="heroicons:clock" :class="compact ? 'w-3.5 h-3.5 text-gray-500 dark:text-gray-400' : ''" />
-        </button>
-    </UTooltip>
-
-
-    <UModal v-model="cronModalOpen">
-        <div class="p-4 relative">
-            <button @click="cronModalOpen = false"
-                class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 outline-none">
-                <Icon name="heroicons:x-mark" class="w-5 h-5" />
-            </button>
-            <h1 class="text-lg font-semibold">Schedule and rerun report</h1>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Choose when this report's queries rerun</p>
-            <hr class="my-4" />
+    <!-- When this report's queries rerun, and who hears about it. Rendered
+         inside DashboardSettingsModal; the schedule is report-wide. Every
+         change saves on its own (debounced), like the page's toggles. -->
+    <div>
             <div>
-                <div class="mt-4">
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Refresh data</label>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Refresh data</label>
 
                     <!-- One question — when does this report refresh? — so the modes
                          are exclusive here even though the API stores the schedule
                          and the on-open flag as independent fields. -->
-                    <div class="flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit mb-3">
+                    <div class="flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg w-fit mb-3">
                         <button
                             v-for="opt in refreshModeOptions"
                             :key="opt.value"
                             type="button"
-                            class="px-2.5 py-0.5 text-[11px] rounded transition-colors"
+                            class="px-3 py-1 text-xs rounded-md transition-colors"
                             :class="refreshMode === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
                             @click="refreshMode = opt.value"
                         >
@@ -99,18 +82,18 @@
                     </p>
                 </div>
 
-                <p v-if="report.last_run_at" class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                <p v-if="report.last_run_at" class="mt-3 text-[11px] text-gray-400">
                     Last run: {{ formatDate(report.last_run_at) }}
                 </p>
             </div>
 
             <!-- Notification subscribers (save-based, not send-now) -->
             <div v-if="smtpEnabled && scheduleEnabled" class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
-                <div class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    <Icon name="heroicons:envelope" class="w-4 h-4" />
+                <div class="flex items-center gap-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <Icon name="heroicons:envelope" class="w-3.5 h-3.5" />
                     Notify after each run
                 </div>
-                <p class="text-xs text-gray-400 dark:text-gray-600 mb-3">Recipients will receive an email with results after each scheduled run.</p>
+                <p class="text-[11px] text-gray-400 mb-3">Recipients will receive an email with results after each scheduled run.</p>
 
                 <!-- Recipient input -->
                 <div class="flex flex-wrap items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 min-h-[38px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
@@ -145,48 +128,22 @@
                 </div>
             </div>
 
-            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-8">
-                <div class="flex justify-end space-x-2">
-                    <button
-                        @click="cronModalOpen = false"
-                        class="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        @click="scheduleReport"
-                        :disabled="isSaving"
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 border border-transparent rounded-md hover:bg-blue-600 disabled:opacity-40"
-                    >
-                        <Spinner v-if="isSaving" class="w-3.5 h-3.5" />
-                        {{ scheduleEnabled ? 'Schedule' : 'Save' }}
-                    </button>
-                </div>
-            </div>
-        </div>
-    </UModal>
+    </div>
 </template>
 
 <script lang="ts" setup>
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
 import { refreshModeFromReport, refreshModeSettings, type RefreshMode } from '@/composables/useRefreshMode'
 
-const cronModalOpen = ref(false);
-defineExpose({ open: () => { cronModalOpen.value = true } });
+const emit = defineEmits<{ (e: 'saved'): void }>();
 const toast = useToast();
 const { smtpEnabled } = useAppSettings();
 const props = defineProps<{
     report: any
-    /** Render only the modal; the parent supplies its own trigger via open(). */
-    hideTrigger?: boolean
-    /** Small icon button matching the artifact toolbar (ArtifactFrame). */
-    compact?: boolean
 }>();
 
 const report = ref(props.report);
 const isSaving = ref(false);
-
-const reportUrl = computed(() => `${window.location.origin}/r/${report.value.id}`);
 
 const { t } = useI18n()
 const { getCronLabel } = useCronLabel()
@@ -371,20 +328,6 @@ const onBlur = () => {
 
 // ---- Schedule (saves subscribers too) ----
 
-// Say what the report will actually do now — the three modes are three
-// different answers, and "Report settings saved" tells the user nothing.
-function savedModeDescription(): string {
-    if (refreshMode.value === 'on_open') {
-        return 'This report will refresh when someone opens it';
-    }
-    if (refreshMode.value === 'off') {
-        return 'This report will no longer refresh automatically';
-    }
-    return subscribers.value.length > 0
-        ? `Scheduled with ${subscribers.value.length} notification recipient(s)`
-        : 'Report scheduled successfully';
-}
-
 async function scheduleReport() {
     isSaving.value = true;
     try {
@@ -403,12 +346,7 @@ async function scheduleReport() {
             const saved = response.data.value as any;
             report.value.cron_schedule = saved.cron_schedule ?? null;
             report.value.refresh_on_view = !!saved.refresh_on_view;
-            toast.add({
-                title: scheduleEnabled.value ? 'Report scheduled' : 'Settings saved',
-                color: 'green',
-                description: savedModeDescription(),
-            });
-            cronModalOpen.value = false;
+            emit('saved');
         } else {
             toast.add({
                 title: 'Error',
@@ -426,4 +364,17 @@ async function scheduleReport() {
         isSaving.value = false;
     }
 }
+
+// Save on change. Registered after the inputs were hydrated from the saved
+// cron above, so opening the page saves nothing. Typing in the every-N box
+// fires per keystroke, hence the debounce.
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+    [refreshMode, recurInterval, recurEveryN, recurHour, recurDays, recurDayOfMonth, subscribers],
+    () => {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => { saveTimer = null; scheduleReport(); }, 600);
+    },
+    { deep: true },
+);
 </script>

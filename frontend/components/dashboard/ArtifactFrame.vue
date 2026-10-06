@@ -11,46 +11,8 @@
 
         <!-- Artifact Selector Dropdown -->
         <div class="flex items-center gap-2">
-          <!-- Rename (owner only): the selector becomes an input in place so
-               the toolbar keeps its width. Enter saves, Escape cancels. -->
-          <form
-            v-if="isRenaming"
-            class="flex items-center gap-1"
-            @submit.prevent="saveRename"
-          >
-            <UInput
-              ref="renameInputRef"
-              v-model="renameDraft"
-              size="xs"
-              class="min-w-[280px]"
-              :maxlength="255"
-              :disabled="isSavingRename"
-              :placeholder="$t('artifactFrame.renamePlaceholder')"
-              @keydown.escape.prevent="cancelRename"
-            />
-            <UTooltip :text="$t('common.save')">
-              <button
-                type="submit"
-                :disabled="isSavingRename || !renameDraft.trim()"
-                class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-              >
-                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-gray-500" />
-                <Icon v-else name="heroicons:check" class="w-3.5 h-3.5 text-emerald-600" />
-              </button>
-            </UTooltip>
-            <UTooltip :text="$t('common.cancel')">
-              <button
-                type="button"
-                :disabled="isSavingRename"
-                @click="cancelRename"
-                class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-              >
-                <Icon name="heroicons:x-mark" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-              </button>
-            </UTooltip>
-          </form>
           <USelectMenu
-            v-else-if="artifactsList.length > 0"
+            v-if="artifactsList.length > 0"
             v-model="selectedArtifactId"
             :options="artifactOptions"
             value-attribute="value"
@@ -135,9 +97,8 @@
           </button>
         </UTooltip>
 
-        <!-- Data (query manager) and Schedule stay visible next to Refresh:
-             the three things a dashboard owner touches routinely. Each
-             component renders its own trigger and keeps its modal mounted. -->
+        <!-- Data (query manager) stays visible next to Refresh: the things
+             a dashboard owner touches routinely. -->
         <DataModal
           v-if="report"
           :report-id="reportId"
@@ -145,7 +106,19 @@
           :artifact-viz-ids="selectedArtifact?.content?.visualization_ids || []"
           :artifact-mode="selectedArtifact?.mode"
         />
-        <CronModal v-if="report" :report="report" compact />
+        <!-- Dashboard settings (owner only): name, link, schedule, chat,
+             viewer options, delete — one long page. -->
+        <UTooltip v-if="canEditSettings" :text="$t('dashboardSettings.title')">
+          <button
+            type="button"
+            data-testid="dashboard-settings-button"
+            :aria-label="$t('dashboardSettings.title')"
+            @click="settingsOpen = true"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          >
+            <Icon name="heroicons:cog-6-tooth" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+          </button>
+        </UTooltip>
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -215,7 +188,17 @@
         <!-- Rendered once a dashboard is selected: without an artifact id the
              modal falls back to whole-report sharing, which would overwrite
              every dashboard's own setting. -->
-        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :artifact-id="selectedArtifact.artifact_id" :title="$t('share.shareDashboard')" @slug-changed="onSlugChanged" />
+        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :artifact-id="selectedArtifact.artifact_id" :title="$t('share.shareDashboard')" @edit-link-name="settingsOpen = true" />
+        <DashboardSettingsModal
+          v-if="report && canEditSettings && selectedArtifact?.artifact_id"
+          v-model="settingsOpen"
+          :report="report"
+          :artifact-id="selectedArtifact.artifact_id"
+          :dashboard-title="currentArtifactTitle()"
+          :rename="renameDashboard"
+          @slug-changed="onSlugChanged"
+          @deleted="onDashboardDeleted"
+        />
       </div>
     </div>
 
@@ -540,7 +523,7 @@
 import type { ExportFormat } from '~/composables/useArtifactExports'
 import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
-import CronModal from '../CronModal.vue';
+import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import DataModal from './DataModal.vue';
 import ShareModal from '../ShareModal.vue';
 import Spinner from '../Spinner.vue';
@@ -1507,15 +1490,11 @@ const docEditorRef = ref<any>(null);
 // one without the other looked like the rename silently failed, so both are
 // written. A report with several dashboards keeps its own title: renaming
 // one of them must not name the whole conversation (and every viewer's card
-// of it) after that one. Both endpoints are owner-only (update_reports +
-// owner_only), so the pencil is hidden for everyone else rather than failing
-// on click.
-const isRenaming = ref(false);
-const renameDraft = ref('');
-const isSavingRename = ref(false);
-const renameInputRef = ref<any>(null);
-
-const canRename = computed(() =>
+// of it) after that one. The rename lives in the dashboard settings; every
+// endpoint behind that page is owner-only (publish_reports / update_reports +
+// owner_only), so its entry point is hidden for everyone else rather than
+// failing on click.
+const canEditSettings = computed(() =>
   isReportOwner.value && !!selectedArtifactId.value && !isPendingArtifact.value);
 
 function currentArtifactTitle(): string {
@@ -1525,29 +1504,10 @@ function currentArtifactTitle(): string {
   return title === 'Untitled Artifact' ? '' : title;
 }
 
-async function startRename() {
-  if (!canRename.value) return;
-  renameDraft.value = currentArtifactTitle();
-  isRenaming.value = true;
-  await nextTick();
-  const el = renameInputRef.value?.$el?.querySelector?.('input') || renameInputRef.value?.input;
-  el?.focus?.();
-  el?.select?.();
-}
-
-function cancelRename() {
-  if (isSavingRename.value) return;
-  isRenaming.value = false;
-  renameDraft.value = '';
-}
-
-async function saveRename() {
+// Renames from the settings page, which shows its own "Saved"; failures toast here.
+async function renameDashboard(title: string): Promise<boolean> {
   const id = selectedArtifactId.value;
-  const title = renameDraft.value.trim();
-  if (!id || !title || isSavingRename.value) return;
-  if (title === currentArtifactTitle()) { cancelRename(); return; }
-
-  isSavingRename.value = true;
+  if (!id || !title) return false;
   try {
     const { data, error } = await useMyFetch(`/api/artifacts/${id}`, {
       method: 'PATCH',
@@ -1581,9 +1541,7 @@ async function saveRename() {
     if (selectedArtifact.value?.id === id) {
       selectedArtifact.value = { ...selectedArtifact.value, title: saved };
     }
-    isRenaming.value = false;
-    renameDraft.value = '';
-    toast.add({ title: t('artifactFrame.renamed'), color: 'green' });
+    return true;
   } catch (e: any) {
     console.error('[ArtifactFrame] Failed to rename artifact:', e);
     toast.add({
@@ -1591,13 +1549,24 @@ async function saveRename() {
       description: e?.data?.detail?.message || e?.data?.detail || t('artifactFrame.renameFailed'),
       color: 'red',
     });
-  } finally {
-    isSavingRename.value = false;
+    return false;
   }
 }
 
-// Switching versions mid-edit would silently retarget the save.
-watch(selectedArtifactId, () => { if (isRenaming.value) cancelRename(); });
+// --- Dashboard settings ---------------------------------------------------
+const settingsOpen = ref(false);
+// A deleted dashboard leaves the list; select what remains (the newest), or
+// show the empty state when it was the last one.
+async function onDashboardDeleted({ artifactId }: { artifactId: string }) {
+  artifactsList.value = artifactsList.value.filter(a => a.artifact_id !== artifactId);
+  const stillSelected = artifactsList.value.some(a => a.id === selectedArtifactId.value);
+  if (!stillSelected) {
+    selectedArtifactId.value = artifactsList.value[0]?.id;
+    if (!selectedArtifactId.value) selectedArtifact.value = null;
+  }
+  await fetchArtifactsList(true);
+  window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.report?.id, kind: 'artifact_deleted' } }));
+}
 
 // --- Overflow (⋯) menu ---------------------------------------------------
 type MenuItem = { label: string; icon: string; click: () => void; disabled?: boolean };
@@ -1605,10 +1574,6 @@ type MenuItem = { label: string; icon: string; click: () => void; disabled?: boo
 // Groups render with dividers between them (Nuxt UI takes an array of
 // arrays). Empty groups are dropped so no divider ever leads nowhere.
 const moreMenuItems = computed<MenuItem[][]>(() => {
-  const edit: MenuItem[] = [];
-  if (canRename.value) {
-    edit.push({ label: t('artifactFrame.rename'), icon: 'i-heroicons-pencil', click: startRename });
-  }
 
   // The .md source download is doc-only; PDF/PPTX/HTML come from
   // useArtifactExports so this menu and the public share page agree on what
@@ -1643,7 +1608,7 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
       { label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } }
     );
   }
-  return [edit, exports, view].filter(g => g.length > 0);
+  return [exports, view].filter(g => g.length > 0);
 });
 
 // --- Viewer-run gate state (per-user dashboards viewed by a non-owner) ---
