@@ -72,6 +72,42 @@ def repeated_call_final_answer(tool_name: str, times: int) -> str:
     )
 
 
+def _issued_args(arguments) -> dict:
+    """A tool call's arguments as the model issued them, minus server-side
+    annotations (``_progress`` and friends are added after the call)."""
+    if not isinstance(arguments, dict):
+        return {}
+    return {k: v for k, v in arguments.items() if not str(k).startswith("_")}
+
+
+def nativize_replayed_calls(turns, list_routing: dict, mcp_routing: dict) -> int:
+    """Point rehydrated gateway calls back at the native tool the model used.
+
+    Durable history is rebuilt from ToolExecution rows, which store the
+    gateway call (``submit_list``/``execute_mcp``). Replayed under that name
+    the model sees a tool it does not have, so it does not recognise its own
+    earlier save. Returns the number of calls remapped.
+    """
+    by_list = {r["list_id"]: name for name, r in (list_routing or {}).items()}
+    by_mcp = {(r.get("connection_id"), r.get("tool_name")): name for name, r in (mcp_routing or {}).items()}
+    n = 0
+    for turn in turns:
+        for p in turn.parts:
+            if not isinstance(p, ToolCallPart) or p.replay_name or not isinstance(p.args, dict):
+                continue
+            if p.tool_name == "submit_list" and p.args.get("list_id") in by_list:
+                p.replay_name = by_list[p.args["list_id"]]
+                p.replay_args = {"records": p.args.get("records") or []}
+            elif p.tool_name == "execute_mcp" and (p.args.get("connection_id"), p.args.get("tool_name")) in by_mcp:
+                p.replay_name = by_mcp[(p.args["connection_id"], p.args["tool_name"])]
+                inner = p.args.get("arguments")
+                p.replay_args = dict(inner) if isinstance(inner, dict) else {}
+            else:
+                continue
+            n += 1
+    return n
+
+
 def capabilities_for_report_files(has_files: bool) -> set:
     """Capabilities the report's OWN file space contributes to the tool
     catalog. Session files back read_file (lazy content/pages/vision) and
@@ -3981,6 +4017,12 @@ class AgentV2:
                 signature=getattr(action, "signature", None),
                 provider_name=getattr(action, "provider", None),
             )
+            issued_name = getattr(action, "name", None)
+            if issued_name and issued_name != tool_name:
+                # Rewritten native call (submit_<list> -> submit_list,
+                # mcp__… -> execute_mcp): replay it as the model issued it.
+                call.replay_name = issued_name
+                call.replay_args = _issued_args(getattr(action, "arguments", None))
             result = build_result_part(
                 call_id=call_id,
                 tool_name=tool_name,
@@ -4742,6 +4784,16 @@ class AgentV2:
             # agents. Registered once, after MCP tools, so the tools block (the
             # first prompt-cache breakpoint) is stable for the whole run.
             await self._register_list_tools()
+            try:
+                remapped = nativize_replayed_calls(
+                    self.transcript.turns,
+                    getattr(self, "_list_tool_routing", None),
+                    getattr(self, "_native_mcp_routing", None),
+                )
+                if remapped:
+                    logger.info("[transcript] replaying %d rehydrated gateway call(s) under their native names", remapped)
+            except Exception:
+                logger.exception("native replay remap failed")
             await self._setup_model_routing()
             await self._setup_llm_fallback()
 
