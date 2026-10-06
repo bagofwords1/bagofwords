@@ -182,8 +182,8 @@ echo "🖥️  Available CPUs: $CPUS"
 echo "🚀 Uvicorn Workers: $WORKERS (max 4, override with UVICORN_WORKERS)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Optional operator-supplied Oracle Instant Client (e.g. 11.2 for Oracle 10g
-# servers, which the bundled 19c client does not support). Putting it first on
+# Optional operator-supplied Oracle Instant Client, used instead of the bundled
+# 19c one. Putting it first on
 # LD_LIBRARY_PATH makes its libraries win over the bundled ones in ldconfig;
 # the backend also passes it to init_oracle_client (oracledb_client.py).
 if [ -n "$ORACLE_CLIENT_LIB_DIR" ]; then

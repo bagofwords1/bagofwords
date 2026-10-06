@@ -1,13 +1,13 @@
 """'Check connection' against Oracle must end with an answer, never hang.
 
-Reported: an Oracle 10.2 server behind the bundled 19c client accepted the
-login (a session appeared on the database) and the add-connection modal sat on
-"Connecting…" indefinitely — the probe and the schema-access read both ran with
-no time limit. These pin the contract: each half of the check either returns
+Reported: an Oracle 10.2 connection whose login created a session on the
+database but never completed left the add-connection modal on "Connecting…"
+indefinitely — the probe and the schema-access read both ran with no time
+limit. These pin the contract: each half of the check either returns
 or fails with an actionable message within its bound, the abandoned source
 statement is cancelled, and clients that don't opt in behave exactly as before.
 
-Also covers ORACLE_CLIENT_LIB_DIR, the opt-in for an older Instant Client.
+Also covers ORACLE_CLIENT_LIB_DIR, the opt-in for an operator-supplied Instant Client.
 """
 from __future__ import annotations
 
@@ -70,8 +70,7 @@ async def test_probe_against_a_server_that_never_answers_fails_within_its_bound(
     elapsed = time.monotonic() - started
 
     assert status["success"] is False
-    assert status["message"]
-    assert "ORACLE_CLIENT_LIB_DIR" in status["message"]  # names the way out
+    assert f"{bound_s}s" in status["message"]  # says it gave up, and when
     assert elapsed < bound_s + 5
 
 
@@ -89,8 +88,8 @@ def test_thin_mode_unsupported_server_error_explains_the_fix(monkeypatch):
     monkeypatch.setattr(oc.OracledbClient, "connect", refuse)
     status = _client().test_connection()
     assert status["success"] is False
-    assert "DPY-3010" in status["message"]
-    assert "ORACLE_CLIENT_LIB_DIR" in status["message"]
+    assert status["message"].startswith("DPY-3010")  # driver error kept intact
+    assert len(status["message"]) > len("DPY-3010: connections to this database server version are not supported")
 
 
 # ---------------------------------------------------------------------------

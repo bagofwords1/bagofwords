@@ -156,7 +156,9 @@ RUN apt-get update && \
 # password verifiers (DPY-3015), or Native Network Encryption (DPY-4011
 # "connection reset by peer"); thick mode handles all of these and is a
 # superset of thin. Pinned to 19c rather than 23c because the 19c client
-# connects to servers 11.2+ while 23c requires 19+. Install failure is
+# connects to servers 11.2+ while 23c requires 19+ (10.2 is outside Oracle's
+# support matrix but verified to connect, see
+# docs/feedback-loops/oracle-10g-check-connection-hang.md). Install failure is
 # non-fatal so airgapped builds still succeed (the driver stays thin).
 RUN ARCH="$(dpkg --print-architecture)" && \
     case "${ARCH}" in \

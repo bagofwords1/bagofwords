@@ -44,8 +44,9 @@ def init_thick_mode_if_available() -> bool:
         return False
     lib_dir = os.getenv("ORACLE_CLIENT_LIB_DIR", "").strip()
     if lib_dir:
-        # Operator-supplied Instant Client (e.g. 11.2 for Oracle 10g servers,
-        # which the bundled 19c client cannot talk to). start.sh also puts it
+        # Operator-supplied Instant Client, for servers or features the bundled
+        # 19c client doesn't cover (e.g. a wallet setup tied to a specific
+        # client version). start.sh also puts it
         # first on LD_LIBRARY_PATH so its dependent libraries resolve from the
         # same directory. If it fails to load, fall back to the default lookup
         # so a bad path degrades to today's behaviour instead of thin mode.
@@ -74,19 +75,22 @@ def _env_seconds(name: str, default: float) -> Optional[float]:
 
 
 # "Check connection" bounds. Without them a login the server never completes
-# (an Oracle 10g server behind the 19c client) or a dictionary query that
-# never returns left the UI on "Connecting…" forever with no error at all.
+# (e.g. a firewall that passes the listener port but not the rest of the
+# session) or a dictionary query that never returns left the UI on
+# "Connecting…" forever with no error at all.
 # Generous on purpose: a healthy login takes seconds, so these only ever fire
 # on calls that were going to hang. Neither applies to indexing or queries.
 CONNECT_TIMEOUT_S = _env_seconds("ORACLE_CONNECT_TIMEOUT_S", 60)
 VALIDATION_TIMEOUT_S = _env_seconds("ORACLE_VALIDATION_TIMEOUT_S", 300)
 
 CONNECT_TIMEOUT_MESSAGE = (
-    "Oracle did not finish the login within {seconds}s. The server accepted the "
-    "connection but never answered, which usually means the database is older "
-    "than the Oracle client supports: the bundled client supports Oracle 11.2 and "
-    "newer, and Oracle 10g needs an older Instant Client (set ORACLE_CLIENT_LIB_DIR "
-    "on the backend). A firewall silently dropping traffic looks the same."
+    "Oracle did not finish the login within {seconds}s. The listener accepted the "
+    "connection but the database stopped answering. This is usually the network "
+    "between this server and the database: a firewall or load balancer that allows "
+    "the listener port but blocks or inspects the rest of the session (for example "
+    "a database using shared server, or Oracle on Windows, handing the login to a "
+    "second port). Ask your network or database team to check the path from this "
+    "server to the database."
 )
 VALIDATION_TIMEOUT_MESSAGE = (
     "Connected to Oracle, but reading the table list did not finish within "
@@ -97,8 +101,8 @@ VALIDATION_TIMEOUT_MESSAGE = (
 )
 # Thin mode's refusal for pre-12.1 servers names no way out; add one.
 _UNSUPPORTED_SERVER_HINT = (
-    " Oracle servers older than 12.1 need thick mode with an Oracle Client that "
-    "supports them (the bundled client covers 11.2+; for 10g set ORACLE_CLIENT_LIB_DIR)."
+    " Oracle servers older than 12.1 need thick mode: run the official Docker image, "
+    "which bundles the Oracle Instant Client, or install Instant Client on this host."
 )
 
 

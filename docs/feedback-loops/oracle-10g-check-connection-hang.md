@@ -12,7 +12,8 @@ What this loop checks:
    server that accepts a connection and then stops answering produces exactly
    this symptom.
 2. After the fix, the same situation ends in an error that says what to do.
-3. Working Oracle connections behave the same as before.
+3. Working Oracle connections, **including a real Oracle 10g**, behave the
+   same as before.
 4. The new `ORACLE_CLIENT_LIB_DIR` opt-in swaps the Oracle client library for
    one deployment while the default stays the same.
 
@@ -24,19 +25,39 @@ What this loop checks:
   (`backend/app/data_sources/clients/base.py:169`). It then reads the entire
   catalog through `aget_schemas()` in `_avalidate_schema_access` (previously
   `connection_service.py:2196`). Neither call has a timeout, and no Oracle
-  connect or call timeout is set either. A login the server never finishes,
-  or a dictionary query that never returns, blocks the HTTP request forever.
-  The modal's `formState.busy` stays true and the user sees the spinner
+  connect or call timeout is set either. A login that never completes, or a
+  dictionary query that never returns, blocks the HTTP request forever. The
+  modal's `formState.busy` stays true and the user sees the spinner
   indefinitely.
-- **Why this customer's server stalls (likely, not proven).** The Docker image
-  bundles Oracle Instant Client 19.28 (`Dockerfile:152-183`). Its own comment
-  says the 19c client connects to servers 11.2 and newer, and 10.2.0.4 is below
-  that. A login that creates a server session and then never completes fits an
-  unsupported client/server pairing. We couldn't check `v$session`, so this
-  part stays a hypothesis. The other candidate, slow 10g `ALL_*` dictionary
-  views during the catalog read, hangs the same request. The fix gives each
-  cause its own error message, so the customer's next attempt tells us which
-  one it is.
+- **The Oracle version is NOT the cause (disproved on a real 10g).** We first
+  suspected the bundled 19c Instant Client, since Oracle's support matrix
+  lists 11.2+ servers. Against a real **Oracle 10g XE 10.2.0.1** (the
+  `dragonbest520/oracle-xe-10g` image), using the client set up the same way
+  the product image does:
+
+  | Path | Result |
+  |---|---|
+  | Thin mode | `DPY-3010` error in 0.0s, a clear error rather than a hang |
+  | Thick, bundled 19.28, raw driver | connected in 0.4s, query OK |
+  | Thick 19.28, `OracledbClient.test_connection()` | success in 0.2s |
+  | Thick 19.28, `get_schemas()`, 2 tables | 0.3s |
+  | Thick 19.28, `get_schemas()`, 1,502 tables with FKs and comments | 0.8s |
+  | Full UI (add-connection modal) | connected and indexed ([screenshot](../../media/oracle-10g-hang/real-oracle-10g-connected.png)) |
+
+  So our stock setup works with 10g, and the customer's hang comes from their
+  environment.
+- **Leading hypothesis: the network path from the backend to the database.**
+  The customer's DBA sees a session created (the login reaches the server),
+  and then the client never hears back. That's typical of a firewall or load
+  balancer that passes the listener port but blocks or inspects the rest of
+  the session. Common cases:
+  - shared server or Oracle-on-Windows setups that hand the login to a second
+    port;
+  - "SQL*Net inspection" on a firewall.
+
+  Their SQL Developer works, but it likely runs on a different network
+  segment from the backend. This is a hypothesis we can't check without their
+  network; the new error message points them at it.
 
 ## Loop A — deterministic reproduction (no external services)
 
@@ -84,6 +105,7 @@ fills the Oracle form the way the customer did (service `DWH`) and clicks
 | Original code | `RESULT: STILL_CONNECTING after 100s`, matching the customer's video ([screenshot](../../media/oracle-10g-hang/before-still-connecting-100s.png)) |
 | Fix | `RESULT: FAILED_WITH_MESSAGE after 60s`, with the message shown under Check connection and the Connect button enabled again ([screenshot](../../media/oracle-10g-hang/after-clear-error-60s.png)) |
 | Fix, thick mode (Instant Client 19.28 loaded through `ORACLE_CLIENT_LIB_DIR`) | `FAILED_WITH_MESSAGE` after 60s |
+| Fix, thick mode, **real Oracle 10g XE** (`dragonbest520/oracle-xe-10g`) | `CONNECTED_AND_INDEXED` |
 
 **Regression against a real database.** Oracle's official
 `container-registry.oracle.com/database/free:latest-lite` (23ai) with a
@@ -134,11 +156,12 @@ The libraries an older Instant Client links against (`libnsl.so.1`,
   this).
 - `backend/app/data_sources/clients/oracledb_client.py`:
   - `atest_connection` is bounded by `ORACLE_CONNECT_TIMEOUT_S` (default 60).
-    When the bound is hit, it returns a message naming the client-version
-    cause and `ORACLE_CLIENT_LIB_DIR`.
+    When the bound is hit, it returns a message pointing at the network path
+    between the backend and the database.
   - The client declares `validation_timeout_s` (`ORACLE_VALIDATION_TIMEOUT_S`,
     default 300) with a message pointing at Schema and dictionary statistics.
-  - The thin-mode `DPY-3010` error gets a hint appended.
+  - The thin-mode `DPY-3010` error gets a hint appended (use the Docker image,
+    which bundles Instant Client, so thick mode is on).
   - `init_thick_mode_if_available` honors `ORACLE_CLIENT_LIB_DIR` and falls
     back to the default libraries if that path doesn't load.
 - `backend/app/services/connection_service.py`:
@@ -160,12 +183,15 @@ changed per deployment, or disabled with `0`.
   any statement still running on the source is cancelled.
 - Working Oracle connections (23ai, thin and thick) connect and index the same
   as before. Default library selection is unchanged.
-- **Not proven:** that a real 10.2.0.4 server works with an older Instant
-  Client. There's no 10g server here, and the 11.2 client sits behind an
-  Oracle login. Next step for this customer: put Instant Client 11.2
-  (x86-64) on the backend host, mount it (for example at
-  `/opt/oracle/instantclient_11_2`), set `ORACLE_CLIENT_LIB_DIR` to it, and
-  retry. If it still fails, the error message now says which half stalled.
+- Our bundled setup connects to and indexes a real Oracle 10g, so the
+  customer doesn't need a special client. `ORACLE_CLIENT_LIB_DIR` stays as a
+  general escape hatch but isn't the fix for this report.
+- **Next step for this customer:** deploy this build and retry. If it fails
+  with the login-timeout message, the network path is the problem: have their
+  network or DBA team check the firewall or load balancer between the backend
+  host and the database (allowed ports, SQL*Net inspection, shared-server or
+  port-redirect setups). If it fails with the table-list message, set Schema
+  or gather dictionary statistics.
 - Pre-existing and unrelated, found while testing: Oracle foreign keys are
   always dropped, because SQLAlchemy reports lowercase names (`orders`) while
   the client keys tables by uppercase (`ORDERS`). Tracked separately.
