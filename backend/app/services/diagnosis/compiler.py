@@ -74,7 +74,7 @@ _RUN_COLUMNS: Dict[str, Tuple[Any, str]] = {
     "tokens": (AE.total_tokens, "num"),
     "tokens.in": (AE.prompt_tokens, "num"),
     "tokens.out": (AE.completion_tokens, "num"),
-    "tokens.cache": (AE.cache_read_tokens, "num"),
+    "tokens.cache_read": (AE.cache_read_tokens, "num"),
     "duration": (AE.total_duration_ms, "num"),
     "thinking": (AE.thinking_ms, "num"),
     "first_token": (AE.first_token_ms, "num"),

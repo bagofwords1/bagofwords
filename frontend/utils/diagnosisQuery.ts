@@ -67,7 +67,7 @@ export const FIELDS: FieldSpec[] = [
   f('tokens', 'number', 'run', 'LLM tokens used by the run', { sortable: true }),
   f('tokens.in', 'number', 'run', 'Input tokens, cached tokens included', { sortable: true }),
   f('tokens.out', 'number', 'run', 'Output tokens', { sortable: true }),
-  f('tokens.cache', 'number', 'run', 'Input tokens read from the prompt cache'),
+  f('tokens.cache_read', 'number', 'run', 'Input tokens read from the prompt cache'),
   f('duration', 'duration', 'run', 'Wall time of the run', { sortable: true }),
   f('thinking', 'duration', 'run', 'Time before the first tool call', { sortable: true, builder: false }),
   f('first_token', 'duration', 'run', 'Time to first streamed token', { sortable: true, builder: false }),

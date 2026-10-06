@@ -88,7 +88,7 @@ FIELDS: List[FieldSpec] = [
     FieldSpec("tokens", "number", RUN, "LLM tokens used by the run", sortable=True),
     FieldSpec("tokens.in", "number", RUN, "Input tokens, cached tokens included", sortable=True),
     FieldSpec("tokens.out", "number", RUN, "Output tokens", sortable=True),
-    FieldSpec("tokens.cache", "number", RUN, "Input tokens read from the prompt cache"),
+    FieldSpec("tokens.cache_read", "number", RUN, "Input tokens read from the prompt cache"),
     FieldSpec("duration", "duration", RUN, "Wall time of the run", sortable=True),
     FieldSpec("thinking", "duration", RUN, "Time before the first tool call", sortable=True, builder=False),
     FieldSpec("first_token", "duration", RUN, "Time to first streamed token", sortable=True, builder=False),

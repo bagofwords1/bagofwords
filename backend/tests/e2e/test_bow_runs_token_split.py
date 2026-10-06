@@ -116,7 +116,7 @@ def _ids_matching(test_client, world, q):
     return {item["id"] for item in resp.json()["items"]}
 
 
-@pytest.mark.parametrize("field, index", [("tokens.in", 2), ("tokens.out", 3), ("tokens.cache", 4)])
+@pytest.mark.parametrize("field, index", [("tokens.in", 2), ("tokens.out", 3), ("tokens.cache_read", 4)])
 @pytest.mark.parametrize("threshold", [100, 2_500, 5_000])
 def test_explorer_filters_on_the_same_split(test_client, token_world, field, index, threshold):
     expected = {run_id for run_id, case in zip(token_world["ids"], CASES) if case[index] >= threshold}
@@ -132,5 +132,5 @@ def test_split_fields_are_offered_in_the_filter_builder(test_client, token_world
                            headers={"Authorization": f"Bearer {token_world['token']}", "X-Organization-Id": token_world["org_id"]})
     assert resp.status_code == 200
     fields = {f["name"]: f for f in resp.json()["fields"]}
-    for name in ("tokens.in", "tokens.out", "tokens.cache"):
+    for name in ("tokens.in", "tokens.out", "tokens.cache_read"):
         assert fields[name]["builder"] and fields[name]["type"] == "number"
