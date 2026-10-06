@@ -10,11 +10,11 @@ on:
 jobs:
   e2e-tests:
     runs-on: ubuntu-latest
-    # The suite outgrew the old 60- then 90-minute caps (it was being cancelled
-    # mid-run). It now runs under pytest-xdist (see the E2E step), which cuts
-    # wall time several-fold; 120 leaves generous headroom while still bounding
-    # runaway hangs.
-    timeout-minutes: 120
+    # The suite outgrew the old 60-, 90- and 120-minute caps (it was being
+    # cancelled mid-run). It runs under pytest-xdist (see the E2E step), but by
+    # October 2026 the sqlite leg took 103-117 minutes and the postgres leg ran
+    # past 120 on main. 180 leaves headroom while still bounding runaway hangs.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
