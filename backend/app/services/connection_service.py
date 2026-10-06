@@ -1234,8 +1234,9 @@ class ConnectionService:
         organization: Organization,
         current_user: User,
     ) -> dict:
-        """Disconnect: delete the current user's per-user credentials for a
-        connection. Per-user OAuth/basic creds live at the CONNECTION level
+        """Disconnect: clear the current user's per-user credentials for a
+        connection (retaining an inactive opt-out for automatic OBO recovery).
+        Per-user OAuth/basic creds live at the CONNECTION level
         (user_connection_credentials), so this is what 'Disconnect' must clear —
         the data-source-level table is a separate, legacy store.
         """
@@ -1247,8 +1248,25 @@ class ConnectionService:
             )
         )
         rows = result.scalars().all()
-        for row in rows:
-            await db.delete(row)
+        from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
+        if connection.type in ENTRA_OBO_CONNECTION_TYPES and connection.auth_policy == "user_required":
+            # Missing credentials now trigger stored-login recovery. Retain a
+            # token-free inactive marker so an explicit Disconnect opts out.
+            marker = rows[0] if rows else UserConnectionCredentials(
+                user_id=str(current_user.id), connection_id=str(connection.id),
+                organization_id=str(organization.id), auth_mode="oauth",
+            )
+            marker.encrypt_credentials({})
+            marker.is_active = False
+            marker.is_primary = False
+            marker.expires_at = None
+            marker.metadata_json = {"auto_recovery_disabled": True}
+            db.add(marker)
+            for row in rows[1:]:
+                await db.delete(row)
+        else:
+            for row in rows:
+                await db.delete(row)
 
         # Invalidate this user's per-user schema overlay too — it records the
         # tables they could see while connected. Leaving it accessible would let
@@ -1989,6 +2007,9 @@ class ConnectionService:
                 from app.schemas.data_source_registry import overlay_system_credentials
                 return overlay_system_credentials(connection, row.decrypt_credentials() or {}, row.auth_mode)
 
+            if row is None:
+                from app.services.obo_recovery_service import schedule_stored_login_recovery
+                schedule_stored_login_recovery(str(current_user.id), connection)
             raise HTTPException(
                 status_code=403,
                 detail=(

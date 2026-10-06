@@ -744,11 +744,20 @@ async def exchange_obo_token(
         )
 
     if resp.status_code >= 400:
-        logger.error(f"OBO token exchange failed for connection {connection.id}: {resp.status_code} {resp.text}")
-        raise ValueError(f"OBO token exchange failed: {resp.text}")
+        # Provider descriptions can echo assertions. Keep useful numeric Entra
+        # codes, but never log raw response bodies during automatic recovery.
+        try:
+            codes = [c for c in resp.json().get("error_codes", []) if isinstance(c, int)]
+        except (ValueError, TypeError, AttributeError):
+            codes = []
+        error = f"OBO token exchange failed: HTTP {resp.status_code}, AADSTS codes {codes}"
+        logger.warning("%s for connection %s", error, connection.id)
+        raise ValueError(error)
 
     token_data = resp.json()
     expires_in = token_data.get("expires_in", 3600)
+    if not isinstance(token_data.get("access_token"), str) or not token_data["access_token"]:
+        raise ValueError("OBO response missing access token")
     return {
         "access_token": token_data["access_token"],
         "refresh_token": token_data.get("refresh_token"),
@@ -946,6 +955,12 @@ async def auto_provision_connection_credentials(
             f"{[c['connection_id'] for c in summary['provisioned']]}"
         )
 
+    await sync_obo_catalogs(db, user, pending_overlay)
+    return summary
+
+
+async def sync_obo_catalogs(db: AsyncSession, user, connections: list[Connection]) -> None:
+    """Sync committed delegated credentials using sessions on the caller's engine."""
     # Trigger overlay sync (best-effort; never fails the provisioning above).
     #
     # Sync per DATA SOURCE, not per connection. `get_user_data_source_schema`
@@ -953,11 +968,11 @@ async def auto_provision_connection_credentials(
     # looping connections here made an agent with N connections cost N x N
     # crawls — 10,000 SharePoint round trips for a 100-connection agent.
     #
-    # The list is materialised from `pending_overlay` BEFORE any sync runs,
+    # The list is materialised from `connections` BEFORE any sync runs,
     # while the objects are still live on `db`.
     ds_ids: list = []
     seen_ds: set = set()
-    for connection in pending_overlay:
+    for connection in connections:
         for ds in (connection.data_sources or []):
             if str(ds.id) not in seen_ds:
                 seen_ds.add(str(ds.id))
@@ -1003,8 +1018,6 @@ async def auto_provision_connection_credentials(
         logger.info(
             f"OBO overlay sync for user {user.id}: {synced}/{len(ds_ids)} data source(s) synced"
         )
-
-    return summary
 
 
 async def maybe_refresh_oauth_credentials(

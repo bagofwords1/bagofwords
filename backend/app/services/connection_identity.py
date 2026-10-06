@@ -230,6 +230,9 @@ async def build_token_identity_status(
         cred_index.connection_row(connection.id) if cred_index is not None
         else await get_user_conn_cred_row(db, connection, user)
     )
+    if row is None:
+        from app.services.obo_recovery_service import schedule_stored_login_recovery
+        schedule_stored_login_recovery(str(user.id), connection)
     admin_or_owner = await is_admin_or_owner(db, connection, user)
     pref = identity_pref_from_row(row)
     has_token = row_has_token(row)
