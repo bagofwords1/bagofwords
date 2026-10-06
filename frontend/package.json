@@ -66,7 +66,7 @@
     "picomatch": ">=4.0.4",
     "playwright": "1.56.0",
     "postcss": ">=8.5.18",
-    "postcss-selector-parser": ">=7.1.2",
+    "postcss-selector-parser": ">=7.1.6",
     "rollup": ">=4.59.0",
     "serialize-javascript": ">=7.0.5",
     "shell-quote": ">=1.11.0",
