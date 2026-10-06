@@ -248,6 +248,16 @@ def test_unknown_form_query_names_the_likely_cause(client):
     assert "404" in str(exc.value)
 
 
+@pytest.mark.parametrize("bad_column", ["NOTACOLUMN", "QPROFIT_X"])
+def test_rejected_query_surfaces_priority_error_message(client, bad_column):
+    """A 400 from Priority carries its reason in the body; the raised error
+    must include it so the agent can fix the query instead of guessing."""
+    with pytest.raises(RuntimeError) as exc:
+        client.execute_query(f"ORDERS?$select=ORDNAME,{bad_column}&$top=1")
+    msg = str(exc.value)
+    assert "400" in msg and bad_column in msg
+
+
 # ── rate limiting ──────────────────────────────────────────────────────────
 
 def test_rate_limiter_disabled_when_non_positive():
