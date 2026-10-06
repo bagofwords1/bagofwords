@@ -208,6 +208,9 @@ class CustomCredentials(ProviderHeadersMixin):
     base_url: str  # Required - the OpenAI-compatible endpoint
     api_key: Optional[str] = None  # Optional - some local servers don't require auth
     verify_ssl: Optional[bool] = True  # Optional - set to False to disable SSL certificate verification
+    # Send Anthropic cache_control marks when the model is Claude (LiteLLM and
+    # OpenRouter forward them). False for a gateway that rejects the field.
+    prompt_cache_markers: Optional[bool] = None
 
 class CustomConfig(BaseModel):
     max_tokens: Optional[int] = 4096

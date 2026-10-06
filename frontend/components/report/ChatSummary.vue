@@ -74,6 +74,48 @@
         </button>
       </section>
 
+      <!-- Lists (Agent Lists this conversation wrote to; per-record detail
+           stays on the chat card — the numbered chips scroll to each call) -->
+      <section v-if="listItems.length > 0">
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.lists') }}</h3>
+        <ul class="space-y-1.5">
+          <li
+            v-for="item in visibleListItems"
+            :key="item.list_id"
+            class="px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow transition-all"
+            data-testid="summary-list-item"
+          >
+            <NuxtLink :to="`/agents/${item.data_source_id}/lists/${item.list_id}`" class="flex items-center gap-2.5">
+              <Icon name="heroicons-list-bullet" class="w-4 h-4 flex-shrink-0 text-emerald-500" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm text-gray-700 dark:text-gray-300 truncate"><bdi>{{ item.list_name }}</bdi></div>
+                <div class="text-[11px] text-gray-400 mt-0.5 truncate">
+                  <bdi v-if="item.agent_name">{{ item.agent_name }}</bdi>
+                  <span v-for="c in listCounts(item)" :key="c"> · {{ c }}</span>
+                </div>
+              </div>
+            </NuxtLink>
+            <div v-if="item.submissions.length > 1" class="flex flex-wrap items-center gap-1 mt-1.5 ps-6">
+              <button
+                v-for="(sub, idx) in item.submissions"
+                :key="sub.tool_execution_id"
+                class="text-[10px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-0.5 rounded transition-colors"
+                @click="emit('scrollToMessage', sub.message_id)"
+              >
+                #{{ idx + 1 }}
+              </button>
+            </div>
+          </li>
+        </ul>
+        <button
+          v-if="listItems.length > 3 && !showAllLists"
+          class="mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          @click="showAllLists = true"
+        >
+          {{ $t('chatSummary.showMore', { count: listItems.length - 3 }) }}
+        </button>
+      </section>
+
       <!-- Notes (agent scratchpad) -->
       <section v-if="notes.length > 0">
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('notes.heading') }}</h3>
@@ -207,6 +249,8 @@ const props = defineProps<{
   artifactList: any[]
   queryList: any[]
   queryExecutions: any[]
+  // Agent Lists this conversation wrote to (GET /reports/{id}/summary → lists).
+  listSubmissions?: any[]
   // Pending-only: drives session-pill state. Kept for backwards compat with
   // existing callers but no longer rendered directly in the Instructions
   // section — we use reportInstructions for that.
@@ -273,6 +317,21 @@ watch(() => [props.queryExecutions.length, props.artifactList.length], loadNotes
 defineExpose({ reloadNotes: loadNotes })
 
 const showAllArtifacts = ref(false)
+
+// ---- Lists ----
+const { t } = useI18n()
+const showAllLists = ref(false)
+const listItems = computed(() => props.listSubmissions || [])
+const visibleListItems = computed(() =>
+  showAllLists.value ? listItems.value : listItems.value.slice(0, 3)
+)
+// Same wording as the chat card's header.
+function listCounts(item: any): string[] {
+  const out: string[] = []
+  if (item.inserted) out.push(t('tools.submitList.added', { n: item.inserted }))
+  if (item.updated) out.push(t('tools.submitList.updated', { n: item.updated }))
+  return out
+}
 
 // The artifact the report page actually opens by default: the newest
 // dashboard/deck row (docs never take the default slot — same rule as the
@@ -387,6 +446,7 @@ const hasAnything = computed(() =>
   props.scheduledPrompts.length > 0 ||
   props.artifactList.length > 0 ||
   props.queryExecutions.length > 0 ||
+  listItems.value.length > 0 ||
   notes.value.length > 0 ||
   instructionsList.value.length > 0
 )

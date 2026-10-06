@@ -2315,7 +2315,17 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "entraTitle": "Ativar troca de tokens Entra",
+          "entraHelp": "Opcional. Permite que este aplicativo troque o token Microsoft Entra de um usuário conectado por um token BOW.",
+          "entraUnavailable": "Primeiro configure um provedor SSO Entra específico do locatário com access_as_user em bow-config.yaml.",
+          "entraProvider": "Provedor SSO Entra",
+          "externalEntraClient": "ID do aplicativo Entra externo (cliente)",
+          "externalEntraHelp": "Aplicativo Entra autorizado a chamar o BOW para seus usuários conectados. Mantenha o segredo no backend do aplicativo externo.",
+          "entraTenant": "ID do locatário",
+          "entraAudience": "Público da API BOW (tokens v1)",
+          "entraScope": "Escopo obrigatório",
+          "entraRequirements": "Novos usuários entram automaticamente com um convite válido ou uma política de cadastro por domínio ativada. Tokens duram no máximo uma hora. URIs de redirecionamento são opcionais para aplicativos que só trocam tokens."
         },
         "excel": {
           "title": "Suplemento do Excel",
@@ -5285,6 +5295,7 @@
     "empty": "Nenhum item ainda",
     "scheduledTasks": "Tarefas agendadas",
     "artifacts": "Artefatos",
+    "lists": "Listas",
     "default": "Padrão",
     "document": "documento",
     "showMore": "Mostrar mais {count}",
@@ -5652,7 +5663,7 @@
     "failed": "A atualização do esquema não foi concluída. Tente novamente.",
     "connectRequired": "Conecte sua conta para ver suas tabelas."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "Somente leitura",
     "sort": "Ordenar registros",
     "applyFilter": "Aplicar",

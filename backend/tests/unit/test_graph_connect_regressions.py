@@ -214,15 +214,12 @@ def test_email_tools_registered_with_mail_capability():
     from app.ai.tools.implementations.email_tools import (
         ListEmailsTool, ReadEmailTool, SearchEmailsTool,
     )
-    from app.ai.tools.implementations.list_files import ListFilesTool
     from app.ai.tools.implementations.read_file import ReadFileTool
-    from app.ai.tools.implementations.search_files import SearchFilesTool
     from app.data_sources.clients.base import Capability
 
-    # Thin subclasses that only re-point the capability + planner-facing metadata.
+    # read_email reuses read_file's materialization; list/search have their own
+    # mailbox run loop (folders, filters, paging) but gate on the mail caps.
     assert issubclass(ReadEmailTool, ReadFileTool)
-    assert issubclass(ListEmailsTool, ListFilesTool)
-    assert issubclass(SearchEmailsTool, SearchFilesTool)
     assert ReadEmailTool._required_capability == Capability.READ_EMAIL
     assert ListEmailsTool._required_capability == Capability.LIST_EMAILS
     assert SearchEmailsTool._required_capability == Capability.SEARCH_EMAILS

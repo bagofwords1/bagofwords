@@ -150,7 +150,10 @@ dev = [
 # Resources Without Limits or Throttling), both fixed in 2.8.0. urllib3 is pulled
 # in transitively (requests / botocore / kubernetes / snowflake-connector, ...);
 # every current dependent allows 2.8.x (botocore caps < 3 on Python >= 3.10).
-constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0"]
+# mako < 1.4.2 is affected by SNYK-PYTHON-MAKO-20510290 (High, Directory
+# Traversal), fixed in 1.4.2. mako is pulled in transitively via alembic, which
+# requires "Mako" with no upper bound, so constraining to >= 1.4.2 is safe.
+constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0", "mako>=1.4.2"]
 # Security override: force cryptography >= 50.0.0 to fix the PKCS#7 EnvelopedData
 # Bleichenbacher oracle (GHSA-g6cj-pr64-35w5 / SNYK-PYTHON-CRYPTOGRAPHY-18516621,
 # High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail

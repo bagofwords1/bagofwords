@@ -200,8 +200,31 @@ class PriorityErpClient(DataSourceClient):
                 "Priority's OData API does not support $apply (server-side aggregation). "
                 "Select the rows you need with $filter/$select and aggregate in code instead."
             )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Priority puts the real reason (missing form privilege, unknown
+            # column, bad filter) in the body; raise_for_status() drops it and
+            # leaves the codegen retry loop guessing at a bare "400 Bad Request".
+            raise RuntimeError(
+                f"Priority returned HTTP {resp.status_code} for '{path}': "
+                f"{self._error_detail(resp)}. If even a bare '$top' query fails on this "
+                "form, the API user likely lacks privileges on it."
+            )
         return resp
+
+    @staticmethod
+    def _error_detail(resp: requests.Response) -> str:
+        """Pull the server's message out of an OData error (or any) body."""
+        try:
+            err = resp.json().get("error") or {}
+            message = err.get("message")
+            if isinstance(message, dict):  # OData v3 shape: {"value": "..."}
+                message = message.get("value")
+            if message:
+                return str(message).strip()
+        except (ValueError, AttributeError):
+            pass
+        text = " ".join((resp.text or "").split())
+        return text[:500] or (resp.reason or "no details returned")
 
     # ── metadata parsing ────────────────────────────────────────────────────
 

@@ -4014,8 +4014,59 @@ class ReportService:
         else:
             instructions = []
 
+        # 7) Agent Lists this conversation wrote to (submit_<list> calls run as
+        # the submit_list gateway). One item per list; the chat card keeps the
+        # per-record detail.
+        from app.models.agent_list import AgentList
+        from app.models.data_source import DataSource
+        from app.services.report_summary_lists import aggregate_list_submissions
+
+        list_res = await db.execute(
+            select(ToolExecution, Completion.id.label("completion_id"))
+            .options(lazyload("*"), defer(ToolExecution.result_json))
+            .join(CompletionBlock, CompletionBlock.tool_execution_id == ToolExecution.id)
+            .join(Completion, Completion.id == CompletionBlock.completion_id)
+            .where(
+                Completion.report_id == report_id,
+                Completion.deleted_at == None,
+                ToolExecution.status == "success",
+                ToolExecution.tool_name == "submit_list",
+            )
+            .order_by(CompletionBlock.created_at.asc())
+        )
+        list_rows = list_res.all()
+        await hydrate_tool_results_for_ui(db, [row.ToolExecution for row in list_rows])
+        lists = aggregate_list_submissions(
+            (row.ToolExecution.id, row.completion_id, row.ToolExecution.result_json)
+            for row in list_rows
+        )
+        if lists:
+            # Current name, and drop lists deleted since — their link would 404.
+            live = {
+                str(l.id): l for l in (await db.execute(
+                    select(AgentList).where(
+                        AgentList.id.in_([i.list_id for i in lists]),
+                        AgentList.deleted_at.is_(None),
+                    )
+                )).scalars().all()
+            }
+            lists = [i for i in lists if i.list_id in live]
+            agent_names = {
+                str(ds_id): name for ds_id, name in (await db.execute(
+                    select(DataSource.id, DataSource.name).where(
+                        DataSource.id.in_([str(live[i.list_id].data_source_id) for i in lists])
+                    )
+                )).all()
+            }
+            for item in lists:
+                lst = live[item.list_id]
+                item.list_name = lst.name
+                item.data_source_id = str(lst.data_source_id)
+                item.agent_name = agent_names.get(item.data_source_id)
+
         return {
             "queries": queries,
             "instructions": instructions,
+            "lists": lists,
             "pending_training_build": pending_build.model_dump() if pending_build else None,
         }

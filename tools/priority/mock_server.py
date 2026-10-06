@@ -326,6 +326,18 @@ def query(entity: str, request: Request):
             status_code=501,
         )
 
+    # Like Priority, reject a $select naming a column the form doesn't have
+    # with a 400 whose body carries the reason.
+    if qp.get("$select"):
+        known = {c for r in ROWS.get(entity, []) for c in r}
+        unknown = [c.strip() for c in qp["$select"].split(",")
+                   if c.strip() and known and c.strip() not in known]
+        if unknown:
+            return JSONResponse(
+                {"error": {"code": "", "message": f"Could not find a property named '{unknown[0]}' on type 'Priority.OData.{entity}'."}},
+                status_code=400,
+            )
+
     rows = [dict(r) for r in ROWS.get(entity, [])]
 
     if qp.get("$filter"):

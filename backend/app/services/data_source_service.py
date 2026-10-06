@@ -78,7 +78,7 @@ from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
 from app.models.git_repository import GitRepository
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 class _UncommittedInSession(Exception):
@@ -4875,7 +4875,9 @@ class DataSourceService:
             # few at a time, each on its own session: one AsyncSession is not
             # concurrency-safe, and the overlay rows a task writes are scoped to
             # its own connection, so they never collide.
-            from app.dependencies import async_session_maker
+            # Preserve the caller's engine when invoked by background OBO or
+            # indexing; the global request pool belongs to a different loop.
+            session_factory = async_sessionmaker(db.bind, expire_on_commit=False)
             from app.models.connection import Connection as _Connection
 
             sem = asyncio.Semaphore(self._RELOAD_CONCURRENCY)
@@ -4883,7 +4885,7 @@ class DataSourceService:
 
             async def _run(conn_id: str):
                 async with sem:
-                    async with async_session_maker() as sync_db:
+                    async with session_factory() as sync_db:
                         ds = (await sync_db.execute(
                             select(DataSource)
                             .options(selectinload(DataSource.connections))

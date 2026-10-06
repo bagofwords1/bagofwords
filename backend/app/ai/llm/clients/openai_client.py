@@ -45,8 +45,15 @@ class OpenAi(LLMClient):
         default_headers: Optional[dict[str, str]] = None,
         auth: Optional[httpx.Auth] = None,
         timeout: Optional[httpx.Timeout] = None,
+        prompt_cache_markers: bool = False,
     ):
         super().__init__()
+        # Claude caches only what the request marks. Behind an OpenAI-compatible
+        # gateway (LiteLLM, OpenRouter) the marks ride on content blocks as
+        # Anthropic's cache_control and the gateway forwards them; without them
+        # every call re-bills the whole prompt at the full input rate. Off for
+        # every other model: endpoints differ on whether they tolerate the field.
+        self.prompt_cache_markers = prompt_cache_markers
         # No temperature is sent unless one was explicitly configured. This
         # client serves every OpenAI-COMPATIBLE endpoint (custom providers,
         # LiteLLM, vLLM, Ollama), where model ids are gateway aliases — a
@@ -103,6 +110,30 @@ class OpenAi(LLMClient):
                 "image_url": {"url": image_url}
             })
         return content
+
+    def _mark_prompt_cache(self, messages: list[dict], tools: Optional[list[dict]] = None) -> None:
+        """Place Anthropic cache breakpoints the way the native client does:
+        the last tool and the system prompt (the run-invariant prefix, long
+        TTL) and the last settled turn (5-minute TTL — it moves every
+        iteration). Mutates in place; a no-op unless prompt_cache_markers."""
+        if not self.prompt_cache_markers:
+            return
+        from app.ai.llm.clients.anthropic_client import _prefix_cache_control
+
+        def mark(message: dict, control: dict) -> None:
+            content = message.get("content")
+            if isinstance(content, str) and content:
+                message["content"] = [{"type": "text", "text": content, "cache_control": control}]
+            elif isinstance(content, list) and content:
+                content[-1] = {**content[-1], "cache_control": control}
+
+        if tools:
+            tools[-1] = {**tools[-1], "cache_control": _prefix_cache_control()}
+        if messages and messages[0].get("role") == "system":
+            mark(messages[0], _prefix_cache_control())
+        # Everything before the final message is settled for this request.
+        if len(messages) > 2 and messages[-2].get("role") != "system":
+            mark(messages[-2], {"type": "ephemeral"})
 
     def _build_chat_params(
         self,
@@ -204,6 +235,7 @@ class OpenAi(LLMClient):
         params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
         if system:
             params["messages"] = [{"role": "system", "content": system}] + list(params["messages"])
+            self._mark_prompt_cache(params["messages"])
         if thinking is not None:
             apply_chat_reasoning(self, model_id, params, thinking)
         chat_completion = self.client.chat.completions.create(**params)
@@ -258,36 +290,49 @@ class OpenAi(LLMClient):
     def _extract_usage(raw: Any) -> LLMUsage:
         if raw is None:
             return LLMUsage()
-        # OpenAI surfaces cache hits via prompt_tokens_details.cached_tokens.
-        # Caching is automatic on prefixes >= 1024 tokens; cached tokens
-        # are billed at 50% of normal input. There's no cache_creation
-        # concept on OpenAI — the cache is fully managed.
-        if isinstance(raw, dict):
-            prompt = raw.get("prompt_tokens") or 0
-            completion = raw.get("completion_tokens") or 0
-            details = raw.get("prompt_tokens_details") or {}
-            cache_read = (details.get("cached_tokens") if isinstance(details, dict) else 0) or 0
-            # Reasoning tokens ride inside completion_tokens and bill at the
-            # output rate; tracked separately so thinking spend is attributable.
-            out_details = raw.get("completion_tokens_details") or {}
-            reasoning = (out_details.get("reasoning_tokens") if isinstance(out_details, dict) else 0) or 0
-            return LLMUsage(
-                prompt_tokens=int(prompt or 0),
-                completion_tokens=int(completion or 0),
-                cache_read_tokens=int(cache_read or 0),
-                reasoning_tokens=int(reasoning or 0),
-            )
-        prompt = getattr(raw, "prompt_tokens", 0) or getattr(raw, "prompt_tokens_cost", 0) or 0
-        completion = getattr(raw, "completion_tokens", 0) or getattr(raw, "completion_tokens_cost", 0) or 0
-        details = getattr(raw, "prompt_tokens_details", None)
-        cache_read = getattr(details, "cached_tokens", 0) if details is not None else 0
-        out_details = getattr(raw, "completion_tokens_details", None)
-        reasoning = getattr(out_details, "reasoning_tokens", 0) if out_details is not None else 0
+        def _as_dict(obj: Any) -> dict:
+            # The SDK's usage models keep unknown fields, so a gateway's extras
+            # survive model_dump() and one dict path reads every shape.
+            if isinstance(obj, dict):
+                return obj
+            dumped = obj.model_dump() if hasattr(obj, "model_dump") else None
+            if isinstance(dumped, dict):
+                return dumped
+            return dict(vars(obj)) if hasattr(obj, "__dict__") else {}
+
+        raw = _as_dict(raw)
+
+        def _sub(key: str) -> dict:
+            value = raw.get(key)
+            return _as_dict(value) if value is not None else {}
+
+        # OpenAI surfaces cache hits via prompt_tokens_details.cached_tokens,
+        # inside prompt_tokens. Caching is automatic on prefixes >= 1024 tokens
+        # and OpenAI has no write concept. A gateway fronting Claude (LiteLLM)
+        # also reports the cache write it billed — cache_creation_tokens in the
+        # details, or Anthropic's own field name at the top level — and the
+        # TTL split behind it.
+        details = _sub("prompt_tokens_details")
+        cache_read = details.get("cached_tokens") or 0
+        cache_write = (details.get("cache_creation_tokens") or details.get("cache_write_tokens")
+                       or raw.get("cache_creation_input_tokens") or 0)
+        ttl = details.get("cache_creation_token_details")
+        ttl = _as_dict(ttl) if ttl is not None else {}
+        write_1h = int(ttl.get("ephemeral_1h_input_tokens") or 0)
+        write_5m = int(ttl.get("ephemeral_5m_input_tokens") or 0)
+        if cache_write and not (write_5m or write_1h):
+            write_5m = int(cache_write)  # no TTL split: the cheaper, default TTL
+        # Reasoning tokens ride inside completion_tokens and bill at the
+        # output rate; tracked separately so thinking spend is attributable.
+        reasoning = _sub("completion_tokens_details").get("reasoning_tokens") or 0
         return LLMUsage(
-            prompt_tokens=int(prompt or 0),
-            completion_tokens=int(completion or 0),
-            cache_read_tokens=int(cache_read or 0),
-            reasoning_tokens=int(reasoning or 0),
+            prompt_tokens=int(raw.get("prompt_tokens") or raw.get("prompt_tokens_cost") or 0),
+            completion_tokens=int(raw.get("completion_tokens") or raw.get("completion_tokens_cost") or 0),
+            cache_read_tokens=int(cache_read),
+            cache_creation_tokens=int(cache_write),
+            cache_write_5m_tokens=write_5m,
+            cache_write_1h_tokens=write_1h,
+            reasoning_tokens=int(reasoning),
         )
 
     # ------------------------------------------------------------------
@@ -460,6 +505,7 @@ class OpenAi(LLMClient):
                 disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
+        self._mark_prompt_cache(oai_messages, request_kwargs.get("tools"))
         efforts = apply_chat_reasoning(self, model_id, request_kwargs, thinking)
         reasoning_text = ""
         reasoning_active = False
@@ -474,6 +520,7 @@ class OpenAi(LLMClient):
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
+        final_usage = LLMUsage()
         stop_reason: str | None = None
 
         stream = await create_chat_stream(self.async_client, request_kwargs, efforts)
@@ -488,6 +535,8 @@ class OpenAi(LLMClient):
                 completion_tokens = usage.completion_tokens
             if usage.cache_read_tokens:
                 cache_read_tokens = usage.cache_read_tokens
+            if usage.cache_creation_tokens:
+                final_usage = usage
 
             if not chunk.choices:
                 continue
@@ -591,11 +640,17 @@ class OpenAi(LLMClient):
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=final_usage.cache_creation_tokens,
+            cache_write_5m_tokens=final_usage.cache_write_5m_tokens,
+            cache_write_1h_tokens=final_usage.cache_write_1h_tokens,
             reasoning_tokens=reasoning_tokens,
         )
         self._set_last_usage(LLMUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=final_usage.cache_creation_tokens,
+            cache_write_5m_tokens=final_usage.cache_write_5m_tokens,
+            cache_write_1h_tokens=final_usage.cache_write_1h_tokens,
             reasoning_tokens=reasoning_tokens,
         ))

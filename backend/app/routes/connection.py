@@ -817,6 +817,8 @@ async def set_connection_query_identity(
     if not await is_admin_or_owner(db, connection, current_user):
         raise HTTPException(status_code=403, detail="Only admins or owners can switch query identity")
 
+    from app.services.credential_coordination import lock_credential_writes
+    await lock_credential_writes(db, str(current_user.id))
     row = await get_user_conn_cred_row(db, connection, current_user)
     if row is None:
         # "self" is the default and needs no row. Only persist when choosing the
@@ -840,6 +842,8 @@ async def set_connection_query_identity(
         row.metadata_json = md
         db.add(row)
         await db.commit()
+
+    await db.commit()  # also release the lock for an unchanged default identity
 
     try:
         await audit_service.log(

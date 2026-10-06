@@ -2431,7 +2431,17 @@
           "invalidAuthorizationRequest": "חסר מידע נדרש בבקשת האישור הזו.",
           "unsupportedAuthorizationRequest": "האפליקציה חייבת להשתמש ב-Authorization Code עם PKCE S256.",
           "unknownAuthorizationClient": "האפליקציה או כתובת ה-callback אינן רשומות.",
-          "authorizationFailed": "האישור נכשל. נסה שוב או פנה למנהל סביבת העבודה."
+          "authorizationFailed": "האישור נכשל. נסה שוב או פנה למנהל סביבת העבודה.",
+          "entraTitle": "הפעלת החלפת אסימוני Entra",
+          "entraHelp": "אופציונלי. מאפשר ליישום להחליף אסימון גישה של משתמש מחובר ב-Microsoft Entra באסימון BOW.",
+          "entraUnavailable": "תחילה יש להגדיר ספק SSO של Entra לדייר מסוים עם access_as_user בקובץ bow-config.yaml.",
+          "entraProvider": "ספק SSO של Entra",
+          "externalEntraClient": "מזהה יישום (לקוח) חיצוני ב-Entra",
+          "externalEntraHelp": "יישום Entra שמורשה לפנות ל-BOW בשם המשתמשים המחוברים שלו. יש לשמור את הסוד בשרת של היישום החיצוני.",
+          "entraTenant": "מזהה דייר",
+          "entraAudience": "קהל יעד של BOW API (אסימוני v1)",
+          "entraScope": "הרשאה נדרשת",
+          "entraRequirements": "משתמשים חדשים מצורפים אוטומטית לפי הזמנה תקפה או מדיניות הרשמה לדומיין. תוקף האסימון עד שעה. כתובות הפניה הן אופציונליות ליישומי החלפת אסימונים בלבד."
         },
         "excel": {
           "title": "תוסף Excel",
@@ -5514,6 +5524,7 @@
     "empty": "אין פריטים עדיין",
     "scheduledTasks": "משימות מתוזמנות",
     "artifacts": "ארטיפקטים",
+    "lists": "רשימות",
     "default": "ברירת מחדל",
     "document": "מסמך",
     "showMore": "הצג עוד {count}",
@@ -5833,7 +5844,7 @@
     "failed": "רענון הסכימה לא הושלם. נסו שוב.",
     "connectRequired": "חברו את החשבון כדי לראות את הטבלאות שלו."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "לקריאה בלבד",
     "sort": "מיון רשומות",
     "applyFilter": "החלה",
