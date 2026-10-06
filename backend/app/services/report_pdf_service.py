@@ -132,19 +132,31 @@ def _chromium_executable() -> Optional[str]:
     return os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
 
 
+# Where start.sh binds uvicorn inside the standard image.
+_SELF_SERVED_ORIGIN = "http://127.0.0.1:3000"
+
+
 def _render_origin() -> str:
     """Origin the headless browser loads this deployment's own pages from.
 
-    The standard image serves the SPA from this very process (SERVE_FRONTEND=1,
-    see app/core/spa.py), so the app's configured base_url doubles as an
-    internal address — with one fix: `0.0.0.0` is an address to LISTEN on, not
-    one to connect to. Deployments that split the frontend off, or put an
-    authenticating proxy in front of it, set BOW_RENDER_ORIGIN to whatever the
-    backend can actually reach.
+    BOW_RENDER_ORIGIN wins when set (a split frontend, a non-standard port).
+    Otherwise the standard image serves the SPA from this very process
+    (SERVE_FRONTEND=1, see app/core/spa.py), so the page is loaded from the
+    process itself over loopback. Never via base_url there: that is the public
+    address, which usually sits behind a TLS proxy whose certificate (an
+    internal CA, say) the bundled Chromium does not trust — the export then
+    died on net::ERR_CERT_AUTHORITY_INVALID — or behind SSO, or does not even
+    resolve from inside the container.
+
+    Without either, base_url is the best guess — with one fix: `0.0.0.0` is an
+    address to LISTEN on, not one to connect to.
     """
     override = (os.environ.get("BOW_RENDER_ORIGIN") or "").strip()
     if override:
         return override.rstrip("/")
+
+    if os.environ.get("SERVE_FRONTEND", "").lower() in ("1", "true", "yes"):
+        return _SELF_SERVED_ORIGIN
 
     from app.settings.config import settings
 
