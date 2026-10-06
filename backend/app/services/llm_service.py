@@ -1868,6 +1868,10 @@ class LLMService:
                 else:
                     verify_ssl = bool(raw_verify_ssl)
                 existing_additional_config = { **existing_additional_config, "verify_ssl": verify_ssl }
+            if credentials.get("prompt_cache_markers") is not None:
+                raw_markers = credentials["prompt_cache_markers"]
+                markers = raw_markers.lower() not in ("false", "0", "no", "") if isinstance(raw_markers, str) else bool(raw_markers)
+                existing_additional_config = { **existing_additional_config, "prompt_cache_markers": markers }
 
         # Bedrock: region (required), auth_mode
         if provider.provider_type == "bedrock":
