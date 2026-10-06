@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, List, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # PostgreSQL
@@ -41,6 +41,20 @@ class OracleConfig(BaseModel):
         description="Verify the server TLS certificate when using TCPS. Disable for certificates signed by an internal CA the backend host does not trust.",
         json_schema_extra={"ui:type": "boolean"},
     )
+    sdu: Optional[int] = Field(
+        None,
+        ge=512,
+        le=2097152,
+        title="Packet size (SDU)",
+        description="Advanced. Leave blank for the default. Set to 1400 if Check connection hangs after login on a network that drops large packets (VPN, Kubernetes overlay networks).",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+    @field_validator("sdu", mode="before")
+    @classmethod
+    def _blank_sdu_is_default(cls, v):
+        # A cleared number input submits "", which means "not set".
+        return None if v == "" else v
 
 
 class SapHanaCredentials(BaseModel):

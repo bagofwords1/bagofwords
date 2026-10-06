@@ -89,3 +89,46 @@ def test_description_warns_about_charset_mismatch():
     assert "NVARCHAR2" in desc
     assert "VARCHAR2" in desc
     assert "TO_CHAR" in desc
+
+
+# ---------------------------------------------------------------------------
+# Optional SDU (Oracle Net packet size)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("unset", [None, ""])
+def test_connections_without_sdu_are_unchanged(unset):
+    # Every connection saved before the field existed (no key at all) or with
+    # the field left blank must connect exactly as before: no dsn override.
+    assert _client(sdu=unset)._connect_args() == {}
+    assert _client()._connect_args() == {}
+
+
+@pytest.mark.parametrize("sdu", [512, 1400, 8192])
+def test_sdu_is_requested_in_the_connect_descriptor(sdu):
+    dsn = _client(sdu=sdu)._connect_args()["dsn"]
+    assert f"(SDU={sdu})" in dsn
+    assert "(PROTOCOL=TCP)" in dsn
+    assert "(HOST=dbhost)(PORT=1521)" in dsn
+    assert "(SERVICE_NAME=dwh)" in dsn
+
+
+def test_sdu_combines_with_tcps():
+    dsn = _client(sdu=1400, use_tcps=True)._connect_args()["dsn"]
+    assert "(SDU=1400)" in dsn and "(PROTOCOL=TCPS)" in dsn
+
+
+def test_oracle_config_sdu_is_optional_and_blank_means_default():
+    from app.schemas.data_sources.configs import OracleConfig
+    base = dict(host="h", service_name="s")
+    assert OracleConfig(**base).sdu is None            # legacy stored config
+    assert OracleConfig(**base, sdu="").sdu is None    # cleared form input
+    assert OracleConfig(**base, sdu=None).sdu is None
+    assert OracleConfig(**base, sdu=1400).sdu == 1400
+
+
+@pytest.mark.parametrize("bad", [0, 100, 10_000_000])
+def test_oracle_config_rejects_out_of_range_sdu(bad):
+    from pydantic import ValidationError
+    from app.schemas.data_sources.configs import OracleConfig
+    with pytest.raises(ValidationError):
+        OracleConfig(host="h", service_name="s", sdu=bad)

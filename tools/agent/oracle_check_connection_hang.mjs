@@ -17,6 +17,7 @@ const PORT = process.env.ORACLE_PORT || '15210';
 const SERVICE = process.env.ORACLE_SERVICE || 'DWH';
 const USER = process.env.ORACLE_USER || 'REPOS2000';
 const PASSWORD = process.env.ORACLE_PASSWORD || 'not-a-real-password';
+const SDU = process.env.ORACLE_SDU || '';  // blank = leave the field empty (default)
 const WAIT_S = Number(process.env.WAIT_S || 75);
 const BASE = 'http://localhost:3000';
 mkdirSync(OUT, { recursive: true });
@@ -52,6 +53,8 @@ await page.locator('#port').fill(PORT);
 await page.locator('#service_name').fill(SERVICE);
 await page.locator('#user').fill(USER);
 await page.locator('#password').fill(PASSWORD);
+if (SDU) await page.locator('#sdu').fill(SDU);
+await page.locator('#sdu').scrollIntoViewIfNeeded();
 await shot('01-form-filled');
 
 const started = Date.now();

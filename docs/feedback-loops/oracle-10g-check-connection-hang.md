@@ -176,6 +176,69 @@ The libraries an older Instant Client links against (`libnsl.so.1`,
 None of this applies to indexing or query execution. Both bounds can be
 changed per deployment, or disabled with `0`.
 
+## Follow-up: the customer's session was ACTIVE, and the optional SDU field
+
+The customer's DBA reported our session as **ACTIVE**. An ACTIVE session is
+running a statement, so the login had completed and the hang is in the
+table-list read that "Check connection" does next.
+
+**A huge catalog does not reproduce it.** On the real 10g we built 25,090
+tables and 473,588 columns and deleted the dictionary statistics.
+"Check connection" read REPOS2000's 4,001 tables in **3.8s**:
+
+| Step | Time |
+|---|---|
+| Login probe | 0.2s |
+| Columns and comments query (108,002 rows) | 2.8s |
+| Foreign-key reflection | 2.2s |
+
+**Leading hypothesis: a network that drops large packets.** The customer runs
+the backend on **Kubernetes**, where overlay networks (VXLAN or IP-in-IP)
+reduce the usable MTU. Login uses small packets and succeeds; large result
+packets disappear, and the server sits ACTIVE on
+`SQL*Net more data to client`. Documented cases:
+
+- Oracle's own GitHub has an Instant Client hanging over Docker networks
+  because of MTU
+  ([oracle/docker-images#1153](https://github.com/oracle/docker-images/issues/1153)).
+- The standard workaround is a smaller Oracle Net SDU
+  ([zeddba](https://blog.zeddba.com/2018/07/20/session-using-a-database-link-hangs-on-sqlnet-more-data-from-dblink/)).
+
+This is not confirmed on the customer's cluster.
+
+**The fix: optional `sdu` field on `OracleConfig`.** It appears in the form as
+"Packet size (SDU)", blank by default, and accepts 512 to 2,097,152; a blank
+input means not set.
+
+- When set, `OracledbClient._connect_args` adds `(SDU=n)` to an explicit
+  connect descriptor.
+- When unset, it returns `{}` exactly as before, so every existing connection
+  is byte-for-byte unchanged.
+- The two "Check connection" timeout messages now suggest setting it.
+
+Verified against the real 10g in thick mode, through `OracledbClient`, with the
+negotiated SDU read from the Oracle Net client trace (`nsconneg`):
+
+| Connection | Connect args | Negotiated SDU | Connection test + 4,001-table read |
+|---|---|---|---|
+| SDU blank (existing connections) | `{}` | 2048 (the 10g default) | OK |
+| SDU = 1400 | `(DESCRIPTION=(SDU=1400)…)` | **1400** | OK |
+
+Both settings also connect and index all 4,001 tables through the real modal
+([screenshot](../../media/oracle-10g-hang/sdu-1400-real-oracle-10g-connected.png)).
+
+Unit tests (`tests/unit/test_oracledb_thick_mode.py`) cover:
+- legacy stored configs with no `sdu` key;
+- blank values;
+- the descriptor shape, including SDU together with TCPS;
+- out-of-range rejection.
+
+**Limits.** A smaller SDU usually avoids oversized packets, but the kernel can
+still merge writes into full-size segments. Real path-MTU problems may also
+need a network fix: the CNI MTU, MSS clamping, or allowing ICMP "fragmentation
+needed". The DBA's wait event (`SQL*Net more data to client`) is the
+confirmation.
+
 ## What this proves / regression notes
 
 - A server that accepts a login and never finishes it can no longer hang

@@ -90,13 +90,16 @@ CONNECT_TIMEOUT_MESSAGE = (
     "the listener port but blocks or inspects the rest of the session (for example "
     "a database using shared server, or Oracle on Windows, handing the login to a "
     "second port). Ask your network or database team to check the path from this "
-    "server to the database."
+    "server to the database. If the network drops large packets (VPN, Kubernetes "
+    "overlay networks), setting Packet size (SDU) to 1400 on this connection can help."
 )
 VALIDATION_TIMEOUT_MESSAGE = (
     "Connected to Oracle, but reading the table list did not finish within "
-    "{seconds}s. On older or very large Oracle databases the data dictionary "
-    "views (ALL_TAB_COLUMNS) can be very slow: set Schema to only the schemas "
-    "you need, or ask your DBA to gather dictionary statistics "
+    "{seconds}s. If the network between this server and the database drops "
+    "large packets (VPN, Kubernetes overlay networks), the login works but larger "
+    "results never arrive: set Packet size (SDU) to 1400 on this connection. On "
+    "very large catalogs the data dictionary views can also be slow: set Schema "
+    "to only the schemas you need, or ask your DBA to gather dictionary statistics "
     "(DBMS_STATS.GATHER_DICTIONARY_STATS)."
 )
 # Thin mode's refusal for pre-12.1 servers names no way out; add one.
@@ -119,7 +122,7 @@ class OracledbClient(DataSourceClient):
     validation_timeout_message = VALIDATION_TIMEOUT_MESSAGE
 
     def __init__(self, host, port, service_name, user, password, schema: Optional[str] = None,
-                 use_tcps: bool = False, verify_ssl: bool = True):
+                 use_tcps: bool = False, verify_ssl: bool = True, sdu: Optional[int] = None):
         self.host = host
         self.port = port
         self.service_name = service_name
@@ -127,6 +130,8 @@ class OracledbClient(DataSourceClient):
         self.password = password
         self.use_tcps = use_tcps
         self.verify_ssl = verify_ssl
+        # Requested Oracle Net packet size; None (or blank) keeps the default.
+        self.sdu = int(sdu) if sdu not in (None, "") else None
         # Optional schema or comma-separated list of schemas
         self.schema = schema
         self._schemas = []
@@ -148,23 +153,29 @@ class OracledbClient(DataSourceClient):
         return uri
 
     def _connect_args(self) -> dict:
-        """Extra DBAPI connect arguments for TCPS (TLS) connections.
+        """Extra DBAPI connect arguments for TCPS (TLS) and a custom SDU.
 
         The SQLAlchemy dialect builds a plain-TCP connect descriptor from the
-        URI, so for TCPS we override the dsn with an explicit descriptor —
-        connect_args take precedence over dialect-generated parameters.
+        URI, so for either option we override the dsn with an explicit
+        descriptor — connect_args take precedence over dialect-generated
+        parameters. A descriptor-level (SDU=n) is honoured by thin and thick
+        mode alike, and the session uses the lower of it and the server's.
         Skipping certificate verification is only possible in thin mode
         (ssl_context is a thin-only parameter; thick mode trusts wallets).
+        With neither option set this returns {} — the connection is exactly
+        what it was before these options existed.
         """
-        if not self.use_tcps:
+        if not self.use_tcps and self.sdu is None:
             return {}
+        protocol = "TCPS" if self.use_tcps else "TCP"
+        sdu = f"(SDU={self.sdu})" if self.sdu is not None else ""
         args = {
             "dsn": (
-                f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCPS)(HOST={self.host})(PORT={self.port}))"
+                f"(DESCRIPTION={sdu}(ADDRESS=(PROTOCOL={protocol})(HOST={self.host})(PORT={self.port}))"
                 f"(CONNECT_DATA=(SERVICE_NAME={self.service_name})))"
             )
         }
-        if not self.verify_ssl:
+        if self.use_tcps and not self.verify_ssl:
             args["ssl_server_dn_match"] = False
             if oracledb.is_thin_mode():
                 ctx = ssl.create_default_context()
