@@ -61,10 +61,10 @@
                 {{ $t('share.publicPerUserNote') }}
             </p>
 
-            <!-- Share link. A dashboard's link can carry a readable name
-                 (/r/{slug}); the pencil edits it in place. -->
+            <!-- Share link. A dashboard's readable name (/r/{slug}) is edited
+                 in its settings (DashboardSettingsModal); here it is shown and copied. -->
             <div v-if="isShared && shareUrl" class="mb-6">
-                <div v-if="!editingSlug" class="flex items-center gap-2">
+                <div class="flex items-center gap-2">
                     <input :value="shareUrl" type="text" dir="ltr" data-testid="share-link"
                         class="flex-1 h-[32px] px-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 min-w-0"
                         readonly />
@@ -72,129 +72,12 @@
                         class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
                         <Icon :name="copied ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
                     </button>
-                    <UTooltip v-if="perArtifact" :text="$t('share.linkNameEdit')">
-                        <button @click="startEditSlug" data-testid="slug-edit" :aria-label="$t('share.linkNameEdit')"
-                            class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
-                            <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
-                        </button>
-                    </UTooltip>
                 </div>
-                <div v-else>
-                    <div class="flex items-center gap-2">
-                        <div dir="ltr"
-                            :class="['flex flex-1 items-center h-[32px] border rounded-lg min-w-0 bg-white dark:bg-gray-900',
-                                slugError ? 'border-red-400' : 'border-gray-300 dark:border-gray-600 focus-within:border-blue-500']">
-                            <span class="ps-2.5 text-xs text-gray-400 whitespace-nowrap truncate max-w-[55%]">{{ linkPrefix }}</span>
-                            <input ref="slugInputRef" v-model="slugDraft" type="text" maxlength="80" data-testid="slug-input"
-                                :placeholder="$t('share.linkNamePlaceholder')"
-                                class="flex-1 min-w-0 h-full pe-2.5 text-xs text-gray-900 dark:text-white bg-transparent outline-none"
-                                @input="slugError = ''" @keydown.enter.prevent="saveSlug" @keydown.esc.stop.prevent="cancelEditSlug" />
-                        </div>
-                        <UButton size="xs" color="blue" :loading="savingSlug" :disabled="!slugDraftValid" data-testid="slug-save" @click="saveSlug">
-                            {{ $t('common.save') }}
-                        </UButton>
-                        <UButton size="xs" color="gray" variant="ghost" :disabled="savingSlug" @click="cancelEditSlug">
-                            {{ $t('common.cancel') }}
-                        </UButton>
-                    </div>
-                    <p :class="['text-[11px] mt-1', slugError ? 'text-red-500' : 'text-gray-400']" data-testid="slug-hint">
-                        {{ slugError || $t('share.linkNameHint', { min: SLUG_MIN, max: SLUG_MAX }) }}
-                    </p>
-                </div>
-                <button v-if="perArtifact && linkSlug && !editingSlug" data-testid="slug-remove"
-                    class="mt-1 text-[11px] text-gray-500 hover:text-red-600 dark:text-gray-400" :disabled="savingSlug" @click="removeSlug">
-                    {{ $t('share.linkNameRemove') }}
+                <button v-if="perArtifact" type="button" data-testid="change-link-name"
+                    class="mt-1 text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                    @click="modalOpen = false; emit('edit-link-name')">
+                    {{ $t('share.linkNameChange') }}
                 </button>
-            </div>
-
-            <!-- Sharing is per dashboard, but the viewer settings below are
-                 stored on the conversation: say so once, above them. -->
-            <p v-if="perArtifact && isShared" class="text-[11px] text-gray-400 mb-3" data-testid="viewer-settings-scope">
-                {{ $t('share.viewerSettingsApplyToAll') }}
-            </p>
-
-            <!-- Include Data Tab option (dashboards only): whether viewers of
-                 the shared artifact page see the Data tab listing the queries
-                 behind the report. The conversation share has no such tab. -->
-            <div v-if="shareType === 'artifact' && isShared" class="flex items-start justify-between gap-3 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div class="flex flex-col min-w-0 flex-1">
-                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.includeDataTab') }}</span>
-                    <span class="text-[11px] text-gray-400">{{ $t('share.includeDataTabDesc') }}</span>
-                </div>
-                <UToggle v-model="includeDataTab" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
-                    @update:model-value="onIncludeDataTabChange" />
-            </div>
-
-            <!-- Chat on the shared artifact page (dashboards only): the owner's
-                 toggle plus the agent scope viewer chat may query. Viewer
-                 threads are private per viewer and never touch this report's
-                 own conversation. -->
-            <div v-if="shareType === 'artifact' && isShared" class="mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="chat-settings">
-                <div class="flex items-start justify-between gap-3">
-                    <div class="flex flex-col min-w-0">
-                        <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.allowChat') }}</span>
-                        <span class="text-[11px] text-gray-400">{{ $t('share.allowChatDesc') }}</span>
-                    </div>
-                    <UToggle v-model="chatEnabled" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
-                        data-testid="chat-enabled-toggle" @update:model-value="onChatEnabledChange" />
-                </div>
-                <div v-if="chatEnabled" class="mt-3 space-y-2">
-                    <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block">{{ $t('share.chatScope') }}</label>
-                    <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-agents">
-                        <input type="radio" value="agents" v-model="chatScope" :disabled="isSaving || reportAgents.length === 0"
-                            class="mt-0.5" @change="onChatScopeChange" />
-                        <span class="flex flex-col">
-                            <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeAgents') }}</span>
-                            <span class="text-[11px] text-gray-400">{{ $t('share.chatScopeAgentsDesc') }}</span>
-                        </span>
-                    </label>
-                    <div v-if="chatScope === 'agents' && reportAgents.length > 0" class="ms-6 space-y-1">
-                        <label v-for="agent in reportAgents" :key="agent.id" class="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="isSaving"
-                                @change="onChatAgentsChange" />
-                            <span class="text-xs text-gray-600 dark:text-gray-400">{{ agent.name }}</span>
-                        </label>
-                    </div>
-                    <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-data-only">
-                        <input type="radio" value="data_only" v-model="chatScope" :disabled="isSaving"
-                            class="mt-0.5" @change="onChatScopeChange" />
-                        <span class="flex flex-col">
-                            <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeDataOnly') }}</span>
-                            <span class="text-[11px] text-gray-400">{{ $t('share.chatScopeDataOnlyDesc') }}</span>
-                        </span>
-                    </label>
-                    <p v-if="reportAgents.length === 0" class="text-[11px] text-gray-400">{{ $t('share.chatNoAgents') }}</p>
-
-                    <!-- Default model for viewer chat: the report's own
-                         model, the organization default, or a specific model. -->
-                    <div class="pt-2" data-testid="chat-model">
-                        <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-1">{{ $t('share.chatModel') }}</label>
-                        <USelectMenu
-                            v-model="chatModelValue"
-                            :options="chatModelOptions"
-                            value-attribute="value"
-                            option-attribute="label"
-                            size="xs"
-                            :disabled="isSaving"
-                            :ui="{ rounded: 'rounded-lg', size: { xs: 'text-xs' }, padding: { xs: 'px-2.5 py-1.5' } }"
-                            @change="onChatModelChange"
-                        />
-                        <span class="text-[11px] text-gray-400 block mt-1">{{ $t('share.chatModelDesc') }}</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Viewer run identity (dashboards only): whose credentials a
-                 viewer's "Run" uses. Results are always stored per viewer.
-                 Only shown when the choice exists — user-scoped sources
-                 (toggleable) or RLS (visible but disabled, to explain why
-                 runs are always per-viewer). -->
-            <div v-if="shareType === 'artifact' && isShared && showRunIdentity" class="flex items-start justify-between gap-3 mb-6">
-                <div class="flex flex-col min-w-0">
-                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.runOnBehalf') }}</span>
-                    <span class="text-[11px] text-gray-400">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</span>
-                </div>
-                <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving || hasRls" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
             </div>
 
             <!-- Share with people (only when 'shared' selected) -->
@@ -279,11 +162,11 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const emit = defineEmits<{
-    // The dashboard's share-link name changed (null = removed).
-    (e: 'slug-changed', payload: { artifactId: string; slug: string | null }): void
+    // "Change link name": the name is edited in the dashboard's settings.
+    (e: 'edit-link-name'): void
 }>()
 
 const props = withDefaults(defineProps<{
@@ -306,7 +189,6 @@ const artifactVisibility = ref('none')
 
 const toast = useToast()
 const { t } = useI18n()
-const { getErrorMessage } = useErrorMessage()
 const { smtpEnabled } = useAppSettings()
 const modalOpen = ref(false)
 const isSaving = ref(false)
@@ -317,69 +199,11 @@ const showDropdown = ref(false)
 const pendingPrincipals = ref<{ kind: 'user' | 'group'; id?: string; name?: string; email?: string; memberCount?: number }[]>([])
 const sharedEntries = ref<any[]>([])
 const copied = ref(false)
-// Include Data Tab when sharing (show historical execution data)
-const includeDataTab = ref(true)
-
-// Chat on the shared artifact page: toggle + agent scope. Scope maps onto the
-// backend's artifact_chat_data_source_ids: 'agents' with everything checked =
-// null (inherit the roster, sent as the ["*"] reset sentinel), a subset = that
-// list, 'data_only' = [].
-const chatEnabled = ref(false)
-const chatScope = ref<'agents' | 'data_only'>('agents')
-const chatAgentIds = ref<string[]>([])
-const reportAgents = ref<{ id: string; name: string }[]>([])
-// Default model for artifact-page chat. Stored values: null = inherit the
-// report's own model, ORG_DEFAULT_MODEL = the organization default, else a
-// model id. USelectMenu treats '' as "nothing selected" (blank label), so
-// inherit carries its own sentinel and is sent as the backend's "" clear value.
-const INHERIT_MODEL = '__inherit__'
-const ORG_DEFAULT_MODEL = 'org_default'
-const chatModelId = ref(INHERIT_MODEL)
-const chatModels = ref<{ id: string; name: string; provider?: string; isDefault?: boolean }[]>([])
-// The report's own model override (what INHERIT_MODEL resolves to).
-const reportModelId = ref('')
-const modelLabel = (m: { name: string; provider?: string }) => (m.provider ? `${m.name} · ${m.provider}` : m.name)
-// Without a report model, inheriting IS the organization default: show one
-// option for both stored values instead of two identical ones.
-const chatModelValue = computed({
-    get: () => (!reportModelId.value && chatModelId.value === INHERIT_MODEL ? ORG_DEFAULT_MODEL : chatModelId.value),
-    set: (v: string) => { chatModelId.value = v },
-})
-const chatModelOptions = computed(() => {
-    const orgDefault = chatModels.value.find(m => m.isDefault)
-    const orgOption = {
-        value: ORG_DEFAULT_MODEL,
-        label: orgDefault ? t('share.chatModelOrgDefault', { name: orgDefault.name }) : t('share.chatModelOrgDefaultPlain'),
-    }
-    const options = reportModelId.value
-        ? (() => {
-            const inherited = chatModels.value.find(m => m.id === reportModelId.value)
-            return [
-                { value: INHERIT_MODEL, label: inherited ? t('share.chatModelReport', { name: inherited.name }) : t('share.chatModelReportPlain') },
-                orgOption,
-            ]
-        })()
-        : [orgOption]
-    options.push(...chatModels.value.map(m => ({ value: m.id, label: modelLabel(m) })))
-    // A stored pick that was since disabled/deleted: keep it visible (chat
-    // falls back to the default at run time) instead of a blank select.
-    if (![INHERIT_MODEL, ORG_DEFAULT_MODEL].includes(chatModelId.value) && !chatModels.value.some(m => m.id === chatModelId.value)) {
-        options.push({ value: chatModelId.value, label: t('share.chatModelUnavailable') })
-    }
-    return options
-})
-
 const currentVisibility = ref('none')
 const conversationShareToken = ref<string | null>(null)
-// Whose credentials a shared-dashboard viewer's "Run" uses:
-// off = the viewer's own ('viewer'), on = on behalf of the owner ('creator')
-const runAsCreator = ref(false)
-// RLS dashboards force per-viewer identity — creator mode is disabled.
 const hasRls = ref(false)
-// Only user-scoped (user_required) sources make the run-identity toggle
-// meaningful; on system-only credentials both identities resolve to the same
-// credentials, so the control is hidden. RLS still shows it (disabled) to
-// explain why runs are always per-viewer.
+// Per-user data (user-scoped sources or RLS): a public link still resolves
+// data per signed-in viewer, which the public note says.
 const hasUserScoped = ref(false)
 const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
@@ -414,82 +238,10 @@ const buttonLabel = computed(() => {
 
 const buttonIcon = computed(() => selectedOption.value.icon)
 
-// Readable share-link name for this dashboard (/r/{slug}), per artifact.
-// The format check mirrors the server's (which also rejects reserved and
-// UUID-shaped names) so Save is only offered for a plausible name.
-const SLUG_MIN = 3
-const SLUG_MAX = 80
-const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+// Readable share-link name for this dashboard (/r/{slug}), edited in the
+// dashboard's settings; read from its sharing state.
 const linkSlug = ref<string | null>(null)
-const editingSlug = ref(false)
-const slugDraft = ref('')
-const slugError = ref('')
-const savingSlug = ref(false)
-const slugInputRef = ref<HTMLInputElement | null>(null)
 const linkPrefix = computed(() => `${window.location.origin}/r/`)
-const normalizedSlugDraft = computed(() => slugDraft.value.trim().toLowerCase())
-const slugDraftValid = computed(() => {
-    const v = normalizedSlugDraft.value
-    return v.length >= SLUG_MIN && v.length <= SLUG_MAX && SLUG_RE.test(v)
-})
-
-const startEditSlug = () => {
-    slugDraft.value = linkSlug.value || ''
-    slugError.value = ''
-    editingSlug.value = true
-    nextTick(() => slugInputRef.value?.focus())
-}
-
-const cancelEditSlug = () => {
-    editingSlug.value = false
-    slugError.value = ''
-}
-
-const putSlug = async (slug: string | null): Promise<boolean> => {
-    const artifactId = props.artifactId
-    if (!artifactId) return false
-    savingSlug.value = true
-    try {
-        const res = await useMyFetch(`/reports/${props.report.id}/artifacts/${artifactId}/slug`, {
-            method: 'PUT',
-            body: { slug },
-        })
-        if (res.error.value) {
-            slugError.value = getErrorMessage(res.error.value, t('share.linkNameFailed'))
-            return false
-        }
-        if (artifactId !== props.artifactId) return false
-        linkSlug.value = (res.data.value as any)?.slug ?? null
-        emit('slug-changed', { artifactId, slug: linkSlug.value })
-        return true
-    } finally {
-        savingSlug.value = false
-    }
-}
-
-const saveSlug = async () => {
-    if (!slugDraftValid.value || savingSlug.value) return
-    if (normalizedSlugDraft.value === linkSlug.value) {
-        editingSlug.value = false
-        return
-    }
-    if (await putSlug(normalizedSlugDraft.value)) {
-        editingSlug.value = false
-        toast.add({ title: t('share.linkNameSaved'), color: 'green' })
-    }
-}
-
-// Removing frees the name and every earlier one: links already sent with
-// them stop working, so ask first.
-const removeSlug = async () => {
-    if (!window.confirm(t('share.linkNameRemoveConfirm'))) return
-    if (await putSlug(null)) {
-        toast.add({ title: t('share.linkNameRemoved'), color: 'green' })
-    } else if (slugError.value) {
-        toast.add({ title: slugError.value, color: 'red' })
-        slugError.value = ''
-    }
-}
 
 const shareUrl = computed(() => {
     if (props.shareType === 'artifact') {
@@ -613,48 +365,6 @@ const fetchVisibility = async () => {
             if (!perArtifact.value) currentVisibility.value = data[visibilityField.value] || 'none'
             hasRls.value = !!data.has_rls
             hasUserScoped.value = !!data.has_user_scoped
-            if (data.shared_run_identity !== undefined) {
-                runAsCreator.value = data.shared_run_identity === 'creator'
-                if (props.report) props.report.shared_run_identity = data.shared_run_identity
-            }
-            if (data.include_data_tab !== undefined) {
-                includeDataTab.value = data.include_data_tab !== false
-                if (props.report) props.report.include_data_tab = data.include_data_tab
-            }
-            if (data.artifact_chat_enabled !== undefined) {
-                chatEnabled.value = data.artifact_chat_enabled === true
-                if (props.report) props.report.artifact_chat_enabled = data.artifact_chat_enabled
-            }
-            // Candidate agents = what the report actually uses (attached
-            // roster, or recovered from its runs for Auto reports) — not the
-            // raw attachment list, which is empty under Auto.
-            try {
-                const agentsRes = await useMyFetch(`/reports/${props.report.id}/artifact_chat/agents`)
-                const payload = agentsRes.data.value as any
-                reportAgents.value = (payload?.agents || []).map((a: any) => ({ id: a.id, name: a.name }))
-            } catch {
-                reportAgents.value = (data.data_sources || []).map((ds: any) => ({ id: ds.id, name: ds.name }))
-            }
-            chatModelId.value = data.artifact_chat_model_id || INHERIT_MODEL
-            if (props.report) props.report.artifact_chat_model_id = data.artifact_chat_model_id || null
-            reportModelId.value = data.model_id || ''
-            try {
-                const modelsRes = await useMyFetch('/llm/models?is_enabled=true')
-                chatModels.value = ((modelsRes.data.value as any[]) || []).map((m: any) => ({
-                    id: m.id, name: m.name || m.model_id, provider: m.provider?.name, isDefault: !!m.is_default,
-                }))
-            } catch { chatModels.value = [] }
-            const storedIds = data.artifact_chat_data_source_ids
-            if (storedIds === null || storedIds === undefined) {
-                chatScope.value = reportAgents.value.length > 0 ? 'agents' : 'data_only'
-                chatAgentIds.value = reportAgents.value.map(a => a.id)
-            } else if (Array.isArray(storedIds) && storedIds.length === 0) {
-                chatScope.value = 'data_only'
-                chatAgentIds.value = reportAgents.value.map(a => a.id)
-            } else {
-                chatScope.value = 'agents'
-                chatAgentIds.value = storedIds
-            }
             if (data.conversation_share_token !== undefined) {
                 conversationShareToken.value = data.conversation_share_token
                 if (props.report) props.report.conversation_share_token = data.conversation_share_token
@@ -745,108 +455,6 @@ const saveVisibility = async (visibility: string, userIds?: string[], groupIds?:
     }
 }
 
-// The viewer settings share the report's visibility endpoint. Per dashboard
-// they are written alone (no visibility = leave every grant as is); the
-// whole-report fallback re-sends the current visibility unchanged, and
-// omitting shared_user_ids leaves the recipient list untouched.
-const settingsVisibility = () => (perArtifact.value ? {} : { visibility: currentVisibility.value })
-
-const onRunIdentityChange = async (value: boolean) => {
-    const identity = value ? 'creator' : 'viewer'
-    isSaving.value = true
-    try {
-        const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
-            method: 'PUT',
-            body: { ...settingsVisibility(), run_identity: identity },
-        })
-        if (res.error.value) throw res.error.value
-        if (props.report) props.report.shared_run_identity = identity
-        toast.add({ title: t('share.sharingUpdated'), color: 'green' })
-    } catch {
-        runAsCreator.value = identity !== 'creator'
-        toast.add({ title: t('share.sharingFailed'), color: 'red' })
-    } finally {
-        isSaving.value = false
-    }
-}
-
-const onIncludeDataTabChange = async (value: boolean) => {
-    isSaving.value = true
-    try {
-        const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
-            method: 'PUT',
-            body: { ...settingsVisibility(), include_data_tab: value },
-        })
-        if (res.error.value) throw res.error.value
-        if (props.report) props.report.include_data_tab = value
-        toast.add({ title: t('share.sharingUpdated'), color: 'green' })
-    } catch {
-        // Put the box back where it was — the setting did not change.
-        includeDataTab.value = !value
-        toast.add({ title: t('share.sharingFailed'), color: 'red' })
-    } finally {
-        isSaving.value = false
-    }
-}
-
-// One PUT per chat-settings change, mirroring onIncludeDataTabChange: resend
-// the current visibility unchanged and only the field being written.
-const saveChatSettings = async (body: Record<string, any>, revert: () => void) => {
-    isSaving.value = true
-    try {
-        const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
-            method: 'PUT',
-            body: { ...settingsVisibility(), ...body },
-        })
-        if (res.error.value) throw res.error.value
-        toast.add({ title: t('share.sharingUpdated'), color: 'green' })
-    } catch {
-        revert()
-        toast.add({ title: t('share.sharingFailed'), color: 'red' })
-    } finally {
-        isSaving.value = false
-    }
-}
-
-const chatScopeIdsPayload = (): string[] => {
-    if (chatScope.value === 'data_only') return []
-    const all = reportAgents.value.map(a => a.id)
-    const picked = chatAgentIds.value.filter(id => all.includes(id))
-    // Everything checked = inherit the roster (["*"] resets to null server-side).
-    if (picked.length === all.length && all.length > 0) return ['*']
-    return picked
-}
-
-const onChatEnabledChange = async (value: boolean) => {
-    if (props.report) props.report.artifact_chat_enabled = value
-    await saveChatSettings(
-        { artifact_chat_enabled: value },
-        () => { chatEnabled.value = !value; if (props.report) props.report.artifact_chat_enabled = !value },
-    )
-}
-
-const onChatScopeChange = async () => {
-    if (chatScope.value === 'agents' && chatAgentIds.value.length === 0) {
-        chatAgentIds.value = reportAgents.value.map(a => a.id)
-    }
-    await saveChatSettings({ artifact_chat_data_source_ids: chatScopeIdsPayload() }, () => {})
-}
-
-const onChatModelChange = async (value: string) => {
-    const next = value === INHERIT_MODEL ? '' : value
-    const prev = props.report?.artifact_chat_model_id || ''
-    if (next === prev) return
-    if (props.report) props.report.artifact_chat_model_id = next || null
-    await saveChatSettings(
-        { artifact_chat_model_id: next },
-        () => { chatModelId.value = prev || INHERIT_MODEL; if (props.report) props.report.artifact_chat_model_id = prev || null },
-    )
-}
-
-const onChatAgentsChange = async () => {
-    await saveChatSettings({ artifact_chat_data_source_ids: chatScopeIdsPayload() }, () => {})
-}
-
 const onVisibilityChange = async (value: string) => {
     const prev = perArtifact.value ? artifactVisibility.value : (props.report?.[visibilityField.value] || 'none')
     if (value === prev) return
@@ -907,12 +515,8 @@ const copyLink = async () => {
 
 const openModal = async () => {
     modalOpen.value = true
-    editingSlug.value = false
     currentVisibility.value = perArtifact.value ? artifactVisibility.value : (props.report?.[visibilityField.value] || 'none')
     conversationShareToken.value = props.report?.conversation_share_token ?? null
-    runAsCreator.value = props.report?.shared_run_identity === 'creator'
-    includeDataTab.value = props.report?.include_data_tab !== false
-    chatEnabled.value = props.report?.artifact_chat_enabled === true
     await Promise.all([fetchMembers(), fetchGroups(), fetchVisibility(), fetchShares()])
 }
 
@@ -936,7 +540,6 @@ watch(
         if (!modalOpen.value) currentVisibility.value = 'none'
         sharedEntries.value = []
         linkSlug.value = null
-        editingSlug.value = false
         fetchArtifactSharing()
     },
     { immediate: true }

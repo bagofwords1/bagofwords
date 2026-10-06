@@ -348,6 +348,20 @@ async def set_artifact_slug(
     return await report_service.set_artifact_slug(db, report_id, artifact_id, payload.slug)
 
 
+@router.delete("/reports/{report_id}/artifacts/{artifact_id}")
+@requires_permission('update_reports', model=Report, owner_only=True)
+async def delete_report_artifact(
+    report_id: str,
+    artifact_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Delete one dashboard (all its versions). Same gate as deleting a
+    version of it."""
+    return await report_service.delete_report_artifact(db, report_id, artifact_id)
+
+
 @router.get("/artifact-links/{slug}")
 async def resolve_artifact_link(
     slug: str,

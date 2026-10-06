@@ -622,6 +622,36 @@ class ReportService:
         _, artifact = await self._load_report_artifact(db, report_id, artifact_id)
         return {"artifact_id": str(artifact.id), "slug": await artifact_slug.set_slug(db, artifact, slug)}
 
+    async def delete_report_artifact(self, db: AsyncSession, report_id: str, artifact_id: str) -> dict:
+        """Delete one dashboard of a report: every version of it, then the
+        dashboard itself (soft delete). DELETE /artifacts/{id} removes a single
+        version; this is the whole dashboard. The rest of the report and its
+        other dashboards stay. Its share-link names are released the way a
+        dead dashboard's are (see artifact_slug)."""
+        from datetime import datetime
+        from app.models.artifact import ArtifactVersion
+        from app.services import artifact_access
+
+        report, artifact = await self._load_report_artifact(db, report_id, artifact_id)
+        now = datetime.utcnow()
+        versions = (await db.execute(
+            select(ArtifactVersion).options(lazyload("*")).where(
+                ArtifactVersion.artifact_id == str(artifact.id),
+                ArtifactVersion.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        for version in versions:
+            version.deleted_at = now
+            db.add(version)
+        artifact.deleted_at = now
+        db.add(artifact)
+        await db.flush()
+        # The report-level dashboard fields aggregate the live dashboards; with
+        # none left the report goes back to private.
+        await artifact_access.sync_report_aggregate(db, report, reset_when_empty=True)
+        await db.commit()
+        return {"artifact_id": str(artifact.id), "status": "deleted"}
+
     async def set_artifact_visibility(
         self,
         db: AsyncSession,

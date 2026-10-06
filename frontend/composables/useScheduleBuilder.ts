@@ -3,7 +3,7 @@
  *
  * Single source of truth for converting between the structured schedule inputs
  * used by the schedule UIs (interval + every-N + hour + weekdays + day-of-month)
- * and a 5-field cron string. Both the report-refresh CronModal and the
+ * and a 5-field cron string. Both the report-refresh ScheduleSettings and the
  * ScheduledPromptModal use these helpers so the two schedulers stay identical
  * and can't drift.
  *
