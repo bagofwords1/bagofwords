@@ -2,6 +2,12 @@
 
 Status reads and query attempts can enqueue recovery; neither waits for network
 IO nor gains access until delegated credentials have actually been persisted.
+
+Recovery is per USER, not per connection: one job obtains the login assertion
+once and hands it to `auto_provision_connection_credentials`, which dedupes OBO
+exchanges per app/scope and syncs catalogs per data source. A per-connection
+job would cost N exchanges, N parallel refreshes of the same refresh token and
+an N x N catalog crawl for an agent with N connections.
 """
 
 import asyncio
@@ -14,45 +20,40 @@ from contextlib import suppress
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlalchemy.orm import selectinload
 
 from app.models.connection import Connection
-from app.models.data_source import DataSource
-from app.models.membership import Membership
 from app.models.oauth_account import OAuthAccount
 from app.models.user import User
-from app.models.user_connection_credentials import UserConnectionCredentials
 from app.services.connection_oauth_service import (
     ENTRA_OBO_CONNECTION_TYPES,
-    exchange_obo_token,
-    parse_expires_at,
-    sync_obo_catalogs,
+    auto_provision_connection_credentials,
 )
 
 logger = logging.getLogger(__name__)
 # Process-local admission control; no asyncio primitives shared between loops.
 _lock = threading.Lock()
-_attempts: OrderedDict[tuple[str, str], float] = OrderedDict()
-_running: set[tuple[str, str]] = set()
+_attempts: OrderedDict[str, float] = OrderedDict()
+_running: set[str] = set()
 _RETRY_SECONDS = 300
 _MAX_TRACKED = 4096
 _MAX_RUNNING = 16
 
 
 def schedule_stored_login_recovery(user_id: str, connection: Connection) -> None:
-    """Queue at most one bounded attempt per user/connection per five minutes."""
+    """Queue at most one bounded attempt per user per five minutes."""
     if (
         connection.type not in ENTRA_OBO_CONNECTION_TYPES
         or connection.auth_policy != "user_required"
         or "oauth" not in (connection.allowed_user_auth_modes or [])
     ):
         return
-    key = (str(user_id), str(connection.id))
+    key = str(user_id)
     now = time.monotonic()
     with _lock:
         if key in _running or now - _attempts.get(key, float("-inf")) < _RETRY_SECONDS:
             return
         if len(_running) >= _MAX_RUNNING:
+            logger.debug("Stored-login OBO recovery deferred for user %s: worker limit reached", key)
             return
         _attempts[key] = now
         _attempts.move_to_end(key)
@@ -75,24 +76,6 @@ def schedule_stored_login_recovery(user_id: str, connection: Connection) -> None
         logger.warning("Could not schedule stored-login OBO recovery")
 
 
-async def _eligible(db, user_id, connection):
-    """Never resurrect disconnected accounts or override an identity choice."""
-    membership = await db.scalar(
-        select(Membership.id).where(
-            Membership.user_id == user_id,
-            Membership.organization_id == connection.organization_id,
-            Membership.deleted_at.is_(None),
-        )
-    )
-    existing = await db.scalar(
-        select(UserConnectionCredentials.id).where(
-            UserConnectionCredentials.user_id == user_id,
-            UserConnectionCredentials.connection_id == connection.id,
-        )
-    )
-    return membership is not None and existing is None
-
-
 async def _refresh_assertion(db, account, cfg):
     from app.services.auth_providers import _discover_endpoints
 
@@ -113,7 +96,16 @@ async def _refresh_assertion(db, account, cfg):
                 "scope": " ".join(cfg.scopes),
             },
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            try:
+                codes = [c for c in response.json().get("error_codes", []) if isinstance(c, int)]
+            except (ValueError, TypeError, AttributeError):
+                codes = []
+            logger.warning(
+                "Stored-login refresh rejected for user %s: HTTP %s, AADSTS codes %s",
+                account.user_id, response.status_code, codes,
+            )
+            return None
         tokens = response.json()
     access = tokens.get("access_token")
     if not isinstance(access, str) or not access:
@@ -126,11 +118,10 @@ async def _refresh_assertion(db, account, cfg):
     return access
 
 
-async def _recover(key):
+async def _recover(user_id):
     from app.services.auth_providers import _get_oidc_config, _is_entra_provider
     from app.settings.database import create_async_database_engine_for_indexing
 
-    user_id, connection_id = key
     engine = None
     try:
         # Includes token HTTP, database work, and catalog discovery. Failures
@@ -140,26 +131,8 @@ async def _recover(key):
             maker = async_sessionmaker(engine, expire_on_commit=False)
             async with maker() as db:
                 user = await db.get(User, user_id)
-                connection = await db.scalar(
-                    select(Connection)
-                    .where(
-                        Connection.id == connection_id,
-                        Connection.deleted_at.is_(None),
-                        Connection.is_active.is_(True),
-                    )
-                    .options(selectinload(Connection.data_sources).selectinload(DataSource.connections))
-                )
-                if not user or not user.is_active or not connection:
+                if not user or not user.is_active:
                     return
-                if (
-                    connection.type not in ENTRA_OBO_CONNECTION_TYPES
-                    or connection.auth_policy != "user_required"
-                    or "oauth" not in (connection.allowed_user_auth_modes or [])
-                    or not await _eligible(db, user_id, connection)
-                ):
-                    return
-                creds = connection.decrypt_credentials() or {}
-                client_id = creds.get("oauth_client_id") or creds.get("client_id")
                 accounts = (await db.scalars(select(OAuthAccount).where(OAuthAccount.user_id == user_id))).all()
                 for account in accounts:
                     cfg = _get_oidc_config(account.oauth_name)
@@ -168,48 +141,39 @@ async def _recover(key):
                         or not cfg.enabled
                         or not _is_entra_provider(account.oauth_name)
                         or not cfg.client_id
-                        or cfg.client_id != client_id
                         or not cfg.client_secret
                     ):
                         continue
-                    tokens = None
+
+                    async def provision(assertion):
+                        # missing_only: current orgs only, never a row that
+                        # already exists (manual connect, Disconnect marker,
+                        # service-account choice), only this login's app.
+                        return await auto_provision_connection_credentials(
+                            db, user, assertion, missing_only=True, client_id=cfg.client_id,
+                        )
+
+                    summary = None
                     if account.access_token and (not account.expires_at or account.expires_at > time.time() + 60):
                         # A Graph profile token may have replaced the login
                         # assertion. If rejected, refresh original scopes once.
                         with suppress(ValueError, httpx.HTTPError):
-                            tokens = await exchange_obo_token(account.access_token, connection)
-                    if tokens is None:
+                            summary = await provision(account.access_token)
+                    if summary is None or (summary["failed"] and not summary["provisioned"]):
                         assertion = await _refresh_assertion(db, account, cfg)
                         if assertion:
-                            tokens = await exchange_obo_token(assertion, connection)
-                    if not tokens:
-                        continue
-                    # External calls yielded: preserve a manual connect or
-                    # disconnect that happened while recovery was in flight.
-                    if not await _eligible(db, user_id, connection):
-                        return
-                    row = UserConnectionCredentials(
-                        user_id=user_id,
-                        connection_id=connection_id,
-                        organization_id=connection.organization_id,
-                        auth_mode="oauth",
-                        is_active=True,
-                        is_primary=True,
-                        expires_at=parse_expires_at(tokens.get("expires_at")),
-                    )
-                    row.encrypt_credentials(tokens)
-                    db.add(row)
-                    await db.commit()
-                    logger.info("Stored-login OBO recovered user %s connection %s", user_id, connection_id)
-                    await sync_obo_catalogs(db, user, [connection])
-                    return
+                            summary = await provision(assertion)
+                    if summary and summary["provisioned"]:
+                        logger.info(
+                            "Stored-login OBO recovered %d connection(s) for user %s",
+                            len(summary["provisioned"]), user_id,
+                        )
     except Exception as exc:
         # Do not log assertions, refresh tokens, response bodies, or exception
         # messages (providers can echo credentials in them).
         logger.warning(
-            "Stored-login OBO recovery failed for user %s connection %s (%s); sign-in remains required",
+            "Stored-login OBO recovery failed for user %s (%s); sign-in remains required",
             user_id,
-            connection_id,
             type(exc).__name__,
         )
     finally:

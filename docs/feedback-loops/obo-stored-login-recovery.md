@@ -15,8 +15,29 @@ Baseline test on the already-fixed background implementation: `test_missing_conn
 - It tries the stored access token if not known expired. If unavailable/rejected, it makes at most one refresh attempt with the original login scopes, then retries OBO once. It never substitutes a Graph-scoped refresh request or system credentials.
 - Credentials are written only after a successful exchange, and the existing catalog sync runs afterward. Existing rows, including inactive rows and service-account preferences, are not overwritten.
 - Explicit Disconnect clears tokens and retains an inactive marker to prevent silent reconnection. A future explicit sign-in can reconnect normally. Historical hard-deleted disconnects cannot be distinguished from never-provisioned users.
-- Retries are limited per process to one user/connection attempt per five minutes, at most 16 running jobs, a bounded 4096-key cooldown cache, and a 120-second job deadline. Multiple server workers have independent limits.
+- Retries are limited per process to one attempt per user per five minutes, at most 16 running jobs, a bounded 4096-key cooldown cache, and a 120-second job deadline. Multiple server workers have independent limits.
 - Failures preserve Connect required and do not log raw provider response bodies, assertions, refresh tokens, or exception messages. Numeric AADSTS codes remain available.
+
+## Review follow-up: per-user recovery
+
+Recovery was first keyed per (user, connection), so a status read of an agent
+with N missing connections started N jobs: N OBO exchanges (bypassing the
+per-app dedup cache), N parallel refreshes of the same refresh token, and a
+whole-data-source catalog sync per recovered connection (N x N crawls). It is
+now one job per user that calls `auto_provision_connection_credentials(...,
+missing_only=True, client_id=...)`, which reuses the exchange cache and the
+per-data-source catalog sync. `missing_only` adds the recovery guards
+(current memberships, active connections, no existing row of any kind,
+matching app).
+
+Login provisioning now also skips connections with an inactive
+`auto_recovery_disabled` marker, so a Disconnect is not undone at the next
+sign-in. Transport errors in the shared provisioning loop are logged by type
+only (a timeout message could carry request data).
+
+`tests/unit/test_obo_recovery_per_user.py`: 5 connections -> 1 exchange
+(was `assert 5 == 1`); Disconnect then login provisioning -> nothing
+re-provisioned (was 1 row). Both fail on the previous head, pass now.
 
 ## Reproduce / verify
 

@@ -841,6 +841,9 @@ async def auto_provision_connection_credentials(
     db: AsyncSession,
     user,
     login_access_token: str,
+    *,
+    missing_only: bool = False,
+    client_id: Optional[str] = None,
 ) -> dict:
     """Auto-provision OAuth credentials for Entra-based connections after OIDC login.
 
@@ -852,9 +855,17 @@ async def auto_provision_connection_credentials(
     For each, if the user doesn't already have valid credentials, performs
     an OBO token exchange and stores the result.
 
+    A Disconnect leaves an inactive row flagged ``auto_recovery_disabled``;
+    those connections are never re-provisioned automatically.
+
+    ``missing_only`` (stored-login recovery): only connections in the user's
+    current organizations with no credential row at all, optionally limited to
+    connections registered on ``client_id``.
+
     Returns a summary dict: {provisioned: [...], skipped: [...], failed: [...]}.
     """
     from sqlalchemy.orm import selectinload
+    from app.models.membership import Membership
 
     # Find eligible connections
     stmt = (
@@ -871,8 +882,31 @@ async def auto_provision_connection_credentials(
             Connection.type.in_(list(ENTRA_OBO_CONNECTION_TYPES)),
         )
     )
+    if missing_only:
+        stmt = stmt.where(
+            Connection.is_active.is_(True),
+            Connection.deleted_at.is_(None),
+            Connection.organization_id.in_(
+                select(Membership.organization_id).where(
+                    Membership.user_id == str(user.id),
+                    Membership.deleted_at.is_(None),
+                )
+            ),
+        )
     result = await db.execute(stmt)
     connections = result.scalars().all()
+
+    # All of the user's rows for these connections, active or not, in one query.
+    rows_by_conn: dict = {}
+    if connections:
+        all_rows = (await db.execute(
+            select(UserConnectionCredentials).where(
+                UserConnectionCredentials.user_id == str(user.id),
+                UserConnectionCredentials.connection_id.in_([c.id for c in connections]),
+            )
+        )).scalars().all()
+        for r in all_rows:
+            rows_by_conn.setdefault(str(r.connection_id), []).append(r)
 
     summary = {"provisioned": [], "skipped": [], "failed": []}
     pending_overlay: list = []
@@ -884,6 +918,17 @@ async def auto_provision_connection_credentials(
         allowed_modes = connection.allowed_user_auth_modes or []
         if "oauth" not in allowed_modes:
             continue
+
+        conn_rows = rows_by_conn.get(str(connection.id), [])
+        if any(not r.is_active and (r.metadata_json or {}).get("auto_recovery_disabled") for r in conn_rows):
+            summary["skipped"].append({"connection_id": connection.id, "reason": "disconnected"})
+            continue
+        if missing_only:
+            if conn_rows:
+                continue
+            creds = connection.decrypt_credentials() or {}
+            if client_id and (creds.get("oauth_client_id") or creds.get("client_id")) != client_id:
+                continue
 
         # Check if user already has a credential/preference row (any auth_mode, so a
         # service-account marker row gets promoted rather than duplicated).
@@ -915,8 +960,12 @@ async def auto_provision_connection_credentials(
                 if cache_key is not None:
                     obo_cache[cache_key] = tokens
         except Exception as e:
-            logger.warning(f"OBO auto-provision failed for connection {connection.id}: {e}")
-            summary["failed"].append({"connection_id": connection.id, "error": str(e)})
+            # exchange_obo_token raises ValueError with a redacted message;
+            # anything else (transport errors) can echo request data, so only
+            # its type is recorded.
+            error = str(e) if isinstance(e, ValueError) else type(e).__name__
+            logger.warning(f"OBO auto-provision failed for connection {connection.id}: {error}")
+            summary["failed"].append({"connection_id": connection.id, "error": error})
             continue
 
         # Upsert credentials
