@@ -220,7 +220,7 @@ class UserManager(BaseUserManager[User, str]):
             from app.dependencies import async_session_maker
             async with async_session_maker() as session:
                 await session.execute(
-                    update(User).where(User.id == str(user.id)).values(last_login=datetime.now(timezone.utc))
+                    update(User).where(User.id == str(user.id)).values(last_login=datetime.now(timezone.utc).replace(tzinfo=None))
                 )
                 await session.commit()
         except Exception:
