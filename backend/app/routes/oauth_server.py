@@ -23,6 +23,7 @@ from app.dependencies import get_async_db, get_current_organization
 from app.ee.audit.service import audit_service
 from app.models.organization import Organization
 from app.models.user import User
+from app.services import entra_token_exchange as entra_exchange
 from app.services.oauth_server_service import OAuthServerService
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ async def authorization_server_metadata(request: Request):
         "authorization_endpoint": f"{base}/authorize",
         "token_endpoint": f"{base}/api/oauth/token",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "grant_types_supported": ["authorization_code", "refresh_token", entra_exchange.GRANT],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post", "none"],
         "scopes_supported": list(SUPPORTED_SCOPES),
@@ -235,13 +236,36 @@ async def token_endpoint(
     client_secret: Optional[str] = Form(None),
     code_verifier: Optional[str] = Form(None),
     refresh_token: Optional[str] = Form(None),
+    subject_token: Optional[str] = Form(None),
+    subject_token_type: Optional[str] = Form(None),
+    requested_token_type: Optional[str] = Form(None),
+    actor_token: Optional[str] = Form(None),
+    audience: Optional[str] = Form(None),
+    resource: Optional[str] = Form(None),
+    scope: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_async_db),
 ):
     """OAuth token endpoint.
 
-    Supports grant_type=authorization_code and grant_type=refresh_token.
+    Supports authorization_code, refresh_token, and opt-in Entra token exchange.
     """
     service = OAuthServerService()
+
+    if grant_type == entra_exchange.GRANT:
+        headers = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+        if (not subject_token or subject_token_type != entra_exchange.ACCESS_TYPE
+                or requested_token_type not in (None, entra_exchange.ACCESS_TYPE)
+                or actor_token or audience or resource):
+            return JSONResponse({"error": "invalid_request", "error_description": "Supply an Entra access-token subject; actor and target overrides are unsupported"}, status_code=400, headers=headers)
+        try:
+            result = await entra_exchange.exchange(db, service, client_id=client_id,
+                client_secret=client_secret, subject_token=subject_token, scope=scope)
+            return JSONResponse(result, headers=headers)
+        except entra_exchange.ExchangeError as exc:
+            await db.rollback()
+            if exc.status == 503:
+                headers["Retry-After"] = "5"
+            return JSONResponse({"error": exc.error, "error_description": exc.description}, status_code=exc.status, headers=headers)
 
     if grant_type == "authorization_code":
         if not code or not code_verifier or not redirect_uri:
@@ -301,6 +325,23 @@ async def token_endpoint(
 
 # ── Client CRUD ────────────────────────────────────────────────────
 
+@router.get("/entra-providers")
+@requires_permission("manage_settings")
+async def entra_providers(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    return entra_exchange.provider_options()
+
+
+def _exchange_config(body):
+    try:
+        return entra_exchange.validate_settings(body.get("entra_exchange"))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid Entra exchange configuration; select a configured tenant-specific provider and external client UUID") from None
+
+
 @router.get("/clients")
 @requires_permission("manage_settings")
 async def list_clients(
@@ -334,7 +375,8 @@ async def create_client(
     if not isinstance(trusted, bool):
         raise HTTPException(status_code=400, detail="trusted must be a boolean")
 
-    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"))
+    exchange_config = _exchange_config(body)
+    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"), allow_empty=bool(exchange_config))
 
     service = OAuthServerService()
     client = await service.create_client(
@@ -344,12 +386,13 @@ async def create_client(
         scopes=scopes,
         redirect_uris=redirect_uris,
         trusted=trusted,
+        entra_exchange=exchange_config,
     )
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="oauth_client.created",
             user_id=current_user.id, resource_type="oauth_client", resource_id=client.get("id"),
-            details={"name": name, "client_id": client.get("client_id"), "scopes": scopes},
+            details={"name": name, "client_id": client.get("client_id"), "scopes": scopes, "entra_exchange_enabled": bool(exchange_config)},
             request=request,
         )
     except Exception:
@@ -357,12 +400,12 @@ async def create_client(
     return client
 
 
-def _validate_redirect_uris(redirect_uris):
+def _validate_redirect_uris(redirect_uris, allow_empty=False):
     """Validate an optional redirect_uris payload. Returns the list unchanged,
     or None when absent (caller decides the fallback)."""
     if redirect_uris is None:
         return None
-    if not isinstance(redirect_uris, list) or not redirect_uris:
+    if not isinstance(redirect_uris, list) or (not redirect_uris and not allow_empty):
         raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
     for uri in redirect_uris:
         if not isinstance(uri, str) or not uri.strip():
@@ -400,7 +443,21 @@ async def update_client(
         if not name:
             raise HTTPException(status_code=400, detail="name must not be empty")
 
-    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"))
+    exchange_config = _exchange_config(body) if "entra_exchange" in body else None
+    from sqlalchemy import select
+
+    from app.models.oauth_server import OAuthClient
+    existing = await db.scalar(select(OAuthClient).where(
+        OAuthClient.id == client_db_id, OAuthClient.organization_id == organization.id,
+        OAuthClient.deleted_at.is_(None)))
+    if not existing:
+        raise HTTPException(status_code=404, detail="Client not found")
+    effective_exchange = exchange_config if "entra_exchange" in body else existing.entra_exchange
+    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"), allow_empty=bool(effective_exchange))
+    if not effective_exchange and redirect_uris is None:
+        import json
+        if not json.loads(existing.redirect_uris):
+            raise HTTPException(status_code=400, detail="Add a redirect URI before disabling token exchange")
 
     scopes = _validate_scopes(body.get("scopes")) if "scopes" in body else None
 
@@ -408,7 +465,7 @@ async def update_client(
     if trusted is not None and not isinstance(trusted, bool):
         raise HTTPException(status_code=400, detail="trusted must be a boolean")
 
-    if name is None and redirect_uris is None and scopes is None and trusted is None:
+    if name is None and redirect_uris is None and scopes is None and trusted is None and "entra_exchange" not in body:
         raise HTTPException(status_code=400, detail="Nothing to update")
 
     service = OAuthServerService()
@@ -420,6 +477,8 @@ async def update_client(
         redirect_uris=redirect_uris,
         scopes=scopes,
         trusted=trusted,
+        entra_exchange=exchange_config,
+        update_entra_exchange="entra_exchange" in body,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -430,6 +489,7 @@ async def update_client(
             details={
                 "name": name,
                 "redirect_uris_changed": redirect_uris is not None,
+                "entra_exchange_changed": "entra_exchange" in body,
                 "scopes": scopes,
                 "trusted": trusted,
             },

@@ -2315,7 +2315,17 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "entraTitle": "Activer l’échange de jetons Entra",
+          "entraHelp": "Facultatif. Autorise cette application à échanger le jeton Microsoft Entra d’un utilisateur connecté contre un jeton BOW.",
+          "entraUnavailable": "Configurez d’abord un fournisseur SSO Entra propre au locataire avec access_as_user dans bow-config.yaml.",
+          "entraProvider": "Fournisseur SSO Entra",
+          "externalEntraClient": "ID de l’application Entra externe (client)",
+          "externalEntraHelp": "Application Entra autorisée à appeler BOW pour ses utilisateurs connectés. Conservez son secret sur le serveur de l’application externe.",
+          "entraTenant": "ID du locataire",
+          "entraAudience": "Audience de l’API BOW (jetons v1)",
+          "entraScope": "Étendue requise",
+          "entraRequirements": "Les nouveaux utilisateurs sont admis avec une invitation valide ou une politique d’inscription par domaine activée. Les jetons durent au maximum une heure. Les URI de redirection sont facultatives pour les applications utilisant uniquement l’échange de jetons."
         },
         "excel": {
           "title": "Complément Excel",
@@ -5652,7 +5662,7 @@
     "failed": "L’actualisation du schéma n’a pas abouti. Réessayez.",
     "connectRequired": "Connectez votre compte pour voir ses tables."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "Lecture seule",
     "sort": "Trier les enregistrements",
     "applyFilter": "Appliquer",

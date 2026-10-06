@@ -2315,7 +2315,17 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "entraTitle": "Включить обмен токенами Entra",
+          "entraHelp": "Необязательно. Разрешить приложению обменивать токен Microsoft Entra вошедшего пользователя на токен BOW.",
+          "entraUnavailable": "Сначала настройте в bow-config.yaml поставщика SSO Entra для конкретного клиента с access_as_user.",
+          "entraProvider": "Поставщик SSO Entra",
+          "externalEntraClient": "ID внешнего приложения Entra (клиента)",
+          "externalEntraHelp": "Приложение Entra, которому разрешено обращаться к BOW от имени вошедших пользователей. Храните секрет на сервере внешнего приложения.",
+          "entraTenant": "ID клиента Entra",
+          "entraAudience": "Аудитория BOW API (токены v1)",
+          "entraScope": "Требуемая область",
+          "entraRequirements": "Новые пользователи присоединяются по действующему приглашению или разрешенной регистрации для домена. Токены действуют не более часа. URI перенаправления необязательны для приложений, использующих только обмен токенами."
         },
         "excel": {
           "title": "Надстройка Excel",
@@ -5652,7 +5662,7 @@
     "failed": "Обновление схемы не завершено. Попробуйте ещё раз.",
     "connectRequired": "Подключите свою учётную запись, чтобы увидеть её таблицы."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "Только чтение",
     "sort": "Сортировка записей",
     "applyFilter": "Применить",

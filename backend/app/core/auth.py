@@ -322,7 +322,8 @@ class UserManager(BaseUserManager[User, str]):
             except Exception:
                 pass
 
-    async def _materialize_pending_rbac(self, session: AsyncSession, membership: Membership, user_id: str) -> None:
+    @staticmethod
+    async def _materialize_pending_rbac(session: AsyncSession, membership: Membership, user_id: str) -> None:
         """Rewrite pending (membership-keyed) RBAC rows onto the registered user.
 
         An org admin can pre-assign roles and groups to an invite before the

@@ -2315,7 +2315,17 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "entraTitle": "تفعيل تبادل رموز Entra",
+          "entraHelp": "اختياري. السماح لهذا التطبيق باستبدال رمز Microsoft Entra لمستخدم مسجل الدخول برمز BOW.",
+          "entraUnavailable": "قم أولاً بإعداد موفر Entra SSO خاص بالمستأجر مع access_as_user في bow-config.yaml.",
+          "entraProvider": "موفر Entra SSO",
+          "externalEntraClient": "معرّف تطبيق Entra الخارجي (العميل)",
+          "externalEntraHelp": "تطبيق Entra المسموح له باستدعاء BOW للمستخدمين المسجلين. احتفظ بالسر في خادم التطبيق الخارجي.",
+          "entraTenant": "معرّف المستأجر",
+          "entraAudience": "جمهور BOW API (رموز v1)",
+          "entraScope": "النطاق المطلوب",
+          "entraRequirements": "ينضم المستخدمون الجدد تلقائياً بدعوة صالحة أو سياسة تسجيل نطاق مفعلة. تدوم الرموز ساعة واحدة كحد أقصى. عناوين إعادة التوجيه اختيارية لتطبيقات تبادل الرموز فقط."
         },
         "excel": {
           "title": "وظيفة Excel الإضافية",
@@ -5652,7 +5662,7 @@
     "failed": "لم يكتمل تحديث المخطط. حاول مرة أخرى.",
     "connectRequired": "اربط حسابك لعرض جداوله."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "للقراءة فقط",
     "sort": "ترتيب السجلات",
     "applyFilter": "تطبيق",

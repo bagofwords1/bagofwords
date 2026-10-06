@@ -2537,7 +2537,17 @@
           "invalidAuthorizationRequest": "This authorization request is missing required information.",
           "unsupportedAuthorizationRequest": "This app must use Authorization Code with PKCE S256.",
           "unknownAuthorizationClient": "The app or callback URL is not registered.",
-          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator."
+          "authorizationFailed": "Authorization failed. Try again or contact your workspace administrator.",
+          "entraTitle": "Enable Entra token exchange",
+          "entraHelp": "Optional. Allow this application to exchange a signed-in user’s Microsoft Entra access token for a BOW token.",
+          "entraUnavailable": "Configure a tenant-specific Entra SSO provider with access_as_user in bow-config.yaml first.",
+          "entraProvider": "Entra SSO provider",
+          "externalEntraClient": "External Entra application (client) ID",
+          "externalEntraHelp": "The Entra application allowed to call BOW for its signed-in users. Keep its secret on the external application’s backend.",
+          "entraTenant": "Tenant ID",
+          "entraAudience": "BOW API audience (v1 tokens)",
+          "entraScope": "Required scope",
+          "entraRequirements": "New users join automatically with a valid invitation or an enabled domain signup policy. Tokens last at most one hour. Redirect URIs are optional for exchange-only apps."
         },
         "excel": {
           "title": "Excel Add-in",
@@ -5842,7 +5852,7 @@
     "failed": "Schema refresh did not complete. Try again.",
     "connectRequired": "Connect your account to view its tables."
   },
-"artifactResources": {
+  "artifactResources": {
     "readOnlyLabel": "Read only",
     "sort": "Sort records",
     "applyFilter": "Apply",
