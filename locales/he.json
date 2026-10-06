@@ -4511,6 +4511,7 @@
       "suggestFields": "שדות",
       "suggestValues": "ערכים עבור {field}",
       "suggestFooter": "מילים בודדות מחפשות בפרומפטים ובשגיאות. AND משתמע; אפשר להשתמש ב-OR, NOT, ( ) ו\"מרכאות\".",
+      "moreValues": "מוצגים {count} המובילים. המשיכו להקליד כדי לצמצם.",
       "filterButton": "סינון",
       "filterBy": "סינון לפי…",
       "groupRun": "הרצה",

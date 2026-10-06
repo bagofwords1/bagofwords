@@ -4368,6 +4368,7 @@
       "suggestFields": "Campi",
       "suggestValues": "Valori per {field}",
       "suggestFooter": "Le parole singole cercano in prompt ed errori. AND è implicito; usa OR, NOT, ( ) e le \"virgolette\".",
+      "moreValues": "Mostrati i primi {count}. Continua a digitare per restringere.",
       "filterButton": "Filtro",
       "filterBy": "Filtra per…",
       "groupRun": "Esecuzione",

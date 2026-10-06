@@ -63,6 +63,8 @@ export interface Bucket { bucket: string; total: number; matched: number; matche
 export interface ToolStat { tool: string; calls: number; errors: number; avg_ms: number | null }
 export interface Summary { matched: number; errors: number; users: number; cost_usd: number; p50_ms: number | null; unindexed: number }
 export interface Facet { value: string; label: string; count: number }
+// `truncated`: more values match than the list holds — typing narrows it.
+export interface FacetPage { items: Facet[]; truncated: boolean }
 
 // 'all' is the organization's whole history: the request carries no start/end
 // and the server bounds it by the org's creation day (see console routes).
@@ -201,14 +203,16 @@ export const useDiagnosisQuery = () => {
   }
 
   // Facet lookups: debounced by the caller; cached per (field, prefix, range, q).
-  const facetCache = new Map<string, Facet[]>()
-  const facets = async (field: string, prefix = '', qWithoutTerm = committed.value): Promise<Facet[]> => {
+  const facetCache = new Map<string, FacetPage>()
+  const facets = async (field: string, prefix = '', qWithoutTerm = committed.value): Promise<FacetPage> => {
     const key = `${field}|${prefix}|${encodeRange(range.value)}|${qWithoutTerm}`
     const hit = facetCache.get(key)
     if (hit) return hit
     const url = `/api/console/diagnosis/facets/${encodeURIComponent(field)}?${encode({ ...baseParams(qWithoutTerm), prefix })}`
-    const res = await useMyFetch<Facet[]>(url)
-    const out = res.error.value ? [] : (res.data.value as Facet[])
+    const res = await useMyFetch<FacetPage>(url)
+    // Failures are not cached: a retry may well succeed.
+    if (res.error.value || !res.data.value) return { items: [], truncated: false }
+    const out = res.data.value as FacetPage
     facetCache.set(key, out)
     return out
   }

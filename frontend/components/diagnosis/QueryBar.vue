@@ -52,7 +52,7 @@
         <!-- Suggestions -->
         <div
             v-if="open && suggestions.length"
-            class="absolute start-0 top-full mt-1 z-20 w-full max-w-[520px] p-1.5 rounded-lg bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 shadow-lg"
+            class="absolute start-0 top-full mt-1 z-20 w-full max-w-[520px] max-h-96 overflow-y-auto p-1.5 rounded-lg bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 shadow-lg"
         >
             <div class="px-2.5 pt-1.5 pb-1 text-[11px] uppercase tracking-wider text-gray-400">
                 {{ ctx.kind === 'field' ? $t('monitoring.diagnosis.suggestFields') : $t('monitoring.diagnosis.suggestValues', { field: ctx.kind === 'value' ? ctx.field.name : '' }) }}
@@ -75,13 +75,16 @@
             <div v-if="ctx.kind === 'field'" class="px-2.5 pt-1.5 pb-1 border-t border-gray-100 dark:border-gray-800 mt-1 text-[11px] text-gray-400">
                 {{ $t('monitoring.diagnosis.suggestFooter') }}
             </div>
+            <div v-else-if="truncated" class="px-2.5 pt-1.5 pb-1 border-t border-gray-100 dark:border-gray-800 mt-1 text-[11px] text-gray-400" data-testid="facet-truncated">
+                {{ $t('monitoring.diagnosis.moreValues', { count: suggestions.length }) }}
+            </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
 import { FIELDS, cursorContext, resolveField, type CursorContext, type QueryError, type Token } from '~/utils/diagnosisQuery'
-import type { Facet } from '~/composables/useDiagnosisQuery'
+import type { FacetPage } from '~/composables/useDiagnosisQuery'
 
 interface Suggestion { label: string; insert: string; type?: string; help?: string; count?: number | null }
 
@@ -91,7 +94,7 @@ const props = defineProps<{
     error: QueryError | null
     loading: boolean
     dirty: boolean
-    facets: (field: string, prefix: string, qWithoutTerm: string) => Promise<Facet[]>
+    facets: (field: string, prefix: string, qWithoutTerm: string) => Promise<FacetPage>
 }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'run'): void }>()
 
@@ -101,6 +104,8 @@ const focused = ref(false)
 const open = ref(false)
 const active = ref(0)
 const suggestions = ref<Suggestion[]>([])
+// The value list was cut off by the server: more match than it shows.
+const truncated = ref(false)
 const ctx = ref<CursorContext>({ kind: 'none' })
 // An error at the very end of the text usually means "still typing" (status:|).
 // Show it only once the user tries to run, or when it sits inside the text.
@@ -158,6 +163,7 @@ const refreshSuggestions = () => {
     const c = cursorContext(props.modelValue, caret)
     ctx.value = c
     active.value = 0
+    truncated.value = false
     if (c.kind === 'field') {
         const p = c.prefix.toLowerCase()
         const list = FIELDS
@@ -182,9 +188,10 @@ const refreshSuggestions = () => {
             facetTimer = setTimeout(async () => {
                 // The query minus the term being typed narrows the counts to the rest of the query.
                 const without = (props.modelValue.slice(0, c.start - spec.name.length - 1) + props.modelValue.slice(caret)).trim()
-                const rows = await props.facets(spec.name, c.prefix, without).catch(() => [])
+                const page = await props.facets(spec.name, c.prefix, without).catch(() => ({ items: [], truncated: false }))
                 if (mine !== facetSeq) return
-                suggestions.value = rows.map(r => ({ label: r.label, insert: /[\s()"]/.test(r.value) ? `"${r.value}"` : r.value, count: r.count }))
+                truncated.value = page.truncated
+                suggestions.value = page.items.map(r => ({ label: r.label, insert: /[\s()"]/.test(r.value) ? `"${r.value}"` : r.value, count: r.count }))
                 open.value = suggestions.value.length > 0
             }, 150)
             return

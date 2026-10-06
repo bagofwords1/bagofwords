@@ -134,7 +134,7 @@ def test_facets_are_scoped_too(test_client, world):
             headers=_headers(token, world["org_id"]),
         )
         assert resp.status_code == 200, resp.json()
-        return {f["value"]: f["count"] for f in resp.json()}
+        return {f["value"]: f["count"] for f in resp.json()["items"]}
 
     assert facets(world["manager_b"]["token"], "status") == {"error": 1, "success": 1}
     assert facets(world["admin"]["token"], "status") == {"error": 4, "success": 1}

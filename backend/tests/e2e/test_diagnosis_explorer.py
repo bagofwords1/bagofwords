@@ -369,7 +369,7 @@ def test_facets_count_values_within_the_query(test_client, world):
             params={"q": q, "prefix": prefix, "start": _iso(NOW - timedelta(days=30)), "end": _iso(NOW + timedelta(days=1))},
             headers={"Authorization": f"Bearer {world['token']}", "X-Organization-Id": world["org_id"]},
         )
-        return {f["value"]: f["count"] for f in _ok(resp)}
+        return {f["value"]: f["count"] for f in _ok(resp)["items"]}
 
     assert facets("status") == {"success": 5, "error": 2}
     assert facets("status", q="user:" + world["member"]["email"]) == {"success": 1, "error": 1}
@@ -385,6 +385,53 @@ def test_facets_count_values_within_the_query(test_client, world):
     assert facets("tool") == {"create_data": 4, "describe_tables": 1, "search_reports": 1}
     assert facets("tool.status", q="tool:create_data") == {"success": 3, "error": 1}
     assert facets("tool.action", prefix="execute_m") == {"execute_mdx": 1}
+
+
+def test_facets_never_hide_a_value_silently(create_user, login_user, whoami, create_report,
+                                            seed_agent_executions, rollup_agent_executions, test_client):
+    """With more values than the list holds, the response says it is cut off,
+    and typing (any word of a name) reaches a value that ranked too low to show."""
+    owner = create_user()
+    token = login_user(owner["email"], owner["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+    tag = uuid.uuid4().hex[:6]
+    first, rare_last = f"Kim{tag}", f"Rare{tag}"
+
+    def member(name):
+        email = f"m_{uuid.uuid4().hex[:8]}@test.com"
+        resp = test_client.post(f"/api/organizations/{org_id}/members",
+                                json={"organization_id": org_id, "email": email, "role": "member"}, headers=headers)
+        assert resp.status_code == 200, resp.json()
+        create_user(name=name, email=email, password="test123")
+        return whoami(login_user(email, "test123"))["id"]
+
+    # 24 busy users and one rare one, all sharing a first name: more than a
+    # default list holds, so the rare user ranks off the bottom.
+    busy = [member(f"{first}{i:02d} Busy") for i in range(24)]
+    rare = member(f"{first} {rare_last}")
+    report = create_report(title="Facet overflow", user_token=token, org_id=org_id)
+    run = lambda uid: dict(user_id=uid, prompt="p", created_at=NOW - timedelta(days=1), status="success")
+    seed_agent_executions(org_id, report["id"], [run(u) for u in busy for _ in range(3)] + [run(rare)])
+    rollup_agent_executions()
+
+    def facets(prefix=""):
+        resp = test_client.get("/api/console/diagnosis/facets/user", headers=headers, params={
+            "q": "", "prefix": prefix, "start": _iso(NOW - timedelta(days=30)), "end": _iso(NOW + timedelta(days=1))})
+        body = _ok(resp)
+        return {f["value"] for f in body["items"]}, body["truncated"]
+
+    names, truncated = facets()
+    assert truncated and f"{first} {rare_last}" not in names
+
+    # A shared prefix matching every user still lists them all, and says so.
+    names, truncated = facets(first[:5].lower())
+    assert f"{first} {rare_last}" in names and len(names) == 25 and not truncated
+
+    # Any word of the name finds the user, in any case.
+    for prefix in (rare_last.lower(), rare_last.upper()[:6]):
+        names, truncated = facets(prefix)
+        assert names == {f"{first} {rare_last}"} and not truncated
 
 
 def test_fields_endpoint_publishes_the_registry_and_quick_filters(test_client, world):
@@ -483,7 +530,7 @@ def test_no_range_means_all_time(runs, world, seed_agent_executions, rollup_agen
 
     # Facets without a range work too, and see the old run's user.
     facets = get("/api/console/diagnosis/facets/status", q="")
-    assert sum(f["count"] for f in facets) == everything["total"]
+    assert sum(f["count"] for f in facets["items"]) == everything["total"]
 
     # An explicit range longer than the chart can show in weeks is also monthly.
     long = _ok(runs("", start=_iso(NOW - timedelta(days=1000)), end=_iso(NOW + timedelta(days=1))))

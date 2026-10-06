@@ -4582,6 +4582,7 @@
       "suggestFields": "Fields",
       "suggestValues": "Values for {field}",
       "suggestFooter": "Bare words search prompts and errors. AND is implied; use OR, NOT, ( ) and \"quotes\".",
+      "moreValues": "Showing the top {count}. Keep typing to narrow.",
       "filterButton": "Filter",
       "filterBy": "Filter by…",
       "groupRun": "Run",

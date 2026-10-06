@@ -4368,6 +4368,7 @@
       "suggestFields": "Felder",
       "suggestValues": "Werte für {field}",
       "suggestFooter": "Einzelne Wörter durchsuchen Prompts und Fehler. AND ist implizit; nutzen Sie OR, NOT, ( ) und \"Anführungszeichen\".",
+      "moreValues": "Die {count} häufigsten werden angezeigt. Tippen Sie weiter, um einzugrenzen.",
       "filterButton": "Filter",
       "filterBy": "Filtern nach…",
       "groupRun": "Lauf",

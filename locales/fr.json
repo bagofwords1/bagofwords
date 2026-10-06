@@ -4368,6 +4368,7 @@
       "suggestFields": "Champs",
       "suggestValues": "Valeurs pour {field}",
       "suggestFooter": "Les mots seuls cherchent dans les prompts et erreurs. AND est implicite ; utilisez OR, NOT, ( ) et des \"guillemets\".",
+      "moreValues": "Affichage des {count} premiers. Continuez à taper pour affiner.",
       "filterButton": "Filtre",
       "filterBy": "Filtrer par…",
       "groupRun": "Exécution",

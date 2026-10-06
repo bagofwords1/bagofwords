@@ -4368,6 +4368,7 @@
       "suggestFields": "Campos",
       "suggestValues": "Valores para {field}",
       "suggestFooter": "Palavras soltas pesquisam prompts e erros. AND é implícito; use OR, NOT, ( ) e \"aspas\".",
+      "moreValues": "Mostrando os {count} principais. Continue digitando para refinar.",
       "filterButton": "Filtro",
       "filterBy": "Filtrar por…",
       "groupRun": "Execução",

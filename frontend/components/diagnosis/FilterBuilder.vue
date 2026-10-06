@@ -78,6 +78,9 @@
                             <span v-if="v.count != null" class="text-xs text-gray-400 tabular-nums">{{ v.count.toLocaleString() }}</span>
                         </label>
                     </div>
+                    <div v-if="truncated && !loadingValues" class="px-2.5 pt-1 text-[11px] text-gray-400" data-testid="facet-truncated">
+                        {{ $t('monitoring.diagnosis.moreValues', { count: values.length }) }}
+                    </div>
                 </template>
 
                 <!-- Typed values (number / duration / money / date / text without facets) -->
@@ -100,10 +103,10 @@
 
 <script setup lang="ts">
 import { FIELDS, type FieldSpec } from '~/utils/diagnosisQuery'
-import type { Facet } from '~/composables/useDiagnosisQuery'
+import type { Facet, FacetPage } from '~/composables/useDiagnosisQuery'
 
 const props = defineProps<{
-    facets: (field: string, prefix: string, qWithoutTerm: string) => Promise<Facet[]>
+    facets: (field: string, prefix: string, qWithoutTerm: string) => Promise<FacetPage>
     query: string
 }>()
 const emit = defineEmits<{ (e: 'add', terms: string): void }>()
@@ -115,6 +118,7 @@ const fieldSearch = ref<HTMLInputElement | null>(null)
 const fieldQuery = ref('')
 const field = ref<FieldSpec | null>(null)
 const values = ref<Facet[]>([])
+const truncated = ref(false)
 const loadingValues = ref(false)
 const valueQuery = ref('')
 const picked = ref<Set<string>>(new Set())
@@ -160,6 +164,7 @@ let valueSeq = 0
 const loadValues = async () => {
     const f = field.value
     if (!f) return
+    truncated.value = false
     if (f.type === 'enum' && !f.facetable) {
         values.value = f.values.map(v => ({ value: v, label: v, count: null as any }))
         return
@@ -167,8 +172,10 @@ const loadValues = async () => {
     const mine = ++valueSeq
     loadingValues.value = true
     try {
-        const rows = await props.facets(f.name, valueQuery.value.trim(), props.query).catch(() => [])
+        const page = await props.facets(f.name, valueQuery.value.trim(), props.query).catch(() => ({ items: [], truncated: false }))
         if (mine !== valueSeq) return
+        const rows = page.items
+        truncated.value = page.truncated
         values.value = rows
         // Enum fields without data still list their values, at zero.
         if (f.type === 'enum') {

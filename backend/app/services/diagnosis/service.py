@@ -43,6 +43,8 @@ DEFAULT_LIMIT = 25
 PROMPT_CHARS = 200
 ERROR_CHARS = 500
 FACET_LIMIT = 20
+# Typing narrows the values, so a search can afford a longer list.
+FACET_SEARCH_LIMIT = 50
 TOOLS_LIMIT = 12
 MAX_BUCKETS = 120
 PREVIEW_CHARS = 160
@@ -561,7 +563,8 @@ class DiagnosisService:
         field_name: str,
         p: RunQueryParams,
         prefix: str = "",
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
+        """Top values for a field: ``{"items": [{value, label, count}], "truncated"}``."""
         spec = F.resolve(field_name)
         if spec is None or not spec.facetable:
             raise BadRequest(f"{field_name!r} has no facets")
@@ -571,12 +574,26 @@ class DiagnosisService:
         q_clause = compile_query(ast, self._ctx(p))
         matched = self._matched_ids(base, q_clause)
         prefix = (prefix or "").strip()
+        limit = FACET_SEARCH_LIMIT if prefix else FACET_LIMIT
 
         def _prefix(col):
             if not prefix:
                 return None
             from app.services.diagnosis.compiler import _escape_like
             return col.ilike(_escape_like(prefix) + "%", escape="\\")
+
+        def _word_prefix(col):
+            # "doe" finds "John Doe": the prefix may start any word, not just the first.
+            if not prefix:
+                return None
+            from app.services.diagnosis.compiler import _escape_like
+            esc = _escape_like(prefix)
+            return or_(col.ilike(esc + "%", escape="\\"), col.ilike("% " + esc + "%", escape="\\"))
+
+        def _page(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+            # Each query fetches one row past the limit, so the caller can say
+            # the list is cut off ("keep typing") instead of looking complete.
+            return {"items": items[:limit], "truncated": len(items) > limit}
 
         name = spec.name
         if name == "user":
@@ -586,11 +603,11 @@ class DiagnosisService:
                 .where(AE.id.in_(matched))
                 .group_by(User.name, User.email)
             )
-            cond = _prefix(User.name)
+            cond = _word_prefix(User.name)
             if cond is not None:
                 stmt = stmt.where(or_(cond, _prefix(User.email)))
-            rows = (await db.execute(stmt.order_by(func.count(AE.id).desc()).limit(FACET_LIMIT))).all()
-            return [{"value": r[0] or r[1], "label": r[0] or r[1], "count": int(r[2])} for r in rows]
+            rows = (await db.execute(stmt.order_by(func.count(AE.id).desc()).limit(limit + 1))).all()
+            return _page([{"value": r[0] or r[1], "label": r[0] or r[1], "count": int(r[2])} for r in rows])
         if name == "agent":
             stmt = (
                 select(DataSource.name, func.count(func.distinct(AE.id)))
@@ -600,11 +617,11 @@ class DiagnosisService:
                 .where(AE.id.in_(matched))
                 .group_by(DataSource.name)
             )
-            cond = _prefix(DataSource.name)
+            cond = _word_prefix(DataSource.name)
             if cond is not None:
                 stmt = stmt.where(cond)
-            rows = (await db.execute(stmt.order_by(func.count(func.distinct(AE.id)).desc()).limit(FACET_LIMIT))).all()
-            return [{"value": r[0], "label": r[0], "count": int(r[1])} for r in rows]
+            rows = (await db.execute(stmt.order_by(func.count(func.distinct(AE.id)).desc()).limit(limit + 1))).all()
+            return _page([{"value": r[0], "label": r[0], "count": int(r[1])} for r in rows])
         if name == "table":
             # Tables the matching calls touched, via the step each call created.
             stmt = (
@@ -618,8 +635,8 @@ class DiagnosisService:
                 from app.services.diagnosis.compiler import _escape_like
                 esc = _escape_like(prefix)
                 stmt = stmt.where(or_(TUE.table_fqn.ilike(esc + "%", escape="\\"), TUE.table_fqn.ilike("%." + esc + "%", escape="\\")))
-            rows = (await db.execute(stmt.order_by(func.count(func.distinct(TE.agent_execution_id)).desc()).limit(FACET_LIMIT))).all()
-            return [{"value": r[0], "label": r[0], "count": int(r[1])} for r in rows]
+            rows = (await db.execute(stmt.order_by(func.count(func.distinct(TE.agent_execution_id)).desc()).limit(limit + 1))).all()
+            return _page([{"value": r[0], "label": r[0], "count": int(r[1])} for r in rows])
         if spec.entity == F.TOOL:
             # Values for a tool field count the calls the query's own tool terms
             # describe: "tool:create_data tool.status:" suggests the statuses of
@@ -633,8 +650,8 @@ class DiagnosisService:
             cond = _prefix(col)
             if cond is not None:
                 stmt = stmt.where(cond)
-            rows = (await db.execute(stmt.order_by(func.count(func.distinct(TE.agent_execution_id)).desc()).limit(FACET_LIMIT))).all()
-            return [{"value": self._norm(name, r[0]), "label": self._norm(name, r[0]), "count": int(r[1])} for r in rows]
+            rows = (await db.execute(stmt.order_by(func.count(func.distinct(TE.agent_execution_id)).desc()).limit(limit + 1))).all()
+            return _page([{"value": self._norm(name, r[0]), "label": self._norm(name, r[0]), "count": int(r[1])} for r in rows])
 
         col = {
             "status": case((stale_clause(self._ctx(p)), "stale"), else_=AE.status),
@@ -646,7 +663,7 @@ class DiagnosisService:
             cond = _prefix(col)
             if cond is not None:
                 stmt = stmt.where(cond)
-        rows = (await db.execute(stmt.order_by(func.count(AE.id).desc()).limit(FACET_LIMIT))).all()
+        rows = (await db.execute(stmt.order_by(func.count(AE.id).desc()).limit(limit + 1))).all()
         merged: Dict[str, int] = {}
         for value, count in rows:
             label = self._norm(name, value)
@@ -655,10 +672,10 @@ class DiagnosisService:
             if prefix and name in ("status", "platform", "feedback") and not label.startswith(prefix.lower()):
                 continue
             merged[label] = merged.get(label, 0) + int(count)
-        return [
+        return _page([
             {"value": k, "label": k, "count": v}
             for k, v in sorted(merged.items(), key=lambda kv: (-kv[1], kv[0]))
-        ][:FACET_LIMIT]
+        ])
 
     @staticmethod
     def _norm(name: str, value) -> Optional[str]:

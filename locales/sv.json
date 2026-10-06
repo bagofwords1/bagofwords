@@ -4368,6 +4368,7 @@
       "suggestFields": "Fält",
       "suggestValues": "Värden för {field}",
       "suggestFooter": "Enskilda ord söker i prompter och fel. AND är underförstått; använd OR, NOT, ( ) och \"citattecken\".",
+      "moreValues": "Visar de {count} främsta. Fortsätt skriva för att begränsa.",
       "filterButton": "Filter",
       "filterBy": "Filtrera på…",
       "groupRun": "Körning",

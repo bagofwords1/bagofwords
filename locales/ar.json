@@ -4368,6 +4368,7 @@
       "suggestFields": "الحقول",
       "suggestValues": "قيم {field}",
       "suggestFooter": "الكلمات المفردة تبحث في الأوامر والأخطاء. AND ضمني؛ استخدم OR وNOT و( ) و\"علامات الاقتباس\".",
+      "moreValues": "يتم عرض أفضل {count}. تابع الكتابة لتضييق النتائج.",
       "filterButton": "تصفية",
       "filterBy": "تصفية حسب…",
       "groupRun": "تشغيل",
