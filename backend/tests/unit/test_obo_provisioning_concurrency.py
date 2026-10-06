@@ -64,8 +64,9 @@ def response(url, ok=True):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ["admin", "member"])
+@pytest.mark.parametrize("missing", [True, False])
 @pytest.mark.parametrize("change", ["disconnect", "membership", "connect", "disabled"])
-async def test_inflight_provisioning_preserves_user_eligibility(monkeypatch, role, change):
+async def test_inflight_provisioning_preserves_user_eligibility(monkeypatch, role, change, missing):
     uid, oid, ids = await seed(role)
     entered, release = asyncio.Event(), asyncio.Event()
 
@@ -75,7 +76,7 @@ async def test_inflight_provisioning_preserves_user_eligibility(monkeypatch, rol
         return response(url)
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
-    job = asyncio.create_task(provision(uid))
+    job = asyncio.create_task(provision(uid, missing=missing))
     try:
         await asyncio.wait_for(entered.wait(), 10)
         async with async_session_maker() as db:
