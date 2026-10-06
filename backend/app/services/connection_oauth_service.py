@@ -744,11 +744,20 @@ async def exchange_obo_token(
         )
 
     if resp.status_code >= 400:
-        logger.error(f"OBO token exchange failed for connection {connection.id}: {resp.status_code} {resp.text}")
-        raise ValueError(f"OBO token exchange failed: {resp.text}")
+        # Provider descriptions can echo assertions. Keep useful numeric Entra
+        # codes, but never log raw response bodies during automatic recovery.
+        try:
+            codes = [c for c in resp.json().get("error_codes", []) if isinstance(c, int)]
+        except (ValueError, TypeError, AttributeError):
+            codes = []
+        error = f"OBO token exchange failed: HTTP {resp.status_code}, AADSTS codes {codes}"
+        logger.warning("%s for connection %s", error, connection.id)
+        raise ValueError(error)
 
     token_data = resp.json()
     expires_in = token_data.get("expires_in", 3600)
+    if not isinstance(token_data.get("access_token"), str) or not token_data["access_token"]:
+        raise ValueError("OBO response missing access token")
     return {
         "access_token": token_data["access_token"],
         "refresh_token": token_data.get("refresh_token"),
@@ -829,9 +838,34 @@ def schedule_auto_provision(user_id: str, login_access_token: str) -> None:
 
 
 async def auto_provision_connection_credentials(
+    db: AsyncSession, user, login_access_token: str, *,
+    missing_only: bool = False, client_id: Optional[str] = None,
+    catalog_targets: Optional[list] = None,
+) -> dict:
+    from app.services.credential_coordination import provisioning_lock
+
+    async with provisioning_lock(db, str(user.id)) as acquired:
+        if not acquired:
+            return {"provisioned": [], "skipped": [{"reason": "provisioning_in_progress"}], "failed": []}
+        summary, pending = await _provision_connection_credentials(
+            db, user, login_access_token, missing_only=missing_only, client_id=client_id,
+        )
+    # Recovery holds the outer lock before refreshing the assertion. Let it
+    # defer all catalog IO until that outer lock has also been released.
+    if catalog_targets is not None:
+        catalog_targets.extend(pending)
+    else:
+        await sync_obo_catalogs(db, user, pending)
+    return summary
+
+
+async def _provision_connection_credentials(
     db: AsyncSession,
     user,
     login_access_token: str,
+    *,
+    missing_only: bool = False,
+    client_id: Optional[str] = None,
 ) -> dict:
     """Auto-provision OAuth credentials for Entra-based connections after OIDC login.
 
@@ -843,9 +877,17 @@ async def auto_provision_connection_credentials(
     For each, if the user doesn't already have valid credentials, performs
     an OBO token exchange and stores the result.
 
+    A Disconnect leaves an inactive row flagged ``auto_recovery_disabled``;
+    those connections are never re-provisioned automatically.
+
+    ``missing_only`` (stored-login recovery): only connections in the user's
+    current organizations with no credential row at all, optionally limited to
+    connections registered on ``client_id``.
+
     Returns a summary dict: {provisioned: [...], skipped: [...], failed: [...]}.
     """
     from sqlalchemy.orm import selectinload
+    from app.models.membership import Membership
 
     # Find eligible connections
     stmt = (
@@ -862,19 +904,59 @@ async def auto_provision_connection_credentials(
             Connection.type.in_(list(ENTRA_OBO_CONNECTION_TYPES)),
         )
     )
+    if missing_only:
+        stmt = stmt.where(
+            Connection.is_active.is_(True),
+            Connection.deleted_at.is_(None),
+            Connection.organization_id.in_(
+                select(Membership.organization_id).where(
+                    Membership.user_id == str(user.id),
+                    Membership.deleted_at.is_(None),
+                )
+            ),
+        )
     result = await db.execute(stmt)
     connections = result.scalars().all()
 
+    # All of the user's rows for these connections, active or not, in one query.
+    rows_by_conn: dict = {}
+    if connections:
+        all_rows = (await db.execute(
+            select(UserConnectionCredentials).where(
+                UserConnectionCredentials.user_id == str(user.id),
+                UserConnectionCredentials.connection_id.in_([c.id for c in connections]),
+            )
+        )).scalars().all()
+        for r in all_rows:
+            rows_by_conn.setdefault(str(r.connection_id), []).append(r)
+
+    original_rows = {
+        key: [(str(r.id), r.encrypted_credentials, r.auth_mode, r.is_active, r.metadata_json) for r in rows]
+        for key, rows in rows_by_conn.items()
+    }
     summary = {"provisioned": [], "skipped": [], "failed": []}
     pending_overlay: list = []
     # One exchange per distinct (tenant, app, scope) — see _obo_identity_key.
     obo_cache: dict = {}
+    failed_exchanges: dict = {}
+    exchanged: list = []
 
     for connection in connections:
         # Check allowed_user_auth_modes includes oauth
         allowed_modes = connection.allowed_user_auth_modes or []
         if "oauth" not in allowed_modes:
             continue
+
+        conn_rows = rows_by_conn.get(str(connection.id), [])
+        if any(not r.is_active and (r.metadata_json or {}).get("auto_recovery_disabled") for r in conn_rows):
+            summary["skipped"].append({"connection_id": connection.id, "reason": "disconnected"})
+            continue
+        if missing_only:
+            if conn_rows:
+                continue
+            creds = connection.decrypt_credentials() or {}
+            if client_id and (creds.get("oauth_client_id") or creds.get("client_id")) != client_id:
+                continue
 
         # Check if user already has a credential/preference row (any auth_mode, so a
         # service-account marker row gets promoted rather than duplicated).
@@ -897,8 +979,11 @@ async def auto_provision_connection_credentials(
 
         # Perform OBO exchange (reusing the token when another connection on
         # this same app registration and scope already exchanged one).
+        cache_key = _obo_identity_key(connection)
+        if cache_key is not None and cache_key in failed_exchanges:
+            summary["failed"].append({"connection_id": connection.id, "error": failed_exchanges[cache_key]})
+            continue
         try:
-            cache_key = _obo_identity_key(connection)
             if cache_key is not None and cache_key in obo_cache:
                 tokens = obo_cache[cache_key]
             else:
@@ -906,8 +991,58 @@ async def auto_provision_connection_credentials(
                 if cache_key is not None:
                     obo_cache[cache_key] = tokens
         except Exception as e:
-            logger.warning(f"OBO auto-provision failed for connection {connection.id}: {e}")
-            summary["failed"].append({"connection_id": connection.id, "error": str(e)})
+            # exchange_obo_token raises ValueError with a redacted message;
+            # anything else (transport errors) can echo request data, so only
+            # its type is recorded.
+            error = str(e) if isinstance(e, ValueError) else type(e).__name__
+            logger.warning(f"OBO auto-provision failed for connection {connection.id}: {error}")
+            summary["failed"].append({"connection_id": connection.id, "error": error})
+            if cache_key is not None:
+                failed_exchanges[cache_key] = error
+            continue
+
+        exchanged.append((connection, tokens, cache_key, connection.config))
+
+    # Token IO is finished. Serialize only the short final read/write window
+    # with manual Connect, Disconnect and query-identity changes.
+    from app.services.credential_coordination import lock_credential_writes
+    from app.models.user import User
+    await lock_credential_writes(db, str(user.id))
+    active_user = await db.scalar(select(User.id).where(
+        User.id == str(user.id), User.is_active.is_(True),
+    ).with_for_update(read=True))
+    for connection, tokens, exchange_key, original_config in exchanged:
+        await db.refresh(connection, attribute_names=[
+            "is_active", "deleted_at", "auth_policy", "allowed_user_auth_modes",
+            "type", "credentials", "config", "organization_id",
+        ], with_for_update={"read": True})
+        membership = await db.scalar(select(Membership.id).where(
+            Membership.user_id == str(user.id),
+            Membership.organization_id == connection.organization_id,
+            Membership.deleted_at.is_(None),
+        ).with_for_update(read=True))
+        if (not active_user or not membership or not connection.is_active or connection.deleted_at
+                or connection.auth_policy != "user_required"
+                or "oauth" not in (connection.allowed_user_auth_modes or [])
+                or connection.type not in ENTRA_OBO_CONNECTION_TYPES
+                or _obo_identity_key(connection) != exchange_key
+                or connection.config != original_config):
+            summary["skipped"].append({"connection_id": connection.id, "reason": "eligibility_changed"})
+            continue
+        fresh_rows = (await db.scalars(select(UserConnectionCredentials).where(
+            UserConnectionCredentials.user_id == str(user.id),
+            UserConnectionCredentials.connection_id == connection.id,
+        ).execution_options(populate_existing=True))).all()
+        # An explicit choice made during token IO always wins, for login too.
+        if any(not r.is_active and (r.metadata_json or {}).get("auto_recovery_disabled") for r in fresh_rows):
+            continue
+        if missing_only and fresh_rows:
+            continue
+        current_state = [(str(r.id), r.encrypted_credentials, r.auth_mode, r.is_active, r.metadata_json) for r in fresh_rows]
+        if sorted(current_state) != sorted(original_rows.get(str(connection.id), [])):
+            continue
+        existing = next((r for r in fresh_rows if r.is_active), None)
+        if existing and existing.auth_mode == "oauth" and existing.expires_at and existing.expires_at > datetime.utcnow():
             continue
 
         # Upsert credentials
@@ -938,14 +1073,19 @@ async def auto_provision_connection_credentials(
     # touches many lazy relationships; letting it run first means one failure
     # leaves the session in a rolled-back state and the (successful) OBO
     # credentials are lost with it — the user then silently has no access.
+    await db.commit()
     if summary["provisioned"]:
-        await db.commit()
         logger.info(
             f"OBO auto-provisioned {len(summary['provisioned'])} connection(s) for user {user.id} "
             f"using {len(obo_cache)} token exchange(s): "
             f"{[c['connection_id'] for c in summary['provisioned']]}"
         )
 
+    return summary, pending_overlay
+
+
+async def sync_obo_catalogs(db: AsyncSession, user, connections: list[Connection]) -> None:
+    """Sync committed delegated credentials using sessions on the caller's engine."""
     # Trigger overlay sync (best-effort; never fails the provisioning above).
     #
     # Sync per DATA SOURCE, not per connection. `get_user_data_source_schema`
@@ -953,11 +1093,11 @@ async def auto_provision_connection_credentials(
     # looping connections here made an agent with N connections cost N x N
     # crawls — 10,000 SharePoint round trips for a 100-connection agent.
     #
-    # The list is materialised from `pending_overlay` BEFORE any sync runs,
+    # The list is materialised from `connections` BEFORE any sync runs,
     # while the objects are still live on `db`.
     ds_ids: list = []
     seen_ds: set = set()
-    for connection in pending_overlay:
+    for connection in connections:
         for ds in (connection.data_sources or []):
             if str(ds.id) not in seen_ds:
                 seen_ds.add(str(ds.id))
@@ -1003,8 +1143,6 @@ async def auto_provision_connection_credentials(
         logger.info(
             f"OBO overlay sync for user {user.id}: {synced}/{len(ds_ids)} data source(s) synced"
         )
-
-    return summary
 
 
 async def maybe_refresh_oauth_credentials(
