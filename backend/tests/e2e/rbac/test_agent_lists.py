@@ -887,3 +887,87 @@ def test_turning_keep_human_edits_on_protects_edits_made_while_it_was_off(test_c
     out = submit(world, [_record(value=999)])
     assert [s["field"] for s in out["observation"]["locked_fields_skipped"]] == ["annual_value"]
     assert _rows(test_client, world)["rows"][0]["values"][fid]["value"] == 130000
+
+
+# --- Report summary: one item per list the conversation wrote to ----------------
+
+def _record_in_conversation(world, payload, report_key="report"):
+    """Store a submit_list result the way an agent run does: completion →
+    agent execution → tool execution → completion block. Direct DB writes
+    because only a live (LLM) agent run produces these rows."""
+    from app.models.agent_execution import AgentExecution
+    from app.models.completion import Completion
+    from app.models.completion_block import CompletionBlock
+    from app.models.tool_execution import ToolExecution
+
+    out = payload["output"]
+
+    async def _fn(db, maker):
+        rid = world[report_key]["id"]
+        uid = world["admin"]["user_id"]
+        completion = Completion(prompt={"content": "extract"}, completion={}, status="success",
+                                role="ai_system", message_type="ai_completion", report_id=rid, user_id=uid)
+        db.add(completion)
+        await db.flush()
+        ae = AgentExecution(completion_id=completion.id, organization_id=world["org_id"], user_id=uid,
+                            report_id=rid, status="success")
+        db.add(ae)
+        await db.flush()
+        te = ToolExecution(agent_execution_id=ae.id, tool_name="submit_list",
+                           status="success", success=bool(out["success"]),
+                           arguments_json={"list_id": out["list_id"], "records": []}, result_json=out)
+        db.add(te)
+        await db.flush()
+        db.add(CompletionBlock(completion_id=completion.id, agent_execution_id=ae.id, source_type="tool",
+                               tool_execution_id=te.id, block_index=0, title="submit_list", status="complete"))
+        await db.commit()
+        return str(completion.id)
+    return run_async(_fn)
+
+
+def _summary_lists(test_client, world, report_key="report"):
+    r = test_client.get(f"/api/reports/{world[report_key]['id']}/summary",
+                        headers=_h(world["admin"]["token"], world["org_id"]))
+    assert r.status_code == 200, r.text
+    return r.json()["lists"]
+
+
+def test_summary_folds_a_lists_submissions_into_distinct_row_counts(test_client, world):
+    # A row that existed before this conversation's calls (e.g. an earlier run).
+    submit(world, [_record(cp="Initech")])
+
+    m1 = _record_in_conversation(world, submit(world, [_record(cp="Acme Ltd"), _record(cp="Globex")]))
+    # Re-touches a row this conversation added, adds one, and updates the old row.
+    m2 = _record_in_conversation(world, submit(world, [_record(cp="Acme Ltd", value=1), _record(cp="Umbrella"),
+                                                       _record(cp="Initech", value=2)]))
+    m3 = _record_in_conversation(world, submit(world, [_record(cp="Initech", value=3)]))
+
+    [item] = _summary_lists(test_client, world)
+    assert item["list_id"] == world["list"]["id"]
+    assert item["data_source_id"] == world["agent"]["id"]
+    assert item["agent_name"] == world["agent"]["name"]
+    assert item["inserted"] == 3  # Acme, Globex, Umbrella — Acme's later update doesn't recount it
+    assert item["updated"] == 1   # Initech, updated twice
+    assert [s["message_id"] for s in item["submissions"]] == [m1, m2, m3]
+
+
+def test_summary_skips_rejected_submissions_and_other_conversations(test_client, world):
+    rejected = submit(world, [_record(annual_value=_env("120k"))])
+    assert rejected["output"]["success"] is False
+    _record_in_conversation(world, rejected)
+    assert _summary_lists(test_client, world) == []
+
+    _record_in_conversation(world, submit(world, [_record()]))
+    assert len(_summary_lists(test_client, world)) == 1
+    assert _summary_lists(test_client, world, report_key="other_report") == []
+
+
+def test_summary_shows_the_lists_current_name_and_drops_deleted_lists(test_client, world):
+    h = _h(world["admin"]["token"], world["org_id"])
+    _record_in_conversation(world, submit(world, [_record()]))
+    renamed = {**_schema(name="Renewals")}
+    assert test_client.put(_url(world, f"/{world['list']['id']}"), json=renamed, headers=h).status_code == 200
+    assert [i["list_name"] for i in _summary_lists(test_client, world)] == ["Renewals"]
+
+    assert test_client.delete(_url(world, f"/{world['list']['id']}"), headers=h).status_code == 204
+    assert _summary_lists(test_client, world) == []

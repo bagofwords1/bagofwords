@@ -5295,6 +5295,7 @@
     "empty": "Inga objekt ännu",
     "scheduledTasks": "Schemalagda uppgifter",
     "artifacts": "Artefakter",
+    "lists": "Listor",
     "default": "Standard",
     "document": "dokument",
     "showMore": "Visa {count} till",

@@ -47,6 +47,7 @@
 							:artifactList="reportArtifacts"
 							:queryList="queryList"
 							:queryExecutions="summaryQueries"
+							:listSubmissions="summaryLists"
 							:trainingInstructions="summaryInstructions"
 							:reportInstructions="reportInstructions"
 							:pendingBuildId="pendingTrainingBuild?.id || null"
@@ -878,6 +879,7 @@
 						:artifactList="reportArtifacts"
 						:queryList="queryList"
 						:queryExecutions="summaryQueries"
+						:listSubmissions="summaryLists"
 						:trainingInstructions="summaryInstructions"
 						:reportInstructions="reportInstructions"
 						:pendingBuildId="pendingTrainingBuild?.id || null"
@@ -1597,6 +1599,8 @@ useHead(() => ({ title: report.value?.title || 'Report' }))
 // Report summary (queries + instructions independent of message pagination)
 const summaryQueries = ref<any[]>([])
 const summaryInstructions = ref<any[]>([])
+// Agent Lists this conversation wrote to — one item per list.
+const summaryLists = ref<any[]>([])
 // Historical list of instructions created during this report's agent runs.
 // Separate from summaryInstructions (which is pending-only) so the Summary
 // tab can keep showing accepted instructions after the build is approved.
@@ -2149,6 +2153,7 @@ async function loadReportSummary() {
         const { data } = await useMyFetch(`/reports/${report_id}/summary`)
         const res = data.value as any
         summaryQueries.value = res?.queries || []
+        summaryLists.value = res?.lists || []
         summaryInstructions.value = (res?.instructions || []).map((i: any) => ({
             instructionId: i.instruction_id,
             title: i.title,
@@ -2162,6 +2167,7 @@ async function loadReportSummary() {
         await loadPendingBuildDiff()
     } catch {
         summaryQueries.value = []
+        summaryLists.value = []
         summaryInstructions.value = []
         pendingTrainingBuild.value = null
         pendingTrainingBuildDiff.value = null

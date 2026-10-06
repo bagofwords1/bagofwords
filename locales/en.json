@@ -5542,6 +5542,7 @@
     "empty": "No items yet",
     "scheduledTasks": "Scheduled tasks",
     "artifacts": "Artifacts",
+    "lists": "Lists",
     "default": "Default",
     "document": "document",
     "showMore": "Show {count} more",
