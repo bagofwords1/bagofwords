@@ -537,7 +537,8 @@ async def _record_login(user) -> None:
     from app.models.user import User as UserModel
     from sqlalchemy import update
     try:
-        now = datetime.now(timezone.utc)
+        # users.last_login is TIMESTAMP WITHOUT TIME ZONE; asyncpg rejects aware values.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         async with async_session_maker() as db:
             await db.execute(
                 update(UserModel).where(UserModel.id == str(user.id)).values(last_login=now)

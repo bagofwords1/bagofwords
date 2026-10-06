@@ -792,12 +792,22 @@ def _obo_identity_key(connection) -> Optional[tuple]:
 
 async def _auto_provision_in_background(user_id: str, login_access_token: str) -> None:
     """Body of the backgrounded auto-provision. Opens its own session — the
-    login request's session is long gone by the time this runs."""
-    from app.dependencies import async_session_maker
-    from app.models.user import User
+    login request's session is long gone by the time this runs.
 
+    This runs on the background loop's thread, so it must not touch the main
+    engine: its pooled asyncpg connections are bound to the request loop, and
+    using one here fails with "attached to a different loop" and leaves the
+    connection in an unknown protocol state. A NullPool engine opens its
+    connections on this loop instead, as the indexing runner does.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from app.models.user import User
+    from app.settings.database import create_async_database_engine_for_indexing
+
+    engine = create_async_database_engine_for_indexing()
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
-        async with async_session_maker() as db:
+        async with session_factory() as db:
             user = await db.get(User, str(user_id))
             if user is None:
                 logger.warning(f"OBO auto-provision: user {user_id} not found")
@@ -805,6 +815,8 @@ async def _auto_provision_in_background(user_id: str, login_access_token: str) -
             await auto_provision_connection_credentials(db, user, login_access_token)
     except Exception as e:
         logger.warning(f"OBO auto-provision (background) failed for user {user_id}: {e}")
+    finally:
+        await engine.dispose()
 
 
 def schedule_auto_provision(user_id: str, login_access_token: str) -> None:
