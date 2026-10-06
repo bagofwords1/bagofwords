@@ -12,6 +12,7 @@ from app.data_sources.clients.progress import discovery_progress
 
 import base64
 import binascii
+import html
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -19,10 +20,20 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.data_sources.clients.base import Capability, DataSourceClient
-from app.data_sources.clients.mail_common import strip_html
+from app.data_sources.clients.mail_common import (
+    clamp_mail_results,
+    decode_cursor,
+    encode_cursor,
+    parse_mail_datetime,
+    strip_html,
+)
 
 GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1"
 _METADATA_HEADERS = ("Subject", "From", "To", "Date")
+# Gmail serves up to 500 ids per page; 100 keeps the per-id metadata fan-out
+# of one page bounded and the cursor fine-grained.
+_PAGE_SIZE = 100
+_MAX_PAGES = 30
 _CHARSET_RE = re.compile(r"charset\s*=\s*[\"']?([^\s;\"']+)", re.IGNORECASE)
 
 
@@ -47,6 +58,7 @@ class GmailMailClient(DataSourceClient):
         self.workspace_domain = workspace_domain
         # Test-only injection point for deterministic external-boundary tests.
         self._transport = transport
+        self._labels: Optional[List[dict]] = None
 
     @property
     def description(self) -> str:
@@ -134,6 +146,8 @@ class GmailMailClient(DataSourceClient):
             "from": headers.get("from", ""),
             "thread_id": message.get("threadId"),
             "snippet": message.get("snippet") or "",
+            "preview": " ".join(html.unescape(message.get("snippet") or "").split()) or None,
+            "is_read": ("UNREAD" not in message["labelIds"]) if isinstance(message.get("labelIds"), list) else None,
         }
 
     @staticmethod
@@ -142,52 +156,163 @@ class GmailMailClient(DataSourceClient):
         params.extend(("metadataHeaders", name) for name in _METADATA_HEADERS)
         return params
 
-    def _list_messages(self, query: Optional[str] = None) -> List[dict]:
+    # --------------------------------------------------------------- labels
+
+    def list_mail_folders(self) -> List[dict]:
+        """Gmail labels, which play the role of folders (INBOX, SENT, user labels)."""
+        if self._labels is not None:
+            return self._labels
+        if not self.access_token:
+            return []
+        data = self._get("/users/me/labels")
+        self._labels = [
+            {"id": lab.get("id"), "name": lab.get("name") or lab.get("id"), "path": lab.get("name") or lab.get("id")}
+            for lab in data.get("labels") or []
+        ]
+        return self._labels
+
+    def resolve_mail_folder(self, folder: str) -> dict:
+        wanted = str(folder or "").strip().strip("/")
+        labels = self.list_mail_folders()
+        low = wanted.lower()
+        for lab in labels:
+            if lab["id"] == wanted or str(lab["name"]).lower() == low:
+                row = dict(lab)
+                try:
+                    detail = self._get(f"/users/me/labels/{lab['id']}")
+                    row["unread_count"] = detail.get("messagesUnread")
+                    row["total_count"] = detail.get("messagesTotal")
+                except Exception:
+                    pass
+                return row
+        listing = ", ".join(str(lab["name"]) for lab in labels[:60])
+        raise ValueError(f"Mail folder/label {folder!r} was not found. Labels in this mailbox: {listing}")
+
+    # --------------------------------------------------------------- paging
+
+    def _page_messages(self, params: Dict[str, Any], max_results: int, cursor: Optional[str]) -> Dict[str, Any]:
+        """Walk ``messages.list`` pages, fetching metadata for each kept id.
+
+        The cursor is self-contained (query params + page token + offset into
+        that page), so a resumed call needs nothing but the cursor.
+        """
+        state = decode_cursor(cursor)
+        if state:
+            params = dict(state.get("p") or {})
+        token = state.get("t")
+        offset = int(state.get("o") or 0)
+        rows: List[dict] = []
+        # Reuse one HTTP/2-capable client for the list and metadata calls. Gmail
+        # messages.list returns only id/threadId, so metadata is a second step.
+        with self._client() as client:
+            for _ in range(_MAX_PAGES):
+                page_params = dict(params)
+                if token:
+                    page_params["pageToken"] = token
+                page = self._get("/users/me/messages", params=page_params, client=client)
+                refs = page.get("messages") or []
+                nxt = page.get("nextPageToken")
+                for i in range(offset, len(refs)):
+                    if len(rows) >= max_results:
+                        return {"items": rows, "next_cursor": encode_cursor({"p": params, "t": token, "o": i})}
+                    message_id = refs[i].get("id")
+                    if not message_id:
+                        continue
+                    message = self._get(
+                        f"/users/me/messages/{message_id}",
+                        params=self._metadata_params(),
+                        client=client,
+                    )
+                    # Defensive merge: a mocked or partial metadata response may
+                    # omit threadId even though the list row had it.
+                    if not message.get("threadId") and refs[i].get("threadId"):
+                        message["threadId"] = refs[i]["threadId"]
+                    rows.append(self._message_to_item(message))
+                if not nxt:
+                    return {"items": rows, "next_cursor": None}
+                token, offset = nxt, 0
+                if len(rows) >= max_results:
+                    return {"items": rows, "next_cursor": encode_cursor({"p": params, "t": token, "o": 0})}
+        return {"items": rows, "next_cursor": encode_cursor({"p": params, "t": token, "o": offset})}
+
+    def _query_params(
+        self,
+        query: Optional[str],
+        folder: Optional[str],
+        unread_only: bool,
+        received_after: Optional[str],
+        received_before: Optional[str],
+        max_results: int,
+    ) -> tuple:
+        terms = [query.strip()] if query and query.strip() else []
+        if unread_only:
+            terms.append("is:unread")
+        after = parse_mail_datetime(received_after)
+        before = parse_mail_datetime(received_before)
+        # Gmail's after:/before: take epoch seconds for sub-day precision.
+        if after:
+            terms.append(f"after:{int(after.timestamp())}")
+        if before:
+            terms.append(f"before:{int(before.timestamp())}")
         params: Dict[str, Any] = {
-            "maxResults": 25,
+            "maxResults": min(max_results, _PAGE_SIZE),
             "includeSpamTrash": "false",
             "fields": "messages(id,threadId),nextPageToken,resultSizeEstimate",
         }
-        if query:
-            params["q"] = query
+        if terms:
+            params["q"] = " ".join(terms)
+        folder_row = None
+        if folder:
+            folder_row = self.resolve_mail_folder(folder)
+            params["labelIds"] = folder_row["id"]
+        return params, folder_row
 
-        # Reuse one HTTP/2-capable client for the list and metadata calls. Gmail
-        # messages.list intentionally returns only id/threadId, so metadata is a
-        # second step; keeping the page bounded at 25 limits latency and quota.
-        with self._client() as client:
-            page = self._get("/users/me/messages", params=params, client=client)
-            rows: List[dict] = []
-            for ref in page.get("messages") or []:
-                message_id = ref.get("id")
-                if not message_id:
-                    continue
-                message = self._get(
-                    f"/users/me/messages/{message_id}",
-                    params=self._metadata_params(),
-                    client=client,
-                )
-                # Defensive merge: a mocked or partial metadata response may
-                # omit threadId even though the list row had it.
-                if not message.get("threadId") and ref.get("threadId"):
-                    message["threadId"] = ref["threadId"]
-                rows.append(self._message_to_item(message))
-            return rows
+    def list_messages(
+        self,
+        folder: Optional[str] = None,
+        unread_only: bool = False,
+        received_after: Optional[str] = None,
+        received_before: Optional[str] = None,
+        max_results: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        # Admin save only stores the OAuth app. The mailbox becomes enumerable
+        # after an individual user signs in.
+        if not self.access_token:
+            return {"items": [], "next_cursor": None, "folder": None}
+        n = clamp_mail_results(max_results)
+        params, folder_row = self._query_params(None, folder, unread_only, received_after, received_before, n)
+        page = self._page_messages(params, n, cursor)
+        page["folder"] = folder_row
+        return page
+
+    def search_messages(
+        self,
+        query: str,
+        folder: Optional[str] = None,
+        unread_only: bool = False,
+        received_after: Optional[str] = None,
+        received_before: Optional[str] = None,
+        max_results: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not self.access_token or not (query or "").strip():
+            return {"items": [], "next_cursor": None, "folder": None}
+        n = clamp_mail_results(max_results)
+        params, folder_row = self._query_params(query, folder, unread_only, received_after, received_before, n)
+        page = self._page_messages(params, n, cursor)
+        page["folder"] = folder_row
+        return page
 
     def list_files(
         self,
         folder_id: Optional[str] = None,
         recursive: Optional[bool] = None,
     ) -> List[dict]:
-        # Admin save only stores the OAuth app. The mailbox becomes enumerable
-        # after an individual user signs in.
-        if not self.access_token:
-            return []
-        return self._list_messages()
+        return self.list_messages(folder=folder_id)["items"]
 
-    def search_files(self, query: str, **_) -> List[dict]:
-        if not (query or "").strip():
-            return []
-        return self._list_messages(query=query.strip())
+    def search_files(self, query: str, max_results: Optional[int] = None, **_) -> List[dict]:
+        return self.search_messages(query, max_results=max_results)["items"]
 
     @staticmethod
     def _decode_part(part: dict) -> str:
