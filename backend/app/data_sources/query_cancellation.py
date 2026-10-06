@@ -41,10 +41,12 @@ may lose a race, the side connection may fail. Every path returns a description
 of what happened instead of raising, and callers record it.
 """
 
+import asyncio
+import contextvars
 import logging
 import threading
 from contextlib import contextmanager, nullcontext
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,63 @@ def cancel_thread(client: Any, thread_ident: int) -> str:
     except Exception as e:  # pragma: no cover - defensive
         logger.warning("Query cancellation failed: %s", e)
         return f"failed: {type(e).__name__}"
+
+
+class SourceCallTimeout(TimeoutError):
+    """`run_bounded` gave up — distinct from a TimeoutError the call raised itself."""
+
+
+async def run_bounded(client: Any, fn: Callable[[], Any], timeout_s: float) -> Any:
+    """Run blocking `fn` for `client` in its own daemon thread, giving up after
+    `timeout_s` seconds with `SourceCallTimeout`.
+
+    For calls that can block with no limit of their own (an Oracle login the
+    server never finishes, a dictionary query that never returns). On expiry
+    the thread's source statement is cancelled (`cancel_thread`) so the
+    database stops working on it; a thread still stuck before it has a
+    connection — mid-login — can't be cancelled and is abandoned. It is a
+    daemon thread rather than an `asyncio.to_thread` worker so an abandoned
+    login neither pins a slot in the shared executor nor blocks shutdown.
+    """
+    loop = asyncio.get_running_loop()
+    done: asyncio.Future = loop.create_future()
+    # Same context propagation as asyncio.to_thread.
+    ctx = contextvars.copy_context()
+
+    def _settle(ok: bool, value: Any) -> None:
+        if done.done():
+            return
+        if ok:
+            done.set_result(value)
+        else:
+            done.set_exception(value)
+
+    def _deliver(ok: bool, value: Any) -> None:
+        try:
+            loop.call_soon_threadsafe(_settle, ok, value)
+        except RuntimeError:
+            pass  # abandoned call finished after its event loop closed
+
+    def _run() -> None:
+        try:
+            result = ctx.run(fn)
+        except BaseException as e:  # delivered to the awaiting coroutine
+            _deliver(False, e)
+        else:
+            _deliver(True, result)
+
+    worker = threading.Thread(target=_run, name="bounded-source-call", daemon=True)
+    worker.start()
+    # asyncio.wait rather than wait_for: wait_for's TimeoutError is the builtin
+    # one (3.11+), indistinguishable from a TimeoutError raised by `fn` itself.
+    await asyncio.wait({done}, timeout=timeout_s)
+    if done.done():
+        return done.result()
+    outcome = cancel_thread(client, worker.ident)
+    logger.warning(
+        "Source call abandoned after %.0fs (source cancel: %s)", timeout_s, outcome
+    )
+    raise SourceCallTimeout(f"timed out after {timeout_s:.0f}s")
 
 
 def active_count() -> int:

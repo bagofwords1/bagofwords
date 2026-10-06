@@ -104,6 +104,29 @@ def _looks_like_auth_challenge(message: str | None) -> bool:
 VALIDATION_FILE_CAP = 200
 
 
+async def _aread_tables_for_validation(client):
+    """Read the catalog for a connection test → `(tables, timeout_message)`.
+
+    Clients whose catalog read can block with no limit of its own (Oracle: a
+    dictionary query on a 10g server can run for many minutes) declare
+    `validation_timeout_s`; past it the source query is cancelled and the
+    client's `validation_timeout_message` is returned instead of hanging the
+    "Check connection" request. Other clients read exactly as before.
+    """
+    timeout_s = getattr(client, "validation_timeout_s", None)
+    if not timeout_s:
+        return await client.aget_schemas(), None
+    from app.data_sources.query_cancellation import run_bounded, SourceCallTimeout
+    try:
+        return await run_bounded(client, client.get_schemas, timeout_s), None
+    except SourceCallTimeout:
+        message = getattr(
+            client, "validation_timeout_message",
+            "Connected, but reading the table list did not finish within {seconds}s.",
+        )
+        return None, message.format(seconds=int(timeout_s))
+
+
 async def _acount_files_for_validation(client, limit: int | None = None) -> int | None:
     """Metadata-only inventory count for validating file or mail sources.
 
@@ -2193,7 +2216,9 @@ class ConnectionService:
 
             tables = None
             if hasattr(client, "aget_schemas"):
-                tables = await client.aget_schemas()
+                tables, timeout_message = await _aread_tables_for_validation(client)
+                if timeout_message:
+                    return {"success": False, "message": timeout_message, "table_count": 0}
             elif hasattr(client, "get_tables"):
                 import asyncio
                 tables = await asyncio.to_thread(client.get_tables)

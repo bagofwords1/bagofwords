@@ -1,6 +1,7 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
+import logging
 import os
 import ssl
 
@@ -9,7 +10,7 @@ import pandas as pd
 import sqlalchemy
 
 from app.data_sources.engine_pool import get_engine
-from app.data_sources.query_cancellation import track
+from app.data_sources.query_cancellation import track, run_bounded, SourceCallTimeout
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -17,6 +18,8 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from app.data_sources.fk_reflection import attach_foreign_keys
 from functools import cached_property
+
+logger = logging.getLogger(__name__)
 
 
 def init_thick_mode_if_available() -> bool:
@@ -39,11 +42,64 @@ def init_thick_mode_if_available() -> bool:
     """
     if os.getenv("ORACLE_THICK_MODE", "").strip().lower() in ("0", "false", "off", "thin", "no"):
         return False
+    lib_dir = os.getenv("ORACLE_CLIENT_LIB_DIR", "").strip()
+    if lib_dir:
+        # Operator-supplied Instant Client (e.g. 11.2 for Oracle 10g servers,
+        # which the bundled 19c client cannot talk to). start.sh also puts it
+        # first on LD_LIBRARY_PATH so its dependent libraries resolve from the
+        # same directory. If it fails to load, fall back to the default lookup
+        # so a bad path degrades to today's behaviour instead of thin mode.
+        try:
+            oracledb.init_oracle_client(lib_dir=lib_dir)
+            return True
+        except Exception as e:
+            logger.error(
+                "ORACLE_CLIENT_LIB_DIR=%s could not be loaded (%s); "
+                "falling back to the default Oracle Client libraries", lib_dir, e,
+            )
     try:
         oracledb.init_oracle_client()
         return True
     except Exception:
         return False
+
+
+def _env_seconds(name: str, default: float) -> Optional[float]:
+    """Seconds from env; 0 or negative disables the limit."""
+    try:
+        value = float(os.getenv(name, default))
+    except ValueError:
+        value = default
+    return value if value > 0 else None
+
+
+# "Check connection" bounds. Without them a login the server never completes
+# (an Oracle 10g server behind the 19c client) or a dictionary query that
+# never returns left the UI on "Connecting…" forever with no error at all.
+# Generous on purpose: a healthy login takes seconds, so these only ever fire
+# on calls that were going to hang. Neither applies to indexing or queries.
+CONNECT_TIMEOUT_S = _env_seconds("ORACLE_CONNECT_TIMEOUT_S", 60)
+VALIDATION_TIMEOUT_S = _env_seconds("ORACLE_VALIDATION_TIMEOUT_S", 300)
+
+CONNECT_TIMEOUT_MESSAGE = (
+    "Oracle did not finish the login within {seconds}s. The server accepted the "
+    "connection but never answered, which usually means the database is older "
+    "than the Oracle client supports: the bundled client supports Oracle 11.2 and "
+    "newer, and Oracle 10g needs an older Instant Client (set ORACLE_CLIENT_LIB_DIR "
+    "on the backend). A firewall silently dropping traffic looks the same."
+)
+VALIDATION_TIMEOUT_MESSAGE = (
+    "Connected to Oracle, but reading the table list did not finish within "
+    "{seconds}s. On older or very large Oracle databases the data dictionary "
+    "views (ALL_TAB_COLUMNS) can be very slow: set Schema to only the schemas "
+    "you need, or ask your DBA to gather dictionary statistics "
+    "(DBMS_STATS.GATHER_DICTIONARY_STATS)."
+)
+# Thin mode's refusal for pre-12.1 servers names no way out; add one.
+_UNSUPPORTED_SERVER_HINT = (
+    " Oracle servers older than 12.1 need thick mode with an Oracle Client that "
+    "supports them (the bundled client covers 11.2+; for 10g set ORACLE_CLIENT_LIB_DIR)."
+)
 
 
 class OracledbClient(DataSourceClient):
@@ -52,6 +108,11 @@ class OracledbClient(DataSourceClient):
     # express time windows with the engine's own relative date functions instead
     # of literal dates that go stale when saved code is re-executed.
     relative_date_hint = "Relative dates (Oracle): TRUNC(SYSDATE), TRUNC(SYSDATE) - 7, TRUNC(SYSDATE, 'MM') for month start; SYSDATE is the DB server's clock."
+
+    # Read by ConnectionService's schema-access check (the second half of
+    # "Check connection"); see VALIDATION_TIMEOUT_S.
+    validation_timeout_s = VALIDATION_TIMEOUT_S
+    validation_timeout_message = VALIDATION_TIMEOUT_MESSAGE
 
     def __init__(self, host, port, service_name, user, password, schema: Optional[str] = None,
                  use_tcps: bool = False, verify_ssl: bool = True):
@@ -307,9 +368,30 @@ class OracledbClient(DataSourceClient):
                     "message": "Successfully connected to Oracle"
                 }
         except Exception as e:
+            message = str(e)
+            if "DPY-3010" in message:
+                message += _UNSUPPORTED_SERVER_HINT
             return {
                 "success": False,
-                "message": str(e)
+                "message": message
+            }
+
+    async def atest_connection(self):
+        """Base probe, bounded by CONNECT_TIMEOUT_S (see its comment)."""
+        if CONNECT_TIMEOUT_S is None:
+            return await super().atest_connection()
+        from app.data_sources.engine_pool import ephemeral
+
+        def _probe():
+            with ephemeral():
+                return self.test_connection()
+
+        try:
+            return await run_bounded(self, _probe, CONNECT_TIMEOUT_S)
+        except SourceCallTimeout:
+            return {
+                "success": False,
+                "message": CONNECT_TIMEOUT_MESSAGE.format(seconds=int(CONNECT_TIMEOUT_S)),
             }
 
     @property

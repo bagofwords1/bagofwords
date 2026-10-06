@@ -2551,7 +2551,10 @@ class DataSourceService:
             # Try aget_schemas first (most clients), fall back to get_tables
             tables = None
             if hasattr(client, "aget_schemas"):
-                tables = await client.aget_schemas()
+                from app.services.connection_service import _aread_tables_for_validation
+                tables, timeout_message = await _aread_tables_for_validation(client)
+                if timeout_message:
+                    return {"success": False, "message": timeout_message, "table_count": 0}
             elif hasattr(client, "get_tables"):
                 import asyncio
                 tables = await asyncio.to_thread(client.get_tables)
