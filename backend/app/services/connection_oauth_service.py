@@ -14,7 +14,7 @@ from typing import Optional, Tuple
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, update
 
 from app.models.connection import Connection
@@ -791,13 +791,16 @@ def _obo_identity_key(connection) -> Optional[tuple]:
 
 
 async def _auto_provision_in_background(user_id: str, login_access_token: str) -> None:
-    """Body of the backgrounded auto-provision. Opens its own session — the
-    login request's session is long gone by the time this runs."""
-    from app.dependencies import async_session_maker
+    """Provision on the worker loop without borrowing request-loop connections."""
+    from app.settings.database import create_async_database_engine_for_indexing
     from app.models.user import User
 
+    # A new session on the main engine still borrows its loop-bound asyncpg
+    # connections. Use the same isolated engine as the indexing worker.
+    engine = create_async_database_engine_for_indexing()
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with async_session_maker() as db:
+        async with session_factory() as db:
             user = await db.get(User, str(user_id))
             if user is None:
                 logger.warning(f"OBO auto-provision: user {user_id} not found")
@@ -805,6 +808,8 @@ async def _auto_provision_in_background(user_id: str, login_access_token: str) -
             await auto_provision_connection_credentials(db, user, login_access_token)
     except Exception as e:
         logger.warning(f"OBO auto-provision (background) failed for user {user_id}: {e}")
+    finally:
+        await engine.dispose()
 
 
 def schedule_auto_provision(user_id: str, login_access_token: str) -> None:
@@ -965,15 +970,17 @@ async def auto_provision_connection_credentials(
     # implicitly, raising MissingGreenlet and aborting every remaining sync.
     # That turned one inaccessible source into an empty catalog for every other
     # agent the user had just been provisioned for.
-    from app.dependencies import async_session_maker
     from app.models.user import User
     from sqlalchemy.orm import selectinload
 
+    # Keep fresh sessions on the caller's engine: this also runs on the
+    # dedicated OBO loop, where the request pool is unsafe.
+    session_factory = async_sessionmaker(db.bind, expire_on_commit=False)
     synced = 0
     for ds_id in ds_ids:
         try:
             from app.services.data_source_service import DataSourceService
-            async with async_session_maker() as sync_db:
+            async with session_factory() as sync_db:
                 ds = (await sync_db.execute(
                     select(DataSource)
                     .options(selectinload(DataSource.connections))
