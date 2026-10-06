@@ -1,5 +1,5 @@
 """Stored-login recovery costs one exchange per app, not per connection, and a
-Disconnect is honoured by login provisioning as well as by recovery."""
+Disconnect blocks recovery until the next successful login provisioning."""
 
 import asyncio
 import time
@@ -102,7 +102,7 @@ def test_recovery_for_many_connections_is_one_job_and_one_exchange(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_login_provisioning_does_not_undo_a_disconnect(obo_calls):
+async def test_login_reconnects_but_background_recovery_respects_disconnect(obo_calls, monkeypatch):
     from sqlalchemy import select
 
     from app.services.connection_oauth_service import auto_provision_connection_credentials
@@ -120,10 +120,31 @@ async def test_login_provisioning_does_not_undo_a_disconnect(obo_calls):
 
         await auto_provision_connection_credentials(db, user, "assertion")
         await ConnectionService().delete_user_credentials(db, str(conn.id), org, user)
-        summary = await auto_provision_connection_credentials(db, user, "assertion")
+        summary = await auto_provision_connection_credentials(db, user, "assertion", missing_only=True)
 
         assert summary["provisioned"] == []
         active = (await db.scalars(select(UserConnectionCredentials).where(
             UserConnectionCredentials.user_id == str(user.id),
             UserConnectionCredentials.is_active.is_(True)))).all()
         assert active == []
+
+        async def rejected_exchange(self, url, **kwargs):
+            return httpx.Response(400, request=httpx.Request("POST", url),
+                                 json={"error": "invalid_grant"})
+
+        with monkeypatch.context() as patch:
+            patch.setattr(httpx.AsyncClient, "post", rejected_exchange)
+            failed = await auto_provision_connection_credentials(db, user, "rejected-assertion")
+        assert failed["failed"]
+        marker = await db.scalar(select(UserConnectionCredentials).where(
+            UserConnectionCredentials.user_id == str(user.id)))
+        assert not marker.is_active
+        assert marker.metadata_json["auto_recovery_disabled"]
+
+        summary = await auto_provision_connection_credentials(db, user, "fresh-login-assertion")
+        assert len(summary["provisioned"]) == 1
+        rows = (await db.scalars(select(UserConnectionCredentials).where(
+            UserConnectionCredentials.user_id == str(user.id)))).all()
+        assert len(rows) == 1
+        assert rows[0].is_active
+        assert not (rows[0].metadata_json or {}).get("auto_recovery_disabled")

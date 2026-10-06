@@ -878,7 +878,8 @@ async def _provision_connection_credentials(
     an OBO token exchange and stores the result.
 
     A Disconnect leaves an inactive row flagged ``auto_recovery_disabled``;
-    those connections are never re-provisioned automatically.
+    stored-login recovery respects it, but a fresh OIDC login may reconnect
+    after a successful exchange. Concurrent manual changes still take priority.
 
     ``missing_only`` (stored-login recovery): only connections in the user's
     current organizations with no credential row at all, optionally limited to
@@ -948,7 +949,7 @@ async def _provision_connection_credentials(
             continue
 
         conn_rows = rows_by_conn.get(str(connection.id), [])
-        if any(not r.is_active and (r.metadata_json or {}).get("auto_recovery_disabled") for r in conn_rows):
+        if missing_only and any(not r.is_active and (r.metadata_json or {}).get("auto_recovery_disabled") for r in conn_rows):
             summary["skipped"].append({"connection_id": connection.id, "reason": "disconnected"})
             continue
         if missing_only:
@@ -1034,7 +1035,7 @@ async def _provision_connection_credentials(
             UserConnectionCredentials.connection_id == connection.id,
         ).execution_options(populate_existing=True))).all()
         # An explicit choice made during token IO always wins, for login too.
-        if any(not r.is_active and (r.metadata_json or {}).get("auto_recovery_disabled") for r in fresh_rows):
+        if missing_only and any(not r.is_active and (r.metadata_json or {}).get("auto_recovery_disabled") for r in fresh_rows):
             continue
         if missing_only and fresh_rows:
             continue
@@ -1045,8 +1046,21 @@ async def _provision_connection_credentials(
         if existing and existing.auth_mode == "oauth" and existing.expires_at and existing.expires_at > datetime.utcnow():
             continue
 
+        # Reuse the disconnected row only after successful login token exchange
+        # and the concurrent-change checks above. Failed exchanges leave the
+        # opt-out intact, so status polling cannot undo Disconnect.
+        if existing is None and not missing_only:
+            existing = next((r for r in fresh_rows
+                             if (r.metadata_json or {}).get("auto_recovery_disabled")), None)
+
         # Upsert credentials
         if existing:
+            existing.is_active = True
+            existing.is_primary = True
+            existing.metadata_json = {
+                k: v for k, v in (existing.metadata_json or {}).items()
+                if k != "auto_recovery_disabled"
+            }
             # Promote a preference-only marker row (auth_mode="service_account") to a
             # real OAuth credential now that we have a delegated token.
             existing.auth_mode = "oauth"
