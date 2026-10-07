@@ -148,13 +148,26 @@ async def _acount_tables_for_validation(client) -> int | None:
     tables from a one-row-per-object catalog view exposes `count_tables()`,
     and the test uses that instead; real indexing still runs get_schemas()
     on save. Clients without the method keep full schema validation.
+
+    Best-effort: a count that fails (missing grant on the catalog view, an
+    older dialect rejecting the statement) returns None so the caller falls
+    back to full introspection, the same way get_tables() falls back from its
+    detailed query to the basic one. A connection that validated before this
+    shortcut existed must not start failing because the shortcut did.
     """
     import asyncio
 
     count_fn = getattr(client, "count_tables", None)
     if not callable(count_fn):
         return None
-    return int(await asyncio.to_thread(count_fn))
+    try:
+        return int(await asyncio.to_thread(count_fn))
+    except Exception:
+        logger.warning(
+            "count_tables() failed for %s; falling back to full schema validation",
+            type(client).__name__, exc_info=True,
+        )
+        return None
 
 
 def _connected_message(

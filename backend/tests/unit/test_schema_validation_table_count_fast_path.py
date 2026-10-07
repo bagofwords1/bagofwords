@@ -79,3 +79,26 @@ async def test_clients_without_count_keep_full_validation():
     cs = await ConnectionService()._avalidate_schema_access(IntrospectingClient(tables))
     assert ds["success"] is True and ds["table_count"] == len(tables)
     assert cs["success"] is True and cs["table_count"] == len(tables)
+
+
+class BrokenCountClient(IntrospectingClient):
+    """count_tables() exists but the catalog query is rejected by the server."""
+
+    def count_tables(self):
+        raise RuntimeError("ORA-00942: table or view does not exist")
+
+
+@pytest.mark.asyncio
+async def test_count_helper_returns_none_when_count_query_fails():
+    assert await _acount_tables_for_validation(BrokenCountClient(["a", "b"])) is None
+
+
+@pytest.mark.asyncio
+async def test_failed_count_falls_back_to_full_validation():
+    """A connection that validated via get_schemas() before the shortcut
+    existed must still validate when the shortcut's query is rejected."""
+    tables = ["t1", "t2"]
+    ds = await DataSourceService()._avalidate_schema_access(BrokenCountClient(tables))
+    cs = await ConnectionService()._avalidate_schema_access(BrokenCountClient(tables))
+    assert ds["success"] is True and ds["table_count"] == len(tables)
+    assert cs["success"] is True and cs["table_count"] == len(tables)
