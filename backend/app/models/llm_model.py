@@ -294,6 +294,26 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 25.00
     },
     {
+        # Successor to Claude Haiku 4.5: 1M window, 128K output, $0.10/$0.50
+        # for prompts up to 100K tokens ($0.50/$2.50 above; we bill the base
+        # tier). Cache reads/writes use the standard 0.1x / 1.25x / 2x, so no
+        # pricing override. Adaptive thinking only (budget_tokens 400s), effort
+        # low..max with API default "medium"; non-default temperature 400s
+        # (``haiku-5`` in _NO_SAMPLING_PARAM_TAGS). Not the small default:
+        # moving an org's background model is the admin's call.
+        "name": "Claude Haiku 5.5",
+        "model_id": "claude-haiku-5-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 0.10,
+        "output_cost_per_million_tokens_usd": 0.50
+    },
+    {
         "name": "Claude 4.5 Haiku",
         "model_id": "claude-haiku-4-5-20251001",
         "provider_type": "anthropic",

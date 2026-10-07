@@ -50,6 +50,7 @@ _NO_SAMPLING_PARAM_TAGS = (
     "opus-4-8",
     "fable-5",
     "mythos",
+    "haiku-5",
 )
 
 
