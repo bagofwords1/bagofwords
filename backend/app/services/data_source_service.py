@@ -2560,6 +2560,7 @@ class DataSourceService:
             from app.services.connection_service import (
                 VALIDATION_FILE_CAP,
                 _acount_files_for_validation,
+                _acount_tables_for_validation,
             )
             file_count = await _acount_files_for_validation(
                 client, limit=VALIDATION_FILE_CAP
@@ -2571,22 +2572,26 @@ class DataSourceService:
                     "table_count_approximate": file_count >= VALIDATION_FILE_CAP,
                 }
 
-            # Try aget_schemas first (most clients), fall back to get_tables
-            tables = None
-            if hasattr(client, "aget_schemas"):
-                tables = await client.aget_schemas()
-            elif hasattr(client, "get_tables"):
-                import asyncio
-                tables = await asyncio.to_thread(client.get_tables)
+            # Tabular sources that can count from a catalog view skip the full
+            # column introspection — the test only needs the count.
+            table_count = await _acount_tables_for_validation(client)
+            if table_count is None:
+                # Try aget_schemas first (most clients), fall back to get_tables
+                tables = None
+                if hasattr(client, "aget_schemas"):
+                    tables = await client.aget_schemas()
+                elif hasattr(client, "get_tables"):
+                    import asyncio
+                    tables = await asyncio.to_thread(client.get_tables)
 
-            if tables is None:
-                return {
-                    "success": False,
-                    "message": "Client does not support schema introspection",
-                    "table_count": 0,
-                }
+                if tables is None:
+                    return {
+                        "success": False,
+                        "message": "Client does not support schema introspection",
+                        "table_count": 0,
+                    }
 
-            table_count = len(tables) if tables else 0
+                table_count = len(tables) if tables else 0
 
             # Note: Empty databases are allowed - schema can be refreshed later when tables are added
             return {
