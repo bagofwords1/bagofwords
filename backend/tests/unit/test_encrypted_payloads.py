@@ -21,6 +21,9 @@ from app.ee.encryption import EncryptedJSON, is_encrypted_envelope
 from app.models.step import Step
 from app.models.tool_execution import ToolExecution
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 @pytest.fixture
 def encrypting(monkeypatch):

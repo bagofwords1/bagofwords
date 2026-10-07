@@ -21,6 +21,9 @@ from app.models.user_connection_credentials import UserConnectionCredentials
 from app.services.connection_oauth_service import auto_provision_connection_credentials
 from app.services.connection_service import ConnectionService
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 async def seed(role, count=1):
     async with async_session_maker() as db:

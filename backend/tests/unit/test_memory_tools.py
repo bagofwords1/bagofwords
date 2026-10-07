@@ -20,6 +20,9 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.services.memory_service import memory_service
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 def _run(coro):
     return asyncio.run(coro)

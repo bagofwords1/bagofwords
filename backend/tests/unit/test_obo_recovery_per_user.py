@@ -20,6 +20,9 @@ from app.services.connection_indexing_service import _get_background_loop, shutd
 from app.settings.bow_config import OIDCProvider
 from app.settings.config import settings
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 def _fabric(org_id, n):
     conn = Connection(

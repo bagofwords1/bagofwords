@@ -26,6 +26,9 @@ from app.dependencies import async_session_maker
 from app.ee.encryption import types as enc
 from app.models.tool_execution import ToolExecution
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 CREATE_DATA_RESULT = {
     "success": True,

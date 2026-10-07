@@ -16,6 +16,9 @@ import pytest
 from app.dependencies import async_session_maker
 from app.services.tool_confirmation_service import ToolConfirmationService
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 async def _create_pending(svc: ToolConfirmationService) -> str:
     cid = str(uuid4())

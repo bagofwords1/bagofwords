@@ -25,6 +25,9 @@ import app.ee.audit.tool_audit as ta
 from app.ee.audit.models import AuditLog
 from app.models.organization import Organization
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 _real_session_maker = deps.async_session_maker
 

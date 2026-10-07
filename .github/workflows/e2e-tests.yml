@@ -7,6 +7,13 @@ on:
     branches: [ main ]
   workflow_dispatch:  # Allows manual trigger
 
+# A new push to the same PR supersedes the run in flight — there is no point
+# finishing a 40-minute suite against a commit nobody will merge. Pushes to
+# main are never cancelled: dispatch-build hangs off that run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   e2e-tests:
     runs-on: ubuntu-latest
@@ -59,19 +66,22 @@ jobs:
         ENVIRONMENT: "production"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
       # pytest-xdist parallelizes the suite. Each worker is a separate process
-      # with its own DB (its own Postgres testcontainer / its own PID+UUID SQLite
-      # file per tests/conftest.py), so workers never share a database and the
-      # per-test schema reset stays isolation-safe.
+      # with its own DB (its own database on the one shared Postgres container /
+      # its own PID+UUID SQLite file per tests/conftest.py), so workers never
+      # share a database and the per-test schema reset stays isolation-safe.
       #
-      # Capped at -n 2 (not -n auto): at 4 workers the heavy app (pyspark,
-      # snowflake, databricks, pandas, grpc, …) plus the real-LLM tests pushed
-      # peak RSS high enough that the runner SIGKILLed a worker mid-test — it
-      # surfaced as "worker 'gwN' crashed" with no traceback (an uncatchable
-      # SIGKILL), always clustered around the same memory peak, and was not
-      # reproducible on an identical-spec box at -n 2. Two workers halve the
-      # peak while still cutting wall time ~2-3x vs the old serial run.
+      # -n 4: this used to be capped at 2 because at 4 workers the runner
+      # SIGKILLed a worker at a memory peak ("worker 'gwN' crashed", no
+      # traceback). Back then the controller and every worker each started
+      # their own Postgres container (five at -n 4); the suite now boots one
+      # container per run and the per-test teardown no longer burns 5s in a
+      # loop-shutdown deadlock (see connection_indexing_service), so the peak
+      # is both lower and shorter. If a worker crashes again, drop back to 2.
+      #
+      # No -s: unbuffered per-test stdout from four workers interleaves into
+      # noise and hides the progress line; failures still print captured output.
       run: |
-        uv run pytest -s -n 2 -m e2e --db=${{ matrix.db }} --disable-warnings --timeout=600 --timeout-method=thread
+        uv run pytest -n 4 -m e2e --db=${{ matrix.db }} --disable-warnings --timeout=600 --timeout-method=thread
 
   # tests/unit carries no pytest marker, so the -m e2e / -m ai steps above never
   # touched it and nothing else ran it either — two MS Fabric OAuth assertions
@@ -111,10 +121,10 @@ jobs:
         TESTING: "true"
         ENVIRONMENT: "production"
       # pytest-xdist, same cure the E2E step got when it outgrew its timeout.
-      # Unit tests are pure logic with per-worker SQLite files (PID+UUID per
-      # tests/conftest.py), so workers never share state; -n 4 (not the E2E
-      # job's -n 2 cap) because there are no real-LLM tests here pushing the
-      # memory peak.
+      # Unit tests are pure logic; the per-test fresh database is opt-in here
+      # (@pytest.mark.db, see tests/unit/conftest.py) so the ~90% of tests that
+      # never open a session no longer pay ~1s of engine-dispose + file-swap
+      # overhead each — that overhead was most of the hour this job took.
       run: |
         uv run pytest tests/unit -n 4 --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
 

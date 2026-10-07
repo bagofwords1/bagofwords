@@ -24,6 +24,9 @@ from app.models.notification import Notification
 import app.services.inbox_service as inbox_mod
 from app.services.inbox_service import inbox_service
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 async def _seed_user(db):
     org = Organization(name="Org")
