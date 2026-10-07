@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.582 (October 7, 2026)
+- Added Claude Haiku 5.5 as a preset Anthropic model, with adaptive reasoning effort (low to max) and its $0.10 / $0.50 per million token pricing
+
 ## Version 0.0.581 (October 7, 2026)
 - Fixed recovery of missing Fabric and Power BI access for signed-in Entra users (#1271)
 
