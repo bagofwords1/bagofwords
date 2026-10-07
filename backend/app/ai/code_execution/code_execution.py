@@ -1804,7 +1804,8 @@ class StreamingCodeExecutor:
                     "payload": {
                         "df": exec_df,
                         "code": final_code,
-                        "errors": code_and_error_messages,
+                        "errors": [],
+                        "attempt_errors": code_and_error_messages,
                         "execution_log": execution_log,
                         "executed_queries": executed_queries,
                         "query_timings": query_timings,
@@ -2059,7 +2060,8 @@ class StreamingCodeExecutor:
                     "payload": {
                         "df": exec_df,
                         "code": final_code,
-                        "errors": code_and_error_messages,
+                        "errors": [],
+                        "attempt_errors": code_and_error_messages,
                         "execution_log": execution_log,
                         "executed_queries": executed_queries,
                         "query_timings": query_timings,
