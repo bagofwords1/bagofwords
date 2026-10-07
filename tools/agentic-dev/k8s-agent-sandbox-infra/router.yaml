@@ -1,0 +1,93 @@
+# A ClusterIP Service to provide a stable endpoint for the router pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sandbox-router-svc
+  namespace: agent-sandbox-system
+spec:
+  type: ClusterIP
+  selector:
+    app: sandbox-router
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8080 # The port the service will listen on
+    targetPort: 8080 # The port the router container listens on (from the sandbox_router/Dockerfile)
+---
+# The Deployment to manage and run the router pods.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandbox-router-deployment
+  namespace: agent-sandbox-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sandbox-router
+  template:
+    metadata:
+      labels:
+        app: sandbox-router
+    spec:
+      # Ensure pods are spread across different zones for HA
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: sandbox-router
+      containers:
+      - name: router
+        image: us-central1-docker.pkg.dev/k8s-staging-images/agent-sandbox/sandbox-router:latest-main
+        # imagePullPolicy: Never  # Uncomment when using a locally loaded image (kind load / minikube image load)
+        env:
+        - name: PROXY_TIMEOUT_SECONDS
+          value: "180"
+        - name: WEBSOCKET_IDLE_TIMEOUT_SECONDS
+          value: "3600"
+        - name: WEBSOCKET_MAX_LIFETIME_SECONDS
+          value: "86400"
+        - name: WEBSOCKET_MAX_MESSAGE_BYTES
+          value: "16777216"
+        # Per-client caps are disabled until TRUSTED_PROXY_CIDRS is set. Behind
+        # ingress/Route, all clients share the proxy peer IP without it.
+        - name: WEBSOCKET_MAX_CONNECTIONS_PER_CLIENT
+          value: "0"
+        # When behind ingress/Route, uncomment and set both:
+        # - name: TRUSTED_PROXY_CIDRS
+        #   value: "10.128.0.0/14"
+        # - name: WEBSOCKET_MAX_CONNECTIONS_PER_CLIENT
+        #   value: "64"
+        - name: ALLOW_UNAUTHENTICATED_ROUTER
+          value: "true"
+        # - name: ROUTER_AUTH_TOKEN
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: sandbox-router-auth
+        #       key: auth-token
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000

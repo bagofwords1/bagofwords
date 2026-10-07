@@ -1,0 +1,25 @@
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: bow-sandbox-template
+  namespace: default
+spec:
+  podTemplate:
+    spec:
+      containers:
+      - name: python-runtime
+        image: bagofwords/bagofwords:latest
+        ports:
+        - containerPort: 8080
+        - containerPort: 3000
+      restartPolicy: "OnFailure"
+  volumeClaimTemplatesPolicy: Overrides
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: "1Gi"
