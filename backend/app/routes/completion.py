@@ -112,6 +112,10 @@ async def create_completion(
     - Streams if: body `stream: true`, or `Accept: text/event-stream`, or `?stream=true`
     - Otherwise returns JSON response
     """
+    # Best-effort delegated recovery uses the existing completion contract.
+    from app.services.obo_recovery_service import recover_report_connections
+    await recover_report_connections(db, current_user, organization, report_id)
+
     # Queue mode: persist the prompt as a queued row instead of starting a
     # second concurrent run; the dispatcher starts it when the current run
     # finishes. Never streams.

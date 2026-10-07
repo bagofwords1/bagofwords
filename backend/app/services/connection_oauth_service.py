@@ -908,17 +908,17 @@ async def _provision_connection_credentials(
             Connection.type.in_(list(ENTRA_OBO_CONNECTION_TYPES)),
         )
     )
-    if missing_only:
-        stmt = stmt.where(
-            Connection.is_active.is_(True),
-            Connection.deleted_at.is_(None),
-            Connection.organization_id.in_(
-                select(Membership.organization_id).where(
-                    Membership.user_id == str(user.id),
-                    Membership.deleted_at.is_(None),
-                )
-            ),
-        )
+    # Fresh login and recovery must both be scoped before any token leaves BOW.
+    stmt = stmt.where(
+        Connection.is_active.is_(True),
+        Connection.deleted_at.is_(None),
+        Connection.organization_id.in_(
+            select(Membership.organization_id).where(
+                Membership.user_id == str(user.id),
+                Membership.deleted_at.is_(None),
+            )
+        ),
+    )
     if organization_id:
         stmt = stmt.where(Connection.organization_id == organization_id)
     result = await db.execute(stmt)

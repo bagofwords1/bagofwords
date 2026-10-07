@@ -38,6 +38,7 @@ from app.settings.config import settings
         "service_preference",
         "wrong_client",
         "refresh_recovers",
+        "separate_refresh",
         "timeout",
         "no_refresh",
         "malformed_response",
@@ -69,7 +70,9 @@ def test_missing_connection_recovers_from_stored_login_or_fails_closed(monkeypat
                 issuer="https://login.microsoftonline.com/test-tenant/v2.0",
                 client_id="login-client",
                 client_secret="private-client-secret",
-                scopes=["openid", "profile", "email", "api://login-client/access", "offline_access"],
+                scopes=(["openid", "User.Read", "GroupMember.Read.All", "api://fabric-client/customer-scope"]
+                        if case == "separate_refresh" else
+                        ["openid", "profile", "email", "api://login-client/access", "offline_access"]),
             )
         ],
     )
@@ -90,7 +93,11 @@ def test_missing_connection_recovers_from_stored_login_or_fails_closed(monkeypat
         if case == "malformed_response":
             return httpx.Response(200, json={"access_token": "", "expires_in": 3600})
         if data["grant_type"] == "refresh_token":
-            assert "api://login-client/access" in data["scope"]
+            if case == "separate_refresh":
+                assert data["scope"] == "api://fabric-client/customer-scope"
+                assert data["client_id"] == "login-client"
+            else:
+                assert "api://login-client/access" in data["scope"]
             rejected = case == "refresh_rejected"
             access = "renewed-login-assertion"
         else:
@@ -144,7 +151,8 @@ def test_missing_connection_recovers_from_stored_login_or_fails_closed(monkeypat
             conn.encrypt_credentials(
                 {
                     "tenant_id": "test-tenant",
-                    "client_id": "different-client" if case == "wrong_client" else "login-client",
+                    "client_id": ("different-client" if case == "wrong_client" else
+                                  "fabric-client" if case == "separate_refresh" else "login-client"),
                     "client_secret": "private-client-secret",
                 }
             )
@@ -164,7 +172,7 @@ def test_missing_connection_recovers_from_stored_login_or_fails_closed(monkeypat
                         access_token="stored-login-assertion",
                         refresh_token=None if case == "no_refresh" else "stored-refresh-token",
                         expires_at=int(time.time())
-                        + (-60 if case in {"expired", "refresh_rejected", "no_refresh"} else 3600),
+                        + (-60 if case in {"expired", "refresh_rejected", "no_refresh", "separate_refresh"} else 3600),
                     )
                 )
             if case in {"disconnected", "service_preference"}:
@@ -220,7 +228,7 @@ def test_missing_connection_recovers_from_stored_login_or_fails_closed(monkeypat
             overlays = (
                 await db.scalars(select(UserDataSourceTable).where(UserDataSourceTable.user_id == user_id))
             ).all()
-            if case in {"valid", "expired", "refresh_recovers"}:
+            if case in {"valid", "expired", "refresh_recovers", "separate_refresh"}:
                 assert {str(r.connection_id) for r in overlays if r.is_accessible} == {conn_id}
                 assert len(recovered) == 1
                 assert recovered[0].decrypt_credentials()["access_token"] == "delegated-fabric-token"

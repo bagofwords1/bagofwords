@@ -50,13 +50,14 @@ def obo_calls(monkeypatch):
     return calls
 
 
-def test_recovery_for_many_connections_is_one_job_and_one_exchange(monkeypatch, obo_calls):
+@pytest.mark.parametrize("separate_app", [False, True])
+def test_recovery_for_many_connections_is_one_job_and_one_exchange(monkeypatch, obo_calls, separate_app):
     from app.services.obo_recovery_service import schedule_stored_login_recovery
 
     provider = f"entra-{uuid.uuid4().hex}"
     monkeypatch.setattr(settings.bow_config, "oidc_providers", [OIDCProvider(
         name=provider, enabled=True, issuer="https://login.microsoftonline.com/t/v2.0",
-        client_id="login-client", client_secret="s", scopes=["openid", "api://login-client/access"],
+        client_id="login-client", client_secret="s", scopes=["openid", f"api://{'fabric-client' if separate_app else 'login-client'}/custom-scope"],
     )])
     shutdown_background_loop()
 
@@ -68,10 +69,13 @@ def test_recovery_for_many_connections_is_one_job_and_one_exchange(monkeypatch, 
             await db.flush()
             db.add(Membership(user_id=user.id, organization_id=org.id, role="member"))
             conns = [_fabric(org.id, n) for n in range(5)]
+            if separate_app:
+                for conn in conns:
+                    conn.encrypt_credentials({"tenant_id": "t", "client_id": "fabric-client", "client_secret": "s"})
             db.add_all(conns)
             db.add(OAuthAccount(
                 user_id=user.id, oauth_name=provider, account_id=str(uuid.uuid4()), account_email=user.email,
-                access_token="assertion", refresh_token="refresh", expires_at=int(time.time()) + 3600,
+                access_token="assertion", refresh_token=None, expires_at=int(time.time()) + 3600,
             ))
             await db.commit()
             user_id = str(user.id)
