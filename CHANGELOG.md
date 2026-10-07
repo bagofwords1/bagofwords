@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.581 (October 7, 2026)
+- Fixed recovery of missing Fabric and Power BI access for signed-in Entra users (#1271)
+
 ## Version 0.0.580 (October 6, 2026)
 - Fixed agents saving to an Agent List over and over instead of finishing after the first save (#1268)
 
