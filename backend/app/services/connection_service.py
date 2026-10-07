@@ -138,6 +138,25 @@ async def _acount_files_for_validation(client, limit: int | None = None) -> int 
     return sum(1 for f in files or [] if not f.get("is_folder"))
 
 
+async def _acount_tables_for_validation(client) -> int | None:
+    """Catalog-level table count for validating tabular sources, or None.
+
+    The connection test only uses len(get_schemas()), but for some engines that
+    call is the expensive part: Oracle reads every column of every table plus
+    comments and foreign keys, which on a 10g warehouse with 4k tables runs
+    for minutes while the HTTP request times out. A client that can count its
+    tables from a one-row-per-object catalog view exposes `count_tables()`,
+    and the test uses that instead; real indexing still runs get_schemas()
+    on save. Clients without the method keep full schema validation.
+    """
+    import asyncio
+
+    count_fn = getattr(client, "count_tables", None)
+    if not callable(count_fn):
+        return None
+    return int(await asyncio.to_thread(count_fn))
+
+
 def _connected_message(
     connection_type: str, table_count: int, approximate: bool = False
 ) -> str:
@@ -2214,21 +2233,25 @@ class ConnectionService:
                     "table_count_approximate": file_count >= VALIDATION_FILE_CAP,
                 }
 
-            tables = None
-            if hasattr(client, "aget_schemas"):
-                tables = await client.aget_schemas()
-            elif hasattr(client, "get_tables"):
-                import asyncio
-                tables = await asyncio.to_thread(client.get_tables)
+            # Tabular sources that can count from a catalog view skip the full
+            # column introspection — the test only needs the count.
+            table_count = await _acount_tables_for_validation(client)
+            if table_count is None:
+                tables = None
+                if hasattr(client, "aget_schemas"):
+                    tables = await client.aget_schemas()
+                elif hasattr(client, "get_tables"):
+                    import asyncio
+                    tables = await asyncio.to_thread(client.get_tables)
 
-            if tables is None:
-                return {
-                    "success": False,
-                    "message": "Client does not support schema introspection",
-                    "table_count": 0,
-                }
+                if tables is None:
+                    return {
+                        "success": False,
+                        "message": "Client does not support schema introspection",
+                        "table_count": 0,
+                    }
 
-            table_count = len(tables) if tables else 0
+                table_count = len(tables) if tables else 0
 
             if table_count == 0:
                 return {
