@@ -318,6 +318,13 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
     Extract and normalize kwargs for a data source from credentials.
     Skips the test if the data source is missing or disabled.
     """
+    if name == "aria_operations" and os.environ.get("ARIA_TEST_URL"):
+        return {
+            "url": os.environ["ARIA_TEST_URL"],
+            "username": os.environ["ARIA_TEST_USERNAME"],
+            "password": os.environ["ARIA_TEST_PASSWORD"],
+            "auth_source": os.environ.get("ARIA_TEST_AUTH_SOURCE", "LOCAL"),
+        }
     if name == "netapp_ontap" and os.environ.get("NETAPP_URL"):
         return {
             "url": os.environ["NETAPP_URL"],

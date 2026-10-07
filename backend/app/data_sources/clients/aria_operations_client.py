@@ -43,6 +43,7 @@ from app.data_sources.clients.progress import discovery_progress, IndexingCancel
 import json
 import time
 from collections import deque
+from contextvars import ContextVar
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
@@ -52,6 +53,9 @@ from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
 
+
+_QUERY_DEADLINE = ContextVar("aria_query_deadline", default=None)
+QUERY_BUDGET_SECONDS = 150
 
 MAX_ROWS = 50_000             # hard cap per execute_query
 DEFAULT_LIMIT = 500           # when the query spec omits `limit`
@@ -171,14 +175,15 @@ _CATALOG: Dict[str, dict] = {
         "fks": [("resourceId", "resources", "id"), ("alertDefinitionId", "alert_definitions", "id")],
         "desc": ("Alerts (open and historical) — THE incident timeline. alertLevel INFORMATION/WARNING/"
                  "IMMEDIATE/CRITICAL; status NEW/ACTIVE/UPDATED/CANCELED; cancelTimeUTC is 0 while open. "
-                 "Scope with a window and/or resource filters; `active_only` for what is open now."),
+                 "Windows default to start time; use time_mode=overlap for incidents opened earlier. "
+                 "`active_only` without a window means open now."),
     },
     "contributing_symptoms": {
         "pk": None,
         "columns": [("alertId", "str"), ("symptomId", "str"), ("symptomDefinitionId", "str"),
-                    ("severity", "str")],
+                    ("severity", "str"), ("symptomDefinitionsIds", "str"), ("alertConditions", "str")],
         "fks": [("alertId", "alerts", "alertId"), ("symptomId", "symptoms", "id")],
-        "desc": "Which symptoms triggered each alert (give `alert_id` list). Join to `symptoms` for the message.",
+        "desc": "SELF-defined contributing symptoms (give `alert_id` list). JSON columns preserve all definitions and conditions; scalar fields summarize the first. Empty results do not exclude non-SELF contributors.",
     },
     "symptoms": {
         "pk": "id",
@@ -187,12 +192,12 @@ _CATALOG: Dict[str, dict] = {
                     ("startTimeUTC", "int"), ("updateTimeUTC", "int"), ("cancelTimeUTC", "int")],
         "fks": [("resourceId", "resources", "id")],
         "desc": ("Triggered symptoms (finer than alerts): the exact condition, the metric (`statKey`) and "
-                 "the human message with the observed value vs threshold."),
+                 "an event message when available. Numeric threshold details are not guaranteed."),
     },
     "alert_definitions": {
         "pk": "id",
         "columns": [("id", "str"), ("name", "str"), ("description", "str"), ("adapterKindKey", "str"),
-                    ("resourceKindKey", "str"), ("severity", "str"), ("waitCycles", "int"), ("cancelCycles", "int")],
+                    ("resourceKindKey", "str"), ("severity", "str"), ("waitCycles", "int"), ("cancelCycles", "int"), ("states", "str")],
         "fks": [("adapterKindKey", "adapter_kinds", "key")],
         "desc": ("The operators' own alert rules per object type — what THEY consider abnormal. Read these "
                  "before judging a metric. Filter with `adapter_kind` / `resource_kind`."),
@@ -279,7 +284,7 @@ class AriaOperationsClient(DataSourceClient):
         try:
             resp = self._http().post(url, json=body, headers={"Accept": "application/json",
                                                              "Content-Type": "application/json"},
-                                     verify=self._verify, timeout=HTTP_TIMEOUT)
+                                     verify=self._verify, timeout=self._request_timeout())
         except requests.exceptions.SSLError as e:
             raise RuntimeError(
                 f"Aria Operations TLS error: {e}. Provide the CA bundle path or disable 'Verify SSL' "
@@ -326,6 +331,15 @@ class AriaOperationsClient(DataSourceClient):
 
     # ── transport ─────────────────────────────────────────────────────────────
 
+    def _request_timeout(self):
+        deadline = _QUERY_DEADLINE.get()
+        if deadline is None:
+            return HTTP_TIMEOUT
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("Aria Operations query budget exhausted; narrow the window or resource scope.")
+        return min(HTTP_TIMEOUT, remaining)
+
     def _request(self, method: str, path: str, params: Optional[dict] = None,
                  body: Optional[dict] = None) -> Any:
         """One authenticated call, JSON-decoded. Re-acquires the token once on 401."""
@@ -335,7 +349,7 @@ class AriaOperationsClient(DataSourceClient):
             try:
                 resp = self._http().request(
                     method, url, params=params, json=body, headers=headers,
-                    verify=self._verify, timeout=HTTP_TIMEOUT,
+                    verify=self._verify, timeout=self._request_timeout(),
                 )
             except requests.exceptions.SSLError as e:
                 raise RuntimeError(
@@ -352,8 +366,8 @@ class AriaOperationsClient(DataSourceClient):
                 raise RuntimeError("Aria Operations authentication failed (401) after re-acquiring the token.")
             if resp.status_code == 403:
                 raise RuntimeError(
-                    "Aria Operations authorization failed (403): the account lacks the ReadOnly role "
-                    "or object access for this request."
+                    f"Aria Operations authorization failed (403) for {method} {path}. "
+                    "Verify the connection identity and permissions for this endpoint and object scope."
                 )
             if resp.status_code == 404:
                 raise RuntimeError(
@@ -383,23 +397,35 @@ class AriaOperationsClient(DataSourceClient):
         return self._request("POST", path, params=params, body=body)
 
     def _paged(self, method: str, path: str, key: str, params: Optional[dict] = None,
-               body: Optional[dict] = None, limit: Optional[int] = None) -> List[dict]:
-        """Walk `page`/`pageSize` until pageInfo.totalCount is reached (or `limit`)."""
+               body: Optional[dict] = None, limit: Optional[int] = None, predicate=None) -> List[dict]:
+        """Apply local filters before the result limit; count raw rows for pagination."""
         out: List[dict] = []
-        page = 0
-        while page < MAX_PAGES:
+        seen = 0
+        for page in range(MAX_PAGES):
             q = dict(params or {})
-            q.update({"page": page, "pageSize": PAGE_SIZE})
+            q["page"] = page
+            # Keep the page size stable: changing it changes the server's offset.
+            q["pageSize"] = min(PAGE_SIZE, limit) if limit is not None and not predicate else PAGE_SIZE
             payload = self._request(method, path, params=q, body=body) or {}
-            rows = payload.get(key) or []
-            out.extend(rows)
-            total = ((payload.get("pageInfo") or {}).get("totalCount"))
+            if key not in payload or not isinstance(payload[key], list):
+                raise RuntimeError(f"Aria Operations {method} {path}: expected a '{key}' list.")
+            rows = payload[key]
+            seen += len(rows)
+            out.extend(r for r in rows if predicate is None or predicate(r))
+            info = payload.get("pageInfo") or {}
+            total = info.get("totalCount")
             if limit is not None and len(out) >= limit:
-                break
-            if not rows or total is None or len(out) >= int(total) or len(rows) < PAGE_SIZE:
-                break
-            page += 1
-        return out[:limit] if limit is not None else out
+                return out[:limit]
+            if total is not None and seen >= int(total):
+                return out
+            if not rows:
+                if total is not None and seen < int(total):
+                    raise RuntimeError("Aria Operations pagination ended before totalCount was reached.")
+                return out
+            effective_size = int(info.get("pageSize") or q["pageSize"])
+            if total is None and len(rows) < effective_size:
+                return out
+        raise RuntimeError("Aria Operations pagination safety limit reached; narrow the query scope.")
 
     # ── connection test ───────────────────────────────────────────────────────
 
@@ -460,6 +486,8 @@ class AriaOperationsClient(DataSourceClient):
     @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         tables = [self._build_table(name) for name in _CATALOG]
+        if self.max_metric_tables == 0:
+            return tables
         by_name = {t.name: t for t in tables}
         # Best-effort enrichment + discovered metric tables. Never fail discovery
         # on this — the fixed catalog is always usable.
@@ -550,7 +578,7 @@ class AriaOperationsClient(DataSourceClient):
                         references_column=TableColumn(name="id", dtype="str"))
         desc = (f"Wide time series for every {rk_name} ({ak}/{rk}, {count} objects): one row per object per "
                 f"timestamp, one column per stat key. Query with a window (+ optional `name`/`regex`/"
-                f"`resource_id`, `stat_keys` to select columns, `rollup`, `interval`, `dt`).")
+                f"`resource_id`, `stat_keys` to select columns, `rollup`, `interval`). For threshold bands use the long `metrics` table with `dt: true`.")
         return Table(name=f"{METRIC_TABLE_PREFIX}{ak}/{rk}", description=desc, columns=columns,
                      pks=[], fks=[fk])
 
@@ -576,6 +604,13 @@ class AriaOperationsClient(DataSourceClient):
              "rollup": "AVG", "interval": "MINUTES", "interval_quantifier": 5, "dt": true,
              "limit": 500}
         """
+        token = _QUERY_DEADLINE.set(time.monotonic() + QUERY_BUDGET_SECONDS)
+        try:
+            return self._execute_query(query)
+        finally:
+            _QUERY_DEADLINE.reset(token)
+
+    def _execute_query(self, query):
         spec = self._parse_spec(query)
         table = spec["table"]
         limit = min(int(spec.get("limit") or DEFAULT_LIMIT), MAX_ROWS)
@@ -599,6 +634,8 @@ class AriaOperationsClient(DataSourceClient):
         aks = self._adapter_kind_list(spec)
         rows = []
         for ak in aks:
+            if len(rows) >= limit:
+                break
             for rk in self._resource_kinds(ak):
                 if spec.get("resource_kind") and rk.get("key") not in self._as_list(spec["resource_kind"]):
                     continue
@@ -750,7 +787,7 @@ class AriaOperationsClient(DataSourceClient):
             for group in payload.get("resourceStatGroups") or []:
                 for rs in group.get("resourceStats") or []:
                     rid = rs.get("resourceId")
-                    for s in ((rs.get("stat-list") or {}).get("stat") or []):
+                    for s in ([rs["stat"]] if rs.get("stat") else ((rs.get("stat-list") or {}).get("stat") or [])):
                         data = s.get("data") or []
                         ts = s.get("timestamps") or []
                         if not data:
@@ -797,6 +834,18 @@ class AriaOperationsClient(DataSourceClient):
 
     # incident timeline -----------------------------------------------------------
 
+    def _incident_rows(self, table, key, spec, body, limit):
+        explicit_window = any(k in spec for k in ("start_time", "end_time", "duration_in_mins"))
+        predicate = None
+        if not body["activeOnly"] or explicit_window:
+            begin, end = self._window(spec)
+            overlap = spec.get("time_mode", "started") == "overlap"
+            body["startTimeRange"] = {"startTime": 0 if overlap else begin, "endTime": end}
+            if overlap:
+                predicate = lambda row: (row.get("startTimeUTC") or 0) <= end and (
+                    not row.get("cancelTimeUTC") or row["cancelTimeUTC"] >= begin)
+        return self._paged("POST", f"{table}/query", key, body=body, limit=limit, predicate=predicate)
+
     def _q_alerts(self, spec: dict, limit: int) -> pd.DataFrame:
         body: Dict[str, Any] = {"activeOnly": bool(spec.get("active_only", False))}
         if spec.get("level") or spec.get("criticality"):
@@ -814,16 +863,7 @@ class AriaOperationsClient(DataSourceClient):
             body["resource-query"] = rq
             if spec.get("include_children"):
                 body["includeChildrenResources"] = True
-        if not body["activeOnly"] or spec.get("start_time") or spec.get("duration_in_mins"):
-            begin, end = self._window(spec)
-            # "alerts in the window": started before it ended, and not cancelled
-            # before it began. The API only filters on start; we post-filter cancel.
-            body["startTimeRange"] = {"startTime": 0, "endTime": end}
-        rows = self._paged("POST", "alerts/query", "alerts", body=body, limit=None)
-        if "startTimeRange" in body:
-            begin, end = self._window(spec)
-            rows = [a for a in rows if (a.get("startTimeUTC") or 0) <= end and
-                    (not a.get("cancelTimeUTC") or a.get("cancelTimeUTC") >= begin)]
+        rows = self._incident_rows("alerts", "alerts", spec, body, limit)
         self._hydrate_names([a.get("resourceId") for a in rows])
         out = []
         for a in rows[:limit]:
@@ -855,7 +895,8 @@ class AriaOperationsClient(DataSourceClient):
                         sev = conds[0].get("severity") or ""
                     defs = cs.get("symptomDefinitionsIds") or []
                     rows.append({"alertId": entry.get("alertId"), "symptomId": cs.get("symptomId"),
-                                 "symptomDefinitionId": defs[0] if defs else None, "severity": sev})
+                                 "symptomDefinitionId": defs[0] if defs else None, "severity": sev,
+                                 "symptomDefinitionsIds": json.dumps(defs), "alertConditions": json.dumps(conds)})
         return pd.DataFrame(rows[:limit], columns=[c for c, _ in _CATALOG["contributing_symptoms"]["columns"]])
 
     def _q_symptoms(self, spec: dict, limit: int) -> pd.DataFrame:
@@ -867,11 +908,7 @@ class AriaOperationsClient(DataSourceClient):
             body["resource-query"] = rq
             if spec.get("include_children"):
                 body["includeChildrenResources"] = True
-        rows = self._paged("POST", "symptoms/query", "symptom", body=body, limit=None)
-        if not body["activeOnly"]:
-            begin, end = self._window(spec)
-            rows = [s for s in rows if (s.get("startTimeUTC") or 0) <= end and
-                    (not s.get("cancelTimeUTC") or s.get("cancelTimeUTC") >= begin)]
+        rows = self._incident_rows("symptoms", "symptom", spec, body, limit)
         self._hydrate_names([s.get("resourceId") for s in rows])
         out = []
         for s in rows[:limit]:
@@ -894,21 +931,21 @@ class AriaOperationsClient(DataSourceClient):
             body["resourceKinds"] = self._as_list(spec["resource_kind"])
         if spec.get("id") or spec.get("ids"):
             body["ids"] = self._as_list(spec.get("id") or spec.get("ids"))
-        rows = self._paged("POST", "alertdefinitions/query", "alertDefinitions", body=body, limit=limit)
+        needle = str(spec.get("search") or "").lower()
+        predicate = (lambda d: needle in f"{d.get('name', '')} {d.get('description', '')}".lower()) if needle else None
+        rows = self._paged("POST", "alertdefinitions/query", "alertDefinitions", body=body, limit=limit, predicate=predicate)
         out = []
         for d in rows:
             states = d.get("states") or []
             sev = (states[0].get("severity") if states else None)
             out.append({"id": d.get("id"), "name": d.get("name"), "description": d.get("description"),
                         "adapterKindKey": d.get("adapterKindKey"), "resourceKindKey": d.get("resourceKindKey"),
-                        "severity": sev, "waitCycles": d.get("waitCycles"), "cancelCycles": d.get("cancelCycles")})
-        needle = (spec.get("search") or "").lower()
-        if needle:
-            out = [r for r in out if needle in f"{r['name']} {r['description']}".lower()]
+                        "severity": sev, "waitCycles": d.get("waitCycles"), "cancelCycles": d.get("cancelCycles"),
+                        "states": json.dumps(states)})
         return pd.DataFrame(out[:limit], columns=[c for c, _ in _CATALOG["alert_definitions"]["columns"]])
 
     def _q_custom_groups(self, spec: dict, limit: int) -> pd.DataFrame:
-        payload = self._get("resources/groups") or {}
+        payload = self._get("resources/groups", {"includePolicy": "true"}) or {}
         groups = payload.get("groups") or []
         wanted = (spec.get("name") or "").lower() if isinstance(spec.get("name"), str) else ""
         rows: List[dict] = []
@@ -917,7 +954,7 @@ class AriaOperationsClient(DataSourceClient):
             if wanted and wanted not in gname.lower():
                 continue
             gid = g.get("id")
-            members = self._paged("GET", f"resources/groups/{gid}/members", "resourceList")
+            members = self._paged("GET", f"resources/groups/{gid}/members", "resourceList", limit=limit - len(rows))
             if not members:
                 rows.append({"groupId": gid, "groupName": gname, "policy": g.get("policy"),
                              "memberId": None, "memberName": None, "memberKind": None})
@@ -993,7 +1030,7 @@ class AriaOperationsClient(DataSourceClient):
     def _resource_query(self, spec: dict) -> dict:
         """Translate the spec's resource filters into the API's `resource-query` body."""
         rq: Dict[str, Any] = {}
-        ids = self._as_list(spec.get("resource_id") or spec.get("resource_ids") or spec.get("id"))
+        ids = self._as_list(spec.get("resource_id") or spec.get("resource_ids") or spec.get("id") or spec.get("ids"))
         if ids:
             rq["resourceId"] = ids
         names = self._as_list(spec.get("name") or spec.get("names"))
@@ -1096,12 +1133,15 @@ class AriaOperationsClient(DataSourceClient):
                     data = s.get("values")
                 dmin = s.get("minThresholdData") or []
                 dmax = s.get("maxThresholdData") or []
+                dt_times = s.get("dtTimestamps") or ts
+                lower = dict(zip(dt_times, dmin))
+                upper = dict(zip(dt_times, dmax))
                 for i, t in enumerate(ts):
                     row = {"resourceId": rid, "resourceName": name, "resourceKind": kind, "statKey": key,
                            "timestamp": t, "value": data[i] if i < len(data) else None}
                     if with_dt:
-                        row["dt_min"] = dmin[i] if i < len(dmin) else None
-                        row["dt_max"] = dmax[i] if i < len(dmax) else None
+                        row["dt_min"] = lower.get(t)
+                        row["dt_max"] = upper.get(t)
                     else:
                         row["dt_min"] = None
                         row["dt_max"] = None
@@ -1129,6 +1169,40 @@ class AriaOperationsClient(DataSourceClient):
                 f"Unknown Aria Operations table '{table}'. Available: {', '.join(_CATALOG)} plus "
                 f"discovered {METRIC_TABLE_PREFIX}<AdapterKind>/<ResourceKind> tables."
             )
+        scope = {"resource_id", "resource_ids", "id", "ids", "name", "names", "regex",
+                 "resource_kind", "adapter_kind", "parent_id", "health", "property"}
+        window = {"start_time", "end_time", "duration_in_mins"}
+        stats = scope | window | {"stat_key", "stat_keys", "rollup", "interval", "interval_type", "interval_quantifier"}
+        incident = scope | window | {"active_only", "level", "criticality", "include_children", "time_mode"}
+        allowed = {
+            "adapter_kinds": set(), "resource_kinds": {"adapter_kind", "resource_kind", "with_counts"},
+            "stat_keys": {"adapter_kind", "resource_kind", "search"}, "resources": scope,
+            "properties": scope | {"property_key", "property_keys"},
+            "relationships": scope | {"depth", "relationship_type"},
+            "metrics": stats | {"dt"}, "metrics_latest": scope | {"stat_key", "stat_keys", "max_samples"},
+            "metrics_topn": stats | {"top_n", "topN", "sort_order", "order"},
+            "alerts": incident | {"status", "alert_definition_id", "alert_id", "name_contains"},
+            "symptoms": incident, "contributing_symptoms": {"alert_id", "alert_ids"},
+            "alert_definitions": {"adapter_kind", "resource_kind", "id", "ids", "search"},
+            "custom_groups": {"name"},
+        }
+        supported = stats | {"dt"} if table.startswith(METRIC_TABLE_PREFIX) else allowed[table]
+        unknown = set(spec) - supported - {"table", "limit"}
+        if unknown:
+            raise ValueError(f"Unsupported fields for {table}: {', '.join(sorted(unknown))}.")
+        for field in ("start_time", "end_time"):
+            if field in spec and (isinstance(spec[field], bool) or not isinstance(spec[field], int) or spec[field] < 0):
+                raise ValueError(f"{field} must be a non-negative epoch-millisecond integer.")
+        for field in ("limit", "duration_in_mins", "interval_quantifier", "max_samples", "top_n", "topN"):
+            if field in spec and (isinstance(spec[field], bool) or not isinstance(spec[field], int) or spec[field] <= 0):
+                raise ValueError(f"{field} must be a positive integer.")
+        for field in ("active_only", "dt", "include_children", "with_counts"):
+            if field in spec and not isinstance(spec[field], bool):
+                raise ValueError(f"{field} must be a JSON boolean.")
+        if spec.get("time_mode", "started") not in ("started", "overlap"):
+            raise ValueError("time_mode must be 'started' or 'overlap'.")
+        if table.startswith(METRIC_TABLE_PREFIX) and spec.get("dt"):
+            raise ValueError("Use the metrics table with dt=true for threshold bands; wide tables contain metric values only.")
         spec["table"] = table
         return spec
 
@@ -1160,8 +1234,14 @@ class AriaOperationsClient(DataSourceClient):
           Names are EXACT — use `regex` for partial matches. Never query metrics without a scope.
         - Time: `duration_in_mins` (relative to now) or `start_time`/`end_time` in EPOCH
           MILLISECONDS. All timestamps in results are epoch ms: `pd.to_datetime(df.timestamp, unit="ms")`.
-          Aria collects every 5 minutes; use `interval: "MINUTES", interval_quantifier: 5` or coarser.
-        - `limit` (optional): max rows, default 500 (raise it for time series).
+          Collection intervals depend on the adapter and configuration; use `interval: "MINUTES", interval_quantifier: 5` or coarser.
+        - `limit` (optional): max returned rows, default 500. A limited result is a sample,
+          not proof of absence or a complete population for aggregation.
+        - Alerts/symptoms default to `time_mode: "started"`: start time within the window,
+          sent to the server as startTimeRange. `time_mode: "overlap"` explicitly includes
+          incidents opened earlier and not cancelled before the window; it can scan history.
+          `active_only: true` without a window means currently active, regardless of start time.
+          Internal JSON names are start_time/end_time, not the raw Suite API body names.
 
         DISCOVERY (do this before guessing keys):
         - `adapter_kinds` → what is monitored (VMWARE = vCenter; storage/NSX/etc. packs).
@@ -1179,7 +1259,7 @@ class AriaOperationsClient(DataSourceClient):
           dt_max is abnormal by Aria's own baseline. Compare the SAME window across layers (VM disk
           latency, datastore latency, pool response time) and look at which layer deviated FIRST.
         - `alerts` / `symptoms` over the incident window are the timeline (startTimeUTC order);
-          `symptoms.message` carries the observed value vs threshold; `contributing_symptoms` links
+          `symptoms.message` may contain event details (not guaranteed numeric thresholds); `contributing_symptoms` links
           them; `alert_definitions` are the operators' own rules — cite them as the yardstick.
         - `metrics_topn` ranks objects: e.g. the noisiest VMs on a datastore, worst datastores by latency.
         - `properties` hold the join keys to a CMDB/ServiceNow (`config|instanceUuid`, `summary|MOID`)

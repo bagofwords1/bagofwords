@@ -1,10 +1,9 @@
 """Mock VMware Aria Operations Suite API — request/response shapes per the
-official OpenAPI spec (`vmware/vcf-api-specs`, VCF Operations 9.1; the same
-`/suite-api/api` surface Aria Operations 8.18 serves) and the 8.18 API
-Programming Guide.
+official OpenAPI spec (`vmware/vcf-api-specs`, VCF Operations 9.1; a synthetic
+subset, not a guarantee of compatibility with any deployed appliance version).
 
 A real appliance cannot run here (OVA, needs ESXi + a Broadcom entitlement),
-so — like tools/appdynamics/mock_controller.py — this simulates the exact
+so — like tools/appdynamics/mock_controller.py — this simulates the supported
 surface `AriaOperationsClient` touches:
 
   POST /suite-api/api/auth/token/acquire
@@ -1030,8 +1029,8 @@ async def stats_topn(request: Request):
     for gk, items in groups.items():
         items.sort(key=lambda x: x[2], reverse=(order == "DESCENDING"))
         out.append({"groupKey": gk, "links": [], "resourceStats": [
-            {"resourceId": r_id, "stat-list": {"stat": [{"statKey": {"key": stat}, "timestamps": [ts], "data": [val],
-                                                         "rollUpType": roll}]}}
+            {"resourceId": r_id, "stat": {"statKey": {"key": stat}, "timestamps": [ts], "data": [val],
+                                                         "rollUpType": roll}}
             for stat, r_id, val, ts in items[:top_n]]})
     return {"groupBy": group_by, "sortOrder": order, "resourceStatGroups": out}
 
@@ -1183,6 +1182,8 @@ def _filter_symptoms(body: dict) -> List[dict]:
         rows = [x for x in rows if x["resourceId"] in scope]
     if body.get("cancelTimeRange"):
         rows = [x for x in rows if x["cancelTimeUTC"] and _in_range(x["cancelTimeUTC"], body["cancelTimeRange"])]
+    if body.get("startTimeRange"):
+        rows = [x for x in rows if _in_range(x["startTimeUTC"], body["startTimeRange"])]
     return rows
 
 
