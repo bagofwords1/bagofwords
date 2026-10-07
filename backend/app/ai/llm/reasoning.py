@@ -48,7 +48,7 @@ def _effort_to_thinking_config(effort: Optional[str], model_id: Optional[str]) -
         tag in model_id
         for tag in (
             "sonnet-4-6", "opus-4-6", "opus-4-7", "sonnet-4-7",
-            "sonnet-5", "opus-5", "opus-4-8", "fable-5", "mythos",
+            "sonnet-5", "opus-5", "opus-4-8", "fable-5", "mythos", "haiku-5",
         )
     )
     if supports_adaptive:
@@ -119,7 +119,7 @@ _BUDGET = ("low", "medium", "high", "max")
 _FAMILIES: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
     # Anthropic — adaptive thinking + output_config.effort
     (("claude-fable-5", "claude-mythos", "claude-opus-5", "claude-sonnet-5",
-      "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-7"), _ADAPTIVE_FULL),
+      "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-7", "claude-haiku-5"), _ADAPTIVE_FULL),
     (("claude-opus-4-6", "claude-sonnet-4-6"), _ADAPTIVE_NO_XHIGH),
     # Anthropic — budget_tokens only
     (("claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-1",
@@ -412,7 +412,7 @@ def claude_off_params(model_id: Optional[str]) -> dict:
         logger.warning("model=%s cannot disable reasoning; using adaptive low effort", model_id)
         return {"thinking": {"type": "adaptive", "display": "summarized"}, "output_config": {"effort": "low"}}
     fields = {"thinking": {"type": "disabled"}}
-    if "claude-opus-5" in key:
+    if "claude-opus-5" in key or "claude-haiku-5" in key:
         # Disabled is accepted only at high or below; override any higher default.
         fields["output_config"] = {"effort": "low"}
     return fields
