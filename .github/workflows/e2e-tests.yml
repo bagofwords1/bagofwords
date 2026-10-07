@@ -86,8 +86,8 @@ jobs:
   # on it.
   unit-tests:
     runs-on: ubuntu-latest
-    # The suite takes ~60 minutes at -n 4 on a hosted runner, so a 60-minute
-    # cap cancelled it on every PR before it could report a result.
+    # The suite takes ~60 minutes at -n 4 on a hosted runner; sandboxed
+    # generated-code tests add child process and Arrow round-trip overhead.
     timeout-minutes: 120
     continue-on-error: true
 

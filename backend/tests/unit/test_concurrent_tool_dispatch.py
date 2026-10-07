@@ -733,6 +733,19 @@ async def test_code_executions_overlap_without_global_lock():
             code=code, ds_clients={"src": SleepyClient()}, excel_files=[],
         )
 
+    # Warm-up: generated code runs in sandbox children forked from a
+    # per-process fork server; the very first execution pays that server's
+    # start. This test measures overlap, not cold start.
+    await asyncio.gather(one(), one())
+
+    # Baseline: one execution on its own. It carries the 0.4s query plus
+    # the per-execution sandbox cost (fork, confinement, Arrow round trip),
+    # which varies with how loaded the machine is, so the overlap bound
+    # below is relative to it rather than a fixed number of seconds.
+    started = time.monotonic()
+    await one()
+    single = time.monotonic() - started
+
     started = time.monotonic()
     (df1, log1, _), (df2, log2, _) = await asyncio.gather(one(), one())
     wall = time.monotonic() - started
@@ -742,5 +755,9 @@ async def test_code_executions_overlap_without_global_lock():
     for log in (log1, log2):
         assert log.count("starting query") == 1
         assert log.count("query done") == 1
-    # Overlap: two 0.4s queries in well under 0.8s
-    assert wall < 0.7, f"executions serialized: wall={wall:.2f}s"
+    # Overlap: serialized executions take ~2x a single one; overlapping
+    # ones take ~1x. Anything under 1.5x can only be overlap.
+    print(f"single={single:.2f}s pair={wall:.2f}s")
+    assert wall < 1.5 * single, (
+        f"executions serialized: pair wall={wall:.2f}s vs single={single:.2f}s"
+    )

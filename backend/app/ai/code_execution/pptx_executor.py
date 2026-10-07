@@ -7,6 +7,7 @@ with security validation reused from code_execution.py.
 
 import io
 import ast
+import logging
 import tempfile
 import subprocess
 from pathlib import Path
@@ -29,6 +30,8 @@ from app.ai.code_execution.code_execution import (
     FORBIDDEN_BUILTINS,
     FORBIDDEN_ATTRIBUTES,
 )
+from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
+from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as run_sandbox_job
 
 
 # =============================================================================
@@ -168,6 +171,15 @@ class PptxCodeExecutor:
         # Security: Validate code before execution
         validate_pptx_code(code)
 
+        if self.logger:
+            self.logger.debug(f"Executing PPTX code:\n{code}")
+
+        if sandbox_mode() != MODE_INPROCESS:
+            return self._execute_sandboxed(
+                code=code, visualizations=visualizations, report=report,
+                output_path=output_path, images=images or {},
+            )
+
         output_log = ""
 
         # Build the namespace with pptx utilities and data
@@ -201,9 +213,6 @@ class PptxCodeExecutor:
             '_pptx_output_path': str(output_path),
         }
 
-        if self.logger:
-            self.logger.debug(f"Executing PPTX code:\n{code}")
-
         # Capture via the per-thread stdout router (not redirect_stdout,
         # which swaps the process-global sys.stdout and cross-talks with
         # any concurrently-running sandboxed code execution).
@@ -226,6 +235,39 @@ class PptxCodeExecutor:
             )
 
         return output_path, output_log
+
+
+    def _execute_sandboxed(
+        self,
+        *,
+        code: str,
+        visualizations: List[Dict[str, Any]],
+        report: Dict[str, Any],
+        output_path: Path,
+        images: Dict[str, bytes],
+    ) -> Tuple[Path, str]:
+        """Run the python-pptx script in a fresh sandboxed interpreter.
+
+        The deck is written to the child's private scratch directory and
+        handed back as bytes; this process writes `output_path`. Generated
+        code therefore never sees the uploads tree."""
+        job = SandboxJob(
+            mode="pptx",
+            code=code,
+            visualizations=visualizations,
+            report=report,
+            images=dict(images or {}),
+        )
+        result = run_sandbox_job(job, log=self.logger or logging.getLogger(__name__))
+        if not result.pptx_bytes:
+            raise RuntimeError(
+                f"PPTX code executed but no file was created at {output_path}. "
+                "Ensure the code calls prs.save(_pptx_output_path)"
+            )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "wb") as fh:
+            fh.write(result.pptx_bytes)
+        return output_path, result.stdout
 
 
 # =============================================================================
