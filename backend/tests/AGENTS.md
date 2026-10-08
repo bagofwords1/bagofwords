@@ -11,7 +11,7 @@ that.
 
 | Dir | What belongs there | Run |
 |-----|--------------------|-----|
-| `unit/` | Pure logic, single service/helper, no HTTP | `uv run pytest tests/unit` |
+| `unit/` | Pure logic, single service/helper, no HTTP. Opens a DB session? Mark it `@pytest.mark.db` (or `pytestmark = pytest.mark.db` for the module) — unmarked unit tests get no database at all | `uv run pytest tests/unit` |
 | `e2e/` | Full API flows through `test_client` (routes → services → DB) | `uv run pytest -m e2e --db=sqlite` |
 | `ai/` | Agent/planner behavior (needs `OPENAI_API_KEY_TEST`) | `uv run pytest -m ai` |
 | `evals/` | LLM quality evals | manual |
@@ -22,8 +22,16 @@ that.
   `--db=external` (pre-set `TEST_DATABASE_URL`, for sandboxes without Docker).
   CI runs **both** sqlite and postgres — your test must pass on both; never
   rely on sqlite quirks (case-insensitive LIKE, loose typing, insertion order).
-- The autouse `run_migrations` fixture builds the schema per test; set
-  `TESTING=true` when running anything by hand.
+- The autouse `run_migrations` fixture gives every e2e/ai test a fresh,
+  fully migrated database: the alembic chain runs **once per session** into a
+  template (a SQLite file / a `<db>_template` Postgres database) and each test
+  gets a clone (file copy / `CREATE DATABASE … TEMPLATE`). Under xdist each
+  worker owns its own database on one shared Postgres container; a pre-set
+  `TEST_DATABASE_URL` with `--db=postgres` reuses that server instead of
+  starting a container. Set `TESTING=true` when running anything by hand.
+- Per-test overhead is what makes this suite slow, not the tests: don't add
+  `sleep`s, don't start background loops you don't drain, and never leak a
+  pooled connection across the test boundary.
 
 ## Anti-overfit rules
 

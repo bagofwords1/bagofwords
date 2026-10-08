@@ -32,6 +32,9 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.models.user import User
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 class FakeQueue:
     """Stand-in for the per-completion SSE queue."""

@@ -21,6 +21,9 @@ from app.models.user_connection_credentials import UserConnectionCredentials
 from app.services.connection_indexing_service import _get_background_loop, shutdown_background_loop
 from app.services.connection_oauth_service import schedule_auto_provision
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 @pytest.mark.parametrize("connection_count", [1, 2])
 def test_background_login_provisions_credentials_and_catalogs(monkeypatch, connection_count):

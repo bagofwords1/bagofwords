@@ -17,6 +17,9 @@ from app.services import memory_rules as R
 from app.services.memory_rules import MemoryValidationError
 from app.services.memory_service import memory_service
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 NOW = datetime(2026, 10, 6, 9, 0)
 
 

@@ -134,14 +134,17 @@ def shutdown_background_loop(timeout: float = 5.0) -> None:
             return
 
     async def _cancel_all() -> None:
-        tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        # `all_tasks` includes this coroutine's own task. Cancelling it and then
+        # awaiting `shield(self)` can never complete, so every shutdown that
+        # reached it burned the full `timeout` — ~5s of teardown per e2e test
+        # that kicked off an indexing run. Exclude ourselves and wait for the
+        # rest concurrently (one deadline for all, not one per task).
+        me = asyncio.current_task()
+        tasks = [t for t in asyncio.all_tasks(loop) if not t.done() and t is not me]
         for t in tasks:
             t.cancel()
-        for t in tasks:
-            try:
-                await asyncio.wait_for(asyncio.shield(t), timeout=timeout)
-            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                pass
+        if tasks:
+            await asyncio.wait(tasks, timeout=timeout)
 
     try:
         fut = asyncio.run_coroutine_threadsafe(_cancel_all(), loop)
