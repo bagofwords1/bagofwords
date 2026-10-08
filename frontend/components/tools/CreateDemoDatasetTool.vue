@@ -422,6 +422,8 @@ watch(() => output.value?.agents, (v: any[]) => {
   }
 }, { immediate: false })
 
+const { markConfirmationAnswered } = useToolConfirmations()
+
 async function respond(approved: boolean) {
   const cid = confirmation.value?.confirmation_id
   if (!cid || !props.systemCompletionId || responding.value) return
@@ -446,6 +448,7 @@ async function respond(approved: boolean) {
       return
     }
     responded.value = true
+    markConfirmationAnswered(cid)
   } catch (e) {
     respondError.value = t('tools.createDemoDataset.respondFailed')
   } finally {

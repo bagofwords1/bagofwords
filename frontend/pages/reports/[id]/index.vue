@@ -728,7 +728,7 @@
 					:initialModel="report?.model_id || ''"
 					:initialEffort="report?.reasoning_effort || ''"
 					:textareaContent="prefillText"
-					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt } : undefined"
+					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt, awaitingInput: inProgressAwaitingInput } : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -1308,6 +1308,21 @@ const inProgressHasFirstToken = computed(() =>
 			b.plan_decision?.reasoning || b.reasoning || b.content ||
 			b.plan_decision?.assistant || b.plan_decision?.final_answer || b.tool_execution
 		)
+	)
+)
+// True while the in-progress run is paused on a tool confirmation card the
+// user hasn't answered yet. Switches the prompt box indicator from "Working"
+// to "Waiting for your confirmation"; flips back as soon as they respond.
+const { isConfirmationAnswered } = useToolConfirmations()
+const inProgressAwaitingInput = computed(() =>
+	messages.value.some(m =>
+		m.role === 'system' && m.status === 'in_progress' &&
+		(m.completion_blocks || []).some((b: any) => {
+			const te = b.tool_execution
+			return te && !['success', 'error', 'stopped'].includes(te.status) &&
+				['awaiting_confirmation', 'awaiting_approval'].includes(te.progress_stage) &&
+				!isConfirmationAnswered(te.confirmation?.confirmation_id)
+		})
 	)
 )
 // Server-side start of the in-progress run (naive-UTC). Lets the prompt box

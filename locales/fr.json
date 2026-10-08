@@ -548,6 +548,7 @@
     "placeholderDefault": "Demandez des données, un tableau de bord ou une analyse approfondie",
     "thinking": "Réflexion",
     "working": "En cours",
+    "awaitingConfirmation": "En attente de votre confirmation",
     "placeholderCompact": "Demandez n'importe quelle donnée",
     "instructions": "Instructions",
     "loadingReportContext": "Chargement du contexte du rapport…",

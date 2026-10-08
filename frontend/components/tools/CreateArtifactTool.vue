@@ -291,6 +291,8 @@ onUnmounted(() => {
   if (countdownInterval) clearInterval(countdownInterval)
 })
 
+const { markConfirmationAnswered } = useToolConfirmations()
+
 async function approveConfirmation() {
   if (!confirmation.value?.confirmation_id) return
   if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
@@ -299,6 +301,7 @@ async function approveConfirmation() {
       method: 'POST',
       body: { approved: true, title: editableTitle.value || null },
     })
+    markConfirmationAnswered(confirmation.value?.confirmation_id)
   } catch {}
 }
 
@@ -310,6 +313,7 @@ async function rejectConfirmation() {
       method: 'POST',
       body: { approved: false },
     })
+    markConfirmationAnswered(confirmation.value?.confirmation_id)
   } catch {}
 }
 

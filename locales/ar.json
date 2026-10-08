@@ -548,6 +548,7 @@
     "placeholderDefault": "اطلب بيانات أو لوحة تحكم أو تحليلًا متعمقًا",
     "thinking": "جارٍ التفكير",
     "working": "جارٍ العمل",
+    "awaitingConfirmation": "في انتظار تأكيدك",
     "placeholderCompact": "اطلب أي بيانات",
     "instructions": "التعليمات",
     "loadingReportContext": "جارٍ تحميل سياق التقرير…",
