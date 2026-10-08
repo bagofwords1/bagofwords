@@ -1,0 +1,28 @@
+{
+  "sso_client": {
+    "configured_and_consented_delegated_resources": {
+      "Microsoft Graph": [
+        "User.Read"
+      ],
+      "Fabric app custom API": [
+        "access_as_user"
+      ]
+    },
+    "direct_fabric_powerbi_grants": false,
+    "application_role_grants": 0
+  },
+  "fabric_client": {
+    "consented_delegated_resources": {
+      "Power BI Service": [
+        "Workspace.Read.All",
+        "Dataset.Read.All"
+      ],
+      "Azure SQL Database": [
+        "user_impersonation"
+      ],
+      "Azure Storage": [
+        "user_impersonation"
+      ]
+    }
+  }
+}
