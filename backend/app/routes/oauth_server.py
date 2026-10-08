@@ -21,6 +21,7 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.ee.audit.service import audit_service
+from app.errors import AppError
 from app.models.organization import Organization
 from app.models.user import User
 from app.services import entra_token_exchange as entra_exchange
@@ -214,7 +215,10 @@ async def authorize_approve(
         redirect_uri=redirect_uri,
         scope=scope,
         code_challenge=code_challenge,
+        session_epoch=user.session_epoch,
     )
+    if code is None:
+        raise AppError.unauthorized(message="Session revoked; sign in again")
 
     # Build callback URL
     parsed_callback = urlsplit(redirect_uri)
