@@ -358,13 +358,15 @@ async def update_tables_status_delta(
         activate=request.activate,
         deactivate=request.deactivate,
         current_user=current_user,
+        excluded_columns=request.excluded_columns,
     )
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="data_source.tables_updated",
             user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
             details={"activated": len(request.activate or []),
-                     "deactivated": len(request.deactivate or [])}, request=http_request,
+                     "deactivated": len(request.deactivate or []),
+                     "columns_updated": result.columns_updated_count}, request=http_request,
         )
     except Exception:
         pass

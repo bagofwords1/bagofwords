@@ -187,6 +187,18 @@ AGENT_DELETE_KEEPS = frozenset({
 })
 
 
+
+def _invalidate_agent_schema_cache(organization) -> None:
+    """Drop the org's cached agent schema context after a table/column
+    selection change. ContextHub caches the built schema for minutes; without
+    this the planner kept answering from the previous selection (a column the
+    manager just hid, or a table just deselected) until the TTL ran out."""
+    try:
+        from app.ai.context.context_hub import invalidate_schema_cache
+        invalidate_schema_cache(str(organization.id) if organization is not None else None)
+    except Exception:
+        logger.debug("schema cache invalidation skipped", exc_info=True)
+
 class DataSourceService:
 
     def __init__(self):
@@ -4379,6 +4391,7 @@ class DataSourceService:
                 fks=table.fks or [],
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
+                excluded_columns=table.excluded_columns or None,
                 # Connection info
                 connection_id=conn_id,
                 connection_name=conn_name,
@@ -4529,6 +4542,7 @@ class DataSourceService:
         update_query = update_query.values(is_active=new_status)
         result = await db.execute(update_query)
         await db.commit()
+        _invalidate_agent_schema_cache(organization)
         
         affected_count = result.rowcount
         
@@ -4570,10 +4584,14 @@ class DataSourceService:
         activate: List[str] = None,
         deactivate: List[str] = None,
         current_user: User = None,
+        excluded_columns: Optional[Dict[str, List[str]]] = None,
     ):
         """
         Update table is_active status using delta (lists of table names to activate/deactivate).
         More efficient than sending all tables.
+
+        `excluded_columns` maps a table id to the complete list of column
+        names hidden from the agent's context for that table.
         """
         from sqlalchemy import update, func
         from app.schemas.datasource_table_schema import DeltaUpdateTablesResponse
@@ -4632,8 +4650,47 @@ class DataSourceService:
 
         if deactivate:
             deactivated_count = await _set_active(deactivate, False)
-        
+
+        columns_updated_count = 0
+        if excluded_columns:
+            from app.core.sql_chunk import chunked as _chunked
+            ids = [str(k) for k in excluded_columns.keys()]
+            for chunk in _chunked(ids):
+                rows = (await db.execute(
+                    select(DataSourceTable).where(
+                        DataSourceTable.datasource_id == data_source_id,
+                        DataSourceTable.id.in_(chunk),
+                    )
+                )).scalars().all()
+                for row in rows:
+                    requested = excluded_columns.get(str(row.id)) or []
+                    # Keep only names the table actually has (case-insensitive,
+                    # stored with the catalog's spelling). A table with no
+                    # canonical columns (e.g. per-user only) keeps the names
+                    # as sent: there is nothing to validate against.
+                    known = {
+                        str(c.get("name")).lower(): str(c.get("name"))
+                        for c in (row.columns or []) if isinstance(c, dict) and c.get("name")
+                    }
+                    cleaned: list[str] = []
+                    seen: set[str] = set()
+                    for name in requested:
+                        if not isinstance(name, str) or not name.strip():
+                            continue
+                        key = name.lower()
+                        if key in seen:
+                            continue
+                        if known and key not in known:
+                            continue
+                        seen.add(key)
+                        cleaned.append(known.get(key, name))
+                    new_value = sorted(cleaned) or None
+                    if (row.excluded_columns or None) != new_value:
+                        row.excluded_columns = new_value
+                        columns_updated_count += 1
+
         await db.commit()
+        _invalidate_agent_schema_cache(organization)
         
         # Get new total selected count
         selected_count_result = await db.execute(
@@ -4671,6 +4728,7 @@ class DataSourceService:
             activated_count=activated_count,
             deactivated_count=deactivated_count,
             total_selected=total_selected,
+            columns_updated_count=columns_updated_count,
         )
 
     async def read_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User, active_only: bool = False):
@@ -4711,13 +4769,16 @@ class DataSourceService:
             # rows can carry different display names after a rename); the
             # name is only a fallback for unlinked legacy overlays.
             active_rows = (await db.execute(
-                select(DataSourceTable.id, DataSourceTable.name).where(
+                select(DataSourceTable.id, DataSourceTable.name, DataSourceTable.excluded_columns).where(
                     DataSourceTable.datasource_id == str(data_source.id),
                     DataSourceTable.is_active.is_(True),
                 )
             )).all()
-            active_ids = {str(i) for i, _ in active_rows}
-            active_names = {n for _, n in active_rows}
+            active_ids = {str(i) for i, _, _ in active_rows}
+            active_names = {n for _, n, _ in active_rows}
+            # Agent-facing read: also honour the columns the agent manager hid.
+            excluded_by_id = {str(i): ex for i, _, ex in active_rows if ex}
+            excluded_by_name = {n: ex for _, n, ex in active_rows if ex}
             overlay_rows = [
                 r for r in overlay_rows
                 if (
@@ -4747,9 +4808,18 @@ class DataSourceService:
             for c in col_q.scalars().all():
                 cols_by_table.setdefault(str(c.user_data_source_table_id), []).append(c)
 
+        from app.ai.prompt_formatters import apply_column_exclusions
+
         tables: list[Table] = []
         for row in overlay_rows:
-            tables.append(Table(
+            excluded = None
+            if active_only:
+                excluded = (
+                    excluded_by_id.get(str(row.data_source_table_id))
+                    if row.data_source_table_id
+                    else excluded_by_name.get(row.table_name)
+                )
+            tables.append(apply_column_exclusions(Table(
                 # The CANONICAL DataSourceTable id, not the overlay row's own.
                 # Callers that merge this list with canonical rows key off it to
                 # tell which tables the overlay already describes; without it
@@ -4765,7 +4835,7 @@ class DataSourceService:
                 fks=[],
                 connection_id=str(row.connection_id) if row.connection_id else None,
                 metadata_json=row.metadata_json,
-            ))
+            ), excluded))
         return tables
 
     def _per_user_catalog_connections(self, data_source: DataSource) -> list:

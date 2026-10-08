@@ -5703,7 +5703,14 @@
     "exitFullscreen": "Exit full screen",
     "searchColumns": "Search columns…",
     "noColumns": "No matching columns",
-    "centrality": "Centrality"
+    "centrality": "Centrality",
+    "columnsInContext": "{visible}/{total} cols",
+    "columnsHiddenTooltip": "Some columns are hidden from this agent's context",
+    "columnsContextHint": "Unchecked columns are left out of the agent's context. This isn't access control.",
+    "showAllColumns": "Show all",
+    "hideAllColumns": "Hide all",
+    "includeColumn": "Include {name} in agent context",
+    "columnHidden": "hidden"
   },
   "fork": {
     "preparing": "Preparing your copy…",

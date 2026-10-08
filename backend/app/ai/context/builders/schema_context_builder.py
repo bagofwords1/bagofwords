@@ -18,6 +18,7 @@ from app.models.datasource_table import DataSourceTable
 from app.models.connection_table import ConnectionTable
 from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
+from app.ai.prompt_formatters import excluded_column_set, filter_columns, filter_fks
 
 
 # A BOW custom table is materialized to a local artifact and served by the
@@ -58,15 +59,26 @@ def _prune_unresolvable_fks(normalized):
     removes edges leaving the emitted set.
     """
     emitted_names = {item.get("name") for item in normalized}
+    # A column the agent manager hid on the REFERENCED table must not come back
+    # through the DDL of the referencing one (`references orders(secret_col)`).
+    excluded_by_name = {
+        item.get("name"): excluded_column_set(item.get("excluded_columns"))
+        for item in normalized
+    }
+
+    def _keep(fk):
+        ref = fk.get("references_name") if isinstance(fk, dict) else getattr(fk, "references_name", None)
+        if ref not in emitted_names:
+            return False
+        ref_col = fk.get("references_column") if isinstance(fk, dict) else getattr(fk, "references_column", None)
+        ref_col_name = (ref_col.get("name") if isinstance(ref_col, dict) else getattr(ref_col, "name", None)) or ""
+        return ref_col_name.lower() not in excluded_by_name.get(ref, frozenset())
+
     for item in normalized:
         item_fks = item.get("fks") or []
         if not item_fks:
             continue
-        item["fks"] = [
-            fk for fk in item_fks
-            if (fk.get("references_name") if isinstance(fk, dict)
-                else getattr(fk, "references_name", None)) in emitted_names
-        ]
+        item["fks"] = [fk for fk in item_fks if _keep(fk)]
 
 
 def _redact_source_metadata(metadata_json):
@@ -564,6 +576,14 @@ class SchemaContextBuilder:
                         if (fk.get('references_name') if isinstance(fk, dict) else None)
                         in visible_table_names
                     ] if base is not None else []
+                    # Columns the agent manager hid for this agent. Applied on
+                    # top of the user's own access: a delegated user sees the
+                    # intersection of what they can reach and what the agent
+                    # exposes, never more than either.
+                    excluded = getattr(base, 'excluded_columns', None) if base is not None else None
+                    columns = filter_columns(columns, excluded)
+                    pks = filter_columns(pks, excluded)
+                    fks = filter_fks(fks, excluded)
                     metadata_json = _redact_source_metadata(
                         getattr(base, 'metadata_json', None) if base is not None else None
                     )
@@ -607,6 +627,7 @@ class SchemaContextBuilder:
                         "degree_in": getattr(base, 'degree_in', None) if base is not None else None,
                         "degree_out": getattr(base, 'degree_out', None) if base is not None else None,
                         "entity_like": getattr(base, 'entity_like', None) if base is not None else None,
+                        "excluded_columns": excluded or None,
                         "is_active": canonical_is_active,
                         "connection_id": conn_id,
                         "connection_name": conn_name,
@@ -627,7 +648,8 @@ class SchemaContextBuilder:
                     # Skip inactive tables when active_only is True
                     if active_only and not table_is_active:
                         continue
-                    columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown"), "description": col.get("description"), "metadata": col.get("metadata")} for col in (getattr(t, 'columns', []) or [])]
+                    excluded = getattr(t, 'excluded_columns', None)
+                    columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown"), "description": col.get("description"), "metadata": col.get("metadata")} for col in filter_columns(getattr(t, 'columns', []) or [], excluded)]
 
                     # Extract connection info
                     conn_id = None
@@ -659,8 +681,9 @@ class SchemaContextBuilder:
                         "name": getattr(t, 'name', ''),
                         "table_id": str(t.id) if getattr(t, 'id', None) else None,
                         "columns": columns,
-                        "pks": getattr(t, 'pks', []) or [],
-                        "fks": getattr(t, 'fks', []) or [],
+                        "pks": filter_columns(getattr(t, 'pks', []) or [], excluded),
+                        "fks": filter_fks(getattr(t, 'fks', []) or [], excluded),
+                        "excluded_columns": excluded or None,
                         "metadata_json": getattr(t, 'metadata_json', None),
                         "centrality_score": getattr(t, 'centrality_score', None),
                         "richness": getattr(t, 'richness', None),
@@ -743,6 +766,7 @@ class SchemaContextBuilder:
                     entity_like=item.get("entity_like"),
                     metadata_json=item.get("metadata_json"),
                     referenced_instructions_count=instruction_ref_counts.get(item.get("table_id", ""), None) or None,
+                    excluded_columns=item.get("excluded_columns"),
                 )
 
                 if with_stats:

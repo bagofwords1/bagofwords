@@ -8,7 +8,7 @@ from app.models.base import BaseSchema
 from app.models.organization import Organization
 from app.models.domain_connection import domain_connection
 from app.models.datasource_table import DataSourceTable
-from app.ai.prompt_formatters import Table, TableColumn
+from app.ai.prompt_formatters import Table, TableColumn, filter_columns, filter_fks
 
 
 class DataSource(BaseSchema):
@@ -310,9 +310,13 @@ class DataSource(BaseSchema):
             if visible_table_ids is not None and str(table.id) not in visible_table_ids:
                 continue
                 
+            # Agent-facing reads (active only) drop the columns the agent
+            # manager hid; the management view (include_inactive) shows every
+            # column so they can be toggled back on.
+            excluded = None if include_inactive else table.excluded_columns
             columns = [
                 TableColumn(name=col["name"], dtype=col.get("dtype", "unknown"))
-                for col in table.columns
+                for col in filter_columns(table.columns, excluded)
             ]
             
             # Extract connection info from relationship
@@ -329,8 +333,9 @@ class DataSource(BaseSchema):
                 id=str(table.id),  # Include table ID for mention service
                 name=table.name,
                 columns=columns,
-                pks=table.pks,
-                fks=table.fks,
+                pks=filter_columns(table.pks, excluded),
+                fks=filter_fks(table.fks, excluded),
+                excluded_columns=table.excluded_columns or None,
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
                 # Connection info (for multi-connection support)
