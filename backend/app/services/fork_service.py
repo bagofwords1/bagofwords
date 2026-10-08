@@ -980,6 +980,29 @@ class ForkService:
             generation_prompt=None if strict_source else latest.generation_prompt,
         )
 
+        # Resources (collections, files, AI) belong to the parent artifact, not
+        # the version, so the new parent starts with none and every
+        # `resource("<name>")` the copied code makes would 404. Carry the
+        # definitions — schema and permissions are part of the app — but never
+        # the records, files or usage counters: those are other users' data.
+        # Deleted resources are left behind; their names stay reserved only
+        # against the source's own older versions, which the fork doesn't have.
+        from app.models.artifact_resource import ArtifactResource
+        import copy
+
+        resources = (await db.execute(select(ArtifactResource).where(
+            ArtifactResource.artifact_id == latest.artifact_id,
+            ArtifactResource.deleted_at.is_(None),
+        ))).scalars().all()
+        for resource in resources:
+            db.add(ArtifactResource(
+                artifact_id=str(new_artifact.artifact_id),
+                organization_id=str(new_report.organization_id),
+                name=resource.name,
+                kind=resource.kind,
+                definition=copy.deepcopy(resource.definition),
+            ))
+
         # The thumbnail is a rendered screenshot of the dashboard — the
         # creator's actual numbers, baked into a PNG. copy_thumbnail is a raw
         # shutil.copy2 with no policy check of its own, so a strict-source fork
