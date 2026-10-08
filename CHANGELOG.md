@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.583 (October 8, 2026)
+- Added demo dataset generation for training mode (#1278)
+- Added forking data apps with their resource definitions, without records (#1274)
+- Added per-agent column visibility (#1275)
+
 ## Version 0.0.582 (October 7, 2026)
 - Added Claude Haiku 5.5 as a preset Anthropic model, with adaptive reasoning effort (low to max) and its $0.10 / $0.50 per million token pricing
 
