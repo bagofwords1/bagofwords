@@ -1714,6 +1714,7 @@
     "createDemoDataset": {
       "designing": "Designar demodatamängden {name}…",
       "review": "Granska demodatamängden",
+      "waitingReview": "Väntar på granskning",
       "generating": "Genererar data…",
       "writing": "Skriver databasen…",
       "connecting": "Skapar anslutningen…",

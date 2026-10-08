@@ -9,7 +9,7 @@
         </span>
         <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
           <Icon name="heroicons-clipboard-document-check" class="w-3 h-3 me-1 text-blue-500" />
-          <span>{{ $t('tools.createDemoDataset.review') }}</span>
+          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? $t('tools.createDemoDataset.waitingReview') : $t('tools.createDemoDataset.review') }}</span>
         </span>
         <span v-else-if="phase === 'working'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
@@ -128,12 +128,12 @@
             <li
               v-for="a in agents" :key="a.name"
               class="flex items-start gap-2 text-[11px] rounded-md px-1.5 py-1 -mx-1.5"
-              :class="phase === 'review' ? 'hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer' : ''"
+              :class="interactive ? 'hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer' : ''"
               :data-testid="`demo-agent-${a.name}`"
-              @click="phase === 'review' && toggleAgent(a.name)"
+              @click="interactive && toggleAgent(a.name)"
             >
               <input
-                v-if="phase === 'review'"
+                v-if="interactive"
                 type="checkbox"
                 class="mt-0.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-0 flex-shrink-0"
                 :checked="isChecked(a.name)"
@@ -145,7 +145,7 @@
                 <template v-if="a.emoji">{{ a.emoji }}</template>
                 <Icon v-else name="heroicons-cpu-chip" class="w-3.5 h-3.5 text-blue-500" />
               </span>
-              <span class="min-w-0 flex-1" :class="phase !== 'review' || isChecked(a.name) ? '' : 'opacity-50'">
+              <span class="min-w-0 flex-1" :class="!interactive || isChecked(a.name) ? '' : 'opacity-50'">
                 <span class="flex items-center gap-1.5">
                   <span class="font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ a.name }}</span>
                   <span v-if="a.skipped" class="text-[9px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
@@ -161,7 +161,7 @@
                 </span>
               </span>
               <NuxtLink
-                v-if="a.id"
+                v-if="a.id && !readonly"
                 :to="`/agents/${a.id}`"
                 class="text-[11px] text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
                 @click.stop
@@ -171,13 +171,13 @@
               </NuxtLink>
             </li>
           </ul>
-          <div v-if="phase === 'review' && !canCreateAgents" class="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+          <div v-if="interactive && !canCreateAgents" class="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
             {{ $t('tools.createDemoDataset.noAgentPermission') }}
           </div>
         </div>
 
         <!-- Review actions -->
-        <div v-if="phase === 'review'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2" data-testid="demo-dataset-review">
+        <div v-if="interactive" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2" data-testid="demo-dataset-review">
           <div v-if="showFeedback" class="mb-2">
             <textarea
               v-model="feedbackDraft"
@@ -257,13 +257,21 @@ const props = defineProps<{
     result_json?: any
     confirmation?: any
     progress_stage?: string
+    review_state?: string
     demo_progress?: any
   }
   systemCompletionId?: string
+  // Shared conversation (/c/<token>): show state, never review controls or
+  // links into the workspace.
+  readonly?: boolean
 }>()
 
 const args = computed<any>(() => props.toolExecution?.arguments_json || {})
 const status = computed<string>(() => props.toolExecution?.status || '')
+// Live stream says 'running'; a loaded row says 'in_progress'.
+const isRunning = computed(() => ['running', 'in_progress'].includes(status.value))
+const reviewState = computed<string>(() => props.toolExecution?.review_state || '')
+const readonly = computed(() => !!props.readonly)
 const result = computed<any>(() => props.toolExecution?.result_json || {})
 // The tool's output is either the result_json itself or nested under `output`.
 const output = computed<any>(() => (result.value?.output && typeof result.value.output === 'object') ? result.value.output : result.value)
@@ -288,16 +296,21 @@ const openTable = ref<string | null>(null)
 const expanded = computed(() => !['rejected', 'failed'].includes(phase.value))
 
 const phase = computed<'designing' | 'review' | 'working' | 'created' | 'rejected' | 'failed'>(() => {
-  if (status.value === 'running') {
+  if (isRunning.value) {
     if (!responded.value && confirmation.value?.confirmation_id &&
         ['awaiting_confirmation', 'awaiting_approval'].includes(progressStage.value)) return 'review'
-    if (['generating', 'writing', 'connecting', 'creating_agents'].includes(progressStage.value) || responded.value) return 'working'
+    if (reviewState.value === 'pending') return 'review'
+    if (['generating', 'writing', 'connecting', 'creating_agents'].includes(progressStage.value) ||
+        responded.value || reviewState.value === 'approved') return 'working'
     return 'designing'
   }
   if (output.value?.success) return 'created'
   if (['rejected', 'timed_out'].includes(outputStatus.value)) return 'rejected'
   return 'failed'
 })
+
+// Review controls only for the person who can answer, on the live page.
+const interactive = computed(() => phase.value === 'review' && !readonly.value && !!confirmation.value?.confirmation_id)
 
 const workingLabel = computed(() => {
   const stage = progressStage.value

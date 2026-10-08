@@ -157,6 +157,7 @@ async def create_connection(
     dataset_id: str,
     path: str,
     icon: Optional[str] = None,
+    generator_code: Optional[Dict[str, str]] = None,
 ) -> Connection:
     from app.services.connection_service import ConnectionService
 
@@ -167,6 +168,10 @@ async def create_connection(
         # The approved spec, minus agents: enough to regenerate or explain the data.
         "demo_spec": spec.model_dump(mode="json", exclude={"agents"}),
     }
+    if generator_code:
+        # The code that produced each table: audits the data and, with the
+        # spec's seed, rebuilds the same rows.
+        config["demo_generator_code"] = generator_code
     if icon:
         config["icon"] = icon
     connection = Connection(

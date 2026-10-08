@@ -518,7 +518,26 @@ async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> Comple
         if ds_ids:
             resolved_data_sources = await _resolve_data_sources(db, ds_ids)
 
-    return serialize_block_v2_sync(
+    # A tool paused for review is not linked to its block yet; the watch
+    # stream (reload, second tab) must still show the review card.
+    review = None
+    try:
+        if tool_execution is None and getattr(block, "status", None) == "in_progress" and getattr(block, "plan_decision_id", None):
+            tool_execution = (await running_tools_by_block(db, [block])).get(str(block.id))
+            unlinked = True
+        else:
+            unlinked = False
+        if tool_execution is not None and tool_execution.status in RUNNING_TOOL_STATUSES:
+            from app.services.tool_confirmation_service import review_states_for_running_tools
+            review = (await review_states_for_running_tools(
+                db, [(str(tool_execution.id), str(block.completion_id), tool_execution.tool_name)]
+            )).get(str(tool_execution.id))
+        if unlinked and review is None:
+            tool_execution = None
+    except Exception:
+        review = None
+
+    schema = serialize_block_v2_sync(
         block=block,
         plan_decision=plan_decision,
         tool_execution=tool_execution,
@@ -528,3 +547,74 @@ async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> Comple
         created_visualizations=created_visualizations or None,
         data_sources=resolved_data_sources,
     )
+    apply_review_state(schema.tool_execution, review)
+    return schema
+
+
+RUNNING_TOOL_STATUSES = ("in_progress", "running")
+
+
+async def running_tools_by_block(db, blocks) -> Dict[str, Any]:
+    """Tool executions still running for in-progress blocks, by block id.
+
+    A decision block is only linked to its tool execution when the tool
+    finishes, so a running tool — e.g. one paused for its owner's review — was
+    invisible to every reader: a reload lost the approval card and a shared
+    conversation showed a bare "Designing…" line. The execution row exists from
+    the start (keyed by plan decision), so read paths look it up from there.
+    Read-only: the block itself is not modified.
+    """
+    from sqlalchemy import select
+    from app.models.tool_execution import ToolExecution
+
+    pending = {
+        str(b.plan_decision_id): str(b.id)
+        for b in blocks
+        if not getattr(b, "tool_execution_id", None)
+        and getattr(b, "plan_decision_id", None)
+        and getattr(b, "status", None) == "in_progress"
+    }
+    if not pending:
+        return {}
+    rows = (await db.execute(
+        select(ToolExecution)
+        .where(
+            ToolExecution.plan_decision_id.in_(list(pending.keys())),
+            ToolExecution.status.in_(RUNNING_TOOL_STATUSES),
+        )
+        .order_by(ToolExecution.created_at)
+    )).scalars().all()
+    out: Dict[str, Any] = {}
+    for te in rows:
+        out[pending[str(te.plan_decision_id)]] = te
+    return out
+
+
+def block_tool_execution(b, te_map, running_by_block):
+    if getattr(b, "tool_execution_id", None):
+        return te_map.get(b.tool_execution_id)
+    return (running_by_block or {}).get(str(b.id))
+
+
+def running_tool_keys(blocks, te_map, running_by_block=None) -> list:
+    """(tool_execution_id, system_completion_id, tool_name) for running tools."""
+    keys = []
+    for b in blocks:
+        te = block_tool_execution(b, te_map, running_by_block)
+        if te is not None and te.status in RUNNING_TOOL_STATUSES:
+            keys.append((str(te.id), str(b.completion_id), te.tool_name))
+    return keys
+
+
+def apply_review_state(te_schema, review: Optional[Dict[str, Any]]) -> None:
+    """Attach a running tool's review state; a pending one carries the
+    confirmation payload so the owner's approval card renders after reload."""
+    if te_schema is None or not review:
+        return
+    from app.services.tool_confirmation_service import confirmation_payload
+
+    te_schema.review_state = review["state"]
+    if review["state"] == "pending":
+        te_schema.confirmation = confirmation_payload(review["row"])
+        te_schema.progress_stage = "awaiting_confirmation"
+

@@ -269,6 +269,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
+import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -717,6 +718,11 @@ function getToolComponent(toolName: string) {
             return ListConnectionsTool
         case 'get_connection':
             return GetConnectionTool
+        // Renders only what the run recorded (the approved spec, row counts and
+        // the agents' names/icons) — nothing fetched live — and in readonly
+        // mode drops the review controls and the links into the workspace.
+        case 'create_demo_dataset':
+            return CreateDemoDatasetTool
         // Deliberately NOT mapped here — these two stay owner-view-only, and
         // not merely for effort. suggest_instructions is a review queue over
         // UNREVIEWED draft instructions, and create_agent builds its body by
@@ -783,6 +789,7 @@ async function loadConversation() {
         error.value = true
     } finally {
         isLoading.value = false
+        scheduleLiveRefresh()
 
         // Scroll to bottom after DOM renders (must be after isLoading = false)
         await nextTick()
@@ -792,6 +799,52 @@ async function loadConversation() {
                 scrollToBottom()
             })
         }, 100)
+    }
+}
+
+// A shared run that is still going (e.g. waiting on its owner's review, or
+// generating) refreshes until it settles, so the viewer sees it finish instead
+// of a frozen spinner. Only the newest page is refetched; older pages the
+// viewer scrolled in stay as they are.
+const LIVE_REFRESH_MS = 4000
+let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+function isRunInProgress(): boolean {
+    for (const c of conversation.value?.completions || []) {
+        if (c.status === 'in_progress') return true
+        for (const b of c.completion_blocks || []) {
+            if (['in_progress', 'running'].includes(b.tool_execution?.status)) return true
+        }
+    }
+    return false
+}
+
+function scheduleLiveRefresh() {
+    if (liveRefreshTimer) clearTimeout(liveRefreshTimer)
+    liveRefreshTimer = null
+    if (!isRunInProgress()) return
+    liveRefreshTimer = setTimeout(refreshLatest, LIVE_REFRESH_MS)
+}
+
+async function refreshLatest() {
+    try {
+        const { data, error: fetchError } = await useMyFetch(`/api/c/${token}?limit=10`)
+        if (fetchError.value || !data.value) return
+        const latest: any[] = (data.value as any).completions || []
+        const latestIds = new Set(latest.map((c: any) => c.id))
+        const older = (conversation.value?.completions || []).filter((c: any) => !latestIds.has(c.id))
+        conversation.value = { ...conversation.value, completions: [...older, ...latest] }
+        for (const completion of latest) {
+            for (const block of completion.completion_blocks || []) {
+                if (block.content || block.tool_execution || block.plan_decision?.final_answer) {
+                    collapsedReasoning.value.add(block.id)
+                }
+            }
+        }
+    } catch (e) {
+        console.error('Failed to refresh conversation:', e)
+    } finally {
+        scheduleLiveRefresh()
     }
 }
 
@@ -864,6 +917,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+    if (liveRefreshTimer) clearTimeout(liveRefreshTimer)
     markdownAutoDir.value?.stop()
 })
 </script>

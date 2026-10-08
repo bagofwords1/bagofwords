@@ -1258,6 +1258,12 @@ class CompletionService:
         # shipped no agents — leaving the data tools to infer an icon from a
         # page-level prop that only the report page passes.
         ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+        from app.serializers.completion_v2 import apply_review_state, running_tool_keys, running_tools_by_block, block_tool_execution
+        from app.services.tool_confirmation_service import review_states_for_running_tools
+        running_by_block = await running_tools_by_block(db, blocks)
+        review_by_te = await review_states_for_running_tools(db, running_tool_keys(blocks, te_map, running_by_block))
+        # Surface an unlinked running tool only when a review explains the pause.
+        running_by_block = {k: v for k, v in running_by_block.items() if str(v.id) in review_by_te}
 
         # 5) Build per-completion block lists and compute aggregates using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in completion_ids}
@@ -1274,7 +1280,7 @@ class CompletionService:
         for b in blocks:
             # Get pre-loaded related objects
             pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
-            te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
+            te = block_tool_execution(b, te_map, running_by_block)
             
             # Count created artifacts for aggregates
             if te:
@@ -1321,6 +1327,8 @@ class CompletionService:
                 created_visualizations=created_visualizations,
                 data_sources=ds_by_te.get(str(te.id)) if te else None,
             )
+            if te is not None:
+                apply_review_state(block_schema.tool_execution, review_by_te.get(str(te.id)))
 
             completion_id_to_blocks[b.completion_id].append(block_schema)
             total_blocks += 1
@@ -1741,13 +1749,19 @@ class CompletionService:
         # shipped no agents — leaving the data tools to infer an icon from a
         # page-level prop that only the report page passes.
         ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+        from app.serializers.completion_v2 import apply_review_state, running_tool_keys, running_tools_by_block, block_tool_execution
+        from app.services.tool_confirmation_service import review_states_for_running_tools
+        running_by_block = await running_tools_by_block(db, blocks)
+        review_by_te = await review_states_for_running_tools(db, running_tool_keys(blocks, te_map, running_by_block))
+        # Surface an unlinked running tool only when a review explains the pause.
+        running_by_block = {k: v for k, v in running_by_block.items() if str(v.id) in review_by_te}
 
         # Build per-completion block lists using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in ids}
         latest_block_for_step = _latest_block_per_step(blocks, te_map, all_completions)
         for b in blocks:
             pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
-            te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
+            te = block_tool_execution(b, te_map, running_by_block)
             
             created_widget = None
             widget_last_step = None
@@ -1784,6 +1798,8 @@ class CompletionService:
                 created_visualizations=created_visualizations,
                 data_sources=ds_by_te.get(str(te.id)) if te else None,
             )
+            if te is not None:
+                apply_review_state(block_schema.tool_execution, review_by_te.get(str(te.id)))
             completion_id_to_blocks[b.completion_id].append(block_schema)
 
         # Batch-load instruction suggestions

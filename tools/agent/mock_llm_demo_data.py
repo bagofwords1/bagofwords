@@ -213,7 +213,9 @@ def planner_reply(messages: list) -> dict:
                                        {"name": "month", "type": "date"},
                                        {"name": "planned_amount", "type": "real"}]})
             return {"tool": "create_demo_dataset", "args": spec}
-        return {"text": FINAL_TEXT}
+        if '"created"' in content or "Created demo connection" in content:
+            return {"text": FINAL_TEXT}
+        return {"text": "The demo dataset was not created — see the card for why."}
     return {"tool": "create_demo_dataset", "args": pick_spec(user_text)}
 
 

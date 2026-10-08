@@ -1782,6 +1782,7 @@
     "createDemoDataset": {
       "designing": "Designing demo dataset {name}…",
       "review": "Review the demo dataset",
+      "waitingReview": "Waiting for review",
       "generating": "Generating data…",
       "writing": "Writing the database…",
       "connecting": "Creating the connection…",

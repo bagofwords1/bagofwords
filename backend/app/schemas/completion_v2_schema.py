@@ -36,6 +36,11 @@ class ToolExecutionUISchema(ToolExecutionSchema):
     created_step: Optional[StepSchema] = None
     created_visualizations: Optional[list[VisualizationSchema]] = None
     data_sources: Optional[list[ToolExecutionDataSourceSchema]] = None
+    # Running tool waiting on (or past) a user review: pending|approved|denied|expired.
+    # Lets a reload rebuild the approval card the live stream showed.
+    review_state: Optional[str] = None
+    confirmation: Optional[Dict[str, Any]] = None
+    progress_stage: Optional[str] = None
 
 
 class ArtifactChangeSchema(BaseModel):
