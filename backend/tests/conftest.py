@@ -101,6 +101,26 @@ def _cleanup_container():
         _postgres_container = None
 
 
+def _use_cheap_password_hashing():
+    """Make argon2 cheap in tests (must run before app modules import it).
+
+    Production defaults (time_cost=3, 64 MiB) cost ~0.15s per hash+verify,
+    and nearly every e2e test signs up and logs in several users. The
+    parameters are encoded in each hash, so hashing and verifying stay
+    consistent; only the work factor changes.
+    """
+    from pwdlib.hashers import argon2 as pw_argon2
+
+    orig_init = pw_argon2.Argon2Hasher.__init__
+
+    def fast_init(self, time_cost=1, memory_cost=1024, parallelism=1, **kwargs):
+        orig_init(self, time_cost=time_cost, memory_cost=memory_cost, parallelism=parallelism, **kwargs)
+
+    pw_argon2.Argon2Hasher.__init__ = fast_init
+
+
+_use_cheap_password_hashing()
+
 # >>> CRITICAL: Setup database BEFORE importing app modules <<<
 _setup_test_database()
 
@@ -122,6 +142,15 @@ def pytest_addoption(parser):
         choices=["sqlite", "postgres", "external"],
         help="Database backend for tests: sqlite (default, fast), postgres (testcontainers, thorough), or external (use pre-set TEST_DATABASE_URL — for sandboxes without Docker)"
     )
+
+
+def pytest_sessionstart(session):
+    """Move everything loaded so far (the app and its heavy dependencies)
+    into the permanent GC generation, so automatic full collections during
+    the run stop rescanning it."""
+    import gc
+    gc.collect()
+    gc.freeze()
 
 
 def pytest_configure(config):

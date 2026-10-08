@@ -80,8 +80,11 @@ jobs:
       #
       # No -s: unbuffered per-test stdout from four workers interleaves into
       # noise and hides the progress line; failures still print captured output.
+      #
+      # --durations=50: list the slowest tests in every run, so the next
+      # regression in per-test cost shows up in the log instead of the timeout.
       run: |
-        uv run pytest -n 4 -m e2e --db=${{ matrix.db }} --disable-warnings --timeout=600 --timeout-method=thread
+        uv run pytest -n 4 -m e2e --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread
 
   # tests/unit carries no pytest marker, so the -m e2e / -m ai steps above never
   # touched it and nothing else ran it either — two MS Fabric OAuth assertions
