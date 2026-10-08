@@ -1,0 +1,20 @@
+{
+  "separate_clients": true,
+  "directory_sync": "PASS",
+  "directory_fields": [
+    "companyName",
+    "jobTitle"
+  ],
+  "assertion_preserved": true,
+  "powerbi_after_profile": {
+    "http": 200,
+    "value": 1
+  },
+  "repeat_profile": true,
+  "credential_recovered_after_expiry": true,
+  "powerbi_after_recovery": {
+    "http": 200,
+    "value": 1
+  },
+  "directory_after_recovery": true
+}

@@ -8,15 +8,15 @@
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.models.oauth_account import OAuthAccount
 from app.ee.oidc.graph_client import resolve_user_profile
+from app.models.oauth_account import OAuthAccount
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ _GRAPH_REFRESH_SCOPE = "openid profile email https://graph.microsoft.com/User.Re
 
 # Scope requested when OBO-exchanging a login token for a Graph /me call.
 # OBO requests must target a single resource, so no openid/profile/email here.
-_GRAPH_OBO_SCOPE = "https://graph.microsoft.com/User.Read offline_access"
+_GRAPH_OBO_SCOPE = "https://graph.microsoft.com/User.Read"
 
 
 class EntraReauthRequired(Exception):
@@ -34,15 +34,11 @@ class EntraReauthRequired(Exception):
     the user has to sign in with Entra ID again."""
 
 
-async def _entra_oauth_account(db: AsyncSession, user_id: str) -> Optional[OAuthAccount]:
+async def _entra_oauth_account(db: AsyncSession, user_id: str) -> OAuthAccount | None:
     """Return the user's Entra-based OAuth login account, if any."""
     from app.services.auth_providers import _is_entra_provider
 
-    rows = (
-        await db.execute(
-            select(OAuthAccount).where(OAuthAccount.user_id == str(user_id))
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(OAuthAccount).where(OAuthAccount.user_id == str(user_id)))).scalars().all()
     for acc in rows:
         try:
             if _is_entra_provider(acc.oauth_name):
@@ -52,32 +48,38 @@ async def _entra_oauth_account(db: AsyncSession, user_id: str) -> Optional[OAuth
     return None
 
 
-async def get_entra_graph_token(db: AsyncSession, user) -> Optional[str]:
-    """Return a usable Graph access token for the user, refreshing if expired.
+async def get_entra_graph_token(db: AsyncSession, user) -> str | None:
+    """Return a login token candidate, refreshing for Graph when expired.
 
-    Reads the token persisted at login (fastapi-users ``oauth_accounts``). When
-    it has expired and a refresh token is available, exchanges it for a fresh
-    Graph-scoped token and updates the stored credentials. Returns None when the
-    user has no Entra login on file.
+    The saved access token may target a data-source API. Graph validates the
+    candidate in fetch_profile_fields; a 401 triggers a resource-specific
+    refresh there even when the login token has not expired.
     """
     acc = await _entra_oauth_account(db, str(user.id))
     if not acc:
         return None
-
-    now = int(time.time())
-    if acc.access_token and (not acc.expires_at or int(acc.expires_at) > now + 60):
+    if acc.access_token and (not acc.expires_at or int(acc.expires_at) > time.time() + 60):
         return acc.access_token
+    return await _refresh_graph_token(db, acc) or acc.access_token
 
-    if not acc.refresh_token:
-        # Nothing to refresh with — hand back whatever we have and let the
-        # caller surface a 401 rather than silently returning None.
-        return acc.access_token
 
-    from app.services.auth_providers import _get_oidc_config, _discover_endpoints
+async def _refresh_graph_token(db: AsyncSession, acc: OAuthAccount) -> str | None:
+    """Acquire a separate Graph token using the SSO client's refresh grant.
+
+    Refresh tokens belong to the SSO client, while the login access token can
+    target a different Fabric client. Never replace that assertion or expiry
+    with a Graph token; connection recovery still needs the original audience.
+    """
+    old_refresh = acc.refresh_token
+    old_access = acc.access_token
+    if not old_refresh:
+        return None
+
+    from app.services.auth_providers import _discover_endpoints, _get_oidc_config
 
     cfg = _get_oidc_config(acc.oauth_name)
     if not cfg or not (cfg.client_id and cfg.client_secret and cfg.issuer):
-        return acc.access_token
+        return None
 
     issuer = cfg.issuer.rstrip("/")
     well_known = issuer if "well-known" in issuer else f"{issuer}/.well-known/openid-configuration"
@@ -88,46 +90,65 @@ async def get_entra_graph_token(db: AsyncSession, user) -> Optional[str]:
                 token_endpoint,
                 data={
                     "grant_type": "refresh_token",
-                    "refresh_token": acc.refresh_token,
+                    "refresh_token": old_refresh,
                     "client_id": cfg.client_id,
                     "client_secret": cfg.client_secret,
                     "scope": _GRAPH_REFRESH_SCOPE,
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            resp.raise_for_status()
+            if resp.is_error:
+                _log_exchange_failure("refresh", resp)
+                return None
             token = resp.json()
     except Exception as e:
-        logger.warning(f"Entra token refresh failed for user {user.id}: {e}")
-        return acc.access_token
+        logger.warning("Entra Graph refresh failed (%s)", type(e).__name__)
+        return None
 
+    if not isinstance(token, dict):
+        return None
     new_access = token.get("access_token")
-    if new_access:
-        acc.access_token = new_access
-        if token.get("refresh_token"):
-            acc.refresh_token = token["refresh_token"]
-        expires_in = token.get("expires_in")
-        if isinstance(expires_in, int):
-            acc.expires_at = now + expires_in
-        db.add(acc)
+    if not isinstance(new_access, str) or not new_access:
+        return None
+    new_refresh = token.get("refresh_token")
+    if isinstance(new_refresh, str) and new_refresh:
+        # A concurrent login or connection recovery may already have rotated
+        # this account. Do not overwrite its newer credentials with this result.
+        await db.execute(
+            update(OAuthAccount)
+            .where(
+                OAuthAccount.id == acc.id,
+                OAuthAccount.refresh_token == old_refresh,
+                OAuthAccount.access_token == old_access,
+            )
+            .values(refresh_token=new_refresh)
+        )
         await db.commit()
-        return new_access
-
-    return acc.access_token
+    return new_access
 
 
-async def _obo_exchange_for_graph(oauth_name: str, assertion: str) -> Optional[dict]:
+def _log_exchange_failure(grant: str, response: httpx.Response) -> None:
+    # Descriptions and exception strings can contain tokens/request data.
+    try:
+        codes = [c for c in response.json().get("error_codes", []) if isinstance(c, int)]
+    except (ValueError, TypeError, AttributeError):
+        codes = []
+    logger.warning("Entra Graph %s failed: HTTP %s, AADSTS codes %s", grant, response.status_code, codes)
+
+
+async def _obo_exchange_for_graph(oauth_name: str, assertion: str) -> dict | None:
     """Exchange a login access token for a Graph-audience token via OBO.
 
     Entra configs that also drive data-source OBO request an
     ``api://<client-id>/...`` scope at login, which makes the login token's
     audience the app's own API — Graph rejects it with 401 InvalidAuthenticationToken.
-    That same token is a valid OBO assertion, so exchange it for a User.Read
-    Graph token using the provider's client credentials. Returns the token
+    When its audience matches the SSO client, it is also a valid assertion for
+    a Graph exchange using that client's credentials. With different clients,
+    Entra rejects this fallback; the SSO refresh grant is needed instead. Returns the token
     response dict, or None when the provider config can't do the exchange or
     Entra refuses it (e.g. expired assertion, missing consent).
     """
-    from app.services.auth_providers import _get_oidc_config, _discover_endpoints
+    from app.services.auth_providers import _discover_endpoints, _get_oidc_config
 
     cfg = _get_oidc_config(oauth_name)
     if not cfg or not (cfg.client_id and cfg.client_secret and cfg.issuer):
@@ -151,47 +172,27 @@ async def _obo_exchange_for_graph(oauth_name: str, assertion: str) -> Optional[d
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             if resp.status_code >= 400:
-                logger.warning(
-                    f"Entra OBO exchange for Graph failed: {resp.status_code} {resp.text[:300]}"
-                )
+                _log_exchange_failure("OBO", resp)
                 return None
             return resp.json()
     except Exception as e:
-        logger.warning(f"Entra OBO exchange for Graph failed: {e}")
+        logger.warning("Entra Graph OBO failed (%s)", type(e).__name__)
         return None
-
-
-async def _persist_graph_tokens(db: AsyncSession, acc: OAuthAccount, token: dict) -> None:
-    """Store an OBO/refresh token response on the user's Entra OAuth account.
-
-    Later preview/sync calls then start from a Graph-audience token (with a
-    refresh token, thanks to offline_access) instead of the login token.
-    """
-    access = token.get("access_token")
-    if not access:
-        return
-    acc.access_token = access
-    if token.get("refresh_token"):
-        acc.refresh_token = token["refresh_token"]
-    expires_in = token.get("expires_in")
-    if isinstance(expires_in, int):
-        acc.expires_at = int(time.time()) + expires_in
-    db.add(acc)
-    await db.commit()
 
 
 async def fetch_profile_fields(
     db: AsyncSession,
     user,
-    fields: List[str],
-    access_token: Optional[str] = None,
-) -> Dict[str, Any]:
+    fields: list[str],
+    access_token: str | None = None,
+) -> dict[str, Any]:
     """Raw Graph /me projection for the given fields (unset fields → None).
 
-    Tries the supplied/stored token first; a Graph 401 (wrong audience — e.g.
-    an api://-scoped login token — or an expired token) falls back to an OBO
-    exchange, persists the resulting Graph tokens, and retries once. Raises
-    EntraReauthRequired when no path yields a usable Graph token.
+    Graph validates the supplied/stored token first. On 401, acquire a separate
+    Graph token with the SSO refresh grant (works with different SSO/Fabric
+    clients). Preserve the legacy same-client OBO fallback when no refresh is
+    available. Graph access tokens remain request-local, never replacing the
+    saved data-source assertion.
     """
     acc = await _entra_oauth_account(db, str(user.id))
     token = access_token or await get_entra_graph_token(db, user)
@@ -204,20 +205,27 @@ async def fetch_profile_fields(
         if e.response.status_code != 401:
             raise
 
+    refreshed = await _refresh_graph_token(db, acc) if acc else None
+    if refreshed:
+        try:
+            return await resolve_user_profile(refreshed, fields)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 401:
+                raise
+
     assertion = access_token or (acc.access_token if acc else None)
     obo = await _obo_exchange_for_graph(acc.oauth_name, assertion) if (acc and assertion) else None
     if not obo or not obo.get("access_token"):
         raise EntraReauthRequired()
-    await _persist_graph_tokens(db, acc, obo)
     return await resolve_user_profile(obo["access_token"], fields)
 
 
 async def fetch_profile(
     db: AsyncSession,
     user,
-    fields: List[str],
-    access_token: Optional[str] = None,
-) -> Dict[str, Any]:
+    fields: list[str],
+    access_token: str | None = None,
+) -> dict[str, Any]:
     """Fetch the given Graph /me fields for a user.
 
     ``access_token`` may be supplied directly (e.g. the fresh token from a login
@@ -233,9 +241,9 @@ async def store_profile_attributes(
     db: AsyncSession,
     user,
     organization_id: str,
-    attrs: Dict[str, Any],
+    attrs: dict[str, Any],
     provider_label: str = "Profile",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Store fetched profile attributes on the user's Membership for this org.
 
     Provider-agnostic half of the on-login sync — the Entra and Google services
@@ -263,10 +271,7 @@ async def store_profile_attributes(
     flag_modified(membership, "profile_attributes")
     db.add(membership)
     await db.commit()
-    logger.info(
-        f"{provider_label} sync: stored {len(attrs)} attribute(s) for user "
-        f"{user.id} in org {organization_id}"
-    )
+    logger.info(f"{provider_label} sync: stored {len(attrs)} attribute(s) for user {user.id} in org {organization_id}")
     return attrs
 
 
@@ -274,15 +279,13 @@ async def sync_profile_on_login(
     db: AsyncSession,
     user,
     organization_id: str,
-    fields: List[str],
+    fields: list[str],
     access_token: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch the profile and store it on the user's Membership for this org.
 
     Called from the login callback with the fresh delegated token. Best-effort:
     a Graph failure logs and leaves the existing attributes untouched.
     """
     attrs = await fetch_profile(db, user, fields, access_token=access_token)
-    return await store_profile_attributes(
-        db, user, organization_id, attrs, provider_label="Entra profile"
-    )
+    return await store_profile_attributes(db, user, organization_id, attrs, provider_label="Entra profile")
