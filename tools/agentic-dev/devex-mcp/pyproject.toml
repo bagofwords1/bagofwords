@@ -1,0 +1,19 @@
+[project]
+name = "devex-mcp"
+version = "0.1.0"
+description = "Developer-experience MCP server: drives interactive flows inside Agent Sandboxes (sandboxd)."
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "mcp>=1.30.0,<1.31",
+    "k8s-agent-sandbox[grpc]>=1.0.4",
+]
+
+[project.scripts]
+devex-mcp = "devex_mcp.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["devex_mcp*"]

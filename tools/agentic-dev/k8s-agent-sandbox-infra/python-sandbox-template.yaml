@@ -8,9 +8,9 @@ spec:
     spec:
       containers:
       - name: python-runtime
+        imagePullPolicy: always
         image: bagofwords/bagofwords:latest
         ports:
-        - containerPort: 8080
         - containerPort: 3000
       restartPolicy: "OnFailure"
   volumeClaimTemplatesPolicy: Overrides
