@@ -553,3 +553,42 @@ def test_update_resets_local_edits_without_a_version_bump(
         f"/api/instructions/{installed['instruction_id']}", headers=_auth(token, org_id)
     ).json()
     assert row["text"].strip() == skill.body.strip()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_setting_gated_skill_is_advertised_only_while_its_toggle_is_on(
+    create_user, login_user, whoami, test_client
+):
+    """A skill declaring ``requires_setting`` ships installed (default) but is
+    only advertised once an admin turns its feature on — and never in a mode
+    it isn't scoped to."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+    from app.models.organization_settings import OrganizationSettings
+
+    gated = [s for s in list_prebuilt_skills() if s.requires_setting]
+    if not gated:
+        pytest.skip("no setting-gated skill in the catalog")
+    skill = gated[0]
+    mode = skill.modes[0] if skill.modes else "chat"
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    skill_id = _install(test_client, token, org_id, skill.key)["instruction_id"]
+
+    def settings(on: bool):
+        return OrganizationSettings(config={
+            skill.requires_setting: {"value": on, "name": "x", "description": "x"},
+        })
+
+    async def advertised(org_settings):
+        async with async_session_maker() as db:
+            builder = InstructionContextBuilder(
+                db, SimpleNamespace(id=org_id), organization_settings=org_settings, mode=mode,
+            )
+            section = await builder.build(query=None)
+            return {s.id for s in section.skills}
+
+    assert skill_id not in await advertised(settings(False))
+    assert skill_id not in await advertised(None)
+    assert skill_id in await advertised(settings(True))

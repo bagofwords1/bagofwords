@@ -786,6 +786,8 @@ class ConnectionService:
         async def _load_and_delete(org: Organization) -> str:
             connection = await self.get_connection(db, connection_id, org)
             connection_name = connection.name
+            nonlocal deleted_config
+            deleted_config = connection.config
 
             # Drop this connection's pooled engines while the row is still
             # readable — building the pool key needs its config and
@@ -803,6 +805,7 @@ class ConnectionService:
             await db.commit()
             return connection_name
 
+        deleted_config = None
         await _drain()
 
         # Agents that exist only through this connection go with it — through
@@ -854,6 +857,10 @@ class ConnectionService:
             organization = await db.get(Organization, organization_id)
             await _drain()
             connection_name = await _load_and_delete(organization)
+
+        # A generated demo dataset's SQLite file belongs to its connection.
+        from app.services.demo_data.installer import remove_generated_file
+        remove_generated_file(deleted_config)
 
         # Audit log
         try:

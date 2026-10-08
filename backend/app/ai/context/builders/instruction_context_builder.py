@@ -697,6 +697,10 @@ class InstructionContextBuilder:
             )
         ]
 
+        # Catalog skills tied to an org feature toggle (frontmatter
+        # ``requires_setting``) are only advertised while that toggle is on.
+        skills = [s for s in skills if self._skill_setting_enabled(getattr(s, "catalog_key", None))]
+
         # Scope by data sources (global skills — no data sources — always included).
         effective_ds_ids = data_source_ids if data_source_ids is not None else self.data_source_ids
         if effective_ds_ids is not None:
@@ -718,6 +722,25 @@ class InstructionContextBuilder:
                 description=self._skill_description(s),
             ))
         return items
+
+    def _skill_setting_enabled(self, catalog_key: Optional[str]) -> bool:
+        if not catalog_key:
+            return True
+        from app.ai.skills.catalog import get_prebuilt_skill
+        skill = get_prebuilt_skill(catalog_key)
+        setting = getattr(skill, "requires_setting", None) if skill else None
+        if not setting:
+            return True
+        settings = getattr(self, "organization_settings", None)
+        if settings is None:
+            return False
+        try:
+            cfg = settings.get_config(setting)
+        except Exception:
+            return False
+        if cfg is None:
+            return False
+        return bool(getattr(cfg, "value", cfg))
 
     @staticmethod
     def _skill_description(instruction: Instruction) -> Optional[str]:

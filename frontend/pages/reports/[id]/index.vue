@@ -1038,6 +1038,7 @@ import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
 import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
+import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
 import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
 import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
@@ -2759,6 +2760,8 @@ function getToolComponent(toolName: string) {
 			return GetConnectionTool
 		case 'create_agent':
 			return CreateAgentTool
+		case 'create_demo_dataset':
+			return CreateDemoDatasetTool
 		case 'search_agents':
 			return SearchAgentsTool
 		case 'set_report_agents':
@@ -3478,6 +3481,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							;(lastBlock.tool_execution as any).auto_policy = {
 								approved: !!payload.payload.approved,
 								reason: payload.payload.reason || ''
+							}
+						}
+
+						// create_demo_dataset: per-table generation progress for its card
+						if (payload.tool_name === 'create_demo_dataset' && Array.isArray(payload.payload.tables)) {
+							;(lastBlock.tool_execution as any).demo_progress = {
+								done: payload.payload.done || 0,
+								total: payload.payload.total || 0,
+								tables: payload.payload.tables,
+								agents: Array.isArray(payload.payload.agents) ? payload.payload.agents : null,
 							}
 						}
 

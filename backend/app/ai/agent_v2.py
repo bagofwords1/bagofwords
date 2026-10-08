@@ -837,6 +837,11 @@ class AgentV2:
         if not self._notes_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('create_note', 'edit_note')]
 
+        # Demo data generation (training) is gated by its org setting.
+        from app.ai.tools.implementations.create_demo_dataset import demo_generation_enabled as _demo_gen_enabled
+        if not _demo_gen_enabled(self.organization_settings):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'create_demo_dataset']
+
         # Check-in runs (the agent following up on its own) never create
         # recurring work or re-arm themselves, and reach the user only through
         # `notify` (whose check-in guardrails send_email would bypass).

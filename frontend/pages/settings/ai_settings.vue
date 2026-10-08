@@ -219,6 +219,7 @@ const pendingLlmValue = ref(false)
 // the parent is off and rendered right after it, indented, when it is on.
 const FEATURE_PARENT: Record<string, string> = {
     enable_artifact_verification: 'allow_llm_see_data',
+    enable_demo_data_generation: 'enable_training_mode',
     ml_training_row_limit: 'enable_ml_training',
     checkins_max_per_user_per_week: 'enable_agent_checkins',
     checkins_max_runs_per_org_per_day: 'enable_agent_checkins',

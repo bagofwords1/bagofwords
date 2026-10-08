@@ -1710,6 +1710,37 @@
       "preserved": "Befintliga poster bevarade.",
       "changed": "Ändringar",
       "noChanges": "Inga ändringar tillämpades."
+    },
+    "createDemoDataset": {
+      "designing": "Designar demodatamängden {name}…",
+      "review": "Granska demodatamängden",
+      "generating": "Genererar data…",
+      "writing": "Skriver databasen…",
+      "connecting": "Skapar anslutningen…",
+      "creatingAgents": "Skapar agenter…",
+      "created": "Demodatamängd skapad",
+      "rejected": "Förslaget avböjdes — inget skapades",
+      "timedOut": "Förslaget granskades inte i tid — inget skapades",
+      "failed": "Demodatamängden skapades inte",
+      "badge": "Demo · SQLite",
+      "tables": "Tabeller ({count})",
+      "rows": "rader",
+      "progress": "{done} av {total} tabeller",
+      "retry": "försök {n}",
+      "agents": "Föreslagna agenter",
+      "agentsCreated": "Agenter",
+      "skipped": "Hoppades över",
+      "open": "Öppna",
+      "noAgentPermission": "Du kan skapa anslutningen, men att skapa agenter kräver behörighet att skapa agenter.",
+      "feedbackPlaceholder": "Vad ska ändras? t.ex. lägg till en returtabell, täck 3 år",
+      "generatedBy": "Rader genererade av {model}",
+      "requestChanges": "Begär ändringar",
+      "approve": "Skapa datamängd",
+      "approveWithAgents": "Skapa datamängd + {n} agenter | Skapa datamängd + {n} agent | Skapa datamängd + {n} agenter",
+      "cancel": "Avbryt",
+      "sendFeedback": "Skicka feedback",
+      "expired": "Granskningen har gått ut.",
+      "respondFailed": "Det gick inte att skicka svaret — försök igen."
     }
   },
   "entityCreate": {
@@ -2944,6 +2975,10 @@
         "enable_artifact_resources": {
           "name": "Artefaktresurser",
           "description": "Tillåt artefakter att använda beständiga poster, privata filer och godkända AI-operationer. Befintliga delnings- och resursbehörigheter gäller fortfarande."
+        },
+        "enable_demo_data_generation": {
+          "name": "Generering av demodata",
+          "description": "I träningsläge kan administratörer som hanterar anslutningar be agenten designa och generera en realistisk fiktiv SQLite-datamängd för valfri domän och sedan skapa föreslagna agenter ovanpå. Raderna genereras av den lilla standardmodellen."
         }
       }
     },

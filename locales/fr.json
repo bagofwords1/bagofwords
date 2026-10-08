@@ -1710,6 +1710,37 @@
       "preserved": "Les enregistrements existants sont conservés.",
       "changed": "Modifications",
       "noChanges": "Aucune modification appliquée."
+    },
+    "createDemoDataset": {
+      "designing": "Conception du jeu de données de démo {name}…",
+      "review": "Vérifiez le jeu de données de démo",
+      "generating": "Génération des données…",
+      "writing": "Écriture de la base de données…",
+      "connecting": "Création de la connexion…",
+      "creatingAgents": "Création des agents…",
+      "created": "Jeu de données de démo créé",
+      "rejected": "Proposition refusée — rien n'a été créé",
+      "timedOut": "Proposition non vérifiée à temps — rien n'a été créé",
+      "failed": "Jeu de données de démo non créé",
+      "badge": "Démo · SQLite",
+      "tables": "Tables ({count})",
+      "rows": "lignes",
+      "progress": "{done} sur {total} tables",
+      "retry": "essai {n}",
+      "agents": "Agents suggérés",
+      "agentsCreated": "Agents",
+      "skipped": "Ignoré",
+      "open": "Ouvrir",
+      "noAgentPermission": "Vous pouvez créer la connexion, mais créer des agents nécessite l'autorisation de créer des agents.",
+      "feedbackPlaceholder": "Que faut-il changer ? ex. ajouter une table des retours, couvrir 3 ans",
+      "generatedBy": "Lignes générées par {model}",
+      "requestChanges": "Demander des modifications",
+      "approve": "Créer le jeu de données",
+      "approveWithAgents": "Créer le jeu de données + {n} agents | Créer le jeu de données + {n} agent | Créer le jeu de données + {n} agents",
+      "cancel": "Annuler",
+      "sendFeedback": "Envoyer le retour",
+      "expired": "Cette vérification a expiré.",
+      "respondFailed": "Impossible d'envoyer votre réponse — réessayez."
     }
   },
   "entityCreate": {
@@ -2944,6 +2975,10 @@
         "enable_artifact_resources": {
           "name": "Ressources des artefacts",
           "description": "Autoriser les enregistrements persistants, les fichiers privés et les opérations IA approuvées dans les artefacts. Les autorisations de partage et de ressources restent applicables."
+        },
+        "enable_demo_data_generation": {
+          "name": "Génération de données de démo",
+          "description": "En mode entraînement, les administrateurs qui gèrent les connexions peuvent demander à l'agent de concevoir et générer un jeu de données SQLite fictif et réaliste pour n'importe quel domaine, puis de créer des agents suggérés dessus. Les lignes sont générées par le petit modèle par défaut."
         }
       }
     },
