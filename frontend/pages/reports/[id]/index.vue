@@ -4086,7 +4086,15 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 			return
 		}
 		const list = response?.completions || []
-		messages.value = list.map((c: any) => {
+		// Older pages the reader already scrolled into (via
+		// loadPreviousCompletions). A refresh returns only the latest page;
+		// replacing the transcript with it would delete everything above the
+		// viewport and jump the reader. Keep the messages older than the first
+		// one the fresh page overlaps, and keep their pagination cursor.
+		const freshIds = new Set(list.map((c: any) => String(c.id)))
+		const overlapIdx = messages.value.findIndex(m => freshIds.has(String(m.id)))
+		const olderKept = overlapIdx > 0 ? messages.value.slice(0, overlapIdx) : []
+		const freshMessages = list.map((c: any) => {
 			// Override status if sigkill timestamp exists - this means it was stopped
 			let status = c.status as ChatStatus
 			if (c.sigkill && status === 'in_progress') {
@@ -4167,9 +4175,12 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				trigger_source: c.trigger_source || null,
 			}
 		})
-		// Update cursors
-		hasMore.value = !!response?.has_more
-		cursorBefore.value = response?.next_before || null
+		messages.value = olderKept.length ? [...olderKept, ...freshMessages] : freshMessages
+		// Update cursors (unless older pages are kept — their cursor still applies)
+		if (!olderKept.length) {
+			hasMore.value = !!response?.has_more
+			cursorBefore.value = response?.next_before || null
+		}
 		// Place the compaction boundary from server state
 		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
         await nextTick()
@@ -4438,8 +4449,13 @@ function onScroll() {
     //     the prepend adjustment (state already false, stays false).
     const top = container.scrollTop
     const distanceFromBottom = container.scrollHeight - (top + container.clientHeight)
-    if (distanceFromBottom <= FOLLOW_ZONE_PX) isFollowing.value = true
-    else if (top < lastScrollTop) isFollowing.value = false
+    //   Any upward move stops following, even inside the follow zone — otherwise
+    //   a reader whose first wheel ticks stay within FOLLOW_ZONE_PX is pinned
+    //   straight back down, again and again, while content keeps arriving.
+    //   (A downward clamp from shrinking content leaves us at the very bottom,
+    //   hence the AT_BOTTOM_EPS guard.)
+    if (top < lastScrollTop && distanceFromBottom > AT_BOTTOM_EPS) isFollowing.value = false
+    else if (distanceFromBottom <= FOLLOW_ZONE_PX) isFollowing.value = true
     lastScrollTop = top
 }
 
