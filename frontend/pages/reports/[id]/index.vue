@@ -5509,6 +5509,10 @@ onMounted(async () => {
 	setActiveReport(String(report_id)) // stream events for the open report never flag unread
 	touchViewed()
 	slowLoads.then(() => touchViewed()).catch(() => {})
+	// Land at the bottom as soon as the conversation renders — not after the
+	// slower workspace/summary loads below. Forcing it later re-engaged
+	// following and yanked a reader who had already scrolled up back down.
+	slowLoads.then(() => scheduleInitialScroll()).catch(() => {})
 
 	await workspaceLoads
 	// Resolves on the first status read; polling (if any) continues detached.
@@ -5579,9 +5583,7 @@ onMounted(async () => {
 
 	// Start background poll for new scheduled completions
 	startScheduledCompletionsPoll()
-	
-    // Aggressive initial scroll to handle async content mounting
-	scheduleInitialScroll()
+
     window.addEventListener('resize', followScrollToBottom)
 })
 
