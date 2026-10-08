@@ -16,6 +16,7 @@ from typing import Optional, Tuple
 from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.session_revocation import lock_user_sessions
 from app.models.oauth_server import (
     OAuthAccessToken,
     OAuthAuthorizationCode,
@@ -435,8 +436,12 @@ class OAuthServerService:
         redirect_uri: str,
         scope: str,
         code_challenge: str,
-    ) -> str:
+        session_epoch: Optional[int] = None,
+    ) -> Optional[str]:
         """Create and return an authorization code."""
+        epoch = await lock_user_sessions(db, user_id)
+        if session_epoch is not None and epoch != session_epoch:
+            return None
         code = secrets.token_urlsafe(32)
 
         auth_code = OAuthAuthorizationCode(
@@ -484,6 +489,11 @@ class OAuthServerService:
         auth_code = result.scalar_one_or_none()
         if not auth_code:
             logger.warning("exchange_code failed: authorization code not found or already used (client_id=%s)", client_id)
+            return None
+
+        await lock_user_sessions(db, auth_code.user_id)
+        await db.refresh(auth_code)
+        if auth_code.deleted_at is not None:
             return None
 
         if not set((auth_code.scope or "").split()).issubset(
@@ -574,6 +584,11 @@ class OAuthServerService:
         token_record = result.scalar_one_or_none()
         if not token_record:
             logger.warning("refresh_access_token failed: refresh token not found or already rotated (client_id=%s)", client_id)
+            return None
+
+        await lock_user_sessions(db, token_record.user_id)
+        await db.refresh(token_record)
+        if token_record.deleted_at is not None:
             return None
 
         # Check refresh token expiration

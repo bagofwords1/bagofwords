@@ -84,12 +84,11 @@ async def force_member_sign_out(
 ):
     """Revoke every session token held by a member.
 
-    The break-glass control for a leaked bearer token: session JWTs are only
-    accepted while they carry the user's current `session_epoch`, so bumping it
-    invalidates all of them at once, on every device. Before this existed the
-    only lever was deactivating the account.
+    Invalidates session JWTs, custom OAuth access/refresh tokens and pending
+    authorization codes across organizations. Does not revoke Entra sessions
+    or stored downstream credentials.
     """
-    from app.core.auth import bump_session_epoch
+    from app.core.session_revocation import revoke_user_sessions
 
     # Scope the lookup to the org the caller was actually authorized against
     # (the resolved `organization`), not the org id in the path — those are
@@ -101,7 +100,7 @@ async def force_member_sign_out(
     if membership is None or not membership.user_id:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    await bump_session_epoch(membership.user_id)
+    await revoke_user_sessions(db, membership.user_id)
 
     await audit_service.log(
         db=db,

@@ -147,8 +147,8 @@
                             <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">Last Login</th>
                             <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">Last Seen</th>
                             <th
-                                v-if="useCan('remove_organization_members')"
-                                class="sticky right-0 z-20 bg-gray-50 dark:bg-gray-900 border-s border-gray-200 dark:border-gray-800 px-4 py-2 text-end text-xs font-medium text-gray-500 dark:text-gray-400"
+                                v-if="canMemberActions"
+                                class="sticky end-0 z-20 bg-gray-50 dark:bg-gray-900 border-s border-gray-200 dark:border-gray-800 px-4 py-2 text-end text-xs font-medium text-gray-500 dark:text-gray-400"
                             >{{ $t('settings.members.colActions') }}</th>
                         </tr>
                     </thead>
@@ -345,8 +345,8 @@
                                 <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                     {{ fmtMemberDate(member.user?.last_seen) }}
                                 </td>
-                                <td class="sticky right-0 z-10 border-s border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50 px-4 py-2 whitespace-nowrap"
-                                    v-if="useCan('remove_organization_members')"
+                                <td class="sticky end-0 z-10 border-s border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50 px-4 py-2 whitespace-nowrap"
+                                    v-if="canMemberActions"
                                 >
                                     <div class="flex items-center justify-end gap-4">
                                         <button
@@ -368,6 +368,15 @@
                                             {{ resendingId === member.id ? $t('settings.members.resending') : $t('settings.members.resend') }}
                                         </button>
                                         <button
+                                            v-if="member.user && useCan('manage_members')"
+                                            @click="revokeTarget = member; revokeModalOpen = true"
+                                            class="inline-flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                                        >
+                                            <UIcon name="i-heroicons-arrow-right-on-rectangle" class="h-3.5 w-3.5" />
+                                            {{ $t('settings.members.revokeSessions') }}
+                                        </button>
+                                        <button
+                                            v-if="useCan('remove_organization_members')"
                                             @click="removeMember(member)"
                                             class="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-800 transition-colors"
                                         >
@@ -421,6 +430,23 @@
     </div>
 
     <!-- Invite Modal -->
+    <UModal v-model="revokeModalOpen" :prevent-close="revokingSessions">
+        <UCard>
+            <template #header>
+                <h3 class="text-lg font-semibold">{{ $t('settings.members.revokeSessions') }}</h3>
+            </template>
+            <p class="text-sm text-gray-600 dark:text-gray-300">
+                {{ $t('settings.members.confirmRevokeSessions', { name: revokeTarget?.user?.name || revokeTarget?.user?.email || '' }) }}
+            </p>
+            <template #footer>
+                <div class="flex justify-end gap-3">
+                    <UButton color="gray" variant="ghost" :disabled="revokingSessions" @click="revokeModalOpen = false">{{ $t('common.cancel') }}</UButton>
+                    <UButton color="red" :loading="revokingSessions" @click="revokeMemberSessions">{{ $t('settings.members.revokeSessions') }}</UButton>
+                </div>
+            </template>
+        </UCard>
+    </UModal>
+
     <UModal v-model="inviteModalOpen" :prevent-close="inviteLoading">
         <div class="p-4 relative">
             <button :disabled="inviteLoading" @click="inviteModalOpen = false" class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 outline-none disabled:opacity-50 disabled:cursor-not-allowed">
@@ -702,7 +728,8 @@ const deactivatesAccountOnRemoval = (member: Member) =>
     singleOrgInstall.value && !!member.user_id
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
 const canBulkActions = computed(() => useCan('update_organization_members') || useCan('remove_organization_members'))
-const membersColspan = computed(() => 8 + (showQuotaColumn.value ? 1 : 0) + (useCan('remove_organization_members') ? 1 : 0) + (canBulkActions.value ? 1 : 0))
+const canMemberActions = computed(() => useCan('manage_members') || useCan('remove_organization_members'))
+const membersColspan = computed(() => 8 + (showQuotaColumn.value ? 1 : 0) + (canMemberActions.value ? 1 : 0) + (canBulkActions.value ? 1 : 0))
 
 // Filters
 const statusFilter = ref<'all' | 'active' | 'pending'>('all')
@@ -1328,6 +1355,26 @@ async function resendInvite(member: Member) {
         toast.add({ title: e?.data?.detail || t('settings.members.failedToResend'), color: 'red' })
     } finally {
         resendingId.value = null
+    }
+}
+
+const revokeTarget = ref<Member | null>(null)
+const revokeModalOpen = ref(false)
+const revokingSessions = ref(false)
+const { getErrorMessage } = useErrorMessage()
+
+async function revokeMemberSessions() {
+    if (!revokeTarget.value || revokingSessions.value) return
+    revokingSessions.value = true
+    try {
+        const { error } = await useMyFetch(`/organizations/${organizationId}/members/${revokeTarget.value.id}/sign-out`, { method: 'POST' })
+        if (error.value) throw error.value
+        revokeModalOpen.value = false
+        toast.add({ title: t('settings.members.sessionsRevoked'), color: 'green' })
+    } catch (error) {
+        toast.add({ title: t('common.error'), description: getErrorMessage(error, t('settings.members.failedToRevokeSessions')), color: 'red' })
+    } finally {
+        revokingSessions.value = false
     }
 }
 
