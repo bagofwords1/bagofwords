@@ -1756,6 +1756,7 @@
     "createDemoDataset": {
       "designing": "מתכנן מסד נתוני הדגמה {name}…",
       "review": "סקירת מסד נתוני ההדגמה",
+      "waitingReview": "ממתין לסקירה",
       "generating": "יוצר נתונים…",
       "writing": "כותב את מסד הנתונים…",
       "connecting": "יוצר את החיבור…",

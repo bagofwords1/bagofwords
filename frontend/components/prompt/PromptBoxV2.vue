@@ -1083,7 +1083,7 @@ const modeIcon = computed(() => {
 // per-data_source `manage` grant implies it, and full_admin bypasses) — mirrors
 // the backend gate in report_service.update_report. A plain member (view only)
 // on the agent is denied even if they manage a different agent.
-const { isTrainingModeEnabled } = useOrgSettings()
+const { isTrainingModeEnabled, isDemoDataEnabled } = useOrgSettings()
 const canManageInstructionsForSelectedAgents = computed(() => {
     const dss = selectedDataSources.value || []
     if (dss.length === 0) {
@@ -1370,6 +1370,8 @@ const hasDataSourceOrFile = computed(() => {
         || selectedDataSources.value.length > 0
         || availableDataSources.value.length > 0
         || successfullyUploadedFiles.value.length > 0
+        // A workspace with no data yet can still ask Training for a demo dataset.
+        || (mode.value === 'training' && isDemoDataEnabled.value)
 })
 
 // Note: a running completion no longer blocks submission — submit() routes

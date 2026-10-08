@@ -48,3 +48,4 @@ class CreateDemoDatasetOutput(BaseModel):
     agents: List[CreatedDemoAgent] = Field(default_factory=list)
     skipped_agents: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
+    failed_code: Optional[str] = Field(None, description="Last generator attempt for the table that failed (diagnosis).")

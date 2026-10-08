@@ -114,3 +114,52 @@ mock's uniform categories (0/2 weighted).
 **Status:** the Haiku 5.5 run has not been done yet. The sandbox's
 environment key was rejected by Anthropic ("credit balance is too low").
 Re-run the command above with a funded key in the environment.
+
+## Follow-up — production trace and shared conversations
+
+**Production trace** ("Mock Agents for Payroll and Finance", 3 tool calls,
+about 445s in total):
+1. All five tables generated (172s), then the write failed with `FOREIGN KEY
+   constraint failed`. Root cause: `write_sqlite` loaded rows with
+   `PRAGMA foreign_keys = ON`, so a self-reference
+   (`employees.manager_id → employees.employee_id`) pointing at a row inserted
+   later in the same table failed on insert, even though validation had
+   already proven every reference resolves. Fix: load with enforcement off,
+   then check every row once with `PRAGMA foreign_key_check`. Real orphans
+   are still rejected. Tests: `test_self_reference_to_a_later_row_writes`
+   (failed before the fix) and `test_writer_still_rejects_real_orphans`.
+2. `employees` failed 3 times with `TypeError: Index does not support mutable
+   operations`: the model mutated a pandas `Index`, and every retry received
+   only the exception text. Fixes:
+   - The retry prompt now names the failing line (`line N: <source>`).
+   - The system prompt warns that `Index` objects are immutable and explains
+     how to build self-references.
+   - The final code for each table is saved in the connection config
+     (`demo_generator_code`).
+   - A failed table returns its last attempt as `failed_code`.
+   Test: `test_retry_prompt_names_the_failing_line`.
+3. To get through, the agent cut the spec (480 → 120 employees, no
+   `manager_id`). With fixes 1 and 2, the original spec builds.
+
+**Shared conversation / reload.** A decision block is linked to its tool
+execution only when the tool finishes. So while `create_demo_dataset` waited
+for review:
+- the shared page `/c/<token>` showed a bare "Designing the dataset."
+- a reload lost the owner's review card.
+
+Fixes:
+- **Read paths** (completions list, watch stream, public conversation) look up
+  the running tool execution by plan decision. They attach it only when a
+  review explains the pause, with `review_state` (pending / approved / …).
+  - The owner's payload also carries the confirmation, so the card renders
+    with its controls after a reload.
+  - The public payload carries only the state.
+- **Shared page:** renders the tool read-only (no checkboxes, buttons or links
+  into the workspace) and refreshes every 4s while a run is in progress.
+- **Empty workspace:** the prompt box can send in Training mode when demo data
+  generation is on, even with no agents, so a fresh workspace can ask for its
+  first dataset.
+
+Loop: `frontend/tests/demo_data/demo-dataset-share.mjs` → `PASS: shared view
+shows waiting-for-review (read-only), owner card survives reload, shared view
+refreshes to created.` Evidence: `media/pr/demo-data-share/`.

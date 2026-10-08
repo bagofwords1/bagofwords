@@ -213,3 +213,70 @@ def test_remove_generated_file_only_touches_the_demo_data_root(tmp_path):
 
     remove_generated_file({"database": inside, "demo_generated": True})
     assert not os.path.exists(inside)
+
+
+def test_self_reference_to_a_later_row_writes(tmp_path):
+    """employees.manager_id may point at a row that comes later in the same
+    frame (or appear in any order). Validation accepts it; the writer must too —
+    in production it generated every table, then failed the write with
+    'FOREIGN KEY constraint failed'."""
+    import pandas as pd
+    spec = DemoDatasetSpec(
+        name="Org", domain="hr", date_range_start="2025-01-01", date_range_end="2025-12-31",
+        tables=[{"name": "employees", "description": "one row per employee", "row_count": 4, "columns": [
+            {"name": "employee_id", "type": "integer", "primary_key": True},
+            {"name": "manager_id", "type": "integer", "references": "employees.employee_id", "nullable": True},
+        ]}],
+    )
+    frames = {"employees": pd.DataFrame({
+        "employee_id": pd.array([1, 2, 3, 4], dtype="Int64"),
+        "manager_id": pd.array([4, 4, 1, None], dtype="Int64"),  # 1 and 2 report to 4, inserted last
+    })}
+    path = str(tmp_path / "org.sqlite")
+    write_sqlite(path, spec, frames)
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("select count(*) from employees").fetchone()[0] == 4
+        assert conn.execute("pragma foreign_key_check").fetchall() == []
+    finally:
+        conn.close()
+
+
+def test_writer_still_rejects_real_orphans(tmp_path):
+    import pandas as pd
+    spec = DemoDatasetSpec(
+        name="Org", domain="hr", date_range_start="2025-01-01", date_range_end="2025-12-31",
+        tables=[{"name": "employees", "description": "one row per employee", "row_count": 2, "columns": [
+            {"name": "employee_id", "type": "integer", "primary_key": True},
+            {"name": "manager_id", "type": "integer", "references": "employees.employee_id", "nullable": True},
+        ]}],
+    )
+    frames = {"employees": pd.DataFrame({
+        "employee_id": pd.array([1, 2], dtype="Int64"),
+        "manager_id": pd.array([None, 99], dtype="Int64"),
+    })}
+    with pytest.raises(RuntimeError, match="foreign_key_check"):
+        write_sqlite(str(tmp_path / "bad.sqlite"), spec, frames)
+
+
+def test_retry_prompt_names_the_failing_line():
+    """The production failure ('Index does not support mutable operations')
+    repeated on every retry: the model only got the exception text. The retry
+    must show which statement failed."""
+    bad = """```python
+def generate(n, rng, tables, start, end):
+    ids = pd.RangeIndex(1, n + 1)
+    ids[0] = 99
+    return pd.DataFrame({'customer_id': ids, 'segment': ['a'] * n})
+```"""
+    prompts = []
+
+    async def inference(system, prompt):
+        prompts.append(prompt)
+        return bad if len(prompts) == 1 else CUSTOMERS
+
+    spec = _spec(tables=[_spec().model_dump(mode="json")["tables"][0]], agents=[])
+    result = _run(DemoDatasetGenerator(inference, today=TODAY).generate(spec))
+    assert result.tables[0].attempts == 2
+    assert "ids[0] = 99" in prompts[1] and "line 3" in prompts[1]
+    assert result.tables[0].code and "def generate" in result.tables[0].code

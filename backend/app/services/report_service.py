@@ -3659,11 +3659,19 @@ class ReportService:
         # icon to the report's owner showed a generic one to everyone else.
         from app.serializers.completion_v2 import resolve_data_sources_for_tool_executions
         ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+        # A running tool waiting on its owner's review shows as waiting, not
+        # stuck. Only the state crosses — never the confirmation id or payload.
+        from app.serializers.completion_v2 import running_tool_keys, running_tools_by_block, block_tool_execution
+        from app.services.tool_confirmation_service import review_states_for_running_tools
+        running_by_block = await running_tools_by_block(db, blocks)
+        review_by_te = await review_states_for_running_tools(db, running_tool_keys(blocks, te_map, running_by_block))
+        # Surface an unlinked running tool only when a review explains the pause.
+        running_by_block = {k: v for k, v in running_by_block.items() if str(v.id) in review_by_te}
 
         completion_id_to_blocks: dict = {cid: [] for cid in completion_ids}
         for b in blocks:
             pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
-            te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
+            te = block_tool_execution(b, te_map, running_by_block)
             
             # Build sanitized block (no internal IDs, no user feedback)
             block_data = {
@@ -3718,6 +3726,7 @@ class ReportService:
                         {"id": ds.id, "icon_token": ds.icon_token}
                         for ds in ds_by_te.get(str(te.id), [])
                     ] or None,
+                    "review_state": (review_by_te.get(str(te.id)) or {}).get("state"),
                 })
             
             completion_id_to_blocks[b.completion_id].append(block_data)

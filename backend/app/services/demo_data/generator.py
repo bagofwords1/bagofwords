@@ -75,11 +75,12 @@ _FUTURE_OK_RE = re.compile(r"\b(due|expir|expected|scheduled|planned|forecast|fu
 class TableGenerationError(Exception):
     """A table could not be generated within the attempt budget."""
 
-    def __init__(self, table: str, message: str, attempts: int):
+    def __init__(self, table: str, message: str, attempts: int, code: Optional[str] = None):
         super().__init__(f"{table}: {message}")
         self.table = table
         self.message = message
         self.attempts = attempts
+        self.code = code  # last attempt's generator, for diagnosis
 
 
 class _ValidationError(Exception):
@@ -92,6 +93,7 @@ class TableResult:
     rows: int
     attempts: int
     warnings: List[str] = field(default_factory=list)
+    code: Optional[str] = None  # the generator that produced the rows
 
 
 @dataclass
@@ -137,6 +139,8 @@ Realism rules:
 - Nulls only in nullable columns, at a realistic rate.
 - Events/logs/metrics: irregular event timestamps (sorted), regular metric intervals, correlated signals.
 - Vectorize with numpy/pandas; avoid Python loops over more than ~5,000 items.
+- pandas Index / RangeIndex objects are immutable: build keys and value arrays with numpy (np.arange, rng.choice) and call .copy() / .astype(float) before assigning into them; never assign into df.index, df.columns or a .unique() result.
+- Self-reference (e.g. manager_id -> this table's id): create the id array first, then pick each row's parent from ids of earlier rows with rng; top-level rows get None (use a float array with np.nan, or a pandas "Int64" array with pd.NA).
 
 Reply with ONLY one ```python code block containing the imports (if any) and the generate function."""
 
@@ -260,6 +264,22 @@ def validate_generator_code(code: str) -> None:
                     raise UnsafePythonError("Use rng (numpy Generator) instead of the random module")
     if not any(isinstance(n, ast.FunctionDef) and n.name == "generate" for n in tree.body):
         raise _ValidationError("No top-level `def generate(n, rng, tables, start, end)` found")
+
+
+def _failing_line(exc: BaseException, code: Optional[str]) -> str:
+    """' (line N: <source>)' for the deepest frame inside the generator, so a
+    retry sees which statement failed instead of only the exception text."""
+    import traceback
+    if not code:
+        return ""
+    lines = code.splitlines()
+    lineno = None
+    for fr in traceback.extract_tb(exc.__traceback__):
+        if fr.filename == "<demo_generator>":
+            lineno = fr.lineno
+    if not lineno or lineno > len(lines):
+        return ""
+    return f" (line {lineno}: {lines[lineno - 1].strip()[:200]})"
 
 
 def _run_generator_sync(code: str, n: int, seed: int, frames: Dict[str, pd.DataFrame],
@@ -424,7 +444,11 @@ def write_sqlite(path: str, spec: DemoDatasetSpec, frames: Dict[str, pd.DataFram
     conn = sqlite3.connect(tmp)
     try:
         cur = conn.cursor()
-        cur.execute("PRAGMA foreign_keys = ON")
+        # Enforcement stays off while loading: a self-reference (manager_id ->
+        # employees) may point at a row inserted later in the same table. The
+        # constraints are declared, and foreign_key_check below verifies every
+        # row once the load is complete.
+        cur.execute("PRAGMA foreign_keys = OFF")
         cur.execute("PRAGMA journal_mode = OFF")
         cur.execute("PRAGMA synchronous = OFF")
         for name in generation_order(spec):
@@ -511,11 +535,11 @@ class DemoDatasetGenerator:
                     start=start, end=end, timeout_s=self.exec_timeout_s,
                 )
                 df, warnings = coerce_and_validate(raw, table, frames, spec, today=self.today)
-                return df, TableResult(name=table.name, rows=len(df), attempts=attempt, warnings=warnings)
+                return df, TableResult(name=table.name, rows=len(df), attempts=attempt, warnings=warnings, code=code)
             except Exception as e:
-                error = f"{type(e).__name__}: {e}"
+                error = f"{type(e).__name__}: {e}{_failing_line(e, code)}"
                 logger.info("demo generator: %s attempt %s failed: %s", table.name, attempt, error[:300])
-        raise TableGenerationError(table.name, error or "generation failed", self.max_attempts)
+        raise TableGenerationError(table.name, error or "generation failed", self.max_attempts, code=code)
 
     async def generate(self, spec: DemoDatasetSpec, progress: Optional[ProgressFn] = None) -> GenerationResult:
         t0 = time.monotonic()

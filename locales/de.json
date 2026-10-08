@@ -1714,6 +1714,7 @@
     "createDemoDataset": {
       "designing": "Entwerfe Demo-Datensatz {name}…",
       "review": "Demo-Datensatz prüfen",
+      "waitingReview": "Wartet auf Prüfung",
       "generating": "Daten werden erzeugt…",
       "writing": "Datenbank wird geschrieben…",
       "connecting": "Verbindung wird erstellt…",

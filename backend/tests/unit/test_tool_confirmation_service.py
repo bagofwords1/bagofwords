@@ -76,3 +76,70 @@ async def test_poll_decision_denied_and_expired():
     assert await svc.poll_decision(expired) is None
 
     assert await svc.poll_decision(str(uuid4())) is None
+
+
+# ---------------------------------------------------------------------------
+# Review state for read paths (reload / shared conversation)
+# ---------------------------------------------------------------------------
+
+async def _ask(svc, *, completion_id, tool_name, kind="builtin_tool", arguments=None) -> str:
+    cid = str(uuid4())
+    async with async_session_maker() as db:
+        await svc.create(
+            db, confirmation_id=cid, kind=kind, tool_name=tool_name,
+            system_completion_id=completion_id, arguments=arguments or {},
+        )
+    return cid
+
+
+@pytest.mark.asyncio
+async def test_running_tool_review_state_follows_its_latest_confirmation():
+    from app.services.tool_confirmation_service import (
+        confirmation_payload, review_states_for_running_tools,
+    )
+    svc = ToolConfirmationService()
+    comp = str(uuid4())
+    # First proposal was declined, the revised one is pending.
+    first = await _ask(svc, completion_id=comp, tool_name="create_demo_dataset", arguments={"dataset_name": "v1"})
+    async with async_session_maker() as db:
+        await svc.resolve(db, confirmation_id=first, approved=False, remember=False, user_id=None)
+    pending = await _ask(svc, completion_id=comp, tool_name="create_demo_dataset", arguments={"dataset_name": "v2"})
+
+    te_id = str(uuid4())
+    async with async_session_maker() as db:
+        states = await review_states_for_running_tools(db, [(te_id, comp, "create_demo_dataset")])
+        assert states[te_id]["state"] == "pending"
+        payload = confirmation_payload(states[te_id]["row"])
+    assert payload["confirmation_id"] == pending and payload["dataset_name"] == "v2"
+
+    async with async_session_maker() as db:
+        await svc.resolve(db, confirmation_id=pending, approved=True, remember=False, user_id=None)
+        states = await review_states_for_running_tools(db, [(te_id, comp, "create_demo_dataset")])
+    assert states[te_id]["state"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_review_state_is_scoped_to_completion_and_tool():
+    from app.services.tool_confirmation_service import review_states_for_running_tools
+    svc = ToolConfirmationService()
+    comp, other = str(uuid4()), str(uuid4())
+    await _ask(svc, completion_id=other, tool_name="create_demo_dataset")
+    await _ask(svc, completion_id=comp, tool_name="set_report_agents")
+    async with async_session_maker() as db:
+        states = await review_states_for_running_tools(db, [(str(uuid4()), comp, "create_demo_dataset")])
+    assert states == {}
+
+
+@pytest.mark.asyncio
+async def test_mcp_confirmation_payload_nests_call_arguments():
+    from app.services.tool_confirmation_service import (
+        KIND_MCP_TOOL_POLICY, confirmation_payload, review_states_for_running_tools,
+    )
+    svc = ToolConfirmationService()
+    comp = str(uuid4())
+    await _ask(svc, completion_id=comp, tool_name="send_message", kind=KIND_MCP_TOOL_POLICY, arguments={"text": "hi"})
+    te_id = str(uuid4())
+    async with async_session_maker() as db:
+        states = await review_states_for_running_tools(db, [(te_id, comp, "send_message")])
+        payload = confirmation_payload(states[te_id]["row"])
+    assert payload["arguments"] == {"text": "hi"} and "text" not in payload

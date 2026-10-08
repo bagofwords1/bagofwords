@@ -325,7 +325,8 @@ class CreateDemoDatasetTool(Tool):
             return
         except TableGenerationError as e:
             yield self._end(
-                CreateDemoDatasetOutput(success=False, status="failed", errors=[f"{e.table}: {e.message}"], model=model_label),
+                CreateDemoDatasetOutput(success=False, status="failed", errors=[f"{e.table}: {e.message}"], model=model_label,
+                                        failed_code=(e.code or "")[:6000] or None),
                 f"Could not generate table '{e.table}' after {e.attempts} attempts ({e.message[:300]}). "
                 "Simplify that table's hints/columns or row count and call create_demo_dataset again.",
             )
@@ -370,6 +371,7 @@ class CreateDemoDatasetTool(Tool):
                 connection = await installer.create_connection(
                     s, s_org, s_user, spec, dataset_id=dataset_id, path=path,
                     icon=installer.emoji_token(spec.icon),
+                    generator_code={t.name: t.code for t in result.tables if t.code},
                 )
                 created_conn_id = str(connection.id)
                 install = installer.InstallResult(connection_id=created_conn_id, connection_name=connection.name)

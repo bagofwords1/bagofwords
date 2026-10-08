@@ -1714,6 +1714,7 @@
     "createDemoDataset": {
       "designing": "Conception du jeu de données de démo {name}…",
       "review": "Vérifiez le jeu de données de démo",
+      "waitingReview": "En attente de vérification",
       "generating": "Génération des données…",
       "writing": "Écriture de la base de données…",
       "connecting": "Création de la connexion…",
