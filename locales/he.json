@@ -563,6 +563,7 @@
     "placeholderDefault": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
     "thinking": "חושב",
     "working": "עובד",
+    "awaitingConfirmation": "ממתין לאישור שלך",
     "placeholderCompact": "בקשו נתונים",
     "instructions": "הנחיות",
     "loadingReportContext": "טוען קונטקסט של הדוח…",

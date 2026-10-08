@@ -251,6 +251,8 @@ const argsOneLine = computed(() => {
 // look dead while the run waited out its approval timeout.
 const respondError = ref('')
 
+const { markConfirmationAnswered } = useToolConfirmations()
+
 async function respond(approved: boolean, remember: boolean) {
   if (!confirmation.value?.confirmation_id || !props.systemCompletionId || responding.value) return
   responding.value = true
@@ -268,6 +270,7 @@ async function respond(approved: boolean, remember: boolean) {
         : t('tools.mcp.approvalFailed')
     } else {
       answered.value = true
+      markConfirmationAnswered(confirmation.value?.confirmation_id)
       localDecision.value = { approved }
     }
   } catch (e) {

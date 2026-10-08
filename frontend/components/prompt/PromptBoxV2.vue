@@ -12,9 +12,15 @@
                 class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
                 aria-live="polite"
             >
-                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>            </div>
+                <template v-if="isAwaitingInput">
+                    <Icon name="heroicons:hand-raised" class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                    <span class="text-gray-600 dark:text-gray-300">{{ $t('prompt.awaitingConfirmation') }}</span>
+                </template>
+                <template v-else>
+                    <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                    <span class="thinking-shimmer">{{ thinkingLabel }}</span>
+                    <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+                </template>            </div>
         </Transition>
 
         <!-- Queued prompts (run after the current completion finishes) -->
@@ -842,6 +848,9 @@ const thinkingElapsedLabel = computed(() => {
     if (s < 60) return `${s}s`
     return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
 })
+
+// Run is paused on a confirmation card — the agent isn't working, the user is.
+const isAwaitingInput = computed(() => !!(props.latestInProgressCompletion as any)?.awaitingInput)
 
 // "Thinking" until the completion streams its first visible output (the parent
 // passes hasFirstToken on latestInProgressCompletion), then "Working".

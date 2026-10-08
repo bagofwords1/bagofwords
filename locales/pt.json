@@ -548,6 +548,7 @@
     "placeholderDefault": "Peça dados, um painel ou uma análise aprofundada",
     "thinking": "Pensando",
     "working": "Trabalhando",
+    "awaitingConfirmation": "Aguardando sua confirmação",
     "placeholderCompact": "Peça quaisquer dados",
     "instructions": "Instruções",
     "loadingReportContext": "Carregando contexto do relatório…",

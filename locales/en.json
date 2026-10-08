@@ -580,6 +580,7 @@
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
     "thinking": "Thinking",
     "working": "Working",
+    "awaitingConfirmation": "Waiting for your confirmation",
     "placeholderCompact": "Ask for any data",
     "instructions": "Instructions",
     "loadingReportContext": "Loading report context…",

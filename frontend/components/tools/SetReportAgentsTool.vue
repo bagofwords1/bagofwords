@@ -106,6 +106,8 @@ const showApprovalCard = computed(() =>
   status.value === 'running' &&
   ['awaiting_confirmation', 'awaiting_approval'].includes(props.toolExecution?.progress_stage || ''))
 
+const { markConfirmationAnswered } = useToolConfirmations()
+
 async function respond(approvedChoice: boolean) {
   const cid = confirmation.value?.confirmation_id
   if (!cid || !props.systemCompletionId || responding.value) return
@@ -117,6 +119,7 @@ async function respond(approvedChoice: boolean) {
       body: JSON.stringify({ approved: approvedChoice, remember: false }),
     })
     responded.value = true
+    markConfirmationAnswered(cid)
   } catch (e) {
     console.error('agent approval respond failed', e)
   } finally {
