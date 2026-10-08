@@ -100,6 +100,7 @@ class ToolConfirmationService:
         approved: bool,
         remember: bool,
         user_id: Optional[str],
+        response: Optional[dict] = None,
     ) -> Optional[ToolConfirmation]:
         """Record the decision. Idempotent: a row that is already resolved keeps
         its first decision, so a double click (or a retry after a dropped
@@ -121,6 +122,7 @@ class ToolConfirmationService:
             .values(
                 status=status,
                 remember=bool(remember),
+                response=response,
                 resolved_by_user_id=str(user_id) if user_id else None,
                 resolved_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
@@ -168,14 +170,18 @@ class ToolConfirmationService:
                 status = row.status if row is not None else None
                 remember = bool(row.remember) if row is not None else False
                 resolved_by = row.resolved_by_user_id if row is not None else None
+                extra = row.response if row is not None else None
                 await session.rollback()
         except Exception as e:
             logger.warning(f"ToolConfirmation {confirmation_id}: poll failed: {e!r}")
             return None
         if status in (None, ToolConfirmation.STATUS_PENDING, ToolConfirmation.STATUS_EXPIRED):
             return None
-        return {
+        decision = {
             "approved": status == ToolConfirmation.STATUS_APPROVED,
             "remember": remember,
             "resolved_by_user_id": str(resolved_by) if resolved_by else None,
         }
+        if extra is not None:
+            decision["response"] = extra
+        return decision

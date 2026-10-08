@@ -225,9 +225,18 @@ class ToolRunner:
         last_error_type = None
         _run_start = time.monotonic()
         _ts_first_event: float | None = None
+        # A tool may declare a longer budget than the runner default (e.g.
+        # create_demo_dataset: a user review pause, then table generation).
+        # Idle/keepalive rules still apply, so a stuck tool is still caught.
+        _declared_timeout_s = 0
+        try:
+            _declared_timeout_s = int(getattr(tool.metadata, "timeout_seconds", 0) or 0)
+        except Exception:
+            _declared_timeout_s = 0
         _hard_timeout_s = max(
             self.timeout.hard_timeout_s,
             self.timeout.start_timeout_s + self.timeout.idle_timeout_s,
+            _declared_timeout_s,
         )
         _hard_deadline = _run_start + _hard_timeout_s
 

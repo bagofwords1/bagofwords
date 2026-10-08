@@ -1752,6 +1752,37 @@
       "preserved": "Se conservaron los registros existentes.",
       "changed": "Cambios",
       "noChanges": "No se aplicaron cambios."
+    },
+    "createDemoDataset": {
+      "designing": "Diseñando el conjunto de datos de demostración {name}…",
+      "review": "Revisa el conjunto de datos de demostración",
+      "generating": "Generando datos…",
+      "writing": "Escribiendo la base de datos…",
+      "connecting": "Creando la conexión…",
+      "creatingAgents": "Creando agentes…",
+      "created": "Conjunto de datos de demostración creado",
+      "rejected": "Propuesta rechazada: no se creó nada",
+      "timedOut": "La propuesta no se revisó a tiempo: no se creó nada",
+      "failed": "No se creó el conjunto de datos de demostración",
+      "badge": "Demo · SQLite",
+      "tables": "Tablas ({count})",
+      "rows": "filas",
+      "progress": "{done} de {total} tablas",
+      "retry": "reintento {n}",
+      "agents": "Agentes sugeridos",
+      "agentsCreated": "Agentes",
+      "skipped": "Omitido",
+      "open": "Abrir",
+      "noAgentPermission": "Puedes crear la conexión, pero crear agentes requiere el permiso para crear agentes.",
+      "feedbackPlaceholder": "¿Qué debería cambiar? p. ej., añadir una tabla de devoluciones, cubrir 3 años",
+      "generatedBy": "Filas generadas por {model}",
+      "requestChanges": "Pedir cambios",
+      "approve": "Crear conjunto de datos",
+      "approveWithAgents": "Crear conjunto de datos + {n} agentes | Crear conjunto de datos + {n} agente | Crear conjunto de datos + {n} agentes",
+      "cancel": "Cancelar",
+      "sendFeedback": "Enviar comentarios",
+      "expired": "Esta revisión expiró.",
+      "respondFailed": "No se pudo enviar tu respuesta; inténtalo de nuevo."
     }
   },
   "entityCreate": {
@@ -3060,6 +3091,10 @@
         "enable_artifact_resources": {
           "name": "Recursos de artefactos",
           "description": "Permitir registros persistentes, archivos privados y operaciones de IA aprobadas en los artefactos. Se mantienen los permisos de recursos y uso compartido."
+        },
+        "enable_demo_data_generation": {
+          "name": "Generación de datos de demostración",
+          "description": "En modo de entrenamiento, los administradores que pueden gestionar conexiones pueden pedir al agente que diseñe y genere un conjunto de datos SQLite ficticio y realista para cualquier dominio, y luego crear agentes sugeridos sobre él. Las filas las genera el modelo pequeño predeterminado."
         }
       }
     },

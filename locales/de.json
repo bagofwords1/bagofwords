@@ -1710,6 +1710,37 @@
       "preserved": "Bestehende Datensätze bleiben erhalten.",
       "changed": "Änderungen",
       "noChanges": "Keine Änderungen vorgenommen."
+    },
+    "createDemoDataset": {
+      "designing": "Entwerfe Demo-Datensatz {name}…",
+      "review": "Demo-Datensatz prüfen",
+      "generating": "Daten werden erzeugt…",
+      "writing": "Datenbank wird geschrieben…",
+      "connecting": "Verbindung wird erstellt…",
+      "creatingAgents": "Agenten werden erstellt…",
+      "created": "Demo-Datensatz erstellt",
+      "rejected": "Vorschlag abgelehnt – nichts wurde erstellt",
+      "timedOut": "Vorschlag nicht rechtzeitig geprüft – nichts wurde erstellt",
+      "failed": "Demo-Datensatz nicht erstellt",
+      "badge": "Demo · SQLite",
+      "tables": "Tabellen ({count})",
+      "rows": "Zeilen",
+      "progress": "{done} von {total} Tabellen",
+      "retry": "Versuch {n}",
+      "agents": "Vorgeschlagene Agenten",
+      "agentsCreated": "Agenten",
+      "skipped": "Übersprungen",
+      "open": "Öffnen",
+      "noAgentPermission": "Sie können die Verbindung erstellen, aber für Agenten ist die Berechtigung zum Erstellen von Agenten nötig.",
+      "feedbackPlaceholder": "Was soll sich ändern? z. B. eine Retourentabelle hinzufügen, 3 Jahre abdecken",
+      "generatedBy": "Zeilen erzeugt von {model}",
+      "requestChanges": "Änderungen anfordern",
+      "approve": "Datensatz erstellen",
+      "approveWithAgents": "Datensatz + {n} Agenten erstellen | Datensatz + {n} Agent erstellen | Datensatz + {n} Agenten erstellen",
+      "cancel": "Abbrechen",
+      "sendFeedback": "Feedback senden",
+      "expired": "Diese Prüfung ist abgelaufen.",
+      "respondFailed": "Antwort konnte nicht gesendet werden – bitte erneut versuchen."
     }
   },
   "entityCreate": {
@@ -2944,6 +2975,10 @@
         "enable_artifact_resources": {
           "name": "Artefaktressourcen",
           "description": "Artefakten dauerhafte Datensätze, private Dateien und genehmigte KI-Operationen erlauben. Bestehende Freigabe- und Ressourcenberechtigungen gelten weiterhin."
+        },
+        "enable_demo_data_generation": {
+          "name": "Demo-Datengenerierung",
+          "description": "Im Trainingsmodus können Admins, die Verbindungen verwalten dürfen, den Agenten bitten, einen realistischen fiktiven SQLite-Datensatz für jede Domäne zu entwerfen und zu erzeugen und darauf vorgeschlagene Agenten anzulegen. Die Zeilen erzeugt das kleine Standardmodell."
         }
       }
     },

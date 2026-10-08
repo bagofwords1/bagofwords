@@ -303,6 +303,13 @@ async def respond_to_mcp_tool_confirmation(
 
     approved = bool(body.get("approved"))
     remember = bool(body.get("remember"))
+    # Optional structured answer for builtin-tool cards (e.g. which suggested
+    # agents stayed ticked). Bounded: it is user input that a tool reads back.
+    extra_response = body.get("response")
+    if extra_response is not None:
+        import json as _json
+        if not isinstance(extra_response, dict) or len(_json.dumps(extra_response, default=str)) > 20000:
+            raise HTTPException(status_code=400, detail="Invalid confirmation response")
 
     # Kinds answerable via this endpoint: MCP tool policy asks and builtin-tool
     # confirmations (e.g. set_report_agents expanding a manual agent selection).
@@ -377,6 +384,7 @@ async def respond_to_mcp_tool_confirmation(
             approved=approved,
             remember=remember,
             user_id=str(current_user.id),
+            response=extra_response,
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
@@ -391,6 +399,7 @@ async def respond_to_mcp_tool_confirmation(
             "remember": remember,
             "resolved_by_user_id": str(current_user.id),
             "resolved_by_name": getattr(current_user, "name", None) or None,
+            "response": extra_response,
         },
     )
     if row is None and not resolved_locally:

@@ -33,6 +33,8 @@ CURATED_ORDER = [
     "usage-review",
     "erd-mermaid",
     "create-evals",
+    # Installed everywhere, advertised only while enable_demo_data_generation is on.
+    "demo-data",
 ]
 
 

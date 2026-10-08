@@ -1710,6 +1710,37 @@
       "preserved": "I record esistenti sono conservati.",
       "changed": "Modifiche",
       "noChanges": "Nessuna modifica applicata."
+    },
+    "createDemoDataset": {
+      "designing": "Progettazione del set di dati demo {name}…",
+      "review": "Rivedi il set di dati demo",
+      "generating": "Generazione dei dati…",
+      "writing": "Scrittura del database…",
+      "connecting": "Creazione della connessione…",
+      "creatingAgents": "Creazione degli agenti…",
+      "created": "Set di dati demo creato",
+      "rejected": "Proposta rifiutata — non è stato creato nulla",
+      "timedOut": "Proposta non rivista in tempo — non è stato creato nulla",
+      "failed": "Set di dati demo non creato",
+      "badge": "Demo · SQLite",
+      "tables": "Tabelle ({count})",
+      "rows": "righe",
+      "progress": "{done} di {total} tabelle",
+      "retry": "tentativo {n}",
+      "agents": "Agenti suggeriti",
+      "agentsCreated": "Agenti",
+      "skipped": "Saltato",
+      "open": "Apri",
+      "noAgentPermission": "Puoi creare la connessione, ma per creare agenti serve il permesso di creazione agenti.",
+      "feedbackPlaceholder": "Cosa cambiare? es. aggiungere una tabella resi, coprire 3 anni",
+      "generatedBy": "Righe generate da {model}",
+      "requestChanges": "Richiedi modifiche",
+      "approve": "Crea set di dati",
+      "approveWithAgents": "Crea set di dati + {n} agenti | Crea set di dati + {n} agente | Crea set di dati + {n} agenti",
+      "cancel": "Annulla",
+      "sendFeedback": "Invia feedback",
+      "expired": "Questa revisione è scaduta.",
+      "respondFailed": "Impossibile inviare la risposta — riprova."
     }
   },
   "entityCreate": {
@@ -2944,6 +2975,10 @@
         "enable_artifact_resources": {
           "name": "Risorse degli artefatti",
           "description": "Consenti agli artefatti di usare record persistenti, file privati e operazioni IA approvate. Restano valide le autorizzazioni di condivisione e delle risorse."
+        },
+        "enable_demo_data_generation": {
+          "name": "Generazione dati demo",
+          "description": "In modalità addestramento, gli amministratori che gestiscono le connessioni possono chiedere all'agente di progettare e generare un set di dati SQLite fittizio e realistico per qualsiasi dominio, e poi creare gli agenti suggeriti. Le righe sono generate dal modello piccolo predefinito."
         }
       }
     },
