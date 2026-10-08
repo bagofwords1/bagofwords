@@ -398,6 +398,15 @@
                     <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-[10px] text-red-500">{{ t('tableErd.refreshFailed') }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
                     <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <UTooltip v-if="hiddenColumnCount(table)" :text="t('tableErd.columnsHiddenTooltip')">
+                      <span
+                        :data-testid="`cols-hidden-badge-${table.name}`"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                      >
+                        <UIcon name="heroicons-eye-slash" class="w-3 h-3" />
+                        {{ t('tableErd.columnsInContext', { visible: (table.columns?.length || 0) - hiddenColumnCount(table), total: table.columns?.length || 0 }) }}
+                      </span>
+                    </UTooltip>
                     <!-- Relationships are listed in the expanded panel, which
                          means finding the connected tables costs one click per
                          row. The badge puts that on the collapsed row so a
@@ -447,16 +456,38 @@
               </div>
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
                 <!-- Columns -->
-                <div v-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded">
-                  <div class="grid grid-cols-2 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">
+                <div v-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded" :data-testid="`columns-panel-${table.name}`">
+                  <div v-if="canUpdate" class="flex items-center justify-between gap-2 text-[11px] text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
+                    <span class="flex items-center gap-1">
+                      <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
+                      {{ t('tableErd.columnsContextHint') }}
+                    </span>
+                    <span class="flex items-center gap-2 shrink-0">
+                      <button type="button" class="hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50" :disabled="saving || !hiddenColumnCount(table)"
+                        :data-testid="`cols-show-all-${table.name}`" @click="setAllColumnsVisible(table, true)">{{ t('tableErd.showAllColumns') }}</button>
+                      <span class="text-gray-300 dark:text-gray-600">·</span>
+                      <button type="button" class="hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50" :disabled="saving || hiddenColumnCount(table) === (table.columns?.length || 0)"
+                        :data-testid="`cols-hide-all-${table.name}`" @click="setAllColumnsVisible(table, false)">{{ t('tableErd.hideAllColumns') }}</button>
+                    </span>
+                  </div>
+                  <div class="grid text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1" :class="canUpdate ? 'grid-cols-[1.5rem_1fr_1fr]' : 'grid-cols-2'">
+                    <div v-if="canUpdate"></div>
                     <div>Name</div>
                     <div>Type</div>
                   </div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <div v-for="col in table.columns" :key="col.name" class="grid grid-cols-2 text-xs px-2 py-1">
-                      <div class="text-gray-700 dark:text-gray-300">{{ col.name }}</div>
-                      <div class="text-gray-500 dark:text-gray-400">{{ col.dtype || col.type }}</div>
-                    </div>
+                    <label v-for="col in table.columns" :key="col.name" class="grid items-center text-xs px-2 py-1"
+                      :class="[canUpdate ? 'grid-cols-[1.5rem_1fr_1fr] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : 'grid-cols-2']"
+                      :data-testid="`col-row-${table.name}-${col.name}`">
+                      <UCheckbox v-if="canUpdate" color="blue" :model-value="isColumnVisible(table, col.name)" :disabled="saving"
+                        :aria-label="t('tableErd.includeColumn', { name: col.name })"
+                        @update:model-value="(val: boolean) => onColumnToggle(table, col.name, val)" />
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="truncate" :class="isColumnVisible(table, col.name) ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 line-through'">{{ col.name }}</span>
+                        <span v-if="!isColumnVisible(table, col.name)" class="shrink-0 text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.columnHidden') }}</span>
+                      </div>
+                      <div :class="isColumnVisible(table, col.name) ? 'text-gray-500 dark:text-gray-400' : 'text-gray-400 dark:text-gray-600'">{{ col.dtype || col.type }}</div>
+                    </label>
                   </div>
                 </div>
 
@@ -638,6 +669,8 @@ type Table = {
   name: string;
   is_active: boolean;
   columns?: Column[];
+  // Column names hidden from this agent's context (null/absent = none).
+  excluded_columns?: string[] | null;
   pks?: any[];
   fks?: ForeignKey[];
   last_used_at?: string;
@@ -1091,9 +1124,27 @@ const canvasActiveIds = computed(() => new Set(catalog.value.filter(table => isT
 const canvasMatchIds = computed(() => new Set(catalogMatches.value.map(tableId)))
 const draftSelectedCount = computed(() => catalogLoaded.value ? canvasActiveIds.value.size : selectedCount.value + [...currentActiveState.value].reduce((n, [key, value]) => n + Number(value) - Number(originalActiveState.value.get(key)), 0))
 
+// Per-table column visibility draft, keyed like the activation draft. Values
+// are sorted lowercase-insensitive name lists so equality is a string compare.
+const originalExcluded = ref(new Map<string, string[]>())
+const currentExcluded = ref(new Map<string, string[]>())
+const tableByKey = new Map<string, Table>()
+
+function normalizeExcluded(list?: string[] | null): string[] {
+  return [...new Set(list || [])].sort((a, b) => a.localeCompare(b))
+}
+function sameList(a: string[] = [], b: string[] = []): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i])
+}
+
 function registerTables(rows: Table[]) {
   for (const table of rows) {
     const key = tableKey(table)
+    tableByKey.set(key, table)
+    if (!currentExcluded.value.has(key) || sameList(currentExcluded.value.get(key), originalExcluded.value.get(key))) {
+      originalExcluded.value.set(key, normalizeExcluded(table.excluded_columns))
+      currentExcluded.value.set(key, normalizeExcluded(table.excluded_columns))
+    }
     // Refresh clean rows while keeping unsaved choices made in either view.
     if (!currentActiveState.value.has(key) || currentActiveState.value.get(key) === originalActiveState.value.get(key)) {
       originalActiveState.value.set(key, table.is_active)
@@ -1237,8 +1288,11 @@ const hasPendingChanges = computed(() => {
     const originalVal = originalActiveState.value.get(name)
     if (originalVal !== currentVal) return true
   }
-  return false
+  return columnChangeKeys.value.length > 0
 })
+const columnChangeKeys = computed(() =>
+  [...currentExcluded.value].filter(([key, list]) => !sameList(list, originalExcluded.value.get(key))).map(([key]) => key)
+)
 
 // Helper functions
 function tableKey(table: Table): string {
@@ -1283,7 +1337,33 @@ function relationshipSummary(table: Table): string {
 function isTableDirty(key: string): boolean {
   const original = originalActiveState.value.get(key)
   const current = currentActiveState.value.get(key)
-  return original !== current
+  return original !== current || !sameList(currentExcluded.value.get(key), originalExcluded.value.get(key))
+}
+
+function hiddenColumnCount(table: Table): number {
+  const excluded = currentExcluded.value.get(tableKey(table)) ?? normalizeExcluded(table.excluded_columns)
+  if (!excluded.length) return 0
+  const hidden = new Set(excluded.map(n => n.toLowerCase()))
+  return (table.columns || []).filter(c => hidden.has(c.name.toLowerCase())).length
+}
+
+function isColumnVisible(table: Table, column: string): boolean {
+  const excluded = currentExcluded.value.get(tableKey(table)) ?? normalizeExcluded(table.excluded_columns)
+  const lc = column.toLowerCase()
+  return !excluded.some(n => n.toLowerCase() === lc)
+}
+
+function onColumnToggle(table: Table, column: string, visible: boolean) {
+  if (!props.canUpdate || saving.value) return
+  const key = tableKey(table)
+  const lc = column.toLowerCase()
+  const rest = (currentExcluded.value.get(key) || []).filter(n => n.toLowerCase() !== lc)
+  currentExcluded.value.set(key, normalizeExcluded(visible ? rest : [...rest, column]))
+}
+
+function setAllColumnsVisible(table: Table, visible: boolean) {
+  if (!props.canUpdate || saving.value) return
+  currentExcluded.value.set(tableKey(table), visible ? [] : normalizeExcluded((table.columns || []).map(c => c.name)))
 }
 
 function onTableToggle(key: string, newValue: boolean) {
@@ -1548,12 +1628,20 @@ async function onSave() {
       }
     }
 
-    if (toActivate.length > 0 || toDeactivate.length > 0) {
+    // Column visibility rides the same delta: table id -> full hidden list.
+    const excludedColumns: Record<string, string[]> = {}
+    for (const key of columnChangeKeys.value) {
+      const id = (knownTables.get(key) || tableByKey.get(key))?.id
+      if (id) excludedColumns[id] = currentExcluded.value.get(key) || []
+    }
+
+    if (toActivate.length > 0 || toDeactivate.length > 0 || Object.keys(excludedColumns).length > 0) {
       const result: any = await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
         method: 'PUT',
         body: {
           activate: toActivate,
-          deactivate: toDeactivate
+          deactivate: toDeactivate,
+          excluded_columns: excludedColumns,
         }
       })
       if (result.status?.value !== 'success') throw new Error(t('tableErd.saveError'))
@@ -1563,9 +1651,16 @@ async function onSave() {
     const savedRows = catalogLoaded.value ? catalog.value : tables.value
     selectedCount.value = draftSelectedCount.value
     for (const table of savedRows) table.is_active = isTableActive(tableKey(table))
+    for (const key of columnChangeKeys.value) {
+      const row = knownTables.get(key) || tableByKey.get(key)
+      const list = currentExcluded.value.get(key) || []
+      if (row) row.excluded_columns = list.length ? list : null
+    }
     // Refresh the baseline without losing selection in parent-owned Save flows.
     originalActiveState.value.clear()
     currentActiveState.value.clear()
+    originalExcluded.value.clear()
+    currentExcluded.value.clear()
     registerTables(savedRows)
     if (!props.skipRefreshOnSave) {
       await fetchTables()
@@ -1622,6 +1717,9 @@ watch(() => [props.dsId, props.schema, props.connectionFilter, props.canUpdate],
     filters.value.selectedState = null
     originalActiveState.value.clear()
     currentActiveState.value.clear()
+    originalExcluded.value.clear()
+    currentExcluded.value.clear()
+    tableByKey.clear()
     fetchTables()
     loadAuthConnections()
   }

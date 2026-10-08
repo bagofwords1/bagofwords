@@ -63,6 +63,8 @@ class DataSourceTableSchema(BaseModel):
     fks: List[Dict[str, Any]]  # Keep as raw JSON
     is_active: bool = False
     metadata_json: Optional[Dict[str, Any]] = None
+    # Column names hidden from this agent's schema context (None = none hidden).
+    excluded_columns: Optional[List[str]] = None
     # Connection info (for multi-connection support)
     connection_id: Optional[str] = None
     connection_name: Optional[str] = None
@@ -200,6 +202,10 @@ class DeltaUpdateTablesRequest(BaseModel):
     """Request schema for delta-based table status updates."""
     activate: List[str] = []  # Table names to set is_active=True
     deactivate: List[str] = []  # Table names to set is_active=False
+    # Per-table column visibility: table id -> the COMPLETE list of column
+    # names to hide from the agent's context (replaces the stored list; an
+    # empty list shows every column again). Context curation, not access control.
+    excluded_columns: Dict[str, List[str]] = {}
     
     class Config:
         from_attributes = True
@@ -210,6 +216,7 @@ class DeltaUpdateTablesResponse(BaseModel):
     activated_count: int
     deactivated_count: int
     total_selected: int  # New total of is_active=True tables
+    columns_updated_count: int = 0  # Tables whose excluded_columns changed
     
     class Config:
         from_attributes = True

@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, ForeignKey, JSON, Integer, Float, DateTime, Index
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
-from app.ai.prompt_formatters import Table, TableColumn, ForeignKey as PromptForeignKey
+from app.ai.prompt_formatters import Table, TableColumn, ForeignKey as PromptForeignKey, apply_column_exclusions
 from sqlalchemy import Boolean
 
 
@@ -27,6 +27,13 @@ class DataSourceTable(BaseSchema):
     
     # Domain-specific metadata overrides
     metadata_json = Column(JSON, nullable=True)
+
+    # Column names hidden from this agent's schema context (deny-list; NULL or
+    # empty = all visible). Context curation only, not access control: the
+    # agent can still reach these columns in SQL. Stored apart from `columns`
+    # because schema re-sync rewrites that list, while a deny-list survives it
+    # and lets newly discovered columns show up by default.
+    excluded_columns = Column(JSON, nullable=True)
     
     # Legacy fields - kept for backward compatibility during migration
     # These will be removed after data migration to ConnectionTable
@@ -76,7 +83,7 @@ class DataSourceTable(BaseSchema):
             # Override with domain-specific metadata if present
             if self.metadata_json:
                 table.metadata_json = self.metadata_json
-            return table
+            return apply_column_exclusions(table, self.excluded_columns)
         
         # Legacy: use fields on DataSourceTable directly
         columns_data = self.columns or []
@@ -105,10 +112,10 @@ class DataSourceTable(BaseSchema):
             for fk in fks_data
         ]
 
-        return Table(
+        return apply_column_exclusions(Table(
             name=self.name,
             columns=columns,
             pks=pks,
             fks=fks,
             metadata_json=self.metadata_json
-        )
+        ), self.excluded_columns)

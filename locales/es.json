@@ -5674,7 +5674,14 @@
     "exitFullscreen": "Salir de pantalla completa",
     "searchColumns": "Buscar columnas…",
     "noColumns": "No hay columnas coincidentes",
-    "centrality": "Centralidad"
+    "centrality": "Centralidad",
+    "columnsInContext": "{visible}/{total} cols",
+    "columnsHiddenTooltip": "Algunas columnas están ocultas del contexto de este agente",
+    "columnsContextHint": "Las columnas sin marcar quedan fuera del contexto del agente. No es un control de acceso.",
+    "showAllColumns": "Mostrar todas",
+    "hideAllColumns": "Ocultar todas",
+    "includeColumn": "Incluir {name} en el contexto del agente",
+    "columnHidden": "oculta"
   },
   "fork": {
     "preparing": "Preparando tu copia…",

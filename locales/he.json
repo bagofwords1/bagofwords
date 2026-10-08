@@ -5694,7 +5694,14 @@
     "exitFullscreen": "יציאה ממסך מלא",
     "searchColumns": "חיפוש עמודות…",
     "noColumns": "אין עמודות תואמות",
-    "centrality": "מרכזיות"
+    "centrality": "מרכזיות",
+    "columnsInContext": "{visible}/{total} עמודות",
+    "columnsHiddenTooltip": "חלק מהעמודות מוסתרות מההקשר של הסוכן הזה",
+    "columnsContextHint": "עמודות שלא סומנו לא ייכללו בהקשר של הסוכן. זו אינה בקרת גישה.",
+    "showAllColumns": "הצג הכל",
+    "hideAllColumns": "הסתר הכל",
+    "includeColumn": "כלול את {name} בהקשר הסוכן",
+    "columnHidden": "מוסתרת"
   },
   "fork": {
     "preparing": "מכין את העותק שלך…",
