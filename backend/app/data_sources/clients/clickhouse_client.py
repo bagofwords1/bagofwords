@@ -9,6 +9,17 @@ from app.ai.prompt_formatters import TableFormatter
 from contextlib import contextmanager
 
 
+def _clickhouse_extraction_source(client):
+    """Materialize through clickhouse-connect, not SQLAlchemy.
+
+    EXPLAIN ESTIMATE for the pre-flight check, Arrow streaming into the
+    artifact, and KILL QUERY on early stop. See fast/clickhouse_source.py.
+    """
+    from app.data_sources.fast.clickhouse_source import ClickHouseSource
+
+    return ClickHouseSource(client)
+
+
 class ClickhouseClient(DataSourceClient):
 
     # Rendered into codegen prompts (<connection_clients>) so generated queries
@@ -46,7 +57,26 @@ class ClickhouseClient(DataSourceClient):
         # Only include database if provided; otherwise let server default apply
         if self._primary_database:
             client_kwargs["database"] = self._primary_database
-        self.client = clickhouse_connect.get_client(**client_kwargs)
+        self._client_kwargs = client_kwargs
+        self._client = None
+
+    @property
+    def client(self):
+        """The clickhouse-connect client, built on first use.
+
+        `get_client` is not free: it runs three round-trips (version, settings,
+        a probe) the moment it is called. Agents build a client for every
+        connection on every turn, including turns answered entirely from a
+        custom table's local copy — and on ClickHouse Cloud any query, however
+        small, wakes an idle service and bills compute. Deferring it means a
+        turn that never queries the source never touches it.
+        """
+        if self._client is None:
+            self._client = clickhouse_connect.get_client(**self._client_kwargs)
+        return self._client
+
+    # Resolved lazily by fast/sources.source_for.
+    EXTRACTION_SOURCE = staticmethod(_clickhouse_extraction_source)
 
     @contextmanager
     def connect(self) -> Generator[clickhouse_connect.driver.Client, None, None]:
