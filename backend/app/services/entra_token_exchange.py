@@ -205,6 +205,7 @@ async def exchange(db, service, *, client_id, client_secret, subject_token, scop
     if not subject:
         raise ExchangeError("invalid_grant", "User access is unavailable")
 
+    session_epoch = subject[0].session_epoch
     from app.services.connection_oauth_service import auto_provision_connection_credentials
 
     try:
@@ -233,8 +234,11 @@ async def exchange(db, service, *, client_id, client_secret, subject_token, scop
         )
     # Recheck app changes and membership after remote IO. Lock the app during
     # issuance, so concurrent disable/revoke either wins here or revokes the row.
+    from app.core.session_revocation import lock_user_sessions
     from app.models.oauth_server import OAuthClient
 
+    if await lock_user_sessions(db, user_id) != session_epoch:
+        raise ExchangeError("invalid_grant", "Session revoked; authenticate again")
     client = await db.scalar(
         select(OAuthClient)
         .where(OAuthClient.client_id == client_id)
