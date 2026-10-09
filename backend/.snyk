@@ -15,9 +15,10 @@ language-settings:
 # Snyk resolves the OSS policy file relative to the directory of the manifest
 # being tested, not the repository root, so a scan of the backend project
 # (requirements_versioned.txt) does not read the repo-root .snyk. The
-# backend-relevant accepted-risk ignore below is duplicated here so the backend
-# project's scan honors the same triage. The repo-root .snyk keeps it too (for
-# root-context runs); when it is changed on expiry/re-review, update both.
+# backend-relevant accepted-risk ignores below are duplicated here so the
+# backend project's scan honors the same triage. The repo-root .snyk keeps them
+# too (for root-context runs); when any is changed on expiry/re-review, update
+# both files.
 ignore:
   # Timing Attack in oauthlib (High). Fixed only in oauthlib 4.0.0, but that
   # version is NOT installable in this tree: databricks-sql-connector hard-caps
@@ -39,4 +40,81 @@ ignore:
           in server-side OAuth verification; this backend uses oauthlib only as
           an OAuth1 client (outbound request signing in netsuite_client.py), so
           the path is not reached. Re-review when the databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  # Multiple HIGH-severity DoS-class advisories in the Apache Thrift Python
+  # library, all fixed only in thrift 0.25.0:
+  #   - Improper Handling of Length Parameter Inconsistency (SNYK-PYTHON-THRIFT-20417151)
+  #   - Allocation of Resources Without Limits/Throttling — unbounded recursion
+  #     on skipped unknown fields (SNYK-PYTHON-THRIFT-20417194)
+  #   - Allocation of Resources Without Limits/Throttling — TJSONProtocol string
+  #     length not enforced (SNYK-PYTHON-THRIFT-20571226)
+  #   - Data Amplification — TZlibTransport decompression limit not enforced
+  #     (SNYK-PYTHON-THRIFT-20571816)
+  #   - Infinite loop — TNonblockingServer frame-boundary busy-loop
+  #     (SNYK-PYTHON-THRIFT-20571817)
+  # Pulled in ONLY as a transitive of the Databricks connector:
+  #   databricks-sql-connector > thrift
+  # thrift is reached exclusively by app/data_sources/clients/databricks_sql_client.py,
+  # which opens a CLIENT connection to a customer-configured Databricks SQL
+  # Warehouse (server_hostname + http_path, authenticated with the customer's own
+  # access token over HTTPS) and deserializes that warehouse's Thrift responses.
+  # This backend runs NO Thrift server, so the TNonblockingServer infinite-loop
+  # path (20571817) is never instantiated; the remaining advisories are Thrift
+  # protocol/transport deserialization of data received from that peer — the
+  # customer's own trusted Databricks endpoint over TLS, never attacker-
+  # controlled inbound request data to this backend. No installable fix exists
+  # in this tree: fixed only in thrift 0.25.0, but EVERY published
+  # databricks-sql-connector release — including the latest 4.6.0 — hard-caps
+  # thrift>=0.24.0,<0.25.0, so no upgrade can remediate it without dropping the
+  # Databricks connector. Directly analogous to the oauthlib/databricks entry
+  # above. Time-boxed; re-review when databricks-sql-connector relaxes its
+  # thrift cap.
+  SNYK-PYTHON-THRIFT-20417151:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). Reached
+          only via the Databricks connector deserializing responses from the
+          customer's own trusted Databricks SQL Warehouse over TLS, never
+          attacker-controlled inbound request data. Re-review when the databricks
+          cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-PYTHON-THRIFT-20417194:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). Reached
+          only via the Databricks connector deserializing responses from the
+          customer's own trusted Databricks SQL Warehouse over TLS, never
+          attacker-controlled inbound request data. Re-review when the databricks
+          cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-PYTHON-THRIFT-20571226:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). TJSONProtocol
+          string-length DoS reached only via the Databricks connector deserializing
+          responses from the customer's own trusted Databricks SQL Warehouse over
+          TLS, never attacker-controlled inbound request data. Re-review when the
+          databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-PYTHON-THRIFT-20571816:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). TZlibTransport
+          data-amplification DoS reached only via the Databricks connector
+          deserializing responses from the customer's own trusted Databricks SQL
+          Warehouse over TLS, never attacker-controlled inbound request data.
+          Re-review when the databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-PYTHON-THRIFT-20571817:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). Infinite-loop
+          DoS is in TNonblockingServer; this backend runs no Thrift server and uses
+          thrift only as a client via the Databricks connector, so the path is not
+          reached. Re-review when the databricks cap relaxes.
         expires: 2026-12-21T00:00:00.000Z
