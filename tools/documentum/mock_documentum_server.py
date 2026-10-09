@@ -107,7 +107,7 @@ FORMATS = {
 
 # ---------------------------------------------------------------------------
 # Tiny OOXML / PDF generators (stdlib only — the mock also runs in a bare
-# python:3.12-slim container).
+# python:3.13-slim container).
 # ---------------------------------------------------------------------------
 
 def make_docx(paragraphs):

@@ -169,7 +169,7 @@ build-backend = "hatchling.build"
 packages = ["app"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
@@ -193,4 +193,4 @@ ignore = [
 known-first-party = ["app"]
 
 [tool.ty]
-python-version = "3.12"
+python-version = "3.13"

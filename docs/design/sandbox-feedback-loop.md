@@ -38,8 +38,8 @@ pip install --upgrade setuptools
 ```bash
 cd backend
 
-# Use Python 3.12 venv (system python may be 3.11)
-python3.12 -m venv .venv
+# Use a Python 3.13 venv (3.12+ supported)
+python3.13 -m venv .venv
 source .venv/bin/activate
 
 # Install deps
