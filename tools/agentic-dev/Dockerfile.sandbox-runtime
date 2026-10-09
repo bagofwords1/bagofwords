@@ -130,3 +130,21 @@ RUN ARCH="$(dpkg --print-architecture)" && \
 RUN mkdir -p /app/certs && \
     curl -sSL -o /app/certs/rds-combined-ca-bundle.pem \
       https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+
+# ---------------------------------------------------------------------------
+# Entrypoint: boots a pre-configured Bag of Words instance (see entrypoint.sh).
+# Sources and dependencies are fetched on first boot into the persistent
+# workspace. To bake them into the image instead (faster warm-pool starts),
+# add before this block:
+#   RUN mkdir -p /app/workspace && bash /app/setup-runtime.sh
+# ---------------------------------------------------------------------------
+COPY ./tools/agentic-dev/setup-runtime.sh /app/setup-runtime.sh
+COPY ./tools/agentic-dev/entrypoint.sh /app/entrypoint.sh
+COPY ./tools/agentic-dev/bow-stack.sh /usr/local/bin/bow-stack
+RUN chmod +x /app/entrypoint.sh /app/setup-runtime.sh /usr/local/bin/bow-stack
+
+# 3000 frontend, 8000 backend, 8080 code-server, 8888/9090 sandboxd
+EXPOSE 3000 8000 8080 8888 9090
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/app/entrypoint.sh"]
