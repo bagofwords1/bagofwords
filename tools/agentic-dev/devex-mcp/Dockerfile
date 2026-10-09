@@ -24,8 +24,6 @@ RUN uv sync --frozen --no-install-project --no-dev
 COPY devex_mcp ./devex_mcp
 RUN uv sync --frozen --no-dev
 
-RUN useradd --system --uid 10001 --create-home mcp
-USER mcp
 
 EXPOSE 3400
 ENTRYPOINT ["devex-mcp"]
