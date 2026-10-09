@@ -106,12 +106,12 @@ status_all() {
 cmd="${1:-}"; target="${2:-all}"
 case "$cmd" in
   start)
-    [[ "$target" == backend  || "$target" == all ]] && start_backend
-    [[ "$target" == frontend || "$target" == all ]] && start_frontend
+    if [[ "$target" == backend  || "$target" == all ]]; then start_backend;  fi
+    if [[ "$target" == frontend || "$target" == all ]]; then start_frontend; fi
     ;;
   stop)
-    [[ "$target" == frontend || "$target" == all ]] && stop_one frontend
-    [[ "$target" == backend  || "$target" == all ]] && stop_one backend
+    if [[ "$target" == frontend || "$target" == all ]]; then stop_one frontend; fi
+    if [[ "$target" == backend  || "$target" == all ]]; then stop_one backend;  fi
     ;;
   restart)
     "$0" stop "$target"
@@ -121,3 +121,4 @@ case "$cmd" in
   logs)   exec tail -n 100 -F "${RUN}/${2:-backend}.log" ;;
   *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
+exit 0

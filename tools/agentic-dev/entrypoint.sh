@@ -29,6 +29,8 @@
 #
 # Configuration (env):
 #   BOW_WORKSPACE           persistent root            (default /app/workspace)
+#   BOW_VENV                python venv path           (default $BOW_WORKSPACE/venv;
+#                                                       /opt/venv is used if the image ships one)
 #   BOW_REPO_URL            git repo to clone           (default github.com/bagofwords1/bagofwords)
 #   BOW_REPO_REF            branch / tag to check out   (default main)
 #   BOW_FRONTEND_MODE       dev | prod                  (default dev)
@@ -73,7 +75,15 @@ CODE_SERVER_PORT=8080
 SANDBOXD_REST_PORT=8888
 SANDBOXD_GRPC_PORT=9090
 
-export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-/opt/venv}"
+# Python venv location. A container restart discards the image's writable
+# layer, so a venv at /opt/venv (the image default) is lost and re-synced on
+# every restart. Keep it on the persistent workspace instead, unless the
+# image already ships a populated venv (baked at build time).
+if [[ -x /opt/venv/bin/uvicorn ]]; then
+  export UV_PROJECT_ENVIRONMENT=/opt/venv
+else
+  export UV_PROJECT_ENVIRONMENT="${BOW_VENV:-${BOW_WORKSPACE}/venv}"
+fi
 export PATH="${UV_PROJECT_ENVIRONMENT}/bin:${PATH}"
 export DEBIAN_FRONTEND=noninteractive
 
