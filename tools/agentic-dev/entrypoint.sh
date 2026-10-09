@@ -46,6 +46,12 @@
 #   BOW_ENABLE_SANDBOXD     1|0                         (default 1)
 #   BOW_SYNC_DEPS=1         force uv sync / yarn install even if present
 #   BOW_INSTALL_PLAYWRIGHT=1 install chromium for headless rendering (slow)
+#   UV_CACHE_DIR, YARN_CACHE_FOLDER, PLAYWRIGHT_BROWSERS_PATH
+#                           package caches; point them at a shared volume to
+#                           skip downloads on later boots (the SandboxTemplate
+#                           mounts a node-local hostPath at /cache for this)
+#   BOW_GIT_MIRROR          bare mirror path in that cache; cloning goes
+#                           through it instead of GitHub when set
 #
 set -euo pipefail
 
@@ -122,8 +128,24 @@ trap shutdown TERM INT
 # 1. Sources
 # ---------------------------------------------------------------------------
 if [[ ! -d "${SRC}/.git" ]]; then
-  log "cloning ${BOW_REPO_URL} (${BOW_REPO_REF}) into ${SRC}"
-  git clone --depth 1 --branch "$BOW_REPO_REF" "$BOW_REPO_URL" "$SRC"
+  if [[ -n "${BOW_GIT_MIRROR:-}" ]]; then
+    # Keep a bare mirror in the shared cache; clone from it, then point the
+    # checkout's origin back at GitHub so pulls and pushes work normally.
+    if [[ -d "$BOW_GIT_MIRROR" ]]; then
+      log "updating git mirror ${BOW_GIT_MIRROR}"
+      git -C "$BOW_GIT_MIRROR" fetch --prune origin || log "WARN: mirror fetch failed, using cached state"
+    else
+      log "creating git mirror ${BOW_GIT_MIRROR}"
+      mkdir -p "$(dirname "$BOW_GIT_MIRROR")"
+      git clone --mirror "$BOW_REPO_URL" "$BOW_GIT_MIRROR"
+    fi
+    log "cloning ${BOW_REPO_REF} from the mirror into ${SRC}"
+    git clone --branch "$BOW_REPO_REF" "$BOW_GIT_MIRROR" "$SRC"
+    git -C "$SRC" remote set-url origin "$BOW_REPO_URL"
+  else
+    log "cloning ${BOW_REPO_URL} (${BOW_REPO_REF}) into ${SRC}"
+    git clone --depth 1 --branch "$BOW_REPO_REF" "$BOW_REPO_URL" "$SRC"
+  fi
 else
   log "sources present at ${SRC} ($(git -C "$SRC" rev-parse --short HEAD))"
 fi
@@ -138,7 +160,9 @@ fi
 
 if [[ "${BOW_SYNC_DEPS:-0}" == "1" || ! -d "${FRONTEND}/node_modules" ]]; then
   log "installing frontend dependencies"
-  (cd "$FRONTEND" && yarn install --frozen-lockfile)
+  # --mutex file: several sandboxes may install at once against the shared
+  # YARN_CACHE_FOLDER; yarn v1's cache is not safe for concurrent writers.
+  (cd "$FRONTEND" && yarn install --frozen-lockfile --mutex file:"${YARN_CACHE_FOLDER:-/tmp}/.yarn-mutex")
 fi
 
 # Vendored JS libs are embedded into artifacts server-side; without them
@@ -316,8 +340,10 @@ Bag of Words sandbox is up
   admin        ${BOW_ADMIN_EMAIL} / ${BOW_ADMIN_PASSWORD}
   sources      ${SRC}
   database     ${DB_URL}
-  logs         ${RUN}/*.log
-  control      bow-stack start|stop|restart|status [backend|frontend|all]
+  backend log  ${RUN}/backend.log
+  frontend log ${RUN}/frontend.log
+  other logs   ${RUN}/code-server.log  ${RUN}/sandboxd.log
+  control      bow-stack start|stop|restart|status|logs [backend|frontend|all]
 
 SUMMARY
 
