@@ -100,7 +100,7 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
     Pass `columns` with a readable `headerName` (and only the columns worth showing) whenever the raw field names are database-shaped
     (TOTALDURATIONMS, unit_price); the table title-cases what it can but cannot invent "Duration" from "TOTALDURATIONMILLISECONDS".
              renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — optional table: sort, paginate, RTL, CSV, print-safe.
-  <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder />
+  <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder /> (FilterSearch onChange receives the text string, not an event)
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
   <Segmented options={[{value,label,icon}]} value onChange />   <Badge tone="neutral|accent|positive|warning|negative|inverse|outline" icon dot>…</Badge>
   <Delta value={0.12} ratio invert chip label="" />  (ratio/pct: value is a share, 0.12 → +12.0%)   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />

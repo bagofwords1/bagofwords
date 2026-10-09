@@ -1631,11 +1631,23 @@
   window.FilterSearch = function(props) {
     var label = props.label || '';
     var theme = props.className || FILTER_THEME;
+    // onChange receives the typed text, like FilterSelect/FilterDateRange pass
+    // their values — generated code passes a bare setter (onChange={setQuery})
+    // and then calls query.toLowerCase(); handing it the raw event crashed the
+    // dashboard. The text is boxed with a `target.value` shim so handlers
+    // written for the event (e => setQuery(e.target.value)) keep working.
+    var onChange = props.onChange ? function(e) {
+      var v = e.target.value;
+      var payload = Object(v);
+      payload.target = { value: v };
+      payload.currentTarget = payload.target;
+      props.onChange(payload);
+    } : function() {};
     return h('div', { className: 'inline-block min-w-[140px]' + (props.wrapperClassName ? ' ' + props.wrapperClassName : '') }, [
       label ? h('label', { key: 'l', className: FILTER_LABEL }, label) : null,
       h('div', { key: 'w', className: 'relative' }, [
         LEGACY ? null : h('span', { key: 'i', className: 'absolute inset-y-0 start-2.5 flex items-center text-ink-3 pointer-events-none' }, h(window.Icon, { name: 'search', size: 13 })),
-        h('input', { key: 'inp', type: 'text', value: props.value || '', placeholder: props.placeholder || 'Search...', onChange: props.onChange || function() {},
+        h('input', { key: 'inp', type: 'text', value: props.value == null ? '' : String(props.value), placeholder: props.placeholder || 'Search...', onChange: onChange,
           className: 'w-full ' + CONTROL_RADIUS + ' border py-1.5 text-sm outline-none ' + FOCUS + ' ' + (LEGACY ? 'px-3 ' : 'ps-8 pe-3 ') + theme, style: props.style })
       ])
     ]);
