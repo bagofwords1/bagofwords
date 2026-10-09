@@ -98,8 +98,16 @@ def is_due(connection, now_utc: datetime, tz: ZoneInfo) -> bool:
 
     A never-indexed connection (NULL ``last_synced_at``) is always due.
     """
+    return is_stale(connection, connection.last_synced_at, now_utc, tz)
+
+
+def is_stale(connection, last, now_utc: datetime, tz: ZoneInfo) -> bool:
+    """True if a catalog last synced at `last` is stale past this connection's
+    schedule. `is_due` applies it to the shared catalog; the per-user overlay
+    refresh applies it to one user's last sync of the same connection, so both
+    follow the cadence the admin configured. NULL `last` is always stale.
+    """
     now_utc = _as_utc(now_utc)
-    last = connection.last_synced_at
 
     if (connection.reindex_schedule_mode or "interval") == "time":
         at = parse_hhmm(connection.reindex_at_time)

@@ -324,6 +324,20 @@ class SchemaContextBuilder:
                 overlay_conn_ids = [c for c in overlay_conn_ids if c in _requested]
                 denied_conn_ids = [c for c in denied_conn_ids if c in _requested]
             use_overlay = bool(overlay_conn_ids)
+            if use_overlay:
+                # The scheduled reindex refreshes only the shared catalog; this
+                # user's overlay is rebuilt with their own token once it is
+                # stale past the connection's schedule. Background: this prompt
+                # keeps the overlay it has.
+                try:
+                    from app.services.scheduled_reindex import kick_stale_user_overlays
+                    _overlay_set = set(overlay_conn_ids)
+                    await kick_stale_user_overlays(
+                        [c for c in (ds.connections or []) if str(c.id) in _overlay_set],
+                        str(self.user.id),
+                    )
+                except Exception:
+                    logger.warning("Stale overlay refresh check failed for data source %s", ds.id, exc_info=True)
             # Unlinked canonical rows have no connection to classify. Keep the
             # historical allowance (they are legacy name-keyed rows) only while
             # nothing is restricted; once a delegated connection is in play they
