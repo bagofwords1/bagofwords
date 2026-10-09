@@ -2336,7 +2336,18 @@ const onAgentClick = (agent: any) => {
 // Opens a draft scoped to this agent. Nothing is written until the user sends
 // a prompt; ?agents= is an explicit scope, so it lands on the created report
 // as its data_sources (and overrides project defaults) exactly as this POST did.
-const createReportForAgent = (id: string) => navigateTo({ path: '/reports/new', query: { agents: id } })
+// "New report" on an agent creates the report scoped to ONLY this agent and
+// opens it — same create call as the starters, just without a first message.
+const createReportForAgent = async (id: string) => {
+  if (startingReport.value || !agentCanCreateReport.value || !id) return
+  startingReport.value = true; startingStarterIdx.value = null
+  try {
+    const { data, error } = await useMyFetch<any>('/reports', { method: 'POST', body: { title: 'untitled report', files: [], data_sources: [id] } })
+    const rid = (data.value as any)?.id
+    if (error.value || !rid) throw new Error('Failed to create report')
+    await navigateTo(`/reports/${rid}`)
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { startingReport.value = false }
+}
 // Start a training session for an agent: a new report scoped to ONLY this
 // agent/data source, switched to training mode, with a pre-filled (non-submitting)
 // prompt — mirrors the legacy agents page.
