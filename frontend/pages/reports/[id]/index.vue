@@ -119,7 +119,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in visibleMessages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+					<li v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -569,7 +569,8 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+									<RevealTransition :show="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && !!((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)">
+									<div class="mt-3">
 										<InstructionSuggestions
 											:tool-execution="{
 												id: `suggestions-${m.id}`,
@@ -579,13 +580,15 @@
 											}"
 										/>
 									</div>
+									</RevealTransition>
 									<!-- Follow-up suggestions (below thumbs, latest message only) -->
-									<FollowUpSuggestions
-										v-if="isFollowUpsEnabled && m.id === lastMessageId && ((m as any).follow_ups?.length)"
-										:suggestions="(m as any).follow_ups"
-										:disabled="isStreaming || isCompletionInProgress"
-										@select="handleFollowUpClick"
-									/>
+									<RevealTransition :show="isFollowUpsEnabled && m.id === lastMessageId && !!((m as any).follow_ups?.length)">
+										<FollowUpSuggestions
+											:suggestions="(m as any).follow_ups"
+											:disabled="isStreaming || isCompletionInProgress"
+											@select="handleFollowUpClick"
+										/>
+									</RevealTransition>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
@@ -1064,6 +1067,7 @@ import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
+import RevealTransition from '~/components/report/RevealTransition.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
@@ -1168,6 +1172,9 @@ interface ChatMessage {
 	completion?: any
 	// For steering messages: the system completion they were injected into
 	parent_id?: string | null
+	// Stable v-for key carried over from an optimistic placeholder (user-<ts> /
+	// system-<ts>) so the canonical reload doesn't remount the whole turn.
+	_render_key?: string
 	// true once the agent acked pickup (completion.steering.applied SSE)
 	steering_applied?: boolean
 }
@@ -4221,6 +4228,29 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				trigger_source: c.trigger_source || null,
 			}
 		})
+		// Placeholders created by the kickoff stream use client ids; the reload
+		// swaps them for server ids. Keep the placeholder's key so the <li> (and
+		// every tool card inside it) is patched in place instead of remounted —
+		// a remount re-runs each card's mount-time fetches and flashes the UI.
+		for (const old of messages.value) {
+			const oldId = String(old.id)
+			if (!oldId.startsWith('system-')) continue
+			const cid = (old as any).system_completion_id
+			const idx = cid ? freshMessages.findIndex((f: any) => String(f.id) === String(cid)) : -1
+			if (idx < 0) continue
+			freshMessages[idx]._render_key = old._render_key || oldId
+			const oldPos = messages.value.indexOf(old)
+			const prevOld = messages.value[oldPos - 1]
+			const prevFresh = freshMessages[idx - 1]
+			if (prevOld?.role === 'user' && String(prevOld.id).startsWith('user-') && prevFresh?.role === 'user') {
+				prevFresh._render_key = prevOld._render_key || String(prevOld.id)
+			}
+		}
+		for (const f of freshMessages) {
+			if (f._render_key) continue
+			const prev = messages.value.find(m => m._render_key && String(m.id) === String(f.id))
+			if (prev) f._render_key = prev._render_key
+		}
 		messages.value = olderKept.length ? [...olderKept, ...freshMessages] : freshMessages
 		// Update cursors (unless older pages are kept — their cursor still applies)
 		if (!olderKept.length) {
