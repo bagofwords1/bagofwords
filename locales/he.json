@@ -364,7 +364,8 @@
     "optional": "רשות",
     "required": "חובה",
     "and": "וגם",
-    "days": "ימים"
+    "days": "ימים",
+    "openLink": "פתיחה"
   },
   "nav": {
     "home": "בית",

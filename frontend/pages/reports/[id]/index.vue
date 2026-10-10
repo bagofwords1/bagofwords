@@ -5728,17 +5728,21 @@ onMounted(async () => {
 		unicode-bidi: isolate;
 		direction: ltr;
 	}
-	a { 
-		@apply text-gray-900 no-underline relative;
+	/* Links (source documents, emails, monday items) must read as links:
+	   colored + underlined, opening in a new tab (markstream sets target). */
+	a {
+		@apply text-blue-600 underline decoration-blue-300 underline-offset-2 relative;
 		transition: color 0.15s ease;
+		overflow-wrap: anywhere;
 	}
 	a:hover {
-		@apply text-gray-700;
+		@apply text-blue-800 decoration-blue-600;
 	}
 	a::before {
 		content: '';
 		position: absolute;
-		left: -18px;
+		/* logical side so the hover icon sits before the link in RTL too */
+		inset-inline-start: -18px;
 		top: 50%;
 		transform: translateY(-50%);
 		width: 14px;

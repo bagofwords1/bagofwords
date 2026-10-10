@@ -31,6 +31,27 @@ const agThemeClass = computed(() =>
 );
 
 const isLoading = ref(true);
+const { t } = useI18n();
+
+// A cell whose whole value is an http(s) URL (SharePoint/Outlook web links,
+// monday `item_url`, …) renders as a short "Open ↗" link in a new tab instead
+// of a long raw URL. Built as a DOM node — never innerHTML — so cell text can't
+// inject markup; anything that isn't a single absolute URL stays plain text.
+const URL_RE = /^https?:\/\/\S+$/i;
+const linkCellRenderer = (params: any) => {
+  const value = params.value;
+  if (typeof value !== 'string' || !URL_RE.test(value.trim())) {
+    return value ?? '';
+  }
+  const a = document.createElement('a');
+  a.href = value.trim();
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.title = value.trim();
+  a.className = 'ag-link-cell';
+  a.textContent = `${t('common.openLink')} ↗`;
+  return a;
+};
 
 const props = defineProps({
   columnDefs: {
@@ -51,6 +72,7 @@ const gridOptions = ref({
   suppressServerSideFullWidthLoadingRow: true,
   defaultColDef: {
     loadingCellRenderer: () => '',
+    cellRenderer: linkCellRenderer,
     resizable: true,
     sortable: true,
     // Fill the available width so columns aren't stuck at the ~200px default
@@ -109,6 +131,15 @@ onMounted(() => {
 </script>
 
 <style>
+.ag-link-cell {
+  color: rgb(37 99 235);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dark .ag-link-cell {
+  color: rgb(96 165 250);
+}
+
 .grid-container {
   width: 100%;
   display: flex;

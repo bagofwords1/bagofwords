@@ -364,7 +364,8 @@
     "optional": "Opcional",
     "required": "Obligatorio",
     "and": "y",
-    "days": "días"
+    "days": "días",
+    "openLink": "Abrir"
   },
   "nav": {
     "home": "Inicio",

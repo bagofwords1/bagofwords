@@ -381,7 +381,8 @@
     "optional": "Optional",
     "required": "Required",
     "and": "and",
-    "days": "days"
+    "days": "days",
+    "openLink": "Open"
   },
   "nav": {
     "home": "Home",
