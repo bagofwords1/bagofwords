@@ -163,3 +163,20 @@ def test_rejects_non_clarify_tool_execution():
         assert exc.value.status_code == 400
 
     asyncio.run(scenario())
+
+
+@pytest.mark.e2e
+def test_second_answer_does_not_overwrite_the_first():
+    """The first answer is what the agent was sent; a later POST (another tab,
+    a stale draft) must not rewrite the record the form rehydrates from."""
+    async def scenario():
+        seeded = await _seed(questions=[{"text": "Which range?", "options": ["7d", "30d"]}])
+        await _submit(seeded, {"selected_chips": ["7d"]})
+        with pytest.raises(HTTPException) as exc:
+            await _submit(seeded, {"selected_chips": ["30d"]})
+        assert exc.value.status_code == 409
+        async with async_session_maker() as db:
+            row = await db.get(ToolExecution, seeded["tool_execution_id"])
+            assert row.result_json["user_response"]["selected_chips"] == ["7d"]
+
+    asyncio.run(scenario())

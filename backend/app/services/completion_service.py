@@ -3066,6 +3066,11 @@ class CompletionService:
             raise HTTPException(status_code=404, detail="Tool execution not found")
         if tool_exec.tool_name != 'clarify':
             raise HTTPException(status_code=400, detail="Not a clarify tool execution")
+        # The answer was already sent to the agent as the next prompt; letting a
+        # second POST (another tab, a stale draft) overwrite it would make the
+        # form show an answer the agent never saw.
+        if (tool_exec.result_json or {}).get("status") == "answered":
+            raise HTTPException(status_code=409, detail="This clarify was already answered")
 
         def _chip_entry(v):
             if isinstance(v, str):

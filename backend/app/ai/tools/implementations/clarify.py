@@ -11,6 +11,15 @@ from app.ai.tools.schemas.events import (
 )
 
 
+def _plain_text_question(q) -> str:
+    """One question as plain text, for channels that cannot render the form."""
+    if not q.options:
+        return q.text
+    choices = [*q.options, *(["Other (describe)"] if q.allow_other else [])]
+    hint = " (select all that apply)" if q.multi_select else ""
+    return q.text + hint + "\n" + "\n".join(f"- {c}" for c in choices)
+
+
 class ClarifyTool(Tool):
     """Clarify tool — ask the user one or more questions before proceeding.
 
@@ -28,13 +37,14 @@ class ClarifyTool(Tool):
                 "Ask the user one or more clarifying questions before proceeding. "
                 "Each question is rendered as an interactive form row: "
                 "a chip-picker when `options` is supplied, a text field otherwise. "
-                "Use `options` for enumerable choices; include 'Other…' when the list may not cover every case. "
+                "Use `options` for enumerable choices; set `allow_other: true` when the list may not cover every case "
+                "(the UI adds its own 'Other' choice with a text box — never put 'Other' in `options`). "
                 "Set `multi_select: true` on a question when several options may apply at once "
                 "(select-all-that-apply); leave it false for mutually exclusive choices. "
                 "The agent loop pauses until the user submits all answers."
             ),
             category="action",
-            version="2.1.0",
+            version="2.2.0",
             input_schema=ClarifyInput.model_json_schema(),
             output_schema=ClarifyOutput.model_json_schema(),
             max_retries=1,
@@ -53,12 +63,13 @@ class ClarifyTool(Tool):
                                     "Last 30 days",
                                     "Last 90 days",
                                     "Year to date",
-                                    "Other…",
                                 ],
+                                "allow_other": True,
                             },
                             {
                                 "text": "Which metric should I focus on?",
-                                "options": ["Revenue", "Orders", "Sessions", "Conversion rate", "Other…"],
+                                "options": ["Revenue", "Orders", "Sessions", "Conversion rate"],
+                                "allow_other": True,
                             },
                         ],
                         "context": "report scope is ambiguous — need date range and primary KPI before querying",
@@ -81,8 +92,9 @@ class ClarifyTool(Tool):
                         "questions": [
                             {
                                 "text": "Which metrics should the dashboard include?",
-                                "options": ["Revenue", "Orders", "Sessions", "Conversion rate", "Other…"],
+                                "options": ["Revenue", "Orders", "Sessions", "Conversion rate"],
                                 "multi_select": True,
+                                "allow_other": True,
                             }
                         ],
                         "context": "dashboard scope is open-ended — several KPIs may apply",
@@ -115,12 +127,7 @@ class ClarifyTool(Tool):
 
         # Build a plain-text representation for the final_answer (shown if the
         # component is not rendered, e.g. in non-UI contexts).
-        final_answer = "\n\n".join(
-            q.text + (
-                "\n" + " / ".join(q.options) if q.options else ""
-            )
-            for q in data.questions
-        )
+        final_answer = "\n\n".join(_plain_text_question(q) for q in data.questions)
 
         yield ToolEndEvent(
             type="tool.end",

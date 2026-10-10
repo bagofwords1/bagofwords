@@ -1621,7 +1621,12 @@
       "clarifying": "Preguntas de aclaración para el usuario",
       "placeholder": "Tu respuesta…",
       "multiHint": "Selecciona todas las opciones que correspondan",
-      "submit": "Enviar"
+      "submit": "Enviar",
+      "other": "Otro",
+      "otherPlaceholder": "Describe…",
+      "skip": "Omitir",
+      "skipPrompt": "Omite estas preguntas y continúa según tu mejor criterio.",
+      "saveFailed": "No se pudo guardar tu respuesta. Inténtalo de nuevo."
     },
     "memory": {
       "updating": "Actualizando la memoria…",
