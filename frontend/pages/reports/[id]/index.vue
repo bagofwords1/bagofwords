@@ -1571,6 +1571,9 @@ const PIN_SCROLL_MS = 380
 // share of the view free below it for the answer to start in.
 const PIN_MIN_ROOM_RATIO = 0.35
 let pinScrolled = false
+// Where the held turn sits in the view: PIN_TOP_GAP_PX once scrolled to the
+// top, or wherever it already was when there was room and nothing moved.
+let pinOffsetPx = PIN_TOP_GAP_PX
 // Extra floor below the held position. The view grows when the composer's
 // "Working" row goes away at the end of a run; without slack that clamps the
 // scroll position and nudges the reader up.
@@ -1580,6 +1583,10 @@ const pinnedId = ref<string | null>(null)
 // Answer content extends past the bottom of the viewport.
 const hasContentBelow = ref(false)
 let pinScrollRAF: number | null = null
+// Per-frame watch of the held turn's position while the hold is on. Content
+// above it can change height without resizing the (floored) transcript, so
+// the ResizeObserver alone would miss it.
+let pinWatchRAF: number | null = null
 const showJumpToLatest = computed(() => isFollowing.value === false && hasContentBelow.value)
 
 // Trace modal state
@@ -3200,8 +3207,8 @@ function updateContentBelow() {
   hasContentBelow.value = end !== null && end - container.scrollTop > container.clientHeight + AT_BOTTOM_EPS
 }
 
-// While a turn we scrolled to the top is held, the transcript is at least tall
-// enough for that turn to sit PIN_TOP_GAP_PX below the top of the view.
+// While a turn is held, the transcript is at least tall enough for that turn
+// to stay pinOffsetPx below the top of the view, and the view follows the turn.
 // Otherwise the floor stays put until the reader scrolls, and then only ever
 // shrinks, to the least that keeps the current position valid (plus slack),
 // so it never parks the reader in blank space and never jumps the view.
@@ -3213,8 +3220,19 @@ function updatePinSpacer(trim = false) {
   const padBottom = parseFloat(getComputedStyle(container).paddingBottom) || 0
   const el = pinnedId.value && pinScrolled ? container.querySelector(`[data-message-id="${pinnedId.value}"]`) : null
   if (el) {
-    const floor = Math.ceil(offsetInContainer(el, container) - PIN_TOP_GAP_PX + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
-    if (floor > pinMinHeightPx.value) pinMinHeightPx.value = floor
+    const target = offsetInContainer(el, container) - pinOffsetPx
+    const floor = Math.ceil(target + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
+    if (floor > pinMinHeightPx.value) {
+      pinMinHeightPx.value = floor
+      content.style.minHeight = `${floor}px` // now, so the anchor below isn't clamped
+    }
+    // Anchor to the turn, not to a scroll offset: content above it (a chart
+    // re-rendering, the previous answer reloading) can change height after
+    // the pin, which would slide the prompt out of view into the blank floor.
+    if (pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
+      container.scrollTop = target
+      lastScrollTop = container.scrollTop
+    }
   } else if (trim && pinMinHeightPx.value > 0) {
     const needed = Math.ceil(container.scrollTop + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
     pinMinHeightPx.value = Math.max(0, Math.min(pinMinHeightPx.value, needed))
@@ -3266,16 +3284,37 @@ function pinTurnToTop(messageId: string) {
     const viewTop = container.scrollTop
     const roomBelow = viewTop + container.clientHeight - (top + el.offsetHeight)
     if (top >= viewTop && roomBelow >= container.clientHeight * PIN_MIN_ROOM_RATIO) {
-      updateContentBelow()
+      // Room to answer in place: don't scroll, but keep the turn where it is.
+      pinOffsetPx = top - viewTop
+      pinScrolled = true
+      updatePinSpacer()
+      startPinWatch()
       return
     }
+    pinOffsetPx = PIN_TOP_GAP_PX
     pinScrolled = true
     updatePinSpacer()
+    startPinWatch()
     nextTick(() => {
       if (pinnedId.value !== messageId) return
       animateScrollTo(container, offsetInContainer(el, container) - PIN_TOP_GAP_PX)
     })
   }))
+}
+
+function startPinWatch() {
+  if (pinWatchRAF !== null || typeof window === 'undefined') return
+  const tick = () => {
+    if (!pinScrolled || pinnedId.value === null) { pinWatchRAF = null; return }
+    updatePinSpacer()
+    pinWatchRAF = window.requestAnimationFrame(tick)
+  }
+  pinWatchRAF = window.requestAnimationFrame(tick)
+}
+
+function stopPinWatch() {
+  if (pinWatchRAF !== null && typeof window !== 'undefined') window.cancelAnimationFrame(pinWatchRAF)
+  pinWatchRAF = null
 }
 
 // The reader took over (wheel/touch) or asked for the bottom: stop holding.
@@ -3284,6 +3323,7 @@ function endPinHold() {
   pinnedId.value = null
   pinScrolled = false
   cancelPinScroll()
+  stopPinWatch()
   updatePinSpacer()
   // Resume following only if the reader is genuinely at the bottom already;
   // otherwise a late layout change (feedback row, title) would move them.
@@ -4910,6 +4950,7 @@ onUnmounted(() => {
 	transcriptResizeObserver?.disconnect()
 	transcriptResizeObserver = null
 	cancelPinScroll()
+	stopPinWatch()
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
 		window.cancelAnimationFrame(scrollRAF)
