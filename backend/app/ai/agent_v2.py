@@ -2862,6 +2862,11 @@ class AgentV2:
             return False
         return bool(getattr(cfg, "value", False))
 
+    def _follow_ups_user_message(self) -> str:
+        prompt = getattr(self.head_completion, "prompt", None)
+        content = prompt.get("content") if isinstance(prompt, dict) else None
+        return content if isinstance(content, str) else ""
+
     async def _generate_and_emit_follow_ups(self):
         """Generate follow-up questions on the small model, persist them on the
         system completion, and emit a `completion.follow_ups` SSE event so the UI
@@ -2914,6 +2919,7 @@ class AgentV2:
             mode=mode,
             schemas_context=schemas_context,
             instructions_context=instructions_context,
+            user_message=self._follow_ups_user_message(),
         )
         if not questions:
             return
