@@ -5610,6 +5610,12 @@ function sendInitialMessageFromQuery() {
 		if (rawFiles) files = JSON.parse(rawFiles)
 	} catch {}
 	const text = q.new_message as string
+	// A brand-new report has nothing older to page in. The first
+	// loadCompletions normally settles this, but it yields to the live stream
+	// started below, so hasMore would keep its optimistic default. Scrolling
+	// within the short transcript would then "load older" — the server's
+	// copy of this very turn — and show it twice until the [DONE] reload.
+	hasMore.value = false
 	const { new_message, mentions: _m, mode: _mo, model_id: _mi, reasoning_effort: _re, files: _f, ...rest } = q
 	router.replace({ query: rest })
 	onSubmitCompletion({ text, mentions, mode, model_id: model_id || undefined, reasoning_effort: reasoning_effort || null, files })
