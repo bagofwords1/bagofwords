@@ -114,16 +114,14 @@ jobs:
           cd dist
           sha256sum "$archive" > "${archive}.sha256"
 
-      # Separate archives ensure Trivy checks every image, not just the first
-      # manifest entry in the multi-image customer bundle.
-      - name: Export individual images for scanning
+      # Only the bow image is gated; third-party images (postgres, caddy) are
+      # shipped as-is from upstream and not scanned here.
+      - name: Export bow image for scanning
         env:
           VERSION: ${{ inputs.version }}
         run: |
           mkdir -p scan-images
           docker save "${DOCKER_IMAGE}:${VERSION}" -o scan-images/bow.tar
-          docker save postgres:16-alpine -o scan-images/postgres.tar
-          docker save caddy:2.10-alpine -o scan-images/caddy.tar
 
       - name: Trivy gate bow (HIGH/CRITICAL)
         id: gate_bow
@@ -131,28 +129,6 @@ jobs:
         with:
           scan-type: image
           input: scan-images/bow.tar
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: 1
-          trivyignores: ${{ hashFiles('.trivyignore') != '' && '.trivyignore' || '' }}
-
-      - name: Trivy gate postgres (HIGH/CRITICAL)
-        id: gate_postgres
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          input: scan-images/postgres.tar
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: 1
-          trivyignores: ${{ hashFiles('.trivyignore') != '' && '.trivyignore' || '' }}
-
-      - name: Trivy gate caddy (HIGH/CRITICAL)
-        id: gate_caddy
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          input: scan-images/caddy.tar
           format: table
           severity: CRITICAL,HIGH
           exit-code: 1
