@@ -97,6 +97,9 @@ jobs:
       fail-fast: false
       matrix:
         platform_pair: [linux-amd64, linux-arm64]
+    env:
+      # Per-arch digests are single-platform indexes; Trivy defaults to the runner's platform
+      TRIVY_PLATFORM: ${{ matrix.platform_pair == 'linux-arm64' && 'linux/arm64' || 'linux/amd64' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
