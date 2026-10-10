@@ -11,6 +11,11 @@ on:
         description: Existing Bag of Words image tag to package
         required: true
         type: string
+      source_ref:
+        description: Git ref the image was built from (defaults to the calling commit)
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       version:
@@ -21,6 +26,11 @@ on:
         description: Existing Bag of Words image tag to package
         required: true
         type: string
+      source_ref:
+        description: Git ref the image was built from (defaults to the selected branch)
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -103,6 +113,25 @@ jobs:
           tar -C staging -czf "dist/${archive}" bagofwords-airgap
           cd dist
           sha256sum "$archive" > "${archive}.sha256"
+
+      - name: Fetch source ref
+        if: matrix.arch == 'amd64'
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          if [ -n "$SOURCE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$SOURCE_REF"
+            echo "SOURCE_COMMIT=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+          else
+            echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          fi
+
+      # Source is architecture-independent, so only one matrix leg publishes it.
+      - name: Package source code
+        if: matrix.arch == 'amd64'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: deploy/airgap/build-source-archive.sh "$VERSION" "$SOURCE_COMMIT" dist
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
