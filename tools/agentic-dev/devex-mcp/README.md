@@ -16,6 +16,9 @@ Sandbox** by driving `sandboxd`'s gRPC `ProcessService` under a PTY (the Python 
 | `claude_login_submit_code` | Types the code the browser showed into that session; returns `success`, `exit_code`, `output`. |
 | `claude_login_cancel` | Aborts a pending session. The sandbox keeps running. |
 | `claude_login_pending` | Lists sessions still waiting for a code. |
+| `claude_remote_control_start` | Starts `claude remote-control --name <name>` detached inside a sandbox (needs a prior `claude_login`); returns the claude.ai/code `url`. Offered to the user right after a successful login. |
+| `claude_remote_control_status` | Whether Remote Control is running in a sandbox and its URL. |
+| `claude_remote_control_stop` | Stops the Remote Control daemon in a sandbox. |
 
 The login is split in two because an MCP tool call cannot block on a human mid-call: the
 host shows the URL to the user, the user signs in and copies the code, then the host calls
@@ -25,6 +28,14 @@ the second tool. Pending sessions expire after 15 minutes.
 to `claude_login`, `sandbox_status` and `delete_sandbox`. If it is no longer in context,
 `list_sandboxes` recovers it. Every result carries `next_steps` the host should relay, so the
 user learns that Claude Code in a fresh sandbox is not signed in and can ask for the login.
+
+**Remote Control.** After `claude_login_submit_code` succeeds its `next_steps` tell the host
+to ask the user whether to start Remote Control. `claude_remote_control_start` then runs
+`claude remote-control --name <claim>` inside the sandbox under a PTY (`script`), detached with
+`setsid` so it outlives the tool call and the MCP server, logging to
+`/app/workspace/run/remote-control.log`. The tool polls that log until the daemon prints
+`Ready` and returns the `https://claude.ai/code?environment=...` URL. The sandbox then shows up
+as an environment in the user's claude.ai account.
 
 **How the sandbox is reached.** The server runs in the cluster. A claim name resolves to the
 bound Sandbox and its pod IP (from the Sandbox status), and sandboxd's gRPC ProcessService on

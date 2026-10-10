@@ -151,7 +151,8 @@ def submit_code(session_id: str, code: str, *, timeout: int = 120) -> dict:
         m = proc.expect(OUTCOME_RE, timeout=timeout)
         exit_code = proc.wait(timeout=30)
         ok = bool(SUCCESS_RE.search(m.group(0)))
-        return {"success": ok, "exit_code": exit_code, "output": proc.text}
+        return {"success": ok, "exit_code": exit_code, "output": proc.text,
+                "claim_name": session.target.claim_name, "namespace": session.target.namespace}
     finally:
         session.close()
 
