@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Mapping, Optional
@@ -200,27 +201,72 @@ class Telemetry:
 # Convenience alias for imports: from app.core.telemetry import telemetry
 telemetry = Telemetry
 
-def telemetry_model_id(model_id: Optional[str]) -> Optional[str]:
-    """Map a model_id to a catalog id that is safe to send to telemetry.
+# Model families reported by name in telemetry. Order matters only where
+# one family is a prefix of another ("gpt-oss" before "gpt").
+_MODEL_FAMILIES = (
+    "gpt-oss", "gpt", "o1", "o3", "o4", "claude", "gemini", "gemma",
+    "deepseek", "llama", "mistral", "mixtral", "ministral", "magistral",
+    "codestral", "devstral", "qwen", "qwq", "grok", "kimi", "glm", "phi",
+    "command", "nova", "nemotron", "jamba", "minimax",
+)
+_FAMILY_RE = re.compile(
+    r"(?<![a-z0-9])(" + "|".join(re.escape(f) for f in _MODEL_FAMILIES) + r")(?![a-z])"
+)
+# Tokens allowed after the family name: versions, sizes and published
+# variant words. The first token outside this set ends the id, so a
+# customer suffix ("gpt-6-sol-stmarys") never reaches telemetry.
+_VERSION_TOKEN_RE = re.compile(
+    r"^(v?\d+(\.\d+)*[a-z]?|r\d+|\d+(\.\d+)?[bkm]|a\d+b|\d+x\d+b|\d{8})$"
+)
+_VARIANT_TOKENS = {
+    # OpenAI
+    "astra", "sol", "terra", "luna", "mini", "nano", "pro", "codex", "chat",
+    "image", "realtime", "turbo", "max", "latest", "preview", "oss", "audio",
+    "sunburst", "flare", "cyber",
+    # Anthropic
+    "fable", "mythos", "opus", "sonnet", "haiku",
+    # Google
+    "flash", "lite", "exp", "thinking",
+    # Open-weight families
+    "instruct", "coder", "reasoner", "vl", "distill", "maverick", "scout",
+    "large", "medium", "small", "tiny", "plus", "fast", "code", "it", "a",
+}
 
-    Custom model ids are free text (Azure deployment names, self-hosted
-    models) and can carry a customer's name, so only ids from the public
-    catalog (LLM_MODEL_DETAILS) leave the process. A wrapped id such as
-    "us.anthropic.claude-sonnet-5-5-v1:0" or "acme-gpt-6-sol" reports the
-    longest catalog id it contains; anything else reports "custom".
+
+def telemetry_model_id(model_id: Optional[str]) -> Optional[str]:
+    """Reduce a model_id to its public model name for telemetry.
+
+    Model ids are free text (Azure deployment names, Bedrock/Ollama ids,
+    self-hosted models) and can carry a customer's name. Only a known model
+    family plus the version/variant tokens after it leave the process:
+    "us.anthropic.claude-sonnet-5-5-v1:0" -> "claude-sonnet-5-5",
+    "stmarys-gpt-6-sol-prod" -> "gpt-6-sol", "deepseek-r1:70b" ->
+    "deepseek-r1-70b". Anything without a known family reports "custom".
     """
     if not model_id:
         return None
-    try:
-        from app.models.llm_model import LLM_MODEL_DETAILS
-        catalog = {d["model_id"].lower() for d in LLM_MODEL_DETAILS if d.get("model_id")}
-    except Exception:
-        return "custom"
     normalized = model_id.strip().lower()
-    if normalized in catalog:
-        return normalized
-    matches = [c for c in catalog if c in normalized]
-    return max(matches, key=len) if matches else "custom"
+    # Bedrock revision suffix ("-v1:0") is packaging, not the model name.
+    normalized = re.sub(r"-v\d+(:\d+)?$", "", normalized)
+    # Wrappers can repeat the family ("meta-llama/llama-4-..."): keep the
+    # most specific reading.
+    names = [_model_name_at(normalized, m) for m in _FAMILY_RE.finditer(normalized)]
+    return max(names, key=len)[:64] if names else "custom"
+
+
+def _model_name_at(normalized: str, match: "re.Match[str]") -> str:
+    parts = [match.group(1)]
+    rest = normalized[match.end():]
+    # Ollama glues the version to the family ("llama3.3", "qwen2.5").
+    glued = re.match(r"^\d+(\.\d+)*", rest)
+    if glued:
+        parts[0] += glued.group(0)
+        rest = rest[glued.end():]
+    for token in re.split(r"[-_:/ ]+", rest.lstrip("-_:/ ")):
+        if not token or not (token in _VARIANT_TOKENS or _VERSION_TOKEN_RE.match(token)):
+            break
+        parts.append(token)
+    return "-".join(parts)
 
 
 # Free/consumer email providers excluded from org domain attribution — a
