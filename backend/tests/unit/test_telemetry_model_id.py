@@ -29,6 +29,21 @@ from app.core.telemetry import telemetry_model_id
     ("qwen2.5-coder:32b", "qwen2.5-coder-32b"),
     ("mistral-large-latest", "mistral-large-latest"),
     ("grok-4", "grok-4"),
+    ("chatgpt-4o-latest", "chatgpt-4o-latest"),
+    ("gpt-4o-mini", "gpt-4o-mini"),
+    ("o5-pro", "o5-pro"),
+    ("codellama:13b", "codellama-13b"),
+    ("granite-3.3-8b-instruct", "granite-3.3-8b-instruct"),
+    ("pixtral-large-latest", "pixtral-large-latest"),
+    ("starcoder2:15b", "starcoder2-15b"),
+    ("hermes3:8b", "hermes3-8b"),
+    ("text-embedding-3-small", "text-embedding-3-small"),
+    ("nomic-embed-text", "nomic-embed"),
+    ("bge-m3", "bge-m3"),
+    # Short families need a version digit
+    ("yi-1.5-34b", "yi-1.5-34b"),
+    ("amazon.nova-2-lite-v1:0", "nova-2-lite"),
+    ("aya-23-8b", "aya-23-8b"),
 ])
 def test_known_models_are_named(model_id, expected):
     assert telemetry_model_id(model_id) == expected
@@ -38,6 +53,9 @@ def test_known_models_are_named(model_id, expected):
     "stmarys-hospital-llm",
     "philips-prod",       # "phi" only matches as a whole word
     "acme-proto",         # "o" families need a digit
+    "acme-nova-prod",     # short families need a digit
+    "step-function-llm",
+    "solar-west",
 ])
 def test_unknown_ids_are_masked(model_id):
     assert telemetry_model_id(model_id) == "custom"

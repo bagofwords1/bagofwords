@@ -201,28 +201,47 @@ class Telemetry:
 # Convenience alias for imports: from app.core.telemetry import telemetry
 telemetry = Telemetry
 
-# Model families reported by name in telemetry. Order matters only where
-# one family is a prefix of another ("gpt-oss" before "gpt").
+# Model families reported by name in telemetry. The regex tries longer
+# names first, so "gpt-oss" wins over "gpt" and "codellama" over "llama".
 _MODEL_FAMILIES = (
-    "gpt-oss", "gpt", "o1", "o3", "o4", "claude", "gemini", "gemma",
-    "deepseek", "llama", "mistral", "mixtral", "ministral", "magistral",
-    "codestral", "devstral", "qwen", "qwq", "grok", "kimi", "glm", "phi",
-    "command", "nova", "nemotron", "jamba", "minimax",
+    # OpenAI / Anthropic / Google
+    "gpt-oss", "gpt", "chatgpt", "claude", "gemini", "gemma",
+    # Open-weight and other hosted families
+    "deepseek", "llama", "codellama", "mistral", "mixtral", "ministral",
+    "magistral", "codestral", "devstral", "pixtral", "voxtral", "qwen", "qwq",
+    "grok", "kimi", "glm", "phi", "command", "nemotron", "jamba", "minimax",
+    "granite", "olmo", "falcon", "exaone", "hunyuan", "ernie", "internlm",
+    "baichuan", "sonar", "palmyra", "reka", "starcoder", "doubao",
+    # Community fine-tunes (Ollama / vLLM)
+    "hermes", "dolphin", "zephyr", "vicuna", "wizardlm", "openchat",
+    "smollm", "tulu",
+    # Embedding models
+    "text-embedding", "nomic-embed", "snowflake-arctic-embed", "bge", "e5",
+    "voyage", "jina",
 )
+# Short or common-word families that only count when a version digit
+# follows ("yi-1.5", "nova2"), so they can't match a customer's
+# deployment name ("acme-nova-prod").
+_DIGIT_FAMILIES = ("yi", "aya", "step", "seed", "arctic", "nova", "solar", "o")
 _FAMILY_RE = re.compile(
-    r"(?<![a-z0-9])(" + "|".join(re.escape(f) for f in _MODEL_FAMILIES) + r")(?![a-z])"
+    r"(?<![a-z0-9])("
+    + "|".join(re.escape(f) for f in sorted(_MODEL_FAMILIES, key=len, reverse=True))
+    + r")(?![a-z])"
+    + r"|(?<![a-z0-9])("
+    + "|".join(re.escape(f) for f in sorted(_DIGIT_FAMILIES, key=len, reverse=True))
+    + r")(?=[-_]?\d)"
 )
 # Tokens allowed after the family name: versions, sizes and published
 # variant words. The first token outside this set ends the id, so a
 # customer suffix ("gpt-6-sol-stmarys") never reaches telemetry.
 _VERSION_TOKEN_RE = re.compile(
-    r"^(v?\d+(\.\d+)*[a-z]?|r\d+|\d+(\.\d+)?[bkm]|a\d+b|\d+x\d+b|\d{8})$"
+    r"^(v?\d+(\.\d+)*[a-z]?|[a-z]\d+(\.\d+)?|\d+(\.\d+)?[bkm]|a\d+b|\d+x\d+b|\d{8})$"
 )
 _VARIANT_TOKENS = {
     # OpenAI
     "astra", "sol", "terra", "luna", "mini", "nano", "pro", "codex", "chat",
     "image", "realtime", "turbo", "max", "latest", "preview", "oss", "audio",
-    "sunburst", "flare", "cyber",
+    "sunburst", "flare", "cyber", "4o", "embedding", "embed", "small",
     # Anthropic
     "fable", "mythos", "opus", "sonnet", "haiku",
     # Google
@@ -255,7 +274,7 @@ def telemetry_model_id(model_id: Optional[str]) -> Optional[str]:
 
 
 def _model_name_at(normalized: str, match: "re.Match[str]") -> str:
-    parts = [match.group(1)]
+    parts = [match.group(1) or match.group(2)]
     rest = normalized[match.end():]
     # Ollama glues the version to the family ("llama3.3", "qwen2.5").
     glued = re.match(r"^\d+(\.\d+)*", rest)
