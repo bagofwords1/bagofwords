@@ -1218,7 +1218,12 @@
       "clarifying": "Clarifying questions for user",
       "placeholder": "Your answer…",
       "multiHint": "Select all that apply",
-      "submit": "Submit"
+      "submit": "Submit",
+      "other": "Other",
+      "otherPlaceholder": "Describe…",
+      "skip": "Skip",
+      "skipPrompt": "Skip these questions and continue with your best judgment.",
+      "saveFailed": "Couldn't save your answer. Try again."
     },
     "createArtifact": {
       "creating": "Creating Artifact",

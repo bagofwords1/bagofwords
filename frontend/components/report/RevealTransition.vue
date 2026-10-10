@@ -2,9 +2,9 @@
   <!-- Late-arriving blocks (follow-ups, instruction suggestions) land after the
        answer has rendered. Popping them in at full height shoves the transcript
        up in one frame; instead grow the row from 0fr→1fr (no height measuring)
-       and fade the content in slightly after. Emits `growing` once per frame
-       while animating so the page can follow-scroll smoothly. -->
-  <Transition name="reveal" @enter="onEnter">
+       and fade the content in slightly after. The page's transcript
+       ResizeObserver follow-scrolls each frame of the growth. -->
+  <Transition name="reveal">
     <div v-if="show" class="reveal-grid">
       <div class="reveal-inner">
         <slot />
@@ -15,20 +15,6 @@
 
 <script setup lang="ts">
 defineProps<{ show: boolean }>()
-const emit = defineEmits<{ growing: [] }>()
-
-const DURATION_MS = 260
-
-function onEnter(_el: Element, done: () => void) {
-  if (typeof window === 'undefined') return done()
-  const start = performance.now()
-  const tick = (now: number) => {
-    emit('growing')
-    if (now - start < DURATION_MS) window.requestAnimationFrame(tick)
-    else done()
-  }
-  window.requestAnimationFrame(tick)
-}
 </script>
 
 <style scoped>

@@ -95,8 +95,8 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll">
-			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel">
+			<div ref="transcriptContent" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
@@ -569,7 +569,7 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<RevealTransition :show="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && !!((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" @growing="followRevealFrame">
+									<RevealTransition :show="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && !!((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)">
 									<div class="mt-3">
 										<InstructionSuggestions
 											:tool-execution="{
@@ -582,7 +582,7 @@
 									</div>
 									</RevealTransition>
 									<!-- Follow-up suggestions (below thumbs, latest message only) -->
-									<RevealTransition :show="isFollowUpsEnabled && m.id === lastMessageId && !!((m as any).follow_ups?.length)" @growing="followRevealFrame">
+									<RevealTransition :show="isFollowUpsEnabled && m.id === lastMessageId && !!((m as any).follow_ups?.length)">
 										<FollowUpSuggestions
 											:suggestions="(m as any).follow_ups"
 											:disabled="isStreaming || isCompletionInProgress"
@@ -1517,11 +1517,14 @@ const visibleMessages = computed(() => {
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
+const transcriptContent = ref<HTMLElement | null>(null)
 // === Sticky-bottom follow mode ===
 // The timeline follows new content only while the reader is at the bottom.
-// `isFollowing` is derived from scroll POSITION alone (see onScroll): it flips
-// off the moment the user scrolls away and back on when they return, or when
-// they press the "jump to latest" pill. It deliberately does not depend on
+// `isFollowing` is driven by the reader's scrolling: an upward wheel gesture
+// that reaches the conversation releases it immediately (onFollowWheel — not
+// one consumed by a nested scroller), and scroll POSITION (onScroll) covers
+// every other input: it flips off when the user scrolls away and back on when
+// they return, or when they press the "jump to latest" pill. It deliberately does not depend on
 // isStreaming — a run resumed after a refresh, started from another tab, a
 // schedule or a webhook is streamed through the watch/poll paths with
 // isStreaming=false, and those used to scroll unconditionally on every
@@ -1544,9 +1547,10 @@ const FOLLOW_ZONE_PX = 48
 // (e.g. Windows at 125%) and classic scrollbars produce, so a 1–2px wobble in a
 // child's height can't make the auto-scroll re-pin and bounce the viewport.
 const AT_BOTTOM_EPS = 4
-// Debounced scroll scheduling during streaming
-const pendingScroll = ref<boolean>(false)
+// One frame owns all stream and layout follow requests.
 let scrollRAF: number | null = null
+let forceNextScroll = false
+let transcriptResizeObserver: ResizeObserver | null = null
 // The pill is shown whenever the reader has scrolled away from the bottom
 // (ChatGPT behaviour); it is the only way, besides scrolling back down, to
 // re-engage following.
@@ -3069,25 +3073,59 @@ function scrollToMessage(messageId: string, stepId?: string) {
 	}
 }
 
-// Single-pass scroll to the max position after the next layout. `force`
-// scrolls regardless of follow state; otherwise the follow flag is re-checked
-// at execution time, so a wheel-up that lands between scheduling and the
-// 40ms timer still wins.
+// Measure after Vue commits, then follow once per paint. Re-check intent at
+// execution time so an upward gesture wins over a queued follow request.
 function scrollToBottom({ force = false }: { force?: boolean } = {}) {
+  if (force) forceNextScroll = true
+  if (scrollRAF !== null || typeof window === 'undefined') return
   nextTick(() => {
-    setTimeout(() => {
-      if (!force && !isFollowing.value) return
+    if (scrollRAF !== null) return
+    scrollRAF = window.requestAnimationFrame(() => {
+      scrollRAF = null
+      const forced = forceNextScroll
+      forceNextScroll = false
+      if (!forced && !isFollowing.value) return
       const container = scrollContainer.value
       if (!container) return
-      container.offsetHeight // force reflow
-      const target = container.scrollHeight - container.clientHeight
-      // No-op when already at the bottom (within tolerance). This makes the
-      // auto-scroll idempotent: a tiny/oscillating height change (chart resize,
-      // scrollbar toggle, fractional-DPI rounding) no longer writes scrollTop,
-      // so it can't feed a resize→scroll→resize bounce loop.
-      if (target - container.scrollTop > AT_BOTTOM_EPS) container.scrollTop = target
-    }, 40)
+      const target = Math.max(0, container.scrollHeight - container.clientHeight)
+      if (Math.abs(target - container.scrollTop) > AT_BOTTOM_EPS) container.scrollTop = target
+      lastScrollTop = container.scrollTop
+    })
   })
+}
+
+// Whether an upward wheel gesture that started at `target` is consumed before
+// it reaches the transcript container. Wheel events bubble from nested
+// scrollers (wide tables, code blocks, the thinking panel), so the gesture only
+// belongs to the conversation if no element between the target and the
+// container takes it: one that can still scroll up, or one that blocks scroll
+// chaining (overscroll-behavior contain/none) even at its top.
+function nestedScrollerOwnsUpwardWheel(target: EventTarget | null, container: HTMLElement): boolean {
+  let el = target instanceof Element ? target : null
+  while (el && el !== container) {
+    if (el instanceof HTMLElement) {
+      const style = window.getComputedStyle(el)
+      const scrollsY = /^(auto|scroll|overlay)$/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1
+      if (scrollsY) {
+        if (el.scrollTop > 0) return true
+        if (style.overscrollBehaviorY === 'contain' || style.overscrollBehaviorY === 'none') return true
+      }
+    }
+    el = el.parentElement
+  }
+  return false
+}
+
+// Upward wheel over the conversation releases following at once — before the
+// scroll event lands, so a queued pin (including a forced one) can't pull the
+// reader back down in the same frame. onScroll still applies the position rule
+// as a fallback for scrollbar drags, keyboard and touch.
+function onFollowWheel(event: WheelEvent) {
+  if (event.deltaY >= 0) return
+  const container = scrollContainer.value
+  if (!container || nestedScrollerOwnsUpwardWheel(event.target, container)) return
+  isFollowing.value = false
+  forceNextScroll = false
 }
 
 // Intentional scroll: initial load, the user sending/steering a message, the
@@ -3105,31 +3143,19 @@ function followScrollToBottom() {
   scrollToBottom()
 }
 
-// Coalesce a burst of stream events into one pin per animation frame.
+// Token events and deferred child layout share the same pending frame.
 function scheduleFollowScroll() {
-  if (pendingScroll.value) return
-  pendingScroll.value = true
-  if (typeof window !== 'undefined') {
-    scrollRAF = window.requestAnimationFrame(() => {
-      followScrollToBottom()
-      pendingScroll.value = false
-    })
-  } else {
-    followScrollToBottom()
-    pendingScroll.value = false
-  }
+  followScrollToBottom()
 }
 
-// Per-frame follow while a RevealTransition grows. scrollToBottom's deferred
-// write would land once mid-animation and leave the rest of the block below
-// the fold; pinning every frame turns the growth into a smooth slide.
-function followRevealFrame() {
-  if (!isFollowing.value) return
-  const container = scrollContainer.value
-  if (!container) return
-  const target = container.scrollHeight - container.clientHeight
-  if (target - container.scrollTop > AT_BOTTOM_EPS) container.scrollTop = target
-}
+watch([scrollContainer, transcriptContent], ([container, content]) => {
+  transcriptResizeObserver?.disconnect()
+  transcriptResizeObserver = null
+  if (!container || !content || typeof ResizeObserver === 'undefined') return
+  transcriptResizeObserver = new ResizeObserver(scheduleFollowScroll)
+  transcriptResizeObserver.observe(container)
+  transcriptResizeObserver.observe(content)
+}, { flush: 'post' })
 
 function jumpToLatest() {
   forceScrollToBottom()
@@ -4487,9 +4513,10 @@ function onScroll() {
         }
     }
 
-    // Follow mode is positional. Content growth doesn't fire scroll events
-    // (scrollTop is unchanged), so this runs for user scrolling, our own pins
-    // and the prepend anchor adjustment above.
+    // Position-based fallback: onFollowWheel releases upward wheel gestures
+    // first; this covers scrollbar drags, keyboard and touch. Content growth
+    // doesn't fire scroll events (scrollTop is unchanged), so this runs for
+    // user scrolling, our own pins and the prepend anchor adjustment above.
     //   - at the bottom → following (a pin landing, or the reader returning);
     //   - scrollTop moved UP → the reader left; stop following;
     //   - scrollTop moved DOWN but not to the bottom → keep the current state.
@@ -4736,6 +4763,8 @@ onUnmounted(() => {
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', followScrollToBottom)
 	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
+	transcriptResizeObserver?.disconnect()
+	transcriptResizeObserver = null
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
 		window.cancelAnimationFrame(scrollRAF)
@@ -5710,6 +5739,8 @@ onMounted(async () => {
 }
 
 .thinking-content :deep(.markdown-content) {
+	--typewriter-fade-duration: 180ms;
+	--stream-update-fade-duration: 180ms;
 	font-size: 12px !important;
 	line-height: 1.4 !important;
 }
@@ -5730,13 +5761,16 @@ onMounted(async () => {
 	font-size: 13px;
 }
 
-/* Minimal typography akin to CompletionMessageComponent */
+/* Minimal typography akin to CompletionMessageComponent; append-only text
+   entrance timing. */
 .markdown-wrapper :deep(.markdown-content) {
 	@apply leading-relaxed;
 	font-size: 13px;
-	/* Prevent layout thrashing during streaming */
+	--typewriter-fade-duration: 180ms;
+	--stream-update-fade-duration: 180ms;
+	--typewriter-fade-ease: ease-out;
+	--stream-update-fade-ease: ease-out;
 	contain: content;
-	content-visibility: auto;
 
 	/* Paragraph spacing to match streaming text appearance */
 	p {
@@ -5878,6 +5912,12 @@ onMounted(async () => {
 }
 
 
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-wrapper :deep(.typewriter-enter-active) { transition: none !important; }
+  .markdown-wrapper :deep(.text-node-stream-delta),
+  .thinking-content :deep(.text-node-stream-delta) { animation: none !important; opacity: 1; }
+}
 
 /* Compact mode (Excel add-in) — smaller text throughout */
 .compact-messages .block-content {
