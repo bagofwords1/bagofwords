@@ -26,7 +26,7 @@ dependencies = [
     "cryptography>=50.0.0,<51",
     "sqlalchemy>=2.0.51,<2.1",
     "alembic>=1.18.4,<1.19",
-    "asyncpg>=0.29.0,<0.30",
+    "asyncpg>=0.30.0,<0.32",
     "psycopg2-binary>=2.9.12,<2.10",
     "aiosqlite>=0.20.0,<0.21",
     "pymysql>=1.2.0,<1.3",
@@ -169,7 +169,7 @@ build-backend = "hatchling.build"
 packages = ["app"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
@@ -193,4 +193,4 @@ ignore = [
 known-first-party = ["app"]
 
 [tool.ty]
-python-version = "3.12"
+python-version = "3.13"

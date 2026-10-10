@@ -22,7 +22,7 @@ fix. Examples of the format live in `docs/feedback-loops/` (e.g.
 
 ## Environment setup (fresh sandbox)
 
-The app targets **Python 3.12** (3.12 f-string syntax; the sandbox default
+The app targets **Python 3.13** (3.12+ works; needs 3.12 f-string syntax; the sandbox default
 `python` may be 3.11).
 
 ```bash
