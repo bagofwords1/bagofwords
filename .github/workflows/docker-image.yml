@@ -2,6 +2,11 @@ name: Build and Push Docker Image
 
 on:
   workflow_dispatch:
+    inputs:
+      force_latest:
+        description: "Tag :latest even if Trivy finds fixable HIGH/CRITICAL CVEs"
+        type: boolean
+        default: false
   repository_dispatch:
     types: [e2e-tests-passed]
 
@@ -93,6 +98,8 @@ jobs:
   scan:
     needs: [prepare, build]
     runs-on: ubuntu-latest
+    outputs:
+      clean: ${{ steps.gate.outcome == 'success' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -134,6 +141,20 @@ jobs:
           severity: CRITICAL,HIGH
           output: trivy-results.sarif
 
+      # Gate for :latest — fails on fixable HIGH/CRITICAL; accepted risks go in .trivyignore
+      - name: Trivy gate (fixable HIGH/CRITICAL)
+        id: gate
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.digest.outputs.ref }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          trivyignores: ${{ hashFiles('.trivyignore') != '' && '.trivyignore' || '' }}
+          exit-code: 1
+
       - name: Upload Trivy scan results to GitHub Security tab
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v3
@@ -141,7 +162,9 @@ jobs:
           sarif_file: trivy-results.sarif
 
   merge:
-    needs: [prepare, build]
+    needs: [prepare, build, scan]
+    # Run even if the scan job itself errors; :latest is then held back (clean != 'true')
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Set up Docker Buildx
@@ -162,11 +185,21 @@ jobs:
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
+        env:
+          SCAN_CLEAN: ${{ needs.scan.outputs.clean }}
+          FORCE_LATEST: ${{ inputs.force_latest || false }}
         run: |
+          LATEST_TAG=()
+          if [ "$SCAN_CLEAN" = "true" ] || [ "$FORCE_LATEST" = "true" ]; then
+            LATEST_TAG=(-t ${{ env.DOCKER_IMAGE }}:latest)
+          else
+            echo "::warning::Trivy found fixable HIGH/CRITICAL vulnerabilities; :latest was NOT updated. See the scan job / Security tab."
+            echo "### :latest held back — Trivy found fixable HIGH/CRITICAL CVEs" >> "$GITHUB_STEP_SUMMARY"
+          fi
           docker buildx imagetools create \
             -t ${{ env.DOCKER_IMAGE }}:${{ needs.prepare.outputs.version }} \
             -t ${{ env.DOCKER_IMAGE }}:${{ needs.prepare.outputs.version_tag }} \
-            -t ${{ env.DOCKER_IMAGE }}:latest \
+            "${LATEST_TAG[@]}" \
             $(printf '${{ env.DOCKER_IMAGE }}@sha256:%s ' *)
 
   airgap:

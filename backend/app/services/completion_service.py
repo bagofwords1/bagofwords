@@ -83,7 +83,7 @@ from sqlalchemy import select, update, func, delete
 from sqlalchemy.orm import defer, lazyload, selectinload
 
 from fastapi import BackgroundTasks, HTTPException
-from app.core.telemetry import telemetry
+from app.core.telemetry import telemetry, telemetry_model_id
 from app.core import phase_trace
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
@@ -2522,7 +2522,7 @@ class CompletionService:
                                     {
                                         "report_id": str(report.id),
                                         "system_completion_id": str(system_completion.id),
-                                        "model_id": model.model_id,
+                                        "model_id": telemetry_model_id(model.model_id),
                                         "has_widget": bool(widget_obj is not None),
                                         "platform": resolved_platform,
                                     },

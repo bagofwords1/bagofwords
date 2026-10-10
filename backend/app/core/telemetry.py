@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Mapping, Optional
@@ -199,6 +200,93 @@ class Telemetry:
 
 # Convenience alias for imports: from app.core.telemetry import telemetry
 telemetry = Telemetry
+
+# Model families reported by name in telemetry. The regex tries longer
+# names first, so "gpt-oss" wins over "gpt" and "codellama" over "llama".
+_MODEL_FAMILIES = (
+    # OpenAI / Anthropic / Google
+    "gpt-oss", "gpt", "chatgpt", "claude", "gemini", "gemma",
+    # Open-weight and other hosted families
+    "deepseek", "llama", "codellama", "mistral", "mixtral", "ministral",
+    "magistral", "codestral", "devstral", "pixtral", "voxtral", "qwen", "qwq",
+    "grok", "kimi", "glm", "phi", "command", "nemotron", "jamba", "minimax",
+    "granite", "olmo", "falcon", "exaone", "hunyuan", "ernie", "internlm",
+    "baichuan", "sonar", "palmyra", "reka", "starcoder", "doubao",
+    # Community fine-tunes (Ollama / vLLM)
+    "hermes", "dolphin", "zephyr", "vicuna", "wizardlm", "openchat",
+    "smollm", "tulu",
+    # Embedding models
+    "text-embedding", "nomic-embed", "snowflake-arctic-embed", "bge", "e5",
+    "voyage", "jina",
+)
+# Short or common-word families that only count when a version digit
+# follows ("yi-1.5", "nova2"), so they can't match a customer's
+# deployment name ("acme-nova-prod").
+_DIGIT_FAMILIES = ("yi", "aya", "step", "seed", "arctic", "nova", "solar", "o")
+_FAMILY_RE = re.compile(
+    r"(?<![a-z0-9])("
+    + "|".join(re.escape(f) for f in sorted(_MODEL_FAMILIES, key=len, reverse=True))
+    + r")(?![a-z])"
+    + r"|(?<![a-z0-9])("
+    + "|".join(re.escape(f) for f in sorted(_DIGIT_FAMILIES, key=len, reverse=True))
+    + r")(?=[-_]?\d)"
+)
+# Tokens allowed after the family name: versions, sizes and published
+# variant words. The first token outside this set ends the id, so a
+# customer suffix ("gpt-6-sol-stmarys") never reaches telemetry.
+_VERSION_TOKEN_RE = re.compile(
+    r"^(v?\d+(\.\d+)*[a-z]?|[a-z]\d+(\.\d+)?|\d+(\.\d+)?[bkm]|a\d+b|\d+x\d+b|\d{8})$"
+)
+_VARIANT_TOKENS = {
+    # OpenAI
+    "astra", "sol", "terra", "luna", "mini", "nano", "pro", "codex", "chat",
+    "image", "realtime", "turbo", "max", "latest", "preview", "oss", "audio",
+    "sunburst", "flare", "cyber", "4o", "embedding", "embed", "small",
+    # Anthropic
+    "fable", "mythos", "opus", "sonnet", "haiku",
+    # Google
+    "flash", "lite", "exp", "thinking",
+    # Open-weight families
+    "instruct", "coder", "reasoner", "vl", "distill", "maverick", "scout",
+    "large", "medium", "small", "tiny", "plus", "fast", "code", "it", "a",
+}
+
+
+def telemetry_model_id(model_id: Optional[str]) -> Optional[str]:
+    """Reduce a model_id to its public model name for telemetry.
+
+    Model ids are free text (Azure deployment names, Bedrock/Ollama ids,
+    self-hosted models) and can carry a customer's name. Only a known model
+    family plus the version/variant tokens after it leave the process:
+    "us.anthropic.claude-sonnet-5-5-v1:0" -> "claude-sonnet-5-5",
+    "stmarys-gpt-6-sol-prod" -> "gpt-6-sol", "deepseek-r1:70b" ->
+    "deepseek-r1-70b". Anything without a known family reports "custom".
+    """
+    if not model_id:
+        return None
+    normalized = model_id.strip().lower()
+    # Bedrock revision suffix ("-v1:0") is packaging, not the model name.
+    normalized = re.sub(r"-v\d+(:\d+)?$", "", normalized)
+    # Wrappers can repeat the family ("meta-llama/llama-4-..."): keep the
+    # most specific reading.
+    names = [_model_name_at(normalized, m) for m in _FAMILY_RE.finditer(normalized)]
+    return max(names, key=len)[:64] if names else "custom"
+
+
+def _model_name_at(normalized: str, match: "re.Match[str]") -> str:
+    parts = [match.group(1) or match.group(2)]
+    rest = normalized[match.end():]
+    # Ollama glues the version to the family ("llama3.3", "qwen2.5").
+    glued = re.match(r"^\d+(\.\d+)*", rest)
+    if glued:
+        parts[0] += glued.group(0)
+        rest = rest[glued.end():]
+    for token in re.split(r"[-_:/ ]+", rest.lstrip("-_:/ ")):
+        if not token or not (token in _VARIANT_TOKENS or _VERSION_TOKEN_RE.match(token)):
+            break
+        parts.append(token)
+    return "-".join(parts)
+
 
 # Free/consumer email providers excluded from org domain attribution — a
 # domain shared by millions of unrelated signups isn't a useful org signal

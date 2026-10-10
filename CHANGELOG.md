@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.585 (October 10, 2026)
+- Added the source code archive to air-gap releases
+
 ## Version 0.0.584 (October 8, 2026)
 - Fixed directory profile sync with separate Entra SSO and Fabric apps — requires `offline_access` for SSO
 
