@@ -47,3 +47,19 @@ Expose port 443 and mount the certificate directory read-only in
 The archive checksum verifies the download. Security tools that scan a Docker
 daemon can scan the three loaded image tags shown by `docker images`. Tools that
 accept Docker archives can inspect `images.tar` directly.
+
+## Source code
+
+Each release folder also contains `bagofwords-source-<version>.tar.gz`, the
+tracked source tree of the commit the Bag of Words image was built from. It is
+the same for every CPU architecture. The commit hash is in `SOURCE_COMMIT` at
+the top of the extracted folder.
+
+```bash
+sha256sum -c bagofwords-source-*.tar.gz.sha256
+tar -xzf bagofwords-source-*.tar.gz
+cat bagofwords-source-*/SOURCE_COMMIT
+```
+
+The archive holds source only; it does not include Python or Node.js
+dependencies.
