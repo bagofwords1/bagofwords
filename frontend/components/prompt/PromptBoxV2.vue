@@ -1835,6 +1835,10 @@ async function createReport() {
         }
         const data = (response as any)?.data?.value as any
         if (!data?.id) throw new Error(t('prompt.createReportFailed'))
+        // The create response is the same ReportSchema the report page loads,
+        // so hand it over: the page can draw the conversation at once instead
+        // of a "Loading report" spinner while it fetches the row again.
+        useState<any>('bow.createdReport').value = data
         router.push({
             path: `/reports/${data.id}`,
             query: {

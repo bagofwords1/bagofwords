@@ -1554,6 +1554,14 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+// Row handed over by the draft composer that just created this report
+// (PromptBoxV2's createReport). Lets the page render the first prompt right
+// away; loadReport still fetches the canonical row and replaces it.
+{
+	const created = useState<any>('bow.createdReport')
+	if (created.value?.id && String(created.value.id) === String(route.params.id)) report.value = created.value
+	created.value = null
+}
 provide('reportSnapshot', report)
 // Active-artifact visualization ids, shared with ToolWidgetPreview so
 // "Added to Dashboard" state survives a refresh with the artifact panel
