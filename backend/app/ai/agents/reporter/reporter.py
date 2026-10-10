@@ -125,7 +125,16 @@ class Reporter:
         except Exception:
             return []
 
-        return self._parse_follow_ups(raw, max_suggestions)
+        return self._drop_echoes(self._parse_follow_ups(raw, max_suggestions), messages_context)
+
+    @staticmethod
+    def _drop_echoes(questions, messages_context):
+        # Guard against the model copying lines out of the transcript (usually
+        # the assistant's own reply) instead of writing a user next step.
+        def norm(t):
+            return " ".join("".join(c for c in t.lower() if c.isalnum() or c.isspace()).split())
+        transcript = norm(messages_context or "")
+        return [q for q in questions if not (norm(q) and norm(q) in transcript)]
 
     def _chat_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions, user_message=""):
         data_blocks = ""
@@ -161,6 +170,13 @@ class Reporter:
           because data happens to be available — the available data is supporting context only.
 
         Rules:
+        - Each suggestion is a message the USER sends TO the assistant, written in the user's voice
+          (a question or request), as if the user typed it.
+        - Never repeat or rephrase the assistant's last reply, and never address the user
+          (no "How can I help you?", "What would you like to look into?").
+        - Never mention tools, products, or topics that do not appear in the conversation.
+        - If the conversation has nothing substantive to continue (a greeting, small talk, thanks),
+          return an empty array [].
         - Each suggestion is a single, self-contained prompt the user could click to send next.
         - Keep them short (max ~12 words), specific, and genuinely useful given the conversation.
         - Suggestions must follow from the recent conversation — never generic questions disconnected from it.
@@ -225,6 +241,10 @@ class Reporter:
         when you can, so each action is specific and clickable.
 
         Rules:
+        - Each suggestion is a message the ADMIN sends TO the assistant, in the admin's voice.
+          Never repeat the assistant's last reply and never address the admin with a question.
+        - If the conversation has nothing substantive to continue (a greeting, small talk, thanks),
+          return an empty array [].
         - Each suggestion is a single, self-contained training action phrased as a prompt.
         - Keep them short (max ~12 words), specific, and actionable.
         - Do not repeat actions already taken. Do not number them.
