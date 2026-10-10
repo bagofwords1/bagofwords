@@ -1,9 +1,7 @@
 name: Release
 
 on:
-  repository_dispatch:
-    types: [e2e-tests-passed]
-  workflow_dispatch:
+  workflow_call:
 
 jobs:
   create_release:

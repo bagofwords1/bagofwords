@@ -2,11 +2,6 @@ name: Build and Push Docker Image
 
 on:
   workflow_dispatch:
-    inputs:
-      force_latest:
-        description: "Tag :latest even if Trivy finds fixable HIGH/CRITICAL CVEs"
-        type: boolean
-        default: false
   repository_dispatch:
     types: [e2e-tests-passed]
 
@@ -98,8 +93,10 @@ jobs:
   scan:
     needs: [prepare, build]
     runs-on: ubuntu-latest
-    outputs:
-      clean: ${{ steps.gate.outcome == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform_pair: [linux-amd64, linux-arm64]
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -110,13 +107,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Download amd64 digest
+      - name: Download platform digest
         uses: actions/download-artifact@v4
         with:
-          name: digests-linux-amd64
+          name: digests-${{ matrix.platform_pair }}
           path: /tmp/digests
 
-      - name: Resolve amd64 digest
+      - name: Resolve platform digest
         id: digest
         run: |
           DIGEST=$(ls /tmp/digests | head -1)
@@ -141,17 +138,15 @@ jobs:
           severity: CRITICAL,HIGH
           output: trivy-results.sarif
 
-      # Gate for :latest — fails on fixable HIGH/CRITICAL; accepted risks go in .trivyignore
-      - name: Trivy gate (fixable HIGH/CRITICAL)
+      # Gate every release tag on both architectures; reviewed exceptions go in .trivyignore
+      - name: Trivy gate (HIGH/CRITICAL)
         id: gate
-        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: ${{ steps.digest.outputs.ref }}
           format: table
           severity: CRITICAL,HIGH
-          ignore-unfixed: true
           trivyignores: ${{ hashFiles('.trivyignore') != '' && '.trivyignore' || '' }}
           exit-code: 1
 
@@ -160,11 +155,11 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
+          category: release-${{ matrix.platform_pair }}
 
   merge:
     needs: [prepare, build, scan]
-    # Run even if the scan job itself errors; :latest is then held back (clean != 'true')
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    # Implicit success() requires all scan matrix legs to pass.
     runs-on: ubuntu-latest
     steps:
       - name: Set up Docker Buildx
@@ -185,21 +180,11 @@ jobs:
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
-        env:
-          SCAN_CLEAN: ${{ needs.scan.outputs.clean }}
-          FORCE_LATEST: ${{ inputs.force_latest || false }}
         run: |
-          LATEST_TAG=()
-          if [ "$SCAN_CLEAN" = "true" ] || [ "$FORCE_LATEST" = "true" ]; then
-            LATEST_TAG=(-t ${{ env.DOCKER_IMAGE }}:latest)
-          else
-            echo "::warning::Trivy found fixable HIGH/CRITICAL vulnerabilities; :latest was NOT updated. See the scan job / Security tab."
-            echo "### :latest held back — Trivy found fixable HIGH/CRITICAL CVEs" >> "$GITHUB_STEP_SUMMARY"
-          fi
           docker buildx imagetools create \
             -t ${{ env.DOCKER_IMAGE }}:${{ needs.prepare.outputs.version }} \
             -t ${{ env.DOCKER_IMAGE }}:${{ needs.prepare.outputs.version_tag }} \
-            "${LATEST_TAG[@]}" \
+            -t ${{ env.DOCKER_IMAGE }}:latest \
             $(printf '${{ env.DOCKER_IMAGE }}@sha256:%s ' *)
 
   airgap:
@@ -209,4 +194,11 @@ jobs:
     with:
       version: ${{ needs.prepare.outputs.version }}
       image_tag: ${{ needs.prepare.outputs.version_tag }}
+    secrets: inherit
+
+  release:
+    needs: merge
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
     secrets: inherit
