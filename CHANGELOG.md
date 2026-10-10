@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.586 (October 10, 2026)
+- Bug fixes and UI improvements (#1291)
+
 ## Version 0.0.585 (October 10, 2026)
 - Added the source code archive to air-gap releases
 
