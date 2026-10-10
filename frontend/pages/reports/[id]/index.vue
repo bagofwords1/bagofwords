@@ -95,8 +95,8 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll">
-			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel">
+			<div ref="transcriptContent" class="px-3 sm:px-4 pb-[3px] max-w-3xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
@@ -185,7 +185,7 @@
 						<div v-else-if="m.role === 'external' && (m as any).trigger_source && !(m as any).webhook_id" class="flex justify-start my-1.5">
 							<!-- avatar-width spacer so the line lines up with agent content -->
 							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
-							<div class="w-full ms-0 md:ms-4 max-w-2xl">
+							<div class="w-full ms-0 md:ms-4 max-w-3xl">
 								<div
 									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
 									:class="isQuietCheckinStrip(m) ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
@@ -317,7 +317,7 @@
 										</div>
 									</UTooltip>
 								</div>
-								<div class="w-full ms-0 md:ms-4 max-w-2xl">
+								<div class="w-full ms-0 md:ms-4 max-w-3xl">
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
@@ -647,13 +647,13 @@
 		</div>
 
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
-		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-3xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<Spinner class="w-3 h-3 me-2 text-gray-400" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
-		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-3xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<span class="text-xs">
 					<span class="font-medium bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 px-2 py-1 rounded-md">Note
@@ -662,7 +662,7 @@
 					</span>
 				</div>
 			</div>
-		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-3xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/mcp.png" class="h-4 w-4" />
@@ -670,7 +670,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-3xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/slack.png" class="h-4 w-4" />
@@ -678,7 +678,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-3xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/teams.png" class="h-4 w-4" />
@@ -686,7 +686,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-3xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-green-50 dark:bg-green-500/15 text-green-700 dark:text-green-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
@@ -696,7 +696,7 @@
 		</div>
 		<!-- Read-only bar for project collaborators: view + fork, no composer -->
 		<div v-if="report && !isReportOwner" class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-3xl']">
 				<div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-3" data-testid="readonly-bar">
 					<div class="flex items-center gap-2 min-w-0 text-[13px] text-gray-500 dark:text-gray-400">
 						<UIcon name="i-heroicons-lock-closed" class="w-4 h-4 shrink-0" />
@@ -717,9 +717,10 @@
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div v-else class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['report-composer mx-auto w-full', isExcel ? 'compact-composer px-0' : 'pb-4 px-3 max-w-none sm:px-4 sm:max-w-3xl']">
 				<PromptBoxV2
 					ref="promptBoxRef"
+					:flush="!isExcel"
 					:report_id="report_id"
 					:project="report?.project || null"
 					@projectChanged="(p: any) => { if (report) { report.project = p; report.project_id = p?.id || null } }"
@@ -1509,6 +1510,7 @@ const visibleMessages = computed(() => {
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
+const transcriptContent = ref<HTMLElement | null>(null)
 // === Sticky-bottom follow mode ===
 // The timeline follows new content only while the reader is at the bottom.
 // `isFollowing` is derived from scroll POSITION alone (see onScroll): it flips
@@ -1536,9 +1538,10 @@ const FOLLOW_ZONE_PX = 48
 // (e.g. Windows at 125%) and classic scrollbars produce, so a 1–2px wobble in a
 // child's height can't make the auto-scroll re-pin and bounce the viewport.
 const AT_BOTTOM_EPS = 4
-// Debounced scroll scheduling during streaming
-const pendingScroll = ref<boolean>(false)
+// One frame owns all stream and layout follow requests.
 let scrollRAF: number | null = null
+let forceNextScroll = false
+let transcriptResizeObserver: ResizeObserver | null = null
 // The pill is shown whenever the reader has scrolled away from the bottom
 // (ChatGPT behaviour); it is the only way, besides scrolling back down, to
 // re-engage following.
@@ -2425,7 +2428,7 @@ const nonSeedMessages = computed(() => {
 
 // Split screen state
 const isSplitScreen = ref(false)
-const leftPanelWidth = ref(450)
+const leftPanelWidth = ref(520)
 const isResizing = ref(false)
 const initialMouseX = ref(0)
 const initialPanelWidth = ref(0)
@@ -2473,14 +2476,14 @@ function openFilePreview(payload: any) {
 
 // Chat pane width as a fraction of the window, per panel view. A document
 // viewer earns the most room: while a PDF is open, reading it IS the task.
-// 280 matches the floor the manual resizer enforces, so a narrow window can
-// never programmatically produce a pane the user could not drag back.
+// Automatic panel opening retains a readable chat column. The manual resizer
+// still permits a narrower pane when the reader deliberately chooses it.
 const PANEL_LEFT_RATIO: Record<string, number> = {
 	summary: 0.55,
 	agent: 0.45,
 }
 const DEFAULT_LEFT_RATIO = 0.37
-const MIN_LEFT_PANEL_WIDTH = 280
+const MIN_LEFT_PANEL_WIDTH = 480
 
 function leftWidthFor(view: string): number {
 	const ratio = PANEL_LEFT_RATIO[view] ?? DEFAULT_LEFT_RATIO
@@ -3053,25 +3056,32 @@ function scrollToMessage(messageId: string, stepId?: string) {
 	}
 }
 
-// Single-pass scroll to the max position after the next layout. `force`
-// scrolls regardless of follow state; otherwise the follow flag is re-checked
-// at execution time, so a wheel-up that lands between scheduling and the
-// 40ms timer still wins.
+// Measure after Vue commits, then follow once per paint. Re-check intent at
+// execution time so an upward gesture wins over a queued follow request.
 function scrollToBottom({ force = false }: { force?: boolean } = {}) {
+  if (force) forceNextScroll = true
+  if (scrollRAF !== null || typeof window === 'undefined') return
   nextTick(() => {
-    setTimeout(() => {
-      if (!force && !isFollowing.value) return
+    if (scrollRAF !== null) return
+    scrollRAF = window.requestAnimationFrame(() => {
+      scrollRAF = null
+      const forced = forceNextScroll
+      forceNextScroll = false
+      if (!forced && !isFollowing.value) return
       const container = scrollContainer.value
       if (!container) return
-      container.offsetHeight // force reflow
-      const target = container.scrollHeight - container.clientHeight
-      // No-op when already at the bottom (within tolerance). This makes the
-      // auto-scroll idempotent: a tiny/oscillating height change (chart resize,
-      // scrollbar toggle, fractional-DPI rounding) no longer writes scrollTop,
-      // so it can't feed a resize→scroll→resize bounce loop.
-      if (target - container.scrollTop > AT_BOTTOM_EPS) container.scrollTop = target
-    }, 40)
+      const target = Math.max(0, container.scrollHeight - container.clientHeight)
+      if (Math.abs(target - container.scrollTop) > AT_BOTTOM_EPS) container.scrollTop = target
+      lastScrollTop = container.scrollTop
+    })
   })
+}
+
+function onFollowWheel(event: WheelEvent) {
+  if (event.deltaY < 0) {
+    isFollowing.value = false
+    forceNextScroll = false
+  }
 }
 
 // Intentional scroll: initial load, the user sending/steering a message, the
@@ -3089,20 +3099,19 @@ function followScrollToBottom() {
   scrollToBottom()
 }
 
-// Coalesce a burst of stream events into one pin per animation frame.
+// Token events and deferred child layout share the same pending frame.
 function scheduleFollowScroll() {
-  if (pendingScroll.value) return
-  pendingScroll.value = true
-  if (typeof window !== 'undefined') {
-    scrollRAF = window.requestAnimationFrame(() => {
-      followScrollToBottom()
-      pendingScroll.value = false
-    })
-  } else {
-    followScrollToBottom()
-    pendingScroll.value = false
-  }
+  followScrollToBottom()
 }
+
+watch([scrollContainer, transcriptContent], ([container, content]) => {
+  transcriptResizeObserver?.disconnect()
+  transcriptResizeObserver = null
+  if (!container || !content || typeof ResizeObserver === 'undefined') return
+  transcriptResizeObserver = new ResizeObserver(scheduleFollowScroll)
+  transcriptResizeObserver.observe(container)
+  transcriptResizeObserver.observe(content)
+}, { flush: 'post' })
 
 function jumpToLatest() {
   forceScrollToBottom()
@@ -4686,6 +4695,8 @@ onUnmounted(() => {
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', followScrollToBottom)
 	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
+	transcriptResizeObserver?.disconnect()
+	transcriptResizeObserver = null
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
 		window.cancelAnimationFrame(scrollRAF)
@@ -5554,12 +5565,12 @@ onMounted(async () => {
 		if (hasArtifacts.value || (report.value as any)?.artifact_count > 0) {
 			isSplitScreen.value = true
 			rightPanelView.value = 'artifact'
-			leftPanelWidth.value = Math.round(window.innerWidth * 0.37)
+			leftPanelWidth.value = leftWidthFor('artifact')
 			collapseSidebar()
 		} else if ((report.value as any)?.query_count > 0 || (report.value as any)?.instruction_count > 0 || (report.value as any)?.has_scheduled_prompts) {
 			isSplitScreen.value = true
 			rightPanelView.value = 'summary'
-			leftPanelWidth.value = Math.round(window.innerWidth * 0.55)
+			leftPanelWidth.value = leftWidthFor('summary')
 		}
 	}
 
@@ -5619,7 +5630,7 @@ onMounted(async () => {
 	display: flex;
 	align-items: center;
 	cursor: pointer;
-	font-size: 12px;
+	font-size: 13px;
 	font-weight: 400;
 	color: #6b7280;
 	user-select: none;
@@ -5636,23 +5647,25 @@ onMounted(async () => {
 	margin-top: 2px;
 	margin-bottom: 4px;
 	border-inline-start: 1px dashed #e5e7eb;
-	font-size: 12px !important;
-	line-height: 1.4;
+	font-size: 13px !important;
+	line-height: 1.6;
 	color: #6b7280;
 }
 
 .thinking-content :deep(*) {
-	font-size: 12px !important;
-	line-height: 1.4 !important;
+	font-size: 13px !important;
+	line-height: 1.6 !important;
 }
 
 .thinking-content :deep(.markdown-content) {
-	font-size: 12px !important;
-	line-height: 1.4 !important;
+	--typewriter-fade-duration: 180ms;
+	--stream-update-fade-duration: 180ms;
+	font-size: 13px !important;
+	line-height: 1.6 !important;
 }
 
 .thinking-content :deep(p) {
-	font-size: 12px !important;
+	font-size: 13px !important;
 	margin: 0;
 }
 
@@ -5664,20 +5677,22 @@ onMounted(async () => {
 /* Block content - assistant messages */
 .block-content {
 	margin-bottom: 4px;
-	font-size: 13px;
+	font-size: 15px;
 }
 
-/* Minimal typography akin to CompletionMessageComponent */
+/* Reading typography and append-only text entrance timing. */
 .markdown-wrapper :deep(.markdown-content) {
-	@apply leading-relaxed;
-	font-size: 13px;
-	/* Prevent layout thrashing during streaming */
+	font-size: 15px;
+	line-height: 1.6;
+	--typewriter-fade-duration: 180ms;
+	--stream-update-fade-duration: 180ms;
+	--typewriter-fade-ease: ease-out;
+	--stream-update-fade-ease: ease-out;
 	contain: content;
-	content-visibility: auto;
 
 	/* Paragraph spacing to match streaming text appearance */
 	p {
-		margin-bottom: 1em;
+		margin-bottom: 12px;
 		unicode-bidi: plaintext;
 	}
 	p:last-child {
@@ -5685,13 +5700,13 @@ onMounted(async () => {
 	}
 
 	:where(h1, h2, h3, h4, h5, h6) {
-		@apply font-bold mb-4 mt-6;
+		@apply font-semibold mb-2 mt-5;
 		unicode-bidi: plaintext;
 	}
 
-	h1 { @apply text-2xl; }
-	h2 { @apply text-xl; }
-	h3 { @apply text-lg; }
+	h1 { font-size: 20px; }
+	h2 { font-size: 18px; }
+	h3 { font-size: 16px; }
 
 	ul, ol { @apply ps-6 mb-4; unicode-bidi: plaintext; }
 	ul { @apply list-disc; }
@@ -5812,13 +5827,36 @@ onMounted(async () => {
 
 
 
+.chat-messages:not(.compact-messages) .user-bubble :deep(.instruction-prose),
+.chat-messages:not(.compact-messages) .user-bubble :deep(.whitespace-pre-wrap) {
+  font-size: 15px;
+  line-height: 1.6;
+}
+.report-composer:not(.compact-composer) :deep(.mention-input-field) {
+  font-size: 15px;
+  line-height: 1.6;
+}
+.chat-messages {
+  scrollbar-gutter: stable;
+}
+@media (max-width: 640px) {
+  .report-composer:not(.compact-composer) :deep(.mention-input-field) { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .markdown-wrapper :deep(.typewriter-enter-active) { transition: none !important; }
+  .markdown-wrapper :deep(.text-node-stream-delta),
+  .thinking-content :deep(.text-node-stream-delta) { animation: none !important; opacity: 1; }
+}
+
 /* Compact mode (Excel add-in) — smaller text throughout */
 .compact-messages .block-content {
 	font-size: 13px;
 }
 .compact-messages .markdown-wrapper :deep(.markdown-content) {
 	font-size: 13px;
+	line-height: 1.625;
 }
+.compact-messages :deep([data-testid="block-group-header"]) { font-size: 12px; }
 .compact-messages .markdown-wrapper :deep(.markdown-content pre code) {
 	font-size: 12px;
 }
@@ -5833,6 +5871,7 @@ onMounted(async () => {
 .compact-messages .thinking-content :deep(.markdown-content),
 .compact-messages .thinking-content :deep(p) {
 	font-size: 11px !important;
+	line-height: 1.4 !important;
 }
 .compact-messages li {
 	font-size: 13px;
