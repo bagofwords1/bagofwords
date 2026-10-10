@@ -710,7 +710,7 @@ class ExternalPlatformService:
         if not isinstance(info, dict) or info.get("type") != "service_account":
             raise HTTPException(
                 status_code=400,
-                detail='service_account_json must be a service-account key (JSON with "type": "service_account")',
+                detail="service_account_json must be a service-account key (JSON whose type field is service_account)",
             )
         return info
 
