@@ -686,7 +686,7 @@ const props = defineProps({
     persistSelection: { type: Boolean, default: true }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:
@@ -1788,6 +1788,9 @@ async function createReport() {
         // second time here and drifted from buildSubmitPayload — that is how the
         // model pick came to be dropped on create while mode was persisted.
         const payload = buildSubmitPayload()
+        // Let the draft page show the prompt right away; creating the report
+        // and opening it takes a few round-trips before the answer streams.
+        emit('reportCreating', { text: payload.text, mentions: payload.mentions, files: payload.files })
         // Project context comes from the route (a project page, or the draft
         // page's ?project=), and the picker overrides it once the user has
         // touched it — including a deliberate "No project", which has to clear
@@ -1831,27 +1834,30 @@ async function createReport() {
             )
         }
         const data = (response as any)?.data?.value as any
-        if (data?.id) {
-            router.push({
-                path: `/reports/${data.id}`,
-                query: {
-                    new_message: payload.text,
-                    mode: payload.mode,
-                    // Map the 'auto' sentinel back to '' (→ null on the report page)
-                    // so the backend router engages; sending the raw 'auto' string
-                    // is not a real model id and 400s the first completion.
-                    model_id: payload.model_id || '',
-                    reasoning_effort: payload.reasoning_effort || '',
-                    mentions: encodeURIComponent(JSON.stringify(payload.mentions)),
-                    // Attached images, so the first user bubble renders its chips
-                    // the way every later turn does. They are already on the
-                    // report (body.files above); this is display only.
-                    ...(payload.files?.length
-                        ? { files: encodeURIComponent(JSON.stringify(payload.files)) }
-                        : {})
-                }
-            })
-        }
+        if (!data?.id) throw new Error(t('prompt.createReportFailed'))
+        // The create response is the same ReportSchema the report page loads,
+        // so hand it over: the page can draw the conversation at once instead
+        // of a "Loading report" spinner while it fetches the row again.
+        useState<any>('bow.createdReport').value = data
+        router.push({
+            path: `/reports/${data.id}`,
+            query: {
+                new_message: payload.text,
+                mode: payload.mode,
+                // Map the 'auto' sentinel back to '' (→ null on the report page)
+                // so the backend router engages; sending the raw 'auto' string
+                // is not a real model id and 400s the first completion.
+                model_id: payload.model_id || '',
+                reasoning_effort: payload.reasoning_effort || '',
+                mentions: encodeURIComponent(JSON.stringify(payload.mentions)),
+                // Attached images, so the first user bubble renders its chips
+                // the way every later turn does. They are already on the
+                // report (body.files above); this is display only.
+                ...(payload.files?.length
+                    ? { files: encodeURIComponent(JSON.stringify(payload.files)) }
+                    : {})
+            }
+        })
         text.value = ''
     } catch (error: any) {
         console.error('Failed to create report:', error)
@@ -1860,6 +1866,7 @@ async function createReport() {
         // not use) just re-arms the send button and shows nothing at all.
         toast.add({ title: error?.message || t('prompt.createReportFailed'), color: 'red' })
         isSubmitting.value = false
+        emit('reportCreateFailed')
     }
 }
 

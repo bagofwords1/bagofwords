@@ -1177,6 +1177,7 @@ const toast = useToast()
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
+const router = useRouter()
 const report_id = (route.params.id as string) || ''
 
 // Excel add-in mode detection (for compact UI)
@@ -1553,6 +1554,14 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+// Row handed over by the draft composer that just created this report
+// (PromptBoxV2's createReport). Lets the page render the first prompt right
+// away; loadReport still fetches the canonical row and replaces it.
+{
+	const created = useState<any>('bow.createdReport')
+	if (created.value?.id && String(created.value.id) === String(route.params.id)) report.value = created.value
+	created.value = null
+}
 provide('reportSnapshot', report)
 // Active-artifact visualization ids, shared with ToolWidgetPreview so
 // "Added to Dashboard" state survives a refresh with the artifact panel
@@ -5512,7 +5521,39 @@ function stopScheduledCompletionsPoll() {
 	}
 }
 
+function sendInitialMessageFromQuery() {
+	const q = route.query
+	let mentions: any[] = []
+	try {
+		const raw = typeof q.mentions === 'string' ? decodeURIComponent(q.mentions) : ''
+		if (raw) mentions = JSON.parse(raw)
+	} catch {}
+	const mode = typeof q.mode === 'string' ? q.mode : 'chat'
+	const model_id = typeof q.model_id === 'string' ? q.model_id : null
+	const reasoning_effort = typeof q.reasoning_effort === 'string' ? q.reasoning_effort : null
+	// Images attached in the composer before this report existed. They are
+	// already on the report row; this only lets the first user bubble show
+	// its chips instead of appearing bare until a reload.
+	let files: any[] = []
+	try {
+		const rawFiles = typeof q.files === 'string' ? decodeURIComponent(q.files) : ''
+		if (rawFiles) files = JSON.parse(rawFiles)
+	} catch {}
+	const text = q.new_message as string
+	const { new_message, mentions: _m, mode: _mo, model_id: _mi, reasoning_effort: _re, files: _f, ...rest } = q
+	router.replace({ query: rest })
+	onSubmitCompletion({ text, mentions, mode, model_id: model_id || undefined, reasoning_effort: reasoning_effort || null, files })
+}
+
 onMounted(async () => {
+	// First prompt of a report just created from a draft (PromptBoxV2's
+	// createReport). Send it before any load: the report is new, so nothing
+	// below is needed first, and waiting on them is pure lag before the
+	// answer starts. loadCompletions sees the live stream and leaves the
+	// optimistic messages alone. The query is stripped so a reload or a
+	// back-navigation can never send it a second time.
+	if (route.query.new_message) sendInitialMessageFromQuery()
+
 	// Load only the metadata needed to choose the initial workspace. Conversation,
 	// and summary data have independent loading paths so one large
 	// payload cannot hold the entire report page behind a full-screen spinner.
@@ -5565,26 +5606,7 @@ onMounted(async () => {
 
 	await slowLoads
 
-	// Handle new_message query parameter after everything is loaded
-	if (route.query.new_message && messages.value.length == 0) {
-		let mentions: any[] = []
-		try {
-			const raw = typeof route.query.mentions === 'string' ? decodeURIComponent(route.query.mentions) : ''
-			if (raw) mentions = JSON.parse(raw)
-		} catch {}
-		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
-		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
-		const reasoning_effort = typeof route.query.reasoning_effort === 'string' ? route.query.reasoning_effort : null
-		// Images attached in the composer before this report existed. They are
-		// already on the report row; this only lets the first user bubble show
-		// its chips instead of appearing bare until a reload.
-		let files: any[] = []
-		try {
-			const rawFiles = typeof route.query.files === 'string' ? decodeURIComponent(route.query.files) : ''
-			if (rawFiles) files = JSON.parse(rawFiles)
-		} catch {}
-		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, reasoning_effort: reasoning_effort || null, files })
-	} else if (route.query.prompt && messages.value.length == 0) {
+	if (route.query.prompt && messages.value.length == 0) {
 		// Pre-fill the prompt box without submitting (e.g. a training session draft).
 		prefillText.value = route.query.prompt as string
 	}
