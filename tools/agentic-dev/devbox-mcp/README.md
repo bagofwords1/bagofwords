@@ -1,6 +1,6 @@
-# devex-mcp
+# devbox-mcp
 
-Developer-experience MCP server. Its tools run interactive flows **inside an Agent
+Bag of Words (bow) devbox MCP server. Its tools run interactive flows **inside an Agent
 Sandbox** by driving `sandboxd`'s gRPC `ProcessService` under a PTY (the Python SDK's
 `commands.run()` is one-shot and cannot answer prompts).
 
@@ -8,29 +8,29 @@ Sandbox** by driving `sandboxd`'s gRPC `ProcessService` under a PTY (the Python 
 
 | Tool | What it does |
 |---|---|
-| `create_sandbox` | Creates a Bag of Words sandbox from a user-chosen name (plus a random 4-char suffix), applies the SandboxClaim, Service and two HTTPRoutes, waits for Ready, and returns `app_url`, `code_server_url`, `claude_logged_in` and `next_steps`. |
-| `list_sandboxes` | Lists sandboxes created this way with readiness, URLs and `claude_logged_in`. The way to recover a `claim_name` in a later conversation. |
-| `sandbox_status` | Readiness of one sandbox and whether Claude Code inside it is signed in, plus `next_steps`. |
-| `delete_sandbox` | Removes everything `create_sandbox` created for a claim name. The pod and its volume go with it. |
-| `claude_login` | Starts `claude auth login` inside an existing sandbox (`claim_name`); returns the sign-in `url` and a `session_id`. |
-| `claude_login_submit_code` | Types the code the browser showed into that session; returns `success`, `exit_code`, `output`. |
-| `claude_login_cancel` | Aborts a pending session. The sandbox keeps running. |
-| `claude_login_pending` | Lists sessions still waiting for a code. |
-| `claude_remote_control_start` | Starts `claude remote-control --name <name>` detached inside a sandbox (needs a prior `claude_login`); returns the claude.ai/code `url`. Offered to the user right after a successful login. |
-| `claude_remote_control_status` | Whether Remote Control is running in a sandbox and its URL. |
-| `claude_remote_control_stop` | Stops the Remote Control daemon in a sandbox. |
+| `devbox_create` | Creates a Bag of Words sandbox from a user-chosen name (plus a random 4-char suffix), applies the SandboxClaim, Service and two HTTPRoutes, waits for Ready, and returns `app_url`, `code_server_url`, `claude_logged_in` and `next_steps`. |
+| `devbox_list` | Lists sandboxes created this way with readiness, URLs and `claude_logged_in`. The way to recover a `claim_name` in a later conversation. |
+| `devbox_status` | Readiness of one sandbox and whether Claude Code inside it is signed in, plus `next_steps`. |
+| `devbox_delete` | Removes everything `devbox_create` created for a claim name. The pod and its volume go with it. |
+| `devbox_claude_login` | Starts `claude auth login` inside an existing sandbox (`claim_name`); returns the sign-in `url` and a `session_id`. |
+| `devbox_claude_login_submit_code` | Types the code the browser showed into that session; returns `success`, `exit_code`, `output`. |
+| `devbox_claude_login_cancel` | Aborts a pending session. The sandbox keeps running. |
+| `devbox_claude_login_pending` | Lists sessions still waiting for a code. |
+| `devbox_remote_control_start` | Starts `claude remote-control --name <name>` detached inside a sandbox (needs a prior `devbox_claude_login`); returns the claude.ai/code `url`. Offered to the user right after a successful login. |
+| `devbox_remote_control_status` | Whether Remote Control is running in a sandbox and its URL. |
+| `devbox_remote_control_stop` | Stops the Remote Control daemon in a sandbox. |
 
 The login is split in two because an MCP tool call cannot block on a human mid-call: the
 host shows the URL to the user, the user signs in and copies the code, then the host calls
 the second tool. Pending sessions expire after 15 minutes.
 
-**How the tools connect.** `create_sandbox` returns a `claim_name`; the host model passes it
-to `claude_login`, `sandbox_status` and `delete_sandbox`. If it is no longer in context,
-`list_sandboxes` recovers it. Every result carries `next_steps` the host should relay, so the
+**How the tools connect.** `devbox_create` returns a `claim_name`; the host model passes it
+to `devbox_claude_login`, `devbox_status` and `devbox_delete`. If it is no longer in context,
+`devbox_list` recovers it. Every result carries `next_steps` the host should relay, so the
 user learns that Claude Code in a fresh sandbox is not signed in and can ask for the login.
 
-**Remote Control.** After `claude_login_submit_code` succeeds its `next_steps` tell the host
-to ask the user whether to start Remote Control. `claude_remote_control_start` then runs
+**Remote Control.** After `devbox_claude_login_submit_code` succeeds its `next_steps` tell the host
+to ask the user whether to start Remote Control. `devbox_remote_control_start` then runs
 `claude remote-control --name <claim>` inside the sandbox under a PTY (`script`), detached with
 `setsid` so it outlives the tool call and the MCP server, logging to
 `/app/workspace/run/remote-control.log`. The tool polls that log until the daemon prints
@@ -45,7 +45,7 @@ login tools.
 
 ## Sandbox creation
 
-`create_sandbox(name)` turns `name` into a unique claim name (`alice` -> `alice-k7x2`)
+`create_devbox(name)` turns `name` into a unique claim name (`alice` -> `alice-k7x2`)
 and applies the same objects as `devex/agent-sandbox/sandbox-claim.yaml`, all keyed by
 that claim name:
 
@@ -57,27 +57,27 @@ that claim name:
 | HTTPRoute | `sandbox-<claim>-code` | `code-server-<claim>.<domain>` -> `<claim>:8080` |
 
 Cluster access uses in-cluster credentials when running as a pod, else the local
-kubeconfig. Defaults come from env: `SANDBOX_NAMESPACE` (default), `SANDBOX_WARMPOOL`
-(bow-warmpool), `SANDBOX_DOMAIN` (sndbx.bagofwords.com), `SANDBOX_GATEWAY_NAME` (eg),
-`SANDBOX_GATEWAY_NAMESPACE` (default), `SANDBOX_GATEWAY_SECTION` (https-wildcard).
+kubeconfig. Defaults come from env: `DEVBOX_NAMESPACE` (default), `DEVBOX_WARMPOOL`
+(bow-warmpool), `DEVBOX_DOMAIN` (sndbx.bagofwords.com), `DEVBOX_GATEWAY_NAME` (eg),
+`DEVBOX_GATEWAY_NAMESPACE` (default), `DEVBOX_GATEWAY_SECTION` (https-wildcard).
 Pass `dry_run=true` to get the manifests without applying them.
 
 ## Run
 
 ```sh
-cd tools/agentic-dev/devex-mcp
+cd tools/agentic-dev/devbox-mcp
 uv sync
 
 # stdio (what MCP hosts spawn)
-uv run devex-mcp
+uv run devbox-mcp
 
 # streamable HTTP, e.g. for a remote host -> http://localhost:3400/mcp
-uv run devex-mcp --transport streamable-http --port 3400
+uv run devbox-mcp --transport streamable-http --port 3400
 
 # behind a public hostname (container / Gateway): bind all interfaces and name
 # the hostnames clients will use, so Host/Origin validation accepts them
-uv run devex-mcp --transport streamable-http --host 0.0.0.0 --port 3400 \
-  --allowed-host mcp.sndbx.bagofwords.com
+uv run devbox-mcp --transport streamable-http --host 0.0.0.0 --port 3400 \
+  --allowed-host devbox.sndbx.bagofwords.com
 # ($MCP_ALLOWED_HOSTS=a,b works too.) Without --allowed-host on a non-loopback
 # bind, Host validation is disabled; put authentication in front in that case.
 ```
@@ -85,18 +85,18 @@ uv run devex-mcp --transport streamable-http --host 0.0.0.0 --port 3400 \
 Register with Claude Code (local, stdio):
 
 ```sh
-claude mcp add devex -- uv run --directory /ABS/PATH/tools/agentic-dev/devex-mcp devex-mcp
+claude mcp add devbox -- uv run --directory /ABS/PATH/tools/agentic-dev/devbox-mcp devbox-mcp
 ```
 
 ## Deploy in the cluster
 
-`Dockerfile` here builds `bagofwords/devex-mcp`. The Kubernetes manifests (ServiceAccount,
+`Dockerfile` here builds `bagofwords/devbox-mcp`. The Kubernetes manifests (ServiceAccount,
 Role, Deployment, Service, HTTPRoute and the Gateway API-key SecurityPolicy) live in the
-devex repo under `devex-mcp/`, with step-by-step instructions in its README. Once deployed,
+devex repo under `devbox-mcp/`, with step-by-step instructions in its README. Once deployed,
 clients register it over HTTP:
 
 ```sh
-claude mcp add --transport http devex https://mcp.sndbx.bagofwords.com/mcp \
+claude mcp add --transport http devbox https://devbox.sndbx.bagofwords.com/mcp \
   --header "X-API-Key: <key>"
 ```
 
@@ -110,7 +110,7 @@ claude mcp add --transport http devex https://mcp.sndbx.bagofwords.com/mcp \
   `SANDBOXD_GRPC_PORT` overrides the sandboxd gRPC port (default 9090).
 - `home` controls where the session is stored (`$HOME/.claude`), `config_dir` sets
   `CLAUDE_CONFIG_DIR` instead.
-- Layout: `devex_mcp/sandbox.py` (PTY process wrapper + target resolution),
-  `devex_mcp/claude_login.py` (two-phase login + session registry),
-  `devex_mcp/sandbox_claim.py` (claim + Service + HTTPRoute builder and apply),
-  `devex_mcp/server.py` (FastMCP tools and CLI).
+- Layout: `devbox_mcp/sandbox.py` (PTY process wrapper + target resolution),
+  `devbox_mcp/claude_login.py` (two-phase login + session registry),
+  `devbox_mcp/devbox.py` (claim + Service + HTTPRoute builder and apply),
+  `devbox_mcp/server.py` (FastMCP tools and CLI).

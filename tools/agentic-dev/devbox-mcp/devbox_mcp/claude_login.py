@@ -11,7 +11,7 @@ block on a person mid-call, so:
 Sessions are kept in memory in this server process; the login process inside the
 sandbox stays alive until the code arrives, the session is cancelled, or it times
 out. The sandbox itself is never created or terminated here: it is the one a
-SandboxClaim (see create_sandbox) already owns, so the credentials persist in it.
+SandboxClaim (see create_devbox) already owns, so the credentials persist in it.
 """
 from __future__ import annotations
 

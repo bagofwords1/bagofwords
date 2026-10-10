@@ -25,7 +25,7 @@ import grpc
 from google.protobuf import empty_pb2
 from k8s_agent_sandbox.commands._process_stubs import process_pb2, process_pb2_grpc
 
-from . import sandbox_claim
+from . import devbox
 
 # CSI (colors, cursor moves) and OSC (hyperlinks, titles) escape sequences Ink emits.
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
@@ -42,19 +42,19 @@ class SandboxTarget:
     """An existing sandbox, identified by the SandboxClaim that owns it."""
 
     claim_name: str
-    namespace: str = sandbox_claim.SandboxEnv().namespace
+    namespace: str = devbox.SandboxEnv().namespace
     grpc_port: int = SANDBOXD_GRPC_PORT
 
     def resolve(self) -> dict:
         """Claim status plus the pod IP of the bound Sandbox. Raises if not Ready."""
-        st = sandbox_claim.claim_status(self.claim_name, self.namespace)
+        st = devbox.claim_status(self.claim_name, self.namespace)
         if not st.get("exists"):
-            raise LookupError(f"no SandboxClaim {self.namespace}/{self.claim_name}; use list_sandboxes")
+            raise LookupError(f"no SandboxClaim {self.namespace}/{self.claim_name}; use list_devboxes")
         if not st.get("ready") or not st.get("sandbox"):
             raise RuntimeError(
                 f"sandbox for claim {self.claim_name!r} is not Ready yet "
                 f"({st.get('reason')}: {st.get('message')}); try again shortly")
-        ip = sandbox_claim.sandbox_pod_ip(st["sandbox"], self.namespace)
+        ip = devbox.sandbox_pod_ip(st["sandbox"], self.namespace)
         if not ip:
             raise RuntimeError(f"Sandbox {st['sandbox']!r} has no pod IP yet")
         return {**st, "pod_ip": ip}

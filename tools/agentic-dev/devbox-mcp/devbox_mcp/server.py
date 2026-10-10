@@ -1,12 +1,12 @@
-"""devex MCP server: developer-experience tools that act inside Agent Sandboxes.
+"""devbox MCP server: developer-experience tools that act inside Agent Sandboxes.
 
 Run over stdio (what `claude mcp add` / Claude Desktop expect)::
 
-    uv run --directory tools/agentic-dev/devex-mcp devex-mcp
+    uv run --directory tools/agentic-dev/devbox-mcp devbox-mcp
 
 or over streamable HTTP for a browser-side or remote client::
 
-    uv run --directory tools/agentic-dev/devex-mcp devex-mcp --transport streamable-http --port 3400
+    uv run --directory tools/agentic-dev/devbox-mcp devbox-mcp --transport streamable-http --port 3400
     # then point the client at http://localhost:3400/mcp
 """
 from __future__ import annotations
@@ -17,14 +17,23 @@ import os
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import claude_login, remote_control, sandbox_claim
+from . import claude_login, devbox, remote_control
 from .sandbox import SandboxTarget
 
-mcp = FastMCP("devex")
+mcp = FastMCP(
+    "devbox",
+    instructions=(
+        "Bag of Words (bow) devbox: personal, remote development environments for Bag of Words "
+        "engineers, each a Kubernetes sandbox running the bagofwords app, code-server and Claude Code. "
+        "Use these tools when the user talks about a devbox, bow devbox or bagofwords devbox: create one, "
+        "list or check them, sign Claude Code in inside one, start Remote Control, or delete one. "
+        "A devbox is identified by its claim_name (e.g. alice-k7x2), returned by devbox_create."
+    ),
+)
 
 
-def _env(namespace: str | None = None, warmpool: str | None = None) -> sandbox_claim.SandboxEnv:
-    return sandbox_claim.SandboxEnv(
+def _env(namespace: str | None = None, warmpool: str | None = None) -> devbox.SandboxEnv:
+    return devbox.SandboxEnv(
         **({"namespace": namespace} if namespace else {}),
         **({"warmpool": warmpool} if warmpool else {}),
     )
@@ -45,20 +54,20 @@ def _login_state(claim_name: str, namespace: str | None, home: str) -> bool | No
 # ---------------------------------------------------------------------------
 # Sandboxes
 # ---------------------------------------------------------------------------
-@mcp.tool(name="create_sandbox")
-def create_sandbox_tool(
+@mcp.tool(name="devbox_create")
+def create_devbox_tool(
     name: str,
     namespace: str | None = None,
     warmpool: str | None = None,
     wait_ready_seconds: int = 90,
     dry_run: bool = False,
 ) -> dict:
-    """Create a new Bag of Words sandbox and expose it through the Gateway.
+    """Create a new Bag of Words (bow) devbox and expose it through the Gateway.
 
-    Ask the user for a short name for the sandbox first if they did not give one.
+    Ask the user for a short name for the devbox first if they did not give one.
     A random 4-character suffix is appended to make the claim name unique, e.g.
     name "alice" -> claim "alice-k7x2". That claim name identifies the sandbox in
-    every other tool (claude_login, sandbox_status, delete_sandbox).
+    every other tool (devbox_claude_login, devbox_status, devbox_delete).
 
     Applies four objects: the SandboxClaim (adopts a warm-pool sandbox), a Service
     selecting the pod by label with ports 3000 and 8080, and two HTTPRoutes:
@@ -67,30 +76,30 @@ def create_sandbox_tool(
         code_server_url  https://code-server-<claim>.<domain>  code-server IDE
 
     Relay `next_steps` to the user verbatim; it says whether the sandbox is ready
-    and whether Claude Code inside it still needs a sign-in (claude_login).
+    and whether Claude Code inside it still needs a sign-in (devbox_claude_login).
 
     Args:
         name: user-chosen name; lower-cased, non-alphanumerics become '-'.
-        namespace: Kubernetes namespace (default $SANDBOX_NAMESPACE or "default").
-        warmpool: SandboxWarmPool to claim from (default $SANDBOX_WARMPOOL or "bow-warmpool").
+        namespace: Kubernetes namespace (default $DEVBOX_NAMESPACE or "default").
+        warmpool: SandboxWarmPool to claim from (default $DEVBOX_WARMPOOL or "bow-warmpool").
         wait_ready_seconds: wait up to this long for the claim to be Ready (0 = return at once).
         dry_run: build and return the manifests without applying them.
     """
     env = _env(namespace, warmpool)
-    result = sandbox_claim.create_sandbox(name, env=env, wait_ready_seconds=wait_ready_seconds, dry_run=dry_run)
+    result = devbox.create_devbox(name, env=env, wait_ready_seconds=wait_ready_seconds, dry_run=dry_run)
     if dry_run:
         return result
     ready = bool(result.get("status", {}).get("ready"))
     logged_in = _login_state(result["claim_name"], env.namespace, "/root") if ready else None
     result["claude_logged_in"] = logged_in
-    hosts = sandbox_claim.hostnames(result["claim_name"], env.domain)
-    result["next_steps"] = sandbox_claim.next_steps(result["claim_name"], hosts, ready, logged_in)
+    hosts = devbox.hostnames(result["claim_name"], env.domain)
+    result["next_steps"] = devbox.next_steps(result["claim_name"], hosts, ready, logged_in)
     return result
 
 
-@mcp.tool(name="list_sandboxes")
-def list_sandboxes_tool(namespace: str | None = None, check_login: bool = True) -> list[dict]:
-    """List sandboxes created by create_sandbox, newest last.
+@mcp.tool(name="devbox_list")
+def list_devboxes_tool(namespace: str | None = None, check_login: bool = True) -> list[dict]:
+    """List sandboxes created by devbox_create, newest last.
 
     Each entry has `claim_name` (the identifier other tools take), `ready`, the
     bound `sandbox` pod name, `app_url`, `code_server_url`, and, when
@@ -99,26 +108,26 @@ def list_sandboxes_tool(namespace: str | None = None, check_login: bool = True) 
     sandbox, or to tell them none exist yet.
     """
     env = _env(namespace)
-    items = sandbox_claim.list_sandboxes(env.namespace, env.domain)
+    items = devbox.list_devboxes(env.namespace, env.domain)
     if check_login:
         for it in items:
             it["claude_logged_in"] = _login_state(it["claim_name"], env.namespace, "/root") if it["ready"] else None
     return items
 
 
-@mcp.tool(name="sandbox_status")
+@mcp.tool(name="devbox_status")
 def sandbox_status_tool(claim_name: str, namespace: str | None = None, home: str = "/root") -> dict:
-    """Readiness of a sandbox and whether Claude Code inside it is signed in.
+    """Readiness of a Bag of Words (bow) devbox and whether Claude Code inside it is signed in.
 
     Returns the claim's Ready condition, the bound sandbox pod, both URLs,
     `claude_logged_in`, and `next_steps` to relay to the user.
     """
     env = _env(namespace)
-    st = sandbox_claim.claim_status(claim_name, env.namespace)
+    st = devbox.claim_status(claim_name, env.namespace)
     if not st.get("exists"):
         return {"claim_name": claim_name, "exists": False,
-                "next_steps": ["No such sandbox. Call list_sandboxes to see existing ones or create_sandbox."]}
-    hosts = sandbox_claim.hostnames(claim_name, env.domain)
+                "next_steps": ["No such sandbox. Call devbox_list to see existing ones or devbox_create."]}
+    hosts = devbox.hostnames(claim_name, env.domain)
     logged_in = None
     login: dict = {}
     if st.get("ready"):
@@ -131,24 +140,24 @@ def sandbox_status_tool(claim_name: str, namespace: str | None = None, home: str
         "claim_name": claim_name, "namespace": env.namespace, **st,
         "app_url": f"https://{hosts['app']}", "code_server_url": f"https://{hosts['code_server']}",
         "claude_logged_in": logged_in, "claude": login,
-        "next_steps": sandbox_claim.next_steps(claim_name, hosts, bool(st.get("ready")), logged_in),
+        "next_steps": devbox.next_steps(claim_name, hosts, bool(st.get("ready")), logged_in),
     }
 
 
-@mcp.tool(name="delete_sandbox")
-def delete_sandbox_tool(claim_name: str, namespace: str | None = None) -> dict:
-    """Delete a sandbox created by `create_sandbox`: its claim, Service and HTTPRoutes.
+@mcp.tool(name="devbox_delete")
+def delete_devbox_tool(claim_name: str, namespace: str | None = None) -> dict:
+    """Delete a Bag of Words (bow) devbox: its claim, Service and HTTPRoutes.
 
     The Sandbox pod and its persistent volume are garbage-collected with the claim,
     so the sandbox's data is lost. Confirm with the user before calling this.
     """
-    return sandbox_claim.delete_sandbox(claim_name, namespace=_env(namespace).namespace)
+    return devbox.delete_devbox(claim_name, namespace=_env(namespace).namespace)
 
 
 # ---------------------------------------------------------------------------
 # Claude Code sign-in inside a sandbox
 # ---------------------------------------------------------------------------
-@mcp.tool(name="claude_login")
+@mcp.tool(name="devbox_claude_login")
 def claude_login_tool(
     claim_name: str,
     namespace: str | None = None,
@@ -157,12 +166,12 @@ def claude_login_tool(
     email: str | None = None,
     console: bool = False,
 ) -> dict:
-    """Start `claude auth login` inside an existing sandbox and return the sign-in URL.
+    """Sign Claude Code in inside a Bag of Words (bow) devbox: start `claude auth login` and return the sign-in URL.
 
-    `claim_name` is the sandbox identifier returned by create_sandbox (or found via
-    list_sandboxes). The sandbox must be Ready. Show the returned `url` to the user
+    `claim_name` is the sandbox identifier returned by devbox_create (or found via
+    devbox_list). The sandbox must be Ready. Show the returned `url` to the user
     and ask them to open it, sign in, and copy the code the page shows. Then call
-    `claude_login_submit_code` with the `session_id` and that code to finish. The
+    `devbox_claude_login_submit_code` with the `session_id` and that code to finish. The
     login process waits inside the sandbox for up to 15 minutes. Credentials are
     stored in the sandbox ($HOME/.claude) and persist with it.
 
@@ -182,13 +191,13 @@ def claude_login_tool(
         "claim_name": claim_name,
         "url": session.url,
         "next_step": "Ask the user to open the URL, sign in, copy the code shown, then call "
-                     "claude_login_submit_code(session_id, code).",
+                     "devbox_claude_login_submit_code(session_id, code).",
     }
 
 
-@mcp.tool(name="claude_login_submit_code")
+@mcp.tool(name="devbox_claude_login_submit_code")
 def claude_login_submit_code_tool(session_id: str, code: str) -> dict:
-    """Finish a `claude_login` session by typing the code from the browser into the sandbox.
+    """Finish a `devbox_claude_login` session by typing the code from the browser into the devbox.
 
     Returns `success`, the process `exit_code`, and the cleaned terminal `output`.
     """
@@ -199,27 +208,27 @@ def claude_login_submit_code_tool(session_id: str, code: str) -> dict:
             "Claude Code in the sandbox is now signed in.",
             f"Ask the user: 'Do you want to start Remote Control for this sandbox, so you can drive it "
             f"from claude.ai/code or the mobile app?' If yes, call "
-            f"claude_remote_control_start(claim_name={claim!r}) and give the user the returned url.",
+            f"devbox_remote_control_start(claim_name={claim!r}) and give the user the returned url.",
         ]
     return result
 
 
-@mcp.tool(name="claude_login_cancel")
+@mcp.tool(name="devbox_claude_login_cancel")
 def claude_login_cancel_tool(session_id: str) -> dict:
-    """Abort a pending `claude_login` session (the sandbox itself is left running)."""
+    """Abort a pending `devbox_claude_login` session (the devbox itself is left running)."""
     return {"cancelled": claude_login.cancel(session_id)}
 
 
-@mcp.tool(name="claude_login_pending")
+@mcp.tool(name="devbox_claude_login_pending")
 def claude_login_pending_tool() -> list[dict]:
-    """List `claude_login` sessions still waiting for a code."""
+    """List `devbox_claude_login` sessions still waiting for a code."""
     return claude_login.pending()
 
 
 # ---------------------------------------------------------------------------
 # Claude Code Remote Control inside a sandbox
 # ---------------------------------------------------------------------------
-@mcp.tool(name="claude_remote_control_start")
+@mcp.tool(name="devbox_remote_control_start")
 def claude_remote_control_start_tool(
     claim_name: str,
     session_name: str | None = None,
@@ -229,16 +238,16 @@ def claude_remote_control_start_tool(
     mode: str = "daemon",
     wait_seconds: int = 60,
 ) -> dict:
-    """Start Claude Code Remote Control inside a sandbox so the user can drive it from
+    """Start Claude Code Remote Control inside a Bag of Words (bow) devbox so the user can drive it from
     claude.ai/code or the Claude mobile app.
 
     Only call this after the user agreed to start Remote Control (offer it right after
-    a successful claude_login). Claude Code in the sandbox must already be signed in.
+    a successful devbox_claude_login). Claude Code in the sandbox must already be signed in.
 
     Runs `claude remote-control --name <session_name>` detached in the sandbox (it
     keeps running after this call) and waits until it reports Ready. Returns
     `state` (ready | starting | failed), the `url` to open on claude.ai, and the last
-    log lines. On `starting`, call claude_remote_control_status a little later.
+    log lines. On `starting`, call devbox_remote_control_status a little later.
 
     Args:
         claim_name: the sandbox's claim name.
@@ -260,31 +269,31 @@ def claude_remote_control_start_tool(
             f"(or the Claude mobile app) to start a session named '{result['session_name']}' in this sandbox."
         ]
     elif result["state"] == "starting":
-        result["next_steps"] = [f"Still starting; call claude_remote_control_status(claim_name={claim_name!r}) in a few seconds."]
+        result["next_steps"] = [f"Still starting; call devbox_remote_control_status(claim_name={claim_name!r}) in a few seconds."]
     else:
         result["next_steps"] = [
-            "Remote Control failed to start. If the log mentions sign-in, run claude_login first. "
+            "Remote Control failed to start. If the log mentions sign-in, run devbox_claude_login first. "
             "Otherwise show the user the log_tail."
         ]
     return result
 
 
-@mcp.tool(name="claude_remote_control_status")
+@mcp.tool(name="devbox_remote_control_status")
 def claude_remote_control_status_tool(claim_name: str, namespace: str | None = None, home: str = "/root") -> dict:
-    """Whether Remote Control is running in a sandbox, and its claude.ai URL if ready."""
+    """Whether Remote Control is running in a Bag of Words (bow) devbox, and its claude.ai URL if ready."""
     return remote_control.status(_target(claim_name, namespace), home=home)
 
 
-@mcp.tool(name="claude_remote_control_stop")
+@mcp.tool(name="devbox_remote_control_stop")
 def claude_remote_control_stop_tool(claim_name: str, namespace: str | None = None, home: str = "/root") -> dict:
-    """Stop the Remote Control daemon in a sandbox. Confirm with the user first."""
+    """Stop the Remote Control daemon in a Bag of Words (bow) devbox. Confirm with the user first."""
     return remote_control.stop(_target(claim_name, namespace), home=home)
 
 
 def _transport_security(bind_host: str, allowed_hosts: list[str]) -> TransportSecuritySettings:
     """DNS-rebinding protection matching how the server is actually reached.
 
-    FastMCP("devex") is built at import time with the default bind host 127.0.0.1,
+    FastMCP("devbox") is built at import time with the default bind host 127.0.0.1,
     which pins the allowlist to localhost. Changing settings.host later does not
     update that allowlist, so a server behind a public hostname would answer every
     request with 421. Rebuild it here from the real bind host and --allowed-host.
@@ -316,7 +325,7 @@ def main() -> None:
     parser.add_argument(
         "--allowed-host", action="append", default=[], metavar="HOST",
         help="public hostname clients use to reach this server (repeatable), e.g. "
-             "mcp.sndbx.bagofwords.com. Enables Host/Origin validation for those names. "
+             "devbox.sndbx.bagofwords.com. Enables Host/Origin validation for those names. "
              "Also read from $MCP_ALLOWED_HOSTS (comma-separated).",
     )
     args = parser.parse_args()

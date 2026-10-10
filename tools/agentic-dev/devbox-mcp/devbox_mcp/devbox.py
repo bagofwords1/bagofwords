@@ -1,7 +1,7 @@
-"""Create a Bag of Words sandbox: a SandboxClaim plus the Service and HTTPRoutes
+"""Create a Bag of Words (bow) devbox: a SandboxClaim plus the Service and HTTPRoutes
 that expose it through the Envoy Gateway.
 
-Mirrors devex/agent-sandbox/sandbox-claim.yaml. The claim name is the user's
+Mirrors devex/agent-sandbox/sandbox-claim.yaml (a devbox is a SandboxClaim plus its routes). The claim name is the user's
 name plus a random 4-character suffix so repeated requests never collide. That
 claim name is used everywhere: the claim itself, the label the claim stamps on
 the adopted pod, the Service that selects by that label, and the two
@@ -28,7 +28,7 @@ LABEL_KEY = "sandbox.users.io/claim"
 CLAIM_GROUP, CLAIM_VERSION, CLAIM_PLURAL = "extensions.agents.x-k8s.io", "v1beta1", "sandboxclaims"
 SANDBOX_GROUP, SANDBOX_VERSION, SANDBOX_PLURAL = "agents.x-k8s.io", "v1beta1", "sandboxes"
 ROUTE_GROUP, ROUTE_VERSION, ROUTE_PLURAL = "gateway.networking.k8s.io", "v1", "httproutes"
-FIELD_MANAGER = "devex-mcp"
+FIELD_MANAGER = "devbox-mcp"
 
 APP_PORT = 3000
 CODE_SERVER_PORT = 8080
@@ -44,12 +44,12 @@ NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 class SandboxEnv:
     """Cluster-side defaults; each resolvable from the environment."""
 
-    namespace: str = os.environ.get("SANDBOX_NAMESPACE", "default")
-    warmpool: str = os.environ.get("SANDBOX_WARMPOOL", "bow-warmpool")
-    domain: str = os.environ.get("SANDBOX_DOMAIN", "sndbx.bagofwords.com")
-    gateway_name: str = os.environ.get("SANDBOX_GATEWAY_NAME", "eg")
-    gateway_namespace: str = os.environ.get("SANDBOX_GATEWAY_NAMESPACE", "default")
-    gateway_section: str = os.environ.get("SANDBOX_GATEWAY_SECTION", "https-wildcard")
+    namespace: str = os.environ.get("DEVBOX_NAMESPACE", "default")
+    warmpool: str = os.environ.get("DEVBOX_WARMPOOL", "bow-warmpool")
+    domain: str = os.environ.get("DEVBOX_DOMAIN", "sndbx.bagofwords.com")
+    gateway_name: str = os.environ.get("DEVBOX_GATEWAY_NAME", "eg")
+    gateway_namespace: str = os.environ.get("DEVBOX_GATEWAY_NAMESPACE", "default")
+    gateway_section: str = os.environ.get("DEVBOX_GATEWAY_SECTION", "https-wildcard")
 
 
 def normalize_name(name: str) -> str:
@@ -82,7 +82,7 @@ def _route(claim: str, kind: str, host: str, port: int, env: SandboxEnv) -> dict
         "apiVersion": f"{ROUTE_GROUP}/{ROUTE_VERSION}",
         "kind": "HTTPRoute",
         "metadata": {
-            "name": f"sandbox-{claim}-{kind}",
+            "name": f"devbox-{claim}-{kind}",
             "namespace": env.namespace,
             "labels": {LABEL_KEY: claim},
         },
@@ -233,8 +233,8 @@ def _describe(obj: dict, domain: str) -> dict:
     }
 
 
-def list_sandboxes(namespace: str | None = None, domain: str | None = None) -> list[dict]:
-    """Every sandbox created by create_sandbox (claims carrying the claim label)."""
+def list_devboxes(namespace: str | None = None, domain: str | None = None) -> list[dict]:
+    """Every sandbox created by create_devbox (claims carrying the claim label)."""
     _load_config()
     env = SandboxEnv()
     ns, dom = namespace or env.namespace, domain or env.domain
@@ -249,18 +249,18 @@ def next_steps(claim: str, hosts: dict[str, str], ready: bool, claude_logged_in:
         f"code-server IDE: https://{hosts['code_server']}",
     ]
     if not ready:
-        steps.insert(0, "The sandbox is still starting; the URLs answer once it is Ready "
+        steps.insert(0, "The devbox is still starting; the URLs answer once it is Ready "
                         "(seconds from a warm pool, a few minutes on a cold start).")
     if claude_logged_in is False:
-        steps.append(f"Claude Code inside this sandbox is NOT signed in. Offer to run "
-                     f"claude_login(claim_name={claim!r}); it returns a sign-in link for the user.")
+        steps.append(f"Claude Code inside this devbox is NOT signed in. Offer to run "
+                     f"devbox_claude_login(claim_name={claim!r}); it returns a sign-in link for the user.")
     elif claude_logged_in is None:
-        steps.append(f"Once Ready, check Claude Code sign-in with sandbox_status(claim_name={claim!r}) "
-                     f"and offer claude_login if it is not signed in.")
+        steps.append(f"Once Ready, check Claude Code sign-in with devbox_status(claim_name={claim!r}) "
+                     f"and offer devbox_claude_login if it is not signed in.")
     return steps
 
 
-def create_sandbox(name: str, *, env: SandboxEnv | None = None,
+def create_devbox(name: str, *, env: SandboxEnv | None = None,
                    wait_ready_seconds: int = 0, dry_run: bool = False) -> dict:
     """Build, (optionally) apply, and describe a new sandbox for `name`."""
     env = env or SandboxEnv()
@@ -295,14 +295,14 @@ def create_sandbox(name: str, *, env: SandboxEnv | None = None,
     return result
 
 
-def delete_sandbox(claim: str, *, namespace: str | None = None) -> dict:
-    """Remove the claim, Service and HTTPRoutes created by create_sandbox."""
+def delete_devbox(claim: str, *, namespace: str | None = None) -> dict:
+    """Remove the claim, Service and HTTPRoutes created by create_devbox."""
     _load_config()
     ns = namespace or SandboxEnv().namespace
     deleted: dict[str, str] = {}
     co, core = client.CustomObjectsApi(), client.CoreV1Api()
     for kind in ("app", "code"):
-        rname = f"sandbox-{claim}-{kind}"
+        rname = f"devbox-{claim}-{kind}"
         try:
             co.delete_namespaced_custom_object(ROUTE_GROUP, ROUTE_VERSION, ns, ROUTE_PLURAL, rname)
             deleted[f"HTTPRoute/{rname}"] = "deleted"
