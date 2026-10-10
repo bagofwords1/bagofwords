@@ -2,7 +2,7 @@
 	<button
 		type="button"
 		:aria-expanded="expanded"
-		class="w-full text-start focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 flex items-center gap-1 py-1 text-[13px] text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
+		class="w-full text-start focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
 		data-testid="block-group-header"
 		@click="$emit('toggle')"
 	>

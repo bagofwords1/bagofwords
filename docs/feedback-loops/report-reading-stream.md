@@ -1,6 +1,6 @@
 # Feedback Loop — report reading proportions and streaming jumps
 
-The report conversation uses a wider reading column, larger body text, restrained headings, and a short opacity fade for appended text. Stream following must also respond to child layout growth while leaving a reader who scrolls upward in control.
+The report conversation uses a short opacity fade for appended text. Stream following must also respond to child layout growth while leaving a reader who scrolls upward in control.
 
 ## Root cause and observed baseline
 
@@ -33,19 +33,16 @@ The same transcript is captured at 1440 × 960 for light, dark, and Hebrew, with
 
 ## Changes and observed pass
 
-- Conversation and composer outer maximum: **672 → 768 px**.
-- Prose: **13 → 15 px**, with **24 px** line height.
-- Top-level heading: **24 → 20 px**; secondary headings: 18/16 px.
+- Typography and proportions (column width, text and heading sizes, split-pane widths) are unchanged; an earlier revision of this PR changed them and was reverted.
 - Appended text and node entrance opacity fade: **900 → 180 ms**.
 - Scroll requests share one pending animation frame after the render commit. Content and viewport resize observation handles deferred layout growth. An upward wheel gesture that reaches the conversation releases following immediately and cancels a queued forced scroll; one consumed by a nested scroller (it can still scroll up, or blocks chaining with `overscroll-behavior`) leaves following on. The position-based scroll handler remains the fallback for other inputs. `node tests/reports/wheel-ownership.mjs` checks nested scrolling, a nested top boundary with and without containment, and upward scrolling directly over the conversation.
-- Composer padding follows the same outer column; automatic split opening retains a 480 px chat minimum while manual resizing still permits a narrower pane.
-- Reasoning and activity text are 13 px; compact typography and reduced-motion behavior are retained.
+- Reduced-motion users get appended text without the fade.
 
 Final browser output: **late bottom gap 0 px**, detached position **14 → 14 px**, mobile overflow **false**, reduced-motion animation **none** and opacity **1**, compact font **13 px**, Hebrew direction **rtl**, browser errors **0**. The existing six kickoff-stream regression checks also passed.
 
-`yarn build` completed successfully. A separate production smoke supplied completed transcript data through the completions API boundary, confirming 15 px prose, 24 px line height, the minified equivalent `.18s` fade, a 0 px late bottom gap, a detached position of 180 → 180 px, and zero browser errors. Those measurements are saved in `production.json`; the settled dark-mode capture is `production-dark.png`. Detailed token playback uses development component inspection and is intentionally run against the dev server.
+`yarn build` completed successfully. A separate production smoke supplied completed transcript data through the completions API boundary, confirming (before the typography revert) the minified equivalent `.18s` fade, a 0 px late bottom gap, a detached position of 180 → 180 px, and zero browser errors. Those measurements are saved in `production.json`; the settled dark-mode capture is `production-dark.png`. Detailed token playback uses development component inspection and is intentionally run against the dev server.
 
-Implementation entry points: `frontend/pages/reports/[id]/index.vue:99` (column), `:3061` (scroll coordinator), `:3107` (resize observation), and `:5683` (prose and fade styling). Activity presentation lives in `frontend/components/BlockGroupTicker.vue`.
+Implementation entry points: `:3061` (scroll coordinator), `:3107` (resize observation), and the `.markdown-content` styles (fade timing). Activity presentation lives in `frontend/components/BlockGroupTicker.vue`.
 
 ## Evidence
 

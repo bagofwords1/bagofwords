@@ -125,7 +125,7 @@ try {
       if (phase === 'after') {
         assert(lateGap <= 4, `late layout follows: gap ${lateGap}`);
         assert(Math.abs(preservedTop - detachedTop) <= 2, 'reader remains detached');
-        assert.equal(dimensions.font, '15px'); assert.equal(dimensions.column, 768);
+        assert.equal(dimensions.font, '13px'); assert.equal(dimensions.column, 672);
         assert.equal(parseFloat(animation.duration) * (animation.duration.endsWith('ms') ? 1 : 1000), 180);
       }
       await page.evaluate(() => { document.querySelector('#reading-late').remove(); window.__reportReading.jumpToLatest(); });
@@ -153,7 +153,7 @@ try {
       if (phase === 'after') assert.equal(compactFont, '13px');
       results.at(-1).compactFont = compactFont;
     } else {
-      if (phase === 'after') { assert.equal(dimensions.dir, 'rtl'); assert.equal(dimensions.font, '15px'); }
+      if (phase === 'after') { assert.equal(dimensions.dir, 'rtl'); assert.equal(dimensions.font, '13px'); }
       results.push({ locale, dimensions, errors });
     }
     writeFileSync(`${out}/${phase}.json`, JSON.stringify(results, null, 2));
