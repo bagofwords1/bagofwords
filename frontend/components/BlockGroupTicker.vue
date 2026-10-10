@@ -128,4 +128,10 @@ onBeforeUnmount(() => {
 	background-clip: text;
 	color: transparent;
 }
+
+@media (prefers-reduced-motion: reduce) {
+	.ticker-enter-active,
+	.ticker-leave-active { transition: none; }
+	.ticker-shimmer { animation: none; background: none; color: inherit; }
+}
 </style>

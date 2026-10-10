@@ -2862,6 +2862,19 @@ class AgentV2:
             return False
         return bool(getattr(cfg, "value", False))
 
+    def _is_trivial_turn(self, used_tools: bool) -> bool:
+        """A greeting / thanks / one-word turn that ran no tools has nothing to
+        follow up on; asking the small model anyway makes it invent chips
+        (echoing the assistant's own reply, or topics never discussed)."""
+        if used_tools:
+            return False
+        return len(self._follow_ups_user_message().split()) <= 3
+
+    def _follow_ups_user_message(self) -> str:
+        prompt = getattr(self.head_completion, "prompt", None)
+        content = prompt.get("content") if isinstance(prompt, dict) else None
+        return content if isinstance(content, str) else ""
+
     async def _generate_and_emit_follow_ups(self):
         """Generate follow-up questions on the small model, persist them on the
         system completion, and emit a `completion.follow_ups` SSE event so the UI
@@ -2914,6 +2927,7 @@ class AgentV2:
             mode=mode,
             schemas_context=schemas_context,
             instructions_context=instructions_context,
+            user_message=self._follow_ups_user_message(),
         )
         if not questions:
             return
@@ -7113,7 +7127,12 @@ class AgentV2:
             # Skip when the turn ended on an error — suggesting follow-ups under
             # an error message reads as if the turn succeeded.
             try:
-                if not completion_errored and self._follow_ups_enabled() and self.system_completion:
+                if (
+                    not completion_errored
+                    and self._follow_ups_enabled()
+                    and self.system_completion
+                    and not self._is_trivial_turn(bool(successful_tool_actions))
+                ):
                     await self._generate_and_emit_follow_ups()
             except Exception as e:
                 import logging

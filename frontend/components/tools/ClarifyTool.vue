@@ -16,17 +16,19 @@
         <p v-if="isMulti(q)" class="text-xs text-gray-400 dark:text-gray-500" dir="auto">{{ $t('tools.clarify.multiHint') }}</p>
 
         <!-- Lettered options -->
-        <div v-if="q.options?.length" class="space-y-1">
+        <div v-if="q.options?.length" class="space-y-1" :role="isMulti(q) ? 'group' : 'radiogroup'" :aria-label="q.text">
           <button
-            v-for="(opt, j) in q.options"
-            :key="opt"
+            v-for="(opt, j) in choicesOf(q)"
+            :key="j"
             type="button"
+            :role="isMulti(q) ? 'checkbox' : 'radio'"
+            :aria-checked="isSelected(i, opt)"
             :disabled="isLocked"
             @click="!isLocked && selectOption(i, opt)"
             :class="[
               'flex items-center gap-2.5 w-full text-start px-3 py-2 rounded-lg border transition-all duration-100',
               isSelected(i, opt)
-                ? 'border-sky-200 bg-sky-50'
+                ? 'border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40'
                 : isLocked
                   ? 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 opacity-40 cursor-default'
                   : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer',
@@ -45,30 +47,31 @@
               dir="auto"
               :class="[
                 'text-sm transition-colors duration-100',
-                isSelected(i, opt) ? 'text-sky-700 font-medium' : 'text-gray-600 dark:text-gray-400',
+                isSelected(i, opt) ? 'text-sky-700 dark:text-sky-300 font-medium' : 'text-gray-600 dark:text-gray-400',
               ]"
             >
-              {{ opt }}
+              {{ optionLabel(opt) }}
             </span>
           </button>
 
-          <!-- "Other…" free-text expander -->
+          <!-- "Other" free-text expander -->
           <Transition name="expand">
             <div
               v-if="isOtherSelected(i) && !isLocked"
-              class="px-3 py-2 rounded-lg border border-sky-200 bg-sky-50"
+              class="px-3 py-2 rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40"
             >
               <input
-                ref="otherInputRefs"
+                :ref="(el) => { otherInputEls[i] = el as HTMLInputElement | null }"
                 v-model="otherTexts[i]"
                 type="text"
                 dir="auto"
-                placeholder="Describe…"
-                class="w-full text-sm bg-transparent outline-none placeholder-sky-300 text-sky-700"
+                :placeholder="$t('tools.clarify.otherPlaceholder')"
+                class="w-full text-sm bg-transparent outline-none placeholder-sky-300 text-sky-700 dark:text-sky-300"
                 @keydown.enter.prevent="allAnswered && submit()"
               />
             </div>
           </Transition>
+          <p v-if="isOtherSelected(i) && isLocked && otherTexts[i]" class="text-sm text-gray-700 dark:text-gray-300 px-3" dir="auto">{{ otherTexts[i] }}</p>
         </div>
 
         <!-- Free-form question -->
@@ -88,33 +91,45 @@
         <p v-else class="text-sm text-gray-700 dark:text-gray-300 px-1" dir="auto">{{ freeTexts[i] || '—' }}</p>
       </div>
 
-      <!-- Submit -->
-      <button
-        v-if="!isLocked"
-        type="button"
-        :disabled="!allAnswered"
-        @click="submit"
-        :class="[
-          'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100',
-          allAnswered
-            ? 'bg-sky-500 text-white hover:bg-sky-600 cursor-pointer'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed',
-        ]"
-      >
-        {{ $t('tools.clarify.submit') }}
-      </button>
+      <!-- Submit / skip -->
+      <div v-if="!isLocked" class="flex items-center gap-3">
+        <button
+          type="button"
+          :disabled="!allAnswered || saving"
+          @click="submit"
+          :class="[
+            'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100',
+            allAnswered && !saving
+              ? 'bg-sky-500 text-white hover:bg-sky-600 cursor-pointer'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed',
+          ]"
+        >
+          {{ $t('tools.clarify.submit') }}
+        </button>
+        <button
+          type="button"
+          :disabled="saving"
+          class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+          @click="skip"
+        >
+          {{ $t('tools.clarify.skip') }}
+        </button>
+        <span v-if="saveError" class="text-xs text-red-500" role="alert">{{ $t('tools.clarify.saveFailed') }}</span>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
 
 interface ClarifyQuestion {
   text: string
   options?: string[]
   multi_select?: boolean
+  allow_other?: boolean
 }
 
 // A chip entry is a single option (single-pick question) or a list of options
@@ -157,6 +172,12 @@ const props = withDefaults(
   { alreadyAnswered: false, systemCompletionId: null, readonly: false }
 )
 
+const { t } = useI18n()
+
+// The "Other" choice the UI adds itself when a question sets allow_other.
+// Stored under this sentinel so it can never collide with a real option.
+const OTHER = '__other__'
+
 const storageKey = computed(() => `clarify:${props.toolExecution.id}`)
 const status = computed(() => props.toolExecution.status)
 
@@ -178,7 +199,9 @@ const selectedChips = ref<ChipEntry[]>([])
 const otherTexts = ref<string[]>([])
 const freeTexts = ref<string[]>([])
 const submitted = ref(false)
-const otherInputRefs = ref<HTMLInputElement[]>([])
+const saving = ref(false)
+const saveError = ref(false)
+const otherInputEls: (HTMLInputElement | null)[] = []
 
 const isLocked = computed(() =>
   submitted.value || hasPersistedResponse.value || props.alreadyAnswered || props.readonly
@@ -188,8 +211,23 @@ function isMulti(q: ClarifyQuestion | undefined) {
   return Boolean(q?.multi_select && q?.options?.length)
 }
 
+// Options as rendered: deduplicated (selection is keyed by value, so a repeated
+// option would toggle together), plus the UI's own "Other" when allow_other.
+function choicesOf(q: ClarifyQuestion): string[] {
+  const opts = [...new Set((q.options ?? []).filter((o) => typeof o === 'string' && o.trim()))]
+  return q.allow_other ? [...opts, OTHER] : opts
+}
+
+// Older clarify calls (before allow_other) put an "Other…" entry in options.
+// Only a bare "Other" word counts — "Other genres" is a real option.
+const LEGACY_OTHER = /^(other|others|something else|אחר|אחרת|otro|otra|otros)\s*(…|\.\.\.|:)?$/i
+
 function isOtherOption(opt: string) {
-  return /^other/i.test(opt.trim())
+  return opt === OTHER || LEGACY_OTHER.test(opt.trim())
+}
+
+function optionLabel(opt: string) {
+  return opt === OTHER ? t('tools.clarify.other') : opt
 }
 
 function chipsOf(i: number): string[] {
@@ -206,6 +244,7 @@ function isOtherSelected(i: number) {
   return chipsOf(i).some(isOtherOption)
 }
 
+// The answer for question i as text for the agent, or '' while incomplete.
 function effectiveAnswer(i: number): string {
   const q = questions.value[i]
   if (!q) return ''
@@ -214,10 +253,11 @@ function effectiveAnswer(i: number): string {
     const parts = picks.filter((o) => !isOtherOption(o))
     if (picks.some(isOtherOption)) {
       const other = otherTexts.value[i]?.trim() ?? ''
-      if (!other) return '' // "Other…" picked but not described yet
+      if (!other) return '' // "Other" picked but not described yet
       parts.push(other)
     }
-    return parts.join(', ')
+    // One pick per line: options may themselves contain commas.
+    return parts.length > 1 ? parts.map((p) => `\n- ${p}`).join('') : (parts[0] ?? '')
   }
   return freeTexts.value[i]?.trim() ?? ''
 }
@@ -226,16 +266,6 @@ const allAnswered = computed(() =>
   questions.value.length > 0 &&
   questions.value.every((_, i) => effectiveAnswer(i) !== '')
 )
-
-// Auto-submit when all questions are single-pick chips (no free-form or
-// multi-select pending — for multi-select we can't know when the user is done).
-const allChipBased = computed(() =>
-  questions.value.every((q, i) => (q.options?.length ?? 0) > 0 && !isMulti(q) && !isOtherSelected(i))
-)
-
-watch(allAnswered, (val) => {
-  if (val && allChipBased.value && !isLocked.value) submit()
-})
 
 function initArrays(qs: ClarifyQuestion[]) {
   selectedChips.value = qs.map((q) => (isMulti(q) ? [] : ''))
@@ -261,6 +291,16 @@ function applyPersistedResponse(r: ClarifyResponse) {
   freeTexts.value = padTexts(r.free_texts)
 }
 
+function saveDraft() {
+  if (props.readonly) return
+  try {
+    sessionStorage.setItem(
+      storageKey.value,
+      JSON.stringify({ submitted: submitted.value, selectedChips: selectedChips.value, otherTexts: otherTexts.value, freeTexts: freeTexts.value })
+    )
+  } catch { /* storage unavailable */ }
+}
+
 onMounted(() => {
   initArrays(questions.value)
   // Prefer backend-persisted response (survives reload + cross-device)
@@ -268,31 +308,37 @@ onMounted(() => {
     applyPersistedResponse(persistedResponse.value)
     return
   }
-  // Fall back to sessionStorage for in-flight, unsaved selections. Never in a
+  // Fall back to sessionStorage for in-flight selections — the report page
+  // remounts this component when the turn finishes streaming, so without the
+  // draft every pick made in the meantime would be wiped. Never in a
   // transcript: the key is the tool-execution id, so an owner reading their own
   // shared conversation would see their unsent draft from the report tab
   // presented as the answer of record.
   if (props.readonly) return
-  const saved = sessionStorage.getItem(storageKey.value)
-  if (saved) {
-    try {
+  try {
+    const saved = sessionStorage.getItem(storageKey.value)
+    if (saved) {
       const parsed = JSON.parse(saved)
       submitted.value = parsed.submitted ?? false
-      if (parsed.selectedChips) selectedChips.value = parsed.selectedChips
-      if (parsed.otherTexts) otherTexts.value = parsed.otherTexts
-      if (parsed.freeTexts) freeTexts.value = parsed.freeTexts
-    } catch { /* ignore */ }
-  }
+      if (parsed.selectedChips?.length === questions.value.length) selectedChips.value = parsed.selectedChips
+      if (parsed.otherTexts?.length === questions.value.length) otherTexts.value = parsed.otherTexts
+      if (parsed.freeTexts?.length === questions.value.length) freeTexts.value = parsed.freeTexts
+    }
+  } catch { /* ignore */ }
 })
 
 watch(questions, (qs) => {
-  if (qs.length && selectedChips.value.length === 0) initArrays(qs)
+  if (qs.length && selectedChips.value.length !== qs.length) initArrays(qs)
 }, { immediate: false })
 
 // If clarify_response_json arrives via SSE after mount, rehydrate the form.
 watch(persistedResponse, (r) => {
   if (r && hasPersistedResponse.value) applyPersistedResponse(r)
 })
+
+watch([selectedChips, otherTexts, freeTexts], () => {
+  if (!isLocked.value) saveDraft()
+}, { deep: true })
 
 function selectOption(index: number, option: string) {
   const q = questions.value[index]
@@ -305,7 +351,7 @@ function selectOption(index: number, option: string) {
     selectedChips.value[index] = selectedChips.value[index] === option ? '' : option
   }
   if (isOtherOption(option) && isOtherSelected(index)) {
-    nextTick(() => otherInputRefs.value[0]?.focus())
+    nextTick(() => otherInputEls[index]?.focus())
   }
 }
 
@@ -315,8 +361,10 @@ function assemblePrompt(): string {
     .join('\n\n')
 }
 
-async function persistResponseToBackend() {
-  if (!props.systemCompletionId) return
+// Resolves true when the answer is stored (or there is nowhere to store it).
+// 409 means another tab already answered: treat it as stored.
+async function persistResponseToBackend(): Promise<boolean> {
+  if (!props.systemCompletionId) return true
   const res = await useMyFetch(
     `/completions/${props.systemCompletionId}/tool_executions/${props.toolExecution.id}/clarify_response`,
     {
@@ -328,23 +376,40 @@ async function persistResponseToBackend() {
       },
     }
   )
-  if (res?.error?.value) {
-    // Non-blocking: sessionStorage still holds the answer for this tab.
-    console.warn('Failed to persist clarify response', res.error.value)
+  const err: any = res?.error?.value
+  if (err && err.statusCode !== 409) {
+    console.warn('Failed to persist clarify response', err)
+    return false
   }
+  return true
+}
+
+async function send(text: string) {
+  // Belt and braces: isLocked already hides every path here, but a transcript
+  // must never POST an answer or prefill a prompt box it doesn't have.
+  if (props.readonly || isLocked.value || saving.value) return
+  saving.value = true
+  saveError.value = false
+  // Store the answer before the agent sees it, so the form never shows
+  // unanswered (or a different answer) after the conversation has moved on.
+  const ok = await persistResponseToBackend()
+  saving.value = false
+  if (!ok) {
+    saveError.value = true
+    return
+  }
+  submitted.value = true
+  saveDraft()
+  window.dispatchEvent(new CustomEvent('prompt:prefill', { detail: { text, autoSubmit: true } }))
 }
 
 function submit() {
-  // Belt and braces: isLocked already hides every path here, but a transcript
-  // must never POST an answer or prefill a prompt box it doesn't have.
-  if (props.readonly || !allAnswered.value) return
-  submitted.value = true
-  sessionStorage.setItem(
-    storageKey.value,
-    JSON.stringify({ submitted: true, selectedChips: [...selectedChips.value], otherTexts: [...otherTexts.value], freeTexts: [...freeTexts.value] })
-  )
-  persistResponseToBackend()
-  window.dispatchEvent(new CustomEvent('prompt:prefill', { detail: { text: assemblePrompt(), autoSubmit: true } }))
+  if (!allAnswered.value) return
+  send(assemblePrompt())
+}
+
+function skip() {
+  send(t('tools.clarify.skipPrompt'))
 }
 </script>
 

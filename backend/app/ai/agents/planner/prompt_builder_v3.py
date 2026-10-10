@@ -224,7 +224,7 @@ class PromptBuilderV3:
                 "to silent tool calls — reply with ONE warm sentence explaining the plan, call "
                 "get_connection, then ask through the clarify tool with clickable options built "
                 "from the catalog: each schema/prefix group WITH its count (e.g. 'finance "
-                "(900 tables)'), plus 'Everything' and 'Other…'; include a free-text name "
+                "(900 tables)'), plus 'Everything', with allow_other=true; include a free-text name "
                 "question in the same clarify call if no name was given. Map the answer back: "
                 "schema chip → schemas=['finance']; prefix chip → tables=['finance_*']; "
                 "tool-prefix chip → tools=['get_*']; use_defaults=true only for an explicit "
@@ -241,7 +241,7 @@ class PromptBuilderV3:
                 "get_connection(...) then create_agent(name='...', connection_ids=[...], schemas=['sales'])\n"
                 "- \"create an agent on <connection>\" (no coverage) → one plan sentence + "
                 "get_connection(...), then clarify(questions=[{text:'Which areas should it "
-                "cover?', options:['finance (900 tables)','sales (1,200 tables)','Everything','Other…']}, "
+                "cover?', options:['finance (900 tables)','sales (1,200 tables)','Everything'], allow_other:true}, "
                 "{text:'What should we name it?'}]), then create_agent with the mapped choice\n"
             )
 

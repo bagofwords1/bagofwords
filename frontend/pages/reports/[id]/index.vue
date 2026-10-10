@@ -95,8 +95,8 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll">
-			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
+			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
@@ -119,7 +119,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in visibleMessages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+					<li v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm" :class="{ 'turn-enter': m.id === pinnedId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -569,7 +569,8 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+									<RevealTransition :show="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && !!((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)">
+									<div class="mt-3">
 										<InstructionSuggestions
 											:tool-execution="{
 												id: `suggestions-${m.id}`,
@@ -579,13 +580,15 @@
 											}"
 										/>
 									</div>
+									</RevealTransition>
 									<!-- Follow-up suggestions (below thumbs, latest message only) -->
-									<FollowUpSuggestions
-										v-if="isFollowUpsEnabled && m.id === lastMessageId && ((m as any).follow_ups?.length)"
-										:suggestions="(m as any).follow_ups"
-										:disabled="isStreaming || isCompletionInProgress"
-										@select="handleFollowUpClick"
-									/>
+									<RevealTransition :show="isFollowUpsEnabled && m.id === lastMessageId && !!((m as any).follow_ups?.length)">
+										<FollowUpSuggestions
+											:suggestions="(m as any).follow_ups"
+											:disabled="isStreaming || isCompletionInProgress"
+											@select="handleFollowUpClick"
+										/>
+									</RevealTransition>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
@@ -1064,6 +1067,7 @@ import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
+import RevealTransition from '~/components/report/RevealTransition.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
@@ -1168,6 +1172,9 @@ interface ChatMessage {
 	completion?: any
 	// For steering messages: the system completion they were injected into
 	parent_id?: string | null
+	// Stable v-for key carried over from an optimistic placeholder (user-<ts> /
+	// system-<ts>) so the canonical reload doesn't remount the whole turn.
+	_render_key?: string
 	// true once the agent acked pickup (completion.steering.applied SSE)
 	steering_applied?: boolean
 }
@@ -1299,6 +1306,10 @@ const touchViewed = () => {
 	_viewedTimer = setTimeout(() => { markViewed(String(report_id)) }, 1500)
 }
 watch(hasInProgressCompletion, (now, was) => { if (was && !now) touchViewed() })
+// The answer is done: stop holding the turn. Keyed on the run's own status,
+// not isStreaming: a run can arrive over the watch/poll paths (isStreaming
+// stays false), and sending aborts the previous run's still-open stream tail.
+watch(hasInProgressCompletion, (now, was) => { if (was && !now) endPinHold() })
 // True once the in-progress completion has produced any visible output
 // (reasoning/content/tool call). Drives the prompt box indicator's label
 // switch from "Thinking" (waiting for the first token) to "Working".
@@ -1510,11 +1521,14 @@ const visibleMessages = computed(() => {
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
+const transcriptContent = ref<HTMLElement | null>(null)
 // === Sticky-bottom follow mode ===
 // The timeline follows new content only while the reader is at the bottom.
-// `isFollowing` is derived from scroll POSITION alone (see onScroll): it flips
-// off the moment the user scrolls away and back on when they return, or when
-// they press the "jump to latest" pill. It deliberately does not depend on
+// `isFollowing` is driven by the reader's scrolling: an upward wheel gesture
+// that reaches the conversation releases it immediately (onFollowWheel — not
+// one consumed by a nested scroller), and scroll POSITION (onScroll) covers
+// every other input: it flips off when the user scrolls away and back on when
+// they return, or when they press the "jump to latest" pill. It deliberately does not depend on
 // isStreaming — a run resumed after a refresh, started from another tab, a
 // schedule or a webhook is streamed through the watch/poll paths with
 // isStreaming=false, and those used to scroll unconditionally on every
@@ -1537,13 +1551,45 @@ const FOLLOW_ZONE_PX = 48
 // (e.g. Windows at 125%) and classic scrollbars produce, so a 1–2px wobble in a
 // child's height can't make the auto-scroll re-pin and bounce the viewport.
 const AT_BOTTOM_EPS = 4
-// Debounced scroll scheduling during streaming
-const pendingScroll = ref<boolean>(false)
+// One frame owns all stream and layout follow requests.
 let scrollRAF: number | null = null
+let forceNextScroll = false
+let transcriptResizeObserver: ResizeObserver | null = null
 // The pill is shown whenever the reader has scrolled away from the bottom
 // (ChatGPT behaviour); it is the only way, besides scrolling back down, to
 // re-engage following.
-const showJumpToLatest = computed(() => isFollowing.value === false)
+// === Sent turn pinned to the top ===
+// Sending scrolls the new prompt to the top of the view (eased) and the answer
+// streams in below it without the view chasing the bottom, so a long answer is
+// read from its start. A min-height on the transcript supplies the room the
+// prompt needs to reach the top before the answer exists. It is a min-height
+// (not a spacer element) so a transient collapse while the answer's first
+// block mounts cannot shorten the page and clamp the scroll position.
+// While `pinnedId` is set, background follow-scrolls are suppressed; the
+// reader's own wheel/touch, the jump pill or the next send end the hold.
+const PIN_TOP_GAP_PX = 48
+const PIN_SCROLL_MS = 380
+// Leave the view alone when the sent prompt is visible with at least this
+// share of the view free below it for the answer to start in.
+const PIN_MIN_ROOM_RATIO = 0.35
+let pinScrolled = false
+// Where the held turn sits in the view: PIN_TOP_GAP_PX once scrolled to the
+// top, or wherever it already was when there was room and nothing moved.
+let pinOffsetPx = PIN_TOP_GAP_PX
+// Extra floor below the held position. The view grows when the composer's
+// "Working" row goes away at the end of a run; without slack that clamps the
+// scroll position and nudges the reader up.
+const PIN_SLACK_PX = 64
+const pinMinHeightPx = ref(0)
+const pinnedId = ref<string | null>(null)
+// Answer content extends past the bottom of the viewport.
+const hasContentBelow = ref(false)
+let pinScrollRAF: number | null = null
+// Per-frame watch of the held turn's position while the hold is on. Content
+// above it can change height without resizing the (floored) transcript, so
+// the ResizeObserver alone would miss it.
+let pinWatchRAF: number | null = null
+const showJumpToLatest = computed(() => isFollowing.value === false && hasContentBelow.value)
 
 // Trace modal state
 const showTraceModal = ref(false)
@@ -3062,30 +3108,67 @@ function scrollToMessage(messageId: string, stepId?: string) {
 	}
 }
 
-// Single-pass scroll to the max position after the next layout. `force`
-// scrolls regardless of follow state; otherwise the follow flag is re-checked
-// at execution time, so a wheel-up that lands between scheduling and the
-// 40ms timer still wins.
+// Measure after Vue commits, then follow once per paint. Re-check intent at
+// execution time so an upward gesture wins over a queued follow request.
 function scrollToBottom({ force = false }: { force?: boolean } = {}) {
+  if (force) forceNextScroll = true
+  if (scrollRAF !== null || typeof window === 'undefined') return
   nextTick(() => {
-    setTimeout(() => {
-      if (!force && !isFollowing.value) return
+    if (scrollRAF !== null) return
+    scrollRAF = window.requestAnimationFrame(() => {
+      scrollRAF = null
+      const forced = forceNextScroll
+      forceNextScroll = false
+      if (!forced && !isFollowing.value) return
       const container = scrollContainer.value
       if (!container) return
-      container.offsetHeight // force reflow
-      const target = container.scrollHeight - container.clientHeight
-      // No-op when already at the bottom (within tolerance). This makes the
-      // auto-scroll idempotent: a tiny/oscillating height change (chart resize,
-      // scrollbar toggle, fractional-DPI rounding) no longer writes scrollTop,
-      // so it can't feed a resize→scroll→resize bounce loop.
-      if (target - container.scrollTop > AT_BOTTOM_EPS) container.scrollTop = target
-    }, 40)
+      const target = Math.max(0, container.scrollHeight - container.clientHeight)
+      if (Math.abs(target - container.scrollTop) > AT_BOTTOM_EPS) container.scrollTop = target
+      lastScrollTop = container.scrollTop
+    })
   })
+}
+
+// Whether an upward wheel gesture that started at `target` is consumed before
+// it reaches the transcript container. Wheel events bubble from nested
+// scrollers (wide tables, code blocks, the thinking panel), so the gesture only
+// belongs to the conversation if no element between the target and the
+// container takes it: one that can still scroll up, or one that blocks scroll
+// chaining (overscroll-behavior contain/none) even at its top.
+function nestedScrollerOwnsUpwardWheel(target: EventTarget | null, container: HTMLElement): boolean {
+  let el = target instanceof Element ? target : null
+  while (el && el !== container) {
+    if (el instanceof HTMLElement) {
+      const style = window.getComputedStyle(el)
+      const scrollsY = /^(auto|scroll|overlay)$/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1
+      if (scrollsY) {
+        if (el.scrollTop > 0) return true
+        if (style.overscrollBehaviorY === 'contain' || style.overscrollBehaviorY === 'none') return true
+      }
+    }
+    el = el.parentElement
+  }
+  return false
+}
+
+// Upward wheel over the conversation releases following at once — before the
+// scroll event lands, so a queued pin (including a forced one) can't pull the
+// reader back down in the same frame. onScroll still applies the position rule
+// as a fallback for scrollbar drags, keyboard and touch.
+function onFollowWheel(event: WheelEvent) {
+  if (event.deltaY !== 0) endPinHold()
+  if (event.deltaY >= 0) return
+  const container = scrollContainer.value
+  if (!container || nestedScrollerOwnsUpwardWheel(event.target, container)) return
+  isFollowing.value = false
+  forceNextScroll = false
 }
 
 // Intentional scroll: initial load, the user sending/steering a message, the
 // jump pill. Re-engages following.
 function forceScrollToBottom() {
+  endPinHold()
+  pinMinHeightPx.value = 0
   isFollowing.value = true
   scrollToBottom({ force: true })
 }
@@ -3094,24 +3177,170 @@ function forceScrollToBottom() {
 // pins when the reader is already following; never moves a reader who has
 // scrolled away.
 function followScrollToBottom() {
-  if (!isFollowing.value) return
+  if (!isFollowing.value || pinnedId.value !== null) return
   scrollToBottom()
 }
 
-// Coalesce a burst of stream events into one pin per animation frame.
+// Token events and deferred child layout share the same pending frame.
 function scheduleFollowScroll() {
-  if (pendingScroll.value) return
-  pendingScroll.value = true
-  if (typeof window !== 'undefined') {
-    scrollRAF = window.requestAnimationFrame(() => {
-      followScrollToBottom()
-      pendingScroll.value = false
-    })
-  } else {
-    followScrollToBottom()
-    pendingScroll.value = false
-  }
+  updatePinSpacer()
+  followScrollToBottom()
 }
+
+// Layout offset of `el` within the scroll content, ignoring any in-flight
+// translate (the turn-enter animation) so the pin lands where it settles.
+function offsetInContainer(el: Element, container: HTMLElement): number {
+  const transform = getComputedStyle(el).transform
+  const shift = transform && transform !== 'none' ? new DOMMatrix(transform).m42 : 0
+  return el.getBoundingClientRect().top - shift - container.getBoundingClientRect().top + container.scrollTop
+}
+
+// Bottom of the real transcript content (last message), in scroll coordinates.
+function contentEndIn(container: HTMLElement): number | null {
+  const items = transcriptContent.value?.querySelectorAll('li[data-message-id]')
+  const last = items && items.length ? items[items.length - 1] : null
+  return last ? offsetInContainer(last, container) + (last as HTMLElement).offsetHeight : null
+}
+
+function updateContentBelow() {
+  const container = scrollContainer.value
+  if (!container) return
+  const end = contentEndIn(container)
+  hasContentBelow.value = end !== null && end - container.scrollTop > container.clientHeight + AT_BOTTOM_EPS
+}
+
+// While a turn is held, the transcript is at least tall enough for that turn
+// to stay pinOffsetPx below the top of the view, and the view follows the turn.
+// Otherwise the floor stays put until the reader scrolls, and then only ever
+// shrinks, to the least that keeps the current position valid (plus slack),
+// so it never parks the reader in blank space and never jumps the view.
+function updatePinSpacer(trim = false) {
+  const container = scrollContainer.value
+  const content = transcriptContent.value
+  if (!container || !content) return
+  const contentTop = offsetInContainer(content, container)
+  const padBottom = parseFloat(getComputedStyle(container).paddingBottom) || 0
+  const el = pinnedId.value && pinScrolled ? container.querySelector(`[data-message-id="${pinnedId.value}"]`) : null
+  if (el) {
+    const target = offsetInContainer(el, container) - pinOffsetPx
+    const floor = Math.ceil(target + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
+    if (floor > pinMinHeightPx.value) {
+      pinMinHeightPx.value = floor
+      content.style.minHeight = `${floor}px` // now, so the anchor below isn't clamped
+    }
+    // Anchor to the turn, not to a scroll offset: content above it (a chart
+    // re-rendering, the previous answer reloading) can change height after
+    // the pin, which would slide the prompt out of view into the blank floor.
+    if (pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
+      container.scrollTop = target
+      lastScrollTop = container.scrollTop
+    }
+  } else if (trim && pinMinHeightPx.value > 0) {
+    const needed = Math.ceil(container.scrollTop + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
+    pinMinHeightPx.value = Math.max(0, Math.min(pinMinHeightPx.value, needed))
+  }
+  updateContentBelow()
+}
+
+function cancelPinScroll() {
+  if (pinScrollRAF !== null && typeof window !== 'undefined') window.cancelAnimationFrame(pinScrollRAF)
+  pinScrollRAF = null
+}
+
+// Eased scroll (ease-out cubic). Instant under reduced motion.
+function animateScrollTo(container: HTMLElement, target: number) {
+  cancelPinScroll()
+  const max = Math.max(0, container.scrollHeight - container.clientHeight)
+  const to = Math.min(max, Math.max(0, target))
+  const from = container.scrollTop
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  if (reduce || Math.abs(to - from) < 2) {
+    container.scrollTop = to
+    lastScrollTop = container.scrollTop
+    return
+  }
+  const startedAt = performance.now()
+  const step = (now: number) => {
+    const t = Math.min(1, (now - startedAt) / PIN_SCROLL_MS)
+    container.scrollTop = from + (to - from) * (1 - Math.pow(1 - t, 3))
+    lastScrollTop = container.scrollTop
+    pinScrollRAF = t < 1 ? window.requestAnimationFrame(step) : null
+  }
+  pinScrollRAF = window.requestAnimationFrame(step)
+}
+
+// The user just sent `messageId`. Its answer streams in below it without the
+// view chasing the bottom. If the prompt is already on screen with room under
+// it, nothing moves; otherwise the view eases the prompt up near the top.
+function pinTurnToTop(messageId: string) {
+  pinnedId.value = messageId
+  pinScrolled = false
+  isFollowing.value = false
+  forceNextScroll = false
+  if (typeof window === 'undefined') return
+  nextTick(() => window.requestAnimationFrame(() => {
+    const container = scrollContainer.value
+    const el = container?.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement | null
+    if (!container || !el || pinnedId.value !== messageId) return
+    const top = offsetInContainer(el, container)
+    const viewTop = container.scrollTop
+    const roomBelow = viewTop + container.clientHeight - (top + el.offsetHeight)
+    if (top >= viewTop && roomBelow >= container.clientHeight * PIN_MIN_ROOM_RATIO) {
+      // Room to answer in place: don't scroll, but keep the turn where it is.
+      pinOffsetPx = top - viewTop
+      pinScrolled = true
+      updatePinSpacer()
+      startPinWatch()
+      return
+    }
+    pinOffsetPx = PIN_TOP_GAP_PX
+    pinScrolled = true
+    updatePinSpacer()
+    startPinWatch()
+    nextTick(() => {
+      if (pinnedId.value !== messageId) return
+      animateScrollTo(container, offsetInContainer(el, container) - PIN_TOP_GAP_PX)
+    })
+  }))
+}
+
+function startPinWatch() {
+  if (pinWatchRAF !== null || typeof window === 'undefined') return
+  const tick = () => {
+    if (!pinScrolled || pinnedId.value === null) { pinWatchRAF = null; return }
+    updatePinSpacer()
+    pinWatchRAF = window.requestAnimationFrame(tick)
+  }
+  pinWatchRAF = window.requestAnimationFrame(tick)
+}
+
+function stopPinWatch() {
+  if (pinWatchRAF !== null && typeof window !== 'undefined') window.cancelAnimationFrame(pinWatchRAF)
+  pinWatchRAF = null
+}
+
+// The reader took over (wheel/touch) or asked for the bottom: stop holding.
+function endPinHold() {
+  if (pinnedId.value === null) return
+  pinnedId.value = null
+  pinScrolled = false
+  cancelPinScroll()
+  stopPinWatch()
+  updatePinSpacer()
+  // Resume following only if the reader is genuinely at the bottom already;
+  // otherwise a late layout change (feedback row, title) would move them.
+  const container = scrollContainer.value
+  if (container) isFollowing.value = container.scrollHeight - container.scrollTop - container.clientHeight <= AT_BOTTOM_EPS
+}
+
+watch([scrollContainer, transcriptContent], ([container, content]) => {
+  transcriptResizeObserver?.disconnect()
+  transcriptResizeObserver = null
+  if (!container || !content || typeof ResizeObserver === 'undefined') return
+  transcriptResizeObserver = new ResizeObserver(scheduleFollowScroll)
+  transcriptResizeObserver.observe(container)
+  transcriptResizeObserver.observe(content)
+}, { flush: 'post' })
 
 function jumpToLatest() {
   forceScrollToBottom()
@@ -4184,7 +4413,31 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				trigger_source: c.trigger_source || null,
 			}
 		})
+		// Placeholders created by the kickoff stream use client ids; the reload
+		// swaps them for server ids. Keep the placeholder's key so the <li> (and
+		// every tool card inside it) is patched in place instead of remounted —
+		// a remount re-runs each card's mount-time fetches and flashes the UI.
+		for (const old of messages.value) {
+			const oldId = String(old.id)
+			if (!oldId.startsWith('system-')) continue
+			const cid = (old as any).system_completion_id
+			const idx = cid ? freshMessages.findIndex((f: any) => String(f.id) === String(cid)) : -1
+			if (idx < 0) continue
+			freshMessages[idx]._render_key = old._render_key || oldId
+			const oldPos = messages.value.indexOf(old)
+			const prevOld = messages.value[oldPos - 1]
+			const prevFresh = freshMessages[idx - 1]
+			if (prevOld?.role === 'user' && String(prevOld.id).startsWith('user-') && prevFresh?.role === 'user') {
+				prevFresh._render_key = prevOld._render_key || String(prevOld.id)
+			}
+		}
+		for (const f of freshMessages) {
+			if (f._render_key) continue
+			const prev = messages.value.find(m => m._render_key && String(m.id) === String(f.id))
+			if (prev) f._render_key = prev._render_key
+		}
 		messages.value = olderKept.length ? [...olderKept, ...freshMessages] : freshMessages
+		pinDispatchedQueuedPrompts()
 		// Update cursors (unless older pages are kept — their cursor still applies)
 		if (!olderKept.length) {
 			hasMore.value = !!response?.has_more
@@ -4438,6 +4691,7 @@ async function loadPreviousCompletions() {
 function onScroll() {
     const container = scrollContainer.value
     if (!container) return
+    updatePinSpacer(true)
     // Infinite scroll trigger near top
     if (!isLoadingMore.value && hasMore.value) {
         const thresholdTop = 64
@@ -4446,9 +4700,10 @@ function onScroll() {
         }
     }
 
-    // Follow mode is positional. Content growth doesn't fire scroll events
-    // (scrollTop is unchanged), so this runs for user scrolling, our own pins
-    // and the prepend anchor adjustment above.
+    // Position-based fallback: onFollowWheel releases upward wheel gestures
+    // first; this covers scrollbar drags, keyboard and touch. Content growth
+    // doesn't fire scroll events (scrollTop is unchanged), so this runs for
+    // user scrolling, our own pins and the prepend anchor adjustment above.
     //   - at the bottom → following (a pin landing, or the reader returning);
     //   - scrollTop moved UP → the reader left; stop following;
     //   - scrollTop moved DOWN but not to the bottom → keep the current state.
@@ -4464,7 +4719,7 @@ function onScroll() {
     //   (A downward clamp from shrinking content leaves us at the very bottom,
     //   hence the AT_BOTTOM_EPS guard.)
     if (top < lastScrollTop && distanceFromBottom > AT_BOTTOM_EPS) isFollowing.value = false
-    else if (distanceFromBottom <= FOLLOW_ZONE_PX) isFollowing.value = true
+    else if (distanceFromBottom <= FOLLOW_ZONE_PX && pinnedId.value === null) isFollowing.value = true
     lastScrollTop = top
 }
 
@@ -4695,6 +4950,10 @@ onUnmounted(() => {
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', followScrollToBottom)
 	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
+	transcriptResizeObserver?.disconnect()
+	transcriptResizeObserver = null
+	cancelPinScroll()
+	stopPinWatch()
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
 		window.cancelAnimationFrame(scrollRAF)
@@ -4816,6 +5075,20 @@ function resolveRunningSystemId(): string | undefined {
 		|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
 }
 
+// Prompts this tab queued. When the dispatcher starts one, it is pinned like a
+// direct send (see pinDispatchedQueuedPrompts); its run arrives over the
+// timeline reload + watch stream rather than onSubmitCompletion.
+const queuedFromHere = new Set<string>()
+function pinDispatchedQueuedPrompts() {
+	for (const id of [...queuedFromHere]) {
+		const m = messages.value.find(x => String(x.id) === id)
+		if (!m) continue
+		if (m.status === 'queued') continue
+		queuedFromHere.delete(id)
+		pinTurnToTop(id)
+	}
+}
+
 // Queue a prompt while a completion runs. The backend persists it as a
 // status='queued' user row; the dispatcher starts it when the run finishes.
 async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
@@ -4838,6 +5111,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 			})
 		})
 		const created = (resp.value as any)?.completions?.[0]
+		if (created?.id) queuedFromHere.add(String(created.id))
 		if (created && !messages.value.some(m => m.id === created.id)) {
 			messages.value.push({
 				id: created.id,
@@ -5000,7 +5274,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		completion_blocks: []
 	}
 	messages.value.push(sysMsg)
-	forceScrollToBottom()
+	pinTurnToTop(userMsg.id)
 
 	// Stop any background polling/watching and start streaming
 	stopPollingInProgressCompletion()
@@ -5540,6 +5814,12 @@ function sendInitialMessageFromQuery() {
 		if (rawFiles) files = JSON.parse(rawFiles)
 	} catch {}
 	const text = q.new_message as string
+	// A brand-new report has nothing older to page in. The first
+	// loadCompletions normally settles this, but it yields to the live stream
+	// started below, so hasMore would keep its optimistic default. Scrolling
+	// within the short transcript would then "load older" — the server's
+	// copy of this very turn — and show it twice until the [DONE] reload.
+	hasMore.value = false
 	const { new_message, mentions: _m, mode: _mo, model_id: _mi, reasoning_effort: _re, files: _f, ...rest } = q
 	router.replace({ query: rest })
 	onSubmitCompletion({ text, mentions, mode, model_id: model_id || undefined, reasoning_effort: reasoning_effort || null, files })
@@ -5669,6 +5949,8 @@ onMounted(async () => {
 }
 
 .thinking-content :deep(.markdown-content) {
+	--typewriter-fade-duration: 180ms;
+	--stream-update-fade-duration: 180ms;
 	font-size: 12px !important;
 	line-height: 1.4 !important;
 }
@@ -5689,13 +5971,16 @@ onMounted(async () => {
 	font-size: 13px;
 }
 
-/* Minimal typography akin to CompletionMessageComponent */
+/* Minimal typography akin to CompletionMessageComponent; append-only text
+   entrance timing. */
 .markdown-wrapper :deep(.markdown-content) {
 	@apply leading-relaxed;
 	font-size: 13px;
-	/* Prevent layout thrashing during streaming */
+	--typewriter-fade-duration: 180ms;
+	--stream-update-fade-duration: 180ms;
+	--typewriter-fade-ease: ease-out;
+	--stream-update-fade-ease: ease-out;
 	contain: content;
-	content-visibility: auto;
 
 	/* Paragraph spacing to match streaming text appearance */
 	p {
@@ -5837,6 +6122,21 @@ onMounted(async () => {
 }
 
 
+
+/* The turn just sent rises into place as the view eases it to the top. */
+@keyframes turn-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.turn-enter {
+  animation: turn-enter 260ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-enter { animation: none; }
+  .markdown-wrapper :deep(.typewriter-enter-active) { transition: none !important; }
+  .markdown-wrapper :deep(.text-node-stream-delta),
+  .thinking-content :deep(.text-node-stream-delta) { animation: none !important; opacity: 1; }
+}
 
 /* Compact mode (Excel add-in) — smaller text throughout */
 .compact-messages .block-content {

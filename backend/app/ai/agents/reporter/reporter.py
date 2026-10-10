@@ -89,6 +89,7 @@ class Reporter:
         schemas_context: str = "",
         instructions_context: str = "",
         max_suggestions: int = 5,
+        user_message: str = "",
     ):
         """Suggest a few follow-up prompts for the user to click next.
 
@@ -105,11 +106,13 @@ class Reporter:
         """
         if mode == "training":
             system, text = self._training_follow_ups_prompt(
-                messages_context, schemas_context, instructions_context, max_suggestions
+                messages_context, schemas_context, instructions_context, max_suggestions,
+                user_message,
             )
         else:
             system, text = self._chat_follow_ups_prompt(
-                messages_context, schemas_context, instructions_context, max_suggestions
+                messages_context, schemas_context, instructions_context, max_suggestions,
+                user_message,
             )
 
         try:
@@ -122,9 +125,18 @@ class Reporter:
         except Exception:
             return []
 
-        return self._parse_follow_ups(raw, max_suggestions)
+        return self._drop_echoes(self._parse_follow_ups(raw, max_suggestions), messages_context)
 
-    def _chat_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions):
+    @staticmethod
+    def _drop_echoes(questions, messages_context):
+        # Guard against the model copying lines out of the transcript (usually
+        # the assistant's own reply) instead of writing a user next step.
+        def norm(t):
+            return " ".join("".join(c for c in t.lower() if c.isalnum() or c.isspace()).split())
+        transcript = norm(messages_context or "")
+        return [q for q in questions if not (norm(q) and norm(q) in transcript)]
+
+    def _chat_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions, user_message=""):
         data_blocks = ""
         if schemas_context:
             data_blocks += f"\n        Available data (tables, columns, data-source descriptions):\n        {schemas_context}\n"
@@ -158,23 +170,49 @@ class Reporter:
           because data happens to be available — the available data is supporting context only.
 
         Rules:
+        - Each suggestion is a message the USER sends TO the assistant, written in the user's voice
+          (a question or request), as if the user typed it.
+        - Never repeat or rephrase the assistant's last reply, and never address the user
+          (no "How can I help you?", "What would you like to look into?").
+        - Never mention tools, products, or topics that do not appear in the conversation.
+        - If the conversation has nothing substantive to continue (a greeting, small talk, thanks),
+          return an empty array [].
         - Each suggestion is a single, self-contained prompt the user could click to send next.
         - Keep them short (max ~12 words), specific, and genuinely useful given the conversation.
         - Suggestions must follow from the recent conversation — never generic questions disconnected from it.
         {grounding_rule}
         - Do not repeat questions or actions already done. Do not number them.
-        - Write the suggestions in the SAME language the conversation above is in. Keep column names, identifiers, and metric names as-is.
+        - Write the suggestions in the language of the user's most recent message (shown in the user turn below), even when the data, schema, and instructions above are in another language. Keep column names, identifiers, and metric names as-is.
         Return ONLY a JSON array of strings, nothing else.
+        The examples below are in English only to show shape and length — your suggestions must follow the user's language.
         Example (data turn): ["How did revenue trend last quarter?", "Which region grew fastest?"]
         Example (non-data turn, e.g. a scheduled email): ["Change the daily send time?", "Stop the daily email", "Also send it to my manager?"]
         """
+        system += self._follow_ups_language_block()
+        return system, self._follow_ups_user_turn(messages_context, user_message)
+
+    def _follow_ups_language_block(self):
+        # Stable per org, so it stays in the cacheable system half.
+        return build_language_directive(self.organization_settings)
+
+    @staticmethod
+    def _follow_ups_user_turn(messages_context, user_message):
+        # Follow-ups are text the user will send, so they mirror the user's own
+        # language. Repeat the latest user message at the end so the small
+        # model sees it last instead of only buried in the transcript.
         user = f"""
         Conversation so far:
         {messages_context}
         """
-        return system, user
+        latest = (user_message or "").strip()[:500]
+        if latest:
+            user += f"""
+        User's most recent message (write every suggestion in this message's language):
+        {latest}
+        """
+        return user
 
-    def _training_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions):
+    def _training_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions, user_message=""):
         context_blocks = ""
         if instructions_context:
             context_blocks += f"\n        Current agent instructions:\n        {instructions_context}\n"
@@ -203,18 +241,20 @@ class Reporter:
         when you can, so each action is specific and clickable.
 
         Rules:
+        - Each suggestion is a message the ADMIN sends TO the assistant, in the admin's voice.
+          Never repeat the assistant's last reply and never address the admin with a question.
+        - If the conversation has nothing substantive to continue (a greeting, small talk, thanks),
+          return an empty array [].
         - Each suggestion is a single, self-contained training action phrased as a prompt.
         - Keep them short (max ~12 words), specific, and actionable.
         - Do not repeat actions already taken. Do not number them.
-        - Write the suggestions in the SAME language the conversation above is in. Keep instruction text, table names, and identifiers as-is.
+        - Write the suggestions in the language of the user's most recent message (shown in the user turn below), even when the instructions and schema above are in another language. Keep instruction text, table names, and identifiers as-is.
         Return ONLY a JSON array of strings, nothing else.
+        The example below is in English only to show shape and length — your suggestions must follow the user's language.
         Example: ["Find conflicting instructions about revenue", "Which tables have no instructions?"]
         """
-        user = f"""
-        Conversation so far:
-        {messages_context}
-        """
-        return system, user
+        system += self._follow_ups_language_block()
+        return system, self._follow_ups_user_turn(messages_context, user_message)
 
     @staticmethod
     def _parse_follow_ups(raw, max_suggestions: int = 5):
