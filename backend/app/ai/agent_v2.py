@@ -389,7 +389,7 @@ from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge, judge_model_allowed
 from app.ai.agents.suggest_instructions import InstructionTriggerEvaluator
 from app.dependencies import async_session_maker
-from app.core.telemetry import telemetry
+from app.core.telemetry import telemetry, telemetry_model_id
 from app.ai.utils.token_counter import count_tokens
 from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
@@ -4486,7 +4486,7 @@ class AgentV2:
                 {
                     "agent_execution_id": str(self.current_execution.id),
                     "report_id": str(self.report_id) if self.report else None,
-                    "model_id": self.model.model_id if self.model else None,
+                    "model_id": telemetry_model_id(self.model.model_id) if self.model else None,
                 },
             ))
 

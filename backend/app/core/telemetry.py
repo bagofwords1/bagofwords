@@ -200,6 +200,29 @@ class Telemetry:
 # Convenience alias for imports: from app.core.telemetry import telemetry
 telemetry = Telemetry
 
+def telemetry_model_id(model_id: Optional[str]) -> Optional[str]:
+    """Map a model_id to a catalog id that is safe to send to telemetry.
+
+    Custom model ids are free text (Azure deployment names, self-hosted
+    models) and can carry a customer's name, so only ids from the public
+    catalog (LLM_MODEL_DETAILS) leave the process. A wrapped id such as
+    "us.anthropic.claude-sonnet-5-5-v1:0" or "acme-gpt-6-sol" reports the
+    longest catalog id it contains; anything else reports "custom".
+    """
+    if not model_id:
+        return None
+    try:
+        from app.models.llm_model import LLM_MODEL_DETAILS
+        catalog = {d["model_id"].lower() for d in LLM_MODEL_DETAILS if d.get("model_id")}
+    except Exception:
+        return "custom"
+    normalized = model_id.strip().lower()
+    if normalized in catalog:
+        return normalized
+    matches = [c for c in catalog if c in normalized]
+    return max(matches, key=len) if matches else "custom"
+
+
 # Free/consumer email providers excluded from org domain attribution — a
 # domain shared by millions of unrelated signups isn't a useful org signal
 # and would misrepresent unrelated orgs as the same "company".
