@@ -58,7 +58,7 @@ RETRIES = 6              # per-request retries on 429/complexity/5xx
 # name (e.g. "Expand subitems into a new board") and misses renamed/localized
 # shadow boards.
 _BOARD_FIELDS = (
-    "id name description board_kind hierarchy_type items_count type "
+    "id name url description board_kind hierarchy_type items_count type "
     "workspace { id name } columns { id title type settings_str }"
 )
 
@@ -585,9 +585,10 @@ class MondayClient(DataSourceClient):
             TableColumn(name="item_id", dtype="int", description="monday item id"),
             TableColumn(name="name", dtype="str", description="item name"),
             TableColumn(name="group", dtype="str", description="board group the item belongs to"),
+            TableColumn(name="item_url", dtype="str", description="link to open the item in monday.com"),
         ]
         fks: List[ForeignKey] = []
-        seen = {"item_id", "name", "group"}
+        seen = {"item_id", "name", "group", "item_url"}
         for column in board.get("columns") or []:
             if column.get("type") == "name":
                 continue  # the built-in first column IS the item name above
@@ -633,6 +634,7 @@ class MondayClient(DataSourceClient):
             board.get("description"),
             f"workspace: {workspace}" if workspace else None,
             f"{board.get('items_count')} items" if board.get("items_count") is not None else None,
+            f"url: {board['url']}" if board.get("url") else None,
         ] if bit]
         return Table(
             name=name,
@@ -644,6 +646,7 @@ class MondayClient(DataSourceClient):
                 "board_id": str(board["id"]),
                 "workspace": workspace,
                 "hierarchy_type": board.get("hierarchy_type") or "classic",
+                "board_url": board.get("url"),
             },
         )
 
@@ -729,7 +732,7 @@ class MondayClient(DataSourceClient):
     # Always-present DataFrame columns. The published schema lists them on every
     # board table, so generated specs legitimately request them — accept and
     # skip them instead of failing (they are returned regardless).
-    _BASE_COLUMNS = {"item_id", "name", "group"}
+    _BASE_COLUMNS = {"item_id", "name", "group", "item_url"}
 
     def _selected_columns(self, requested, board_columns: List[dict], by_key: Dict[str, dict]) -> List[dict]:
         if not requested:
@@ -753,7 +756,7 @@ class MondayClient(DataSourceClient):
             available = ", ".join(f"{c['title']} ({c['id']})" for c in board_columns)
             raise ValueError(
                 f"Unknown column(s) {missing} — available columns: {available} "
-                "(item_id, name and group are always included and need not be requested)"
+                "(item_id, name, group and item_url are always included and need not be requested)"
             )
         return selected
 
@@ -819,9 +822,9 @@ class MondayClient(DataSourceClient):
     def _fetch_items(self, board_id, column_ids: List[str], query_params: Optional[dict], limit: int) -> List[dict]:
         items: List[dict] = []
         item_fields = (
-            "id name group { title } column_values (ids: $cols) { id text value type"
+            "id name url group { title } column_values (ids: $cols) { id text value type"
             + self._COLUMN_VALUE_FRAGMENTS + " }"
-            if column_ids else "id name group { title }"
+            if column_ids else "id name url group { title }"
         )
         first_page = min(PAGE_SIZE, limit)
         variables: Dict[str, Any] = {"bid": [str(board_id)], "limit": first_page}
@@ -869,7 +872,7 @@ class MondayClient(DataSourceClient):
         # joins run on ids instead of ambiguous display names.
         names: Dict[str, str] = {}
         id_companions: Dict[str, str] = {}
-        seen = {"item_id", "name", "group"}
+        seen = {"item_id", "name", "group", "item_url"}
         for column in selected:
             title = column.get("title") or column["id"]
             name = title if title not in seen else f"{title} ({column['id']})"
@@ -886,6 +889,7 @@ class MondayClient(DataSourceClient):
                 "item_id": int(item["id"]),
                 "name": item.get("name"),
                 "group": (item.get("group") or {}).get("title"),
+                "item_url": item.get("url"),
             }
             for value in item.get("column_values") or []:
                 target = names.get(value.get("id"))
@@ -901,7 +905,7 @@ class MondayClient(DataSourceClient):
         # every selected column (each linked column followed by its ids
         # companion), in board order (a column that is empty on all returned
         # items would otherwise vanish from the frame).
-        expected = ["item_id", "name", "group"]
+        expected = ["item_id", "name", "group", "item_url"]
         for column_id, name in names.items():
             expected.append(name)
             if column_id in id_companions:
@@ -973,7 +977,8 @@ class MondayClient(DataSourceClient):
         - `order_by` (optional): {"column_id": ..., "direction": "asc"|"desc"}.
         - `limit` (optional): max rows, default 100, cap 10000.
 
-        The DataFrame has `item_id`, `name` (item name), `group`, then one column
+        The DataFrame has `item_id`, `name` (item name), `group`, `item_url`
+        (link to the item in monday.com), then one column
         per board column, named by column TITLE. Types: numbers → float,
         rating → int, checkbox → bool, everything else (status, people, date,
         timeline, dropdown, …) → display TEXT strings; empty cells → None.
@@ -992,6 +997,12 @@ class MondayClient(DataSourceClient):
         it against the linked board's `item_id` (the schema's foreign keys show
         which board each connect-boards column links to). Mirror columns are
         display text only and cannot be joined on.
+
+        Linking back to the source: keep `item_url` in tables that list
+        individual items (the UI renders it as a clickable link). When a finding
+        is an aggregate (a count, a total, a chart), cite the board with a
+        markdown link to its `url` from the schema description, e.g.
+        "Source: [Sales Pipeline Q3](https://…monday.com/boards/123)".
 
         Examples:
         ```python
