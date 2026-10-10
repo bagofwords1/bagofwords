@@ -1306,8 +1306,10 @@ const touchViewed = () => {
 	_viewedTimer = setTimeout(() => { markViewed(String(report_id)) }, 1500)
 }
 watch(hasInProgressCompletion, (now, was) => { if (was && !now) touchViewed() })
-// The answer is done: stop holding the turn and trim the spacer in place.
-watch(isStreaming, (now, was) => { if (was && !now) endPinHold() })
+// The answer is done: stop holding the turn. Keyed on the run's own status,
+// not isStreaming: a run can arrive over the watch/poll paths (isStreaming
+// stays false), and sending aborts the previous run's still-open stream tail.
+watch(hasInProgressCompletion, (now, was) => { if (was && !now) endPinHold() })
 // True once the in-progress completion has produced any visible output
 // (reasoning/content/tool call). Drives the prompt box indicator's label
 // switch from "Thinking" (waiting for the first token) to "Working".
@@ -1565,7 +1567,7 @@ let transcriptResizeObserver: ResizeObserver | null = null
 // block mounts cannot shorten the page and clamp the scroll position.
 // While `pinnedId` is set, background follow-scrolls are suppressed; the
 // reader's own wheel/touch, the jump pill or the next send end the hold.
-const PIN_TOP_GAP_PX = 16
+const PIN_TOP_GAP_PX = 48
 const PIN_SCROLL_MS = 380
 // Leave the view alone when the sent prompt is visible with at least this
 // share of the view free below it for the answer to start in.
@@ -4435,6 +4437,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 			if (prev) f._render_key = prev._render_key
 		}
 		messages.value = olderKept.length ? [...olderKept, ...freshMessages] : freshMessages
+		pinDispatchedQueuedPrompts()
 		// Update cursors (unless older pages are kept — their cursor still applies)
 		if (!olderKept.length) {
 			hasMore.value = !!response?.has_more
@@ -5072,6 +5075,20 @@ function resolveRunningSystemId(): string | undefined {
 		|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
 }
 
+// Prompts this tab queued. When the dispatcher starts one, it is pinned like a
+// direct send (see pinDispatchedQueuedPrompts); its run arrives over the
+// timeline reload + watch stream rather than onSubmitCompletion.
+const queuedFromHere = new Set<string>()
+function pinDispatchedQueuedPrompts() {
+	for (const id of [...queuedFromHere]) {
+		const m = messages.value.find(x => String(x.id) === id)
+		if (!m) continue
+		if (m.status === 'queued') continue
+		queuedFromHere.delete(id)
+		pinTurnToTop(id)
+	}
+}
+
 // Queue a prompt while a completion runs. The backend persists it as a
 // status='queued' user row; the dispatcher starts it when the run finishes.
 async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
@@ -5094,6 +5111,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 			})
 		})
 		const created = (resp.value as any)?.completions?.[0]
+		if (created?.id) queuedFromHere.add(String(created.id))
 		if (created && !messages.value.some(m => m.id === created.id)) {
 			messages.value.push({
 				id: created.id,
