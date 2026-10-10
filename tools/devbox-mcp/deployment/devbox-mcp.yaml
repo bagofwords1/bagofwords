@@ -1,0 +1,198 @@
+# devbox-mcp: the developer-experience MCP server, deployed in the sandbox
+# cluster and exposed at https://devbox.sndbx.bagofwords.com/mcp through the
+# Envoy Gateway, protected by an API key checked at the Gateway.
+#
+# Source and image: tools/devbox-mcp (Dockerfile there); this file: tools/devbox-mcp/deployment/.
+#
+# Before applying, create the API-key Secret (one key per client; the key
+# name is the client id, forwarded to the server as X-Client-Id):
+#
+#   kubectl -n devbox create secret generic devbox-mcp-apikeys \
+#     --from-literal=dima="$(openssl rand -hex 32)"
+#
+# Apply with:
+#   kubectl apply -f tools/devbox-mcp/deployment/devbox-mcp.yaml
+#
+# Register with Claude Code (replace the key):
+#   claude mcp add --transport http devbox https://devbox.sndbx.bagofwords.com/mcp \
+#     --header "X-API-Key: <key>"
+#
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devbox
+  labels:
+    app.kubernetes.io/name: devbox-mcp
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: devbox-mcp
+  namespace: devbox
+---
+# Cluster-wide admin for the server's ServiceAccount: it creates and deletes
+# SandboxClaims, Services and HTTPRoutes in the sandbox namespace(s) and reads
+# Sandbox status, and the devbox tooling is expected to grow. This binds the
+# built-in cluster-admin ClusterRole; narrow it later with a dedicated
+# ClusterRole if the tool set stabilises.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: devbox-mcp-cluster-admin
+  labels:
+    app.kubernetes.io/name: devbox-mcp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: devbox-mcp
+  namespace: devbox
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devbox-mcp
+  namespace: devbox
+  labels:
+    app.kubernetes.io/name: devbox-mcp
+spec:
+  # Exactly one replica: claude_login sessions live in process memory, and
+  # streamable-HTTP sessions are pinned to the instance that created them.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: devbox-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: devbox-mcp
+    spec:
+      serviceAccountName: devbox-mcp
+      automountServiceAccountToken: true   # in-cluster kube API access
+      containers:
+      - name: devbox-mcp
+        image: docker.io/bagofwords/devbox-mcp:latest
+        imagePullPolicy: Always
+        args:
+        - --transport=streamable-http
+        - --host=0.0.0.0
+        - --port=3400
+        ports:
+        - name: http
+          containerPort: 3400
+          protocol: TCP
+        env:
+        # Public hostname(s) clients use; enables Host/Origin validation for them.
+        - name: MCP_ALLOWED_HOSTS
+          value: devbox.sndbx.bagofwords.com
+        # Where sandboxes live and how they are exposed (defaults for the tools).
+        - name: DEVBOX_NAMESPACE
+          value: default
+        - name: DEVBOX_WARMPOOL
+          value: bow-warmpool
+        - name: DEVBOX_DOMAIN
+          value: sndbx.bagofwords.com
+        - name: DEVBOX_GATEWAY_NAME
+          value: eg
+        - name: DEVBOX_GATEWAY_NAMESPACE
+          value: default
+        - name: DEVBOX_GATEWAY_SECTION
+          value: https-wildcard
+        - name: SANDBOXD_GRPC_PORT
+          value: "9090"
+        # /mcp rejects bare GETs by design, so probe the TCP port instead.
+        startupProbe:
+          tcpSocket:
+            port: http
+          periodSeconds: 2
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: http
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: http
+          periodSeconds: 30
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devbox-mcp
+  namespace: devbox
+  labels:
+    app.kubernetes.io/name: devbox-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: devbox-mcp
+  ports:
+  - name: http
+    port: 3400
+    targetPort: http
+    protocol: TCP
+---
+# devbox.sndbx.bagofwords.com -> devbox-mcp:3400 on the wildcard HTTPS listener.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: devbox-mcp
+  namespace: devbox
+  labels:
+    app.kubernetes.io/name: devbox-mcp
+spec:
+  parentRefs:
+  - name: eg
+    namespace: default          # the shared Gateway; its listener admits routes from any namespace
+    sectionName: https-wildcard
+  hostnames:
+  - devbox.sndbx.bagofwords.com
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /mcp
+    filters:
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        set:
+        - name: X-Forwarded-Host
+          value: devbox.sndbx.bagofwords.com
+        - name: X-Forwarded-Proto
+          value: https
+    backendRefs:
+    - kind: Service
+      name: devbox-mcp
+      port: 3400
+---
+# API-key authentication at the Gateway. Requests without a valid X-API-Key
+# never reach the server. Keys live in the devbox-mcp-apikeys Secret; each
+# Secret key is a client id whose value is that client's API key.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: devbox-mcp
+  namespace: devbox
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: devbox-mcp
+  apiKeyAuth:
+    credentialRefs:
+    - name: devbox-mcp-apikeys
+    extractFrom:
+    - headers: ["X-API-Key"]
+    forwardClientIDHeader: X-Client-Id   # lets the server log who called
+    sanitize: true                       # strip the key before forwarding

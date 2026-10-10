@@ -65,7 +65,7 @@ Pass `dry_run=true` to get the manifests without applying them.
 ## Run
 
 ```sh
-cd tools/agentic-dev/devbox-mcp
+cd tools/devbox-mcp
 uv sync
 
 # stdio (what MCP hosts spawn)
@@ -85,14 +85,14 @@ uv run devbox-mcp --transport streamable-http --host 0.0.0.0 --port 3400 \
 Register with Claude Code (local, stdio):
 
 ```sh
-claude mcp add devbox -- uv run --directory /ABS/PATH/tools/agentic-dev/devbox-mcp devbox-mcp
+claude mcp add devbox -- uv run --directory /ABS/PATH/tools/devbox-mcp devbox-mcp
 ```
 
 ## Deploy in the cluster
 
 `Dockerfile` here builds `bagofwords/devbox-mcp`. The Kubernetes manifests (ServiceAccount,
-Role, Deployment, Service, HTTPRoute and the Gateway API-key SecurityPolicy) live in the
-devex repo under `devbox-mcp/`, with step-by-step instructions in its README. Once deployed,
+Role, Deployment, Service, HTTPRoute and the Gateway API-key SecurityPolicy) are in
+[`deployment/`](deployment/README.md), with step-by-step instructions. Once deployed,
 clients register it over HTTP:
 
 ```sh
@@ -104,10 +104,11 @@ claude mcp add --transport http devbox https://devbox.sndbx.bagofwords.com/mcp \
 
 - `sandboxd` resolves the command with the **daemon's** PATH, not the `PATH` passed as
   process env, so `claude` must be installed on the daemon's PATH in the sandbox image.
-- In-cluster the ServiceAccount needs: get/list/create/patch/delete `sandboxclaims`,
-  get `sandboxes` (both `*.agents.x-k8s.io`), create/patch/delete `services`, and
-  create/patch/delete `httproutes.gateway.networking.k8s.io` in the sandbox namespace.
-  `SANDBOXD_GRPC_PORT` overrides the sandboxd gRPC port (default 9090).
+- In-cluster the server runs in the `devbox` namespace with a ServiceAccount bound to
+  `cluster-admin` (see `deployment/`). The minimum it actually uses is: sandboxclaims
+  (get/list/create/patch/delete), sandboxes (get), services and httproutes
+  (create/patch/delete) in the sandbox namespace. `SANDBOXD_GRPC_PORT` overrides the
+  sandboxd gRPC port (default 9090).
 - `home` controls where the session is stored (`$HOME/.claude`), `config_dir` sets
   `CLAUDE_CONFIG_DIR` instead.
 - Layout: `devbox_mcp/sandbox.py` (PTY process wrapper + target resolution),

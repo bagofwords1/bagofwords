@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Entrypoint for the Bag of Words sandbox runtime image
-# (tools/agentic-dev/Dockerfile.sandbox-runtime).
+# (tools/devbox-mcp/sandbox-runtime/Dockerfile).
 #
 # Brings up a fully pre-configured, ready-to-use Bag of Words dev instance:
 #
@@ -24,8 +24,8 @@
 # restarts. The readiness probe on the frontend simply reports not-ready
 # while they are down.
 #
-# Combines tools/agent/boot_stack.sh, tools/agent/setup_openai_llm.py and
-# tools/agentic-dev/setup-runtime.sh into one idempotent boot.
+# Combines tools/agent/boot_stack.sh and tools/agent/setup_openai_llm.py into
+# one idempotent boot.
 #
 # Configuration (env):
 #   BOW_WORKSPACE           persistent root            (default /app/workspace)

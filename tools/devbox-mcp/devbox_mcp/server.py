@@ -2,11 +2,11 @@
 
 Run over stdio (what `claude mcp add` / Claude Desktop expect)::
 
-    uv run --directory tools/agentic-dev/devbox-mcp devbox-mcp
+    uv run --directory tools/devbox-mcp devbox-mcp
 
 or over streamable HTTP for a browser-side or remote client::
 
-    uv run --directory tools/agentic-dev/devbox-mcp devbox-mcp --transport streamable-http --port 3400
+    uv run --directory tools/devbox-mcp devbox-mcp --transport streamable-http --port 3400
     # then point the client at http://localhost:3400/mcp
 """
 from __future__ import annotations

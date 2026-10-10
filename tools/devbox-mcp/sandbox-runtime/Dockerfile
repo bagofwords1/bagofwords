@@ -1,3 +1,6 @@
+# Bag of Words devbox sandbox runtime image.
+# Build from the repository root (paths below are repo-relative):
+#   docker build -f tools/devbox-mcp/sandbox-runtime/Dockerfile -t bagofwords/bagofwords-sandbox-runtime:latest .
 ARG PYTHON_VERSION=3.12
 ARG UV_VERSION=0.10.9
 
@@ -134,14 +137,14 @@ RUN mkdir -p /app/certs && \
 # ---------------------------------------------------------------------------
 # Entrypoint: boots a pre-configured Bag of Words instance (see entrypoint.sh).
 # Sources and dependencies are fetched on first boot into the persistent
-# workspace. To bake them into the image instead (faster warm-pool starts),
-# add before this block:
-#   RUN mkdir -p /app/workspace && bash /app/setup-runtime.sh
+# workspace, via the node-wide /cache volume the SandboxTemplate mounts (git
+# mirror, uv and yarn caches). To bake sources into the image instead, clone
+# the repo to e.g. /opt/src at build time and set BOW_REPO_URL=file:///opt/src
+# in the SandboxTemplate; entrypoint.sh clones from whatever URL it is given.
 # ---------------------------------------------------------------------------
-COPY ./tools/agentic-dev/setup-runtime.sh /app/setup-runtime.sh
-COPY ./tools/agentic-dev/entrypoint.sh /app/entrypoint.sh
-COPY ./tools/agentic-dev/bow-stack.sh /usr/local/bin/bow-stack
-RUN chmod +x /app/entrypoint.sh /app/setup-runtime.sh /usr/local/bin/bow-stack
+COPY ./tools/devbox-mcp/sandbox-runtime/entrypoint.sh /app/entrypoint.sh
+COPY ./tools/devbox-mcp/sandbox-runtime/bow-stack.sh /usr/local/bin/bow-stack
+RUN chmod +x /app/entrypoint.sh /usr/local/bin/bow-stack
 
 # 3000 frontend, 8000 backend, 8080 code-server, 8888/9090 sandboxd
 EXPOSE 3000 8000 8080 8888 9090
