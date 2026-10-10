@@ -53,3 +53,14 @@ Implementation entry points: `:3061` (scroll coordinator), `:3107` (resize obser
 ![Streaming preview](../../media/pr/report-reading-stream/after.gif)
 
 Additional matching screenshots, full recordings, and measured results are saved beside these files. The demo transcript is injected for verification and is not persisted as a generated report answer.
+
+## Sent turn pinned near the top
+
+Sending a prompt eases it to 16 px below the top of the conversation (380 ms ease-out; the bubble rises in over 260 ms) and the answer streams below it without the view chasing the bottom. If the prompt is already visible with at least 35% of the view free below it, nothing moves. The room the prompt needs is a `min-height` on the transcript, not a spacer element: a spacer is only resized after layout, so the brief collapse while an answer's first block mounts clamped the scroll position to 0. The floor keeps 64 px of slack (the view grows when the composer's "Working" row disappears) and only shrinks when the reader scrolls. Wheel/touch, the jump pill or the next send end the hold; a reload lands at the bottom without pinning.
+
+Verified against a local OpenAI-compatible stub that streams a short or long answer, at 1280 × 800, with the side panel open, and at 390 × 844 (mobile): no scenario moved the view on its own; the held prompt stayed at 16 px for the whole stream and the view did not move when the answer finished; prompts with room below did not scroll; reload landed at the content bottom.
+
+| Before | After |
+| --- | --- |
+| ![Before](../../media/pr/report-reading-stream/pin-before.gif) | ![After](../../media/pr/report-reading-stream/pin-after.gif) |
+

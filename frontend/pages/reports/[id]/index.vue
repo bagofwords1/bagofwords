@@ -96,7 +96,7 @@
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
-			<div ref="transcriptContent" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
@@ -632,9 +632,6 @@
 				@starter="handleExampleClick"
 			/>
 			</div>
-			<!-- Room below the turn just sent, so it can sit at the top of the
-			     view while its answer streams in underneath (see pinTurnToTop). -->
-			<div ref="pinSpacer" aria-hidden="true" :style="{ height: pinSpacerPx + 'px' }"></div>
 		</div>
 
 		<!-- Jump-to-latest pill. A zero-height sibling of the scroll area (not a
@@ -1309,6 +1306,8 @@ const touchViewed = () => {
 	_viewedTimer = setTimeout(() => { markViewed(String(report_id)) }, 1500)
 }
 watch(hasInProgressCompletion, (now, was) => { if (was && !now) touchViewed() })
+// The answer is done: stop holding the turn and trim the spacer in place.
+watch(isStreaming, (now, was) => { if (was && !now) endPinHold() })
 // True once the in-progress completion has produced any visible output
 // (reasoning/content/tool call). Drives the prompt box indicator's label
 // switch from "Thinking" (waiting for the first token) to "Working".
@@ -1560,20 +1559,28 @@ let transcriptResizeObserver: ResizeObserver | null = null
 // === Sent turn pinned to the top ===
 // Sending scrolls the new prompt to the top of the view (eased) and the answer
 // streams in below it without the view chasing the bottom, so a long answer is
-// read from its start. A spacer under the transcript supplies the room the
-// prompt needs to reach the top before the answer exists; it shrinks as the
-// answer fills it and is frozen (never yanked away) once the hold ends.
+// read from its start. A min-height on the transcript supplies the room the
+// prompt needs to reach the top before the answer exists. It is a min-height
+// (not a spacer element) so a transient collapse while the answer's first
+// block mounts cannot shorten the page and clamp the scroll position.
 // While `pinnedId` is set, background follow-scrolls are suppressed; the
 // reader's own wheel/touch, the jump pill or the next send end the hold.
 const PIN_TOP_GAP_PX = 16
 const PIN_SCROLL_MS = 380
-const pinSpacer = ref<HTMLElement | null>(null)
-const pinSpacerPx = ref(0)
+// Leave the view alone when the sent prompt is visible with at least this
+// share of the view free below it for the answer to start in.
+const PIN_MIN_ROOM_RATIO = 0.35
+let pinScrolled = false
+// Extra floor below the held position. The view grows when the composer's
+// "Working" row goes away at the end of a run; without slack that clamps the
+// scroll position and nudges the reader up.
+const PIN_SLACK_PX = 64
+const pinMinHeightPx = ref(0)
 const pinnedId = ref<string | null>(null)
 // Answer content extends past the bottom of the viewport.
 const hasContentBelow = ref(false)
 let pinScrollRAF: number | null = null
-const showJumpToLatest = computed(() => isFollowing.value === false && (pinnedId.value === null || hasContentBelow.value))
+const showJumpToLatest = computed(() => isFollowing.value === false && hasContentBelow.value)
 
 // Trace modal state
 const showTraceModal = ref(false)
@@ -3152,6 +3159,7 @@ function onFollowWheel(event: WheelEvent) {
 // jump pill. Re-engages following.
 function forceScrollToBottom() {
   endPinHold()
+  pinMinHeightPx.value = 0
   isFollowing.value = true
   scrollToBottom({ force: true })
 }
@@ -3178,24 +3186,38 @@ function offsetInContainer(el: Element, container: HTMLElement): number {
   return el.getBoundingClientRect().top - shift - container.getBoundingClientRect().top + container.scrollTop
 }
 
-function updateContentBelow() {
-  const container = scrollContainer.value
-  const spacer = pinSpacer.value
-  if (!container || !spacer) return
-  hasContentBelow.value = offsetInContainer(spacer, container) - container.scrollTop > container.clientHeight + AT_BOTTOM_EPS
+// Bottom of the real transcript content (last message), in scroll coordinates.
+function contentEndIn(container: HTMLElement): number | null {
+  const items = transcriptContent.value?.querySelectorAll('li[data-message-id]')
+  const last = items && items.length ? items[items.length - 1] : null
+  return last ? offsetInContainer(last, container) + (last as HTMLElement).offsetHeight : null
 }
 
-// Size the spacer so the pinned turn plus the spacer fill exactly one view
-// below the top gap. Only while the hold is on; afterwards it stays as is.
-function updatePinSpacer() {
+function updateContentBelow() {
   const container = scrollContainer.value
-  const spacer = pinSpacer.value
-  if (pinnedId.value && container && spacer) {
-    const el = container.querySelector(`[data-message-id="${pinnedId.value}"]`)
-    if (el) {
-      const turnHeight = offsetInContainer(spacer, container) - offsetInContainer(el, container)
-      pinSpacerPx.value = Math.max(0, Math.round(container.clientHeight - PIN_TOP_GAP_PX - turnHeight))
-    }
+  if (!container) return
+  const end = contentEndIn(container)
+  hasContentBelow.value = end !== null && end - container.scrollTop > container.clientHeight + AT_BOTTOM_EPS
+}
+
+// While a turn we scrolled to the top is held, the transcript is at least tall
+// enough for that turn to sit PIN_TOP_GAP_PX below the top of the view.
+// Otherwise the floor stays put until the reader scrolls, and then only ever
+// shrinks, to the least that keeps the current position valid (plus slack),
+// so it never parks the reader in blank space and never jumps the view.
+function updatePinSpacer(trim = false) {
+  const container = scrollContainer.value
+  const content = transcriptContent.value
+  if (!container || !content) return
+  const contentTop = offsetInContainer(content, container)
+  const padBottom = parseFloat(getComputedStyle(container).paddingBottom) || 0
+  const el = pinnedId.value && pinScrolled ? container.querySelector(`[data-message-id="${pinnedId.value}"]`) : null
+  if (el) {
+    const floor = Math.ceil(offsetInContainer(el, container) - PIN_TOP_GAP_PX + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
+    if (floor > pinMinHeightPx.value) pinMinHeightPx.value = floor
+  } else if (trim && pinMinHeightPx.value > 0) {
+    const needed = Math.ceil(container.scrollTop + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
+    pinMinHeightPx.value = Math.max(0, Math.min(pinMinHeightPx.value, needed))
   }
   updateContentBelow()
 }
@@ -3227,18 +3249,30 @@ function animateScrollTo(container: HTMLElement, target: number) {
   pinScrollRAF = window.requestAnimationFrame(step)
 }
 
-// The user just sent `messageId`: hold it at the top while its answer streams.
+// The user just sent `messageId`. Its answer streams in below it without the
+// view chasing the bottom. If the prompt is already on screen with room under
+// it, nothing moves; otherwise the view eases the prompt up near the top.
 function pinTurnToTop(messageId: string) {
   pinnedId.value = messageId
+  pinScrolled = false
   isFollowing.value = false
   forceNextScroll = false
   if (typeof window === 'undefined') return
   nextTick(() => window.requestAnimationFrame(() => {
+    const container = scrollContainer.value
+    const el = container?.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement | null
+    if (!container || !el || pinnedId.value !== messageId) return
+    const top = offsetInContainer(el, container)
+    const viewTop = container.scrollTop
+    const roomBelow = viewTop + container.clientHeight - (top + el.offsetHeight)
+    if (top >= viewTop && roomBelow >= container.clientHeight * PIN_MIN_ROOM_RATIO) {
+      updateContentBelow()
+      return
+    }
+    pinScrolled = true
     updatePinSpacer()
     nextTick(() => {
-      const container = scrollContainer.value
-      const el = container?.querySelector(`[data-message-id="${messageId}"]`)
-      if (!container || !el || pinnedId.value !== messageId) return
+      if (pinnedId.value !== messageId) return
       animateScrollTo(container, offsetInContainer(el, container) - PIN_TOP_GAP_PX)
     })
   }))
@@ -3248,7 +3282,13 @@ function pinTurnToTop(messageId: string) {
 function endPinHold() {
   if (pinnedId.value === null) return
   pinnedId.value = null
+  pinScrolled = false
   cancelPinScroll()
+  updatePinSpacer()
+  // Resume following only if the reader is genuinely at the bottom already;
+  // otherwise a late layout change (feedback row, title) would move them.
+  const container = scrollContainer.value
+  if (container) isFollowing.value = container.scrollHeight - container.scrollTop - container.clientHeight <= AT_BOTTOM_EPS
 }
 
 watch([scrollContainer, transcriptContent], ([container, content]) => {
@@ -4608,7 +4648,7 @@ async function loadPreviousCompletions() {
 function onScroll() {
     const container = scrollContainer.value
     if (!container) return
-    updateContentBelow()
+    updatePinSpacer(true)
     // Infinite scroll trigger near top
     if (!isLoadingMore.value && hasMore.value) {
         const thresholdTop = 64
@@ -4636,7 +4676,7 @@ function onScroll() {
     //   (A downward clamp from shrinking content leaves us at the very bottom,
     //   hence the AT_BOTTOM_EPS guard.)
     if (top < lastScrollTop && distanceFromBottom > AT_BOTTOM_EPS) isFollowing.value = false
-    else if (distanceFromBottom <= FOLLOW_ZONE_PX) isFollowing.value = true
+    else if (distanceFromBottom <= FOLLOW_ZONE_PX && pinnedId.value === null) isFollowing.value = true
     lastScrollTop = top
 }
 
