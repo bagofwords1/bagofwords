@@ -1513,9 +1513,11 @@ const scrollContainer = ref<HTMLElement | null>(null)
 const transcriptContent = ref<HTMLElement | null>(null)
 // === Sticky-bottom follow mode ===
 // The timeline follows new content only while the reader is at the bottom.
-// `isFollowing` is derived from scroll POSITION alone (see onScroll): it flips
-// off the moment the user scrolls away and back on when they return, or when
-// they press the "jump to latest" pill. It deliberately does not depend on
+// `isFollowing` is driven by the reader's scrolling: an upward wheel gesture
+// that reaches the conversation releases it immediately (onFollowWheel — not
+// one consumed by a nested scroller), and scroll POSITION (onScroll) covers
+// every other input: it flips off when the user scrolls away and back on when
+// they return, or when they press the "jump to latest" pill. It deliberately does not depend on
 // isStreaming — a run resumed after a refresh, started from another tab, a
 // schedule or a webhook is streamed through the watch/poll paths with
 // isStreaming=false, and those used to scroll unconditionally on every
@@ -3077,11 +3079,38 @@ function scrollToBottom({ force = false }: { force?: boolean } = {}) {
   })
 }
 
-function onFollowWheel(event: WheelEvent) {
-  if (event.deltaY < 0) {
-    isFollowing.value = false
-    forceNextScroll = false
+// Whether an upward wheel gesture that started at `target` is consumed before
+// it reaches the transcript container. Wheel events bubble from nested
+// scrollers (wide tables, code blocks, the thinking panel), so the gesture only
+// belongs to the conversation if no element between the target and the
+// container takes it: one that can still scroll up, or one that blocks scroll
+// chaining (overscroll-behavior contain/none) even at its top.
+function nestedScrollerOwnsUpwardWheel(target: EventTarget | null, container: HTMLElement): boolean {
+  let el = target instanceof Element ? target : null
+  while (el && el !== container) {
+    if (el instanceof HTMLElement) {
+      const style = window.getComputedStyle(el)
+      const scrollsY = /^(auto|scroll|overlay)$/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1
+      if (scrollsY) {
+        if (el.scrollTop > 0) return true
+        if (style.overscrollBehaviorY === 'contain' || style.overscrollBehaviorY === 'none') return true
+      }
+    }
+    el = el.parentElement
   }
+  return false
+}
+
+// Upward wheel over the conversation releases following at once — before the
+// scroll event lands, so a queued pin (including a forced one) can't pull the
+// reader back down in the same frame. onScroll still applies the position rule
+// as a fallback for scrollbar drags, keyboard and touch.
+function onFollowWheel(event: WheelEvent) {
+  if (event.deltaY >= 0) return
+  const container = scrollContainer.value
+  if (!container || nestedScrollerOwnsUpwardWheel(event.target, container)) return
+  isFollowing.value = false
+  forceNextScroll = false
 }
 
 // Intentional scroll: initial load, the user sending/steering a message, the
@@ -4446,9 +4475,10 @@ function onScroll() {
         }
     }
 
-    // Follow mode is positional. Content growth doesn't fire scroll events
-    // (scrollTop is unchanged), so this runs for user scrolling, our own pins
-    // and the prepend anchor adjustment above.
+    // Position-based fallback: onFollowWheel releases upward wheel gestures
+    // first; this covers scrollbar drags, keyboard and touch. Content growth
+    // doesn't fire scroll events (scrollTop is unchanged), so this runs for
+    // user scrolling, our own pins and the prepend anchor adjustment above.
     //   - at the bottom → following (a pin landing, or the reader returning);
     //   - scrollTop moved UP → the reader left; stop following;
     //   - scrollTop moved DOWN but not to the bottom → keep the current state.

@@ -37,7 +37,7 @@ The same transcript is captured at 1440 × 960 for light, dark, and Hebrew, with
 - Prose: **13 → 15 px**, with **24 px** line height.
 - Top-level heading: **24 → 20 px**; secondary headings: 18/16 px.
 - Appended text and node entrance opacity fade: **900 → 180 ms**.
-- Scroll requests share one pending animation frame after the render commit. Content and viewport resize observation handles deferred layout growth. Upward wheel intent releases following immediately.
+- Scroll requests share one pending animation frame after the render commit. Content and viewport resize observation handles deferred layout growth. An upward wheel gesture that reaches the conversation releases following immediately and cancels a queued forced scroll; one consumed by a nested scroller (it can still scroll up, or blocks chaining with `overscroll-behavior`) leaves following on. The position-based scroll handler remains the fallback for other inputs. `node tests/reports/wheel-ownership.mjs` checks nested scrolling, a nested top boundary with and without containment, and upward scrolling directly over the conversation.
 - Composer padding follows the same outer column; automatic split opening retains a 480 px chat minimum while manual resizing still permits a narrower pane.
 - Reasoning and activity text are 13 px; compact typography and reduced-motion behavior are retained.
 
