@@ -500,7 +500,7 @@
                                     <div class="mt-3">
                                         <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Service Account Key JSON <span class="text-red-500">*</span></label>
                                         <textarea v-model="providerForm.credentials.service_account_json" rows="5"
-                                            placeholder='{"type": "service_account", "project_id": "...", "private_key": "..."}'
+                                            placeholder='Paste the service-account JSON key (project_id, private_key, ...)'
                                             class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full text-xs font-mono focus:outline-none focus:border-blue-500"></textarea>
                                         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Paste the whole key file. Needs the <span class="font-mono">roles/aiplatform.user</span> role. Project ID is taken from the key if left blank above.</p>
                                     </div>

@@ -125,7 +125,7 @@
         <!-- Google Workspace fields -->
         <template v-else-if="authType === 'google'">
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.email.googleHint') }}</p>
-          <textarea v-model="googleSaJson" rows="6" class="w-full border rounded px-2 py-1 font-mono text-xs" placeholder='{ "type": "service_account", ... }' required></textarea>
+          <textarea v-model="googleSaJson" rows="6" class="w-full border rounded px-2 py-1 font-mono text-xs" placeholder='Paste the service-account JSON key' required></textarea>
         </template>
 
         <hr class="my-4" />
