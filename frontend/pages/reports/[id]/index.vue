@@ -569,7 +569,8 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+									<RevealTransition :show="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && !!((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" @growing="followRevealFrame">
+									<div class="mt-3">
 										<InstructionSuggestions
 											:tool-execution="{
 												id: `suggestions-${m.id}`,
@@ -579,13 +580,15 @@
 											}"
 										/>
 									</div>
+									</RevealTransition>
 									<!-- Follow-up suggestions (below thumbs, latest message only) -->
-									<FollowUpSuggestions
-										v-if="isFollowUpsEnabled && m.id === lastMessageId && ((m as any).follow_ups?.length)"
-										:suggestions="(m as any).follow_ups"
-										:disabled="isStreaming || isCompletionInProgress"
-										@select="handleFollowUpClick"
-									/>
+									<RevealTransition :show="isFollowUpsEnabled && m.id === lastMessageId && !!((m as any).follow_ups?.length)" @growing="followRevealFrame">
+										<FollowUpSuggestions
+											:suggestions="(m as any).follow_ups"
+											:disabled="isStreaming || isCompletionInProgress"
+											@select="handleFollowUpClick"
+										/>
+									</RevealTransition>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
@@ -1064,6 +1067,7 @@ import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
+import RevealTransition from '~/components/report/RevealTransition.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
@@ -3114,6 +3118,17 @@ function scheduleFollowScroll() {
     followScrollToBottom()
     pendingScroll.value = false
   }
+}
+
+// Per-frame follow while a RevealTransition grows. scrollToBottom's deferred
+// write would land once mid-animation and leave the rest of the block below
+// the fold; pinning every frame turns the growth into a smooth slide.
+function followRevealFrame() {
+  if (!isFollowing.value) return
+  const container = scrollContainer.value
+  if (!container) return
+  const target = container.scrollHeight - container.clientHeight
+  if (target - container.scrollTop > AT_BOTTOM_EPS) container.scrollTop = target
 }
 
 function jumpToLatest() {
