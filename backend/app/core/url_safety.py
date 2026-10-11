@@ -22,6 +22,7 @@ second time (rebinding) is not stopped here.
 """
 
 import ipaddress
+import re
 import socket
 from collections.abc import Iterable
 from urllib.parse import urlparse
@@ -149,3 +150,93 @@ def git_remote_host(repo_url: str) -> tuple[str, str | None]:
 def check_git_remote(repo_url: str) -> None:
     _, host = git_remote_host(repo_url)
     check_admin_host(host)
+
+
+# ── Navigation-target checks (XSS guards) ───────────────────────────────────
+#
+# URLs a *browser* is sent to (OAuth client redirect URIs, a connection's
+# authorization endpoint) must never carry a script-executing or local scheme.
+# OAuth redirect URIs: allowlist of https + loopback http. Authorize URLs:
+# http(s). Both also refuse whitespace/control characters anywhere, which
+# defeats obfuscation (" JaVaScRiPt:", "java\tscript:").
+
+_SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_INVISIBLE = {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF}
+
+
+def _url_scheme(url: object) -> str | None:
+    """Lower-cased scheme of an absolute, cleanly-formed URL, else None.
+
+    None for non-strings, empty/relative URLs, and any URL containing
+    whitespace or control/invisible characters anywhere: browsers strip tabs
+    and newlines inside a scheme, so ``java\\tscript:`` would otherwise run.
+    """
+    if not isinstance(url, str) or not url or len(url) > 4096:
+        return None
+    for ch in url:
+        o = ord(ch)
+        if o <= 0x20 or 0x7F <= o <= 0x9F or ch.isspace() or o in _INVISIBLE:
+            return None
+    m = _SCHEME_RE.match(url)
+    return m.group(1).lower() if m else None
+
+
+def _has_http_authority(url: str, scheme: str) -> bool:
+    if not url[len(scheme) + 1:].startswith("//"):
+        return False
+    try:
+        return bool(urlparse(url).hostname)
+    except ValueError:
+        return False
+
+
+def is_safe_redirect_uri(url: object) -> bool:
+    """Allowlist: https with a host; http only on a loopback host or the app's own
+    configured base_url origin (exact scheme+host+port; local MCP tools, on-prem).
+    Custom app schemes are not supported (product decision, WP8)."""
+    scheme = _url_scheme(url)
+    if scheme == "https":
+        return _has_http_authority(url, scheme)
+    if scheme == "http" and _has_http_authority(url, scheme):
+        parsed = urlparse(url)
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        if (parsed.hostname or "").lower() in _LOOPBACK_HOSTS:
+            return True
+        # On-prem installs served over plain http (e.g. http://bow.corp:3000)
+        # register their own ``<origin>/oauth/callback``: allow an exact
+        # origin match with the configured base_url, nothing looser.
+        origin = _http_origin(url)
+        return origin is not None and origin in _app_http_origins()
+    return False
+
+
+_BASE_URL_PLACEHOLDERS = ("http://0.0.0.0:3000", "http://0.0.0.0:8000")
+
+
+def _http_origin(url: str) -> tuple[str, str, int] | None:
+    try:
+        p = urlparse(url)
+        if p.scheme.lower() != "http" or not p.hostname or p.username is not None or p.password is not None:
+            return None
+        return ("http", p.hostname.lower(), p.port or 80)
+    except ValueError:
+        return None
+
+
+def _app_http_origins() -> set[tuple[str, str, int]]:
+    """The app's own http origin(s) from ``bow_config.base_url`` (unset or the
+    0.0.0.0 placeholder means none)."""
+    from app.settings.config import settings
+    configured = (getattr(settings.bow_config, "base_url", None) or "").strip().rstrip("/")
+    if not configured or configured in _BASE_URL_PLACEHOLDERS:
+        return set()
+    origin = _http_origin(configured)
+    return {origin} if origin else set()
+
+
+def is_safe_http_url(url: object) -> bool:
+    """True when ``url`` is an absolute http(s) URL with a host."""
+    scheme = _url_scheme(url)
+    return scheme in ("http", "https") and _has_http_authority(url, scheme)

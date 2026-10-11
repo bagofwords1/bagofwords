@@ -1,3 +1,4 @@
+import { isSafeHttpUrl } from '~/utils/safeUrl'
 // Single entry point for "the user needs to authenticate against a
 // connection." Decides between an inline credentials modal and a direct
 // redirect to the provider's OAuth flow.
@@ -70,6 +71,9 @@ export function useConnectionSignIn() {
       const { data, error } = await useMyFetch(`/connections/${conn.id}/oauth/authorize${rt}`, { method: 'GET' })
       if (error.value) throw error.value
       const result = data.value as any
+      if (result?.authorization_url && !isSafeHttpUrl(result.authorization_url)) {
+        return { redirecting: false, error: 'OAuth start returned an unsafe authorization URL' }
+      }
       if (result?.authorization_url) {
         window.location.href = result.authorization_url
         return { redirecting: true }

@@ -14,6 +14,8 @@ from typing import AsyncIterator, Dict, Any, Type
 from pydantic import BaseModel
 import logging
 
+from fastapi import HTTPException
+
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.create_scheduled_task import (
@@ -93,7 +95,7 @@ class CreateScheduledTaskTool(Tool):
             max_retries=1,
             timeout_seconds=30,
             idempotent=False,
-            required_permissions=[],
+            required_permissions=["update_reports"],
             tags=["scheduling", "task", "automation", "action"],
             examples=[
                 {
@@ -227,6 +229,22 @@ class CreateScheduledTaskTool(Tool):
                         cron_schedule=data.cron_schedule,
                     ).model_dump(),
                     "observation": {"summary": summary, "success": True, "artifacts": []},
+                },
+            )
+        except HTTPException as e:
+            if e.status_code not in (403, 404):
+                yield ToolErrorEvent(
+                    type="tool.error",
+                    payload={"error": f"Failed to create scheduled task: {e.detail}", "code": "CREATE_FAILED"},
+                )
+                return
+            # Authorization denial: a clean, readable result for the agent.
+            msg = f"Not allowed to create this scheduled task: {e.detail}"
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": CreateScheduledTaskOutput(success=False, error=msg).model_dump(),
+                    "observation": {"summary": msg, "success": False, "artifacts": []},
                 },
             )
         except Exception as e:

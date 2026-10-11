@@ -75,6 +75,54 @@ async def _require_query_owner(db, query_id: str, current_user, organization) ->
     )
 
 
+async def _query_parent_report(db, q: Query, organization):
+    """The report a query lives on: its own report_id, else its widget's."""
+    report_id = q.report_id
+    if not report_id and q.widget_id:
+        from app.models.widget import Widget
+        report_id = (await db.execute(
+            select(Widget.report_id).where(Widget.id == str(q.widget_id))
+        )).scalar_one_or_none()
+    if not report_id:
+        return None
+    return (await db.execute(
+        select(Report).options(lazyload("*")).where(
+            Report.id == str(report_id),
+            Report.organization_id == str(organization.id),
+        )
+    )).scalar_one_or_none()
+
+
+async def _can_read_query(db, q: Query, current_user, organization) -> bool:
+    """A query is readable/runnable iff its parent report is readable: the
+    report owner, a full admin, or anyone the report's conversation/artifact
+    visibility (shared, internal, public) or project admits — the same rule as
+    ``entities/from_step`` and report files. A query with no report is visible
+    only to its creator (and full admins)."""
+    from app.services.file_access_service import (
+        user_can_view_report, is_full_admin, CONVERSATION_OR_ARTIFACT,
+    )
+    report = await _query_parent_report(db, q, organization)
+    if report is None:
+        if q.user_id and str(q.user_id) == str(current_user.id):
+            return True
+        return await is_full_admin(db, current_user, organization)
+    return await user_can_view_report(
+        db, current_user, organization, report, CONVERSATION_OR_ARTIFACT
+    )
+
+
+async def _require_query_read(db, query_id: str, current_user, organization) -> None:
+    q = (await db.execute(
+        select(Query).options(lazyload("*")).where(
+            Query.id == str(query_id),
+            Query.organization_id == str(organization.id),
+        )
+    )).scalar_one_or_none()
+    if q is None or not await _can_read_query(db, q, current_user, organization):
+        raise HTTPException(status_code=404, detail="Query not found")
+
+
 @router.get("", response_model=list[QuerySchema])
 @requires_permission('view_reports')
 async def list_queries(
@@ -96,6 +144,7 @@ async def list_queries(
     )
     from app.services.bow_source_access import can_read, report_access
     queries = [q for q in queries if await can_read(db, await report_access(db, q.report_id), current_user)]
+    queries = [q for q in queries if await _can_read_query(db, q, current_user, organization)]
     # Pydantic v2: model_validate for each, then apply the per-viewer step-data
     # policy so a non-owner never receives a withheld creator snapshot in the
     # embedded default_step.
@@ -162,6 +211,7 @@ async def get_query(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
+    await _require_query_read(db, query_id, current_user, organization)
     q = await service.get_query(
         db,
         query_id,
@@ -206,13 +256,16 @@ async def run_query_new_step(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
+    if (payload.mode or "builder") != "viewer":
+        # Builder mode executes caller-supplied `code`: an edit, owner-only.
+        await _require_run_custom_code(db, current_user, organization)
+        await _require_query_owner(db, query_id, current_user, organization)
+    # Every mode reads the stored query and its data. Viewer mode runs the
+    # stored step with parameter values only (ordinary report usage), so it is
+    # open to anyone who can read the parent report (owner, shared,
+    # published/public, project), not to every member.
+    await _require_query_read(db, query_id, current_user, organization)
     try:
-        if (payload.mode or "builder") != "viewer":
-            # Builder mode executes caller-supplied `code`. Viewer mode runs the
-            # query's already-stored step with parameter values only, which is
-            # ordinary report usage and stays open to every member.
-            await _require_run_custom_code(db, current_user, organization)
-            await _require_query_owner(db, query_id, current_user, organization)
 
         if (payload.mode or "builder") == "viewer":
             # Viewer-execute: run the default step's code with param values,
@@ -282,6 +335,7 @@ async def get_default_step(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
+    await _require_query_read(db, query_id, current_user, organization)
     step = await service.get_default_step_for_query(
         db,
         query_id,
@@ -306,6 +360,7 @@ async def preview_query_code(
         # Previewing runs caller-supplied code against the source, same trust
         # boundary as a builder-mode run.
         await _require_run_custom_code(db, current_user, organization)
+        await _require_query_read(db, query_id, current_user, organization)
         result = await service.preview_query_code(
             db,
             query_id,
