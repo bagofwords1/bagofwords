@@ -27,6 +27,7 @@ from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
 from app.models.domain_connection import domain_connection
+from app.errors.redact import redact_error
 from app.schemas.data_source_registry import (
     resolve_client_class,
     list_available_data_sources,
@@ -1861,7 +1862,7 @@ class ConnectionService:
             raise
         except Exception as e:
             logger.error(f"Error refreshing schema for connection {connection.id}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to refresh schema: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to refresh schema: {redact_error(e)}")
 
     async def construct_client(
         self,
@@ -2496,7 +2497,7 @@ class ConnectionService:
             raise
         except Exception as e:
             logger.error(f"Error refreshing tools for connection {connection.id}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to refresh tools: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to refresh tools: {redact_error(e)}")
 
     async def get_connection_tools(
         self,

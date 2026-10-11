@@ -221,7 +221,7 @@ class PptxCodeExecutor:
         # Verify the file was created
         if not output_path.exists():
             raise RuntimeError(
-                f"PPTX code executed but no file was created at {output_path}. "
+                "PPTX code executed but no file was created. "
                 "Ensure the code calls prs.save(_pptx_output_path)"
             )
 

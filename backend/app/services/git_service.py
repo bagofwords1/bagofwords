@@ -33,6 +33,7 @@ from app.models.user import User
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
 from app.models.instruction import Instruction
+from app.errors.redact import redact_error
 from app.schemas.git_repository_schema import (
     GitRepositoryCreate,
     GitRepositoryUpdate,
@@ -61,7 +62,7 @@ class GitService:
         try:
             check_git_remote(repo_url)
         except UnsafeURLError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=redact_error(e))
 
     async def _verify_data_source(
         self, db: AsyncSession, data_source_id: str, organization: Organization
@@ -192,11 +193,11 @@ class GitService:
                 return {"success": True, "message": "Connection successful"}
 
         except git.GitCommandError as e:
-            raise HTTPException(status_code=400, detail=f"Git error: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Git error: {redact_error(e)}")
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Connection failed: {redact_error(e)}")
 
     async def _ls_remote_with_ssh(self, repo_url: str, ssh_key: str) -> str:
         """List remote refs using SSH key."""
@@ -674,7 +675,7 @@ class GitService:
         except Exception as e:
             repository.status = "failed"
             await db.commit()
-            raise HTTPException(status_code=500, detail=f"Failed to index repository: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to index repository: {redact_error(e)}")
 
     async def clone_repository(
         self,
@@ -746,7 +747,7 @@ class GitService:
 
             return repo
         except git.GitCommandError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to clone repository: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to clone repository: {redact_error(e)}")
 
     async def get_indexing_job_status(
         self,
@@ -862,7 +863,7 @@ class GitService:
             raise
         except Exception as e:
             logger.error(f"Failed to sync branch '{branch}': {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to sync branch: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to sync branch: {redact_error(e)}")
 
     # ==================== Push Build (BOW -> Git) ====================
 
@@ -989,7 +990,7 @@ class GitService:
             raise
         except Exception as e:
             logger.error(f"Failed to push build {build_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to push build: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to push build: {redact_error(e)}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

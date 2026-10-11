@@ -23,6 +23,7 @@ from app.models.connection import Connection
 from app.core.auth import current_user, SECRET
 from app.settings.config import settings
 from app.settings.logging_config import get_logger
+from app.errors.redact import redact_error
 from app.services.connection_oauth_service import (
     generate_pkce_pair,
     get_oauth_params,
@@ -83,7 +84,7 @@ def _decode_state(state: str) -> dict:
     except pyjwt.ExpiredSignatureError:
         raise HTTPException(status_code=400, detail="OAuth state expired")
     except pyjwt.InvalidTokenError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid OAuth state: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid OAuth state: {redact_error(e)}")
     return payload
 
 
@@ -193,13 +194,13 @@ async def oauth_authorize(
             from app.services.mcp_dcr_service import ensure_mcp_oauth_config
             await ensure_mcp_oauth_config(db, connection)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"MCP OAuth discovery/registration failed: {e}")
+            raise HTTPException(status_code=400, detail=f"MCP OAuth discovery/registration failed: {redact_error(e)}")
 
     # Get OAuth params for this connection type
     try:
         oauth_params = get_oauth_params(connection)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=redact_error(e))
 
     # PKCE verifier stays in a cookie (it's per-session, not security-sensitive to tamper).
     code_verifier, code_challenge = generate_pkce_pair()

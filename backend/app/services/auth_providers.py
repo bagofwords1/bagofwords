@@ -18,6 +18,7 @@ from app.settings.bow_config import brand_for_issuer
 from app.core.auth import get_jwt_strategy
 
 import logging as _logging
+from app.errors.redact import redact_error
 
 _auth_logger = _logging.getLogger(__name__)
 
@@ -322,7 +323,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
                 request=request,
                 details={"provider": provider, "reason": "user_info_fetch_failed"},
             )
-            raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {redact_error(e)}")
 
         # Use user manager to link/create. Any failure (e.g. missing invite) is
         # handled by the outer wrapper and surfaced on the sign-in page.
@@ -405,7 +406,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
             request=request,
             details={"provider": provider, "reason": "token_exchange_failed"},
         )
-        raise HTTPException(status_code=400, detail=f"Token exchange failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Token exchange failed: {redact_error(e)}")
 
     access_token = token.get("access_token")
     refresh_token = token.get("refresh_token")
@@ -444,7 +445,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
                     request=request,
                     details={"provider": provider, "reason": "user_info_fetch_failed"},
                 )
-                raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
+                raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {redact_error(e)}")
 
     if not account_email:
         await _audit_auth_event(
