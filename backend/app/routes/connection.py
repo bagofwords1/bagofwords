@@ -1023,7 +1023,23 @@ async def get_connection_indexing(
         row = await indexing_service.get_latest(db, connection_id)
     if row is None:
         raise HTTPException(status_code=404, detail="No indexing runs found for this connection")
-    return _indexing_to_progress(row)
+    progress = _indexing_to_progress(row)
+    if not await _can_manage_connection(db, organization, current_user, connection):
+        # A non-manager only learns about what they can see: the linked-agent
+        # count is the caller's visible agents, and the run's raw event log and
+        # unreadable-dataset diagnostics (catalog/agent internals) are withheld.
+        # The caller's own per-user run is theirs and is returned unredacted.
+        if progress.scope != "user":
+            stats = dict(progress.stats or {})
+            if "synced_domains" in stats:
+                stats["synced_domains"] = len(
+                    await visible_linked_agents(db, organization, current_user, connection)
+                )
+            stats.pop("unreadable_datasets", None)
+            stats.pop("unreadable_dataset_count", None)
+            progress.stats = stats if progress.stats is not None else None
+            progress.events = []
+    return progress
 
 
 @router.post("/{connection_id}/indexing/cancel")
@@ -1076,6 +1092,50 @@ async def _ensure_can_read_connection(db, organization, current_user, connection
     raise HTTPException(status_code=403, detail="Access denied to this connection")
 
 
+async def _can_manage_connection(db, organization, current_user, connection) -> bool:
+    """Connection managers (full admin, org ``manage_connections``, or a
+    per-connection ``manage_connection`` grant) see the whole connection:
+    every catalog table, every linked agent, the raw indexing log."""
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    return (
+        FULL_ADMIN in resolved.org_permissions
+        or resolved.has_org_permission("manage_connections")
+        or resolved.has_resource_permission("connection", str(connection.id), "manage_connection")
+    )
+
+
+async def visible_linked_agents(db, organization, current_user, connection) -> list:
+    """The agents linked to ``connection`` that this caller may see.
+
+    The one visibility rule every connection read surface shares
+    (accessible-agents, indexing, tables): connection managers see every
+    linked agent; everyone else sees an agent only when they can access it
+    (public, or a direct/group/role grant) AND its publishing lifecycle shows
+    it to them (``filter_live_data_sources``: no disabled/inactive agents,
+    drafts only to their managers, development agents only to agent admins) —
+    the same rules as the agent list.
+    """
+    linked = [
+        ds for ds in (connection.data_sources or [])
+        if getattr(ds, "deleted_at", None) is None
+    ]
+    if await _can_manage_connection(db, organization, current_user, connection):
+        return linked
+    from app.core.permission_resolver import get_accessible_data_source_ids
+    from app.services.data_source_service import DataSourceService
+    all_access, accessible_ids = await get_accessible_data_source_ids(
+        db, str(current_user.id), str(organization.id)
+    )
+    allowed = set(map(str, accessible_ids))
+    accessible = [
+        ds for ds in linked
+        if all_access or getattr(ds, "is_public", False) or str(ds.id) in allowed
+    ]
+    return await DataSourceService().filter_live_data_sources(
+        db, accessible, current_user, organization
+    )
+
+
 @router.get("/{connection_id}/accessible-agents")
 async def get_connection_accessible_agents(
     connection_id: str,
@@ -1084,18 +1144,11 @@ async def get_connection_accessible_agents(
     organization: Organization = Depends(get_current_organization),
 ):
     """Linked agents visible to this viewer, without exposing hidden agent names."""
-    from app.core.permission_resolver import get_accessible_data_source_ids
-
     connection = await connection_service.get_connection(db, connection_id, organization)
     await _ensure_can_read_connection(db, organization, current_user, connection)
-    all_access, accessible_ids = await get_accessible_data_source_ids(
-        db, str(current_user.id), str(organization.id)
-    )
-    allowed = set(map(str, accessible_ids))
     agents = [
         {"id": str(agent.id), "name": agent.name, "icon": agent.icon}
-        for agent in (connection.data_sources or [])
-        if all_access or agent.is_public or str(agent.id) in allowed
+        for agent in await visible_linked_agents(db, organization, current_user, connection)
     ]
     return sorted(agents, key=lambda agent: (agent["name"].casefold(), agent["id"]))
 
@@ -1115,12 +1168,40 @@ async def get_connection_tables(
     )
     await _ensure_can_read_connection(db, organization, current_user, connection)
 
+    # Non-managers see only the tables their visible agents have selected:
+    # a table deselected on every agent they can use is not theirs to browse.
+    selected_ids = None
+    if not await _can_manage_connection(db, organization, current_user, connection):
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        linked_ids = {str(ds.id) for ds in (connection.data_sources or [])}
+        manages_linked_agent = any(
+            resolved.has_resource_permission("data_source", ds_id, "manage")
+            for ds_id in linked_ids
+        )
+        if not manages_linked_agent:
+            agent_ids = [
+                str(ds.id) for ds in
+                await visible_linked_agents(db, organization, current_user, connection)
+            ]
+            selected_ids = set()
+            if agent_ids:
+                rows = await db.execute(
+                    select(DataSourceTable.connection_table_id).where(
+                        DataSourceTable.datasource_id.in_(agent_ids),
+                        DataSourceTable.is_active.is_(True),
+                        DataSourceTable.connection_table_id.isnot(None),
+                    )
+                )
+                selected_ids = {str(r) for (r,) in rows.all()}
+
     result = []
     for table in (connection.connection_tables or []):
         # BOW custom tables are served by their own endpoint; they are not
         # introspected source tables and must not appear here. Soft-deleted
         # rows must not appear either.
         if table.kind == KIND_BOW or table.deleted_at is not None:
+            continue
+        if selected_ids is not None and str(table.id) not in selected_ids:
             continue
         result.append(ConnectionTableSchema(
             id=str(table.id),
