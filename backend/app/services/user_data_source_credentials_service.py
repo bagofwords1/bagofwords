@@ -45,6 +45,23 @@ class UserDataSourceCredentialsService:
             conn
         )
 
+    @staticmethod
+    def _user_auth_variant(ds_type: str, allowed_user_auth_modes, auth_mode: str):
+        """Resolve the registry variant for a per-user ``auth_mode`` and enforce
+        the connection's ``allowed_user_auth_modes`` policy.
+
+        Shared by every my-credentials path (save, patch, test) so none of them
+        can accept a mode the admin did not allow. Raises 400 otherwise.
+        """
+        entry = get_entry(ds_type)
+        variant = (entry.credentials_auth.by_auth or {}).get(auth_mode)
+        if not variant or ("user" not in (variant.scopes or [])):
+            raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
+        allowed = allowed_user_auth_modes or []
+        if allowed and auth_mode not in allowed:
+            raise HTTPException(status_code=400, detail="Authentication mode not permitted by data source policy")
+        return variant
+
     async def get_primary_active_row(self, db: AsyncSession, data_source: DataSource, user: User) -> Optional[UserDataSourceCredentials]:
         stmt = (
             select(UserDataSourceCredentials)
@@ -367,11 +384,9 @@ class UserDataSourceCredentialsService:
         if not ds_type:
             raise HTTPException(status_code=400, detail="Data source has no connection")
         
-        # Validate against registry
-        entry = get_entry(ds_type)
-        variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
-        if not variant or ("user" not in (variant.scopes or [])):
-            raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
+        # Validate against registry AND the connection's allowed-modes policy
+        # before anything below builds a client and connects out.
+        variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
@@ -415,16 +430,8 @@ class UserDataSourceCredentialsService:
         if not ds_type:
             raise HTTPException(status_code=400, detail="Data source has no connection")
         
-        # Policy: ensure auth_mode allowed for user scope
-        entry = get_entry(ds_type)
-        variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
-        if not variant or ("user" not in (variant.scopes or [])):
-            raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
-
-        # If DS restricts allowed_user_auth_modes, enforce
-        allowed = allowed_user_auth_modes or []
-        if allowed and payload.auth_mode not in allowed:
-            raise HTTPException(status_code=400, detail="Authentication mode not permitted by data source policy")
+        # Policy: auth_mode must be a user-scope mode the connection allows
+        variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
 
         # Validate credentials against registry schema
         schema_cls = variant.schema
@@ -525,10 +532,7 @@ class UserDataSourceCredentialsService:
 
         # Apply changes
         if payload.auth_mode:
-            entry = get_entry(ds_type)
-            variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
-            if not variant or ("user" not in (variant.scopes or [])):
-                raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
+            variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
             # Validate new credentials
             schema_cls = variant.schema
             try:
