@@ -23,6 +23,12 @@ from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# additional_config keys that decide which host a provider's credentials are
+# sent to (and whether TLS is verified). Changing any of these in a test must
+# not reuse stored secrets. Value is the default when the key is absent.
+_DESTINATION_CONFIG_KEYS = {"base_url": None, "endpoint_url": None, "verify_ssl": True}
+
+
 class LLMService:
     def __init__(self):
         pass
@@ -2796,12 +2802,32 @@ class LLMService:
         # Seed encrypted credentials + config from the saved provider; any
         # credentials supplied in the payload override these below.
         if stored_provider is not None:
+            # The stored secret is bound to the stored provider type.
+            if provider.provider_type != stored_provider.provider_type:
+                raise HTTPException(status_code=400, detail="provider_type does not match the saved provider")
             provider_obj.api_key = stored_provider.api_key
             provider_obj.api_secret = stored_provider.api_secret
             provider_obj.additional_config = dict(stored_provider.additional_config or {})
 
         # Set credentials and merge provider-specific additional_config
         self._set_provider_credentials(provider_obj, provider.credentials or {})
+
+        # Never send a stored secret somewhere other than where it was saved
+        # for: if the payload moved the destination (endpoint, base URL,
+        # TLS verification), drop the stored secrets so
+        # only credentials typed into this request are used.
+        if stored_provider is not None:
+            stored_config = stored_provider.additional_config or {}
+            new_config = provider_obj.additional_config or {}
+            if any(
+                stored_config.get(k, default) != new_config.get(k, default)
+                for k, default in _DESTINATION_CONFIG_KEYS.items()
+            ):
+                provider_obj.api_key = None
+                provider_obj.api_secret = None
+                # Re-apply the payload: config is unchanged, secrets now come
+                # from the payload alone.
+                self._set_provider_credentials(provider_obj, provider.credentials or {})
 
         # Choose a model to test from user-provided list, preferring default or custom
         selected_model = None
