@@ -54,6 +54,7 @@
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import type { ConnectionIndexing } from '~/composables/useConnectionStatus'
 import { connectionSignInError } from '~/composables/useConnectionSignIn'
+import { isSafeHttpUrl } from '~/utils/safeUrl'
 const props = defineProps<{ modelValue: boolean; connection: any; initialValues: any; loading?: boolean; lastTest?: { success: boolean; message: string } | null }>()
 const emit = defineEmits(['update:modelValue', 'success', 'deleted', 'tested'])
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
@@ -70,7 +71,7 @@ async function signIn() {
   signingIn.value = true
   try {
     const { data, error } = await useMyFetch(`/connections/${props.connection.id}/oauth/authorize?return_to=${encodeURIComponent(route.fullPath)}`, { method: 'GET' })
-    if (error.value || !(data.value as any)?.authorization_url) {
+    if (error.value || !isSafeHttpUrl((data.value as any)?.authorization_url)) {
       operationError.value = error.value
         ? connectionSignInError(error.value, t('data.requestFailed'))
         : t('data.requestFailed')

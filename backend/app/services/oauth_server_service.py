@@ -17,6 +17,7 @@ from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.session_revocation import lock_user_sessions
+from app.core.url_safety import is_safe_redirect_uri
 from app.models.oauth_server import (
     OAuthAccessToken,
     OAuthAuthorizationCode,
@@ -369,6 +370,10 @@ class OAuthServerService:
         return client
 
     def validate_redirect_uri(self, client: OAuthClient, redirect_uri: str) -> bool:
+        # Re-checked at use time so a row stored before scheme validation
+        # existed (e.g. a javascript: URI) can never be redirected to.
+        if not is_safe_redirect_uri(redirect_uri):
+            return False
         allowed = json.loads(client.redirect_uris)
         return redirect_uri in allowed
 

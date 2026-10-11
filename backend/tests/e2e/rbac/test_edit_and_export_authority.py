@@ -61,7 +61,7 @@ async def _seed_query_for(user_id, org_id):
         await db.flush()
         query.default_step_id = step.id
         await db.commit()
-        return {"query_id": str(query.id), "step_id": str(step.id)}
+        return {"query_id": str(query.id), "step_id": str(step.id), "report_id": str(report.id)}
 
 
 async def _default_step(query_id):
@@ -122,15 +122,27 @@ async def test_only_the_query_owner_can_replace_its_code(
 async def test_viewer_mode_run_stays_open_to_non_owners(
     test_client, bootstrap_admin, invite_user_to_org,
 ):
+    """Viewer mode stays open to non-owners who can read the report (here: a
+    published dashboard). A private report's queries are not theirs to run."""
     admin = bootstrap_admin()
     member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
     seeded = await _seed_query_for(admin["user_id"], admin["org_id"])
-    resp = test_client.post(
-        f"/api/queries/{seeded['query_id']}/run",
-        json={"mode": "viewer", "params": {}},
-        headers=_hdr(member["token"], admin["org_id"]),
+
+    def run():
+        return test_client.post(
+            f"/api/queries/{seeded['query_id']}/run",
+            json={"mode": "viewer", "params": {}},
+            headers=_hdr(member["token"], admin["org_id"]),
+        )
+
+    assert run().status_code == 404
+    shared = test_client.put(
+        f"/api/reports/{seeded['report_id']}/visibility/artifact",
+        json={"visibility": "internal"}, headers=_hdr(admin["token"], admin["org_id"]),
     )
-    assert resp.status_code != 403, resp.text
+    assert shared.status_code == 200, shared.text
+    resp = run()
+    assert resp.status_code not in (403, 404), resp.text
 
 
 @pytest.mark.e2e

@@ -69,6 +69,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import { isSafeRedirectUri } from '~/utils/safeUrl'
 
 definePageMeta({ layout: 'users' })
 
@@ -121,7 +122,7 @@ onMounted(async () => {
     return
   }
 
-  if (!clientId || !redirectUri || !codeChallenge) {
+  if (!clientId || !redirectUri || !codeChallenge || !isSafeRedirectUri(redirectUri)) {
     errorMessage.value = t('settings.integrations.channels.oauth.invalidAuthorizationRequest')
     pageLoading.value = false
     return
@@ -173,7 +174,7 @@ async function approve() {
         code_challenge_method: codeChallengeMethod,
       },
     }) as any
-    if (!data.redirect_url) throw new Error('missing_redirect')
+    if (!isSafeRedirectUri(data.redirect_url)) throw new Error('missing_redirect')
     window.location.assign(data.redirect_url)
   } catch {
     trustedAutoApprove.value = false
@@ -183,7 +184,7 @@ async function approve() {
 }
 
 function deny() {
-  if (!requestValidated.value) return goBack()
+  if (!requestValidated.value || !isSafeRedirectUri(redirectUri)) return goBack()
   const callback = new URL(redirectUri)
   callback.searchParams.set('error', 'access_denied')
   if (state) callback.searchParams.set('state', state)
