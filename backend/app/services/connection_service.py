@@ -1092,8 +1092,13 @@ class ConnectionService:
         current_user: User = None,
         config_overrides: dict = None,
         credential_overrides: dict = None,
+        persist: bool = True,
     ) -> dict:
         """Test an existing connection, optionally with override config/credentials.
+
+        ``persist=False`` runs the probe and returns the result without writing
+        any cached status or ``is_active`` change: read-only callers (view-level
+        agent members) may check connectivity but not flip org-wide state.
 
         The response is always augmented with a `timings.total_ms` field and a
         non-None `details` dict (may be empty). Clients that fill in richer
@@ -1113,6 +1118,9 @@ class ConnectionService:
 
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
+            if not persist:
+                return self._finish_status(connection_status, t0)
+
             # Cache the test result
             if current_user is None:
                 connection.last_connection_status = "success" if success else "not_connected"
@@ -1126,29 +1134,35 @@ class ConnectionService:
                     connection.is_active = True
 
             await db.commit()
-            if isinstance(connection_status, dict):
-                timings = dict(connection_status.get("timings") or {})
-                timings.setdefault("total_ms", round((_time.perf_counter() - t0) * 1000, 1))
-                connection_status["timings"] = timings
-                if connection_status.get("details") is None:
-                    connection_status["details"] = {}
-            return connection_status
+            return self._finish_status(connection_status, t0)
 
         except Exception as e:
-            if current_user is None:
-                connection.last_connection_status = "not_connected"
-                connection.last_connection_checked_at = datetime.utcnow()
+            if persist:
+                if current_user is None:
+                    connection.last_connection_status = "not_connected"
+                    connection.last_connection_checked_at = datetime.utcnow()
 
-            if connection.auth_policy == "system_only":
-                connection.is_active = False
+                if connection.auth_policy == "system_only":
+                    connection.is_active = False
 
-            await db.commit()
+                await db.commit()
             return {
                 "success": False,
                 "message": str(e),
                 "timings": {"total_ms": round((_time.perf_counter() - t0) * 1000, 1)},
                 "details": {},
             }
+
+    @staticmethod
+    def _finish_status(connection_status, t0):
+        import time as _time
+        if isinstance(connection_status, dict):
+            timings = dict(connection_status.get("timings") or {})
+            timings.setdefault("total_ms", round((_time.perf_counter() - t0) * 1000, 1))
+            connection_status["timings"] = timings
+            if connection_status.get("details") is None:
+                connection_status["details"] = {}
+        return connection_status
 
     async def list_kerberos_access(self, db: AsyncSession, connection: Connection) -> list[dict]:
         """Per-member Kerberos SSO verification roster for a connection.

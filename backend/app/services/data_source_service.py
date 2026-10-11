@@ -1253,7 +1253,9 @@ class DataSourceService:
 
         return result
 
-    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None) -> DataSourceSchema:
+    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None, include_config: bool = True) -> DataSourceSchema:
+        # include_config=False: view-level callers. Connection config carries
+        # internal topology that belongs on manage-gated surfaces only.
         # lazyload("*") suppresses the model-level lazy="selectin" cascade
         # (reports → widgets/queries/completions/…). The detail schema does
         # surface git_repository and memberships, so keep those eager. We
@@ -1301,6 +1303,7 @@ class DataSourceService:
             indexing_by_conn=indexing_by_conn,
             table_count_by_conn=table_count_by_conn,
             legacy_count_by_ds=legacy_count_by_ds,
+            include_config=include_config,
         )
 
         # Get first connection for legacy fields
@@ -1308,7 +1311,7 @@ class DataSourceService:
 
         # Parse config from connection (may be stored as JSON string)
         conn_config = None
-        if conn and conn.config:
+        if include_config and conn and conn.config:
             conn_config = json.loads(conn.config) if isinstance(conn.config, str) else conn.config
 
         # Serialize primary_instruction if present
@@ -2431,7 +2434,9 @@ class DataSourceService:
         await db.commit()
         return {"message": "Data source tables deleted successfully"}
     
-    async def test_data_source_connection(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+    async def test_data_source_connection(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User, persist: bool = True):
+        """``persist=False`` (view-level callers) returns the probe result
+        without writing connection status or the agent's ``is_active``."""
         from datetime import datetime, timezone
         from sqlalchemy.orm import selectinload
         from app.services.connection_service import ConnectionService
@@ -2464,6 +2469,7 @@ class DataSourceService:
                         connection_id=str(conn.id),
                         organization=organization,
                         current_user=current_user,
+                        persist=persist,
                     )
                     success = bool(last_status.get("success")) if isinstance(last_status, dict) else bool(last_status)
                     if not success:
@@ -2473,14 +2479,14 @@ class DataSourceService:
                     last_status = {"success": False, "message": str(e)}
 
             # Reflect connectivity on org-wide flag only for system creds
-            if getattr(data_source, "auth_policy", "system_only") == "system_only":
+            if persist and getattr(data_source, "auth_policy", "system_only") == "system_only":
                 if not all_success:
                     data_source.is_active = False
                 elif data_source.is_active == False:
                     data_source.is_active = True
                 await db.commit()
+                await db.refresh(data_source)
 
-            await db.refresh(data_source)
             connection_status = last_status or {"success": all_success}
 
         except Exception as e:
@@ -4382,17 +4388,29 @@ class DataSourceService:
                     conn_name = conn.name
                     conn_type = conn.type
 
+            # Column hiding is a manager's curation; readers get the same
+            # stripped view the non-paginated path (to_prompt_table) serves.
+            # Managers keep every column so the selector can toggle them.
+            if restrict_to_active and table.excluded_columns:
+                from app.ai.prompt_formatters import filter_columns, filter_fks
+                _cols = filter_columns(table.columns, table.excluded_columns)
+                _pks = filter_columns(table.pks, table.excluded_columns)
+                _fks = filter_fks(table.fks, table.excluded_columns)
+                _excluded = None
+            else:
+                _cols, _pks, _fks = table.columns or [], table.pks or [], table.fks or []
+                _excluded = table.excluded_columns or None
             table_schema = DataSourceTableSchema(
                 id=str(table.id),
                 name=table.name,
-                columns=table.columns or [],
+                columns=_cols,
                 no_rows=table.no_rows or 0,
                 datasource_id=str(table.datasource_id),
-                pks=table.pks or [],
-                fks=table.fks or [],
+                pks=_pks,
+                fks=_fks,
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
-                excluded_columns=table.excluded_columns or None,
+                excluded_columns=_excluded,
                 # Connection info
                 connection_id=conn_id,
                 connection_name=conn_name,
