@@ -523,7 +523,7 @@ Current code:
 {code}
 ```
 
-Fix ONLY what the error requires — do not redesign, restyle, or restructure anything else. Common causes: passing a non-string (e.g. a column dict) to a text property, indexing a row with the wrong key, referencing an undefined name, wrong python-pptx API usage.
+Fix ONLY what the error requires — do not redesign, restyle, or restructure anything else. Common causes: passing a non-string (e.g. a column dict) to a text property, indexing a row with the wrong key, referencing an undefined name, wrong python-pptx API usage. A "Forbidden attribute access" error means the code touched a `_`-prefixed internal (e.g. `_element`, `fill._xPr`): rewrite that part with the public python-pptx API, dropping the effect if no public API exists.
 
 Output the FULL corrected code in a ```python code block. No explanations, no diff markers."""
 
@@ -2093,9 +2093,13 @@ Images (only present when the user attached or generated some):
                                    width=Inches(13.333))
   Cover the slide for a hero/background, or inset it in a content column.
   There is no filesystem access — `image()` is the only way to place art.
-  When an image sits behind text, draw a translucent scrim rectangle between
-  them or the text becomes unreadable; send the picture to the back by
-  inserting it first.{embeddable_images}
+  When an image sits behind text, put the text on a solid-color band or panel
+  drawn over the picture or the text becomes unreadable; send the picture to
+  the back by inserting it first.{embeddable_images}
+
+Use the public python-pptx API only. Never touch `_`-prefixed internals
+(`_element`, `_spTree`, `fill._xPr`, raw lxml): the sandbox rejects any
+private or dunder attribute and the deck fails to build.
 
 Output:
 - _pptx_output_path: str — path to save the presentation to
