@@ -75,6 +75,34 @@ class ScheduledPromptService:
     def _job_id(self, sp_id: str) -> str:
         return f"scheduled_prompt_{sp_id}"
 
+    async def ensure_can_manage(
+        self,
+        db: AsyncSession,
+        report: Report,
+        current_user: User,
+        organization: Organization,
+    ) -> None:
+        """Authorize creating/editing a scheduled task on ``report``.
+
+        Mirrors the REST routes' ``@requires_permission('update_reports',
+        model=Report, owner_only=True)`` so every caller of the service —
+        HTTP routes AND the agent tools (create/edit_scheduled_task) — goes
+        through one control: the report must belong to the org, the caller
+        must own it, and must hold ``update_reports``. Raises 403/404.
+        """
+        from app.core.permission_resolver import resolve_permissions
+
+        if report is None or str(report.organization_id) != str(organization.id):
+            raise HTTPException(status_code=404, detail="Report not found")
+        if str(report.user_id) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Only the report owner can manage its scheduled tasks")
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if not resolved.has_org_permission("update_reports"):
+            raise HTTPException(
+                status_code=403,
+                detail="You need the update_reports permission to manage scheduled tasks",
+            )
+
     async def create_scheduled_prompt(
         self,
         db: AsyncSession,
@@ -88,6 +116,7 @@ class ScheduledPromptService:
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+        await self.ensure_can_manage(db, report, current_user, organization)
 
         # Parse cron to validate early
         cron_params = _parse_cron_expression(data.cron_schedule)
@@ -144,6 +173,8 @@ class ScheduledPromptService:
         organization: Organization,
     ) -> ScheduledPrompt:
         sp = await self._get_or_404(db, scheduled_prompt_id)
+        report = (await db.execute(select(Report).filter(Report.id == sp.report_id))).scalar_one_or_none()
+        await self.ensure_can_manage(db, report, current_user, organization)
 
         if data.prompt is not None:
             sp.prompt = data.prompt
