@@ -3556,7 +3556,24 @@ class ReportService:
 
         # Check conversation visibility
         await self._check_visibility(db, report, 'conversation_visibility', user)
-        
+
+        # PII display redaction: the same org redactor + helpers the owner's
+        # timeline (CompletionService.get_completions_v2 → completion_v2
+        # serializers) applies, scoped to the report's org — so a share link
+        # can never show more than the owner view does. Parity is pinned by
+        # tests/e2e/test_public_output_parity.py.
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
+        async with display_redaction(str(report.organization_id), async_session_maker):
+            return await self._build_public_conversation(db, report, limit, before)
+
+    async def _build_public_conversation(self, db: AsyncSession, report, limit: int, before: str | None) -> dict:
+        from app.ai.llm.pii.display import (
+            redact_deep_display,
+            redact_prompt_display,
+            redact_text_display,
+        )
+
         # Fetch completions for this report
         from app.models.completion import Completion
         from app.models.completion_block import CompletionBlock
@@ -3686,8 +3703,8 @@ class ReportService:
                 "id": b.id,
                 "block_index": b.block_index,
                 "status": b.status,
-                "content": b.content,
-                "reasoning": b.reasoning,
+                "content": redact_text_display(b.content),
+                "reasoning": redact_text_display(b.reasoning),
                 "started_at": b.started_at.isoformat() if b.started_at else None,
                 "completed_at": b.completed_at.isoformat() if b.completed_at else None,
                 # Which phase of the turn produced this block. 'knowledge_harness'
@@ -3701,9 +3718,10 @@ class ReportService:
 
             if pd:
                 block_data["plan_decision"] = {
-                    "reasoning": pd.reasoning,
-                    "assistant": pd.assistant,
-                    "final_answer": pd.final_answer,
+                    # The decision echoes the block text, so it gets the same mask.
+                    "reasoning": redact_text_display(pd.reasoning),
+                    "assistant": redact_text_display(pd.assistant),
+                    "final_answer": redact_text_display(pd.final_answer),
                     "analysis_complete": pd.analysis_complete,
                 }
             
@@ -3718,7 +3736,8 @@ class ReportService:
                 # painted their chrome around blank text — the share view was
                 # already serving the far more revealing result_json, so the
                 # input was withheld to no one's benefit.
-                result_json = project_tool_result_for_ui(te.result_json)
+                # Project → PII-redact, the order the owner serializer uses.
+                result_json = redact_deep_display(project_tool_result_for_ui(te.result_json))
                 block_data["tool_execution"] = sanitize_json_strings({
                     "id": te.id,
                     "tool_name": te.tool_name,
@@ -3749,7 +3768,7 @@ class ReportService:
                 "id": c.id,
                 "role": c.role,
                 "status": c.status,
-                "prompt": c.prompt if c.role == "user" else None,
+                "prompt": redact_prompt_display(c.prompt) if c.role == "user" else None,
                 "completion_blocks": c_blocks if c.role == "system" else [],
                 "created_at": c.created_at.isoformat() if c.created_at else None,
             }
