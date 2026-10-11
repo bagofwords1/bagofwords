@@ -444,11 +444,11 @@ class ScheduledPromptService:
             # schedule as them. If the owner is no longer bound to the org
             # (removed directly or via LDAP/OIDC/SCIM sync), deactivate the
             # schedule and drop its cron job instead of firing it.
-            from app.core.permission_resolver import principal_belongs_to_org
-            if not await principal_belongs_to_org(db, user, str(organization.id)):
+            from app.core.permission_resolver import principal_can_act_in_org
+            if not await principal_can_act_in_org(db, user, str(organization.id)):
                 logger.warning(
-                    f"Scheduled prompt {sp.id}: owner {sp.user_id} is no longer a "
-                    f"member of org {organization.id}; deactivating schedule."
+                    f"Scheduled prompt {sp.id}: owner {sp.user_id} is deactivated or no "
+                    f"longer a member of org {organization.id}; deactivating schedule."
                 )
                 sp.is_active = False
                 await db.commit()

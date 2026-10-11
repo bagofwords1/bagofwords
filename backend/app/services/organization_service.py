@@ -630,6 +630,11 @@ class OrganizationService:
                 scheduled_prompt_service._remove_job(sp_id)
             except Exception:
                 logger.warning(f"Failed to remove cron job for scheduled prompt {sp_id}", exc_info=True)
+        try:
+            from app.services.wait_service import wait_service
+            wait_service.cancel_waits_for_user(str(user_id), str(organization_id))
+        except Exception:
+            logger.warning("Failed to cancel pending waits for removed member", exc_info=True)
 
     async def update_member(self, db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
         from app.core.permission_resolver import assert_full_admin_exists

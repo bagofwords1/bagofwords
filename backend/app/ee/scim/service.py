@@ -508,3 +508,8 @@ class ScimUserService:
         user, membership = row
         user.is_active = False
         await db.commit()
+        try:
+            from app.services.wait_service import wait_service
+            wait_service.cancel_waits_for_user(str(user_id))
+        except Exception:
+            logger.warning("SCIM delete: failed to cancel pending waits", exc_info=True)

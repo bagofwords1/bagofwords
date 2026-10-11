@@ -1419,6 +1419,15 @@ class InstructionService:
             # Already resolved (not in the draft anymore) — nothing to accept.
             return await self.get_instruction(db, instruction.id, organization, current_user)
 
+        # The shared draft's pin is only trustworthy if it is one of THIS
+        # instruction's versions. A pin to another instruction's version would
+        # promote foreign text as this instruction's live content. Check it
+        # before anything is written so a refusal leaves no orphan build.
+        from app.models.instruction_version import InstructionVersion as _IV
+        staged = await db.get(_IV, staged_version_id)
+        if staged is None or str(staged.instruction_id) != str(instruction.id):
+            return None
+
         user_permissions = await self._get_user_permissions(db, current_user, organization)
 
         # 1) Promote the staged version as an isolated build-of-one so ONLY this
