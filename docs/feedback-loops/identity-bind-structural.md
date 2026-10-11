@@ -43,8 +43,8 @@ cd backend && ENVIRONMENT=production TESTING=true .venv/bin/python -m pytest -q 
 
 | Code | Result |
 |---|---|
-| Base (`origin/ai/friendly-dijkstra-2e8qmj`, `CapturedQuery` shimmed as plain `str`) | **168 failed**, 169 passed. All 150 SQL bypass cases (15 shapes × 2 values × 5 clients), 3 SOQL and 5 SPL bypasses are accepted; the dead-code check fails. The passes are the legitimate shapes and the non-SQL containment cases, which must pass on both. |
-| Fix | **337 passed** |
+| Base (`origin/ai/friendly-dijkstra-2e8qmj`, `CapturedQuery` shimmed as plain `str`) | **170 failed**, 170 passed. All 150 SQL bypass cases (15 shapes × 2 values × 5 clients), 3 SOQL and 6 SPL bypasses are accepted; the dead-code check fails. The passes are the legitimate shapes and the non-SQL containment cases, which must pass on both. |
+| Fix | **340 passed** |
 
 ## Loop B — live backend (HTTP, real SQLite source)
 
