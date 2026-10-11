@@ -8,7 +8,7 @@ covered by the e2e eval; here we pin the pure matching layer.
 """
 import pytest
 
-from app.ai.tools.implementations import search_agents as _sa
+from app.utils import safe_regex
 from app.ai.tools.implementations.search_agents import compile_query_patterns
 
 
@@ -166,7 +166,7 @@ def test_backtracking_regex_terms_stay_bounded(term):
 
 
 def test_runaway_regex_term_does_not_disable_other_terms(monkeypatch):
-    monkeypatch.setattr(_sa, "_REGEX_TIMEOUT_S", 0.0)  # every regex search times out
+    monkeypatch.setattr(safe_regex, "SEARCH_TIMEOUT_S", 0.0)  # every regex search times out
     pats = compile_query_patterns([r"(\w+\s?)+$", "invoices"])
     strength, hits = match_quality(pats, "Music Store", MUSIC_WEAK)
     assert strength == "weak" and hits >= 1

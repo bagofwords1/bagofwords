@@ -83,10 +83,33 @@ rendering the agent's schema, which predates this bug.
   `regex` is now a direct dependency (it was already locked through tiktoken).
 - **Weak haystack** is newline-joined, so each table name is matched on its own.
 
-## Not addressed (siblings)
+## Same bug in describe_tables / create_widget (fixed)
 
-- `describe_tables.py` also compiles raw regex terms with stdlib `re` (matched
-  per table name, so smaller haystacks, but still unbounded for a backtracking
-  pattern).
+`describe_tables` (and `create_widget`'s `tables_by_source`) pass the model's
+regex-looking terms verbatim as `name_patterns` to
+`SchemaContextBuilder.build`. That builds the schema context and matched each
+pattern against every table name with stdlib `re.search`. It had three match
+sites: agent tables, the training-mode BOW catalog, and agent Lists.
+
+Live run with the stub calling `describe_tables` with `["(\\w+_?)+#"]`:
+
+| | Tool | Worst `/health` |
+|---|---|---|
+| before | never finished; the worker had to be killed | **no response within 120 s** (client timeout) |
+| after | 1,384 ms, `Described 0 tables` | 689 ms |
+| `["t000[0-4]_.*"]`, after | 706 ms, `Described 5 tables` | 637 ms |
+
+Fix: the bounded matcher moved to `app/utils/safe_regex.py`
+(`compile_bounded` / `compile_bounded_all`) and is used by `search_agents` and
+by all three builder match sites. `create_data` builds its patterns from
+`re.escape`d names only, so it is unaffected.
+
+Loop A: `tests/e2e/test_schema_name_pattern_bounds.py`. With the old builder,
+all 3 runaway cases hit the 60 s guard; after, `5 passed` in 14 s. Existing
+builder suites (multi-connection, column visibility, Kerberos overlay, agent
+lists, MCP placement, prompt rendering): `153 passed`.
+
+## Not addressed
+
 - `connection_catalog_common.compile_patterns` uses `fnmatch.translate`,
   anchored and per name, so the quadratic case doesn't apply.

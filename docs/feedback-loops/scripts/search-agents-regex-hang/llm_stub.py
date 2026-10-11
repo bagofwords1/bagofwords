@@ -1,8 +1,10 @@
-"""Scripted OpenAI-compatible LLM: first planner turn calls search_agents with
-STUB_QUERY, subsequent turns answer in text. Logs every request."""
+"""Scripted OpenAI-compatible LLM: the first planner turn calls STUB_TOOL
+(default search_agents) with {"query": STUB_QUERY}; later turns answer in
+text. Logs every request."""
 import json, os, sys, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 QUERY = json.loads(os.environ.get("STUB_QUERY", '["*sales*order*detail*"]'))
+TOOL = os.environ.get("STUB_TOOL", "search_agents")
 LOG = open(sys.argv[1], "a")
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -16,14 +18,14 @@ class H(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         msgs = body.get("messages", []); tools = [t["function"]["name"] for t in body.get("tools", [])]
         has_result = any(m.get("role") == "tool" for m in msgs)
-        call = "search_agents" in tools and not has_result
+        call = TOOL in tools and not has_result
         LOG.write(json.dumps({"t": time.time(), "stream": body.get("stream"), "tools": len(tools), "call": call}) + "\n"); LOG.flush()
         text = "Search finished." if tools else "Stub title"
         if not body.get("stream"):
             msg = {"role": "assistant", "content": text}
             if call:
                 msg = {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1", "type": "function",
-                       "function": {"name": "search_agents", "arguments": json.dumps({"query": QUERY})}}]}
+                       "function": {"name": TOOL, "arguments": json.dumps({"query": QUERY})}}]}
             return self._json({"id": "x", "object": "chat.completion", "model": "stub-model", "choices": [
                 {"index": 0, "message": msg, "finish_reason": "tool_calls" if call else "stop"}],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}})
@@ -35,7 +37,7 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(f"data: {json.dumps(c)}\n\n".encode()); self.wfile.flush()
         if call:
             ev({"role": "assistant", "tool_calls": [{"index": 0, "id": "call_1", "type": "function",
-                "function": {"name": "search_agents", "arguments": json.dumps({"query": QUERY})}}]})
+                "function": {"name": TOOL, "arguments": json.dumps({"query": QUERY})}}]})
             ev({}, "tool_calls")
         else:
             ev({"role": "assistant", "content": text}); ev({}, "stop")

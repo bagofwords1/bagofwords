@@ -12,10 +12,10 @@ from typing import Any, AsyncIterator, Dict, List, Type
 import logging
 import re
 
-import regex
 from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
+from app.utils.safe_regex import compile_bounded
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.search_agents import (
     SearchAgentsInput,
@@ -35,10 +35,6 @@ logger = logging.getLogger(__name__)
 # The rest are listed as one-liners so a broad query can't dump everything.
 _FULL_RENDER_CAP = 3
 _SPECIAL = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
-# Per-search budget for a raw-regex term. Query terms are model-written, and a
-# backtracking pattern ("(\w+\s?)+$") against an agent's table list would pin
-# the event loop — the single worker then misses health checks and requests.
-_REGEX_TIMEOUT_S = 0.05
 
 
 class _GlobPattern:
@@ -67,28 +63,6 @@ class _GlobPattern:
 
     def search(self, haystack: str) -> bool:
         return any(self._search_line(line) for line in haystack.split("\n"))
-
-
-class _RegexPattern:
-    """Raw regex term, bounded by a timeout so backtracking can't block the loop.
-
-    A term that times out once is dropped for the rest of the search (it would
-    time out again on every agent and add up).
-    """
-
-    def __init__(self, compiled):
-        self._rx = compiled
-        self.dead = False
-
-    def search(self, haystack: str) -> bool:
-        if self.dead:
-            return False
-        try:
-            return self._rx.search(haystack, timeout=_REGEX_TIMEOUT_S) is not None
-        except TimeoutError:
-            self.dead = True
-            logger.warning("search_agents: regex term %r timed out; ignoring it", self._rx.pattern)
-            return False
 
 
 def compile_query_patterns(queries) -> list:
@@ -125,10 +99,10 @@ def compile_query_patterns(queries) -> list:
         if "*" in s or "?" in s:
             patterns.append(_GlobPattern(s))
         if _SPECIAL.search(s):
-            try:
-                patterns.append(_RegexPattern(regex.compile(s, regex.IGNORECASE)))
-            except regex.error:
-                pass
+            # Model-written regex: time-bounded so backtracking can't block the loop.
+            rx = compile_bounded(s, re.IGNORECASE)
+            if rx is not None:
+                patterns.append(rx)
     return patterns
 
 
