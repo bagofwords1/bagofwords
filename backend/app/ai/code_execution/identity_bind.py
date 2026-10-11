@@ -28,8 +28,10 @@ from the query's structure instead, per connector language:
         EXCEPT — the left branch.
       - A statement that reads no table at all (``SELECT 1``) is scoped.
 
-  * **Splunk SPL**: see `_spl_binds` — ``field=value`` in the base search,
-    implicitly AND-connected, not inside an OR group or under NOT.
+  * **Splunk SPL**: see `_spl_binds` — ``field=value`` in the base search
+    (or a later ``| search``), implicitly AND-connected, not inside an OR
+    group or under NOT. ``| where`` filters on the value are not modelled and
+    fall back.
 
 Anything this cannot decide (parse error, multiple statements, opaque
 commands, SPL with subsearches / append / join, non-SQL API captures) returns
@@ -226,8 +228,8 @@ def _spl_binds(capture: str, needles: Tuple[str, ...]) -> Optional[bool]:
         return None  # generating command, subsearch, or macro: can't see the base
     if _SPL_WIDENING.search(spl):
         return None
-    # base search: up to the first pipe outside quotes
-    base, in_q, i = spl, False, 0
+    # split into pipeline segments on pipes outside quotes
+    segments, start, in_q, i = [], 0, False, 0
     while i < len(spl):
         ch = spl[i]
         if ch == "\\":
@@ -236,18 +238,43 @@ def _spl_binds(capture: str, needles: Tuple[str, ...]) -> Optional[bool]:
         if ch == '"':
             in_q = not in_q
         elif ch == "|" and not in_q:
-            base = spl[:i]
-            break
+            segments.append(spl[start:i])
+            start = i + 1
         i += 1
     if in_q:
         return None
-    tokens = _SPL_TOKEN.findall(base)
+    segments.append(spl[start:])
+
+    # The base search, and any later `| search` (same grammar, can only
+    # narrow), may carry the bind. Other commands can't add rows (the ones that
+    # can were refused above), so they neither help nor hurt.
+    searches = [segments[0]] + [
+        seg for seg in segments[1:] if seg.strip().lower().startswith("search ")
+    ]
+    verdicts = [_spl_search_binds(seg, needles) for seg in searches]
+    if any(v is True for v in verdicts):
+        return True
+    if any(v is None for v in verdicts):
+        return None
+    if any(
+        seg.strip().lower().startswith("where ") and any(n in seg for n in needles)
+        for seg in segments[1:]
+    ):
+        return None  # `| where` expression filter: not modelled -> heuristic
+    return False
+
+
+def _spl_search_binds(text: str, needles: Tuple[str, ...]) -> Optional[bool]:
+    tokens = _SPL_TOKEN.findall(text)
     if tokens and tokens[0].lower() == "search":
         tokens = tokens[1:]
+    if any(t == "=" for t in tokens):
+        return None  # `field = value` with spaces: shape we don't model
 
     def group(pos):
-        """Parse tokens from pos until ')' — returns (items, pos). An item is
-        ('pair', field, value) / ('group', items) / ('op', text) / ('term', t)."""
+        """Parse tokens from pos until ')' -> (items, pos). An item is
+        ('pair', field, value) / ('group', items) / ('op', text) /
+        ('other', t) / ('term', t)."""
         items = []
         while pos < len(tokens):
             t = tokens[pos]
@@ -266,7 +293,7 @@ def _spl_binds(capture: str, needles: Tuple[str, ...]) -> Optional[bool]:
                     if v.startswith('"'):
                         v = v[1:-1].replace('\\"', '"')
                     items.append(("pair", m.group(1), v))
-                elif "=" in t or t in ("=", "!="):
+                elif "=" in t:
                     items.append(("other", t))
                 else:
                     items.append(("term", t))
@@ -274,15 +301,12 @@ def _spl_binds(capture: str, needles: Tuple[str, ...]) -> Optional[bool]:
         return items, pos
 
     items, _ = group(0)
-    if any(t == "=" for t in tokens):
-        return None  # `field = value` with spaces: shape we don't model
 
     def scoped(items) -> bool:
         if any(it[0] == "op" and it[1] == "OR" for it in items):
             return False  # an OR at this level widens every term in it
         for idx, it in enumerate(items):
-            negated = idx > 0 and items[idx - 1] == ("op", "NOT")
-            if negated:
+            if idx > 0 and items[idx - 1] == ("op", "NOT"):
                 continue
             if it[0] == "pair" and _matches(it[2], needles):
                 return True

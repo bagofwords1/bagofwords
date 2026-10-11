@@ -185,12 +185,14 @@ structural where we can parse the query
 |---|---|
 | SQL sources with a sqlglot dialect (Postgres, MySQL, SQLite, Snowflake, BigQuery, MSSQL, ...) and SQL-looking text from unknown clients (generic dialect) | Parsed. `col = value` / `value = col` / `col IN (identity values only)` / `col IN (scoped subquery)` AND-connected to the root of WHERE/HAVING, or the ON of an inner join; or a CTE / derived table the result is built from is itself scoped. UNION: every branch. OR, NOT, `<>`, LIKE, literal-vs-literal do not count. |
 | Salesforce SOQL | Same rule via the generic dialect; `Owner.Email = 'x'` is a qualified column. |
-| Splunk SPL | Base search (before the first `|`): `field=value` / `field="value"` implicitly AND-ed, not in an OR group, not under NOT. |
+| Splunk SPL | Base search (before the first `|`) or a later `| search`: `field=value` / `field="value"` implicitly AND-ed, not in an OR group, not under NOT. `| where` on the value falls back. |
 | Anything the above can't decide (parse error, SOQL date literals, SPL with subsearch/append/join/macros/generating commands, non-SQL API captures) | Falls back to the previous text heuristic, unchanged, and logs `identity_bind_check_fallback`. |
 
 What this does **not** do: it does not know which column *should* carry the
-identity, it does not scope lookups joined or sub-selected *beside* a scoped
-source (a scalar subquery over another table in the SELECT list), and the
+identity, it does not verify that join keys tie a scoped relation to the
+others (`FROM orders, users u WHERE u.email = :me` passes), it does not scope
+lookups sub-selected *beside* a scoped source (a scalar subquery over another
+table in the SELECT list), and the
 fallback path can still be satisfied by a value placed after WHERE. It exists
 to catch a forgotten or mangled filter, not to contain a hostile query author.
 **Strict per-viewer isolation needs the source to enforce it**: database

@@ -142,6 +142,8 @@ def test_soql_uses_structural_rule(query, ok):
     ("index=crm owner={v} status=open", True),
     ('index=crm (owner="{v}" status=open) | table _time owner', True),
     ('{{"spl": "search index=crm owner=\\"{v}\\" | head 10", "earliest": "-24h"}}', True),
+    ('index=crm sourcetype=deals | search owner="{v}" | stats count', True),
+    ('index=crm | search owner="{v}" OR status=open', False),
     ('index=crm owner="{v}" OR status=open', False),
     ('index=crm (owner="{v}" OR status=open)', False),
     ('index=crm NOT owner="{v}"', False),
@@ -169,6 +171,7 @@ def _legacy(capture, needles):
     # SPL shapes we don't model
     ("SplunkClient", 'index=crm owner="{v}" | append [search index=other]'),
     ("SplunkClient", '| inputlookup users.csv | search owner="{v}"'),
+    ("SplunkClient", 'index=crm | where owner="{v}"'),
 ])
 def test_unparseable_falls_back_to_legacy_and_warns(client, query, caplog):
     v = "sarah@example.com"
