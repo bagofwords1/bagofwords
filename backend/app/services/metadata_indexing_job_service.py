@@ -25,6 +25,7 @@ from app.dependencies import async_session_maker # Import the session maker
 from app.settings.config import settings
 from app.services.instruction_sync_service import InstructionSyncService
 from app.services.build_service import BuildService
+from app.errors.redact import redact_error
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ class MetadataIndexingJobService:
             await db.rollback()
             logger.error(f"Failed to create MetadataIndexingJob record for repo {repo_id}: {e}", exc_info=True)
             # Re-raise or handle appropriately - maybe raise HTTPException
-            raise HTTPException(status_code=500, detail=f"Failed to create indexing job record: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to create indexing job record: {redact_error(e)}")
 
     async def _parse_dbt_resources(
         self,

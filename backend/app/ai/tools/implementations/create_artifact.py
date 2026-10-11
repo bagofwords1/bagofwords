@@ -562,7 +562,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         if flat:
             kept.append(flat[-1])
         text = "\n".join(kept[-12:]) if kept else str(exc)
-        return text[:2000]
+        # This text reaches the model and the user: no server paths in it.
+        from app.errors.redact import redact_paths
+        return redact_paths(text)[:2000]
 
     @staticmethod
     def _first_preview_base64(preview_images: List[str]) -> Optional[str]:

@@ -7,6 +7,7 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 from app.models.organization import Organization
 from app.models.data_source import DataSource
+from app.errors.redact import redact_error
 from app.schemas.data_source_registry import (
     list_available_data_sources,
     config_schema_for,
@@ -3437,7 +3438,7 @@ class DataSourceService:
             )
         except Exception as e:
             await db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to update data source: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to update data source: {redact_error(e)}")
 
     def _extract_fields_from_schema(self, schema: BaseModel):
         main_model_schema = schema.model_json_schema()  # (1)!
@@ -3472,7 +3473,7 @@ class DataSourceService:
             raise
         except Exception as e:
             print(f"Error getting data source schema: {e}")
-            raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
+            raise HTTPException(status_code=500, detail=f"Error getting data source schema: {redact_error(e)}")
     
     async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None, with_stats: bool = False):
         result = await db.execute(
@@ -5700,7 +5701,7 @@ class DataSourceService:
 
         except Exception as e:
             print(f"Error saving tables: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to save database tables: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save database tables: {redact_error(e)}")
 
         # Return full schema including inactive for downstream context
         schemas = await data_source.get_schemas(db=db, include_inactive=True)
