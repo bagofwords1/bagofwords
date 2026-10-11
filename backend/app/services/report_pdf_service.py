@@ -31,9 +31,10 @@ import re
 import signal
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+from app.core.url_safety import host_is_public
 from app.services.artifact_libs import get_inline_scripts
 
 logger = logging.getLogger(__name__)
@@ -359,6 +360,35 @@ def _kill_chromium_tree(marker: str) -> int:
     return killed
 
 
+async def _guard_requests(page, allowed_origin: Optional[str] = None) -> None:
+    """Abort every request the headless page makes to a non-public address.
+
+    Artifact code is model-authored and runs server-side here, so without this
+    an <img src="http://169.254.169.254/..."> or a fetch() to an internal
+    service is made from inside the deployment (SSRF). Inline, data: and blob:
+    content, the app's own render origin, and public hosts (CDN fonts, map
+    tiles) still load.
+    """
+    cache: Dict[str, bool] = {}
+
+    async def handler(route, request):
+        parts = urlsplit(request.url)
+        if parts.scheme in ("data", "blob", "about"):
+            return await route.continue_()
+        if allowed_origin and f"{parts.scheme}://{parts.netloc}" == allowed_origin:
+            return await route.continue_()
+        host = parts.hostname or ""
+        if parts.scheme in ("http", "https") and host:
+            if host not in cache:
+                cache[host] = await asyncio.to_thread(host_is_public, host)
+            if cache[host]:
+                return await route.continue_()
+        logger.warning("PDF render blocked request to non-public URL: %s", request.url[:200])
+        await route.abort("blockedbyclient")
+
+    await page.route("**/*", handler)
+
+
 class ReportPdfService:
     """Generates PDF snapshots of artifacts using headless Chromium."""
 
@@ -491,6 +521,7 @@ class ReportPdfService:
                     device_scale_factor=2,
                 )
                 await page.emulate_media(media="print", color_scheme="light")
+                await _guard_requests(page, allowed_origin=_render_origin())
 
                 # Injected BEFORE navigation: the page renders from this and
                 # fetches nothing, so the route needs no session — and can
@@ -576,6 +607,7 @@ class ReportPdfService:
                     device_scale_factor=2,
                 )
                 await page.emulate_media(media="print")
+                await _guard_requests(page)
 
                 await page.set_content(html_content, wait_until="networkidle")
 

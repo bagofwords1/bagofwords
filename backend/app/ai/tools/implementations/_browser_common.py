@@ -22,11 +22,12 @@ import ipaddress
 import logging
 import os
 import re
-import socket
 import time
 from uuid import uuid4
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+
+from app.core.url_safety import host_is_public
 
 logger = logging.getLogger(__name__)
 
@@ -188,26 +189,7 @@ def _host_is_public(hostname: str, cache: Dict[str, bool]) -> bool:
     Mirrors web_fetch._is_safe_host; cached per session to bound DNS cost."""
     if hostname in cache:
         return cache[hostname]
-    ok = True
-    lowered = (hostname or "").lower()
-    if not lowered or lowered == "localhost" or lowered.endswith(".localhost"):
-        ok = False
-    else:
-        try:
-            infos = socket.getaddrinfo(hostname, None)
-        except socket.gaierror:
-            ok = False
-        else:
-            for info in infos:
-                try:
-                    ip = ipaddress.ip_address(info[4][0])
-                except ValueError:
-                    ok = False
-                    break
-                if (ip.is_private or ip.is_loopback or ip.is_link_local
-                        or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
-                    ok = False
-                    break
+    ok = host_is_public(hostname)
     cache[hostname] = ok
     return ok
 

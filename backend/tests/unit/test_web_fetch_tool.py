@@ -120,6 +120,10 @@ def test_input_accepts_url():
         "169.254.169.254",
         "0.0.0.0",
         "::1",
+        "100.64.0.1",  # CGNAT: not "private" to ipaddress, still internal
+        "100.100.100.200",  # Alibaba Cloud metadata
+        "::ffff:169.254.169.254",  # IPv4-mapped metadata
+        "fd00:ec2::254",  # AWS IMDS over IPv6
     ],
 )
 def test_is_safe_host_rejects_non_public_ips(addr):

@@ -1,8 +1,6 @@
-import ipaddress
 import json
 import logging
 import re
-import socket
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
 from urllib.parse import urlparse, urljoin
 
@@ -12,6 +10,7 @@ from pydantic import BaseModel
 from selectolax.parser import HTMLParser
 
 from app.ai.tools.base import Tool
+from app.core.url_safety import host_is_public
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.web_fetch import WebFetchInput, WebFetchOutput
 from app.ai.tools.schemas import (
@@ -49,37 +48,10 @@ _NEWLINE_RE = re.compile(r"\n{3,}")
 
 
 def _is_safe_host(hostname: str) -> bool:
-    """Resolve hostname and reject if any resolved address is non-public.
-
-    Blocks loopback, link-local, private networks, multicast, reserved ranges,
-    and unspecified addresses (covers SSRF against cloud metadata services,
-    internal infrastructure, and the host's own network).
-    """
-    if not hostname:
-        return False
-    lowered = hostname.lower()
-    if lowered in ("localhost",) or lowered.endswith(".localhost"):
-        return False
-    try:
-        infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
-        return False
-    for info in infos:
-        addr = info[4][0]
-        try:
-            ip = ipaddress.ip_address(addr)
-        except ValueError:
-            return False
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return False
-    return True
+    """True only if every address the hostname resolves to is globally routable
+    (rejects private, loopback, link-local, CGNAT, reserved and metadata
+    addresses). See app.core.url_safety."""
+    return host_is_public(hostname)
 
 
 def _content_type_matches(content_type: str, prefixes: Tuple[str, ...]) -> bool:

@@ -39,6 +39,7 @@ from app.schemas.git_repository_schema import (
     GitRepositorySchema,
 )
 from app.core.telemetry import telemetry
+from app.core.url_safety import UnsafeURLError, check_git_remote
 
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,15 @@ class GitService:
         self.metadata_indexing_job_service = MetadataIndexingJobService()
 
     # ==================== Repository CRUD ====================
+
+    @staticmethod
+    def _check_remote(repo_url: str) -> None:
+        """Reject remotes git must never be pointed at (local paths, remote
+        helpers, cloud metadata). See app.core.url_safety."""
+        try:
+            check_git_remote(repo_url)
+        except UnsafeURLError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     async def _verify_data_source(
         self, db: AsyncSession, data_source_id: str, organization: Organization
@@ -138,6 +148,7 @@ class GitService:
         organization: Organization
     ) -> Dict[str, Any]:
         """Test Git repository connection using provided credentials."""
+        self._check_remote(git_repo.repo_url)
         # If data_source_id is provided in the schema, verify it
         if git_repo.data_source_id:
             await self._verify_data_source(db, git_repo.data_source_id, organization)
@@ -338,6 +349,8 @@ class GitService:
         repository = await self._verify_repository(db, repository_id, organization)
 
         update_data = git_repo.dict(exclude_unset=True)
+        if update_data.get("repo_url"):
+            self._check_remote(update_data["repo_url"])
 
         # Handle encrypted fields separately
         if git_repo.ssh_key:
@@ -678,7 +691,8 @@ class GitService:
             branch: Optional branch to clone (defaults to repository.branch)
         """
         target_branch = branch or repository.branch
-        
+        self._check_remote(repository.repo_url)
+
         try:
             if repository.has_access_token:
                 # Clone via HTTPS with PAT
@@ -981,6 +995,7 @@ class GitService:
 
     async def _clone_for_push(self, repository: GitRepository, clone_dir: str) -> git.Repo:
         """Clone repository for push operations (full clone, not shallow)."""
+        self._check_remote(repository.repo_url)
         target_branch = repository.branch or "main"
         
         if repository.has_access_token:
