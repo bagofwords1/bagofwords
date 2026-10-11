@@ -23,7 +23,7 @@ second time (rebinding) is not stopped here.
 
 import ipaddress
 import socket
-from typing import Iterable, List, Optional, Tuple
+from collections.abc import Iterable
 from urllib.parse import urlparse
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -60,7 +60,7 @@ def ip_is_metadata(ip: IPAddress) -> bool:
     return ip.is_link_local or ip.is_unspecified or ip in _METADATA_ADDRESSES
 
 
-def resolve(hostname: str) -> List[IPAddress]:
+def resolve(hostname: str) -> list[IPAddress]:
     """Every address ``hostname`` resolves to; [] if it does not resolve."""
     try:
         return [ipaddress.ip_address(hostname.strip("[]"))]
@@ -70,7 +70,7 @@ def resolve(hostname: str) -> List[IPAddress]:
         infos = socket.getaddrinfo(hostname, None)
     except (socket.gaierror, UnicodeError):
         return []
-    out: List[IPAddress] = []
+    out: list[IPAddress] = []
     for info in infos:
         try:
             out.append(ipaddress.ip_address(info[4][0].split("%", 1)[0]))
@@ -84,7 +84,7 @@ def _is_localhost_name(hostname: str) -> bool:
     return lowered == "localhost" or lowered.endswith(".localhost")
 
 
-def host_is_public(hostname: Optional[str]) -> bool:
+def host_is_public(hostname: str | None) -> bool:
     """Strict tier: True only if every resolved address is globally routable."""
     if not hostname or _is_localhost_name(hostname):
         return False
@@ -101,7 +101,7 @@ def _block_private() -> bool:
         return False
 
 
-def check_admin_host(hostname: Optional[str]) -> None:
+def check_admin_host(hostname: str | None) -> None:
     """Admin tier for a bare hostname. Raises ``UnsafeURLError``."""
     if not hostname:
         raise UnsafeURLError("URL must include a hostname.")
@@ -125,7 +125,7 @@ def check_admin_url(url: str, schemes: Iterable[str] = ("http", "https")) -> Non
     check_admin_host(parsed.hostname)
 
 
-def git_remote_host(repo_url: str) -> Tuple[str, Optional[str]]:
+def git_remote_host(repo_url: str) -> tuple[str, str | None]:
     """Return (transport, hostname) for the git remote forms we support.
 
     Supported: ``https://``, ``http://``, ``ssh://``, ``git://`` and scp-style

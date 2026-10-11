@@ -51,9 +51,8 @@ def test_strict_tier_rejects_ip_literals_without_dns(addr):
 
 @pytest.mark.parametrize("addr", METADATA)
 def test_admin_tier_always_blocks_metadata(addr):
-    with _resolves_to(addr):
-        with pytest.raises(UnsafeURLError):
-            check_admin_url("https://llm.internal.example.com/v1")
+    with _resolves_to(addr), pytest.raises(UnsafeURLError):
+        check_admin_url("https://llm.internal.example.com/v1")
 
 
 @pytest.mark.parametrize("host", ["metadata.google.internal", "METADATA.GOOGLE.INTERNAL."])
