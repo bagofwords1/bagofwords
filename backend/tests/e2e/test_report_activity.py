@@ -175,6 +175,12 @@ def test_new_report_is_unread_until_viewed_per_user(
     token2 = login_user(email=email2, password="test123")
 
     report = create_report(title="Act", user_token=token1, org_id=org_id, data_sources=[])
+    # Shared org-wide so user2 is allowed to see its activity at all.
+    r = test_client.put(
+        f"/api/reports/{report['id']}/visibility/artifact",
+        json={"visibility": "internal"}, headers=_headers(token1, org_id),
+    )
+    assert r.status_code == 200, r.json()
 
     a1 = _activity(test_client, [report["id"]], token1, org_id)[report["id"]]
     assert a1["state"] == "idle"
@@ -187,6 +193,39 @@ def test_new_report_is_unread_until_viewed_per_user(
     assert _activity(test_client, [report["id"]], token1, org_id)[report["id"]]["unread"] is False
     # Independent per user: user2 has not viewed it.
     assert _activity(test_client, [report["id"]], token2, org_id)[report["id"]]["unread"] is True
+
+
+@pytest.mark.e2e
+def test_private_report_hidden_from_other_members(
+    test_client, create_report, create_user, login_user, whoami,
+):
+    """A member who cannot see a report gets nothing about it by id: no
+    activity row, and the per-user endpoints refuse it."""
+    email1 = f"act_owner_{uuid.uuid4().hex[:6]}@test.com"
+    create_user(email=email1, password="test123")
+    token1 = login_user(email=email1, password="test123")
+    org_id = whoami(token1)["organizations"][0]["id"]
+
+    email2 = f"act_member_{uuid.uuid4().hex[:6]}@test.com"
+    test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email2, "role": "member"},
+        headers=_headers(token1, org_id),
+    )
+    create_user(email=email2, password="test123")
+    token2 = login_user(email=email2, password="test123")
+
+    private = create_report(title="Private", user_token=token1, org_id=org_id, data_sources=[])
+    rid = private["id"]
+    h2 = _headers(token2, org_id)
+
+    assert rid not in _activity(test_client, [rid], token2, org_id)
+    assert test_client.post(f"/api/reports/{rid}/viewed", headers=h2).status_code in (403, 404)
+    assert test_client.post(f"/api/reports/{rid}/star", headers=h2).status_code in (403, 404)
+    assert test_client.get(f"/api/reports/{rid}/fork_status", headers=h2).status_code in (403, 404)
+    # The owner is unaffected.
+    assert rid in _activity(test_client, [rid], token1, org_id)
+    assert test_client.post(f"/api/reports/{rid}/star", headers=_headers(token1, org_id)).status_code == 200
 
 
 @pytest.mark.e2e

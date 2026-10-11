@@ -238,12 +238,12 @@ def test_owner_lifecycle_suggest_withdraw_update_delete(test_client, world):
     assert sg.json()["global_status"] == "suggested"
 
     # Another plain member may not touch it.
-    other = world["admin"]  # admin CAN touch; use a real stranger check below via 403 on owner-only endpoint
     stranger_wd = test_client.post(
         f"/api/entities/{entity_id}/withdraw",
         headers=_hdr(world["owner"]["token"], world["org_id"]),
     )
-    assert stranger_wd.status_code == 403, stranger_wd.text
+    # 404, not 403: a non-owner must not learn the entity exists.
+    assert stranger_wd.status_code == 404, stranger_wd.text
 
     dele = test_client.delete(f"/api/entities/{entity_id}", headers=hdr)
     assert dele.status_code == 200, dele.text

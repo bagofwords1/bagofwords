@@ -152,7 +152,7 @@ async def stream_reports_activity(
     })
 
 @router.post("/reports/{report_id}/viewed")
-@requires_permission('view_reports', model=Report)
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def mark_report_viewed(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Bump the current user's last-viewed watermark (clears the unread badge)."""
     return await report_service.mark_report_viewed(db, report_id, current_user, organization)
@@ -239,13 +239,13 @@ async def publish_report(
     return result
 
 @router.post("/reports/{report_id}/star", response_model=StarResponse)
-@requires_permission('view_reports', model=Report)
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def star_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Star (favorite) a report for the current user. Per-user; any viewer may star."""
     return await report_service.set_report_star(db, report_id, current_user, organization, starred=True)
 
 @router.delete("/reports/{report_id}/star", response_model=StarResponse)
-@requires_permission('view_reports', model=Report)
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def unstar_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Remove the current user's star from a report."""
     return await report_service.set_report_star(db, report_id, current_user, organization, starred=False)
@@ -399,7 +399,7 @@ async def fork_report(
 
 
 @router.get("/reports/{report_id}/fork_status")
-@requires_permission('view_reports', model=Report)
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def get_fork_status(
     report_id: str,
     current_user: User = Depends(current_user),

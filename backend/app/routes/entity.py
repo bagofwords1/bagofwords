@@ -53,10 +53,11 @@ async def _require_ds_access(db, user, organization, ds_ids: List[str]) -> None:
             or str(ds.organization_id) != str(organization.id)
             or not await user_can_access_data_source(db, str(user.id), str(organization.id), ds)
         ):
-            label = getattr(ds, "name", None) or str(rid)
+            # Echo only the id the caller sent: naming the agent would leak
+            # private agent names to anyone who can guess an id.
             raise HTTPException(
                 status_code=403,
-                detail=f'No access to agent "{label}".',
+                detail=f'No access to agent "{rid}".',
             )
 
 

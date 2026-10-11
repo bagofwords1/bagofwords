@@ -2048,6 +2048,36 @@ class ReportService:
             'confirmation_user_ids': confirmation_user_ids,
         }
 
+    async def _visible_to_user_clause(self, db: AsyncSession, current_user: User, organization: Organization):
+        """SQL clause for reports someone OTHER than the owner may see: shared
+        with them (directly or via a group), public/internal, or in a project
+        they can view. Callers OR in ownership themselves."""
+        from app.models.report_share import ReportShare
+        from app.services.project_service import project_service
+        user_group_ids = self._user_group_ids_subquery(
+            current_user.id, organization.id
+        )
+        shared_with_user = Report.id.in_(
+            select(ReportShare.report_id).where(
+                or_(
+                    ReportShare.user_id == current_user.id,
+                    ReportShare.group_id.in_(user_group_ids),
+                ),
+                ReportShare.deleted_at.is_(None),
+            )
+        )
+        visible_project_ids = await project_service.get_visible_project_ids(
+            db, current_user, organization
+        )
+        visibility_terms = [
+            Report.artifact_visibility.in_(['public', 'internal']),
+            Report.conversation_visibility.in_(['public', 'internal']),
+            shared_with_user,
+        ]
+        if visible_project_ids:
+            visibility_terms.append(Report.project_id.in_(visible_project_ids))
+        return or_(*visibility_terms)
+
     async def get_reports_activity(
         self,
         db: AsyncSession,
@@ -2070,14 +2100,23 @@ class ReportService:
         if not ids:
             return {"activity": []}
 
-        # Authorization boundary: only reports in the caller's org survive.
-        # The ids themselves come from lists the server already filtered.
+        # Authorization boundary: ids are client-supplied, so only reports in
+        # the caller's org that they own or may see survive — otherwise any
+        # member could poll a private report's live status by id.
+        from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+        conditions = [
+            Report.id.in_(ids),
+            Report.organization_id == organization.id,
+            Report.deleted_at.is_(None),
+        ]
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if FULL_ADMIN not in resolved.org_permissions:
+            conditions.append(or_(
+                Report.user_id == current_user.id,
+                await self._visible_to_user_clause(db, current_user, organization),
+            ))
         reports_result = await db.execute(
-            select(Report.id, Report.last_activity_at, Report.created_at).filter(
-                Report.id.in_(ids),
-                Report.organization_id == organization.id,
-                Report.deleted_at.is_(None),
-            )
+            select(Report.id, Report.last_activity_at, Report.created_at).filter(*conditions)
         )
         report_rows = reports_result.all()
         if not report_rows:
@@ -2457,38 +2496,7 @@ class ReportService:
                 )
                 base_conditions.append(Report.project_id == str(target_project.id))
 
-            # Shared visibility: reports shared with the user directly or via
-            # a group they belong to.
-            from app.models.report_share import ReportShare
-            user_group_ids = self._user_group_ids_subquery(
-                current_user.id, organization.id
-            )
-            shared_with_user = Report.id.in_(
-                select(ReportShare.report_id).where(
-                    or_(
-                        ReportShare.user_id == current_user.id,
-                        ReportShare.group_id.in_(user_group_ids),
-                    ),
-                    ReportShare.deleted_at.is_(None),
-                )
-            )
-            # Reports living in a project the user can view are visible to them
-            # (a project is a sharing boundary). Resolved as a list of ids so
-            # the SQL stays a simple IN.
-            visible_project_ids = await project_service.get_visible_project_ids(
-                db, current_user, organization
-            )
-            # A report is "visible" if it has any non-none visibility and
-            # either it's public/internal or the user is in the share list,
-            # or it belongs to a project the user can view.
-            visibility_terms = [
-                Report.artifact_visibility.in_(['public', 'internal']),
-                Report.conversation_visibility.in_(['public', 'internal']),
-                shared_with_user,
-            ]
-            if visible_project_ids:
-                visibility_terms.append(Report.project_id.in_(visible_project_ids))
-            visible_to_user = or_(*visibility_terms)
+            visible_to_user = await self._visible_to_user_clause(db, current_user, organization)
 
             if filter == "my":
                 # Show only reports owned by current user
