@@ -969,7 +969,11 @@ async def export_public_report_html(
         pass
 
     try:
-        html = await build_standalone_html(db, artifact)
+        # viewer=user: rows resolve through resolve_step_data, the same path
+        # the public JSON view (get_public_step) uses, so an identity-scoped or
+        # otherwise withheld query exports empty for this reader exactly as it
+        # renders empty on the page — the owner still gets their snapshot.
+        html = await build_standalone_html(db, artifact, viewer=user)
     except ExportUnavailable as e:
         raise HTTPException(status_code=409, detail=str(e))
 
