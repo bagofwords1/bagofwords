@@ -28,11 +28,17 @@ the user clicks **Sign in**.
 ## Policy (decision)
 
 - **Redirect URIs:** an allowlist. `https://` with a host is allowed, and
-  `http://` only on loopback (`localhost`, `127.0.0.1`, `[::1]`). Everything
-  else is rejected, including custom app schemes (`cursor://`, `vscode://`),
-  non-loopback http, relative URIs, and URIs containing whitespace, control or
-  zero-width characters. This was the product decision. Custom schemes are not
-  supported for now.
+  `http://` is allowed in two cases: on loopback (`localhost`, `127.0.0.1`,
+  `[::1]`), or when the URI's origin exactly matches the app's own configured
+  `bow_config.base_url` origin (option (a)). The match covers scheme, host and
+  port, so an on-prem install at `http://bow.corp:3000` keeps the pre-filled
+  `${origin}/oauth/callback`. Lookalikes are rejected: `bow.corp.evil.com`,
+  userinfo such as `bow.corp@evil.com`, a different port. If `base_url` is
+  unset or still the `0.0.0.0` placeholder, there is no own origin and only
+  loopback http is allowed. Everything else is rejected, including custom app
+  schemes (`cursor://`, `vscode://`), other http hosts, relative URIs, and URIs
+  containing whitespace, control or zero-width characters. These are the
+  product decisions. Custom schemes are not supported for now.
 - **Authorize URLs:** only absolute `http(s)` URLs with a host are accepted.
 - **When it is enforced:** on create and update (OAuth clients and
   connections), during MCP discovery, and again when the URL is used:
@@ -51,7 +57,35 @@ ENVIRONMENT=production TESTING=true .venv/bin/python -m pytest -q --db=sqlite --
 With the fix reverted (`git checkout <base> -- backend/app`), the e2e file
 gives **30 failed / 4 passed**: every rejection test fails and every
 regression test passes. The unit file fails to import because the helpers
-don't exist yet. With the fix, both files give **79 passed**.
+don't exist yet. With the fix, both files give **91 passed**. That count
+includes the own-origin tests. Three of those fail on the earlier
+loopback-only commit: own-origin save plus the full auth-code flow (2), and
+"stops authorizing when base_url changes" (1). The 8 lookalike tests pass on
+both commits, as regression guards against loosening the match.
+
+### Loop A2: backend with an http, non-loopback base URL (option (a))
+
+A copy of `bow-config.yaml` with `base_url: http://bow.corp:3000`, started via
+`BOW_CONFIG_PATH=... uvicorn main:app --port 8811` and seeded with
+`seed_org.py`, then probed through the API:
+
+| Redirect URI | Loopback-only commit | Option (a) |
+|---|---|---|
+| `http://bow.corp:3000/oauth/callback` (modal default) | 400 | 200, then approve 200, then token 200 (`bow_oauth_` token) |
+| `http://bow.corp.evil.com:3000/...` | 400 | 400 |
+| `http://bow.corp@evil.com:3000/...` | 400 | 400 |
+| `http://bow.corp:3001/...` | 400 | 400 |
+| `http://intranet.corp/...` | 400 | 400 |
+| `javascript:alert(1)` | 400 | 400 |
+| `https://app.example.com/cb` | 200 | 200 |
+
+Frontend guard (`safeUrl.isSafeRedirectUri`) in Chromium on a page served at
+`http://bow.corp:3000`:
+
+- **Allowed:** `http://bow.corp:3000/oauth/callback?code=x`,
+  `https://app.example.com/cb`, `http://localhost:6274/cb`.
+- **Blocked:** `bow.corp.evil.com:3000`, `bow.corp@evil.com:3000`,
+  `bow.corp:3001`, `intranet.corp`, `javascript:`.
 
 ## Loop B: live stack over HTTP
 
@@ -102,8 +136,9 @@ step once unguarded (base) and once through the compiled
 - Every redirect URI in the repo's own code and tests is https or loopback
   http: `DEFAULT_REDIRECT_URIS` and the test fixtures. Nothing in-repo used a
   custom scheme.
-- **Caveat:** the OAuth Clients modal pre-fills
-  `${window.location.origin}/oauth/callback`
-  (`frontend/components/OAuthClientsModal.vue:453`). On a deployment served
-  over plain http on a non-loopback host, saving that default now returns 400,
-  and the admin has to enter an https URI.
+- The OAuth Clients modal pre-fills `${window.location.origin}/oauth/callback`
+  (`frontend/components/OAuthClientsModal.vue:453`). On an http on-prem
+  deployment this keeps working, provided `base_url` is set to that origin
+  (option (a); see Loop A2). If an http deployment leaves `base_url` unset or
+  at the placeholder, the default is rejected and the admin must set
+  `base_url` or use https.
