@@ -62,9 +62,17 @@ def test_old_release_database_upgrades_to_head(tmp_path):
                 shared = conn.execute(text(
                     "SELECT artifact_visibility FROM reports WHERE id = :id"
                 ), {"id": report}).scalar_one()
+                # Phase 1 schema (dashfc01): the old dashboard takes the
+                # conversation defaults, and nothing is published yet.
+                dash = conn.execute(text(
+                    "SELECT visibility, shared_run_identity, published_release_id FROM artifacts WHERE id = :id"
+                ), {"id": version["artifact_id"]}).mappings().one()
+                releases = conn.execute(text("SELECT count(*) FROM artifact_releases")).scalar_one()
         finally:
             engine.dispose()
 
         assert version["report_id"] == report and version["version"] == 3
         assert parent["title"] == "לוח מכירות" and parent["mode"] == "page"
         assert shared == "internal"
+        assert dash["visibility"] == "none" and dash["shared_run_identity"] == "viewer"
+        assert dash["published_release_id"] is None and releases == 0

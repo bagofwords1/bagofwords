@@ -3,7 +3,7 @@ from logging.config import fileConfig
 import sqlalchemy
 from sqlalchemy import engine_from_config, event
 from sqlalchemy import pool
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
 
 from alembic import context
@@ -14,6 +14,7 @@ from app.settings.db_auth import get_auth_provider
 
 from app.models.base import BaseSchema
 from app.models.report import Report
+from app.models.artifact_release import ArtifactRelease, ArtifactShare
 from app.models.artifact_resource import ArtifactResource, ArtifactRecord, ArtifactRecordIndex, ArtifactMutation, ArtifactView, ArtifactFileBinding, ArtifactRateBucket
 from app.models.artifact import Artifact, ArtifactVersion
 from app.models.widget import Widget
@@ -194,6 +195,26 @@ def _attach_migration_iam_hook(engine):
         cparams["password"] = provider.get_password(host, port, username)
 
 
+# Every replica runs `alembic upgrade head` when it starts (start.sh), so two
+# pods of a rolling update or a scaled deployment can race the same
+# migration. On Postgres the first one takes this transaction-level advisory
+# lock and migrates; the others wait, then read the version table, find the
+# database at head and do nothing. A transaction lock needs no unlock path
+# and stays on one backend even behind a transaction pooler. The wait is
+# bounded so a pod stuck behind a dead session fails into start.sh's retry
+# instead of hanging. SQLite is a single local file with a single writer.
+MIGRATION_LOCK_KEY = 7262874361  # arbitrary, fixed for every Bag of Words install
+MIGRATION_LOCK_WAIT = "5min"
+
+
+def _take_migration_lock(connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+    connection.execute(text(f"SET LOCAL lock_timeout = '{MIGRATION_LOCK_WAIT}'"))
+    connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK_KEY})
+    connection.execute(text("SET LOCAL lock_timeout = DEFAULT"))
+
+
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     url = get_db_url()
@@ -219,6 +240,7 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
+            _take_migration_lock(connection)
             context.run_migrations()
 
 

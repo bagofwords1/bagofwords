@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Integer, JSON, Text, UniqueConstraint, select
+from sqlalchemy import Boolean, Column, DateTime, String, ForeignKey, Index, Integer, JSON, Text, UniqueConstraint, select
 from sqlalchemy.orm import column_property, relationship
 from app.models.base import BaseSchema
 
@@ -23,13 +23,21 @@ class Artifact(BaseSchema):
     on old data.
     """
     __tablename__ = 'artifacts'
+    # /d/{slug} names one dashboard in the whole installation (dashfc01).
+    __table_args__ = (Index('uq_artifacts_slug', 'slug', unique=True),)
 
-    report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, index=True)
+    # The editing conversation. Nullable since dashfc01: a published dashboard
+    # outlives the conversation it was made in (dashboards project, phase 7);
+    # until then every row still has one.
+    report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
     # lazy="select", not selectin: the factory and the service load parents
     # with a bare db.get() to rename / soft-delete them, and a selectin here
     # would pull the Report and its whole selectin graph (completions,
     # queries -> steps, widgets, ...) into every such call.
-    report = relationship("Report", back_populates="artifacts", lazy="select")
+    # foreign_keys: reports.source_artifact_id is a second path between the
+    # two tables.
+    report = relationship("Report", back_populates="artifacts", lazy="select",
+                          foreign_keys="Artifact.report_id")
 
     # Organization for multi-tenancy
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
@@ -41,6 +49,34 @@ class Artifact(BaseSchema):
     mode = Column(String(20), nullable=False, default='page', index=True)
 
     title = Column(String(255), nullable=True, default="Untitled Artifact")
+
+    # ── The dashboard's own settings and sharing (dashfc01) ──────────────
+    # Not read yet: they mirror the conversation-level columns on `reports`
+    # (same defaults) and take over from them in later phases of the
+    # dashboards project (docs/design/dashboards-first-class.md).
+    owner_id = Column(String(36), ForeignKey('users.id', name='fk_artifacts_owner_id'), nullable=True, index=True)
+    project_id = Column(String(36), ForeignKey('projects.id', name='fk_artifacts_project_id'),
+                        nullable=True, index=True)
+    visibility = Column(String(20), nullable=False, default='none', server_default='none')
+    slug = Column(String(255), nullable=True)
+    shared_run_identity = Column(String(20), nullable=False, default='viewer', server_default='viewer')
+    include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
+    chat_enabled = Column(Boolean, nullable=False, default=False, server_default='0')
+    chat_data_source_ids = Column(JSON, nullable=True)
+    chat_model_id = Column(String(36), nullable=True)  # llm_models id or 'org_default'; no FK
+    cron_schedule = Column(String, nullable=True)
+    refresh_on_view = Column(Boolean, nullable=False, default=True, server_default='1')
+    last_run_at = Column(DateTime, nullable=True)
+    notification_subscribers = Column(JSON, nullable=True)
+    # The live release. artifact_releases.artifact_id points back here, so the
+    # key is created after both tables (use_alter) and cleared, not blocked,
+    # when its release is deleted.
+    published_release_id = Column(
+        String(36),
+        ForeignKey('artifact_releases.id', name='fk_artifacts_published_release_id',
+                   ondelete='SET NULL', use_alter=True),
+        nullable=True, index=True,
+    )
 
     # Never loaded implicitly: a version's content JSON can be ~100kB.
     versions = relationship(
@@ -163,3 +199,8 @@ class ArtifactVersion(BaseSchema):
                 "artifact_service.new_artifact()/new_version()"
             )
         super().__init__(**kw)
+
+
+# Register the dashfc01 tables wherever artifacts are loaded (metadata walks,
+# e.g. the agent-delete foreign-key guard, must see them).
+from app.models import artifact_release  # noqa: E402,F401

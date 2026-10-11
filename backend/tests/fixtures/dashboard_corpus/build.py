@@ -43,6 +43,7 @@ def build_corpus(fixtures: dict, rows: Rows) -> Corpus:
     try:
         corpus = seed_corpus(rows, cast, THUMBNAILS_DIR, written)
         upgrade_test_db_to_head()
+        rows.forget_schema()
         _add_live_resources(client, cast, corpus, put_setting)
     except BaseException:
         _remove(written)

@@ -64,6 +64,11 @@ class Rows:
     def close(self) -> None:
         self.engine.dispose()
 
+    def forget_schema(self) -> None:
+        """Drop reflected tables; call after migrations change the schema."""
+        self._meta = MetaData()
+        self._tables = {}
+
     def table(self, name: str) -> Table:
         if name not in self._tables:
             self._tables[name] = Table(name, self._meta, autoload_with=self.engine)

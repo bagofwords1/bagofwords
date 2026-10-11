@@ -1,6 +1,6 @@
 # Dashboards as first-class entities
 
-Status: in progress on `feat/dashboards` (one release, merged to `main` once complete).
+Status: in progress on `feat/dashboards` — phase 0 and phase 1 done (one release, merged to `main` once complete).
 
 ## Goal
 
@@ -124,6 +124,7 @@ TESTING=true uv run pytest -m e2e tests/e2e/dashboards --db=postgres -n 4   # ne
 BOW_UPDATE_GOLDEN=1 TESTING=true uv run pytest -m e2e tests/e2e/dashboards/test_visibility_baseline.py
 ```
 
+
 ### Behaviour the baseline records as it is
 
 Found while building the corpus; out of scope for this project, recorded unchanged
@@ -138,3 +139,49 @@ so a future fix shows up as a deliberate baseline change:
   `/r`, which returns 404 for that reader.
 - `GET /api/steps/{id}` returns 500 for a step with no query (`steps.query_id` NULL,
   left by older code): `StepSchema` requires `query_id`.
+
+## Phase 1 — the schema (`dashfc01`)
+
+One migration, schema only; nothing reads the new structure yet, and the
+phase-0 baseline is unchanged byte for byte.
+
+| Object | What |
+|---|---|
+| `artifact_releases` | The frozen published state: remapped `content`, `status` (publishing/ready/failed), `published_by`/`_at`, theme, thumbnail, pptx, `bow_source_access`, `source_version_id` (SET NULL) |
+| `artifact_release_data_source_association`, `artifact_release_file_association` | A release's data sources and files (composite PK, CASCADE both sides) |
+| `artifact_shares` | Per-dashboard grants; exactly one of `user_id`/`group_id` (`ck_artifact_shares_one_principal`); CASCADE on all keys |
+| `artifacts` +14 columns | Owner, project, `visibility`, globally unique `slug`, run identity, data tab, chat settings, cron, refresh-on-view, last run, subscribers, `published_release_id` (SET NULL). New NOT NULL columns default exactly like their `reports` counterparts. `report_id` becomes nullable |
+| `queries`, `visualizations` | `artifact_release_id`; owned by a conversation or a release, never both (`ck_*_single_owner`). `visualizations.report_id` becomes nullable |
+| `step_user_results` | `report_id` becomes nullable |
+| `reports` | `source_artifact_id` (a viewer chat's dashboard) |
+
+- **ORM**: the models declare all of it. `Report.artifacts` / `Artifact.report`
+  name their foreign key (`reports.source_artifact_id` is a second path between
+  the tables). The release pointer uses `use_alter` (the two tables point at
+  each other).
+- **Migration lock**: every replica runs `alembic upgrade head` on boot, so on
+  Postgres `alembic/env.py` takes a transaction-level advisory lock (bounded
+  wait, 5 minutes) before running migrations; concurrent pods wait, then find
+  the database at head.
+- **Downgrade** restores main's schema exactly and refuses — with a message,
+  never by deleting — when data depends on the new structure (rows without a
+  conversation, releases, shares, release-owned copies, or values set in the
+  dashboard columns it drops).
+- **Tests**: `test_schema_dashfc01.py` checks every column, default, key,
+  `ON DELETE`, index and constraint against the plan on SQLite and Postgres;
+  model vs database; that pre-upgrade code still inserts dashboards; that the
+  round trip restores main exactly while keeping every pre-existing default,
+  key and index; one refusal case per kind of dependent data; and two
+  concurrent `alembic upgrade head` processes on Postgres.
+
+### Notes for later phases
+
+- SQLite does not enforce foreign keys in this app (no `PRAGMA foreign_keys`),
+  so `ON DELETE CASCADE`/`SET NULL` only act on Postgres. Code that deletes
+  users, groups, data sources or files must still clear the new rows itself, as
+  the SCIM group delete already does for `report_shares`.
+- SQLite DDL is not transactional under alembic: a migration that fails midway
+  leaves a partial schema. The downgrade's refusal therefore runs before any DDL.
+- Considered and not done in phase 1: a `lock_timeout` on the migration's own
+  DDL during rolling updates. It would change how every migration behaves, so
+  it is a separate decision.
