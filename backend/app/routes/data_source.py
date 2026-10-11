@@ -104,7 +104,21 @@ async def get_data_source(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.get_data_source(db, data_source_id, organization, current_user)
+    return await data_source_service.get_data_source(
+        db, data_source_id, organization, current_user,
+        include_config=await _can_manage_data_source(db, current_user, organization, data_source_id),
+    )
+
+
+async def _can_manage_data_source(db, current_user, organization, data_source_id) -> bool:
+    """Manage authority over the agent (or org-wide connection management).
+    View-level members may read the agent and probe it, but neither see the
+    connection config nor persist connection state."""
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    return (
+        resolved.has_resource_permission("data_source", str(data_source_id), "manage")
+        or resolved.has_org_permission("manage_connections")
+    )
 
 
 @router.get("/data_sources/{data_source_type}/fields", response_model=dict)
@@ -172,7 +186,10 @@ async def test_data_source_connection(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.test_data_source_connection(db, data_source_id, organization, current_user)
+    return await data_source_service.test_data_source_connection(
+        db, data_source_id, organization, current_user,
+        persist=await _can_manage_data_source(db, current_user, organization, data_source_id),
+    )
 
 @router.post("/data_sources/test_connection", response_model=dict)
 @requires_permission('create_data_source')
