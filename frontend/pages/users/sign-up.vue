@@ -8,8 +8,8 @@
         {{ setupRequired ? $t('auth.setupSubtitle') : $t('auth.signUpSubtitle') }}
       </p>
 
-      <p v-if="error_message" v-html="error_message"
-         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line"></p>
+      <p v-if="error_message"
+         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line">{{ error_message }}</p>
 
       <div v-if="showSso" class="mt-7">
         <AuthProviderButtons
@@ -180,10 +180,6 @@ onMounted(async () => {
     googleSignIn.value = settings?.google_oauth?.enabled ?? false
     setupRequired.value = settings?.setup_required ?? false
   } catch (_) {}
-  const inviteError = route.query.error as string
-  if (inviteError) {
-    error_message.value = inviteError
-  }
   const emailFromQuery = route.query.email as string
   if (emailFromQuery) {
     email.value = emailFromQuery
