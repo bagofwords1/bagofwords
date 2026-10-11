@@ -812,10 +812,12 @@ async def set_connection_query_identity(
         raise HTTPException(status_code=400, detail="query_identity must be 'self' or 'service_account'")
 
     connection = await connection_service.get_connection(db, connection_id, organization)
+    # Authorize before saying anything about the connection's auth mode; a
+    # caller who may not manage it gets the same 404 as an unknown id.
+    if not await is_admin_or_owner(db, connection, current_user):
+        raise HTTPException(status_code=404, detail="Connection not found")
     if (connection.auth_policy or "system_only") != "user_required" or not supports_user_token(connection):
         raise HTTPException(status_code=400, detail="This connection does not support query-identity selection")
-    if not await is_admin_or_owner(db, connection, current_user):
-        raise HTTPException(status_code=403, detail="Only admins or owners can switch query identity")
 
     from app.services.credential_coordination import lock_credential_writes
     await lock_credential_writes(db, str(current_user.id))
