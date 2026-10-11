@@ -29,6 +29,10 @@ Entry points:
 * ``curl_pinned_request(url, policy) -> (canonical_url, curl_options)`` for
   curl_cffi (``CURLOPT_RESOLVE`` pin)
 * ``check_google_token_uri(service_account_info)``
+* ``connect_pinned_socket`` / ``open_pinned_socket`` — validated TCP socket for
+  non-HTTP protocols (SMTP, IMAP, syslog); the caller keeps the hostname for TLS
+* ``check_connection_params`` / ``acheck_connection_params`` — every host a
+  data-source connector config names, checked right before a client is built
 
 Known limit: when an environment proxy (``HTTPS_PROXY`` …) applies to a URL the
 proxy does the DNS lookup, so the hostname is checked here but the connection
@@ -448,3 +452,134 @@ def check_google_token_uri(info: Any) -> None:
         raise UnsafeURLError(
             "service account token_uri must be https://oauth2.googleapis.com/token"
         )
+
+
+# ── non-HTTP sockets (SMTP, IMAP, syslog) ───────────────────────────────────
+#
+# Same idea as the transports above for protocols that take a socket: resolve
+# once, validate every address, connect to a validated one. The caller keeps
+# the hostname for TLS (SNI + certificate verification).
+
+
+def _sock_family(ip: IPAddress) -> int:
+    return socket.AF_INET6 if ip.version == 6 else socket.AF_INET
+
+
+def connect_pinned_socket(
+    host: str, port: int, policy: Policy | str = Policy.ADMIN, *, timeout: Optional[float] = None
+) -> socket.socket:
+    """Blocking TCP connect to a validated address of ``host``.
+    Raises ``UnsafeURLError`` when refused, ``OSError`` when unreachable."""
+    last: Optional[OSError] = None
+    for ip in check_host(host, policy):
+        s = socket.socket(_sock_family(ip), socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        try:
+            s.connect((str(ip), int(port)))
+            return s
+        except OSError as e:
+            s.close()
+            last = e
+    raise last or OSError(f"Could not connect to {host!r}")
+
+
+async def open_pinned_socket(
+    host: str, port: int, policy: Policy | str = Policy.ADMIN, *, timeout: Optional[float] = None
+) -> socket.socket:
+    """Async counterpart of ``connect_pinned_socket``: a connected,
+    non-blocking socket to hand to ``asyncio.open_connection(sock=...)`` or
+    ``aiosmtplib.SMTP(sock=...)``."""
+    import asyncio
+
+    addrs = await asyncio.to_thread(check_host, host, policy)
+    loop = asyncio.get_running_loop()
+    last: Optional[BaseException] = None
+    for ip in addrs:
+        s = socket.socket(_sock_family(ip), socket.SOCK_STREAM)
+        s.setblocking(False)
+        try:
+            await asyncio.wait_for(loop.sock_connect(s, (str(ip), int(port))), timeout)
+            return s
+        except (OSError, asyncio.TimeoutError) as e:
+            s.close()
+            last = e
+    if last is not None:
+        raise last
+    raise OSError(f"Could not connect to {host!r}")
+
+
+# ── connection (data source) configs ────────────────────────────────────────
+#
+# Database / API connectors take their destination from admin-entered config.
+# Drivers (libpq, ODBC, vendor SDKs) do their own DNS and cannot be handed a
+# pre-validated socket, so the hosts are checked right before a client is
+# built — at every create / update / test / index / query — rather than
+# pinned. See docs/feedback-loops/ssrf-egress-pinning.md (package B).
+
+CONNECTION_HOST_KEYS = ("host", "hostname", "server", "server_hostname")
+CONNECTION_URL_KEYS = (
+    "url", "base_url", "server_url", "site_url", "instance_url", "api_url",
+    "cluster_url", "endpoint_url", "sts_endpoint_url",
+)
+# Keys that hold a host only in some forms (Salesforce ``domain`` is
+# "login" / "acme" or a full host).
+_TYPE_HOST_KEYS = {"salesforce": ("domain",)}
+
+
+def hosts_in(value: Any) -> list[str]:
+    """Hostnames a host-ish config value names: ``db.internal``,
+    ``db:5432``, ``[::1]:5432``, ``h1:27017,h2:27017``, ``https://h/x``,
+    ``mongodb+srv://user:pw@h1,h2/db``."""
+    import re
+
+    v = str(value or "").strip()
+    if not v:
+        return []
+    rest = v.split("://", 1)[1] if "://" in v else v
+    netloc = re.split(r"[/?#]", rest, maxsplit=1)[0].rsplit("@", 1)[-1]
+    out: list[str] = []
+    for part in netloc.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.startswith("["):
+            h = part[1:part.index("]")] if "]" in part else part[1:]
+        elif part.count(":") == 1:
+            h = part.split(":", 1)[0]
+        else:
+            h = part
+        if h and h not in out:
+            out.append(h)
+    return out
+
+
+def connection_hosts(conn_type: Optional[str], params: Optional[dict]) -> list[str]:
+    """Every destination host a connector config names."""
+    out: list[str] = []
+    params = params or {}
+    keys = [(k, False) for k in CONNECTION_HOST_KEYS + CONNECTION_URL_KEYS]
+    keys += [(k, True) for k in _TYPE_HOST_KEYS.get(conn_type or "", ())]
+    for key, only_full in keys:
+        v = params.get(key)
+        if not isinstance(v, str) or (only_full and "." not in v and "://" not in v):
+            continue
+        out.extend(h for h in hosts_in(v) if h not in out)
+    return out
+
+
+def check_connection_params(
+    conn_type: Optional[str], params: Optional[dict], policy: Policy | str = Policy.ADMIN
+) -> None:
+    """Admin-tier check of every host a connector config names. Unresolvable
+    hosts pass (the driver fails them itself). Raises ``UnsafeURLError``."""
+    for host in connection_hosts(conn_type, params):
+        check_host(host, policy, require_resolution=False)
+
+
+async def acheck_connection_params(
+    conn_type: Optional[str], params: Optional[dict], policy: Policy | str = Policy.ADMIN
+) -> None:
+    """``check_connection_params`` off the event loop (DNS can block)."""
+    import asyncio
+
+    await asyncio.to_thread(check_connection_params, conn_type, params, policy)

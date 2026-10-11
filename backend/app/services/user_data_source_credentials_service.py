@@ -415,6 +415,8 @@ class UserDataSourceCredentialsService:
             params = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             pass
+        from app.core.egress import acheck_connection_params as _acheck_connection_destination
+        await _acheck_connection_destination(ds_type, {**(config or {}), **creds})
         client = ClientClass(**params)
         try:
             res = await client.atest_connection()

@@ -1978,6 +1978,10 @@ class ConnectionService:
             allowed = params
 
         logger.info(f"construct_client: Final param keys={list(allowed.keys())}")
+        # Re-validate the effective destination (config + overrides) at use
+        # time — every test, index, query and tool call builds through here.
+        from app.core.egress import acheck_connection_params
+        await acheck_connection_params(connection.type, params)
         client = ClientClass(**allowed)
         await self._attach_connection_table_metadata(db, client, connection)
         return client
@@ -2289,6 +2293,10 @@ class ConnectionService:
             except Exception:
                 pass
 
+            # Pre-save test / create / update validation: check the
+            # destination before the client can connect anywhere.
+            from app.core.egress import check_connection_params
+            check_connection_params(data_source_type, {**(config or {}), **(credentials or {})})
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load client for {data_source_type}: {str(e)}")
