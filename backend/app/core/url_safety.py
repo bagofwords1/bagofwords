@@ -22,6 +22,7 @@ second time (rebinding) is not stopped here.
 """
 
 import ipaddress
+import re
 import socket
 from collections.abc import Iterable
 from urllib.parse import urlparse
@@ -149,3 +150,62 @@ def git_remote_host(repo_url: str) -> tuple[str, str | None]:
 def check_git_remote(repo_url: str) -> None:
     _, host = git_remote_host(repo_url)
     check_admin_host(host)
+
+
+# ── Navigation-target checks (XSS guards) ───────────────────────────────────
+#
+# URLs a *browser* is sent to (OAuth client redirect URIs, a connection's
+# authorization endpoint) must never carry a script-executing or local scheme.
+# OAuth redirect URIs keep http(s) plus custom app schemes (``cursor://``,
+# ``vscode://``, ``com.example.app:/cb``) because native / desktop MCP clients
+# register those (RFC 8252); the rest is a denylist of dangerous schemes plus
+# structural checks that defeat obfuscation (" JaVaScRiPt:", "java\tscript:").
+
+_DANGEROUS_SCHEMES = frozenset(
+    {"javascript", "data", "vbscript", "file", "blob", "about", "filesystem", "view-source"}
+)
+_SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
+_INVISIBLE = {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF}
+
+
+def _url_scheme(url: object) -> str | None:
+    """Lower-cased scheme of an absolute, cleanly-formed URL, else None.
+
+    None for non-strings, empty/relative URLs, and any URL containing
+    whitespace or control/invisible characters anywhere: browsers strip tabs
+    and newlines inside a scheme, so ``java\\tscript:`` would otherwise run.
+    """
+    if not isinstance(url, str) or not url or len(url) > 4096:
+        return None
+    for ch in url:
+        o = ord(ch)
+        if o <= 0x20 or 0x7F <= o <= 0x9F or ch.isspace() or o in _INVISIBLE:
+            return None
+    m = _SCHEME_RE.match(url)
+    return m.group(1).lower() if m else None
+
+
+def _has_http_authority(url: str, scheme: str) -> bool:
+    if not url[len(scheme) + 1:].startswith("//"):
+        return False
+    try:
+        return bool(urlparse(url).hostname)
+    except ValueError:
+        return False
+
+
+def is_safe_redirect_uri(url: object) -> bool:
+    """True when ``url`` may be stored / used as an OAuth client redirect URI."""
+    scheme = _url_scheme(url)
+    if scheme is None or scheme in _DANGEROUS_SCHEMES:
+        return False
+    if scheme in ("http", "https"):
+        return _has_http_authority(url, scheme)
+    # Custom app scheme (native/desktop clients): needs a target after the colon.
+    return len(url) > len(scheme) + 1
+
+
+def is_safe_http_url(url: object) -> bool:
+    """True when ``url`` is an absolute http(s) URL with a host."""
+    scheme = _url_scheme(url)
+    return scheme in ("http", "https") and _has_http_authority(url, scheme)

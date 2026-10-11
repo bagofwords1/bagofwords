@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, List, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # PostgreSQL
@@ -138,6 +138,22 @@ class SapDatasphereConfig(BaseModel):
         description="Verify the server TLS certificate. Disable only for test endpoints with self-signed certificates.",
         json_schema_extra={"ui:type": "boolean"},
     )
+
+    @field_validator("authorization_url")
+    @classmethod
+    def _authorization_url_is_http(cls, v):
+        return _require_http_url(v, "authorization_url")
+
+
+def _require_http_url(v, field: str):
+    """Browser-navigation URLs (OAuth authorize endpoints) must be absolute
+    http(s); a javascript: value would execute when the user clicks Sign in."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return v
+    from app.core.url_safety import is_safe_http_url
+    if not is_safe_http_url(v.strip()):
+        raise ValueError(f"{field} must be an absolute http(s) URL")
+    return v
 
 
 class SapDatasphereCredentials(BaseModel):
@@ -3665,6 +3681,11 @@ class MCPOAuthAppCredentials(BaseModel):
         description="OAuth authorization endpoint (e.g. https://idp.example.com/oauth/authorize)",
         json_schema_extra={"ui:type": "string"}
     )
+
+    @field_validator("authorize_url")
+    @classmethod
+    def _authorize_url_is_http(cls, v):
+        return _require_http_url(v, "authorize_url")
     token_url: str = Field(
         ...,
         title="Token URL",

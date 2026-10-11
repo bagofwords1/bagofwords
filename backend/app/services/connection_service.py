@@ -309,6 +309,16 @@ def _dialect_insert(db: AsyncSession):
     return insert
 
 
+
+def _reject_unsafe_oauth_urls(config, credentials) -> None:
+    """OAuth authorize endpoints become browser navigation targets; refuse
+    anything but absolute http(s) at save time (pentest 829383570)."""
+    from app.core.url_safety import is_safe_http_url
+    for source, key in ((config, "authorization_url"), (credentials, "authorize_url")):
+        value = source.get(key) if isinstance(source, dict) else None
+        if isinstance(value, str) and value.strip() and not is_safe_http_url(value.strip()):
+            raise HTTPException(status_code=400, detail=f"{key} must be an absolute http(s) URL")
+
 class ConnectionService:
     """Service for managing database connections."""
 
@@ -328,6 +338,7 @@ class ConnectionService:
         allowed_user_auth_modes: list = None,
     ) -> Connection:
         """Create a new connection with validation."""
+        _reject_unsafe_oauth_urls(config, credentials)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -547,6 +558,7 @@ class ConnectionService:
         **updates,
     ) -> Connection:
         """Update a connection."""
+        _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
 
         # Check enterprise license if switching to user_required auth policy

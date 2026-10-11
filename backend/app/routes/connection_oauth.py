@@ -21,6 +21,7 @@ from app.dependencies import get_async_db
 from app.models.user import User
 from app.models.connection import Connection
 from app.core.auth import current_user, SECRET
+from app.core.url_safety import is_safe_http_url
 from app.settings.config import settings
 from app.settings.logging_config import get_logger
 from app.errors.redact import redact_error
@@ -248,7 +249,16 @@ async def oauth_authorize(
     # RFC 8707 resource indicator — audience-bind the token to the MCP server.
     if oauth_params.get("audience"):
         params["resource"] = oauth_params["audience"]
-    authorization_url = f"{oauth_params['authorize_url']}?{urlencode(params)}"
+    # The frontend navigates the browser here: only an absolute http(s) URL may
+    # leave this endpoint, whatever is stored in (or discovered for) the
+    # connection — a javascript: value would otherwise run in our origin.
+    authorize_base = (oauth_params.get("authorize_url") or "").strip()
+    if not is_safe_http_url(authorize_base):
+        raise HTTPException(
+            status_code=400,
+            detail="Connection OAuth authorization URL must be an absolute http(s) URL",
+        )
+    authorization_url = f"{authorize_base}?{urlencode(params)}"
 
     response = JSONResponse({"authorization_url": authorization_url})
     _set_verifier_cookie(response, code_verifier)
