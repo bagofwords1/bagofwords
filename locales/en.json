@@ -1173,6 +1173,16 @@
       "needsValues": "Waiting on values for:",
       "cachedHint": "Served from your cached result for these values — the source was not re-queried"
     },
+    "addParameter": {
+      "adding": "Adding filter \"{name}\"…",
+      "added": "Added filter \"{name}\" to \"{query}\"",
+      "addedNoQuery": "Added filter \"{name}\"",
+      "failed": "Failed to add filter \"{name}\"",
+      "type": "Type: {type}",
+      "default": "Default: {value}",
+      "defaultAll": "all",
+      "column": "Column: {column}"
+    },
     "webFetch": {
       "fetching": "Fetching",
       "fetched": "Fetched",

@@ -1131,6 +1131,16 @@
       "needsValues": "Warten auf Werte für:",
       "cachedHint": "Aus Ihrem zwischengespeicherten Ergebnis für diese Werte geliefert – die Quelle wurde nicht erneut abgefragt"
     },
+    "addParameter": {
+      "adding": "Filter \"{name}\" wird hinzugefügt…",
+      "added": "Filter \"{name}\" zu \"{query}\" hinzugefügt",
+      "addedNoQuery": "Filter \"{name}\" hinzugefügt",
+      "failed": "Filter \"{name}\" konnte nicht hinzugefügt werden",
+      "type": "Typ: {type}",
+      "default": "Standard: {value}",
+      "defaultAll": "alle",
+      "column": "Spalte: {column}"
+    },
     "createArtifact": {
       "creating": "Artefakt wird erstellt",
       "created": "Artefakt erstellt",

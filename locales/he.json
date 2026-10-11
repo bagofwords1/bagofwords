@@ -1147,6 +1147,16 @@
       "needsValues": "ממתין לערכים עבור:",
       "cachedHint": "הוגש מהתוצאה השמורה שלך עבור ערכים אלה — המקור לא תושאל מחדש"
     },
+    "addParameter": {
+      "adding": "מוסיף את המסנן \"{name}\"…",
+      "added": "נוסף המסנן \"{name}\" ל-\"{query}\"",
+      "addedNoQuery": "נוסף המסנן \"{name}\"",
+      "failed": "הוספת המסנן \"{name}\" נכשלה",
+      "type": "סוג: {type}",
+      "default": "ברירת מחדל: {value}",
+      "defaultAll": "הכל",
+      "column": "עמודה: {column}"
+    },
     "createArtifact": {
       "creating": "יוצר פריט",
       "created": "הפריט נוצר",
