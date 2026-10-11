@@ -1,6 +1,6 @@
 <template>
   <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }">
-    <div class="grid grid-cols-[210px_1fr] min-h-[480px] max-h-[85vh] bg-white dark:bg-gray-900 rounded-lg overflow-hidden">
+    <div class="grid grid-cols-[210px_1fr] grid-rows-[minmax(0,1fr)] min-h-[480px] max-h-[85vh] bg-white dark:bg-gray-900 rounded-lg overflow-hidden">
       <!-- Left column (smaller): user header + section nav -->
       <aside class="border-e border-gray-200/80 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 flex flex-col">
         <div class="px-4 pt-5 pb-4 flex flex-col items-center text-center gap-2">
