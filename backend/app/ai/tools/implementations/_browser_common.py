@@ -232,7 +232,7 @@ def browser_egress_decider(session: "BrowserSession"):
     Chromium opens — including redirect hops and service-worker fetches the
     route handler never sees — is validated and pinned here."""
     def decide(host: str, port: int):
-        return check_host(host, _host_policy(host, session.patterns))[0]
+        return check_host(host, _host_policy(host, session.patterns))
     return decide
 
 

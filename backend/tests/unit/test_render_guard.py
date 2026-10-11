@@ -147,8 +147,8 @@ _DOC_PAGE = """<!doctype html><html><body><h1>Doc</h1>
 </body></html>"""
 
 
-@pytest.mark.parametrize("block_private", [False, True])
-def test_doc_pdf_loads_own_origin_but_not_redirect_targets(monkeypatch, block_private):
+@pytest.mark.parametrize("block_private,origin_host", [(False, "127.0.0.1"), (True, "127.0.0.1"), (False, "localhost")])
+def test_doc_pdf_loads_own_origin_but_not_redirect_targets(monkeypatch, block_private, origin_host):
     from app.services.report_pdf_service import ReportPdfService
 
     # The render origin is deployment config (loopback in the standard image):
@@ -160,7 +160,8 @@ def test_doc_pdf_loads_own_origin_but_not_redirect_targets(monkeypatch, block_pr
             "/redirect": (302, {"Location": f"{internal}/latest/meta-data"}, b""),
         }
         with _server("127.0.0.1", routes) as (origin, origin_seen):
-            monkeypatch.setenv("BOW_RENDER_ORIGIN", origin)
+            # "localhost" resolves to ::1 first; the server listens on IPv4 only.
+            monkeypatch.setenv("BOW_RENDER_ORIGIN", origin.replace("127.0.0.1", origin_host))
             out = asyncio.run(ReportPdfService().generate_doc_pdf("d1", {"title": "Doc", "markdown": "# x"}))
     assert out == "pdfs/d1.pdf"
     assert "/print/doc" in origin_seen and "/asset.gif" in origin_seen
@@ -179,7 +180,7 @@ def test_renderer_policy_allows_only_own_origin():
     for url in ("http://127.0.0.1:3001/", "https://cdn.jsdelivr.net/npm/x.js", "http://169.254.169.254/",
                 "file:///etc/passwd", "ftp://127.0.0.1:3000/"):
         assert not pol.allows_url(url), url
-    assert str(pol.decide("127.0.0.1", 3000)) == "127.0.0.1"
+    assert [str(ip) for ip in pol.decide("127.0.0.1", 3000)] == ["127.0.0.1"]
     with pytest.raises(UnsafeURLError):
         pol.decide("169.254.169.254", 80)
 
@@ -198,8 +199,8 @@ def test_browser_tool_egress_policy(monkeypatch):
     session = SimpleNamespace(patterns=["https://intranet.corp.invalid/*", "https://*.corp.invalid/app/*"])
     decide = browser_egress_decider(session)
     assert host_allowlisted("intranet.corp.invalid", session.patterns)
-    assert str(decide("intranet.corp.invalid", 443)) == "10.0.0.8"     # allowlisted internal host
-    assert str(decide("cdn.example.invalid", 443)) == "93.184.216.34"  # public asset
+    assert str(decide("intranet.corp.invalid", 443)[0]) == "10.0.0.8"     # allowlisted internal host
+    assert str(decide("cdn.example.invalid", 443)[0]) == "93.184.216.34"  # public asset
     with pytest.raises(UnsafeURLError):
         decide("evil.corp.invalid", 443)                               # allowlisted but metadata
     with pytest.raises(UnsafeURLError):

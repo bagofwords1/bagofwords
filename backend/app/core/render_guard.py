@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Awaitable, Callable, Iterable, Optional, Union
+from typing import Awaitable, Callable, Iterable, List, Optional, Union
 from urllib.parse import urlsplit
 
 from app.core.egress import IPAddress, Policy, check_host, resolve_host
@@ -43,9 +43,10 @@ logger = logging.getLogger(__name__)
 # origin. Derived from the code: none — see the module docstring.
 RENDER_ASSET_HOSTS: frozenset[str] = frozenset()
 
-# Decide where (host, port) may go: return the address to connect to, or raise
-# UnsafeURLError. Runs in a worker thread (it may resolve DNS).
-Decider = Callable[[str, int], IPAddress]
+# Decide where (host, port) may go: return the validated addresses to connect
+# to (tried in order), or raise UnsafeURLError. Runs in a worker thread (it may
+# resolve DNS).
+Decider = Callable[[str, int], List[IPAddress]]
 
 _INLINE_SCHEMES = ("data", "blob", "about")
 
@@ -82,15 +83,15 @@ class RendererPolicy:
             return True
         return key[0] == "https" and key[2] == 443 and key[1] in self.asset_hosts
 
-    def decide(self, host: str, port: int) -> IPAddress:
+    def decide(self, host: str, port: int) -> List[IPAddress]:
         name = host.lower().rstrip(".").strip("[]")
         if any(o[1] == name and o[2] == port for o in self.origins):
             addrs = resolve_host(name)
             if not addrs:
                 raise UnsafeURLError(f"Could not resolve host {name!r}.")
-            return addrs[0]
+            return addrs
         if name in self.asset_hosts and port == 443:
-            return check_host(name, Policy.ADMIN)[0]
+            return check_host(name, Policy.ADMIN)
         raise UnsafeURLError(f"{name}:{port} is not an allowed render destination.")
 
 
@@ -193,12 +194,21 @@ class RenderEgressProxy:
                 ]
                 rest = (f"{method} {path} {version}\r\n" + "\r\n".join(headers + ["Connection: close"]) + "\r\n\r\n").encode("latin-1")
             try:
-                ip = await asyncio.to_thread(self._decide, host.strip("[]"), port)
+                addrs = await asyncio.to_thread(self._decide, host.strip("[]"), port)
             except (UnsafeURLError, ValueError) as e:
                 return await self._refuse(writer, f"{host}:{port}", str(e))
-            up_reader, upstream_writer = await asyncio.wait_for(
-                asyncio.open_connection(str(ip), port), timeout=15
-            )
+            up_reader = None
+            for ip in addrs:  # e.g. localhost -> ::1, 127.0.0.1
+                try:
+                    up_reader, upstream_writer = await asyncio.wait_for(
+                        asyncio.open_connection(str(ip), port), timeout=15
+                    )
+                    break
+                except (OSError, asyncio.TimeoutError):
+                    continue
+            if up_reader is None:
+                writer.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                return
             if method.upper() == "CONNECT":
                 writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 await writer.drain()

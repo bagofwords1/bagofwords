@@ -94,6 +94,9 @@ class _TrapHandler(http.server.BaseHTTPRequestHandler):
 
     def handle(self):
         self.hits.append(self.client_address)
+        # Non-HTTP clients (SMTP, syslog, database drivers) wait for a
+        # greeting that never comes: hang up after a second instead.
+        self.request.settimeout(1.0)
         try:
             super().handle()
         except Exception:
