@@ -3,7 +3,7 @@
     "aikido": {
       "command": "npx",
       "args": ["-y", "@aikidosec/mcp@latest"],
-      "env": { "AIKIDO_API_KEY": "${AIKIDO_KEY}" }
+      "env": { "AIKIDO_API_KEY": "${AIKIDO_API_KEY}" }
     }
   }
 }
