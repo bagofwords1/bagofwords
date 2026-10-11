@@ -90,6 +90,8 @@ dependencies = [
     "python-dotenv>=1.2.2,<1.3",
     "pyyaml>=6.0.3,<6.1",
     "tiktoken>=0.13.0,<0.14",
+    # search_agents runs model-written regex terms with a timeout (stdlib re has none).
+    "regex>=2026.5.9,<2027",
     "rapidfuzz>=3.14.5,<3.15",
     "partialjson>=0.0.9,<0.1",
     "pathspec>=1.1.1,<1.2",

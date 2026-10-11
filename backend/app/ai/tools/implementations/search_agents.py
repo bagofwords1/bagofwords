@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator, Dict, List, Type
 import logging
 import re
 
+import regex
 from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
@@ -34,14 +35,69 @@ logger = logging.getLogger(__name__)
 # The rest are listed as one-liners so a broad query can't dump everything.
 _FULL_RENDER_CAP = 3
 _SPECIAL = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
+# Per-search budget for a raw-regex term. Query terms are model-written, and a
+# backtracking pattern ("(\w+\s?)+$") against an agent's table list would pin
+# the event loop — the single worker then misses health checks and requests.
+_REGEX_TIMEOUT_S = 0.05
+
+
+class _GlobPattern:
+    """Unanchored `*`/`?` glob, matched per line in linear time.
+
+    fnmatch.translate("*a*b*") compiles to a regex whose failed search rescans
+    from every start position — quadratic on a long haystack, and the joined
+    table list of a wide warehouse is tens of KB. Here the literal pieces
+    between `*`s are found in order with one forward scan.
+    """
+
+    def __init__(self, glob: str):
+        self._pieces = [
+            re.compile("".join("." if ch == "?" else re.escape(ch) for ch in part), re.IGNORECASE)
+            for part in glob.split("*") if part
+        ]
+
+    def _search_line(self, line: str) -> bool:
+        pos = 0
+        for piece in self._pieces:
+            m = piece.search(line, pos)
+            if not m:
+                return False
+            pos = m.end()
+        return True
+
+    def search(self, haystack: str) -> bool:
+        return any(self._search_line(line) for line in haystack.split("\n"))
+
+
+class _RegexPattern:
+    """Raw regex term, bounded by a timeout so backtracking can't block the loop.
+
+    A term that times out once is dropped for the rest of the search (it would
+    time out again on every agent and add up).
+    """
+
+    def __init__(self, compiled):
+        self._rx = compiled
+        self.dead = False
+
+    def search(self, haystack: str) -> bool:
+        if self.dead:
+            return False
+        try:
+            return self._rx.search(haystack, timeout=_REGEX_TIMEOUT_S) is not None
+        except TimeoutError:
+            self.dead = True
+            logger.warning("search_agents: regex term %r timed out; ignoring it", self._rx.pattern)
+            return False
 
 
 def compile_query_patterns(queries) -> list:
-    """Query terms → regex patterns, forgiving like describe_tables/get_connection.
+    """Query terms → patterns, forgiving like describe_tables/get_connection.
 
     Case-insensitive substring, `*`/`?` globs, naive singular/plural folding of
     the query term ("albums" must find table "Album"), plus raw regex for terms
-    that carry regex metacharacters.
+    that carry regex metacharacters. Every pattern exposes `.search(text)` and
+    runs in bounded time on any haystack.
     """
     patterns: list = []
     for q in queries or []:
@@ -67,17 +123,11 @@ def compile_query_patterns(queries) -> list:
             except re.error:
                 pass
         if "*" in s or "?" in s:
-            import fnmatch
-            try:
-                # fnmatch anchors the whole string; wrap so the glob may match
-                # anywhere in the haystack line.
-                patterns.append(re.compile(fnmatch.translate(f"*{s}*"), re.IGNORECASE))
-            except re.error:
-                pass
+            patterns.append(_GlobPattern(s))
         if _SPECIAL.search(s):
             try:
-                patterns.append(re.compile(s, re.IGNORECASE))
-            except re.error:
+                patterns.append(_RegexPattern(regex.compile(s, regex.IGNORECASE)))
+            except regex.error:
                 pass
     return patterns
 
@@ -228,7 +278,9 @@ class SearchAgentsTool(Tool):
                         getattr(ds, "context", "") or "",
                         sid,
                     ])
-                    weak_hay = " ".join(table_names.get(sid, []))
+                    # One name per line: a glob must match within a single table
+                    # name, not span "orders" in one and "detail" in the next.
+                    weak_hay = "\n".join(table_names.get(sid, []))
                     q, n = match_quality(patterns, strong_hay, weak_hay)
                     if q is None:
                         continue
