@@ -159,6 +159,57 @@ class TestSecurity:
         with pytest.raises(ValueError, match="escapes"):
             c.write_file("../escape.txt", "x")
 
+    @pytest.fixture()
+    def linked_tree(self, tree, tmp_path_factory):
+        """`tree` plus symlinks that leave root (file + dir) and ones that stay
+        inside it, next to a nested folder whose names carry dots and spaces."""
+        outside = tmp_path_factory.mktemp("outside")
+        (outside / "secret.txt").write_text("zebracorn outside-root secret\n")
+        (outside / "sub").mkdir()
+        (outside / "sub" / "more.txt").write_text("zebracorn nested secret\n")
+        (tree / "leak.txt").symlink_to(outside / "secret.txt")
+        (tree / "leakdir").symlink_to(outside, target_is_directory=True)
+        nested = tree / "Q1 2025" / "v1.2 final"
+        nested.mkdir(parents=True)
+        (nested / "board deck.v2.txt").write_text("quarterly penguin numbers\n")
+        (tree / "alias.txt").symlink_to(nested / "board deck.v2.txt")
+        (tree / "contracts_link").symlink_to(tree / "contracts", target_is_directory=True)
+        return tree
+
+    @pytest.mark.parametrize("fid", [
+        "leak.txt", "leakdir/secret.txt", "leakdir/sub/more.txt",
+        "../../../../../etc/passwd", "/etc/passwd", "contracts/../../outside",
+    ])
+    def test_reads_that_leave_root_are_rejected(self, linked_tree, fid):
+        c = NetworkDirClient(root_path=str(linked_tree))
+        with pytest.raises(ValueError):
+            c.read_file(fid)
+        with pytest.raises(ValueError):
+            c.read_raw_bytes(fid)
+
+    def test_symlinks_leaving_root_are_not_listed_indexed_or_searched(self, linked_tree):
+        for mode in ("metadata", "content"):
+            c = NetworkDirClient(root_path=str(linked_tree), index_mode=mode)
+            ids = {f["id"] for f in c.list_files(recursive=True)}
+            assert not any(i.startswith(("leak.txt", "leakdir")) for i in ids), ids
+            tables = c.get_schemas()
+            assert not any(t.name.startswith(("leak.txt", "leakdir")) for t in tables)
+            assert "zebracorn" not in repr([t.metadata_json for t in tables])
+            hits = repr(c.grep_files("zebracorn"))
+            assert "outside-root" not in hits and "nested secret" not in hits
+
+    def test_in_root_nested_and_symlinked_files_still_work(self, linked_tree):
+        c = NetworkDirClient(root_path=str(linked_tree), index_mode="content")
+        ids = {f["id"] for f in c.list_files(recursive=True)}
+        nested_id = "Q1 2025/v1.2 final/board deck.v2.txt"
+        assert {nested_id, "alias.txt"} <= ids
+        for fid in (nested_id, "alias.txt", "contracts_link/acme_2025.csv"):
+            assert c.read_raw_bytes(fid)[0]
+        assert "penguin" in str(c.read_file(nested_id))
+        tables = {t.name: t for t in c.get_schemas()}
+        assert "penguin" in tables[nested_id].metadata_json["network_dir"]["keywords"]
+        assert nested_id in {f["id"] for f in c.list_files(folder_id="Q1 2025/v1.2 final")}
+
     def test_missing_root_errors(self):
         c = NetworkDirClient(root_path="/no/such/dir/here")
         assert c.test_connection()["success"] is False

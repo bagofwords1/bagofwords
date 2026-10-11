@@ -169,9 +169,18 @@ class WebhookService:
         await db.commit()
 
     async def rotate_secret(self, db, report_id, webhook_id) -> WebhookSchema:
+        """Rotate a report webhook's credentials.
+
+        Mirrors ``rotate_trigger_secret``: in ``url_token`` mode the delivery
+        URL *is* the credential, so the path token is regenerated too and the
+        old URL stops working immediately (the returned ``delivery_url`` is the
+        new one). HMAC/header modes keep a stable URL and only get a new secret.
+        """
         wh = await self._get_or_404(db, webhook_id, report_id)
         secret = Webhook.generate_secret()
         wh.set_secret(secret)
+        if wh.auth_mode == "url_token":
+            wh.token = Webhook.generate_token()
         await db.commit()
         await db.refresh(wh)
         return self._to_schema(wh, secret=secret)
