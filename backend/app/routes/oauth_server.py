@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import current_user
+from app.core.auth import current_session_user, current_user
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.ee.audit.service import audit_service
@@ -157,7 +157,9 @@ async def authorize_redirect(
 @router.post("/authorize")
 async def authorize_approve(
     request: Request,
-    user: User = Depends(current_user),
+    # Consent must come from the user's own login session: an OAuth bearer
+    # token or API key could otherwise approve grants for other clients.
+    user: User = Depends(current_session_user),
     db: AsyncSession = Depends(get_async_db),
 ):
     """Called by frontend after user approves the consent.
