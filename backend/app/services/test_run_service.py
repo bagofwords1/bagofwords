@@ -1501,9 +1501,31 @@ class TestRunService:
         ).all()
         run_status_by_case = {str(r.case_id): (r.status or "", name) for r, name in run_rows}
 
+        # The baseline is a second run the caller reads (title, build, summary,
+        # per-case statuses), so it needs the same read authority as the main
+        # run: org-level eval admins see any; a per-agent manager only a run
+        # whose every case they may view. Unreadable candidates are skipped.
+        from app.core.eval_scope import eval_agent_scope, can_view_case
+        _unscoped, _agent_ids = await eval_agent_scope(
+            db, str(current_user.id), str(organization_id)
+        )
+
+        async def _readable(r: TestRun) -> bool:
+            if _unscoped:
+                return True
+            cids = (await db.execute(
+                select(TestResult.case_id).where(TestResult.run_id == str(r.id))
+            )).scalars().all()
+            cases = (await db.execute(
+                select(TestCase).where(TestCase.id.in_([str(c) for c in cids] or [""]))
+            )).scalars().all()
+            return bool(cases) and all(can_view_case(c, _unscoped, _agent_ids) for c in cases)
+
         base_run: Optional[TestRun] = None
         if against_run_id:
             base_run = await self.get_run(db, organization_id, current_user, against_run_id)
+            if not await _readable(base_run):
+                raise HTTPException(status_code=404, detail="Test run not found")
         else:
             candidates = (
                 await db.execute(
@@ -1535,6 +1557,8 @@ class TestRunService:
                     )).scalars().all()
                 )
                 if {str(x) for x in cand_case_ids} & set(run_status_by_case.keys()):
+                    if not await _readable(cand):
+                        continue
                     base_run = cand
                     break
 
