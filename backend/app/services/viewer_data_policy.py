@@ -65,10 +65,17 @@ async def resolve_step_data(
       as themselves.
 
     `report` may be None (report-level renders with no report loaded) — then
-    only the owner/snapshot vs. withheld decision is made via report_id on
-    the step's query, falling back to serving the snapshot.
+    the decision is made against the conversation the step belongs to
+    (app/services/row_owner.py). A step that belongs to no conversation — a
+    published dashboard's copy, or an orphan — is withheld.
     """
     from app.services.bow_source_access import step_access, can_read
+    step_report_id = None
+    if report is None:
+        from app.services.row_owner import step_report_id as _owner_report_id
+        step_report_id = await _owner_report_id(db, step)
+        if step_report_id is None:
+            return StepDataResolution(data={}, withheld=True)
     bow_access = await step_access(db, step)
     if bow_access and not await can_read(db, bow_access, requesting_user):
         return StepDataResolution(data={}, withheld=True)
@@ -133,14 +140,9 @@ async def resolve_step_data(
             )
         )
     else:
-        # Caller had no report in hand — resolve the policy from the step's
-        # own report_id.
-        report_id = getattr(step, "report_id", None) or (
-            getattr(step.query, "report_id", None) if getattr(step, "query", None) else None
-        )
-        withheld = report_id is not None and await report_snapshot_withheld(
-            db, str(report_id), code=step_code
-        )
+        # Caller had no report in hand — resolve the policy from the
+        # conversation the step belongs to.
+        withheld = await report_snapshot_withheld(db, str(step_report_id), code=step_code)
 
     if withheld:
         return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)

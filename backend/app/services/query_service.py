@@ -25,6 +25,7 @@ from app.ai.code_execution.query_params import (
 )
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
+from app.services.row_owner import query_report_id, step_report_id
 
 def _report_execution_loads():
     """Loader options for the report graph a code run needs, eagerly.
@@ -351,7 +352,7 @@ class QueryService:
                 lazyload("*"),
                 selectinload(Step.created_entity).options(lazyload("*")),
             ),
-        ).where(Query.deleted_at.is_(None))
+        ).where(Query.deleted_at.is_(None), Query.artifact_release_id.is_(None))
         if report_id:
             stmt = stmt.where(Query.report_id == str(report_id))
         if organization_id:
@@ -477,8 +478,9 @@ class QueryService:
             step = await step_service.get_step_by_id(db, step_id)
             if step is None:
                 raise ValueError("Step not found")
-            report = step.widget.report if step.widget else None
-            if report is None or str(report.organization_id) != str(organization_id):
+            rid = await step_report_id(db, step)
+            report_org = await db.scalar(select(Report.organization_id).where(Report.id == rid)) if rid else None
+            if report_org is None or str(report_org) != str(organization_id):
                 raise ValueError("Step not found")
         step_schema = await step_service.rerun_step(db, step_id, current_user=current_user)
         return step_schema.model_dump()
@@ -501,6 +503,12 @@ class QueryService:
         q = await self.get_query(db, query_id, organization_id=organization_id)
         if not q:
             raise ValueError("Query not found")
+        # The conversation, through the query's widget as always. Resolved
+        # before anything is written: a query outside any conversation (a
+        # published dashboard's copy) is not a builder target.
+        report_id = await query_report_id(db, q, widget_first=True)
+        if not report_id:
+            raise ValueError("Report not found for step's widget")
 
         run_user_for_params = await db.get(User, user_id) if user_id else None
 
@@ -600,13 +608,9 @@ class QueryService:
 
         # Execute code — load the report graph explicitly (lazy attribute
         # access on widget.report dies in async for freshly created widgets).
-        report_stmt = (
-            select(Report)
-            .options(*_report_execution_loads())
-            .join(Widget, Widget.report_id == Report.id)
-            .where(Widget.id == str(q.widget_id))
-        )
-        report = (await db.execute(report_stmt)).scalar_one_or_none()
+        report = (await db.execute(
+            select(Report).options(*_report_execution_loads()).where(Report.id == report_id)
+        )).scalar_one_or_none()
         if not report:
             raise ValueError("Report not found for step's widget")
 
@@ -744,6 +748,11 @@ class QueryService:
             step = res.scalars().first()
         if step is None or not (step.code or "").strip():
             raise ValueError("Query has no runnable step")
+        # Refused before the cached-result shortcut below: a step outside any
+        # conversation (a published dashboard's copy) is not run or served here.
+        step_report = await step_report_id(db, step)
+        if step_report is None:
+            raise ValueError("Report not found for step's widget")
 
         caller = await db.get(User, user_id) if user_id else None
         if caller is None:
@@ -802,7 +811,7 @@ class QueryService:
             )
         )
         from app.services.bow_source_access import report_access, assert_read
-        bow_access = await report_access(db, q.report_id)
+        bow_access = await report_access(db, await query_report_id(db, q))
         await assert_read(db, bow_access, caller)
         if cache_fresh and not bow_access:
             return {
@@ -816,13 +825,9 @@ class QueryService:
         # Execute the default step's code with the resolved values, as the
         # caller (their credentials on user-scoped connections). Load the
         # report graph explicitly — lazy attribute access dies in async.
-        report_stmt = (
-            select(Report)
-            .options(*_report_execution_loads())
-            .join(Widget, Widget.report_id == Report.id)
-            .where(Widget.id == str(step.widget_id))
-        )
-        report = (await db.execute(report_stmt)).scalar_one_or_none()
+        report = (await db.execute(
+            select(Report).options(*_report_execution_loads()).where(Report.id == step_report)
+        )).scalar_one_or_none()
         if report is None:
             raise ValueError("Report not found for step's widget")
 
@@ -1066,7 +1071,7 @@ class QueryService:
         params only — source rows still run with your credentials" note off
         this. Pass one `memo` dict across a whole list to collapse repeat
         report/org lookups."""
-        report_id = getattr(q, "report_id", None)
+        report_id = await query_report_id(db, q)
         if not report_id:
             return schema
         memo = memo if memo is not None else {}
@@ -1120,12 +1125,22 @@ class QueryService:
     ) -> StepSchema:
         """Overlay a non-owner viewer's own step result over the shared
         snapshot, via the single resolve_step_data authority."""
-        if not viewer_user_id or not getattr(q, 'report_id', None):
+        if not viewer_user_id:
+            return schema
+        report_id = await query_report_id(db, q)
+        if report_id is None:
+            # A published dashboard's copy, or an orphan: no conversation whose
+            # policy could grant the snapshot, so nothing is served.
+            schema.viewer_result = None
+            schema.data = {}
+            schema.snapshot_withheld = True
+            schema.applied_params = None
+            schema.code = ""
             return schema
 
         owner_row = (await db.execute(
             select(Report.user_id, Report.shared_run_identity, Report.organization_id)
-            .where(Report.id == str(q.report_id))
+            .where(Report.id == str(report_id))
         )).first()
         if not owner_row or str(owner_row[0]) == str(viewer_user_id):
             return schema
@@ -1134,7 +1149,7 @@ class QueryService:
         # organization_id must travel too: the withholding policy's org-level
         # fallback (DS-less chat reports) keys off it.
         report_ctx = SimpleNamespace(
-            id=str(q.report_id), user_id=str(owner_row[0]), shared_run_identity=owner_row[1],
+            id=str(report_id), user_id=str(owner_row[0]), shared_run_identity=owner_row[1],
             organization_id=str(owner_row[2]) if owner_row[2] else None,
         )
         viewer = SimpleNamespace(id=str(viewer_user_id))
@@ -1169,20 +1184,17 @@ class QueryService:
         # This path needs the widget's report plus its execution inputs. Keep
         # the general query read projection narrow, and opt into only that
         # relationship graph here so async code never falls back to lazy IO.
-        stmt = select(Query).options(
-            lazyload("*"),
-            selectinload(Query.widget).options(
-                lazyload("*"),
-                selectinload(Widget.report).options(*_report_execution_loads()),
-            ),
-        ).where(Query.id == str(query_id))
+        stmt = select(Query).options(lazyload("*")).where(Query.id == str(query_id))
         if organization_id:
             stmt = stmt.where(Query.organization_id == str(organization_id))
         q = (await db.execute(stmt)).scalar_one_or_none()
         if not q:
             raise ValueError("Query not found")
 
-        report = q.widget.report
+        rid = await query_report_id(db, q, widget_first=True)
+        report = (await db.execute(
+            select(Report).options(*_report_execution_loads()).where(Report.id == rid)
+        )).scalar_one_or_none() if rid else None
         if not report:
             raise ValueError("Report not found for query's widget")
 

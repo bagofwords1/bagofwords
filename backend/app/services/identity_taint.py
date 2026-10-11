@@ -178,13 +178,23 @@ async def step_identity_scope(db: AsyncSession, step) -> Tuple[bool, Optional[da
     report_id = None
     if getattr(step, "query_id", None):
         from app.models.query import Query
+        from app.services.row_owner import query_report_id
         row = (await db.execute(
-            select(Query.parameters, Query.organization_id, Query.report_id)
+            select(Query.parameters, Query.organization_id, Query.report_id, Query.artifact_release_id)
             .where(Query.id == str(step.query_id))
         )).first()
         if row:
             own = _has_identity_param(row[0])
             org_id, report_id = row[1], row[2]
+            if row[3]:
+                # A published dashboard's copy: its load_step references cannot
+                # be resolved against a conversation, so assume they are
+                # identity-scoped rather than serve one identity's rows to another.
+                from app.ai.code_execution.loadables import extract_loadable_refs
+                if extract_loadable_refs(getattr(step, "code", "") or "")[0]:
+                    return True, None
+            elif not report_id:
+                report_id = await query_report_id(db, str(step.query_id))
     taint = await analyze_code_taint(
         db, getattr(step, "code", "") or "",
         organization_id=str(org_id) if org_id else None,

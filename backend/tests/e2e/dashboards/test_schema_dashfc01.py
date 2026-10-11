@@ -100,7 +100,8 @@ CHECKS = {
     "queries": "ck_queries_single_owner",
     "visualizations": "ck_visualizations_single_owner",
 }
-NEWLY_NULLABLE = [("artifacts", "report_id"), ("visualizations", "report_id"), ("step_user_results", "report_id")]
+NEWLY_NULLABLE = [("artifacts", "report_id"), ("visualizations", "report_id"), ("step_user_results", "report_id"),
+                  ("queries", "widget_id")]  # the last one by dashfc02
 NEW_TABLES = ["artifact_releases", "artifact_release_data_source_association",
               "artifact_release_file_association", "artifact_shares"]
 
@@ -445,7 +446,11 @@ def test_downgrade_refuses_to_drop_data_that_needs_the_new_schema(case, corpus, 
 
     url = sync_test_url()
     DEPENDENT_CASES[case](corpus, corpus_rows)
-    head = script_directory().get_current_head()
+    # Undo dashfc02 first (every query here still has its widget): its own
+    # downgrade commits on SQLite before dashfc01's refusal runs.
+    with alembic_pointed_at(url) as cfg:
+        command.downgrade(cfg, "dashfc01")
+    head = "dashfc01"
     before = _schema(url)
     with alembic_pointed_at(url) as cfg, pytest.raises(RuntimeError, match="dashfc01 downgrade refused"):
         command.downgrade(cfg, MAIN_BASE_REVISION)

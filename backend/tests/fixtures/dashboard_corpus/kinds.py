@@ -203,12 +203,16 @@ class Seeder:
         widget_status: str = "draft",
         step_updated_at: datetime | None = None,
         owner: str = "owner",
+        widget_report: str | None = None,
     ) -> dict:
         rid = self.corpus.reports[key]
         base = f"{key}/{qkey}"
         t = self.tick()
+        # widget_report: the widget sits in another conversation than the
+        # query (possible through POST /api/queries before 0.0.583).
         wid = self.rows.insert("widgets", title=title, slug=self.slug(base, "widget"),
-                               report_id=rid, status=widget_status, x=0, y=0, width=6, height=4,
+                               report_id=self.corpus.reports[widget_report] if widget_report else rid,
+                               status=widget_status, x=0, y=0, width=6, height=4,
                                created_at=t, updated_at=t)
         self.corpus.name(f"{base}/widget", wid)
         qid = self.rows.insert(
@@ -653,6 +657,43 @@ def seed_corpus(rows: Rows, cast: Cast, thumbnails_dir: str, written: list[str])
     s.query("encrypted", "q_plain", title="גלויה")
     s.artifact("encrypted", "dash", title="לוח מוצפן", versions=[{"viz": ["q_sealed", "q_plain"]}])
     s.viewer_result("encrypted", "q_sealed", "has_results", encrypted=True)
+
+    # Legacy shapes the API allowed before 0.0.583 (a client could pass any
+    # widget_id to POST /api/queries). Seeded last so the names of every row
+    # above stay as they were. "widget first" and "query first" ownership
+    # answer differently for the first; "latest step of the widget" and "of
+    # the query" differ for the second.
+    s.report("widget_elsewhere_home", title="שיחה פרטית של ה-widget")
+    s.report("widget_elsewhere", title="widget משיחה אחרת", artifact_visibility="internal")
+    s.query("widget_elsewhere", "q_sales", title="הכנסות לפי חודש", widget_report="widget_elsewhere_home")
+    s.artifact("widget_elsewhere", "dash", title="לוח מכירות", versions=[{"viz": ["q_sales"]}])
+
+    s.report("shared_widget", title="widget משותף", artifact_visibility="internal")
+    first = s.query("shared_widget", "q_first", title="הכנסות לפי חודש")
+    t = s.tick()
+    c.name("shared_widget/q_second", s.rows.insert(
+        "queries", title="הכנסות לפי רבעון", widget_id=first["widget"], report_id=c.reports["shared_widget"],
+        organization_id=cast.org_id, user_id=cast.id("owner"), created_at=t, updated_at=t))
+    s.artifact("shared_widget", "dash", title="לוח מכירות", versions=[{"viz": ["q_first"]}])
+
+    # A widget with no conversation (widgets.report_id has been nullable in the
+    # database since a2d893ef9090). Step-keyed checks found no conversation for
+    # its step; query-keyed checks found its query's own report_id, if any.
+    s.report("widget_without_report", title="widget בלי שיחה", artifact_visibility="internal")
+    for qkey, report_id in (("q_own_report", c.reports["widget_without_report"]), ("q_no_report", None)):
+        base = f"widget_without_report/{qkey}"
+        t = s.tick()
+        wid = c.name(f"{base}/widget", s.rows.insert(
+            "widgets", title=qkey, slug=s.slug(base, "widget"), report_id=None, status="draft",
+            x=0, y=0, width=6, height=4, created_at=t, updated_at=t))
+        qid = c.name(base, s.rows.insert(
+            "queries", title=qkey, widget_id=wid, report_id=report_id, organization_id=cast.org_id,
+            user_id=cast.id("owner"), created_at=t, updated_at=t))
+        sid = c.name(f"{base}/step", s.rows.insert(
+            "steps", title=qkey, slug=s.slug(base, "step"), status="success", widget_id=wid, query_id=qid,
+            code=GOOD_CODE, data=table_data(qkey), prompt="", description="", type="table",
+            created_at=t, updated_at=t))
+        s.rows.update("queries", qid, default_step_id=sid)
 
     return c
 

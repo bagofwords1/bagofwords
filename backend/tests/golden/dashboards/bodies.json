@@ -862,6 +862,158 @@
    }
   ]
  },
+ "02b12b733aec409f": {
+  "applied_params": null,
+  "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+  "data": {
+   "columns": [
+    {
+     "field": "חודש"
+    },
+    {
+     "field": "הכנסות"
+    }
+   ],
+   "rows": [
+    {
+     "הכנסות": 100,
+     "חודש": "הכנסות לפי חודש 1"
+    },
+    {
+     "הכנסות": 101,
+     "חודש": "הכנסות לפי חודש 2"
+    }
+   ]
+  },
+  "data_model": {},
+  "id": "<shared_widget/q_first/step>",
+  "snapshot_withheld": false,
+  "title": "הכנסות לפי חודש · ריצה",
+  "type": "table",
+  "view": {},
+  "viewer_result": null
+ },
+ "0319567f74310954": {
+  "compaction": {
+   "can_compact": false,
+   "covered_turns": 0,
+   "covers_until_completion_id": null,
+   "last_compaction_at": null,
+   "tokens_compacted_total": 0
+  },
+  "completions": [
+   {
+    "agent_execution_id": null,
+    "completion": null,
+    "completion_blocks": [],
+    "created_at": "<ts>",
+    "created_steps": [],
+    "created_visualizations": [],
+    "created_widgets": [],
+    "external_platform": null,
+    "feedback_score": 0,
+    "files": [],
+    "follow_ups": null,
+    "fork_asset_refs": null,
+    "id": "<shared_widget/msg/user>",
+    "instruction_suggestions": null,
+    "is_fork_summary": null,
+    "knowledge_harness_build": null,
+    "loaded_instructions": null,
+    "message_type": "table",
+    "model": "gpt4o",
+    "parent_id": null,
+    "prompt": {
+     "content": "תראה לי את ההכנסות לפי חודש"
+    },
+    "report_id": "<shared_widget>",
+    "role": "user",
+    "scheduled_prompt_id": null,
+    "sigkill": "<ts>",
+    "source_report_id": null,
+    "status": "success",
+    "summary": {
+     "total_blocks": 0
+    },
+    "total_duration_ms": null,
+    "trigger_source": null,
+    "turn_index": 0,
+    "updated_at": "<ts>",
+    "user_feedback": null,
+    "webhook_id": null
+   },
+   {
+    "agent_execution_id": null,
+    "completion": null,
+    "completion_blocks": [
+     {
+      "agent_execution_id": null,
+      "artifact_changes": null,
+      "block_index": 0,
+      "completed_at": "<ts>",
+      "completion_id": "<shared_widget/msg/answer>",
+      "content": "הנה ההכנסות לפי חודש.",
+      "created_at": "<ts>",
+      "duration_ms": "<volatile>",
+      "icon": null,
+      "id": "<completion_blocks#68>",
+      "loop_index": null,
+      "phase": null,
+      "plan_decision": null,
+      "reasoning": null,
+      "seq": 0,
+      "started_at": "<ts>",
+      "status": "completed",
+      "title": "תשובה",
+      "tool_execution": null,
+      "updated_at": "<ts>"
+     }
+    ],
+    "created_at": "<ts>",
+    "created_steps": [],
+    "created_visualizations": [],
+    "created_widgets": [],
+    "external_platform": null,
+    "feedback_score": 0,
+    "files": [],
+    "follow_ups": null,
+    "fork_asset_refs": null,
+    "id": "<shared_widget/msg/answer>",
+    "instruction_suggestions": null,
+    "is_fork_summary": null,
+    "knowledge_harness_build": null,
+    "loaded_instructions": null,
+    "message_type": "ai_completion",
+    "model": "gpt4o",
+    "parent_id": "<shared_widget/msg/user>",
+    "prompt": {},
+    "report_id": "<shared_widget>",
+    "role": "system",
+    "scheduled_prompt_id": null,
+    "sigkill": "<ts>",
+    "source_report_id": null,
+    "status": "success",
+    "summary": {
+     "total_blocks": 1
+    },
+    "total_duration_ms": null,
+    "trigger_source": null,
+    "turn_index": 1,
+    "updated_at": "<ts>",
+    "user_feedback": null,
+    "webhook_id": null
+   }
+  ],
+  "earliest_completion": "<ts>",
+  "has_more": false,
+  "latest_completion": "<ts>",
+  "next_before": "2026-03-02T05:42:00~<shared_widget/msg/user>",
+  "report_id": "<shared_widget>",
+  "total_blocks": 1,
+  "total_completions": 2,
+  "total_steps_created": 0,
+  "total_widgets_created": 0
+ },
  "0320843a158bff0e": {
   "applied_params": null,
   "code": "",
@@ -1964,6 +2116,73 @@
    }
   ]
  },
+ "05f9fac26b9ebfd1": {
+  "created_at": "<ts>",
+  "credential_scoped": false,
+  "default_step": {
+   "applied_params": null,
+   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+   "created_at": "<ts>",
+   "created_entity_id": null,
+   "data": {
+    "columns": [
+     {
+      "field": "חודש"
+     },
+     {
+      "field": "הכנסות"
+     }
+    ],
+    "rows": [
+     {
+      "הכנסות": 100,
+      "חודש": "q_own_report 1"
+     },
+     {
+      "הכנסות": 101,
+      "חודש": "q_own_report 2"
+     }
+    ]
+   },
+   "data_model": {},
+   "description": "",
+   "error_code": null,
+   "id": "<widget_without_report/q_own_report/step>",
+   "prompt": "",
+   "query_id": "<widget_without_report/q_own_report>",
+   "slug": "widget-without-report-q-own-report-step",
+   "snapshot_withheld": false,
+   "status": "success",
+   "status_reason": null,
+   "title": "q_own_report",
+   "type": "table",
+   "view": {
+    "encoding": null,
+    "legacy": null,
+    "options": null,
+    "type": null,
+    "version": "v2",
+    "view": null
+   },
+   "viewer_result": null
+  },
+  "default_step_id": "<widget_without_report/q_own_report/step>",
+  "id": "<widget_without_report/q_own_report>",
+  "last_run": {
+   "ran_at": "<ts>",
+   "status": "success",
+   "status_reason": null
+  },
+  "organization_id": "<org>",
+  "parameters": [],
+  "report_id": "<widget_without_report>",
+  "source_refs": null,
+  "title": "q_own_report",
+  "updated_at": "<ts>",
+  "user_id": "<user:owner>",
+  "visualizations": [],
+  "widget_id": "<widget_without_report/q_own_report/widget>"
+ },
  "062e266aa81001d7": [
   {
    "created_at": "<ts>",
@@ -2049,6 +2268,105 @@
    "widget_id": "<cron_legacy_empty/q_sales/widget>"
   }
  ],
+ "065f1d75589c0c29": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 0,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [],
+  "data_sources": [
+   {
+    "connections": [
+     {
+      "allowed_user_auth_modes": null,
+      "auth_policy": "system_only",
+      "connector_key": null,
+      "data_shape": "tables",
+      "id": "<new#1>",
+      "is_active": true,
+      "name": "sqlite-1",
+      "type": "sqlite",
+      "user_status": null
+     }
+    ],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": "type:sqlite",
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": null,
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": [],
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_without_report>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 1,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-without-report",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget בלי שיחה",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
+ },
  "06e070b157fb25f4": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -6751,6 +7069,21 @@
    "widget_id": "<archived_shared/q_sales/widget>"
   }
  ],
+ "1b6e3f43e4e3b185": {
+  "id": "<widget_elsewhere/q_sales/viz>",
+  "query_id": "<widget_elsewhere/q_sales>",
+  "report_id": "<widget_elsewhere>",
+  "status": "success",
+  "title": "הכנסות לפי חודש",
+  "view": {
+   "encoding": null,
+   "legacy": null,
+   "options": null,
+   "type": "bar_chart",
+   "version": "v2",
+   "view": null
+  }
+ },
  "1c09ad481bb474b1": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -7551,6 +7884,23 @@
    }
   ]
  },
+ "219c74dc0afcc1b4": {
+  "created_at": "<ts>",
+  "credential_scoped": false,
+  "default_step": null,
+  "default_step_id": null,
+  "id": "<shared_widget/q_second>",
+  "last_run": null,
+  "organization_id": "<org>",
+  "parameters": [],
+  "report_id": "<shared_widget>",
+  "source_refs": null,
+  "title": "הכנסות לפי רבעון",
+  "updated_at": "<ts>",
+  "user_id": "<user:owner>",
+  "visualizations": [],
+  "widget_id": "<shared_widget/q_first/widget>"
+ },
  "21c2d0f8b7297118": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -8176,6 +8526,37 @@
    "version": 1
   }
  ],
+ "2356a0585e35a49b": {
+  "applied_params": null,
+  "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+  "data": {
+   "columns": [
+    {
+     "field": "חודש"
+    },
+    {
+     "field": "הכנסות"
+    }
+   ],
+   "rows": [
+    {
+     "הכנסות": 100,
+     "חודש": "הכנסות לפי חודש 1"
+    },
+    {
+     "הכנסות": 101,
+     "חודש": "הכנסות לפי חודש 2"
+    }
+   ]
+  },
+  "data_model": {},
+  "id": "<widget_elsewhere/q_sales/step>",
+  "snapshot_withheld": false,
+  "title": "הכנסות לפי חודש · ריצה",
+  "type": "table",
+  "view": {},
+  "viewer_result": null
+ },
  "23a4c3f62a996157": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -8876,6 +9257,120 @@
   "total_completions": 2,
   "total_steps_created": 0,
   "total_widgets_created": 0
+ },
+ "248612e9cbc5a513": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 1,
+  "artifact_modes": [
+   "page"
+  ],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [
+   {
+    "blocks": [],
+    "created_at": "<ts>",
+    "id": "<dashboard_layout_versions#67>",
+    "is_active": true,
+    "name": "Default",
+    "report_id": "<shared_widget>",
+    "theme_name": null,
+    "theme_overrides": {},
+    "updated_at": "<ts>",
+    "version": 1
+   }
+  ],
+  "data_sources": [
+   {
+    "connections": [],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": null,
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": "sqlite",
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": null,
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<shared_widget>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 2,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "shared-widget",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget משותף",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": [
+   {
+    "height": 4,
+    "id": "<shared_widget/q_first/widget>",
+    "last_step": null,
+    "slug": "shared-widget-q-first-widget",
+    "status": "draft",
+    "title": "הכנסות לפי חודש",
+    "width": 6,
+    "x": 0,
+    "y": 0
+   }
+  ]
  },
  "24c7871413d26600": {
   "applied_params": null,
@@ -10950,6 +11445,91 @@
   "webhook_id": null,
   "widgets": []
  },
+ "2a0cd66883bae91b": [
+  {
+   "created_at": "<ts>",
+   "credential_scoped": false,
+   "default_step": {
+    "applied_params": null,
+    "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+    "created_at": "<ts>",
+    "created_entity_id": null,
+    "data": {
+     "columns": [
+      {
+       "field": "חודש"
+      },
+      {
+       "field": "הכנסות"
+      }
+     ],
+     "rows": [
+      {
+       "הכנסות": 100,
+       "חודש": "הכנסות לפי חודש 1"
+      },
+      {
+       "הכנסות": 101,
+       "חודש": "הכנסות לפי חודש 2"
+      }
+     ]
+    },
+    "data_model": {},
+    "description": "",
+    "error_code": null,
+    "id": "<widget_elsewhere/q_sales/step>",
+    "prompt": "",
+    "query_id": "<widget_elsewhere/q_sales>",
+    "slug": "widget-elsewhere-q-sales-step",
+    "snapshot_withheld": false,
+    "status": "success",
+    "status_reason": null,
+    "title": "הכנסות לפי חודש · ריצה",
+    "type": "table",
+    "view": {
+     "encoding": null,
+     "legacy": null,
+     "options": null,
+     "type": null,
+     "version": "v2",
+     "view": null
+    },
+    "viewer_result": null
+   },
+   "default_step_id": "<widget_elsewhere/q_sales/step>",
+   "id": "<widget_elsewhere/q_sales>",
+   "last_run": {
+    "ran_at": "<ts>",
+    "status": "success",
+    "status_reason": null
+   },
+   "organization_id": "<org>",
+   "parameters": [],
+   "report_id": "<widget_elsewhere>",
+   "source_refs": null,
+   "title": "הכנסות לפי חודש",
+   "updated_at": "<ts>",
+   "user_id": "<user:owner>",
+   "visualizations": [
+    {
+     "id": "<widget_elsewhere/q_sales/viz>",
+     "query_id": "<widget_elsewhere/q_sales>",
+     "report_id": "<widget_elsewhere>",
+     "status": "success",
+     "title": "הכנסות לפי חודש",
+     "view": {
+      "encoding": null,
+      "legacy": null,
+      "options": null,
+      "type": "bar_chart",
+      "version": "v2",
+      "view": null
+     }
+    }
+   ],
+   "widget_id": "<widget_elsewhere/q_sales/widget>"
+  }
+ ],
  "2a7d76c77bcb6e6b": [
   {
    "default_step_id": "<viz_refs/q_live/step>",
@@ -11628,6 +12208,53 @@
   ],
   "widget_id": "<viz_refs/q_live/widget>"
  },
+ "2d79b67ac8fc5f9e": {
+  "applied_params": null,
+  "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+  "created_at": "<ts>",
+  "created_entity_id": null,
+  "data": {
+   "columns": [
+    {
+     "field": "חודש"
+    },
+    {
+     "field": "הכנסות"
+    }
+   ],
+   "rows": [
+    {
+     "הכנסות": 100,
+     "חודש": "הכנסות לפי חודש 1"
+    },
+    {
+     "הכנסות": 101,
+     "חודש": "הכנסות לפי חודש 2"
+    }
+   ]
+  },
+  "data_model": {},
+  "description": "",
+  "error_code": null,
+  "id": "<shared_widget/q_first/step>",
+  "prompt": "",
+  "query_id": "<shared_widget/q_first>",
+  "slug": "shared-widget-q-first-step",
+  "snapshot_withheld": false,
+  "status": "success",
+  "status_reason": null,
+  "title": "הכנסות לפי חודש · ריצה",
+  "type": "table",
+  "view": {
+   "encoding": null,
+   "legacy": null,
+   "options": null,
+   "type": null,
+   "version": "v2",
+   "view": null
+  },
+  "viewer_result": null
+ },
  "2d9791580d51a8ea": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -12297,6 +12924,12 @@
    },
    "viewer_result": null
   }
+ },
+ "30890be3813cb2d0": {
+  "detail": "Query not found",
+  "error_code": "report.not_found",
+  "params": {},
+  "status_code": 404
  },
  "30c1bd0cf06a458d": {
   "compaction": {
@@ -14471,6 +15104,138 @@
   "user_id": "<user:owner>",
   "version": 1
  },
+ "3ab4faf631f863d9": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 0,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "none",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [
+   {
+    "blocks": [],
+    "created_at": "<ts>",
+    "id": "<dashboard_layout_versions#65>",
+    "is_active": true,
+    "name": "Default",
+    "report_id": "<widget_elsewhere_home>",
+    "theme_name": null,
+    "theme_overrides": {},
+    "updated_at": "<ts>",
+    "version": 1
+   }
+  ],
+  "data_sources": [
+   {
+    "connections": [
+     {
+      "allowed_user_auth_modes": null,
+      "auth_policy": "system_only",
+      "connector_key": null,
+      "data_shape": "tables",
+      "id": "<new#1>",
+      "is_active": true,
+      "name": "sqlite-1",
+      "type": "sqlite",
+      "user_status": null
+     }
+    ],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": "type:sqlite",
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": null,
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": null,
+  "fork_eligibility": {
+   "can_fork": true,
+   "reason": null
+  },
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": {
+   "ai_analyst_name": "AI Analyst",
+   "bow_credit": true,
+   "icon_url": null
+  },
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_elsewhere_home>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 0,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-elsewhere-home",
+  "status": "draft",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "שיחה פרטית של ה-widget",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": [
+   {
+    "height": 4,
+    "id": "<widget_elsewhere/q_sales/widget>",
+    "last_step": null,
+    "slug": "widget-elsewhere-q-sales-widget",
+    "status": "draft",
+    "title": "הכנסות לפי חודש",
+    "width": 6,
+    "x": 0,
+    "y": 0
+   }
+  ]
+ },
  "3b02ed322b3c1039": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -15975,6 +16740,19 @@
   "view": {},
   "viewer_result": null
  },
+ "408a27339f5e5f09": [
+  {
+   "artifact_id": "<widget_elsewhere/dash>",
+   "created_at": "<ts>",
+   "id": "<widget_elsewhere/dash/v1>",
+   "mode": "page",
+   "report_id": "<widget_elsewhere>",
+   "status": "completed",
+   "title": "לוח מכירות",
+   "updated_at": "<ts>",
+   "version": 1
+  }
+ ],
  "40abd676d5005626": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -16638,6 +17416,138 @@
    }
   ]
  },
+ "42ec10aac5a74bc5": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 0,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [
+   {
+    "blocks": [],
+    "created_at": "<ts>",
+    "id": "<dashboard_layout_versions#67>",
+    "is_active": true,
+    "name": "Default",
+    "report_id": "<shared_widget>",
+    "theme_name": null,
+    "theme_overrides": {},
+    "updated_at": "<ts>",
+    "version": 1
+   }
+  ],
+  "data_sources": [
+   {
+    "connections": [
+     {
+      "allowed_user_auth_modes": null,
+      "auth_policy": "system_only",
+      "connector_key": null,
+      "data_shape": "tables",
+      "id": "<new#1>",
+      "is_active": true,
+      "name": "sqlite-1",
+      "type": "sqlite",
+      "user_status": null
+     }
+    ],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": "type:sqlite",
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": null,
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": null,
+  "fork_eligibility": {
+   "can_fork": true,
+   "reason": null
+  },
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": {
+   "ai_analyst_name": "AI Analyst",
+   "bow_credit": true,
+   "icon_url": null
+  },
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<shared_widget>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 0,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "shared-widget",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget משותף",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": [
+   {
+    "height": 4,
+    "id": "<shared_widget/q_first/widget>",
+    "last_step": null,
+    "slug": "shared-widget-q-first-widget",
+    "status": "draft",
+    "title": "הכנסות לפי חודש",
+    "width": 6,
+    "x": 0,
+    "y": 0
+   }
+  ]
+ },
  "4349f8a1cd6c8b1b": {
   "step": {
    "applied_params": null,
@@ -16700,6 +17610,55 @@
    "type": "bar_chart",
    "version": "v2",
    "view": null
+  }
+ },
+ "43a18315d6dfcf2d": {
+  "step": {
+   "applied_params": null,
+   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+   "created_at": "<ts>",
+   "created_entity_id": null,
+   "data": {
+    "columns": [
+     {
+      "field": "חודש"
+     },
+     {
+      "field": "הכנסות"
+     }
+    ],
+    "rows": [
+     {
+      "הכנסות": 100,
+      "חודש": "הכנסות לפי חודש 1"
+     },
+     {
+      "הכנסות": 101,
+      "חודש": "הכנסות לפי חודש 2"
+     }
+    ]
+   },
+   "data_model": {},
+   "description": "",
+   "error_code": null,
+   "id": "<shared_widget/q_first/step>",
+   "prompt": "",
+   "query_id": "<shared_widget/q_first>",
+   "slug": "shared-widget-q-first-step",
+   "snapshot_withheld": false,
+   "status": "success",
+   "status_reason": null,
+   "title": "הכנסות לפי חודש · ריצה",
+   "type": "table",
+   "view": {
+    "encoding": null,
+    "legacy": null,
+    "options": null,
+    "type": null,
+    "version": "v2",
+    "view": null
+   },
+   "viewer_result": null
   }
  },
  "43db9781720b1065": {
@@ -17795,6 +18754,55 @@
    "/artifacts/<slides_previews/deck/v1>/preview/0"
   ],
   "slide_count": 1
+ },
+ "4a03ca56bbbab17b": {
+  "step": {
+   "applied_params": null,
+   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+   "created_at": "<ts>",
+   "created_entity_id": null,
+   "data": {
+    "columns": [
+     {
+      "field": "חודש"
+     },
+     {
+      "field": "הכנסות"
+     }
+    ],
+    "rows": [
+     {
+      "הכנסות": 100,
+      "חודש": "הכנסות לפי חודש 1"
+     },
+     {
+      "הכנסות": 101,
+      "חודש": "הכנסות לפי חודש 2"
+     }
+    ]
+   },
+   "data_model": {},
+   "description": "",
+   "error_code": null,
+   "id": "<widget_elsewhere/q_sales/step>",
+   "prompt": "",
+   "query_id": "<widget_elsewhere/q_sales>",
+   "slug": "widget-elsewhere-q-sales-step",
+   "snapshot_withheld": false,
+   "status": "success",
+   "status_reason": null,
+   "title": "הכנסות לפי חודש · ריצה",
+   "type": "table",
+   "view": {
+    "encoding": null,
+    "legacy": null,
+    "options": null,
+    "type": null,
+    "version": "v2",
+    "view": null
+   },
+   "viewer_result": null
+  }
  },
  "4a5dc6b8e5c8c84d": {
   "app_version": "<volatile>",
@@ -22141,6 +23149,106 @@
   },
   "viewer_result": null
  },
+ "5dc45c562a2970ed": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 0,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [
+   {
+    "blocks": [],
+    "created_at": "<ts>",
+    "id": "<dashboard_layout_versions#68>",
+    "is_active": true,
+    "name": "Default",
+    "report_id": "<widget_without_report>",
+    "theme_name": null,
+    "theme_overrides": {},
+    "updated_at": "<ts>",
+    "version": 1
+   }
+  ],
+  "data_sources": [
+   {
+    "connections": [],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": null,
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": "sqlite",
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": null,
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_without_report>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 1,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-without-report",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget בלי שיחה",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
+ },
  "5e31f7baa93d28b2": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -22404,6 +23512,89 @@
    }
   ],
   "widget_id": "<dash_many_versions/q_sales/widget>"
+ },
+ "5ee1e514a71c3e22": {
+  "created_at": "<ts>",
+  "credential_scoped": false,
+  "default_step": {
+   "applied_params": null,
+   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+   "created_at": "<ts>",
+   "created_entity_id": null,
+   "data": {
+    "columns": [
+     {
+      "field": "חודש"
+     },
+     {
+      "field": "הכנסות"
+     }
+    ],
+    "rows": [
+     {
+      "הכנסות": 100,
+      "חודש": "הכנסות לפי חודש 1"
+     },
+     {
+      "הכנסות": 101,
+      "חודש": "הכנסות לפי חודש 2"
+     }
+    ]
+   },
+   "data_model": {},
+   "description": "",
+   "error_code": null,
+   "id": "<widget_elsewhere/q_sales/step>",
+   "prompt": "",
+   "query_id": "<widget_elsewhere/q_sales>",
+   "slug": "widget-elsewhere-q-sales-step",
+   "snapshot_withheld": false,
+   "status": "success",
+   "status_reason": null,
+   "title": "הכנסות לפי חודש · ריצה",
+   "type": "table",
+   "view": {
+    "encoding": null,
+    "legacy": null,
+    "options": null,
+    "type": null,
+    "version": "v2",
+    "view": null
+   },
+   "viewer_result": null
+  },
+  "default_step_id": "<widget_elsewhere/q_sales/step>",
+  "id": "<widget_elsewhere/q_sales>",
+  "last_run": {
+   "ran_at": "<ts>",
+   "status": "success",
+   "status_reason": null
+  },
+  "organization_id": "<org>",
+  "parameters": [],
+  "report_id": "<widget_elsewhere>",
+  "source_refs": null,
+  "title": "הכנסות לפי חודש",
+  "updated_at": "<ts>",
+  "user_id": "<user:owner>",
+  "visualizations": [
+   {
+    "id": "<widget_elsewhere/q_sales/viz>",
+    "query_id": "<widget_elsewhere/q_sales>",
+    "report_id": "<widget_elsewhere>",
+    "status": "success",
+    "title": "הכנסות לפי חודש",
+    "view": {
+     "encoding": null,
+     "legacy": null,
+     "options": null,
+     "type": "bar_chart",
+     "version": "v2",
+     "view": null
+    }
+   }
+  ],
+  "widget_id": "<widget_elsewhere/q_sales/widget>"
  },
  "5f9f32c26731eaae": {
   "step": {
@@ -24139,6 +25330,55 @@
   "webhook_id": null,
   "widgets": []
  },
+ "65d82135a7e7fc97": {
+  "step": {
+   "applied_params": null,
+   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+   "created_at": "<ts>",
+   "created_entity_id": null,
+   "data": {
+    "columns": [
+     {
+      "field": "חודש"
+     },
+     {
+      "field": "הכנסות"
+     }
+    ],
+    "rows": [
+     {
+      "הכנסות": 100,
+      "חודש": "q_own_report 1"
+     },
+     {
+      "הכנסות": 101,
+      "חודש": "q_own_report 2"
+     }
+    ]
+   },
+   "data_model": {},
+   "description": "",
+   "error_code": null,
+   "id": "<widget_without_report/q_own_report/step>",
+   "prompt": "",
+   "query_id": "<widget_without_report/q_own_report>",
+   "slug": "widget-without-report-q-own-report-step",
+   "snapshot_withheld": false,
+   "status": "success",
+   "status_reason": null,
+   "title": "q_own_report",
+   "type": "table",
+   "view": {
+    "encoding": null,
+    "legacy": null,
+    "options": null,
+    "type": null,
+    "version": "v2",
+    "view": null
+   },
+   "viewer_result": null
+  }
+ },
  "66340f7e519eef9f": {
   "artifact_id": "<fork_stale/dash>",
   "completion_id": null,
@@ -25387,6 +26627,108 @@
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
   "version": 1
+ },
+ "6ba6874e2ba1f816": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 1,
+  "artifact_modes": [
+   "page"
+  ],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [
+   {
+    "blocks": [],
+    "created_at": "<ts>",
+    "id": "<dashboard_layout_versions#66>",
+    "is_active": true,
+    "name": "Default",
+    "report_id": "<widget_elsewhere>",
+    "theme_name": null,
+    "theme_overrides": {},
+    "updated_at": "<ts>",
+    "version": 1
+   }
+  ],
+  "data_sources": [
+   {
+    "connections": [],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": null,
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": "sqlite",
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": null,
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_elsewhere>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 1,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-elsewhere",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget משיחה אחרת",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
  },
  "6c27878d36c12743": {
   "created_at": "<ts>",
@@ -26792,6 +28134,29 @@
    "view": null
   },
   "viewer_result": null
+ },
+ "7015f24205d814ab": {
+  "artifact_id": "<shared_widget/dash>",
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<shared_widget/q_first/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<shared_widget/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<shared_widget>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "708335c15e0127ea": {
   "step": {
@@ -28217,6 +29582,89 @@
    "viewer_result": null
   }
  },
+ "75c7082246d7a155": {
+  "created_at": "<ts>",
+  "credential_scoped": false,
+  "default_step": {
+   "applied_params": null,
+   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+   "created_at": "<ts>",
+   "created_entity_id": null,
+   "data": {
+    "columns": [
+     {
+      "field": "חודש"
+     },
+     {
+      "field": "הכנסות"
+     }
+    ],
+    "rows": [
+     {
+      "הכנסות": 100,
+      "חודש": "הכנסות לפי חודש 1"
+     },
+     {
+      "הכנסות": 101,
+      "חודש": "הכנסות לפי חודש 2"
+     }
+    ]
+   },
+   "data_model": {},
+   "description": "",
+   "error_code": null,
+   "id": "<shared_widget/q_first/step>",
+   "prompt": "",
+   "query_id": "<shared_widget/q_first>",
+   "slug": "shared-widget-q-first-step",
+   "snapshot_withheld": false,
+   "status": "success",
+   "status_reason": null,
+   "title": "הכנסות לפי חודש · ריצה",
+   "type": "table",
+   "view": {
+    "encoding": null,
+    "legacy": null,
+    "options": null,
+    "type": null,
+    "version": "v2",
+    "view": null
+   },
+   "viewer_result": null
+  },
+  "default_step_id": "<shared_widget/q_first/step>",
+  "id": "<shared_widget/q_first>",
+  "last_run": {
+   "ran_at": "<ts>",
+   "status": "success",
+   "status_reason": null
+  },
+  "organization_id": "<org>",
+  "parameters": [],
+  "report_id": "<shared_widget>",
+  "source_refs": null,
+  "title": "הכנסות לפי חודש",
+  "updated_at": "<ts>",
+  "user_id": "<user:owner>",
+  "visualizations": [
+   {
+    "id": "<shared_widget/q_first/viz>",
+    "query_id": "<shared_widget/q_first>",
+    "report_id": "<shared_widget>",
+    "status": "success",
+    "title": "הכנסות לפי חודש",
+    "view": {
+     "encoding": null,
+     "legacy": null,
+     "options": null,
+     "type": "bar_chart",
+     "version": "v2",
+     "view": null
+    }
+   }
+  ],
+  "widget_id": "<shared_widget/q_first/widget>"
+ },
  "75ff688d4cf96a4b": {
   "completions": [
    {
@@ -28746,6 +30194,127 @@
   "webhook_count": 0,
   "webhook_id": null,
   "widgets": []
+ },
+ "78ed4f2a46db3368": {
+  "compaction": {
+   "can_compact": false,
+   "covered_turns": 0,
+   "covers_until_completion_id": null,
+   "last_compaction_at": null,
+   "tokens_compacted_total": 0
+  },
+  "completions": [
+   {
+    "agent_execution_id": null,
+    "completion": null,
+    "completion_blocks": [],
+    "created_at": "<ts>",
+    "created_steps": [],
+    "created_visualizations": [],
+    "created_widgets": [],
+    "external_platform": null,
+    "feedback_score": 0,
+    "files": [],
+    "follow_ups": null,
+    "fork_asset_refs": null,
+    "id": "<widget_elsewhere_home/msg/user>",
+    "instruction_suggestions": null,
+    "is_fork_summary": null,
+    "knowledge_harness_build": null,
+    "loaded_instructions": null,
+    "message_type": "table",
+    "model": "gpt4o",
+    "parent_id": null,
+    "prompt": {
+     "content": "תראה לי את ההכנסות לפי חודש"
+    },
+    "report_id": "<widget_elsewhere_home>",
+    "role": "user",
+    "scheduled_prompt_id": null,
+    "sigkill": "<ts>",
+    "source_report_id": null,
+    "status": "success",
+    "summary": {
+     "total_blocks": 0
+    },
+    "total_duration_ms": null,
+    "trigger_source": null,
+    "turn_index": 0,
+    "updated_at": "<ts>",
+    "user_feedback": null,
+    "webhook_id": null
+   },
+   {
+    "agent_execution_id": null,
+    "completion": null,
+    "completion_blocks": [
+     {
+      "agent_execution_id": null,
+      "artifact_changes": null,
+      "block_index": 0,
+      "completed_at": "<ts>",
+      "completion_id": "<widget_elsewhere_home/msg/answer>",
+      "content": "הנה ההכנסות לפי חודש.",
+      "created_at": "<ts>",
+      "duration_ms": "<volatile>",
+      "icon": null,
+      "id": "<completion_blocks#66>",
+      "loop_index": null,
+      "phase": null,
+      "plan_decision": null,
+      "reasoning": null,
+      "seq": 0,
+      "started_at": "<ts>",
+      "status": "completed",
+      "title": "תשובה",
+      "tool_execution": null,
+      "updated_at": "<ts>"
+     }
+    ],
+    "created_at": "<ts>",
+    "created_steps": [],
+    "created_visualizations": [],
+    "created_widgets": [],
+    "external_platform": null,
+    "feedback_score": 0,
+    "files": [],
+    "follow_ups": null,
+    "fork_asset_refs": null,
+    "id": "<widget_elsewhere_home/msg/answer>",
+    "instruction_suggestions": null,
+    "is_fork_summary": null,
+    "knowledge_harness_build": null,
+    "loaded_instructions": null,
+    "message_type": "ai_completion",
+    "model": "gpt4o",
+    "parent_id": "<widget_elsewhere_home/msg/user>",
+    "prompt": {},
+    "report_id": "<widget_elsewhere_home>",
+    "role": "system",
+    "scheduled_prompt_id": null,
+    "sigkill": "<ts>",
+    "source_report_id": null,
+    "status": "success",
+    "summary": {
+     "total_blocks": 1
+    },
+    "total_duration_ms": null,
+    "trigger_source": null,
+    "turn_index": 1,
+    "updated_at": "<ts>",
+    "user_feedback": null,
+    "webhook_id": null
+   }
+  ],
+  "earliest_completion": "<ts>",
+  "has_more": false,
+  "latest_completion": "<ts>",
+  "next_before": "2026-03-02T05:17:00~<widget_elsewhere_home/msg/user>",
+  "report_id": "<widget_elsewhere_home>",
+  "total_blocks": 1,
+  "total_completions": 2,
+  "total_steps_created": 0,
+  "total_widgets_created": 0
  },
  "79120ac790dbb4b1": {
   "compaction": {
@@ -29501,6 +31070,127 @@
   "webhook_count": 0,
   "webhook_id": null,
   "widgets": []
+ },
+ "7a93505b4edf160e": {
+  "compaction": {
+   "can_compact": false,
+   "covered_turns": 0,
+   "covers_until_completion_id": null,
+   "last_compaction_at": null,
+   "tokens_compacted_total": 0
+  },
+  "completions": [
+   {
+    "agent_execution_id": null,
+    "completion": null,
+    "completion_blocks": [],
+    "created_at": "<ts>",
+    "created_steps": [],
+    "created_visualizations": [],
+    "created_widgets": [],
+    "external_platform": null,
+    "feedback_score": 0,
+    "files": [],
+    "follow_ups": null,
+    "fork_asset_refs": null,
+    "id": "<widget_without_report/msg/user>",
+    "instruction_suggestions": null,
+    "is_fork_summary": null,
+    "knowledge_harness_build": null,
+    "loaded_instructions": null,
+    "message_type": "table",
+    "model": "gpt4o",
+    "parent_id": null,
+    "prompt": {
+     "content": "תראה לי את ההכנסות לפי חודש"
+    },
+    "report_id": "<widget_without_report>",
+    "role": "user",
+    "scheduled_prompt_id": null,
+    "sigkill": "<ts>",
+    "source_report_id": null,
+    "status": "success",
+    "summary": {
+     "total_blocks": 0
+    },
+    "total_duration_ms": null,
+    "trigger_source": null,
+    "turn_index": 0,
+    "updated_at": "<ts>",
+    "user_feedback": null,
+    "webhook_id": null
+   },
+   {
+    "agent_execution_id": null,
+    "completion": null,
+    "completion_blocks": [
+     {
+      "agent_execution_id": null,
+      "artifact_changes": null,
+      "block_index": 0,
+      "completed_at": "<ts>",
+      "completion_id": "<widget_without_report/msg/answer>",
+      "content": "הנה ההכנסות לפי חודש.",
+      "created_at": "<ts>",
+      "duration_ms": "<volatile>",
+      "icon": null,
+      "id": "<completion_blocks#69>",
+      "loop_index": null,
+      "phase": null,
+      "plan_decision": null,
+      "reasoning": null,
+      "seq": 0,
+      "started_at": "<ts>",
+      "status": "completed",
+      "title": "תשובה",
+      "tool_execution": null,
+      "updated_at": "<ts>"
+     }
+    ],
+    "created_at": "<ts>",
+    "created_steps": [],
+    "created_visualizations": [],
+    "created_widgets": [],
+    "external_platform": null,
+    "feedback_score": 0,
+    "files": [],
+    "follow_ups": null,
+    "fork_asset_refs": null,
+    "id": "<widget_without_report/msg/answer>",
+    "instruction_suggestions": null,
+    "is_fork_summary": null,
+    "knowledge_harness_build": null,
+    "loaded_instructions": null,
+    "message_type": "ai_completion",
+    "model": "gpt4o",
+    "parent_id": "<widget_without_report/msg/user>",
+    "prompt": {},
+    "report_id": "<widget_without_report>",
+    "role": "system",
+    "scheduled_prompt_id": null,
+    "sigkill": "<ts>",
+    "source_report_id": null,
+    "status": "success",
+    "summary": {
+     "total_blocks": 1
+    },
+    "total_duration_ms": null,
+    "trigger_source": null,
+    "turn_index": 1,
+    "updated_at": "<ts>",
+    "user_feedback": null,
+    "webhook_id": null
+   }
+  ],
+  "earliest_completion": "<ts>",
+  "has_more": false,
+  "latest_completion": "<ts>",
+  "next_before": "2026-03-02T06:01:00~<widget_without_report/msg/user>",
+  "report_id": "<widget_without_report>",
+  "total_blocks": 1,
+  "total_completions": 2,
+  "total_steps_created": 0,
+  "total_widgets_created": 0
  },
  "7a9cc20abda99c52": {
   "artifact_id": "<conv_public/dash>",
@@ -30846,6 +32536,19 @@
   "total_steps_created": 0,
   "total_widgets_created": 0
  },
+ "80b4059e192336e4": [
+  {
+   "artifact_id": "<shared_widget/dash>",
+   "created_at": "<ts>",
+   "id": "<shared_widget/dash/v1>",
+   "mode": "page",
+   "report_id": "<shared_widget>",
+   "status": "completed",
+   "title": "לוח מכירות",
+   "updated_at": "<ts>",
+   "version": 1
+  }
+ ],
  "80daa9e9bf3e1edb": {
   "id": "<cron/q_sales/viz>",
   "query_id": "<cron/q_sales>",
@@ -33113,6 +34816,105 @@
    "view": null
   }
  },
+ "8b9b9f176e4647df": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 0,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "none",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [],
+  "data_sources": [
+   {
+    "connections": [
+     {
+      "allowed_user_auth_modes": null,
+      "auth_policy": "system_only",
+      "connector_key": null,
+      "data_shape": "tables",
+      "id": "<new#1>",
+      "is_active": true,
+      "name": "sqlite-1",
+      "type": "sqlite",
+      "user_status": null
+     }
+    ],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": "type:sqlite",
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": null,
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": [],
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_elsewhere_home>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 0,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-elsewhere-home",
+  "status": "draft",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "שיחה פרטית של ה-widget",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
+ },
  "8c5cb0b91b929097": [
   {
    "artifact_id": "<vis_internal/dash>",
@@ -33642,6 +35444,105 @@
    }
   ],
   "widget_id": "<doc_after_page/q_sales/widget>"
+ },
+ "8df688f73ad8fbb8": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 1,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [],
+  "data_sources": [
+   {
+    "connections": [
+     {
+      "allowed_user_auth_modes": null,
+      "auth_policy": "system_only",
+      "connector_key": null,
+      "data_shape": "tables",
+      "id": "<new#1>",
+      "is_active": true,
+      "name": "sqlite-1",
+      "type": "sqlite",
+      "user_status": null
+     }
+    ],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": "type:sqlite",
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": null,
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": [],
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_elsewhere>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 1,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-elsewhere",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget משיחה אחרת",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
  },
  "8e1689536a2940e2": {
   "app_version": "<volatile>",
@@ -35321,6 +37222,105 @@
   "type": "table",
   "view": {},
   "viewer_result": null
+ },
+ "9302f823204a86f3": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 1,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [],
+  "data_sources": [
+   {
+    "connections": [
+     {
+      "allowed_user_auth_modes": null,
+      "auth_policy": "system_only",
+      "connector_key": null,
+      "data_shape": "tables",
+      "id": "<new#1>",
+      "is_active": true,
+      "name": "sqlite-1",
+      "type": "sqlite",
+      "user_status": null
+     }
+    ],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": "type:sqlite",
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": null,
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": [],
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<shared_widget>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 2,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "shared-widget",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget משותף",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
  },
  "93451740b66423dd": [
   {
@@ -37688,6 +39688,75 @@
    ]
   }
  ],
+ "9e27ba70993c7a7a": [
+  {
+   "created_at": "<ts>",
+   "credential_scoped": false,
+   "default_step": {
+    "applied_params": null,
+    "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+    "created_at": "<ts>",
+    "created_entity_id": null,
+    "data": {
+     "columns": [
+      {
+       "field": "חודש"
+      },
+      {
+       "field": "הכנסות"
+      }
+     ],
+     "rows": [
+      {
+       "הכנסות": 100,
+       "חודש": "q_own_report 1"
+      },
+      {
+       "הכנסות": 101,
+       "חודש": "q_own_report 2"
+      }
+     ]
+    },
+    "data_model": {},
+    "description": "",
+    "error_code": null,
+    "id": "<widget_without_report/q_own_report/step>",
+    "prompt": "",
+    "query_id": "<widget_without_report/q_own_report>",
+    "slug": "widget-without-report-q-own-report-step",
+    "snapshot_withheld": false,
+    "status": "success",
+    "status_reason": null,
+    "title": "q_own_report",
+    "type": "table",
+    "view": {
+     "encoding": null,
+     "legacy": null,
+     "options": null,
+     "type": null,
+     "version": "v2",
+     "view": null
+    },
+    "viewer_result": null
+   },
+   "default_step_id": "<widget_without_report/q_own_report/step>",
+   "id": "<widget_without_report/q_own_report>",
+   "last_run": {
+    "ran_at": "<ts>",
+    "status": "success",
+    "status_reason": null
+   },
+   "organization_id": "<org>",
+   "parameters": [],
+   "report_id": "<widget_without_report>",
+   "source_refs": null,
+   "title": "q_own_report",
+   "updated_at": "<ts>",
+   "user_id": "<user:owner>",
+   "visualizations": [],
+   "widget_id": "<widget_without_report/q_own_report/widget>"
+  }
+ ],
  "9e3b7518e999bb3d": {
   "artifact_id": "<orphans/dash>",
   "completion_id": null,
@@ -38979,6 +41048,53 @@
     "y": 0
    }
   ]
+ },
+ "a292e53b772454be": {
+  "applied_params": null,
+  "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+  "created_at": "<ts>",
+  "created_entity_id": null,
+  "data": {
+   "columns": [
+    {
+     "field": "חודש"
+    },
+    {
+     "field": "הכנסות"
+    }
+   ],
+   "rows": [
+    {
+     "הכנסות": 100,
+     "חודש": "הכנסות לפי חודש 1"
+    },
+    {
+     "הכנסות": 101,
+     "חודש": "הכנסות לפי חודש 2"
+    }
+   ]
+  },
+  "data_model": {},
+  "description": "",
+  "error_code": null,
+  "id": "<widget_elsewhere/q_sales/step>",
+  "prompt": "",
+  "query_id": "<widget_elsewhere/q_sales>",
+  "slug": "widget-elsewhere-q-sales-step",
+  "snapshot_withheld": false,
+  "status": "success",
+  "status_reason": null,
+  "title": "הכנסות לפי חודש · ריצה",
+  "type": "table",
+  "view": {
+   "encoding": null,
+   "legacy": null,
+   "options": null,
+   "type": null,
+   "version": "v2",
+   "view": null
+  },
+  "viewer_result": null
  },
  "a29efbe3ed560f95": {
   "applied_params": null,
@@ -42704,6 +44820,29 @@
   "user_id": "<user:owner>",
   "version": 1
  },
+ "b37de69ae010e452": {
+  "artifact_id": "<widget_elsewhere/dash>",
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<widget_elsewhere/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<widget_elsewhere/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<widget_elsewhere>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "b3848d45ad88733d": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -44482,6 +46621,37 @@
    ]
   }
  ],
+ "bb9eea327e6ab168": {
+  "applied_params": null,
+  "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+  "data": {
+   "columns": [
+    {
+     "field": "חודש"
+    },
+    {
+     "field": "הכנסות"
+    }
+   ],
+   "rows": [
+    {
+     "הכנסות": 100,
+     "חודש": "q_own_report 1"
+    },
+    {
+     "הכנסות": 101,
+     "חודש": "q_own_report 2"
+    }
+   ]
+  },
+  "data_model": {},
+  "id": "<widget_without_report/q_own_report/step>",
+  "snapshot_withheld": false,
+  "title": "q_own_report",
+  "type": "table",
+  "view": {},
+  "viewer_result": null
+ },
  "bc772d55d953d312": [
   {
    "artifact_id": "<doc_after_page/doc>",
@@ -45058,6 +47228,108 @@
    }
   ]
  },
+ "bfeca73db0cab047": [
+  {
+   "created_at": "<ts>",
+   "credential_scoped": false,
+   "default_step": null,
+   "default_step_id": null,
+   "id": "<shared_widget/q_second>",
+   "last_run": null,
+   "organization_id": "<org>",
+   "parameters": [],
+   "report_id": "<shared_widget>",
+   "source_refs": null,
+   "title": "הכנסות לפי רבעון",
+   "updated_at": "<ts>",
+   "user_id": "<user:owner>",
+   "visualizations": [],
+   "widget_id": "<shared_widget/q_first/widget>"
+  },
+  {
+   "created_at": "<ts>",
+   "credential_scoped": false,
+   "default_step": {
+    "applied_params": null,
+    "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+    "created_at": "<ts>",
+    "created_entity_id": null,
+    "data": {
+     "columns": [
+      {
+       "field": "חודש"
+      },
+      {
+       "field": "הכנסות"
+      }
+     ],
+     "rows": [
+      {
+       "הכנסות": 100,
+       "חודש": "הכנסות לפי חודש 1"
+      },
+      {
+       "הכנסות": 101,
+       "חודש": "הכנסות לפי חודש 2"
+      }
+     ]
+    },
+    "data_model": {},
+    "description": "",
+    "error_code": null,
+    "id": "<shared_widget/q_first/step>",
+    "prompt": "",
+    "query_id": "<shared_widget/q_first>",
+    "slug": "shared-widget-q-first-step",
+    "snapshot_withheld": false,
+    "status": "success",
+    "status_reason": null,
+    "title": "הכנסות לפי חודש · ריצה",
+    "type": "table",
+    "view": {
+     "encoding": null,
+     "legacy": null,
+     "options": null,
+     "type": null,
+     "version": "v2",
+     "view": null
+    },
+    "viewer_result": null
+   },
+   "default_step_id": "<shared_widget/q_first/step>",
+   "id": "<shared_widget/q_first>",
+   "last_run": {
+    "ran_at": "<ts>",
+    "status": "success",
+    "status_reason": null
+   },
+   "organization_id": "<org>",
+   "parameters": [],
+   "report_id": "<shared_widget>",
+   "source_refs": null,
+   "title": "הכנסות לפי חודש",
+   "updated_at": "<ts>",
+   "user_id": "<user:owner>",
+   "visualizations": [
+    {
+     "id": "<shared_widget/q_first/viz>",
+     "query_id": "<shared_widget/q_first>",
+     "report_id": "<shared_widget>",
+     "status": "success",
+     "title": "הכנסות לפי חודש",
+     "view": {
+      "encoding": null,
+      "legacy": null,
+      "options": null,
+      "type": "bar_chart",
+      "version": "v2",
+      "view": null
+     }
+    }
+   ],
+   "widget_id": "<shared_widget/q_first/widget>"
+  }
+ ],
  "c039567a55596f49": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -47729,6 +50001,28 @@
    "view": null
   }
  },
+ "c9b87a35298d32de": [
+  {
+   "default_step_id": "<widget_elsewhere/q_sales/step>",
+   "id": "<widget_elsewhere/q_sales>",
+   "parameters": [],
+   "title": "הכנסות לפי חודש",
+   "visualizations": [
+    {
+     "id": "<widget_elsewhere/q_sales/viz>",
+     "title": "הכנסות לפי חודש",
+     "view": {
+      "encoding": null,
+      "legacy": null,
+      "options": null,
+      "type": "bar_chart",
+      "version": "v2",
+      "view": null
+     }
+    }
+   ]
+  }
+ ],
  "c9c4ab1bba319c30": {
   "compaction": {
    "can_compact": false,
@@ -48742,6 +51036,126 @@
    }
   ],
   "widget_id": "<archived_shared/q_sales/widget>"
+ },
+ "d0738478f51afa13": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 0,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [
+   {
+    "blocks": [],
+    "created_at": "<ts>",
+    "id": "<dashboard_layout_versions#66>",
+    "is_active": true,
+    "name": "Default",
+    "report_id": "<widget_elsewhere>",
+    "theme_name": null,
+    "theme_overrides": {},
+    "updated_at": "<ts>",
+    "version": 1
+   }
+  ],
+  "data_sources": [
+   {
+    "connections": [
+     {
+      "allowed_user_auth_modes": null,
+      "auth_policy": "system_only",
+      "connector_key": null,
+      "data_shape": "tables",
+      "id": "<new#1>",
+      "is_active": true,
+      "name": "sqlite-1",
+      "type": "sqlite",
+      "user_status": null
+     }
+    ],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": "type:sqlite",
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": null,
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": null,
+  "fork_eligibility": {
+   "can_fork": true,
+   "reason": null
+  },
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": {
+   "ai_analyst_name": "AI Analyst",
+   "bow_credit": true,
+   "icon_url": null
+  },
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_elsewhere>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 0,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-elsewhere",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget משיחה אחרת",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
  },
  "d096a9733b5d5f34": [
   {
@@ -51583,73 +53997,6 @@
   },
   "viewer_result": null
  },
- "d9c06451ffe88210": {
-  "created_at": "<ts>",
-  "credential_scoped": null,
-  "default_step": {
-   "applied_params": null,
-   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
-   "created_at": "<ts>",
-   "created_entity_id": null,
-   "data": {
-    "columns": [
-     {
-      "field": "חודש"
-     },
-     {
-      "field": "הכנסות"
-     }
-    ],
-    "rows": [
-     {
-      "הכנסות": 100,
-      "חודש": "שאילתה בלי שיחה 1"
-     },
-     {
-      "הכנסות": 101,
-      "חודש": "שאילתה בלי שיחה 2"
-     }
-    ]
-   },
-   "data_model": {},
-   "description": "",
-   "error_code": null,
-   "id": "<orphans/q_no_report/step>",
-   "prompt": "",
-   "query_id": "<orphans/q_no_report>",
-   "slug": "orphans-q-no-report-step",
-   "snapshot_withheld": false,
-   "status": "success",
-   "status_reason": null,
-   "title": "שאילתה בלי שיחה · ריצה",
-   "type": "table",
-   "view": {
-    "encoding": null,
-    "legacy": null,
-    "options": null,
-    "type": null,
-    "version": "v2",
-    "view": null
-   },
-   "viewer_result": null
-  },
-  "default_step_id": "<orphans/q_no_report/step>",
-  "id": "<orphans/q_no_report>",
-  "last_run": {
-   "ran_at": "<ts>",
-   "status": "success",
-   "status_reason": null
-  },
-  "organization_id": "<org>",
-  "parameters": [],
-  "report_id": null,
-  "source_refs": null,
-  "title": "שאילתה בלי שיחה",
-  "updated_at": "<ts>",
-  "user_id": "<user:owner>",
-  "visualizations": [],
-  "widget_id": "<orphans/q_no_report/widget>"
- },
  "da25b2da2f39a971": [
   {
    "created_at": "<ts>",
@@ -52401,6 +54748,126 @@
   "user_id": "<user:owner>",
   "version": 1
  },
+ "de46dcdc7c06108a": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 0,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [
+   {
+    "blocks": [],
+    "created_at": "<ts>",
+    "id": "<dashboard_layout_versions#68>",
+    "is_active": true,
+    "name": "Default",
+    "report_id": "<widget_without_report>",
+    "theme_name": null,
+    "theme_overrides": {},
+    "updated_at": "<ts>",
+    "version": 1
+   }
+  ],
+  "data_sources": [
+   {
+    "connections": [
+     {
+      "allowed_user_auth_modes": null,
+      "auth_policy": "system_only",
+      "connector_key": null,
+      "data_shape": "tables",
+      "id": "<new#1>",
+      "is_active": true,
+      "name": "sqlite-1",
+      "type": "sqlite",
+      "user_status": null
+     }
+    ],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": "type:sqlite",
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": null,
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": null,
+  "fork_eligibility": {
+   "can_fork": true,
+   "reason": null
+  },
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": {
+   "ai_analyst_name": "AI Analyst",
+   "bow_credit": true,
+   "icon_url": null
+  },
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_without_report>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 0,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-without-report",
+  "status": "published",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "widget בלי שיחה",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
+ },
  "dec2f12bc51fe575": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -52567,6 +55034,28 @@
   ],
   "widget_id": "<fork_done/q_sales/widget>"
  },
+ "df7bd415e108ec53": [
+  {
+   "default_step_id": "<shared_widget/q_first/step>",
+   "id": "<shared_widget/q_first>",
+   "parameters": [],
+   "title": "הכנסות לפי חודש",
+   "visualizations": [
+    {
+     "id": "<shared_widget/q_first/viz>",
+     "title": "הכנסות לפי חודש",
+     "view": {
+      "encoding": null,
+      "legacy": null,
+      "options": null,
+      "type": "bar_chart",
+      "version": "v2",
+      "view": null
+     }
+    }
+   ]
+  }
+ ],
  "df7ea23ba489f2ab": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -53838,6 +56327,133 @@
     "view": null
    },
    "viewer_result": null
+  }
+ },
+ "e60ae09c63d31d87": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 0,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "none",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [
+   {
+    "blocks": [],
+    "created_at": "<ts>",
+    "id": "<dashboard_layout_versions#65>",
+    "is_active": true,
+    "name": "Default",
+    "report_id": "<widget_elsewhere_home>",
+    "theme_name": null,
+    "theme_overrides": {},
+    "updated_at": "<ts>",
+    "version": 1
+   }
+  ],
+  "data_sources": [
+   {
+    "connections": [],
+    "conversation_starters": null,
+    "created_at": "<ts>",
+    "description": null,
+    "icon": null,
+    "icon_token": null,
+    "id": "<ds:chinook>",
+    "is_active": true,
+    "is_public": true,
+    "name": "חנות מוזיקה",
+    "organization_id": "<org>",
+    "owner_user_id": "<user:admin>",
+    "publish_status": "published",
+    "reliability_status": "training",
+    "summary": null,
+    "type": "sqlite",
+    "updated_at": "<ts>",
+    "use_llm_sync": false
+   }
+  ],
+  "external_platform": null,
+  "focused_data_source_ids": null,
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": false,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": false,
+  "id": "<widget_elsewhere_home>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "project": null,
+  "project_id": null,
+  "query_count": 0,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "slug": "widget-elsewhere-home",
+  "status": "draft",
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "שיחה פרטית של ה-widget",
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": [
+   {
+    "height": 4,
+    "id": "<widget_elsewhere/q_sales/widget>",
+    "last_step": null,
+    "slug": "widget-elsewhere-q-sales-widget",
+    "status": "draft",
+    "title": "הכנסות לפי חודש",
+    "width": 6,
+    "x": 0,
+    "y": 0
+   }
+  ]
+ },
+ "e60b7166d3265429": {
+  "id": "<shared_widget/q_first/viz>",
+  "query_id": "<shared_widget/q_first>",
+  "report_id": "<shared_widget>",
+  "status": "success",
+  "title": "הכנסות לפי חודש",
+  "view": {
+   "encoding": null,
+   "legacy": null,
+   "options": null,
+   "type": "bar_chart",
+   "version": "v2",
+   "view": null
   }
  },
  "e65951494537f13c": [
@@ -55345,6 +57961,127 @@
    }
   ]
  },
+ "eb5294191cf6c826": {
+  "compaction": {
+   "can_compact": false,
+   "covered_turns": 0,
+   "covers_until_completion_id": null,
+   "last_compaction_at": null,
+   "tokens_compacted_total": 0
+  },
+  "completions": [
+   {
+    "agent_execution_id": null,
+    "completion": null,
+    "completion_blocks": [],
+    "created_at": "<ts>",
+    "created_steps": [],
+    "created_visualizations": [],
+    "created_widgets": [],
+    "external_platform": null,
+    "feedback_score": 0,
+    "files": [],
+    "follow_ups": null,
+    "fork_asset_refs": null,
+    "id": "<widget_elsewhere/msg/user>",
+    "instruction_suggestions": null,
+    "is_fork_summary": null,
+    "knowledge_harness_build": null,
+    "loaded_instructions": null,
+    "message_type": "table",
+    "model": "gpt4o",
+    "parent_id": null,
+    "prompt": {
+     "content": "תראה לי את ההכנסות לפי חודש"
+    },
+    "report_id": "<widget_elsewhere>",
+    "role": "user",
+    "scheduled_prompt_id": null,
+    "sigkill": "<ts>",
+    "source_report_id": null,
+    "status": "success",
+    "summary": {
+     "total_blocks": 0
+    },
+    "total_duration_ms": null,
+    "trigger_source": null,
+    "turn_index": 0,
+    "updated_at": "<ts>",
+    "user_feedback": null,
+    "webhook_id": null
+   },
+   {
+    "agent_execution_id": null,
+    "completion": null,
+    "completion_blocks": [
+     {
+      "agent_execution_id": null,
+      "artifact_changes": null,
+      "block_index": 0,
+      "completed_at": "<ts>",
+      "completion_id": "<widget_elsewhere/msg/answer>",
+      "content": "הנה ההכנסות לפי חודש.",
+      "created_at": "<ts>",
+      "duration_ms": "<volatile>",
+      "icon": null,
+      "id": "<completion_blocks#67>",
+      "loop_index": null,
+      "phase": null,
+      "plan_decision": null,
+      "reasoning": null,
+      "seq": 0,
+      "started_at": "<ts>",
+      "status": "completed",
+      "title": "תשובה",
+      "tool_execution": null,
+      "updated_at": "<ts>"
+     }
+    ],
+    "created_at": "<ts>",
+    "created_steps": [],
+    "created_visualizations": [],
+    "created_widgets": [],
+    "external_platform": null,
+    "feedback_score": 0,
+    "files": [],
+    "follow_ups": null,
+    "fork_asset_refs": null,
+    "id": "<widget_elsewhere/msg/answer>",
+    "instruction_suggestions": null,
+    "is_fork_summary": null,
+    "knowledge_harness_build": null,
+    "loaded_instructions": null,
+    "message_type": "ai_completion",
+    "model": "gpt4o",
+    "parent_id": "<widget_elsewhere/msg/user>",
+    "prompt": {},
+    "report_id": "<widget_elsewhere>",
+    "role": "system",
+    "scheduled_prompt_id": null,
+    "sigkill": "<ts>",
+    "source_report_id": null,
+    "status": "success",
+    "summary": {
+     "total_blocks": 1
+    },
+    "total_duration_ms": null,
+    "trigger_source": null,
+    "turn_index": 1,
+    "updated_at": "<ts>",
+    "user_feedback": null,
+    "webhook_id": null
+   }
+  ],
+  "earliest_completion": "<ts>",
+  "has_more": false,
+  "latest_completion": "<ts>",
+  "next_before": "2026-03-02T05:25:00~<widget_elsewhere/msg/user>",
+  "report_id": "<widget_elsewhere>",
+  "total_blocks": 1,
+  "total_completions": 2,
+  "total_steps_created": 0,
+  "total_widgets_created": 0
+ },
  "eb52f3d122acbd68": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -55854,6 +58591,15 @@
   "total_steps_created": 0,
   "total_widgets_created": 0
  },
+ "edf180bb9c9d1af3": [
+  {
+   "default_step_id": "<widget_without_report/q_own_report/step>",
+   "id": "<widget_without_report/q_own_report>",
+   "parameters": [],
+   "title": "q_own_report",
+   "visualizations": []
+  }
+ ],
  "ee3abb52a9106f72": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -56668,6 +59414,73 @@
    "view": null
   },
   "viewer_result": null
+ },
+ "f0db1c836a66a088": {
+  "created_at": "<ts>",
+  "credential_scoped": false,
+  "default_step": {
+   "applied_params": null,
+   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
+   "created_at": "<ts>",
+   "created_entity_id": null,
+   "data": {
+    "columns": [
+     {
+      "field": "חודש"
+     },
+     {
+      "field": "הכנסות"
+     }
+    ],
+    "rows": [
+     {
+      "הכנסות": 100,
+      "חודש": "שאילתה בלי שיחה 1"
+     },
+     {
+      "הכנסות": 101,
+      "חודש": "שאילתה בלי שיחה 2"
+     }
+    ]
+   },
+   "data_model": {},
+   "description": "",
+   "error_code": null,
+   "id": "<orphans/q_no_report/step>",
+   "prompt": "",
+   "query_id": "<orphans/q_no_report>",
+   "slug": "orphans-q-no-report-step",
+   "snapshot_withheld": false,
+   "status": "success",
+   "status_reason": null,
+   "title": "שאילתה בלי שיחה · ריצה",
+   "type": "table",
+   "view": {
+    "encoding": null,
+    "legacy": null,
+    "options": null,
+    "type": null,
+    "version": "v2",
+    "view": null
+   },
+   "viewer_result": null
+  },
+  "default_step_id": "<orphans/q_no_report/step>",
+  "id": "<orphans/q_no_report>",
+  "last_run": {
+   "ran_at": "<ts>",
+   "status": "success",
+   "status_reason": null
+  },
+  "organization_id": "<org>",
+  "parameters": [],
+  "report_id": null,
+  "source_refs": null,
+  "title": "שאילתה בלי שיחה",
+  "updated_at": "<ts>",
+  "user_id": "<user:owner>",
+  "visualizations": [],
+  "widget_id": "<orphans/q_no_report/widget>"
  },
  "f10b739236dae099": [
   {

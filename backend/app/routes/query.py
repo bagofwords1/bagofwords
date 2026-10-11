@@ -58,7 +58,9 @@ async def list_queries(
         organization_id=str(organization.id) if organization else None,
     )
     from app.services.bow_source_access import can_read, report_access
-    queries = [q for q in queries if await can_read(db, await report_access(db, q.report_id), current_user)]
+    from app.services.row_owner import query_report_id
+    queries = [q for q in queries
+               if await can_read(db, await report_access(db, await query_report_id(db, q)), current_user)]
     # Pydantic v2: model_validate for each, then apply the per-viewer step-data
     # policy so a non-owner never receives a withheld creator snapshot in the
     # embedded default_step.

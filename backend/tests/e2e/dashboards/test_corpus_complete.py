@@ -125,6 +125,24 @@ def test_every_kind_is_in_the_database(corpus, corpus_rows):
                       id=ids["encrypted/q_sealed/step"])[0]["data"]
         assert is_encrypted_envelope(_json(sealed))
 
+        # legacy shapes from before 0.0.583
+        elsewhere = _one(conn, "SELECT q.report_id AS q_report, w.report_id AS w_report, s.widget_id AS s_widget, "
+                               "q.widget_id AS q_widget FROM queries q JOIN widgets w ON w.id = q.widget_id "
+                               "JOIN steps s ON s.query_id = q.id WHERE q.id = :id",
+                         id=ids["widget_elsewhere/q_sales"])[0]
+        assert elsewhere["q_report"] == r["widget_elsewhere"]
+        assert elsewhere["w_report"] == r["widget_elsewhere_home"]
+        assert elsewhere["s_widget"] == elsewhere["q_widget"]
+        shared = _one(conn, "SELECT id, default_step_id FROM queries WHERE widget_id = :w ORDER BY created_at",
+                      w=ids["shared_widget/q_first/widget"])
+        assert [q["id"] for q in shared] == [ids["shared_widget/q_first"], ids["shared_widget/q_second"]]
+        assert shared[1]["default_step_id"] is None
+        for qkey, own in (("q_own_report", r["widget_without_report"]), ("q_no_report", None)):
+            row = _one(conn, "SELECT q.report_id AS q_report, w.report_id AS w_report FROM queries q "
+                             "JOIN widgets w ON w.id = q.widget_id WHERE q.id = :id",
+                       id=ids[f"widget_without_report/{qkey}"])[0]
+            assert row["w_report"] is None and row["q_report"] == own
+
 
 def _json(value):
     import json

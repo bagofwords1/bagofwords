@@ -1267,7 +1267,11 @@ class ReportService:
             # step for the query's widget, else latest step.
             step_row = None
             for only_success in (True, False):
-                stmt = select(Step.id, Step.code).where(Step.widget_id == widget_id)
+                # A query without a widget (a published dashboard's copy) falls
+                # back to its own steps; "Step.widget_id == None" would match
+                # every widget-less step in the database.
+                stmt = select(Step.id, Step.code).where(
+                    Step.widget_id == widget_id if widget_id else Step.query_id == qid)
                 if only_success:
                     stmt = stmt.where(Step.status == 'success')
                 step_row = (await db.execute(stmt.order_by(Step.created_at.desc()).limit(1))).first()

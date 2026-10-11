@@ -32,7 +32,9 @@ class Query(BaseSchema):
     
 
     # Transitional: 1:1 linkage with a Widget so we don't orphan Steps
-    widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=False, index=True)
+    # A conversation's queries hang off a widget; a published dashboard's
+    # copies have none (dashfc02).
+    widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=True, index=True)
     widget = relationship("Widget", lazy="selectin")
 
     # Optional: default step for this query (version follow)

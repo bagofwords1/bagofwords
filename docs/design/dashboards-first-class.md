@@ -185,3 +185,108 @@ phase-0 baseline is unchanged byte for byte.
 - Considered and not done in phase 1: a `lock_timeout` on the migration's own
   DDL during rolling updates. It would change how every migration behaves, so
   it is a separate decision.
+
+## Phase 2 — running without a conversation
+
+### Part A — the execution core takes an `ExecContext`
+
+`StepService._execute_step_code` used to take the `Report` and read its data
+sources, files and organization off it. It now takes an `ExecContext`
+(`app/services/exec_context.py`): the organization and its settings, whose
+credentials open the connections, the data sources and the files. Every
+existing caller (`rerun_step`, `run_step_to_user_result`, `read_query`'s
+re-execution) builds one with `ExecContext.from_report`, which reads nothing
+until the core asks — the data sources only when no prebuilt clients were
+passed, the organization only when the caller did not pass it — so each run
+reads the same values at the same point as before. The baseline is unchanged.
+
+`ctx.report` remains for the two helpers still scoped to a conversation:
+`load_step` resolution and the bow monitoring client. A context without a
+report resolves no `load_step` reference and installs no bow client; making
+both release-aware belongs with refreshing published dashboards (phase 6),
+together with `ExecContext.from_release`.
+
+`test_exec_context.py` checks that `from_report` carries what the core used to
+read and loads nothing early; that given organization and settings are used as
+they are; that the same clients reach the code with or without a
+conversation; that the core runs with no conversation at all (files and the
+organization's row limit still apply); that connections are opened with the
+context's user; and that a conversation rerun still resolves `load_step`.
+
+The corpus gained two shapes the API allowed before 0.0.583: a query whose
+widget sits in another conversation (`widget_elsewhere`) and two queries on
+one widget (`shared_widget`). Part B resolves ownership through the widget
+first, and these rows pin that it answers as before.
+
+### Part B — who owns a row, and a query without a widget (`dashfc02`)
+
+A published dashboard's copies of queries, steps and visualizations belong to
+their release (`artifact_release_id`), with no conversation and no widget.
+
+- **`dashfc02`** makes `queries.widget_id` nullable (`steps.widget_id` already
+  was in the database; both models now say so). The downgrade restores NOT NULL
+  and refuses, before any DDL, while a query without a widget exists. On SQLite
+  each migration's DDL commits on its own, so a downgrade from head to main that
+  dashfc01 refuses stops at dashfc01 with dashfc02 already undone (a consistent
+  state); Postgres rolls the whole run back.
+- **`app/services/row_owner.py`** answers who owns a step or a query: a
+  conversation, a release, or no one. The rules reproduce what each caller
+  read before, so no existing row changes hands: a step with a widget belongs
+  to that widget's conversation, or to no one when the widget has none (as
+  `step.widget.report` read); a step without a widget (a copy) to its query's
+  conversation, else its release; a query to its own `report_id`, then its
+  widget's conversation, then its release. The two builder paths that joined
+  the query's widget pass `widget_first=True` and get that widget's
+  conversation only, as before. The corpus pins the shapes where these
+  differ: a widget in another conversation and a widget with no conversation.
+- **Every gate goes through it and refuses what is not a conversation.**
+  `guard_route` answers 404 (`report.not_found`) on every route taking a query,
+  step or visualization id whose row exists without a conversation; an id with
+  no row still gets the route's own answer. Step export and display, the
+  conversation rerun, `run_existing_step`, the builder run and preview, the
+  viewer run, the step-data policy, the query overlay, the credential-scope
+  note, `read_query`, `run_query`, `add_parameter`, e-mail attachments and the
+  entity bow client resolve the owner the same way; the builder run refuses
+  before it writes, the viewer run before it serves a cached result. A step
+  that belongs to no one is withheld, never served; a copy whose code loads
+  other steps counts as identity-scoped. Rendered artifact exports are left as
+  they are: they receive an artifact version, which always has a conversation
+  until phase 4 adds dashboard-level reads.
+- **Lists**: `GET /api/queries` and `read_query` never return copies.
+- **Report rerun**: a query without a widget falls back to its own latest
+  step, never to "the latest step of no widget".
+- **Freeze**: `test_widget_lookups_frozen.py` lists the conversation lookups
+  through a widget that remain (a conversation's own widgets and steps), each
+  with its reason; a new one fails until it goes through `row_owner`.
+- **Decision 5 (legacy queries with no `report_id`)**: they now reach their
+  widget's conversation in every query-keyed check — `guard_route`'s monitoring
+  check, the `/api/queries` visibility filter, the query overlay, the
+  credential-scope note, the viewer run's monitoring gate, `read_query`'s gate,
+  e-mail attachment matching and identity taint — so that conversation's data
+  rules apply to them. A query that reaches no conversation at all (no
+  `report_id`, and a widget without one) is refused instead of left unchecked.
+  In the corpus one row moved: `credential_scoped` on `GET /api/queries/{id}`
+  for `orphans/q_no_report` is computed (`false`) instead of `null`.
+
+Tests: `test_release_copies_invisible.py` (every conversation route from the
+OpenAPI schema × every corpus reader: never 2xx, never 500, never the copy's
+data, never a change to it, and 404 for readers who see the conversation;
+lists; `row_owner` against what each kind of check read before, for every
+corpus row, with decision 5 as the only allowed difference),
+`test_release_copies_gates.py` (the gates, the services, the agent tools, and
+missing ids answering as before), `test_schema_dashfc02.py`,
+`test_widget_lookups_frozen.py`.
+
+### Notes for later phases (from part B)
+
+- The daily step-data purge joins through widgets, so it skips copies; copies
+  of superseded or failed releases need their own retention rule (phase 5).
+- Switching a conversation's run identity deletes viewer results by
+  `report_id`; viewer results on copies need the same treatment (phases 4–5).
+- Copying a step needs a new `slug` (unique), and a copy's
+  `parameters[].options_source.query_id` must point at the copied query (phase 3).
+- `resolve_step_data` withholds every copy for now; `/d` needs the dashboard's
+  own policy there before it serves data (phase 4).
+- Table-usage events must not be recorded for copy runs, or copy code reaches
+  the agent's examples (phase 6). Console metrics join through widgets and do
+  not count copies.

@@ -134,7 +134,7 @@ class AddParameterTool(Tool):
 
         res = await db.execute(select(Query).where(Query.id == str(data.query_id)))
         q = res.scalar_one_or_none()
-        if q is None or (report is not None and str(q.report_id) != str(report.id)):
+        if q is None or q.artifact_release_id or (report is not None and str(q.report_id) != str(report.id)):
             yield self._end(
                 {"success": False, "query_id": data.query_id, "error": "Query not found in this report"},
                 {"summary": f"add_parameter failed: query {data.query_id} not found in this report.",
