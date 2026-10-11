@@ -710,8 +710,11 @@ Deck rules that still apply to an edit:
   category_axis/value_axis tick_labels) or they render near-black and vanish.
 - **Images**: `image(file_id)` returns a fresh stream for
   `slide.shapes.add_picture(...)`; `image_ids` lists what is available. There is
-  no filesystem access. Put a translucent scrim between a photo and any text
-  over it.
+  no filesystem access. Never put text directly on a photo: place it on a
+  solid-color band or panel drawn over the picture instead.
+- **Public python-pptx API only**: never touch `_`-prefixed internals
+  (`_element`, `_spTree`, `fill._xPr`, raw lxml). The sandbox rejects them and
+  the deck fails to build.
 
 Apply the edit now:"""
 
