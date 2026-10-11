@@ -60,15 +60,28 @@ async def _require_ds_access(db, user, organization, ds_ids: List[str]) -> None:
             )
 
 
-async def _require_entity_run_access(db, entity_id: str, organization, user) -> None:
+# EntityRunPayload fields a run persists onto the entity (besides the data).
+_RUN_EDIT_FIELDS = ("type", "title", "slug", "description", "code", "view", "status")
+
+
+async def _require_entity_run_access(db, entity_id: str, organization, user, payload=None) -> None:
     """Body check for run/preview: the entity's owner needs ACCESS to every
     attached data source; anyone else needs per-DS `create_entities` on all of
-    them (org admins pass via implication)."""
+    them (org admins pass via implication).
+
+    Once an entity is globally approved its owner loses plain edit rights (see
+    ``EntityService._determine_update_type``), so a run that also rewrites its
+    definition (code, title, status, ...) takes the non-owner bar there too —
+    otherwise /run would be a side door around PUT's approval lock."""
     existing = await service.get_entity(db, entity_id, organization, user)
     if not existing:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if str(existing.owner_id) == str(user.id):
+    edits_definition = payload is not None and any(
+        getattr(payload, f, None) is not None for f in _RUN_EDIT_FIELDS
+    )
+    owner_may_edit = not (edits_definition and existing.global_status == "approved")
+    if str(existing.owner_id) == str(user.id) and owner_may_edit:
         if ds_ids:
             await _require_ds_access(db, user, organization, ds_ids)
         return
@@ -473,7 +486,7 @@ async def run_entity(
     if payload.params:
         await _require_entity_view_access(db, entity_id, organization, current_user)
     else:
-        await _require_entity_run_access(db, entity_id, organization, current_user)
+        await _require_entity_run_access(db, entity_id, organization, current_user, payload)
     from app.ai.code_execution.query_params import ParamError
     try:
         entity = await service.run_entity_with_update(db, entity_id, payload, organization, current_user=current_user)

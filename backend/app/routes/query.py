@@ -38,6 +38,43 @@ async def _require_run_custom_code(db, current_user, organization) -> None:
         )
 
 
+async def _require_query_owner(db, query_id: str, current_user, organization) -> None:
+    """A builder run replaces the query's default step — the code every viewer
+    then executes — so it is an edit, not a read. Edits stay owner-only, as on
+    the report routes (``update_reports``, ``owner_only=True``): the query's
+    creator or the owner of the report it lives on."""
+    q = (await db.execute(
+        select(Query).options(lazyload("*")).where(
+            Query.id == str(query_id),
+            Query.organization_id == str(organization.id),
+        )
+    )).scalar_one_or_none()
+    if q is None:
+        raise HTTPException(status_code=404, detail="Query not found")
+    uid = str(current_user.id)
+    if q.user_id and str(q.user_id) == uid:
+        return
+    report_id = q.report_id
+    if not report_id and q.widget_id:
+        from app.models.widget import Widget
+        report_id = (await db.execute(
+            select(Widget.report_id).where(Widget.id == str(q.widget_id))
+        )).scalar_one_or_none()
+    if report_id:
+        report_owner = (await db.execute(
+            select(Report.user_id).where(
+                Report.id == str(report_id),
+                Report.organization_id == str(organization.id),
+            )
+        )).scalar_one_or_none()
+        if report_owner and str(report_owner) == uid:
+            return
+    raise HTTPException(
+        status_code=403,
+        detail="Only the query's owner can change its code. Run it with parameter values instead.",
+    )
+
+
 @router.get("", response_model=list[QuerySchema])
 @requires_permission('view_reports')
 async def list_queries(
@@ -175,6 +212,7 @@ async def run_query_new_step(
             # query's already-stored step with parameter values only, which is
             # ordinary report usage and stays open to every member.
             await _require_run_custom_code(db, current_user, organization)
+            await _require_query_owner(db, query_id, current_user, organization)
 
         if (payload.mode or "builder") == "viewer":
             # Viewer-execute: run the default step's code with param values,
@@ -210,6 +248,20 @@ async def run_existing_step(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
+    # Rerunning persists the result into the step's shared snapshot under the
+    # caller's credentials, so it is an edit of that report: owner-only.
+    from app.models.step import Step
+    from app.models.widget import Widget
+    owner_id = (await db.execute(
+        select(Report.user_id)
+        .join(Widget, Widget.report_id == Report.id)
+        .join(Step, Step.widget_id == Widget.id)
+        .where(Step.id == str(step_id), Report.organization_id == str(organization.id))
+    )).scalar_one_or_none()
+    if owner_id is None:
+        raise HTTPException(status_code=404, detail="Step not found")
+    if str(owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Only the report's owner can rerun this step.")
     try:
         step = await service.run_existing_step(
             db,
