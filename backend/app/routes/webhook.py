@@ -52,7 +52,7 @@ async def create_webhook(
 
 
 @router.get("/reports/{report_id}/webhooks", response_model=List[WebhookSchema])
-@requires_permission('view_reports', model=Report, owner_only=True)
+@requires_permission('update_reports', model=Report, owner_only=True)
 async def list_webhooks(
     report_id: str,
     current_user: User = Depends(current_user),

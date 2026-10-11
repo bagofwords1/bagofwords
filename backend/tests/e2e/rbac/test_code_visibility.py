@@ -628,3 +628,43 @@ async def test_member_without_run_custom_code_cannot_preview_supplied_entity_cod
         f"/api/entities/{entity_id}/preview", json={"code": "SELECT 1"}, headers=mhdr,
     )
     assert resp.status_code != 403, resp.text
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_cannot_clone_a_step_from_a_report_you_cannot_see(
+    test_client, bootstrap_admin, invite_user_to_org,
+):
+    """/entities/from_step copies the step's code and saved rows — it needs read
+    access to the step's report, not just to the agent."""
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    other = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    seeded = await _seed_step_for(other["user_id"], admin["org_id"])
+
+    resp = test_client.post(
+        f"/api/entities/from_step/{seeded['step_id']}", json={},
+        headers=_hdr(member["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 404, resp.text
+
+    resp = test_client.post(
+        f"/api/entities/from_step/{seeded['step_id']}", json={},
+        headers=_hdr(other["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_webhook_listing_is_owner_only(test_client, bootstrap_admin, invite_user_to_org):
+    """The listing returns delivery tokens — the view-tier bypasses (admin,
+    project collaborator) must not reach it."""
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    seeded = await _seed_step_for(member["user_id"], admin["org_id"])
+    url = f"/api/reports/{seeded['report_id']}/webhooks"
+
+    assert test_client.get(url, headers=_hdr(member["token"], admin["org_id"])).status_code == 200
+    resp = test_client.get(url, headers=_hdr(admin["token"], admin["org_id"]))
+    assert resp.status_code == 403, resp.text

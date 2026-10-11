@@ -104,6 +104,23 @@ async def _require_entity_run_access(db, entity_id: str, organization, user, pay
     )
 
 
+async def _require_step_report_view(db, step_id: str, user, organization) -> None:
+    from sqlalchemy import select
+    from sqlalchemy.orm import lazyload
+    from app.models.step import Step
+    from app.models.query import Query
+    from app.models.report import Report
+    from app.services.file_access_service import user_can_view_report
+    report = (await db.execute(
+        select(Report).options(lazyload("*"))
+        .join(Query, Query.report_id == Report.id)
+        .join(Step, Step.query_id == Query.id)
+        .where(Step.id == str(step_id), Report.organization_id == str(organization.id))
+    )).scalar_one_or_none()
+    if report is not None and not await user_can_view_report(db, user, organization, report):
+        raise HTTPException(status_code=404, detail="Step not found")
+
+
 async def _require_entity_view_access(db, entity_id: str, organization, user) -> None:
     """Body check for viewer-mode (parameter VALUES) runs: the entity must be
     visible to the caller and they need ACCESS to every attached data source
@@ -444,6 +461,12 @@ async def create_entity_from_step(
         )
     if not can_publish and target_ds_ids:
         await _require_ds_access(db, current_user, organization, target_ds_ids)
+
+    # The step's code, SQL and saved rows belong to its report: cloning them
+    # needs read access to that report (owner, full admin, or its visibility /
+    # project admits the caller). Agent access alone is not enough — the rows
+    # may come from the owner's personal credentials or identity-bound params.
+    await _require_step_report_view(db, step_id, current_user, organization)
 
     try:
         entity = await service.create_entity_from_step(
