@@ -5940,5 +5940,11 @@
     "failed": "Unable to load artifact data",
     "newest": "Newest first",
     "oldest": "Oldest first"
+  },
+  "integrationConnection": {
+    "noConnection": "This agent has no connection yet.",
+    "notFound": "This connection could not be found.",
+    "forbidden": "You don't have access to this connection.",
+    "loadFailed": "Failed to load the connection. Try again later."
   }
 }

@@ -5911,5 +5911,11 @@
     "failed": "No se pudieron cargar los datos",
     "newest": "Más recientes primero",
     "oldest": "Más antiguos primero"
+  },
+  "integrationConnection": {
+    "noConnection": "Este agente aún no tiene ninguna conexión.",
+    "notFound": "No se encontró esta conexión.",
+    "forbidden": "No tienes acceso a esta conexión.",
+    "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde."
   }
 }
