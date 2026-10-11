@@ -70,7 +70,10 @@ class FileService:
         # client's Content-Disposition header decoded to, and a name carrying
         # lone surrogates is unstorable in a UTF-8 column — the INSERT below
         # would fail mid-flush and take the request's session with it.
-        filename = storage_safe_name(file.filename or "")
+        # Reduce it to its last path component too: the name is client-chosen,
+        # and a `../` or `\\` in it would walk the write out of uploads/files
+        # (os.makedirs below happily creates the `<uuid>_..` stepping stone).
+        filename = os.path.basename(storage_safe_name(file.filename or "").replace("\\", "/")) or "upload"
         unique_filename = f"{uuid.uuid4()}_{filename}"
         file_location = f"uploads/files/{unique_filename}"
 
