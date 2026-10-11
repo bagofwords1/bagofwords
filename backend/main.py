@@ -425,6 +425,17 @@ async def startup_event():
         # failure must not make an otherwise healthy web worker unavailable.
         logger.exception("Agent runtime warmup failed; continuing startup")
 
+    # With BOW_SANDBOX_REQUIRE_LANDLOCK (the production default) the code
+    # sandbox refuses to run on a host without the kernel confinement it
+    # needs. Say so once, at startup, instead of through every user request.
+    try:
+        from app.ai.code_execution.sandbox.runner import CONFINEMENT_REMEDY, required_confinement_problem
+        problem = required_confinement_problem()
+        if problem:
+            logger.error(f"Code execution is disabled on this host: {problem}. {CONFINEMENT_REMEDY}")
+    except Exception:
+        logger.exception("Code sandbox confinement check failed; continuing startup")
+
     await start_tool_audit_worker()
 
     # Index historical agent runs for the diagnosis explorer in the background
