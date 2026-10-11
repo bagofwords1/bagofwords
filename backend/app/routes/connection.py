@@ -1032,8 +1032,9 @@ async def get_connection_indexing(
         if progress.scope != "user":
             stats = dict(progress.stats or {})
             if "synced_domains" in stats:
-                stats["synced_domains"] = len(
-                    await visible_linked_agents(db, organization, current_user, connection)
+                stats["synced_domains"] = min(
+                    int(stats["synced_domains"] or 0),
+                    len(await visible_linked_agents(db, organization, current_user, connection)),
                 )
             stats.pop("unreadable_datasets", None)
             stats.pop("unreadable_dataset_count", None)
