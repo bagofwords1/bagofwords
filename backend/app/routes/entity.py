@@ -511,6 +511,19 @@ async def preview_entity(
 ):
     """Preview (execute without persisting) — same access tier as run."""
     await _require_entity_run_access(db, entity_id, organization, current_user)
+    # Caller-supplied code that differs from the stored code is custom code —
+    # same trust boundary as /preview-code and builder-mode query runs, so it
+    # takes the same permission. Previewing the stored code stays at the run tier.
+    existing = await service.get_entity(db, entity_id, organization, current_user)
+    if (payload.code or "").strip() and (payload.code or "").strip() != (existing.code or "").strip():
+        from app.core.permission_resolver import resolve_permissions
+        from app.core.code_visibility import can_run_custom_code
+        _resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if not can_run_custom_code(_resolved):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to edit and run custom code",
+            )
     _validate_declared_params(payload)
     from app.ai.code_execution.query_params import ParamError
     try:
