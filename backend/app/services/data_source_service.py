@@ -3313,7 +3313,28 @@ class DataSourceService:
         connection_fields = {'config', 'credentials', 'auth_policy'}
         connection_updates = {k: update_data.pop(k) for k in list(update_data.keys()) if k in connection_fields}
         connection_changed = bool(connection_updates)
-        
+
+        # Rewriting config/credentials/auth_policy mutates the underlying
+        # (possibly shared) Connection, so it needs the same authorization as
+        # PUT /connections/{id}: `manage_connection` on that connection.
+        # `manage` on the data source alone is not enough.
+        if connection_changed and data_source_db.connections:
+            from app.core.permissions_decorator import check_resource_permissions
+            try:
+                await check_resource_permissions(
+                    db,
+                    str(current_user.id),
+                    str(organization.id),
+                    "connection",
+                    [str(c.id) for c in data_source_db.connections[:1]],
+                    "manage_connection",
+                )
+            except HTTPException:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You don't have permission to modify this connection",
+                )
+
         # Handle membership updates
         newly_added_member_ids: List[str] = []
         if 'member_user_ids' in update_data:
