@@ -1,20 +1,7 @@
 # Release Notes
 
 ## Version 0.0.587 (October 11, 2026)
-- Generated Python now runs in a sandboxed child process with no access to app secrets, plus memory and time limits — `BOW_CODE_SANDBOX`, `BOW_SANDBOX_*` (#1095)
-- Fixed reflected XSS on the sign-in and sign-up pages through OAuth error text (#1303)
-- Fixed members with `manage_members` granting roles or permissions they don't hold (#1305)
-- Fixed access-control gaps across queries, entities, agent YAML and eval YAML (#1306)
-- Fixed index-expression injection in the OpenSearch connector (#1307)
-- Blocked state-changing SQL from read-only data source queries (#1308)
-- Blocked outbound requests to internal addresses from web fetch, browser, PDF export, git, LLM base URL and audit streams (#1309)
-- Fixed stored LLM provider keys being sent when a provider's endpoint is changed (#1310)
-- Fixed error tracebacks and exception text leaking in API, admin, webhook and SCIM responses (#1311, #1317)
-- Fixed report and entity endpoints revealing whether IDs exist to users without access (#1311)
-- Applied the same code checks to generated slide decks as to other generated code (#1316)
-- Required custom-code permission to preview an entity with edited code; scoped webhook lists to their owners (#1319)
-- OAuth tokens are revoked on password change, and OAuth consent requires a signed-in session (#1318)
-- Fixed upload path traversal, XSS in embeds, and unauthenticated MCP iframe messages (#1320)
+- Bug fixes and security hardening (#1304)
 
 ## Version 0.0.586 (October 10, 2026)
 - Bug fixes and UI improvements (#1291)
