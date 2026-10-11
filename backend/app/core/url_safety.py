@@ -192,16 +192,48 @@ def _has_http_authority(url: str, scheme: str) -> bool:
 
 
 def is_safe_redirect_uri(url: object) -> bool:
-    """True when ``url`` may be stored / used as an OAuth client redirect URI."""
-    """Allowlist: https with a host, or http only on a loopback host
-    (localhost / 127.0.0.1 / [::1], used by local MCP inspectors and CLIs).
+    """Allowlist: https with a host; http only on a loopback host or the app's own
+    configured base_url origin (exact scheme+host+port; local MCP tools, on-prem).
     Custom app schemes are not supported (product decision, WP8)."""
     scheme = _url_scheme(url)
     if scheme == "https":
         return _has_http_authority(url, scheme)
     if scheme == "http" and _has_http_authority(url, scheme):
-        return (urlparse(url).hostname or "").lower() in _LOOPBACK_HOSTS
+        parsed = urlparse(url)
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        if (parsed.hostname or "").lower() in _LOOPBACK_HOSTS:
+            return True
+        # On-prem installs served over plain http (e.g. http://bow.corp:3000)
+        # register their own ``<origin>/oauth/callback``: allow an exact
+        # origin match with the configured base_url, nothing looser.
+        origin = _http_origin(url)
+        return origin is not None and origin in _app_http_origins()
     return False
+
+
+_BASE_URL_PLACEHOLDERS = ("http://0.0.0.0:3000", "http://0.0.0.0:8000")
+
+
+def _http_origin(url: str) -> tuple[str, str, int] | None:
+    try:
+        p = urlparse(url)
+        if p.scheme.lower() != "http" or not p.hostname or p.username is not None or p.password is not None:
+            return None
+        return ("http", p.hostname.lower(), p.port or 80)
+    except ValueError:
+        return None
+
+
+def _app_http_origins() -> set[tuple[str, str, int]]:
+    """The app's own http origin(s) from ``bow_config.base_url`` (unset or the
+    0.0.0.0 placeholder means none)."""
+    from app.settings.config import settings
+    configured = (getattr(settings.bow_config, "base_url", None) or "").strip().rstrip("/")
+    if not configured or configured in _BASE_URL_PLACEHOLDERS:
+        return set()
+    origin = _http_origin(configured)
+    return {origin} if origin else set()
 
 
 def is_safe_http_url(url: object) -> bool:

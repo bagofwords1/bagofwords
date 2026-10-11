@@ -29,10 +29,14 @@ export function isSafeHttpUrl(url: unknown): url is string {
   return (scheme === 'http' || scheme === 'https') && hasHttpHost(url as string)
 }
 
-/** OAuth client redirect target: https, or http on a loopback host only. */
+/** OAuth client redirect target: https, or http on a loopback host or this app's own origin. */
 export function isSafeRedirectUri(url: unknown): url is string {
   const scheme = schemeOf(url)
   if (scheme === 'https') return hasHttpHost(url as string)
   if (scheme !== 'http' || !hasHttpHost(url as string)) return false
-  return LOOPBACK_HOSTS.has(new URL(url as string).hostname.toLowerCase())
+  const parsed = new URL(url as string)
+  if (parsed.username || parsed.password) return false
+  if (LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())) return true
+  // On-prem http deployments: exactly this app's own origin (scheme+host+port).
+  return typeof window !== 'undefined' && parsed.origin === window.location.origin
 }

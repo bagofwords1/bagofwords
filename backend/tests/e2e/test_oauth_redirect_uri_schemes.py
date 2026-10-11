@@ -101,7 +101,10 @@ def test_allowed_redirect_uri_registers_and_completes_auth_code_flow(
     token, org_id, headers = _admin(create_user, login_user, whoami)
     client = create_oauth_client(user_token=token, org_id=org_id, redirect_uris=[redirect_uri])
     assert client["redirect_uris"] == [redirect_uri]
+    _complete_auth_code_flow(test_client, headers, client, redirect_uri)
 
+
+def _complete_auth_code_flow(test_client, headers, client, redirect_uri):
     # Consent entry point redirects to the in-app consent page.
     verifier, challenge = _pkce()
     entry = test_client.get(
@@ -235,3 +238,69 @@ def test_connection_oauth_https_authorize_url_works_and_legacy_bad_row_is_refuse
     blocked = test_client.get(f"/api/connections/{conn_id}/oauth/authorize", headers=headers)
     assert blocked.status_code == 400
     assert "authorization_url" not in blocked.json()
+
+
+# ── On-prem http deployment: the app's own base_url origin ─────────────────
+
+APP_HTTP_BASE = "http://bow.corp:3000"
+
+
+@pytest.fixture
+def http_base_url(monkeypatch):
+    from app.settings.config import settings
+    monkeypatch.setattr(settings.bow_config, "base_url", APP_HTTP_BASE, raising=False)
+    return APP_HTTP_BASE
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("path", ["/oauth/callback", "/oauth/callback?x=1"])
+def test_own_http_origin_redirect_registers_and_completes_flow(
+    path, http_base_url, test_client, create_user, login_user, whoami, create_oauth_client,
+):
+    # OAuthClientsModal pre-fills `${window.location.origin}/oauth/callback`;
+    # on an http on-prem install that default must keep working end to end.
+    token, org_id, headers = _admin(create_user, login_user, whoami)
+    redirect_uri = f"{http_base_url}{path}"
+    client = create_oauth_client(user_token=token, org_id=org_id, redirect_uris=[redirect_uri])
+    _complete_auth_code_flow(test_client, headers, client, redirect_uri)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("lookalike", [
+    "http://bow.corp.evil.com:3000/oauth/callback",
+    "http://evil-bow.corp:3000/oauth/callback",
+    "http://bow.corp@evil.com:3000/oauth/callback",
+    "http://bow.corp:3000@evil.com/oauth/callback",
+    "http://user:pw@bow.corp:3000/oauth/callback",
+    "http://bow.corp:3001/oauth/callback",
+    "http://bow.corp/oauth/callback",
+    "http://bow.corp:3000.evil.com/oauth/callback",
+])
+def test_own_origin_lookalikes_rejected(lookalike, http_base_url, test_client, create_user, login_user, whoami):
+    _, _, headers = _admin(create_user, login_user, whoami)
+    resp = test_client.post("/api/oauth/clients", json={"name": "x", "redirect_uris": [lookalike]}, headers=headers)
+    assert resp.status_code == 400
+
+
+@pytest.mark.e2e
+def test_own_http_origin_stops_authorizing_when_base_url_changes(
+    monkeypatch, test_client, create_user, login_user, whoami, create_oauth_client,
+):
+    # Saved while the app lived at the http origin; once base_url moves the
+    # stored URI must stop authorizing (use-time check).
+    from app.settings.config import settings
+    monkeypatch.setattr(settings.bow_config, "base_url", APP_HTTP_BASE, raising=False)
+    token, org_id, _ = _admin(create_user, login_user, whoami)
+    uri = f"{APP_HTTP_BASE}/oauth/callback"
+    client = create_oauth_client(user_token=token, org_id=org_id, redirect_uris=[uri])
+    monkeypatch.setattr(settings.bow_config, "base_url", "https://bow.example.com", raising=False)
+    info = test_client.get(f"/api/oauth/clients/{client['client_id']}/info", params={"redirect_uri": uri})
+    assert info.status_code == 400
+
+
+@pytest.mark.e2e
+def test_http_non_loopback_rejected_without_matching_base_url(test_client, create_user, login_user, whoami):
+    _, _, headers = _admin(create_user, login_user, whoami)
+    resp = test_client.post("/api/oauth/clients", json={"name": "x", "redirect_uris": [f"{APP_HTTP_BASE}/oauth/callback"]},
+                            headers=headers)
+    assert resp.status_code == 400
