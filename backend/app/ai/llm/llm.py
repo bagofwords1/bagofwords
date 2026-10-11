@@ -25,6 +25,7 @@ from .types import (
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.ai.llm import trace as llm_trace
+from app.core.url_safety import check_admin_url
 from app.ai.llm.pii.loader import load_redactor_for_org
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
@@ -320,6 +321,10 @@ class LLM:
         self._usage_session_maker = usage_session_maker
         self._usage_limit_context = usage_context
         additional_config = self.model.provider.additional_config or {}
+        # Admin-configured endpoints must never reach cloud metadata (SSRF).
+        for url_key in ("base_url", "endpoint_url"):
+            if additional_config.get(url_key):
+                check_admin_url(additional_config[url_key])
         enable_web_search = bool(additional_config.get("enable_web_search", False))
         # Optional explicit sampling temperature. Model-level config (set via
         # POST /llm/models/{id}/set_temperature, stored on LLMModel.config) wins
