@@ -28,6 +28,9 @@ from app.ai.code_execution.code_execution import (
     FORBIDDEN_MODULES,
     FORBIDDEN_BUILTINS,
     FORBIDDEN_ATTRIBUTES,
+    ALLOWED_PRIVATE_ATTRIBUTES,
+    FORBIDDEN_FILE_READERS,
+    _FILE_IO_NAMESPACES,
 )
 
 
@@ -73,11 +76,36 @@ class PptxSecurityVisitor(ast.NodeVisitor):
         if isinstance(node.func, ast.Name) and node.func.id == '__import__':
             self.errors.append("Forbidden function call: '__import__()'")
 
+        # Reading a HARDCODED path through an injected library (pandas/numpy/
+        # pyarrow/duckdb do their own IO and never touch the AST-forbidden
+        # `open`). Mirrors CodeSecurityVisitor so the PPTX path can't be used
+        # as a softer door to the filesystem than the main code sandbox.
+        if isinstance(node.func, ast.Attribute):
+            base = node.func.value
+            base_name = base.id if isinstance(base, ast.Name) else None
+            if base_name in _FILE_IO_NAMESPACES and node.func.attr in FORBIDDEN_FILE_READERS:
+                first_arg = node.args[0] if node.args else None
+                is_literal_path = isinstance(first_arg, ast.Constant) and isinstance(
+                    first_arg.value, str
+                )
+                is_fstring_path = isinstance(first_arg, ast.JoinedStr)
+                if is_literal_path or is_fstring_path:
+                    self.errors.append(
+                        f"Forbidden file read: '{base_name}.{node.func.attr}()' with a "
+                        f"hardcoded path"
+                    )
+
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute):
-        # Check for direct access to forbidden attributes like obj.__class__
-        if node.attr in FORBIDDEN_ATTRIBUTES:
+        # Block the explicit escape-vector attributes AND every other private/
+        # dunder access wholesale — the enumerated list alone let an escape
+        # hide in the dunders nobody thought to add (__reduce__, __base__,
+        # __getattribute__, __init_subclass__, ...). Kept in lockstep with
+        # CodeSecurityVisitor.visit_Attribute.
+        if node.attr in FORBIDDEN_ATTRIBUTES or (
+            node.attr.startswith("_") and node.attr not in ALLOWED_PRIVATE_ATTRIBUTES
+        ):
             self.errors.append(f"Forbidden attribute access: '{node.attr}'")
         self.generic_visit(node)
 
