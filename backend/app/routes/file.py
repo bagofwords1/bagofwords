@@ -315,12 +315,32 @@ async def get_file_embed(
         raise HTTPException(status_code=404, detail="File not found")
 
     content = _read_file_bytes_or_404(file)
+    media_type = file.content_type or "application/octet-stream"
+    # This is served on the app's own origin and content_type is whatever the
+    # uploader's client claimed, so only passive types render inline (for
+    # <img>/<iframe>); HTML, SVG, scripts and unknowns download instead.
+    inline = _embed_renders_inline(media_type)
     return Response(
         content=content,
-        media_type=file.content_type or "application/octet-stream",
+        media_type=media_type,
         headers={
-            # inline so <img>/<iframe> render it rather than downloading
-            "Content-Disposition": _content_disposition("inline", file.filename or file_id),
+            "Content-Disposition": _content_disposition(
+                "inline" if inline else "attachment", file.filename or file_id
+            ),
             "Cache-Control": "private, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+            # Chrome's PDF viewer refuses a sandboxed document, so inline
+            # types get scripts switched off instead of a full sandbox.
+            "Content-Security-Policy": "script-src 'none'; object-src 'self'" if inline else "default-src 'none'; sandbox",
         },
     )
+
+
+_EMBED_INLINE_TYPES = {"application/pdf", "text/csv", "text/plain", "application/json"}
+
+
+def _embed_renders_inline(media_type: str) -> bool:
+    base = media_type.split(";", 1)[0].strip().lower()
+    if base.startswith("image/"):
+        return base != "image/svg+xml"
+    return base in _EMBED_INLINE_TYPES

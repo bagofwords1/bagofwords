@@ -1,0 +1,8 @@
+<!doctype html><body><iframe id="app" src="/mcp-artifact-app.html"></iframe><script>
+var app=document.getElementById('app');
+window.addEventListener('message',function(e){var m=e.data;if(!m||m.jsonrpc!=='2.0'||m.id==null)return;
+ if(m.method==='ui/initialize'){app.contentWindow.postMessage({jsonrpc:'2.0',id:m.id,result:{}},'*');
+   setTimeout(function(){app.contentWindow.postMessage({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{structuredContent:{artifact_id:'a1'},content:[{type:'text',text:JSON.stringify({artifact_id:'a1'})}]}},'*')},50);}
+ else if(m.method==='tools/call'){app.contentWindow.postMessage({jsonrpc:'2.0',id:m.id,error:{message:'<img src=x onerror="document.body.dataset.pwned=1">denied'}},'*');}
+});
+</script></body>

