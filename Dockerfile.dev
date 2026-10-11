@@ -1,0 +1,3 @@
+FROM python:3.14-bookworm
+WORKDIR /app
+COPY backend/ /app/backend

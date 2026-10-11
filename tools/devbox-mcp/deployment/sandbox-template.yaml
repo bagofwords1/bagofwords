@@ -1,0 +1,170 @@
+# SandboxTemplate for running Bag of Words (bagofwords/bagofwords) as an
+# agent-sandbox workload. One Sandbox = one isolated Bag of Words instance with
+# its own persistent volume, reachable at https://<sandbox>.sndbx.bagofwords.com
+# through the Envoy Gateway (see sandbox-claim.yaml / expose-sandbox.sh).
+#
+# Apply with:
+#   kubectl apply -f python-sandbox-template.yaml
+#
+# Prerequisites on the cluster:
+#   - agent-sandbox controller + extensions (install.sh)
+#   - a default StorageClass (microk8s: `microk8s enable hostpath-storage`,
+#     done by sandbox-cluster/install-microk8s.sh)
+#   - Envoy Gateway with the Gateway from sandbox-cluster/gateway.yaml
+#
+# How the pieces fit:
+#   - spec.service: true makes the controller create a headless Service named
+#     after each Sandbox, used by the sandbox-router's DNS lookup. The Gateway
+#     instead uses the label-selected Service from sandbox-claim.yaml.
+#   - volumeClaimTemplates gives every Sandbox its own PVC (StatefulSet-like,
+#     named workspace-<sandbox>). It is reattached if the pod is recreated.
+#   - networkPolicyManagement: Unmanaged disables the controller's default
+#     NetworkPolicy, so the pod is reachable from the Gateway and can use
+#     cluster DNS without any policy objects.
+#
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: bow-sandbox-template
+  namespace: default
+spec:
+  # Create a headless Service <sandbox-name>.<namespace>.svc for each Sandbox.
+  # Needed by the HTTPRoute backendRef and by the sandbox-router's DNS mode.
+  service: true
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bagofwords
+    spec:
+      restartPolicy: Always
+      containers:
+      - name: bagofwords
+        image: docker.io/bagofwords/bagofwords-sandbox-runtime:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 3000      # frontend (nuxt)
+          protocol: TCP
+        - name: backend
+          containerPort: 8000      # backend API (proxied by the frontend under /api)
+          protocol: TCP
+        - name: code-server
+          containerPort: 8080
+          protocol: TCP
+        - name: sandboxd
+          containerPort: 8888      # sandboxd REST, used by the SDK via the router
+          protocol: TCP
+        env:
+        - name: ENVIRONMENT
+          value: production
+        # Git branch (or tag) every devbox checks out at boot. Consumed by
+        # entrypoint.sh (BOW_REPO_REF); the warm pool therefore boots on it too.
+        # A value in the bow-sandbox-config Secret (envFrom) overrides this one
+        # only if this entry is removed: explicit `env` wins over `envFrom`.
+        - name: BOW_REPO_REF
+          value: feature/agentic-dev-with-k8s-sandboxes
+        # SQLite on the persistent volume. Replace with a PostgreSQL URL for
+        # anything beyond a sandbox.
+        - name: BOW_DATABASE_URL
+          value: sqlite:////app/workspace/app.db
+        # Envoy sits in front. uvicorn only honours X-Forwarded-* from
+        # 127.0.0.1 by default; "*" makes it trust the proxy so the app sees
+        # the real client IP and the public scheme/host.
+        - name: FORWARDED_ALLOW_IPS
+          value: "*"
+        # Shared dependency cache (hostPath on the node, see volumes below).
+        # uv, yarn and playwright read these directly: the first sandbox
+        # fills the cache, later ones install from local disk without
+        # re-downloading. Safe for concurrent pods; uv locks per entry.
+        - name: UV_CACHE_DIR
+          value: /cache/uv
+        - name: YARN_CACHE_FOLDER
+          value: /cache/yarn
+        - name: PLAYWRIGHT_BROWSERS_PATH
+          value: /cache/ms-playwright
+        - name: BOW_GIT_MIRROR
+          value: /cache/git/bagofwords.git
+        # Provisioning inputs for entrypoint.sh (admin credentials, ANTHROPIC_KEY,
+        # BOW_REPO_REF, ...). Shared by every sandbox, so it stays warm-pool
+        # compatible. Create with:
+        #   kubectl create secret generic bow-sandbox-config \
+        #     --from-literal=ANTHROPIC_KEY=sk-ant-... \
+        #     --from-literal=BOW_ADMIN_EMAIL=admin@example.com \
+        #     --from-literal=BOW_ADMIN_PASSWORD='Password123!'
+        # Git push credentials are per user (devbox_github_login), not in here.
+        envFrom:
+        - secretRef:
+            name: bow-sandbox-config
+            optional: true
+        # BOW_BASE_URL is intentionally not set here or by claims: a claim
+        # that sets env cold-starts instead of adopting a warm-pool Sandbox.
+        # The runtime derives its public URL from the Host, X-Forwarded-Host
+        # and X-Forwarded-Proto headers that the per-sandbox HTTPRoute sets.
+        volumeMounts:
+        # Persistent workspace for the runtime: SQLite database and anything
+        # else the app writes. The database URL above points into it.
+        - name: workspace
+          subPath: data
+          mountPath: /app/workspace
+        - name: dep-cache
+          mountPath: /cache
+        # Readiness gates the Sandbox's Ready condition, which is what the
+        # warm pool counts and what a claim adopts. The entrypoint only starts
+        # the frontend after the backend is healthy and provisioning is done,
+        # so "/" answering on 3000 means the instance is fully usable.
+        # No liveness probe on purpose: agents inside the sandbox stop and
+        # restart backend/frontend via `bow-stack`, and a liveness failure
+        # would kill the container mid-restart. The pod just goes not-ready.
+        startupProbe:
+          httpGet:
+            path: /
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 90      # up to 15 min: first boot clones + installs deps
+        # Tolerant on purpose. In dev mode the Nuxt server is single-threaded and
+        # transforms hundreds of modules on a browser's first visit; a 1 s probe
+        # times out then, the pod goes NotReady, the Service loses its endpoint
+        # and Envoy answers 503 for the whole page load.
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6       # ~1 min of failures before traffic is cut
+      # Node-local cache shared by every sandbox on this node. Survives pod
+      # and sandbox deletion. Single-node cluster, so hostPath is enough;
+      # on multi-node use a ReadWriteMany PVC instead.
+      volumes:
+      - name: dep-cache
+        hostPath:
+          path: /var/cache/bow-sandbox
+          type: DirectoryOrCreate
+  # One PVC per Sandbox, created from this template and mounted above.
+  # storageClassName is omitted so the cluster default (microk8s-hostpath)
+  # is used. Set it explicitly to pick another class.
+  volumeClaimTemplates:
+  - metadata:
+      name: workspace
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 5Gi
+
+  # Let a SandboxClaim add or override volume claim templates (forces a cold
+  # start for that claim). Set to Disallowed to lock the storage layout.
+  volumeClaimTemplatesPolicy: Overrides
+
+  # Claims may add env vars the template does not define, but any claim that
+  # does so cold-starts instead of adopting a warm-pool Sandbox. The shipped
+  # claims set none, so the warm pool is used.
+  envVarsInjectionPolicy: Allowed
+
+  # No NetworkPolicy for now. "Unmanaged" tells the controller not to create
+  # one at all. Leaving this out (or "Managed" without rules) would apply the
+  # controller's secure default, which only admits the sandbox-router and
+  # blocks cluster DNS, cutting off both the Gateway and outbound API calls.
+  networkPolicyManagement: Unmanaged

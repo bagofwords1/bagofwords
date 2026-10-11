@@ -1,0 +1,23 @@
+# Optional: keep pre-started Sandboxes so a claim binds in seconds instead of
+# waiting for image pull, PVC provisioning and app boot.
+#
+# A warm Sandbox keeps its pool-generated name (bow-warmpool-xxxxx), not the
+# claim's name, so the Service and PVC are named after it too. Use
+# expose-sandbox.sh, which reads the bound name from the claim status, to
+# create the matching HTTPRoute. Claims must not set env or volume templates,
+# or they cold-start instead of adopting from the pool.
+#
+# Apply with:
+#   kubectl apply -f sandbox-warmpool.yaml
+#
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxWarmPool
+metadata:
+  name: bow-warmpool
+  namespace: default
+spec:
+  replicas: 1
+  sandboxTemplateRef:
+    name: bow-sandbox-template
+  updateStrategy:
+    type: OnReplenish

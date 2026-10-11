@@ -1,0 +1,159 @@
+# Bag of Words devbox sandbox runtime image.
+# Build from the repository root (paths below are repo-relative):
+#   docker build -f tools/devbox-mcp/sandbox-runtime/Dockerfile -t bagofwords/bagofwords-sandbox-runtime:latest .
+ARG PYTHON_VERSION=3.12
+ARG UV_VERSION=0.10.9
+
+FROM golang:1.27-bookworm AS sandboxd-builder
+RUN git clone https://github.com/kubernetes-sigs/agent-sandbox \
+    && cd agent-sandbox \
+    && make build-sandboxd
+
+FROM rust:1-slim-bookworm AS qvd2parquet-builder
+WORKDIR /build/qvd2parquet
+COPY ./tools/qvd2parquet/Cargo.toml ./tools/qvd2parquet/Cargo.lock ./
+# Pre-build dependencies against a stub main so cargo caches the dep graph.
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && \
+    cargo build --release --locked && \
+    rm -rf src target/release/qvd2parquet target/release/qvd2parquet.d \
+           target/release/deps/qvd2parquet-* 2>/dev/null || true
+COPY ./tools/qvd2parquet/src ./src
+RUN cargo build --release --locked && \
+    strip target/release/qvd2parquet
+
+# COPY --from can't expand ARGs, so alias the uv image as a stage.
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+FROM python:${PYTHON_VERSION}-slim-bookworm
+
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/opt/venv/bin:/root/.local/bin:$PATH"
+
+WORKDIR /app
+# copy uv
+COPY --from=uv /uv /usr/local/bin/uv
+# copy qvd2parquet
+COPY --from=qvd2parquet-builder  /build/qvd2parquet/target/release/qvd2parquet /usr/local/bin/qvd2parquet
+# copy sandboxd
+COPY --from=sandboxd-builder /go/agent-sandbox/bin/sandboxd /usr/local/bin/sandboxd
+
+RUN apt-get update \
+    && apt-get install -y \
+       --no-install-recommends \
+       build-essential \
+       libkrb5-dev \
+       krb5-config \
+       ca-certificates curl gnupg tini git openssh-client \
+       libgssapi-krb5-2 krb5-user \
+       libpq5 \
+       unixodbc \
+       tdsodbc \
+       libreoffice-impress \
+       libreoffice-writer \
+       poppler-utils \
+       vim \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install --global yarn@1.22.22 \
+    && . /etc/os-release \
+    && curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && ARCH="$(dpkg --print-architecture)" \
+    && echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/${VERSION_ID}/prod ${VERSION_CODENAME} main" \
+      > /etc/apt/sources.list.d/microsoft-prod.list \
+    && apt-get update \
+    && (ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 || echo "WARN: msodbcsql18 not available for ${ARCH}") \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://code-server.dev/install.sh | sh \
+    && code-server --install-extension ms-python.python \
+    && mkdir -p /root/.local/share/code-server/User \
+    && echo '{"workbench.colorTheme": "Default Dark Modern","security.workspace.trust.enabled": false, "security.workspace.trust.startupPrompt": "never"}' > /root/.local/share/code-server/User/settings.json \
+    && curl -fsSL https://claude.ai/install.sh | bash
+
+RUN mkdir -p /root/.config/code-server && \
+cat <<EOF > /root/.config/code-server/config.yaml
+bind-addr: 0.0.0.0:8080
+auth: none
+EOF
+
+RUN mkdir -p /root/.claude
+
+RUN cat <<EOF > /root/.claude/settings.json
+{"theme": "dark"}
+EOF
+
+RUN cat > /root/.claude.json <<'EOF'
+{
+  "hasCompletedOnboarding": true,
+  "projects": {
+    "/app": {
+      "hasTrustDialogAccepted": true
+    }
+  }
+}
+EOF
+
+
+
+# Oracle Instant Client (Basic Light) lets python-oracledb run in "thick"
+# mode, which the backend enables at startup whenever these libraries are
+# present (see init_thick_mode_if_available in oracledb_client.py). Thin mode
+# cannot reach Oracle servers older than 12.1, accounts with 10G-only
+# password verifiers (DPY-3015), or Native Network Encryption (DPY-4011
+# "connection reset by peer"); thick mode handles all of these and is a
+# superset of thin. Pinned to 19c rather than 23c because the 19c client
+# connects to servers 11.2+ while 23c requires 19+. Install failure is
+# non-fatal so airgapped builds still succeed (the driver stays thin).
+RUN ARCH="$(dpkg --print-architecture)" && \
+    case "${ARCH}" in \
+      amd64) IC_ARCH="linux.x64"; GNU_TRIPLET="x86_64-linux-gnu" ;; \
+      arm64) IC_ARCH="linux.arm64"; GNU_TRIPLET="aarch64-linux-gnu" ;; \
+      *) IC_ARCH="" ;; \
+    esac && \
+    if [ -n "${IC_ARCH}" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends libaio1 unzip && \
+      ln -sf "/usr/lib/${GNU_TRIPLET}/libaio.so.1t64" "/usr/lib/${GNU_TRIPLET}/libaio.so.1" && \
+      (curl -fsSL -o /tmp/instantclient.zip \
+         "https://download.oracle.com/otn_software/linux/instantclient/1928000/instantclient-basiclite-${IC_ARCH}-19.28.0.0.0dbru.zip" && \
+       mkdir -p /opt/oracle && \
+       unzip -q /tmp/instantclient.zip -d /opt/oracle && \
+       ln -s /opt/oracle/instantclient_19_28 /opt/oracle/instantclient && \
+       echo /opt/oracle/instantclient > /etc/ld.so.conf.d/oracle-instantclient.conf && \
+       ldconfig \
+       || echo "WARN: Oracle Instant Client install failed; python-oracledb stays in thin mode") && \
+      rm -f /tmp/instantclient.zip && \
+      apt-get clean && rm -rf /var/lib/apt/lists/*; \
+    else \
+      echo "WARN: no Oracle Instant Client build for ${ARCH}; python-oracledb stays in thin mode"; \
+    fi
+# Download RDS/Aurora CA certificate bundle for IAM auth SSL verification
+RUN mkdir -p /app/certs && \
+    curl -sSL -o /app/certs/rds-combined-ca-bundle.pem \
+      https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+
+# ---------------------------------------------------------------------------
+# Entrypoint: boots a pre-configured Bag of Words instance (see entrypoint.sh).
+# Sources and dependencies are fetched on first boot into the persistent
+# workspace, via the node-wide /cache volume the SandboxTemplate mounts (git
+# mirror, uv and yarn caches). To bake sources into the image instead, clone
+# the repo to e.g. /opt/src at build time and set BOW_REPO_URL=file:///opt/src
+# in the SandboxTemplate; entrypoint.sh clones from whatever URL it is given.
+# ---------------------------------------------------------------------------
+COPY ./tools/devbox-mcp/sandbox-runtime/entrypoint.sh /app/entrypoint.sh
+COPY ./tools/devbox-mcp/sandbox-runtime/bow-stack.sh /usr/local/bin/bow-stack
+COPY ./tools/devbox-mcp/sandbox-runtime/provision.py /app/provision.py
+COPY ./tools/devbox-mcp/sandbox-runtime/deps.sh /app/deps.sh
+RUN chmod +x /app/entrypoint.sh /usr/local/bin/bow-stack
+
+# 3000 frontend, 8000 backend, 8080 code-server, 8888/9090 sandboxd
+EXPOSE 3000 8000 8080 8888 9090
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/app/entrypoint.sh"]
