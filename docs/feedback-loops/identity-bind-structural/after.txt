@@ -1,0 +1,10 @@
+source rows: 6 across owners ['admin@example.com', 'bob@example.com', 'carol@example.com']
+viewer admin@example.com      legit query           -> 2 rows, owners=['admin@example.com']
+viewer bob@example.com        legit query           -> 2 rows, owners=['bob@example.com']
+builder legit  owner = :email                  -> 2 rows, owners=['admin@example.com']
+builder taut   :email = :email                 -> REFUSED: identity parameter 'email' was not applied as a filter in every executed query; refusing to serve unscoped results
+builder OR     region='EU' OR owner=:email     -> REFUSED: identity parameter 'email' was not applied as a filter in every executed query; refusing to serve unscoped results
+builder neg    owner <> :email                 -> REFUSED: identity parameter 'email' was not applied as a filter in every executed query; refusing to serve unscoped results
+builder fallbk NOT INDEXED, owner = :email     -> 2 rows, owners=['admin@example.com']
+builder fallbk NOT INDEXED, :email = :email    -> 6 rows, owners=['admin@example.com', 'bob@example.com', 'carol@example.com']
+viewer bob@example.com        after OR edit         -> 2 rows, owners=['bob@example.com']

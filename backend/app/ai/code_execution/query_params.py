@@ -532,9 +532,10 @@ def _strip_sql_comments(sql: str) -> str:
     return _SQL_COMMENT_RE.sub(lambda m: m.group(1) or " ", sql)
 
 
-def _query_binds_value(capture: str, needles: List[str]) -> bool:
-    """Whether one executed query carries an identity value where it can
-    actually filter rows.
+def _heuristic_binds_value(capture: str, needles: List[str]) -> bool:
+    """Legacy text heuristic: whether one executed query carries an identity
+    value where it can actually filter rows. Used only when the structural
+    check (identity_bind.structural_binds) cannot decide.
 
     SQL: the value must appear AFTER a predicate keyword (WHERE/ON/HAVING/...),
     once comments are stripped — a value echoed in the SELECT list or hidden in
@@ -554,6 +555,26 @@ def _query_binds_value(capture: str, needles: List[str]) -> bool:
         return False
     tail = sql[first.start():]
     return any(n in tail for n in needles)
+
+
+def _query_binds_value(capture: str, needles: List[str], param: str = "") -> bool:
+    """Whether one executed query restricts its rows by an identity value.
+
+    Structural first (sqlglot for SQL/SOQL, a small tokenizer for Splunk SPL —
+    see identity_bind); when the structure can't be decided (parse error,
+    unsupported shape, non-SQL API capture) falls back to the legacy text
+    heuristic, unchanged, and logs a structured warning."""
+    from app.ai.code_execution.identity_bind import log_fallback, structural_binds
+
+    client_type = getattr(capture, "client_type", None)
+    stripped = _strip_sql_comments(capture)
+    looks_sql = bool(_SQL_START_RE.match(stripped))
+    verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql)
+    if verdict is not None:
+        return verdict
+    if looks_sql or client_type == "SplunkClient":
+        log_fallback(str(capture), client_type, param)
+    return _heuristic_binds_value(capture, needles)
 
 
 def verify_identity_binds_in_queries(
@@ -581,22 +602,9 @@ def verify_identity_binds_in_queries(
         value = values.get(spec.name)
         needles = [str(n) for n in (value if isinstance(value, list) else [value]) if n not in (None, "")]
         for q in queries:
-            if not _query_binds_value(q, needles):
+            if not _query_binds_value(q, needles, spec.name):
                 return (
                     f"identity parameter '{spec.name}' was not applied as a filter in every "
                     "executed query; refusing to serve unscoped results"
                 )
-    return None
-    haystack = "\n".join(q for q in captured_queries if isinstance(q, str))
-    for spec in identity_specs:
-        value = values.get(spec.name)
-        if value in (None, "", []):
-            continue
-        needles = value if isinstance(value, list) else [value]
-        found = any(str(n) in haystack for n in needles if n not in (None, ""))
-        if not found:
-            return (
-                f"identity parameter '{spec.name}' was not applied in any executed query; "
-                "refusing to serve unscoped results"
-            )
     return None

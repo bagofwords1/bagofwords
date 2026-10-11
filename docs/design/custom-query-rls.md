@@ -171,6 +171,33 @@ compares BOW's answer against the source's own answer for a real user.
 - **No per-user artifacts.** One copy per relation (or per role in phase 4).
   Per-user copies defeat the point of caching.
 
+## Identity parameters — the bind check is a guardrail, not isolation
+
+Saved queries can declare an identity parameter (`source: identity`, e.g.
+`identity_binding: viewer.email`) whose value is always derived from the
+viewer. After every run, `verify_identity_binds_in_queries`
+(`backend/app/ai/code_execution/query_params.py`) refuses the result unless
+**every** executed query restricts its rows by that value. The decision is
+structural where we can parse the query
+(`backend/app/ai/code_execution/identity_bind.py`):
+
+| Connector | How the bind is checked |
+|---|---|
+| SQL sources with a sqlglot dialect (Postgres, MySQL, SQLite, Snowflake, BigQuery, MSSQL, ...) and SQL-looking text from unknown clients (generic dialect) | Parsed. `col = value` / `value = col` / `col IN (identity values only)` / `col IN (scoped subquery)` AND-connected to the root of WHERE/HAVING, or the ON of an inner join; or a CTE / derived table the result is built from is itself scoped. UNION: every branch. OR, NOT, `<>`, LIKE, literal-vs-literal do not count. |
+| Salesforce SOQL | Same rule via the generic dialect; `Owner.Email = 'x'` is a qualified column. |
+| Splunk SPL | Base search (before the first `|`): `field=value` / `field="value"` implicitly AND-ed, not in an OR group, not under NOT. |
+| Anything the above can't decide (parse error, SOQL date literals, SPL with subsearch/append/join/macros/generating commands, non-SQL API captures) | Falls back to the previous text heuristic, unchanged, and logs `identity_bind_check_fallback`. |
+
+What this does **not** do: it does not know which column *should* carry the
+identity, it does not scope lookups joined or sub-selected *beside* a scoped
+source (a scalar subquery over another table in the SELECT list), and the
+fallback path can still be satisfied by a value placed after WHERE. It exists
+to catch a forgotten or mangled filter, not to contain a hostile query author.
+**Strict per-viewer isolation needs the source to enforce it**: database
+row-level security, or a connection with `auth_policy=user_required` so each
+viewer queries with their own credentials (Salesforce sharing rules, Splunk
+roles and index permissions, warehouse grants enforce natively).
+
 ## Open questions
 
 - **Stale attributes.** `profile_attributes` syncs on login. A user who changes
