@@ -423,8 +423,15 @@ class RBACService:
             raise HTTPException(status_code=400, detail="Provide exactly one of user_id or membership_id")
 
         if user_id:
-            user = await db.execute(select(User).where(User.id == user_id))
-            if not user.scalar_one_or_none():
+            # Only users with a membership in this org may join its groups.
+            member = await db.execute(
+                select(Membership.id).where(
+                    Membership.organization_id == org_id,
+                    Membership.user_id == user_id,
+                    Membership.deleted_at.is_(None),
+                )
+            )
+            if member.first() is None:
                 raise HTTPException(status_code=404, detail="User not found")
             existing = await db.execute(
                 select(GroupMembership).where(

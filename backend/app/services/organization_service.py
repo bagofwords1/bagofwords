@@ -636,12 +636,44 @@ class OrganizationService:
         except Exception:
             logger.warning("Failed to cancel pending waits for removed member", exc_info=True)
 
-    async def update_member(self, db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
+    async def _assert_can_set_member_role(
+        self, db: AsyncSession, organization_id: str, current_user: Optional[User],
+        membership: Membership, new_role: str,
+    ) -> None:
+        """Apply rbac_service's escalation guard to a legacy role-string change."""
+        from app.models.role import Role
+        from app.services.rbac_service import rbac_service
+
+        actor_id = str(current_user.id) if current_user is not None else None
+        target_user_id = str(membership.user_id) if membership.user_id else None
+        await rbac_service._assert_not_self(
+            db, organization_id, actor_id, target_user_id, action="member.role_change"
+        )
+        role_perms = (await db.execute(
+            select(Role.permissions).where(
+                Role.name == new_role,
+                Role.is_system == True,
+                Role.organization_id.is_(None),
+                Role.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none() or []
+        await rbac_service._assert_can_grant(
+            db, organization_id, actor_id, permissions=role_perms, action="member.role_change"
+        )
+
+    async def update_member(self,db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
         from app.core.permission_resolver import assert_full_admin_exists
 
         membership = await self.get_member(db, membership_id, organization_id, current_user)
         if not membership:
             raise HTTPException(status_code=404, detail="Membership not found")
+
+        # Escalation guard (same rule as the RBAC routes, #1305): a non-full-admin
+        # can't change their own role, nor grant a role wider than their own.
+        if membership_data.role is not None and membership_data.role != membership.role:
+            await self._assert_can_set_member_role(
+                db, organization_id, current_user, membership, membership_data.role
+            )
 
         # RBAC lockout prevention: whenever we mutate a membership's role field,
         # verify at least one user still holds full_admin_access in the org.
