@@ -621,12 +621,17 @@ async def delete_instruction_label(
 # reading the tree is open to any org member (parity with the instruction list,
 # which is permission-filtered rather than decorated).
 async def _assert_manage_scope(db, current_user, organization, data_source_id):
-    """Require manage_instructions on the scope agent (skip for the Global group,
-    which the route-level @requires_permission already gates org-wide)."""
+    """Require manage_instructions on the scope agent, or org-level
+    manage_instructions for the Global group. The routes are resource_scoped,
+    so the decorator alone admits anyone managing a single agent."""
     if data_source_id:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "data_source", [data_source_id], "manage_instructions",
+        )
+    else:
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "manage_instructions",
         )
 
 
