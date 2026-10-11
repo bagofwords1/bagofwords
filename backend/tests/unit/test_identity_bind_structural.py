@@ -173,13 +173,27 @@ def _legacy(capture, needles):
     ("SplunkClient", '| inputlookup users.csv | search owner="{v}"'),
     ("SplunkClient", 'index=crm | where owner="{v}"'),
 ])
-def test_unparseable_falls_back_to_legacy_and_warns(client, query, caplog):
+def test_unparseable_falls_back_to_legacy_and_warns(client, query):
     v = "sarah@example.com"
     text = query.format(v=v)
-    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.identity_bind"):
+    # A handler on the module logger itself: other tests reconfigure logging
+    # (propagation, disabled loggers), which makes caplog unreliable here.
+    records = []
+    handler = logging.Handler(logging.WARNING)
+    handler.emit = records.append
+    log = logging.getLogger("app.ai.code_execution.identity_bind")
+    was_disabled, log.disabled = log.disabled, False
+    was_level = log.level
+    log.setLevel(logging.WARNING)
+    log.addHandler(handler)
+    try:
         res = verify_identity_binds_in_queries([CapturedQuery(text, client)], {"email": v}, SPEC)
+    finally:
+        log.removeHandler(handler)
+        log.disabled = was_disabled
+        log.setLevel(was_level)
     assert (res is None) is _legacy(text, [v])
-    assert any(getattr(r, "event", None) == "identity_bind_check_fallback" for r in caplog.records)
+    assert any(getattr(r, "event", None) == "identity_bind_check_fallback" for r in records)
 
 
 @pytest.mark.parametrize("client,capture,ok", [
