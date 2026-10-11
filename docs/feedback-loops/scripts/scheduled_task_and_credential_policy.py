@@ -54,8 +54,10 @@ async def _tool(tool_name, tool_input, user_id, report_id):
     from app.models.organization import Organization
     if tool_name == "create":
         from app.ai.tools.implementations.create_scheduled_task import CreateScheduledTaskTool as T
-    else:
+    elif tool_name == "edit":
         from app.ai.tools.implementations.edit_scheduled_task import EditScheduledTaskTool as T
+    else:
+        from app.ai.tools.implementations.cancel_scheduled_task import CancelScheduledTaskTool as T
     async with async_session_maker() as db:
         ctx = {"db": db, "user": await db.get(User, user_id), "report": await db.get(Report, report_id),
                "organization": await db.get(Organization, org)}
@@ -95,6 +97,14 @@ print("REST member POST own ->", r.status_code, "| PUT own ->",
       c.put(f"{B}/reports/{member_rep}/scheduled-prompts/{r.json()['id']}", headers=H(mt),
             json={"cron_schedule": "0 11 * * 1"}).status_code)
 print("admin tool create on OWN report ->", tool("create", {"title": "a", "task_prompt": "a", "cron_schedule": "0 8 * * *"}, aid, admin_rep)[:3])
+print("-- cancel --")
+print("cancel tool required_permissions:", tool("cancel", {"task_id": "00000000-0000-0000-0000-000000000000"}, mid, member_rep)[3])
+r = tool("cancel", {"task_id": admin_sp}, mid, admin_rep)
+print("member tool cancel of ADMIN's task ->", r[:3])
+print("  admin task still active:", [s for s in sps(at, admin_rep) if s[0] == "admin digest"])
+print("member tool cancel OWN task ->", tool("cancel", {"task_id": own}, mid, member_rep)[:3])
+rest_id = [x for x in c.get(f"{B}/reports/{member_rep}/scheduled-prompts", headers=H(mt)).json() if x["title"] == "rest task"][0]["id"]
+print("REST member DELETE own ->", c.delete(f"{B}/reports/{member_rep}/scheduled-prompts/{rest_id}", headers=H(mt)).status_code)
 
 print("\n=== WP6: my-credentials auth-mode policy (connection allows only 'userpass') ===")
 conn = c.post(f"{B}/connections", headers=H(at), json={

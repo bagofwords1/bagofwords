@@ -22,6 +22,7 @@ cd backend && ENVIRONMENT=production TESTING=true .venv/bin/python -m pytest -q 
 ```
 - With the fix reverted: `16 failed, 7 passed`. The 9 WP4 denial cases and the 7 WP6 cases fail. The keep-working tests pass both with and without the fix.
 - With the fix: `23 passed`.
+- **Follow-up (cancel and report-per-run)**: the scheduled-task test file now has 20 tests. It adds cancel denials, owner cancel through the tool and REST, a check that a `spawn_new_report=True` run still spawns its report owned by the schedule owner and completes, and a check that the owner can edit or cancel the schedule from inside a spawned run report while another member cannot. With only the cancel/spawn part of the fix reverted: `4 failed, 16 passed`. With it applied: `20 passed`.
 
 ## Loop B: live backend (HTTP plus direct tool invocation)
 `docs/feedback-loops/scripts/scheduled_task_and_credential_policy.py`. The backend runs on its own port with a fresh SQLite DB and is seeded with `tools/agent/seed_org.py --invite member@example.com`. No LLM key was available, so the tools are called in-process against the server's DB.
@@ -44,6 +45,10 @@ PYTHONPATH=$PWD BOW_BASE=http://localhost:8747 TESTING=true ENVIRONMENT=producti
 | member: tool create + edit on own report | success | success |
 | member: REST POST + PUT on own report | 200 / 200 | 200 / 200 |
 | admin: tool create on own report | success | success |
+| `cancel_scheduled_task` `required_permissions` | `[]` | `['update_reports']` |
+| member: tool cancel of **admin's** task | `success=True` (schedule deleted) | `success=False`, "Not allowed to cancel this scheduled task: Only the report owner…", schedule still active |
+| member: tool cancel of own task | success | success |
+| member: REST DELETE of own task | 204 | 204 |
 | member POST `/my-credentials/test` keypair (not allowed) | **200**, outbound Snowflake connect attempted | **400** "Authentication mode not permitted…" |
 | member POST `/my-credentials/test` oauth (not allowed) | **200**, outbound attempt | **400** |
 | member POST `/my-credentials` keypair (control) | 400 | 400 |
@@ -52,6 +57,8 @@ PYTHONPATH=$PWD BOW_BASE=http://localhost:8747 TESTING=true ENVIRONMENT=producti
 | member POST `/test` userpass (allowed) | 200, reaches outbound | 200, reaches outbound |
 
 ## The fix
+- **Cancel:** `cancel_scheduled_task` declares `update_reports`. `ScheduledPromptService.delete_scheduled_prompt` and `update_scheduled_prompt` call `ensure_can_manage` against the schedule's host report (`sp.report_id`). A denial comes back as a readable `tool.end`.
+- **Report-per-run:** edit and cancel also accept a schedule from a run report it spawned (`report.scheduled_prompt_id == sp.id`). The `<scheduled_tasks>` context of that run report lists its schedule. Authority is still checked against the host report, so only the owner passes. The scheduled run path (`scheduled_run_prompt` → `_spawn_run_report`) does not call `ensure_can_manage`, and it is unchanged.
 - `ScheduledPromptService.ensure_can_manage()`: the report must be in the org, the caller must own it, and the caller must hold org `update_reports`. This mirrors the REST decorator. It is called from `create_scheduled_prompt` and `update_scheduled_prompt`, so the REST and tool paths share one control.
 - Both tools declare `required_permissions=["update_reports"]`, so the planner filter (`agent_v2._apply_tool_permission_filter`) hides them from principals who hold the permission nowhere. A 403/404 from the service becomes a `tool.end` with `success=False` and a readable message, so the agent can explain the denial instead of crashing.
 - `UserDataSourceCredentialsService._user_auth_variant()` performs the registry user-scope check plus the `allowed_user_auth_modes` check. POST, PATCH (when `auth_mode` changes) and `/test` all use it, and `/test` calls it before building any client.
@@ -59,7 +66,6 @@ PYTHONPATH=$PWD BOW_BASE=http://localhost:8747 TESTING=true ENVIRONMENT=producti
 ## What this proves / regression notes
 - Owners still schedule and edit tasks from chat and from the REST/UI path. Allowed modes, including an `oauth`-only policy, still save and test. Rotating a secret in the existing mode still works.
 - Out of scope, noted for follow-up:
-  - `cancel_scheduled_task` still declares `[]`. The DELETE route requires `update_reports`.
   - A PATCH that changes only `credentials` on a row whose mode a later policy change disallowed is not re-checked here. Runtime credential resolution is the place to enforce a policy narrowing.
   - `POST /api/connections/{id}/my-credentials` (Windows credential store) is a separate code path that this change does not touch.
 - Pre-existing failures that also fail on the base branch: `test_connection_oauth_flow.py::TestUserOverlaySync` (2) and `test_sharepoint_onprem.py` (3). Causes: `libodbc.so.2` is missing in the sandbox, and the proxy CA bundle makes `requests.Session.verify` a path.
