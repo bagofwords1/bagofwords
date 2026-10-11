@@ -22,9 +22,9 @@ def test_dangerous_or_malformed_rejected_everywhere(url):
 @pytest.mark.parametrize("url", [
     "https://claude.ai/api/mcp/auth_callback", "HTTPS://Example.com/cb?x=1",
     "http://localhost:6274/oauth/callback", "http://127.0.0.1:5000/cb", "http://[::1]:8080/cb",
-    "http://intranet.corp/cb",
+    "http://LOCALHOST/cb",
 ])
-def test_http_urls_allowed_for_both(url):
+def test_https_and_loopback_http_allowed_for_both(url):
     assert is_safe_redirect_uri(url)
     assert is_safe_http_url(url)
 
@@ -33,9 +33,18 @@ def test_http_urls_allowed_for_both(url):
     "cursor://anysphere.cursor-retrieval/oauth/callback", "vscode://vscode.github-authentication/cb",
     "claude://oauth/callback", "com.example.app:/oauth2redirect",
 ])
-def test_app_schemes_allowed_as_redirect_but_not_as_browser_authorize_url(url):
-    assert is_safe_redirect_uri(url)
+def test_custom_app_schemes_rejected(url):
+    assert not is_safe_redirect_uri(url)
     assert not is_safe_http_url(url)
+
+
+@pytest.mark.parametrize("url", [
+    "http://intranet.corp/cb", "http://10.0.0.5/cb", "http://localhost.evil.com/cb",
+    "http://127.0.0.1.nip.io/cb", "http://evil.com/?h=localhost",
+])
+def test_non_loopback_http_rejected_as_redirect_but_allowed_as_authorize_url(url):
+    assert not is_safe_redirect_uri(url)
+    assert is_safe_http_url(url)
 
 
 # ── MCP discovery: a malicious server can't hand us a javascript: authorize URL

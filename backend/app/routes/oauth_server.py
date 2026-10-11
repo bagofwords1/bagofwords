@@ -418,8 +418,8 @@ def _validate_redirect_uris(redirect_uris, allow_empty=False):
         if isinstance(uri, str) and uri and not is_safe_redirect_uri(uri):
             raise HTTPException(
                 status_code=400,
-                detail="redirect_uris must be absolute http(s) or app-scheme URLs; "
-                "javascript:, data:, file: and similar schemes are not allowed",
+                detail="redirect_uris must be https URLs (http is allowed only for "
+                "localhost, 127.0.0.1 and [::1])",
             )
         if not isinstance(uri, str) or not uri.strip():
             raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")

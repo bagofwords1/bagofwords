@@ -156,15 +156,12 @@ def check_git_remote(repo_url: str) -> None:
 #
 # URLs a *browser* is sent to (OAuth client redirect URIs, a connection's
 # authorization endpoint) must never carry a script-executing or local scheme.
-# OAuth redirect URIs keep http(s) plus custom app schemes (``cursor://``,
-# ``vscode://``, ``com.example.app:/cb``) because native / desktop MCP clients
-# register those (RFC 8252); the rest is a denylist of dangerous schemes plus
-# structural checks that defeat obfuscation (" JaVaScRiPt:", "java\tscript:").
+# OAuth redirect URIs: allowlist of https + loopback http. Authorize URLs:
+# http(s). Both also refuse whitespace/control characters anywhere, which
+# defeats obfuscation (" JaVaScRiPt:", "java\tscript:").
 
-_DANGEROUS_SCHEMES = frozenset(
-    {"javascript", "data", "vbscript", "file", "blob", "about", "filesystem", "view-source"}
-)
 _SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _INVISIBLE = {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF}
 
 
@@ -196,13 +193,15 @@ def _has_http_authority(url: str, scheme: str) -> bool:
 
 def is_safe_redirect_uri(url: object) -> bool:
     """True when ``url`` may be stored / used as an OAuth client redirect URI."""
+    """Allowlist: https with a host, or http only on a loopback host
+    (localhost / 127.0.0.1 / [::1], used by local MCP inspectors and CLIs).
+    Custom app schemes are not supported (product decision, WP8)."""
     scheme = _url_scheme(url)
-    if scheme is None or scheme in _DANGEROUS_SCHEMES:
-        return False
-    if scheme in ("http", "https"):
+    if scheme == "https":
         return _has_http_authority(url, scheme)
-    # Custom app scheme (native/desktop clients): needs a target after the colon.
-    return len(url) > len(scheme) + 1
+    if scheme == "http" and _has_http_authority(url, scheme):
+        return (urlparse(url).hostname or "").lower() in _LOOPBACK_HOSTS
+    return False
 
 
 def is_safe_http_url(url: object) -> bool:

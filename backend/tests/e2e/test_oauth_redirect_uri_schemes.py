@@ -1,9 +1,9 @@
 """OAuth navigation targets never carry a script-executing scheme (pentest WP8).
 
-* OAuth client redirect URIs: dangerous schemes (javascript:, data:, ...),
-  relative/malformed URIs and obfuscated variants are refused on create and
-  update, and a row stored before the check existed can never be redirected to.
-  https, http (incl. loopback) and native app schemes keep working end to end.
+* OAuth client redirect URIs: allowlist of https + loopback http. Everything
+  else (javascript:, data:, custom app schemes, non-loopback http, relative,
+  obfuscated) is refused on create and update, and a row stored before the
+  check existed can never be redirected to.
 * Connection OAuth authorize URLs: only absolute http(s) is accepted on save,
   and the authorize route refuses a pre-existing bad value.
 """
@@ -39,16 +39,18 @@ DANGEROUS_REDIRECT_URIS = [
     "https:/missing-host",
     "http://",
     "not a url",
+    "cursor://anysphere.cursor-retrieval/oauth/callback",
+    "vscode://vscode.github-authentication/did-authenticate",
+    "com.example.desktop:/oauth2redirect",
+    "http://bow.example.com/oauth/callback",
+    "http://localhost.evil.com/cb",
 ]
 
 ALLOWED_REDIRECT_URIS = [
     "https://app.example.com/oauth/callback",
     "http://localhost:6274/oauth/callback",
     "http://127.0.0.1:33418/callback",
-    "cursor://anysphere.cursor-retrieval/oauth/callback",
-    "vscode://vscode.github-authentication/did-authenticate",
-    "claude://oauth/callback",
-    "com.example.desktop:/oauth2redirect",
+    "http://[::1]:8976/callback",
 ]
 
 

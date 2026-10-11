@@ -3,10 +3,10 @@
 // rejects these, this is the last line in case a stale row or a compromised
 // response slips through. A javascript: target would run in our origin.
 
-const DANGEROUS_SCHEMES = new Set(['javascript', 'data', 'vbscript', 'file', 'blob', 'about', 'filesystem', 'view-source'])
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 // Whitespace, C0/C1 controls, zero-width characters. Browsers strip tabs and
 // newlines inside a scheme, so "java\tscript:" would otherwise execute.
-const UNSAFE_CHARS = /[\s\u0000- \u007f-\u009f​-‍⁠﻿]/
+const UNSAFE_CHARS = /[\s\u0000-\u0020\u007f-\u009f\u200b-\u200d\u2060\ufeff]/
 const SCHEME_RE = /^([A-Za-z][A-Za-z0-9+.-]*):/
 
 function schemeOf(url: unknown): string | null {
@@ -29,10 +29,10 @@ export function isSafeHttpUrl(url: unknown): url is string {
   return (scheme === 'http' || scheme === 'https') && hasHttpHost(url as string)
 }
 
-/** OAuth client redirect target: http(s), or a native app scheme (cursor://, vscode://). */
+/** OAuth client redirect target: https, or http on a loopback host only. */
 export function isSafeRedirectUri(url: unknown): url is string {
   const scheme = schemeOf(url)
-  if (!scheme || DANGEROUS_SCHEMES.has(scheme)) return false
-  if (scheme === 'http' || scheme === 'https') return hasHttpHost(url as string)
-  return (url as string).length > scheme.length + 1
+  if (scheme === 'https') return hasHttpHost(url as string)
+  if (scheme !== 'http' || !hasHttpHost(url as string)) return false
+  return LOOPBACK_HOSTS.has(new URL(url as string).hostname.toLowerCase())
 }
