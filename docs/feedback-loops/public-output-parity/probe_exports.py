@@ -1,6 +1,7 @@
 """Probe the public PDF/PPTX exports seeded by seed_wp7_exports.py.
 
-Usage (backend venv): python probe_exports.py ids.json BASE_URL OWNER_TOKEN OUT_DIR
+Usage (backend venv): python probe_exports.py ids.json BASE_URL OWNER OUT_DIR
+(OWNER: a JWT, or the JSON tools/agent/seed_org.py printed)
 
 For every seeded report, downloads /r/{id}/export_pdf and /r/{id}/export_pptx
 anonymously and as the owner, extracts the file's text (pypdfium2 /
@@ -18,6 +19,8 @@ import httpx
 ids = json.load(open(sys.argv[1]))
 base, token, out = sys.argv[2].rstrip("/"), sys.argv[3], Path(sys.argv[4])
 out.mkdir(parents=True, exist_ok=True)
+if token.endswith(".json"):
+    token = json.load(open(token))["admin"]["token"]
 
 
 def text_of(kind: str, path: Path) -> str:
