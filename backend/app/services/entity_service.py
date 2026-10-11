@@ -1155,10 +1155,10 @@ class EntityService:
             Entity.id == str(entity_id), Entity.organization_id == str(organization.id)
         ))
         entity = result.scalar_one_or_none()
-        if not entity:
+        # Missing and not-yours answer identically so the endpoint is not an
+        # existence oracle for other users' entity ids.
+        if not entity or str(entity.owner_id) != str(current_user.id):
             raise HTTPException(status_code=404, detail="Entity not found")
-        if str(entity.owner_id) != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Only the entity owner can do this")
         return entity
 
     async def suggest_entity(
