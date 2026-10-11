@@ -3766,6 +3766,9 @@
   "errors": {
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",
+    "invitation_required": "L'inscription est désactivée. Demandez une invitation à votre administrateur.",
+    "oauth_email_missing": "Impossible d'obtenir votre e-mail auprès du fournisseur de connexion. Demandez à votre administrateur de vérifier la portée e-mail du fournisseur.",
+    "oauth_login_failed": "La connexion a échoué. Réessayez ou contactez votre administrateur.",
     "generic": "Une erreur s'est produite. Veuillez réessayer.",
     "network": "Erreur réseau. Vérifiez votre connexion.",
     "unauthorized": "Vous n'êtes pas autorisé à effectuer cette action.",

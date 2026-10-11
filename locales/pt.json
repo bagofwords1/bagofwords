@@ -3766,6 +3766,9 @@
   "errors": {
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
+    "invitation_required": "O cadastro está desativado. Peça um convite ao seu administrador.",
+    "oauth_email_missing": "Não foi possível obter seu e-mail do provedor de login. Peça ao seu administrador para verificar o escopo de e-mail do provedor.",
+    "oauth_login_failed": "Falha no login. Tente novamente ou contate seu administrador.",
     "generic": "Algo deu errado. Tente novamente.",
     "network": "Erro de rede. Verifique sua conexão.",
     "unauthorized": "Você não tem autorização para fazer isso.",

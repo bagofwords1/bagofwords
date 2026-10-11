@@ -6,6 +6,7 @@
 
 <script setup lang="ts">
 import { computed, toRefs } from 'vue'
+import DOMPurify from 'dompurify'
 import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
 const props = defineProps<{
@@ -27,7 +28,8 @@ const wrapperStyle = computed(() => ({
   '--bodyFont': tokens.value?.fontFamily || 'inherit'
 }))
 
-const contentHtml = computed(() => (widget?.value?.content || step?.value?.content || ''))
+// Content is LLM/user-authored and saved with the dashboard — sanitize before v-html.
+const contentHtml = computed(() => DOMPurify.sanitize(widget?.value?.content || step?.value?.content || ''))
 </script>
 
 <style scoped>

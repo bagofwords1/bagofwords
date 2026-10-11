@@ -17,6 +17,7 @@ from app.dependencies import async_session_maker
 from datetime import datetime
 import json
 from app.core.telemetry import telemetry
+from app.core.url_safety import UnsafeURLError, check_admin_url
 from app.ee.audit.service import audit_service
 from app.errors import AppError, ErrorCode
 from app.settings.logging_config import get_logger
@@ -28,6 +29,12 @@ logger = get_logger(__name__)
 # not reuse stored secrets. Value is the default when the key is absent.
 _DESTINATION_CONFIG_KEYS = {"base_url": None, "endpoint_url": None, "verify_ssl": True}
 
+
+def _check_provider_url(url: str) -> None:
+    try:
+        check_admin_url(url)
+    except UnsafeURLError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 class LLMService:
     def __init__(self):
@@ -1838,6 +1845,7 @@ class LLMService:
         if provider.provider_type == "openai":
             base_url = credentials.get("base_url")
             if base_url:
+                _check_provider_url(base_url)
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             elif "base_url" in credentials and (credentials.get("base_url") is None or credentials.get("base_url") == ""):
                 # Explicitly clear base_url
@@ -1864,6 +1872,7 @@ class LLMService:
         if provider.provider_type == "custom":
             base_url = credentials.get("base_url")
             if base_url:
+                _check_provider_url(base_url)
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             # For custom providers, base_url is required - don't clear it
             if "verify_ssl" in credentials:
@@ -2890,7 +2899,10 @@ class LLMService:
 
         # Run a lightweight connection test against the LLM client
         logger.info("Testing LLM connection with model: model_id=%s, provider_type=%s", selected_model.model_id, provider.provider_type)
-        llm = LLM(selected_model, usage_session_maker=async_session_maker)
+        try:
+            llm = LLM(selected_model, usage_session_maker=async_session_maker)
+        except UnsafeURLError as e:
+            return {"success": False, "message": str(e)}
         result = await llm.test_connection()
         # A plain text reply is not enough: every agent turn sends function
         # tools, and some endpoints accept text but reject tools (e.g. GPT-6

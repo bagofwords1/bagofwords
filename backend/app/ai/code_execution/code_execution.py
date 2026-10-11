@@ -129,6 +129,7 @@ def _stdout_router() -> _ThreadLocalStdoutRouter:
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
 from app.data_sources import query_concurrency
 from app.services.usage_policy_service import UsageLimitContext
+from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -851,6 +852,12 @@ class QueryCapturingClientWrapper:
             span.set_attribute("datasource.type", type(self._original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
+                # Checked on the final text, after params rendered and after
+                # whatever string building the sandbox code did.
+                try:
+                    ensure_read_only(self._original, query)
+                except ReadOnlyViolation as e:
+                    raise UnsafeSQLError(str(e)) from e
                 self._enforce_rate_limit(capture)
                 self._consume_query_quota(capture)
                 # Hold a per-connection concurrency slot for the duration of

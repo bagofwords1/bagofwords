@@ -3766,6 +3766,9 @@
   "errors": {
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
     "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",
+    "invitation_required": "La registrazione è disabilitata. Chiedi un invito al tuo amministratore.",
+    "oauth_email_missing": "Impossibile ottenere la tua email dal provider di accesso. Chiedi al tuo amministratore di verificare lo scope email del provider.",
+    "oauth_login_failed": "Accesso non riuscito. Riprova o contatta il tuo amministratore.",
     "generic": "Qualcosa è andato storto. Riprova.",
     "network": "Errore di rete. Verifica la connessione.",
     "unauthorized": "Non sei autorizzato a farlo.",

@@ -25,6 +25,7 @@ from app.ee.audit.streams.schemas import (
     StreamTestResult,
     StreamUpdate,
 )
+from app.core.url_safety import UnsafeURLError, check_admin_url
 from app.errors import AppError, ErrorCode
 
 MASK = "••••"
@@ -74,6 +75,11 @@ def normalize(destination: str, config: Dict[str, Any], secrets: Dict[str, Any])
         v = _coerce(f.key, f.kind, v)
         if f.kind == "url" and not str(v).lower().startswith(("http://", "https://")):
             raise AppError.bad_request(ErrorCode.AUDIT_STREAM_INVALID_FIELD, f"{f.key} must be an http(s) URL", field=f.key)
+        if f.kind == "url":
+            try:
+                check_admin_url(str(v))
+            except UnsafeURLError as e:
+                raise AppError.bad_request(ErrorCode.AUDIT_STREAM_INVALID_FIELD, f"{f.key}: {e}", field=f.key)
         (out_s if f.secret else out_c)[f.key] = v
     return out_c, out_s
 

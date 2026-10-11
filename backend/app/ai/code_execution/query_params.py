@@ -518,18 +518,75 @@ def check_declarations_vs_code(code: str, specs: List[ParamSpec]) -> List[str]:
     return errors
 
 
+_SQL_COMMENT_RE = re.compile(
+    r"('(?:[^']|'')*'|\"(?:[^\"]|\"\")*\")|--[^\n]*|/\*.*?\*/", re.S
+)
+_SQL_READS_RE = re.compile(r"\bFROM\b", re.I)
+_SQL_START_RE = re.compile(r"^\s*(\(\s*)*(SELECT|WITH|VALUES|SET|SHOW|DESCRIBE|DESC|EXPLAIN|PRAGMA|USE)\b", re.I)
+_SQL_PREDICATE_RE = re.compile(r"\b(WHERE|ON|HAVING|QUALIFY|USING)\b", re.I)
+
+
+def _strip_sql_comments(sql: str) -> str:
+    """Drop ``--`` and ``/* */`` comments, leaving quoted literals intact (a
+    ``--`` inside a string is data, not a comment)."""
+    return _SQL_COMMENT_RE.sub(lambda m: m.group(1) or " ", sql)
+
+
+def _query_binds_value(capture: str, needles: List[str]) -> bool:
+    """Whether one executed query carries an identity value where it can
+    actually filter rows.
+
+    SQL: the value must appear AFTER a predicate keyword (WHERE/ON/HAVING/...),
+    once comments are stripped — a value echoed in the SELECT list or hidden in
+    a comment scopes nothing. Non-SQL captures (structured/keyword calls to
+    API connectors) have no grammar to check, so containment is all we can
+    ask. This is a heuristic backstop, not a proof: ``WHERE 'x' = 'x'`` still
+    satisfies it. Hard isolation belongs in the database (RLS / per-user
+    credentials)."""
+    if not _SQL_START_RE.match(_strip_sql_comments(capture)):
+        return any(n in capture for n in needles)
+    sql = _strip_sql_comments(capture)
+    if not _SQL_READS_RE.search(sql):
+        # Reads no table (``SELECT 1``, ``SET ...``): no rows to leak.
+        return True
+    first = _SQL_PREDICATE_RE.search(sql)
+    if first is None:
+        return False
+    tail = sql[first.start():]
+    return any(n in tail for n in needles)
+
+
 def verify_identity_binds_in_queries(
     captured_queries: List[str],
     values: Dict[str, Any],
     specs: List[ParamSpec],
 ) -> Optional[str]:
     """Post-execution check: every identity-locked param whose value is set
-    must appear (as its rendered literal content) in at least one executed
-    query. Prevents "the LLM forgot the WHERE clause" from silently serving
-    unscoped rows to a viewer. Returns an error message or None."""
-    identity_specs = [s for s in specs if s.source == "identity"]
-    if not identity_specs or not captured_queries:
+    must be applied, as a filter, in EVERY executed query that reads a table.
+    Prevents "the LLM forgot the WHERE clause" from silently serving unscoped
+    rows to a viewer — including the multi-query case where one query is
+    scoped and another is not. Code that issues no query at all (params
+    applied in pandas over files or a BOW source) has nothing to verify here
+    and passes, as before. Returns an error message or None."""
+    identity_specs = [
+        s for s in specs
+        if s.source == "identity" and values.get(s.name) not in (None, "", [])
+    ]
+    if not identity_specs:
         return None
+    queries = [q for q in (captured_queries or []) if isinstance(q, str) and q.strip()]
+    if not queries:
+        return None
+    for spec in identity_specs:
+        value = values.get(spec.name)
+        needles = [str(n) for n in (value if isinstance(value, list) else [value]) if n not in (None, "")]
+        for q in queries:
+            if not _query_binds_value(q, needles):
+                return (
+                    f"identity parameter '{spec.name}' was not applied as a filter in every "
+                    "executed query; refusing to serve unscoped results"
+                )
+    return None
     haystack = "\n".join(q for q in captured_queries if isinstance(q, str))
     for spec in identity_specs:
         value = values.get(spec.name)

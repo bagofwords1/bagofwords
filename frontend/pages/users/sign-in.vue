@@ -8,8 +8,8 @@
         {{ $t('auth.signInSubtitle') }}
       </p>
 
-      <p v-if="error_message" v-html="error_message"
-         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line"></p>
+      <p v-if="error_message"
+         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line">{{ error_message }}</p>
 
       <div v-if="showSso" class="mt-7">
         <AuthProviderButtons
@@ -179,6 +179,7 @@
   const email = ref('');
   const password = ref('');
 
+  const SSO_ERROR_CODES = ['saml_login_failed', 'invitation_required', 'oauth_email_missing', 'oauth_login_failed']
   const error_message = ref('')
   // Extract the signIn function from useAuth
   const { signIn, getSession } = useAuth();
@@ -247,12 +248,11 @@
         return navigateTo('/users/sign-up')
       }
     } catch (_) {}
-    if (route.query.error_code === 'saml_login_failed') {
-      error_message.value = t('errors.saml_login_failed')
-    }
-    const inviteError = route.query.error as string
-    if (inviteError) {
-      error_message.value = inviteError
+    // SSO callbacks report failures as a fixed code, never free text: anything
+    // in the URL is attacker-controlled, so only known codes map to a message.
+    const errorCode = route.query.error_code as string
+    if (errorCode && SSO_ERROR_CODES.includes(errorCode)) {
+      error_message.value = t(`errors.${errorCode}`)
     }
     // SSO hands back a single-use code, not the token — see
     // app/models/login_exchange_code.py for why the JWT must not ride in a URL.
@@ -311,7 +311,6 @@
       && embeddedAuthorizeFlow.value
       && !localOverride.value
       && !ldapEnabled.value
-      && !inviteError
       && !route.query.error_code
       && ssoProviderCount.value === 1
     ) {

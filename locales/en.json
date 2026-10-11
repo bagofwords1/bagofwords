@@ -3948,6 +3948,9 @@
   "errors": {
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
+    "invitation_required": "Sign-up is disabled. Ask your admin for an invite.",
+    "oauth_email_missing": "Could not get your email from the sign-in provider. Ask your admin to check the provider's email scope.",
+    "oauth_login_failed": "Sign-in failed. Try again or contact your administrator.",
     "generic": "Something went wrong. Please try again.",
     "network": "Network error. Check your connection.",
     "unauthorized": "You are not authorized to do that.",
