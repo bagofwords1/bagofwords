@@ -169,7 +169,7 @@ async def resend_invite(
     return result
 
 
-@router.get("/organizations/{organization_id}/members/{membership_id}/invite-link")
+@router.get("/organizations/{organization_id}/members/{membership_id}/invite-link", dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def get_invite_link(
     organization_id: str,

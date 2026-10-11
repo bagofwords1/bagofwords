@@ -175,6 +175,16 @@ class NetworkDirClient(DataSourceClient):
         except Exception:
             return None
 
+    @staticmethod
+    def _inside_root(path: Path, root: Path) -> bool:
+        """True when `path`'s realpath (all symlinks followed) is `root` or
+        below it. `root` must already be resolved (see `_root`)."""
+        try:
+            path.resolve().relative_to(root)
+            return True
+        except (ValueError, OSError, RuntimeError):
+            return False
+
     def _resolve(
         self, rel_or_id: str, *, must_exist: bool = True, enforce_scope: bool = True
     ) -> Path:
@@ -333,6 +343,12 @@ class NetworkDirClient(DataSourceClient):
         self._last_walk_truncated = False
         for p in walker:
             if not p.is_file():
+                continue
+            # A symlink whose real target leaves root is never surfaced: it
+            # would leak the target's name/size/mtime in the listing and feed
+            # an outside file to the content indexer. `_resolve` rejects reads
+            # of it too; in-root symlinks stay visible.
+            if not self._inside_root(p, root):
                 continue
             if self._is_junk(p.name):
                 continue
@@ -848,7 +864,9 @@ class NetworkDirClient(DataSourceClient):
                     meta["indexed"] = True
                 else:
                     try:
-                        path = root / f["id"]
+                        # Through the chokepoint, never `root / id`: the
+                        # confinement + scope checks apply to indexing too.
+                        path = self._resolve(f["id"], must_exist=True)
                         text = self._file_text(path)
                         # Index the RELATIVE PATH, not just the basename: a case
                         # folder (`6044534/…`) is how people find these files.

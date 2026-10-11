@@ -379,7 +379,10 @@ async def update_entity(
                     db, str(current_user.id), str(organization.id),
                     "data_source", payload.data_source_ids, "create_entities",
                 )
-        elif not is_owner_unapproved:
+        elif existing_ds_ids or not is_owner_unapproved:
+            # An empty scope IS org-wide scope. The owner allowance covers
+            # editing a draft, not promoting it to every agent: clearing the
+            # scope needs the same `manage_entities` as /entities/global.
             await require_org_permission(
                 db, str(current_user.id), str(organization.id), "manage_entities",
             )

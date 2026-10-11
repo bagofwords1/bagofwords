@@ -20,6 +20,27 @@ from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 
+# Sentinel for "no reader in scope": the in-app/owner renders (PDF, thumbnail,
+# in-app HTML export, edit previews) bake the stored snapshot as before. Pass
+# `viewer=` (a User, or None for an anonymous share-link reader) to resolve
+# every step's rows through viewer_data_policy.resolve_step_data instead — the
+# exact code path the public JSON view (ReportService.get_public_step) uses,
+# so a public export can never embed rows that view withholds. Parity is
+# pinned by tests/e2e/test_public_output_parity.py.
+UNSCOPED: Any = object()
+
+
+async def _resolve_rows(db, step, report, viewer) -> tuple[dict, bool]:
+    """(data, withheld) for `step` as `viewer` may see it."""
+    if step is None:
+        return {}, False
+    if viewer is UNSCOPED:
+        return step.data or {}, False
+    from app.services.viewer_data_policy import resolve_step_data
+
+    resolution = await resolve_step_data(db, step, report, viewer)
+    return resolution.data or {}, resolution.withheld
+
 
 def _ordered_visualizations(artifact, visualizations: list) -> list:
     """Order a report's visualizations the way the artifact's code indexes them.
@@ -44,11 +65,17 @@ def _ordered_visualizations(artifact, visualizations: list) -> list:
     return ordered
 
 
-async def collect_visualizations(db, artifact) -> list[dict[str, Any]]:
-    """Ordered visualizations with their stored rows, columns and data model."""
+async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> list[dict[str, Any]]:
+    """Ordered visualizations with their stored rows, columns and data model.
+
+    With `viewer` given, rows and applied params are what that reader may see
+    (see UNSCOPED)."""
     from app.models.visualization import Visualization
     from app.models.query import Query
+    from app.models.report import Report
     from app.models.step import Step
+
+    report = await db.get(Report, artifact.report_id) if viewer is not UNSCOPED else None
 
     viz_stmt = (
         select(Visualization)
@@ -83,17 +110,24 @@ async def collect_visualizations(db, artifact) -> list[dict[str, Any]]:
             )
             step = step_result.scalar_one_or_none()
 
+        data, withheld = await _resolve_rows(db, step, report, viewer)
+        applied = getattr(step, "applied_params", None) or {}
+        if viewer is not UNSCOPED:
+            from app.services.viewer_data_policy import redact_applied_params
+
+            applied = redact_applied_params(applied, query.parameters, withheld=withheld) or {}
+
         viz_data.append({
             "id": str(viz.id),
             # Carried so an offline host can tell which visualizations a
             # declared query param is scoped to (declaration.query_ids).
             "query_id": str(viz.query_id),
             "parameters": query.parameters or [],
-            "applied_params": getattr(step, "applied_params", None) or {},
+            "applied_params": applied,
             "title": viz.title or query.title or "Untitled",
             "view": viz.view or {},
-            "rows": step.data.get("rows", []) if step and step.data else [],
-            "columns": step.data.get("columns", []) if step and step.data else [],
+            "rows": data.get("rows", []) if data else [],
+            "columns": data.get("columns", []) if data else [],
             "dataModel": step.data_model or {} if step else {},
         })
 
@@ -112,7 +146,7 @@ async def collect_files(db, artifact) -> list[dict[str, Any]]:
     return await build_file_datauris(db, (artifact.content or {}).get("files") or [])
 
 
-async def collect_artifact_payload(db, artifact) -> Optional[dict[str, Any]]:
+async def collect_artifact_payload(db, artifact, *, viewer: Any = UNSCOPED) -> Optional[dict[str, Any]]:
     """Build the full ARTIFACT_DATA payload for a page-mode artifact.
 
     `current_user` is deliberately absent: identity is per-viewer and injected
@@ -128,7 +162,7 @@ async def collect_artifact_payload(db, artifact) -> Optional[dict[str, Any]]:
     if not report:
         return None
 
-    visualizations = await collect_visualizations(db, artifact)
+    visualizations = await collect_visualizations(db, artifact, viewer=viewer)
     return {
         "report": {
             "id": str(report.id),
@@ -141,7 +175,7 @@ async def collect_artifact_payload(db, artifact) -> Optional[dict[str, Any]]:
         # Which sandbox runtime generation to render with (themed kit at >= 11;
         # absent on rows created before it → legacy look and semantics).
         "runtime": {"version": int((artifact.content or {}).get("runtime_version") or 0)},
-        "params": await collect_params(db, artifact, visualizations=visualizations),
+        "params": await collect_params(db, artifact, visualizations=visualizations, viewer=viewer),
     }
 
 
@@ -189,7 +223,7 @@ def build_params_payload(visualizations: list[dict[str, Any]]) -> dict[str, Any]
             "options": options, "ack": 0}
 
 
-async def _options_from_source(db, source) -> list[dict[str, Any]]:
+async def _options_from_source(db, source, viewer: Any = UNSCOPED) -> list[dict[str, Any]]:
     """Resolve an options_source (another query's column) to stable choices.
 
     Mirrors resolveParamOptions in ArtifactFrame.vue: the choices come from
@@ -213,12 +247,20 @@ async def _options_from_source(db, source) -> list[dict[str, Any]]:
             .limit(1)
         )
         step = result.scalar_one_or_none()
-    if not step or not step.data:
+    if viewer is not UNSCOPED:
+        # Option lists are another query's rows — same withholding applies.
+        from app.models.report import Report
+
+        report = await db.get(Report, query.report_id) if query.report_id else None
+        data, _ = await _resolve_rows(db, step, report, viewer)
+    else:
+        data = (step.data or {}) if step else {}
+    if not data:
         return []
 
     seen: set = set()
     out: list[dict[str, Any]] = []
-    for row in step.data.get("rows", []) or []:
+    for row in data.get("rows", []) or []:
         if not isinstance(row, dict) or source.value_column not in row:
             continue
         value = row[source.value_column]
@@ -231,12 +273,14 @@ async def _options_from_source(db, source) -> list[dict[str, Any]]:
     return out
 
 
-async def collect_params(db, artifact, *, visualizations: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+async def collect_params(
+    db, artifact, *, visualizations: Optional[list[dict[str, Any]]] = None, viewer: Any = UNSCOPED,
+) -> dict[str, Any]:
     """Snapshot parameter context, scoped to this artifact's visualizations."""
     from app.schemas.param_schema import parse_param_specs
 
     if visualizations is None:
-        visualizations = await collect_visualizations(db, artifact)
+        visualizations = await collect_visualizations(db, artifact, viewer=viewer)
     included = set((artifact.content or {}).get("visualization_ids") or [])
     if included:
         visualizations = [v for v in visualizations if v["id"] in included]
@@ -244,7 +288,7 @@ async def collect_params(db, artifact, *, visualizations: Optional[list[dict[str
     for viz in visualizations:
         for spec in parse_param_specs(viz.get("parameters")):
             if spec.options_source:
-                resolved = await _options_from_source(db, spec.options_source)
+                resolved = await _options_from_source(db, spec.options_source, viewer)
                 if resolved:
                     payload["options"][spec.name] = resolved
     return payload
