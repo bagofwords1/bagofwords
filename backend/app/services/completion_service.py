@@ -243,6 +243,20 @@ def _format_sse_event_traced(event: SSEEvent) -> str:
 logger = logging.getLogger(__name__)
 
 
+
+def _clamp_training_mode(completion_data, report) -> None:
+    """Never run a training turn on a report that isn't in training mode.
+
+    The agent takes its mode from the completion payload before the report's.
+    Training is only gated where the REPORT's mode is set
+    (``ReportService._assert_can_enter_training_mode``, on create and update).
+    So a payload asking for ``training`` on a chat report would get a training
+    turn without that check. Fall back to the report's own mode instead.
+    """
+    prompt = getattr(completion_data, "prompt", None)
+    if prompt is not None and prompt.mode == "training" and getattr(report, "mode", None) != "training":
+        prompt.mode = getattr(report, "mode", None) or "chat"
+
 class CompletionService:
 
     def __init__(self):
@@ -642,6 +656,7 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
             self._assert_can_write_to_report(report, current_user)
+            _clamp_training_mode(completion_data, report)
 
             # Validate widget if provided
             if completion_data.prompt and completion_data.prompt.widget_id:
@@ -2202,6 +2217,7 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
             self._assert_can_write_to_report(report, current_user)
+            _clamp_training_mode(completion_data, report)
             _log("report_fetched")
 
             # Validate widget if provided
