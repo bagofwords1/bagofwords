@@ -259,18 +259,27 @@ class NotificationService:
         for attempt in range(retries + 1):
             still_pending = []
             for rcpt in pending:
-                msg = build_email(
-                    from_address=resolved.from_address,
-                    from_name=resolved.from_name,
-                    to_address=rcpt,
-                    subject=subject,
-                    body=body,
-                    body_subtype=subtype,
-                    message_id=message_id,
-                    in_reply_to=in_reply_to,
-                    references=references,
-                    attachments=built_attachments or None,
-                )
+                try:
+                    msg = build_email(
+                        from_address=resolved.from_address,
+                        from_name=resolved.from_name,
+                        to_address=rcpt,
+                        subject=subject,
+                        body=body,
+                        body_subtype=subtype,
+                        message_id=message_id,
+                        in_reply_to=in_reply_to,
+                        references=references,
+                        attachments=built_attachments or None,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    # e.g. CR/LF in a configured From name: the stdlib refuses
+                    # the header. A config problem, never a 500 + traceback.
+                    logger.warning("Could not build email via %s: %s", resolved.source, type(e).__name__)
+                    return SendOutcome(
+                        ok=False, source=resolved.source, stage=STAGE_CONFIG,
+                        error="message headers are invalid (check the From name and address)",
+                    )
                 try:
                     coro = send_message_result(resolved.smtp_config, msg)
                     if timeout is not None:

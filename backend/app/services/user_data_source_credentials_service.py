@@ -415,13 +415,15 @@ class UserDataSourceCredentialsService:
             params = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             pass
-        client = ClientClass(**params)
         try:
+            # Constructing the client can itself fail on bad/missing params or
+            # a missing driver; report it as a failed test, not a 500.
+            client = ClientClass(**params)
             res = await client.atest_connection()
             success = bool(res.get("success")) if isinstance(res, dict) else bool(res)
             return {"success": success, "message": (res.get("message") if isinstance(res, dict) else None)}
         except Exception as e:
-            return {"success": False, "message": str(e)}
+            return {"success": False, "message": redact_error(e)}
 
     async def upsert_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> UserDataSourceCredentialsSchema:
         # Get connection info
