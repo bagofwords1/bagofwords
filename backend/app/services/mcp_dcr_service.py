@@ -197,6 +197,11 @@ async def discover_mcp_oauth(server_url: str) -> dict:
 
     if not md or not md.get("authorization_endpoint") or not md.get("token_endpoint"):
         raise ValueError(f"Could not discover OAuth metadata for MCP server {server_url}")
+    # The authorization endpoint becomes a browser navigation target; a
+    # malicious MCP server must not be able to hand us a javascript: URL.
+    from app.core.url_safety import is_safe_http_url
+    if not is_safe_http_url(md["authorization_endpoint"]):
+        raise ValueError(f"MCP server {server_url} advertised a non-http(s) authorization_endpoint")
 
     scopes, source = select_scopes(
         challenge.get("scope"),

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_session_user, current_user
 from app.core.permissions_decorator import requires_permission
+from app.core.url_safety import is_safe_redirect_uri
 from app.dependencies import get_async_db, get_current_organization
 from app.ee.audit.service import audit_service
 from app.errors import AppError
@@ -414,6 +415,12 @@ def _validate_redirect_uris(redirect_uris, allow_empty=False):
     if not isinstance(redirect_uris, list) or (not redirect_uris and not allow_empty):
         raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
     for uri in redirect_uris:
+        if isinstance(uri, str) and uri and not is_safe_redirect_uri(uri):
+            raise HTTPException(
+                status_code=400,
+                detail="redirect_uris must be https URLs (http only for localhost, 127.0.0.1, [::1] "
+                "or this app's own base URL origin)",
+            )
         if not isinstance(uri, str) or not uri.strip():
             raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
     return redirect_uris
