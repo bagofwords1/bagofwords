@@ -1,0 +1,101 @@
+"""finish_subtask — the mandatory terminal tool of a sub-run (mode=subagent).
+
+Validates the typed record, stores it on the sub_runs row and ends the child
+run (analysis_complete). The runtime adds the envelope at finalize.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, AsyncIterator, Dict, Type
+
+from pydantic import BaseModel, ValidationError
+
+from app.ai.tools.base import Tool
+from app.ai.tools.metadata import ToolMetadata
+from app.ai.tools.schemas.events import ToolEndEvent, ToolErrorEvent, ToolEvent, ToolStartEvent
+from app.ai.tools.schemas.sub_runs import FinishSubtaskInput
+
+logger = logging.getLogger(__name__)
+
+
+class FinishSubtaskTool(Tool):
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="finish_subtask",
+            description=(
+                "ACTION: End this sub-run with its typed record — the ONLY way your work reaches the "
+                "parent (your final chat text is not delivered). Call it as soon as the goal is settled, "
+                "and always before your step budget runs out. outcome: for a hypothesis supported | "
+                "refuted | inconclusive; otherwise done | partial | blocked. Put the one number that "
+                "carries the answer in `summary`; list every id a reader can verify in `evidence` "
+                "(steps/queries/vizs you created, notes, files, tables); name what you checked and "
+                "excluded in `ruled_out`; data gaps and assumed windows in `caveats`; if inconclusive or "
+                "blocked, the single thing that would settle it in `unknown`. If you kept a note, pass "
+                "its id as report_note_id."
+            ),
+            category="action",
+            version="1.0.0",
+            input_schema=FinishSubtaskInput.model_json_schema(),
+            output_schema={"type": "object", "properties": {"status": {"type": "string"}}},
+            max_retries=0,
+            timeout_seconds=15,
+            idempotent=True,
+            required_permissions=[],
+            allowed_modes=["subagent"],
+            observation_policy="always",
+            tags=["sub-run", "finish", "record"],
+        )
+
+    @property
+    def input_model(self) -> Type[BaseModel]:
+        return FinishSubtaskInput
+
+    async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
+        try:
+            data = FinishSubtaskInput(**(tool_input or {}))
+        except ValidationError as e:
+            # The error IS the next observation: the child corrects and calls again.
+            yield ToolErrorEvent(type="tool.error", payload={
+                "error": f"finish_subtask rejected — fix these fields and call it again: {e}",
+                "code": "INVALID_INPUT",
+            })
+            return
+        yield ToolStartEvent(type="tool.start", payload={"outcome": data.outcome})
+
+        head = runtime_ctx.get("head_completion")
+        sub_run_id = None
+        try:
+            sub_run_id = (head.prompt or {}).get("sub_run_id") if head is not None and isinstance(head.prompt, dict) else None
+        except Exception:
+            sub_run_id = None
+        sub_run_id = sub_run_id or runtime_ctx.get("sub_run_id")
+        if not sub_run_id:
+            yield ToolErrorEvent(type="tool.error", payload={"error": "Not running as a sub-run.", "code": "NOT_A_SUB_RUN"})
+            return
+
+        from app.services.sub_run_service import sub_run_service
+        db = runtime_ctx.get("db")
+        record = data.model_dump()
+        try:
+            row = await sub_run_service.record_finish(db, sub_run_id=str(sub_run_id), result=record)
+        except Exception as e:
+            logger.exception("finish_subtask: could not store the record")
+            yield ToolErrorEvent(type="tool.error", payload={"error": f"Could not store the record: {e}", "code": "SUB_RUN_ERROR"})
+            return
+        if row is None:
+            yield ToolErrorEvent(type="tool.error", payload={"error": "Sub-run row not found.", "code": "SUB_RUN_ERROR"})
+            return
+        runtime_ctx["sub_run_finished"] = True
+        yield ToolEndEvent(type="tool.end", payload={
+            "output": {"status": "recorded", "sub_run_id": str(row.id), "outcome": data.outcome},
+            "observation": {
+                "summary": f"Record stored ({data.outcome}, confidence {data.confidence}). Sub-run finished.",
+                "success": True,
+                "artifacts": [],
+                "analysis_complete": True,
+                "final_answer": data.summary,
+                "outcome": data.outcome,
+            },
+        })

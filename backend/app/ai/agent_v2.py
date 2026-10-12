@@ -511,6 +511,22 @@ class AgentV2:
         # Scalar copy (see report_id note below): machine-turn source of the
         # head completion, e.g. 'checkin' for an agent check-in run.
         self._head_trigger_source = getattr(head_completion, "trigger_source", None) if head_completion is not None else None
+        # Sub-runs (docs/design/sub-runs.md). A child run is mode="subagent" on
+        # a hidden completion whose prompt carries the sub_runs row id; the
+        # parent launches children through the `delegate` tool.
+        self._is_sub_run = (self.mode == "subagent")
+        self._sub_run_id = None
+        try:
+            _hp = getattr(head_completion, "prompt", None) if head_completion is not None else None
+            self._sub_run_id = (_hp or {}).get("sub_run_id") if isinstance(_hp, dict) else None
+        except Exception:
+            self._sub_run_id = None
+        self._sub_run = None                 # dict loaded from the sub_runs row at run start
+        self._sub_run_allowed_tools = None   # frozenset of tool names (profile ∩ catalog)
+        self._sub_run_finished = False       # finish_subtask observed this run
+        self._sub_run_finish_nudges = 0
+        self._planner_steps_exhausted = False
+        self._wave_pending = False
         # Stamp the asker's identity for LLM header injection BEFORE the
         # planner below constructs its LLM client — provider header_injection
         # rules resolve at client construction. Membership role/attributes need
@@ -875,6 +891,20 @@ class AgentV2:
                 t for t in all_catalog_dicts
                 if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
             ]
+
+        # Sub-run tools: hidden when the org setting is off, on eval runs, and
+        # on machine turns that cannot receive a later fan-in turn (the
+        # fan-in is a new turn on the report, so a one-shot scheduled run
+        # would never see its results). Children never hold them (profiles).
+        from app.services.sub_run_service import sub_runs_enabled as _sub_runs_enabled
+        self._sub_runs_enabled = bool(
+            _sub_runs_enabled(self.organization_settings)
+            and not self.is_eval_run
+            and not self._is_sub_run
+            and getattr(self.report, 'report_type', 'regular') == 'regular'
+        )
+        if not self._sub_runs_enabled:
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_run', 'stop_sub_run')]
 
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
@@ -1823,6 +1853,8 @@ class AgentV2:
         runs use the laxer eval_judge_model_allowed gate instead — this one
         guards every live chat completion.)
         """
+        if getattr(self, "_is_sub_run", False):
+            return False
         setting = self.organization_settings.get_config("enable_llm_judgement")
         return (
             bool(setting and setting.value)
@@ -2623,6 +2655,8 @@ class AgentV2:
         transient failure retries on the next turn instead of leaving the report
         untitled forever.
         """
+        if getattr(self, "_is_sub_run", False):
+            return
         if self._title_task is not None:
             return
         if not self.report or not self.head_completion:
@@ -2851,7 +2885,7 @@ class AgentV2:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
         all carry a non-null platform and are excluded."""
-        if self.platform is not None:
+        if self.platform is not None or getattr(self, "_is_sub_run", False):
             return False
         if not self.organization_settings:
             return False
@@ -4475,6 +4509,10 @@ class AgentV2:
                 build_id=self.build_id,
                 is_eval_run=self.is_eval_run,
             )
+            # Sub-run child: bind the execution to its row, narrow the catalog to
+            # the profile, and load the budget. Must precede the first planner call.
+            if self._is_sub_run:
+                await self._bind_sub_run()
             # Usage records written from here on carry the run id (see
             # app.ai.llm.usage_attribution) so cost/tokens roll up per run.
             try:
@@ -4726,6 +4764,8 @@ class AgentV2:
             except (TypeError, ValueError):
                 step_limit = 100
             step_limit = max(1, min(500, step_limit))
+            if self._is_sub_run and self._sub_run:
+                step_limit = max(3, min(step_limit, int(self._sub_run.get("max_steps") or step_limit)))
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -5031,6 +5071,7 @@ class AgentV2:
                             current_model=self._routing_prompt_state()[0],
                             routing_state=self._routing_prompt_state()[1],
                         )
+                        await self._apply_sub_run_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
                         # Trim context if it exceeds the model's token budget. After a
                         # context_length rejection the run's shrink factor tightens the
                         # window (see _handle_context_overflow) so the retry provably
@@ -5811,6 +5852,22 @@ class AgentV2:
 
                             # Only treat analysis_complete as terminal if there's NO action
                             if decision.analysis_complete and not action:
+                                # Sub-run: the record is the deliverable. A child that
+                                # ends in prose without finish_subtask gets exactly one
+                                # more iteration told to call it; the finalize step
+                                # synthesises a partial record if it still does not.
+                                if self._is_sub_run and not self._sub_run_finished and self._sub_run_finish_nudges < 1:
+                                    self._sub_run_finish_nudges += 1
+                                    observation = {
+                                        "summary": (
+                                            "You ended with text, but nothing was delivered: a sub-run reports ONLY "
+                                            "through finish_subtask. Call finish_subtask NOW with your record "
+                                            "(outcome=partial or inconclusive if you are not sure; put what you "
+                                            "found in summary/findings/evidence)."
+                                        ),
+                                        "error": {"code": "finish_subtask_required", "message": "finish_subtask not called"},
+                                    }
+                                    break
                                 # Late steering: a steer may have arrived while this
                                 # final plan streamed. Don't finalize over it — pick
                                 # it up and give the planner another iteration.
@@ -6073,6 +6130,11 @@ class AgentV2:
                                             "summary": f"Tool '{tool_name}' unavailable",
                                             "error": {"code": "resolve_error", "message": "not registered"},
                                         })
+                                if self._is_sub_run and self._sub_run_allowed_tools is not None and tool_name not in self._sub_run_allowed_tools:
+                                    return await _refuse_before_dispatch({
+                                            "summary": f"Tool '{tool_name}' is not available to a sub-run; use the tools in your catalog and finish with finish_subtask.",
+                                            "error": {"code": "resolve_error", "message": "outside sub-run profile"},
+                                        })
 
                                 # Artifact budget is enforced BEFORE execution: an
                                 # over-budget call must not run (each one is a full
@@ -6275,6 +6337,7 @@ class AgentV2:
                                         "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                                         "small_model": self.small_model,
                                         "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
+                                        "sub_run_id": self._sub_run_id,
                                         "is_eval_run": self.is_eval_run,
                                         "platform": self.platform,
                                         "platform_context": self.platform_context,
@@ -6713,6 +6776,10 @@ class AgentV2:
                                 _obs = _o.get("observation")
                                 _tn = _o.get("tool_name")
                                 _ti_args = _o.get("tool_input")
+                                if _tn == "finish_subtask" and isinstance(_obs, dict) and _obs.get("analysis_complete"):
+                                    self._sub_run_finished = True
+                                if _tn == "delegate" and isinstance(_obs, dict) and _obs.get("sub_run_id"):
+                                    self._wave_pending = True
                                 if not _observation_failed(_obs):
                                     action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
                                     successful_tool_actions.append(action_signature)
@@ -6879,6 +6946,12 @@ class AgentV2:
                             if any(_o.get("tool_name") in ("create_artifact", "edit_artifact") for _o in outcomes):
                                 active_artifact = await self._get_active_artifact()
 
+                            # Sub-runs recorded by this batch's delegate calls start now,
+                            # once every sibling exists (a fast child must not fire the
+                            # fan-in before its wave is complete).
+                            if self._wave_pending:
+                                await self._launch_pending_sub_runs()
+
                             # End of dispatch — exit the planner stream so the outer
                             # agent loop runs the next planner iteration.
                             break
@@ -7038,6 +7111,7 @@ class AgentV2:
                 # blank planner decisions and zero tools were recorded as
                 # successful turns. Mark it so the finalizer reports an error.
                 planner_steps_exhausted = True
+                self._planner_steps_exhausted = True
                 completion_errored = True
                 logger.warning(
                     "[agent] planner step limit (%s) exhausted without a terminal decision",
@@ -7048,7 +7122,11 @@ class AgentV2:
             # Runs once after the outer loop exits, regardless of whether the
             # terminating decision had an action (e.g. create_data with
             # analysis_complete=True) or was a final_answer-only decision.
-            if self.mode == "training":
+            if self._is_sub_run:
+                # A child run writes a record, not knowledge: no harness, no
+                # check-ins, no instruction suggestions.
+                pass
+            elif self.mode == "training":
                 # Training mode: finalize the build with all created instructions
                 await self._finalize_training_build()
             else:
@@ -7335,6 +7413,14 @@ class AgentV2:
                 pass
             raise
         finally:
+            # Sub-run child: close the sub_runs row exactly once (record +
+            # envelope, write-back to the parent's delegate tool execution,
+            # wave decrement, fan-in when last). Runs on every exit path.
+            if self._is_sub_run:
+                try:
+                    await self._finalize_sub_run()
+                except Exception:
+                    logger.exception("[agent] sub-run finalize failed")
             # Let the prompt-time title task finish (and enqueue its SSE event)
             # before the stream closes. Runs on the error path too: a turn that
             # failed still deserves a titled report in the sidebar.
@@ -7375,6 +7461,139 @@ class AgentV2:
                     asyncio.create_task(_bg_flush(), name="agent.quota_flush")
                 except Exception:
                     pass
+
+    # ------------------------------------------------------------------
+    # Sub-runs (docs/design/sub-runs.md)
+    # ------------------------------------------------------------------
+    async def _bind_sub_run(self) -> None:
+        """Child run start: load the sub_runs row, link the execution to the
+        parent, narrow the catalog to the profile and remember the budget."""
+        from app.models.sub_run import SubRun
+        from app.ai.sub_run_profiles import allowed_tools, get_profile
+        from app.services.sub_run_service import sub_run_limits, sub_run_service
+        if not self._sub_run_id:
+            logger.warning("[agent] subagent mode without a sub_run_id; running with the default catalog")
+            return
+        row = await self.db.get(SubRun, str(self._sub_run_id))
+        if row is None:
+            logger.warning("[agent] sub_runs row %s not found", self._sub_run_id)
+            return
+        limits = sub_run_limits(self.organization_settings)
+        profile = get_profile(row.profile)
+        allowed = allowed_tools(profile, allow_create_data=limits["allow_create_data"])
+        self._sub_run = {
+            "id": str(row.id), "wave_id": str(row.wave_id), "title": row.title, "profile": row.profile,
+            "goal": row.goal, "context": row.context, "max_steps": row.max_steps or limits["max_steps"],
+            "agent_ids": list(row.agent_ids_json or []), "addendum": profile.addendum,
+        }
+        self._sub_run_allowed_tools = allowed
+        try:
+            self.planner.tool_catalog = [t for t in self.planner.tool_catalog if t.name in allowed]
+        except Exception:
+            logger.warning("[agent] could not narrow the sub-run catalog", exc_info=True)
+        # Focus the child on the agents it was given (a subset of the report's).
+        try:
+            ids = [str(a) for a in (row.agent_ids_json or [])]
+            if ids and self.report is not None and len(ids) < len(getattr(self.report, "data_sources", None) or []):
+                self.report.focused_data_source_ids = ids
+        except Exception:
+            pass
+        try:
+            await sub_run_service.bind_child_execution(
+                self.db, sub_run_id=str(row.id),
+                execution_id=str(self.current_execution.id) if self.current_execution else None,
+            )
+        except Exception:
+            logger.warning("[agent] bind_child_execution failed", exc_info=True)
+
+    async def _apply_sub_run_planner_input(self, planner_input, *, loop_index: int, step_limit: int) -> None:
+        """Both roles: the parent gets the <sub_runs> block and its delegation
+        posture; a child loses conversation-level context and gets its goal,
+        profile addendum and remaining budget."""
+        from app.services.sub_run_service import sub_run_posture, sub_run_service
+        if self._is_sub_run:
+            planner_input.messages_context = ""
+            planner_input.history_summary = None
+            planner_input.steering_context = None
+            planner_input.active_artifact = None
+            planner_input.user_memory = None
+            planner_input.memory_hint = None
+            planner_input.scheduled_context = None
+            planner_input.scheduled_tasks_context = None
+            planner_input.sub_runs_enabled = False
+            if self._sub_run:
+                planner_input.sub_run_title = self._sub_run.get("title")
+                planner_input.sub_run_profile_addendum = self._sub_run.get("addendum")
+                used = int(loop_index) + 1
+                planner_input.sub_run_budget = f"sub-run step {used} of {step_limit}" + (
+                    " — finish NOW with finish_subtask" if used >= step_limit - 1 else ""
+                )
+            return
+        planner_input.sub_runs_enabled = bool(getattr(self, "_sub_runs_enabled", False))
+        planner_input.sub_run_posture = sub_run_posture(self.organization_settings)
+        if planner_input.sub_runs_enabled and self.report is not None:
+            try:
+                planner_input.sub_runs_context = await sub_run_service.context_block(self.db, str(self.report_id))
+            except Exception:
+                logger.debug("[agent] sub_runs context block failed", exc_info=True)
+
+    async def _launch_pending_sub_runs(self) -> None:
+        """After a batch holding delegate calls: close the wave and start its children."""
+        from app.services.sub_run_service import sub_run_service
+        self._wave_pending = False
+        try:
+            await self._drain_bg_writes(timeout_s=5.0)
+        except Exception:
+            pass
+        try:
+            wave_id = await sub_run_service.launch_pending(
+                report_id=str(self.report_id),
+                parent_completion_id=str(self.system_completion_id),
+                settings=self.organization_settings,
+                sigkilled=self.sigkill_event.is_set(),
+            )
+            if wave_id:
+                logger.info("[agent] launched sub-run wave %s", wave_id)
+        except Exception:
+            logger.exception("[agent] launching sub-runs failed")
+
+    async def _finalize_sub_run(self) -> None:
+        from app.services.sub_run_service import sub_run_service
+        if not self._sub_run_id:
+            return
+        if self.sigkill_event.is_set():
+            agent_status = "sigkill"
+        else:
+            agent_status = getattr(self.current_execution, "status", None) or "success"
+        last_text = ""
+        try:
+            comp = getattr(self.system_completion, "completion", None)
+            if isinstance(comp, dict):
+                last_text = str(comp.get("content") or "")
+        except Exception:
+            last_text = ""
+        tokens = None
+        duration = None
+        try:
+            tokens = getattr(self.current_execution, "token_usage_json", None)
+            duration = getattr(self.current_execution, "total_duration_ms", None)
+        except Exception:
+            pass
+        err = None
+        try:
+            ej = getattr(self.current_execution, "error_json", None)
+            if isinstance(ej, dict):
+                err = ej.get("message")
+        except Exception:
+            pass
+        await sub_run_service.finalize_child(
+            sub_run_id=str(self._sub_run_id), agent_status=agent_status, last_text=last_text,
+            steps_used=int(getattr(self, "_iteration_count", 0) or 0), tokens=tokens,
+            execution_id=str(self.current_execution.id) if self.current_execution else None,
+            error=err, duration_ms=duration,
+            model_name=getattr(self.model, "name", None) or getattr(self.model, "model_id", None),
+            steps_exhausted=bool(self._planner_steps_exhausted),
+        )
 
     async def _build_planner_prompt_text(self, view=None) -> str:
         if view is None:

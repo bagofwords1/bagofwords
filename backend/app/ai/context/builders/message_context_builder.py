@@ -360,6 +360,46 @@ def _digest_eval_tool(tool_execution) -> str:
     return ""
 
 
+SUB_RUN_TOOL_NAMES = ("delegate", "read_sub_run", "stop_sub_run")
+
+
+def _digest_sub_run_tool(tool_execution) -> str:
+    """One-line handle for a sub-run tool call. `delegate` reads the record the
+    wave tracker wrote back onto the row when the child finished (result_json
+    = receipt + record); until then it reads as running. The full records
+    live in the fan-in turn's hidden prompt, so this stays a handle."""
+    rj = tool_execution.result_json if isinstance(tool_execution.result_json, dict) else {}
+    name = tool_execution.tool_name
+    if name == "delegate":
+        sid = rj.get("sub_run_id")
+        if not sid:
+            return f"refused: {rj.get('refused') or 'not started'}"
+        rec = rj.get("record") if isinstance(rj.get("record"), dict) else {}
+        status = rj.get("status") or "running"
+        bits = [f"sub_run {sid}", f"\"{(rj.get('title') or '')[:60]}\""]
+        if rec.get("outcome"):
+            conf = rec.get("confidence")
+            bits.append(f"{rec['outcome']}" + (f" ({conf})" if conf is not None else ""))
+        else:
+            bits.append(status)
+        if rj.get("steps_used") is not None:
+            bits.append(f"{rj['steps_used']} steps")
+        if rec.get("summary"):
+            bits.append(str(rec["summary"])[:160])
+        return " — ".join(bits)
+    if name == "read_sub_run":
+        bits = [f"sub_run {rj.get('sub_run_id')}", f"\"{(rj.get('title') or '')[:60]}\"", str(rj.get("status") or "")]
+        rec = rj.get("record") if isinstance(rj.get("record"), dict) else {}
+        if rec.get("outcome"):
+            bits.append(f"{rec['outcome']} ({rec.get('confidence')})")
+        elif rj.get("steps_used") is not None:
+            bits.append(f"{rj['steps_used']} steps")
+        return " — ".join(b for b in bits if b)
+    if name == "stop_sub_run":
+        return f"sub_run {rj.get('sub_run_id')} → {rj.get('status')}"
+    return ""
+
+
 def _digest_web_search(tool_execution) -> str:
     """Digest for native (provider-executed) web search.
 
@@ -1699,6 +1739,10 @@ class MessageContextBuilder:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in EVAL_TOOL_NAMES and tool_execution.result_json:
                                     digest = _digest_eval_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name in SUB_RUN_TOOL_NAMES and tool_execution.result_json:
+                                    digest = _digest_sub_run_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:

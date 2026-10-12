@@ -1075,6 +1075,9 @@ class CompletionService:
                 (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
                 & (Completion.role == 'user')
             ),
+            # Sub-run children (mode=subagent) are hidden completions: the
+            # parent's delegate card is their only surface in the timeline.
+            ~((Completion.trigger_source == 'sub_run') & (Completion.role == 'system')),
         )
         if before:
             # Cursor is "<iso timestamp>~<completion id>" (see next_before below).
@@ -3231,12 +3234,16 @@ class CompletionService:
     # ------------------------------------------------------------------
 
     async def _get_running_system_completion(self, db: AsyncSession, report_id: str) -> Completion | None:
+        # Sub-run children run in the background of the report and never count
+        # as "the running turn": a user message starts normally while they run
+        # and the prompt queue drains past them.
         res = await db.execute(
             select(Completion)
             .where(
                 Completion.report_id == report_id,
                 Completion.role == 'system',
                 Completion.status == 'in_progress',
+                (Completion.trigger_source.is_(None)) | (Completion.trigger_source != 'sub_run'),
             )
             .order_by(Completion.created_at.desc())
             .limit(1)

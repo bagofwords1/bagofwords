@@ -1022,6 +1022,77 @@ async def schedule_report(
         refresh_on_view=body.refresh_on_view,
     )
 
+# --- Sub-runs (docs/design/sub-runs.md) ---
+
+@router.get("/reports/{report_id}/sub-runs")
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+async def list_report_sub_runs(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Recent sub-run waves of this report plus the live background-task list
+    (the prompt-box indicator and the delegate cards hydrate from this)."""
+    from app.services.sub_run_service import sub_run_service
+    return await sub_run_service.list_for_report(db, report_id)
+
+
+@router.get("/reports/{report_id}/sub-runs/{sub_run_id}")
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+async def get_report_sub_run(
+    report_id: str,
+    sub_run_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """One sub-run: record + envelope + the child's tool calls (+ its note)."""
+    from app.services.sub_run_service import sub_run_service
+    snap = await sub_run_service.snapshot(db, sub_run_id, include_report=True, report_id=report_id)
+    if snap is None:
+        raise HTTPException(status_code=404, detail="Sub-run not found")
+    return snap
+
+
+@router.post("/reports/{report_id}/sub-runs/{sub_run_id}/stop")
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def stop_report_sub_run(
+    report_id: str,
+    sub_run_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Stop one sub-run; its wave keeps running and still fans in."""
+    from app.models.sub_run import SubRun
+    from app.services.sub_run_service import sub_run_service
+    row = await db.get(SubRun, sub_run_id)
+    if row is None or str(row.report_id) != str(report_id):
+        raise HTTPException(status_code=404, detail="Sub-run not found")
+    row = await sub_run_service.stop_sub_run(db, sub_run_id, reason=f"stopped by {getattr(current_user, 'email', 'user')}")
+    return {"sub_run_id": str(row.id), "status": row.status}
+
+
+@router.post("/reports/{report_id}/sub-run-waves/{wave_id}/stop")
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def stop_report_sub_run_wave(
+    report_id: str,
+    wave_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Stop every running sub-run of a wave; no fan-in turn is created."""
+    from app.models.sub_run import SubRunWave
+    from app.services.sub_run_service import sub_run_service
+    wave = await db.get(SubRunWave, wave_id)
+    if wave is None or str(wave.report_id) != str(report_id):
+        raise HTTPException(status_code=404, detail="Wave not found")
+    wave = await sub_run_service.stop_wave(db, wave_id, reason=f"wave stopped by {getattr(current_user, 'email', 'user')}")
+    return {"wave_id": str(wave.id), "status": wave.status}
+
+
 # --- Report Summary ---
 
 @router.get("/reports/{report_id}/notes")

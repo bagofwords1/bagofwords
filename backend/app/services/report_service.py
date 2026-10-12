@@ -4073,9 +4073,29 @@ class ReportService:
                 item.data_source_id = str(lst.data_source_id)
                 item.agent_name = agent_names.get(item.data_source_id)
 
+        # Sub-runs: one row per delegated child across the report's recent waves.
+        sub_runs: list = []
+        try:
+            from app.services.sub_run_service import sub_run_service
+            data = await sub_run_service.list_for_report(db, report_id, limit_waves=20)
+            for w in data.get("waves") or []:
+                for r in w.get("sub_runs") or []:
+                    sub_runs.append({
+                        "sub_run_id": r["sub_run_id"], "wave_id": w["id"], "wave_status": w["status"],
+                        "message_id": r.get("parent_completion_id"), "title": r.get("title"),
+                        "status": r.get("status"), "outcome": r.get("outcome"), "confidence": r.get("confidence"),
+                        "summary": r.get("summary"), "steps_used": r.get("steps_used"),
+                        "tokens": r.get("tokens"), "model": r.get("model"), "profile": r.get("profile"),
+                        "started_at": r.get("started_at"), "finished_at": r.get("finished_at"),
+                        "child_execution_id": r.get("child_execution_id"),
+                    })
+        except Exception:
+            logging.getLogger(__name__).debug("summary: sub-runs unavailable", exc_info=True)
+
         return {
             "queries": queries,
             "instructions": instructions,
             "lists": lists,
+            "sub_runs": sub_runs,
             "pending_training_build": pending_build.model_dump() if pending_build else None,
         }

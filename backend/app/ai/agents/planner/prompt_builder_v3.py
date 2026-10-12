@@ -75,10 +75,13 @@ class PromptBuilderV3:
     @staticmethod
     def build(planner_input: PlannerInput) -> PlannerInputV3:
         knowledge = (planner_input.mode or "") == "knowledge"
-        system = (
-            PromptBuilderV3._build_knowledge_system(planner_input) if knowledge
-            else PromptBuilderV3._build_system(planner_input)
-        )
+        subagent = (planner_input.mode or "") == "subagent"
+        if knowledge:
+            system = PromptBuilderV3._build_knowledge_system(planner_input)
+        elif subagent:
+            system = PromptBuilderV3._build_subagent_system(planner_input)
+        else:
+            system = PromptBuilderV3._build_system(planner_input)
         tools = _tool_specs_from_catalog(planner_input.tool_catalog)
 
         # Native transcript path (opt-in). Replays prior steps as real
@@ -343,6 +346,38 @@ class PromptBuilderV3:
         )
         rca_notes_bit = ", recording verdicts in notes as they land" if _notes_on else ""
 
+        # Sub-runs (docs/design/sub-runs.md A5/A10). Only when the delegate tool
+        # is in the catalog; the posture is an org setting because the field
+        # could not agree on it (Part B8) and flipped it between versions.
+        _sub_runs_on = bool(getattr(planner_input, "sub_runs_enabled", False))
+        _posture = (getattr(planner_input, "sub_run_posture", None) or "proactive").lower()
+        if _sub_runs_on and _posture == "explicit":
+            delegation_text = (
+                "DELEGATION (sub-runs, explicit posture)\n"
+                "- `delegate` launches a bounded background sub-run for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>. "
+                "Use it ONLY when the user or an instruction asks for parallel/background investigation. Otherwise do the work yourself.\n"
+                "- After launching: one line to the user, then END YOUR TURN. Never wait or poll; never redo a delegated goal yourself. "
+                "<sub_runs> lists waves already launched — never relaunch a goal that has a record; read_sub_run for detail.\n"
+                "- A sub-run's record is its SELF-REPORT: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim. Never show sub-run ids to the user.\n\n"
+            )
+            rca_delegate_bit = ""
+        elif _sub_runs_on:
+            delegation_text = (
+                "DELEGATION (sub-runs)\n"
+                "- `delegate` launches a bounded background sub-run for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>, one record per sub-run (outcome, confidence, summary, findings, ruled_out, evidence ids, caveats, unknown). "
+                "Delegate when a request splits into 3+ INDEPENDENT sub-questions that each need several steps — one hypothesis per candidate cause in a root-cause ask, the same deep check across many sources. "
+                "Never for a single query, never for the final answer, never to avoid reading context already in front of you.\n"
+                "- Launch all independent goals as delegate calls in ONE response (they form a wave). Each goal must be self-contained: what to test, the window, what to report; put verified names, definitions and baseline numbers in `context` — children know nothing of this conversation.\n"
+                "- After launching: ONE line to the user (what you launched and that you will report back), then END YOUR TURN. Never wait, poll, or redo a delegated goal yourself; the user can keep chatting meanwhile. "
+                "<sub_runs> lists waves already launched with each child's status — never relaunch a goal that has a record; use read_sub_run for progress or a child's full write-up.\n"
+                "- In the fan-in turn (<sub_run_results> in your prompt): synthesize from the records, cite their evidence ids, carry every ruled_out item and caveat into the answer, and treat an inconclusive/blocked record with a named unknown as a follow-up or a second wave — never a guess.\n"
+                "- A record is the sub-run's SELF-REPORT, not a verified fact: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim, read its note when a finding contradicts a sibling. Never show sub-run ids to the user.\n\n"
+            )
+            rca_delegate_bit = " — when 3+ candidate causes are independent, test them as parallel `delegate` sub-runs (one hypothesis each) and conclude in the fan-in turn"
+        else:
+            delegation_text = ""
+            rca_delegate_bit = ""
+
         # Mirror-the-user's-language rule (same body as the legacy planner /
         # reporter / answer agents). The org locale only serves as the fallback
         # for messages too short to detect a language from — it is org-level
@@ -384,12 +419,12 @@ ROUTING (classify the ask first; the tool follows)
 - **Same question, different value → `run_query`, not `create_data`.** When a query in `<queries>` carries `<parameters>` and the ask is that query narrowed to a specific value of one of them (a region, a genre, a year, a customer, a status), call `run_query(query_id, params={{name: value}})` using the param's `name` attribute exactly (not a column name); the query's `viz_id` works in place of `query_id`. It runs the SAVED code with those values — no code generation, the query keeps its id and visualizations, and neither its saved defaults nor the shared dashboard change. Omitted params keep their defaults. Reach for `create_data` only when the SHAPE of the result must change (different columns, grouping, or aggregation), and `add_parameter` when the query needs a filter it does not yet declare. If the result comes back with `missing_params`, `clarify` for those values — never guess them.
 - **Oversized inputs**: window through them (offset/pagination; grep_files when hunting a specific token) and accumulate findings in notes — never force one giant read. Convert unstructured→structured (write_csv) only when the ask needs aggregation AND the input has a regular, parseable pattern; otherwise stay on the read-and-note path.
 - **Business terms, metrics, KPIs**: check org instructions first — scan <available_instructions>/<available_skills> and read_instruction anything relevant BEFORE writing queries (search_instructions if you suspect an unlisted rule). A term that is undefined and has no unambiguous schema mapping → CLARIFY. Never invent a definition.
-- **Root-cause asks** ("why did X drop", "what caused the spike"): iterate, don't jump to a conclusion — (1) confirm and quantify the symptom first; (2) decompose across dimensions (time, segment, geography, product, funnel) to localize where it concentrates; (3) enumerate candidate causes and test each with targeted queries (batch the independent ones){rca_notes_bit}; (4) conclude with the causal chain, your confidence, and named confounders. Heavy investigations deliver via create_doc; a quick "why" answers in chat with cited evidence. A "how many" never triggers this loop; a "why" never resolves in one query.
+- **Root-cause asks** ("why did X drop", "what caused the spike"): iterate, don't jump to a conclusion — (1) confirm and quantify the symptom first; (2) decompose across dimensions (time, segment, geography, product, funnel) to localize where it concentrates; (3) enumerate candidate causes and test each with targeted queries (batch the independent ones){rca_notes_bit}{rca_delegate_bit}; (4) conclude with the causal chain, your confidence, and named confounders. Heavy investigations deliver via create_doc; a quick "why" answers in chat with cited evidence. A "how many" never triggers this loop; a "why" never resolves in one query.
 - The user attached an image/screenshot → describe it in your text; never inspect_data an image.
 {mcp_directives_text}{web_fetch_directives_text}
 {web_search_directives_text}{ml_directives_text}
 
-{platform_directives_text}CLARIFY (default posture: act, don't ask)
+{platform_directives_text}{delegation_text}CLARIFY (default posture: act, don't ask)
 Sources are **published** unless marked otherwise — resolve ordinary ambiguity (scope, time window, granularity, a term with one sensible schema mapping) yourself: state the interpretation in one line and proceed. When you DO need to ask, ask through the `clarify` tool — never as plain text — so the user gets clickable options. The relevant `<agent>`'s `<status>` sets the bar:
 - **published**: clarify ONLY when truly blocked — a core business term with several materially different meanings ("active users", "churn", "best performer") and no schema/instruction hint; a request with no identifiable subject at all ("show me the data"); or required data you can't infer. One clarify turn beats building the wrong thing.
 - **published + training** (`reliability value="training"`): same bar, but for a genuinely ambiguous business term PROPOSE a definition via `create_instruction` (one-line `evidence`; a reviewer sees it) and proceed on that assumption instead of stalling.
@@ -824,6 +859,12 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(planner_input.messages_context)
         if getattr(planner_input, "steering_context", None):
             parts.append(planner_input.steering_context)
+        # Sub-runs: the parent's <sub_runs> block changes as children finish
+        # (volatile → here); a child's remaining budget changes every step.
+        if getattr(planner_input, "sub_runs_context", None):
+            parts.append(planner_input.sub_runs_context)
+        if getattr(planner_input, "sub_run_budget", None):
+            parts.append(f"<sub_run_budget>{planner_input.sub_run_budget}</sub_run_budget>")
         return "\n".join(parts)
 
     @staticmethod
@@ -990,6 +1031,41 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
     # reasons + session context. Tool mechanics (evidence format, edit
     # anchors, search query shapes, table scoping) live on the tools.
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_subagent_system(planner_input: PlannerInput) -> str:
+        """System prompt for a sub-run child (mode=subagent). Lean on purpose:
+        identity, the goal posture, verification, the finish contract, and the
+        profile addendum. No dashboards, documents, memory or clarify."""
+        language_text = language_directive_body(getattr(planner_input, "locale", None))
+        title = getattr(planner_input, "sub_run_title", None) or "sub-run"
+        addendum = getattr(planner_input, "sub_run_profile_addendum", None) or ""
+        return (
+            f"SYSTEM\nMode: Sub-run\n"
+            f"You are {planner_input.organization_ai_analyst_name}, a focused SUB-RUN of the AI data analyst for "
+            f"{planner_input.organization_name}, working on one delegated goal: \"{title}\". A parent agent launched you "
+            "and will read ONLY the typed record you return through finish_subtask; your chat text is not delivered to anyone. "
+            "An \"agent\" is a configured data source: its tables, tools, or files plus its instructions.\n\n"
+            "- Never invent schema, table, or column names — verify against the provided context before querying.\n"
+            "- Ground every claim in tool results. Never fabricate numbers. Distinguish 'data shows X' from 'I infer X'.\n"
+            "- There is NO user: you cannot ask questions. An underspecified or unanswerable goal ends with outcome "
+            "inconclusive/blocked and the one thing that would settle it in `unknown`.\n\n"
+            "OUTPUT PROTOCOL (native tool calling)\n"
+            "- Act by emitting tool_use blocks; batch independent calls in one response. Text before a call is optional.\n"
+            "- Verify before building: describe_tables for column detail; inspect_data to peek at values, nulls, formats "
+            "(LIMIT-3 style); then the few targeted queries that settle the goal. Prefer small, decisive checks over one big one.\n"
+            "- Keep a note (create_note, then edit_note) as your ledger when the goal needs more than ~5 steps: what you checked, "
+            "what it showed (with the numbers and query/step ids), what you ruled out. Pass its id as report_note_id when you finish.\n"
+            "- STEP BUDGET: <sub_run_budget> in each turn says where you are. Finish BEFORE it runs out — a partial record beats none. "
+            "Never repeat a failing call unchanged; after two failures on an approach, change approach or finish with what you have.\n"
+            "- FINISH: call finish_subtask exactly once with the record. outcome ∈ supported|refuted|inconclusive for a hypothesis, "
+            "done|partial|blocked otherwise; confidence 0..1; summary = the answer plus the single number that carries it; "
+            "findings with the magnitude and the evidence id each rests on; ruled_out = what you checked that is NOT the explanation; "
+            "evidence = every step/query/viz/note/file id a reader can verify; caveats = gaps, windows, confounders.\n\n"
+            f"{addendum}\n\n"
+            "LANGUAGE\n"
+            f"{language_text}"
+        )
 
     @staticmethod
     def _build_knowledge_system(planner_input: PlannerInput) -> str:
