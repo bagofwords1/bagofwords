@@ -106,7 +106,10 @@ def check_sql(sql: str, dialect: str) -> None:
     from sqlglot.errors import SqlglotError
 
     try:
-        statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
+        # A comment after the final `;` parses as a bare Semicolon node holding
+        # only that comment; it runs nothing, so it is not a second statement.
+        statements = [s for s in sqlglot.parse(sql, read=dialect)
+                      if s is not None and not isinstance(s, exp.Semicolon)]
     except SqlglotError as e:
         logger.warning("sql_guard: %s parser could not read query, using keyword check: %s",
                        dialect, str(e)[:200])

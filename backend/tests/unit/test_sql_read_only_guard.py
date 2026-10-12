@@ -38,6 +38,7 @@ WRITES = [
     "CREATE TABLE t2 AS SELECT * FROM orders",
     "SELECT 1; DROP TABLE orders",
     "SELECT * FROM orders; DELETE FROM orders",
+    "SELECT 1; -- keep going\nDELETE FROM orders",
     "GRANT SELECT ON orders TO public",
 ]
 
@@ -50,6 +51,9 @@ READS = [
     "SELECT id, ROW_NUMBER() OVER (PARTITION BY c ORDER BY d) AS rn FROM t",
     "-- update the totals\nSELECT SUM(amount) FROM orders /* drop me */",
     "SELECT * FROM orders WHERE note = 'please DELETE FROM my list';",
+    "SELECT * FROM orders LIMIT 5; -- sample",
+    "SELECT * FROM orders;\n-- trailing note",
+    "SELECT * FROM orders; /* trailing note */",
 ]
 
 
