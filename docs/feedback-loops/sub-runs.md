@@ -1,8 +1,19 @@
 # Feedback Loop — sub-runs (delegated agent runs with wave fan-in)
 
-**Status: plan. Loops below are written to be executed as each phase of
-`docs/design/sub-runs.md` lands; observed output sections are empty until
-then.** Design decisions are not repeated here; this doc is the runnable
+**Status: plan, approved, not started.** Implementation begins when the
+Anthropic key is provided; nothing in this doc runs before that. Loops below
+are executed as each phase of `docs/design/sub-runs.md` lands; observed
+output sections are empty until then.
+
+**Model for every live leg: Anthropic Claude Haiku 5.5 (`claude-haiku-5-5`),
+as both the org default and the small model.** It is the cheapest model
+that runs the native tool-use planner, so a wave of five children costs
+little, and it is the weakest model we expect the posture and the
+`finish_subtask` contract to hold on; if they hold on Haiku they hold on the
+larger tiers. A second provider is added only at phase 3 exit. The key is
+read from the environment only (`ANTHROPIC_API_KEY` for a booted stack,
+`ANTHROPIC_API_KEY_TEST` for the eval harness) and is never written to the
+repo, a doc, a log, or command output. Design decisions are not repeated here; this doc is the runnable
 proof that they hold, on one root-cause-analysis (RCA) use case.
 
 Claim being validated: when a user asks *why* a metric moved, the agent
@@ -145,9 +156,22 @@ matrix (`EVAL_LLMS`, same selection as `tests/evals/test_evals.py`).
 ```bash
 cd backend
 export BOW_DATABASE_URL="sqlite:///db/app.db"
-export ANTHROPIC_API_KEY_TEST=…   # or OPENAI_API_KEY_TEST; never echoed
-EVAL_LLMS=anthropic uv run pytest tests/evals/test_evals.py -k sub_runs_rca -m evals -v
+# key is already in the environment as ANTHROPIC_API_KEY_TEST; never echo it
+EVAL_LLMS=anthropic:claude-haiku-5-5 uv run pytest tests/evals/test_evals.py -k sub_runs_rca -m evals -v
 ```
+
+Live stack for UI evidence and manual runs (same model):
+
+```bash
+tools/agent/boot_stack.sh
+cd backend && uv run python ../tools/agent/seed_org.py --demo
+HAIKU_MODEL_ID=claude-haiku-5-5 uv run python ../tools/agent/setup_haiku_llm.py   # reads ANTHROPIC_API_KEY
+uv run python ../tools/agent/seed_rca_incident.py --install   # registers "Checkout Ops" through the API
+```
+
+`setup_haiku_llm.py` registers Haiku as the default; the plan also sets it
+as the small default so children on the `investigate` profile and the
+judge bill to the same model (one line in the script, `is_small_default`).
 
 Suite `backend/tests/evals/suites/sanity_sub_runs_rca.yaml` (lands with
 phase 2; draft):
@@ -280,11 +304,12 @@ reaches for parent-only tools; the fan-in turn concludes with the planted
 cause and the decoys; a later turn reaches for the record instead of
 re-running the work.
 
-Observed (fill in per model):
+Observed (fill in per phase, Haiku 5.5 first; second provider at phase 3 exit):
 
 ```
-anthropic default: …
-openai default: …
+phase 2, claude-haiku-5-5: …
+phase 3, claude-haiku-5-5: …
+phase 3, second provider: …
 ```
 
 ---
@@ -317,13 +342,33 @@ Video: the full turn from prompt to fan-in reply, for the PR.
 
 ---
 
+## Start order (when the key arrives)
+
+1. Export the key in the shell only; confirm `tools/agent/setup_haiku_llm.py`
+   can register `claude-haiku-5-5` against a booted stack (smoke, no
+   sub-runs code yet). Record the model badge screenshot as evidence 0.
+2. Commit `seed_rca_incident.py` and the generated SQLite, with a unit test
+   that the planted series are where the doc says (failure rate per
+   platform/version/provider before and after 09-14; decoys flat).
+3. Phase 1 on the stub LLM only (Loop A tests 3–5, 8–9). No live calls.
+4. Phase 2: Loop A complete, harness changes 1–2, then Loop B case
+   `rca_fans_out_and_concludes` on Haiku. The first live run is a manual
+   one through the UI with the agent in `proactive` posture, watched end to
+   end, before the eval is trusted.
+5. Phase 3 with UI evidence; then the second provider.
+
+Budget guard for the live legs: `sub_run_max_steps = 40`,
+`sub_run_concurrency = 3`, `sub_run_deadline_minutes = 15` as designed, and
+the eval suite's `fixtures.org_settings` pins them so a runaway wave cannot
+exceed roughly 200 Haiku planner calls per case.
+
 ## Phase exit criteria
 
 | Phase | Done when |
 |---|---|
 | 1 `subagent` mode, `finish_subtask`, tables, profile | Loop A tests 3–5, 8–9 pass with a hand-built child run (no `delegate`); seed script committed |
-| 2 `delegate`, wave tracker, fan-in, `read_sub_run`, settings | all Loop A tests pass; harness changes 1–2 landed; Loop B `rca_fans_out_and_concludes` passes on the default model |
-| 3 live cards, wave strip, summary, trace, rollup | UI evidence 1–7 captured; Loop B passes on two providers |
+| 2 `delegate`, wave tracker, fan-in, `read_sub_run`, settings | all Loop A tests pass; harness changes 1–2 landed; Loop B `rca_fans_out_and_concludes` passes on Haiku 5.5 |
+| 3 live cards, wave strip, summary, trace, rollup | UI evidence 0–8 captured on Haiku 5.5; Loop B passes on Haiku and one second provider |
 | 4 `create_data` in children | evidence viz ids appear in the fan-in reply's `create_doc`; `test_created_queries_are_report_scoped_without_widgets` holds with widgets off |
 | 5 profiles via catalog, resume, steering | separate loop doc |
 
