@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, get_current_organization
@@ -395,7 +395,7 @@ async def set_llm_fallback_order(
 
 class ModelAccessAdd(BaseModel):
     principal_type: str  # "user" | "group" | "role"
-    principal_id: str
+    principal_id: str = Field(min_length=1, max_length=36)  # user/group/role id (String(36) column)
 
 
 class ModelRestrictionUpdate(BaseModel):

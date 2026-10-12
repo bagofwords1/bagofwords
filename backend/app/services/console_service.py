@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, literal, Integer, case, or_, not_, and_
 from app.models.organization import Organization
@@ -1558,7 +1559,7 @@ class ConsoleService:
         report = report_result.scalar_one_or_none()
         
         if not report:
-            raise ValueError(f"Report {report_id} not found")
+            raise HTTPException(status_code=404, detail="Report not found")
         
         # Get user info
         user = None
@@ -1765,7 +1766,7 @@ class ConsoleService:
         ae_result = await db.execute(ae_query)
         agent_execution = ae_result.scalar_one_or_none()
         if not agent_execution:
-            raise ValueError("Agent execution not found")
+            raise HTTPException(status_code=404, detail="Agent execution not found")
 
         # Fetch blocks associated to this AE ordered by (seq, block_index)
         blocks_query = (
@@ -2063,7 +2064,7 @@ class ConsoleService:
         ae_res = await db.execute(ae_query)
         ae = ae_res.scalar_one_or_none()
         if not ae:
-            raise ValueError("Agent execution not found for completion")
+            raise HTTPException(status_code=404, detail="Agent execution not found for completion")
         return await self.get_agent_execution_trace(db, organization, ae.id)
 
     async def _turn_memory_sections(self, db: AsyncSession, rows, ae_ids, viewer_id: Optional[str]) -> dict:
@@ -2161,7 +2162,7 @@ class ConsoleService:
         )
         report = (await db.execute(report_q)).scalar_one_or_none()
         if not report:
-            raise ValueError("Report not found")
+            raise HTTPException(status_code=404, detail="Report not found")
 
         # Every agent execution in the report = one assistant turn. Join the
         # system completion and its parent user completion (which holds the

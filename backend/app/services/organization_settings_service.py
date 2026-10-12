@@ -1382,7 +1382,7 @@ class OrganizationSettingsService:
         new_week_start: str | None
         if week_start in (None, "", "auto"):
             new_week_start = None
-        elif week_start.lower() in self._WEEK_START_OPTIONS:
+        elif isinstance(week_start, str) and week_start.lower() in self._WEEK_START_OPTIONS:
             new_week_start = week_start.lower()
         else:
             raise HTTPException(

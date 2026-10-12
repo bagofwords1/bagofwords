@@ -193,7 +193,24 @@ class BulkUpdateTablesRequest(BaseModel):
     """Request schema for bulk activate/deactivate tables."""
     action: str  # "activate" or "deactivate"
     filter: Optional[Dict[str, Any]] = None  # {"schema": "...", "search": "..."}
-    
+
+    @validator("filter")
+    def _validate_filter_types(cls, v):
+        # The service consumes these keys as str / list[str]; anything else
+        # (numbers, nested objects) used to crash deep in query building.
+        if not v:
+            return v
+        for key in ("schema", "schemas", "connection"):
+            val = v.get(key)
+            if val is None or isinstance(val, str):
+                continue
+            if not isinstance(val, list) or not all(isinstance(s, str) for s in val):
+                raise ValueError(f"filter.{key} must be a string or a list of strings")
+        search = v.get("search")
+        if search is not None and not isinstance(search, str):
+            raise ValueError("filter.search must be a string")
+        return v
+
     class Config:
         from_attributes = True
 
