@@ -420,7 +420,11 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
     async def _children_stopped():
         async with async_session_maker() as db:
             rows = (await db.execute(select(Completion).where(Completion.report_id == rid2, Completion.trigger_source == "sub_run", Completion.role == "system"))).scalars().all()
-            return all(c.sigkill is not None for c in rows) and len(rows) == 2
+            # Every child that had started is sigkilled. On SQLite the wave
+            # runs its children one at a time (effective_concurrency), so a
+            # child the stop reached while still pending has no completion
+            # at all — it is interrupted above without ever running.
+            return bool(rows) and all(c.sigkill is not None for c in rows)
     assert _wait_for(lambda: _run(_children_stopped()), timeout_s=30, what="children sigkilled")
 
 

@@ -42,14 +42,16 @@ cases:
           max_calls: 0
         # the fan-in turn concludes with the planted cause and the decoys
         - type: judge
-          rubric: >
-            The final answer names the checkout-service / app release 5.2.0 on
-            2026-09-14 affecting iOS payments through PayFlow as the cause of
-            the drop in paid orders, cites concrete numbers (a failure rate or
-            a paid-orders-per-day delta), and explicitly rules out at least two
-            of: the premium price change, the APAC campaign, the us-east PayFlow
-            blip, seasonality. It must not present a sub-run id to the user.
-            Score 1-5; pass at 4 or above.
+          prompt: >
+            The final answer (the last assistant reply in the trace) must do
+            ALL of the following: (a) name the app release 5.2.0 / the deploy
+            of 2026-09-14 affecting iOS payments through PayFlow as the cause
+            of the drop in paid orders; (b) cite at least one concrete number
+            for it (a failure rate, a paid share, or a paid-orders delta); and
+            (c) explicitly rule out at least two of: the premium price change,
+            the APAC campaign, the us-east PayFlow blip, seasonality. It must
+            not show a sub-run id to the user. Answer "pass" only if (a), (b)
+            and (c) are all clearly true; cite the sentences you relied on.
 
   - name: simple_ask_does_not_delegate
     prompt:
