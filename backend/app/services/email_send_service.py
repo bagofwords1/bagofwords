@@ -25,12 +25,11 @@ from app.ai.tools.schemas.send_email import (
     SendEmailOutput,
 )
 
+# `_UNSET` ("no reader given") renders the stored snapshot, as every caller got
+# before per-recipient rendering. Distinct from None: a reader with no account.
 from app.services.artifact_payload import UNSCOPED as _UNSET
 
 logger = logging.getLogger(__name__)
-
-# `_UNSET` ("no reader given") renders the stored snapshot, as every caller got
-# before per-recipient rendering. Distinct from None: a reader with no account.
 
 
 # Strong right-to-left Unicode blocks: Hebrew, Arabic, Arabic Supplement,
@@ -477,7 +476,7 @@ class EmailSendService:
                 cache[key] = False
         return cache[key]
 
-    async def _resolve_tabular(self, spec, db, report, organization, res, viewer: Any = None):
+    async def _resolve_tabular(self, spec, db, report, organization, res, viewer: Any = _UNSET):
         """visualization_id / query_id -> CSV or XLSX of the underlying step data."""
         from sqlalchemy import select
         from app.models.visualization import Visualization
@@ -574,7 +573,7 @@ class EmailSendService:
         res.success = True
         return res, _att_dict(temp_path, filename, maintype, subtype), temp_path
 
-    async def _resolve_artifact(self, spec, db, report, res, viewer: Any = None):
+    async def _resolve_artifact(self, spec, db, report, res, viewer: Any = _UNSET):
         """artifact_id -> PPTX (slides) or PDF (page)."""
         from app.models.artifact import ArtifactVersion
 
