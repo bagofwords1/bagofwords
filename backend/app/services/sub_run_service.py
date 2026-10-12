@@ -91,6 +91,25 @@ def sub_run_limits(settings) -> Dict[str, Any]:
     }
 
 
+def _dialect_name(db) -> str:
+    try:
+        return str(db.get_bind().dialect.name or "").lower()
+    except Exception:
+        return ""
+
+
+def effective_concurrency(configured: int, dialect: str) -> int:
+    """SQLite has one writer: several agent runs each holding a transaction
+    across an LLM call starve each other into "database is locked" and the
+    children crash out. A SQLite-backed deployment (dev, the sandbox stack)
+    runs its children one at a time; Postgres honours the org setting."""
+    if "sqlite" in (dialect or ""):
+        if configured > 1:
+            logger.info("sub-runs: SQLite backend — children run one at a time (configured concurrency %s)", configured)
+        return 1
+    return int(configured)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Service
 # ─────────────────────────────────────────────────────────────────────────────
@@ -313,7 +332,7 @@ class SubRunService:
             deadline_at = wave.deadline_at
             job_id = wave.deadline_job_id
         self._arm_deadline(job_id, wave_id, deadline_at)
-        spawn(self._launcher(wave_id, limits["concurrency"]))
+        spawn(self._launcher(wave_id, effective_concurrency(limits["concurrency"], _dialect_name(db))))
         return wave_id
 
     def _arm_deadline(self, job_id: str, wave_id: str, deadline_at: datetime) -> None:

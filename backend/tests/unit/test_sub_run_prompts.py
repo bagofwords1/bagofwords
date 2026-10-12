@@ -11,6 +11,7 @@ import pytest
 
 from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
 from app.ai.sub_run_profiles import BLOCKED_IN_SUB_RUNS, PROFILES, allowed_tools, get_profile
+from app.services.sub_run_service import effective_concurrency
 from app.schemas.ai.planner import PlannerInput
 
 
@@ -92,3 +93,11 @@ def test_profiles_never_include_blocked_or_parent_only_tools(key):
             assert ("create_data" in tools) is allow_cd
         if key == "validate":
             assert "create_data" in tools
+
+
+def test_sqlite_runs_children_one_at_a_time():
+    # One writer: parallel children starve each other into "database is locked".
+    assert effective_concurrency(3, "sqlite") == 1
+    assert effective_concurrency(1, "sqlite") == 1
+    assert effective_concurrency(3, "postgresql") == 3
+    assert effective_concurrency(3, "") == 3
