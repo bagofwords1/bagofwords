@@ -175,3 +175,110 @@ def test_human_admin_can_still_get_invite_link(invite_cast, test_client):
     resp = test_client.get(f"/api/organizations/{c['org_id']}/members/{c['pending_id']}/invite-link",
                            headers=_hdr(c["admin"]["token"], c["org_id"]))
     assert resp.status_code == 200, resp.json()
+
+
+# ── 828552157 (retest bypass): manage_members -> admin via invite ────────
+#
+# Invariant: inviting is granting. POST /organizations/{org}/members applies
+# the same rule as the member-role update above — a non-full-admin can only
+# invite with a role whose permissions they already hold (deny is 403, audited
+# as member.invite.denied, and leaves no membership row). Full admins are
+# unrestricted. Covers both a pending email invite (role materialized on
+# acceptance) and an already-registered user (role materialized immediately).
+
+def _invite(test_client, token, org_id, email, role):
+    return test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email, "role": role},
+        headers=_hdr(token, org_id),
+    )
+
+
+def _member_emails(test_client, admin_token, org_id):
+    resp = test_client.get(f"/api/organizations/{org_id}/members", headers=_hdr(admin_token, org_id))
+    assert resp.status_code == 200, resp.json()
+    return {(m.get("email") or (m.get("user") or {}).get("email") or "").lower() for m in resp.json()}
+
+
+def _audit_rows(test_client, admin_token, org_id, action, user_id):
+    resp = test_client.get("/api/enterprise/audit",
+                           params={"action": action, "user_id": user_id, "page_size": 100},
+                           headers=_hdr(admin_token, org_id))
+    assert resp.status_code == 200, resp.json()
+    return resp.json()["items"]
+
+
+@pytest.fixture
+def registered_outsider(bootstrap_admin):
+    """A registered account (attacker-controlled) that is not in the org yet."""
+    return bootstrap_admin(name_prefix="invitee")
+
+
+def _target_email(target, outsider, prefix):
+    return f"{_uniq(prefix)}@test.com" if target == "pending_email" else outsider["email"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("target", ["pending_email", "registered_user"])
+def test_delegate_cannot_invite_as_admin(cast, test_client, whoami, registered_outsider, target):
+    c = cast
+    email = _target_email(target, registered_outsider, "atk")
+    resp = _invite(test_client, c["delegate"]["token"], c["org_id"], email, "admin")
+    assert resp.status_code == 403, resp.json()
+    assert email.lower() not in _member_emails(test_client, c["admin"]["token"], c["org_id"])
+    denied = _audit_rows(test_client, c["admin"]["token"], c["org_id"],
+                         "member.invite.denied", c["delegate"]["user_id"])
+    assert denied, "a denied invite must be audited"
+    assert "full_admin_access" in (denied[0].get("details") or {}).get("missing_permissions", [])
+    if target == "registered_user":
+        orgs = {o["id"] for o in whoami(registered_outsider["token"])["organizations"]}
+        assert c["org_id"] not in orgs
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("target", ["pending_email", "registered_user"])
+def test_delegate_can_still_invite_at_or_below_own_level(cast, test_client, whoami, registered_outsider, target):
+    c = cast
+    email = _target_email(target, registered_outsider, "ok")
+    resp = _invite(test_client, c["delegate"]["token"], c["org_id"], email, "member")
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["role"] == "member"
+    assert email.lower() in _member_emails(test_client, c["admin"]["token"], c["org_id"])
+    if target == "registered_user":
+        assert "full_admin_access" not in _perms(whoami, registered_outsider["token"], c["org_id"])
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("target", ["pending_email", "registered_user"])
+def test_admin_can_still_invite_admins(cast, test_client, whoami, registered_outsider,
+                                       create_user, login_user, target):
+    c = cast
+    email = _target_email(target, registered_outsider, "adm")
+    resp = _invite(test_client, c["admin"]["token"], c["org_id"], email, "admin")
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["role"] == "admin"
+    if target == "pending_email":
+        create_user(email=email, password="Test1234!")
+        token = login_user(email, "Test1234!")
+    else:
+        token = registered_outsider["token"]
+    assert "full_admin_access" in _perms(whoami, token, c["org_id"])
+
+
+@pytest.mark.e2e
+def test_delegate_csv_import_still_creates_plain_members(cast, test_client):
+    """Bulk import creates memberships with a fixed ``member`` role through the
+    same service method, so it must keep working for a delegate."""
+    c = cast
+    email = f"{_uniq('imp')}@test.com"
+    resp = test_client.post(
+        f"/api/organizations/{c['org_id']}/members/import?dry_run=false",
+        files={"file": ("members.csv", f"email,note\n{email},x\n".encode(), "text/csv")},
+        headers=_hdr(c["delegate"]["token"], c["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["summary"]["created"] == 1, resp.json()
+    members = test_client.get(f"/api/organizations/{c['org_id']}/members",
+                              headers=_hdr(c["admin"]["token"], c["org_id"])).json()
+    row = next(m for m in members if (m.get("email") or "").lower() == email)
+    assert row["role"] == "member"

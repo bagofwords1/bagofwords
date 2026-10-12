@@ -3294,6 +3294,19 @@ class ReportService:
             current_user = await db.get(User, current_user_id)
             organization = await db.get(Organization, organization_id)
 
+            # The refresh runs the report's queries AS the scheduling user and
+            # mails the results to subscribers. Re-check at fire time that the
+            # user may still act here — a SCIM-deprovisioned (inactive) or
+            # removed member must not keep querying with their credentials.
+            # Skip without unscheduling, so reactivating the user resumes it.
+            from app.core.permission_resolver import principal_can_act_in_org
+            if organization is None or not await principal_can_act_in_org(db, current_user, str(organization_id)):
+                logger.warning(
+                    f"Skipped scheduled refresh for report {report_id}: user {current_user_id} "
+                    f"is deactivated or no longer bound to org {organization_id}."
+                )
+                return
+
             # Now call rerun_report_steps with the fresh db and loaded objects
             await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True)
 

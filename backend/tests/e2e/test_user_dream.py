@@ -363,6 +363,36 @@ def test_the_dream_needs_user_memory_on(env):
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("lost", ["deactivated", "removed"])
+def test_no_dream_for_a_user_who_can_no_longer_act(env, lost):
+    """A dream works on the user's behalf, so it follows the fire-time rule of
+    waits and scheduled prompts: deactivated (SCIM DELETE keeps the
+    membership) or removed users are skipped before any model call."""
+    rid = env.report("Churn")
+    env.turn(rid, "Churn by plan")
+    from app.models.membership import Membership
+    from app.models.user import User
+
+    async def _lose_access():
+        # Direct write: these are the states SCIM DELETE / member removal
+        # leave behind; producing them through those flows isn't the point.
+        async with async_session_maker() as db:
+            if lost == "deactivated":
+                await db.execute(update(User).where(User.id == env.user_id).values(is_active=False))
+            else:
+                await db.execute(update(Membership).where(Membership.user_id == env.user_id,
+                                                          Membership.organization_id == env.org_id)
+                                 .values(deleted_at=datetime.utcnow()))
+            await db.commit()
+    _run(_lose_access())
+
+    reflect = _Reflect()
+    run = env.dream(reflect)
+    assert run.status == "skipped" and run.status_reason == "access_lost", (run.status, run.status_reason)
+    assert reflect.prompts == []
+
+
+@pytest.mark.e2e
 def test_switching_off_during_the_reflection_writes_nothing(env):
     env.settings(enable_agent_checkins=True)
     rid = env.report("Churn")

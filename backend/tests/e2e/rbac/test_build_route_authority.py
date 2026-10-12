@@ -303,3 +303,51 @@ def test_build_reads_open_when_all_agents_accessible(test_client, world):
     ):
         r = test_client.get(url, headers=h)
         assert r.status_code == 200, f"{url}: {r.status_code} {r.text}"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("viewer", ["manager_a", "member"])
+def test_builds_hidden_from_list_serve_only_visible_rows(test_client, world, viewer):
+    """Aikido 829412122: ``GET /builds`` drops any build carrying an instruction
+    on an agent the caller can't access, while the per-build reads serve it
+    row-filtered. That split is deliberate (every build is a whole-org snapshot,
+    so 404-ing those builds would hide /builds/main and every training build
+    from agent admins); the invariant is that no read of such a build carries
+    the hidden instruction, whichever build pair is asked for."""
+    org_id, admin = world["org_id"], world["admin"]
+    before = _main(test_client, admin, org_id) if test_client.get(
+        "/api/builds/main", headers=_hdr(admin["token"], org_id)).status_code == 200 else None
+    secret_text = f"SECRET ds_b {uuid.uuid4().hex}"
+    secret = _create_instruction(test_client, admin, org_id, secret_text, [world["ds_b"]["id"]])
+    with_secret = _main(test_client, admin, org_id)
+    secret_v2 = f"SECRET v2 {uuid.uuid4().hex}"
+    r = test_client.put(f"/api/instructions/{secret['id']}", json={"text": secret_v2},
+                        headers=_hdr(admin["token"], org_id))
+    assert r.status_code == 200, r.text
+    edited = _main(test_client, admin, org_id)
+    assert edited["id"] != with_secret["id"]
+
+    h = _hdr(world[viewer]["token"], org_id)
+    listed = test_client.get("/api/builds", params={"status": "all", "limit": 200}, headers=h)
+    assert listed.status_code == 200, listed.text
+    listed_ids = {b["id"] for b in listed.json()["items"]}
+    hidden = [b for b in (with_secret, edited) if b["id"] not in listed_ids]
+    assert hidden, "precondition: the list hides builds carrying the inaccessible instruction"
+
+    pairs = [(edited, with_secret), (with_secret, edited)]
+    if before:
+        pairs += [(with_secret, before), (before, with_secret)]
+    urls = [f"/api/builds/{b['id']}/contents" for b in hidden]
+    for a, b in pairs:
+        urls += [f"/api/builds/{a['id']}/diff?compare_to={b['id']}",
+                 f"/api/builds/{a['id']}/diff/details?compare_to={b['id']}"]
+    for url in urls:
+        r = test_client.get(url, headers=h)
+        assert r.status_code == 200, f"{url}: {r.status_code}"
+        for leaked in (secret_text, secret_v2, secret["id"]):
+            assert leaked not in r.text, f"{url} leaks {leaked[:16]}"
+        if "/diff/details" in url:
+            body = r.json()
+            shown = {k: sum(1 for it in body["items"] if it["change_type"] == k)
+                     for k in ("added", "modified", "removed")}
+            assert shown == {k: body[f"{k}_count"] for k in shown}, url
