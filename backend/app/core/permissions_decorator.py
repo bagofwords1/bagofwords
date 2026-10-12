@@ -40,8 +40,14 @@ def _is_view_only_permission(permission) -> bool:
     return bool(perms) and all(str(p).startswith("view_") for p in perms)
 
 
-def requires_permission(permission, model=None, owner_only=False, allow_public=False, resource_scoped=False):
+def requires_permission(
+    permission, model=None, owner_only=False, allow_public=False,
+    resource_scoped=False, conceal_entity=False,
+):
     """
+    ``conceal_entity`` maps entity source-lineage denials to the workflow's
+    not-found response, without changing route-wide permission failures.
+
     Enhanced decorator that checks:
     1. User has sufficient role-based permission
     2. User belongs to the organization
@@ -95,7 +101,7 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
             from app.services.bow_source_access import guard_route
-            await guard_route(db, user, kwargs)
+            await guard_route(db, user, kwargs, conceal_entity=conceal_entity)
 
             # If model is provided and object_id exists and is not None and is a valid UUID-like string, verify object belongs to organization
             obj = None

@@ -563,7 +563,7 @@ async def preview_entity(
 
 # Suggestion workflow endpoints
 @router.post("/{entity_id}/suggest", response_model=EntitySchema)
-@requires_permission('create_reports')
+@requires_permission('create_reports', conceal_entity=True)
 async def suggest_entity(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -576,7 +576,7 @@ async def suggest_entity(
 
 
 @router.post("/{entity_id}/withdraw", response_model=EntitySchema)
-@requires_permission('create_reports')
+@requires_permission('create_reports', conceal_entity=True)
 async def withdraw_suggestion(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),

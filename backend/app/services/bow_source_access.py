@@ -1,4 +1,7 @@
 """Conservative access lineage for monitoring snapshots and their containing reports."""
+import logging
+
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload
 
@@ -77,7 +80,7 @@ async def step_access(db, step):
                            .where(Widget.id == str(step.widget_id)))
 
 
-async def guard_route(db, user, kwargs):
+async def guard_route(db, user, kwargs, *, conceal_entity=False):
     """Resolve route IDs without loading artifacts; run before ordinary role shortcuts."""
     from app.models.query import Query
     from app.models.completion import Completion
@@ -99,7 +102,16 @@ async def guard_route(db, user, kwargs):
             report_ids.add(str(rid))
     if kwargs.get("entity_id"):
         access = await db.scalar(select(Entity.bow_source_access).where(Entity.id == str(kwargs["entity_id"])))
-        await assert_read(db, access, user)
+        if conceal_entity and not await can_read(db, access, user):
+            # Workflow mutations conceal inaccessible entity IDs just like the
+            # owner lookup conceals missing/non-owned entities.
+            logging.getLogger(__name__).warning(
+                "Entity workflow source access denied: user=%s entity=%s",
+                user.id, kwargs["entity_id"],
+            )
+            raise HTTPException(status_code=404, detail="Entity not found")
+        if not conceal_entity:
+            await assert_read(db, access, user)
     for rid in report_ids:
         await assert_read(db, await report_access(db, rid), user)
 
