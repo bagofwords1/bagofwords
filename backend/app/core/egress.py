@@ -279,11 +279,14 @@ class _PinCore:
         if url.scheme not in ("http", "https"):
             raise EgressBlockedError(f"Scheme {url.scheme!r} is not allowed.", request=request)
         host = url.host
+        proxy = env_proxy_for(str(url)) if self._trust_env else None
         try:
-            addrs = check_host(host, self._policy)
+            # Behind a proxy the server may have no DNS for the target at all
+            # (the proxy resolves it), so an unresolvable name is not an error
+            # there; a name that does resolve is still validated.
+            addrs = check_host(host, self._policy, require_resolution=not proxy)
         except UnsafeURLError as e:
             raise EgressBlockedError(str(e), request=request) from None
-        proxy = env_proxy_for(str(url)) if self._trust_env else None
         if proxy:
             # The proxy resolves; the hostname check above is all we can do.
             return ("proxy", proxy), request

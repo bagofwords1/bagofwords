@@ -185,6 +185,64 @@ def test_renderer_policy_allows_only_own_origin():
         pol.decide("169.254.169.254", 80)
 
 
+def test_renderer_policy_images_match_in_app_img_src(monkeypatch):
+    """Exports load the https images the in-app iframe CSP (``img-src https:``)
+    shows, under the admin egress tier."""
+    from app.core.render_guard import RendererPolicy
+    from app.core.url_safety import UnsafeURLError
+    from tests.utils.egress_fakes import FakeDNS
+
+    monkeypatch.setattr(egress, "_getaddrinfo", FakeDNS({
+        "cdn.example.invalid": "93.184.216.34", "sharepoint.corp.invalid": "10.0.0.8",
+        "evil.example.invalid": "169.254.169.254",
+    }))
+    pol = RendererPolicy(["http://127.0.0.1:3000"])
+    assert pol.allows_image("https://cdn.example.invalid/logo.png")
+    assert pol.allows_image("http://127.0.0.1:3000/avatar.png")
+    for url in ("http://cdn.example.invalid/logo.png", "https://cdn.example.invalid:8443/x.png",
+                "file:///etc/passwd", "ftp://cdn.example.invalid/x.png"):
+        assert not pol.allows_image(url), url
+    assert not pol.allows_url("https://cdn.example.invalid/lib.js")  # non-image: still refused
+
+    assert str(pol.decide("cdn.example.invalid", 443)[0]) == "93.184.216.34"
+    assert str(pol.decide("sharepoint.corp.invalid", 443)[0]) == "10.0.0.8"  # on-prem, flag off
+    with pytest.raises(UnsafeURLError):
+        pol.decide("evil.example.invalid", 443)       # metadata behind a name
+    with pytest.raises(UnsafeURLError):
+        pol.decide("sharepoint.corp.invalid", 80)     # off-origin plain http
+    monkeypatch.setattr(egress, "block_private_outbound", lambda: True)
+    with pytest.raises(UnsafeURLError):
+        pol.decide("sharepoint.corp.invalid", 443)    # flag on
+
+
+def test_guard_lets_images_through_allows_image_only():
+    """Route-guard plumbing, real Chromium: an image request passes on
+    ``allows_image``; a fetch to the same host does not."""
+    from playwright.async_api import async_playwright
+
+    from app.core.render_guard import guard_page_requests
+
+    async def run(origin, other):
+        async with async_playwright() as p:
+            b = await p.chromium.launch(headless=True)
+            page = await b.new_page()
+            await guard_page_requests(
+                page, lambda u: u.startswith(origin), allows_image=lambda u: u.startswith(other)
+            )
+            await page.goto(f"{origin}/start")
+            await page.evaluate(
+                "(u) => Promise.all([fetch(u + '/f').catch(() => 0), new Promise(r => {"
+                " const i = new Image(); i.onload = i.onerror = r; i.src = u + '/img'; })])",
+                other,
+            )
+            await b.close()
+
+    with _server("127.0.0.2") as (other, other_seen):
+        with _server("127.0.0.1") as (origin, _):
+            asyncio.run(run(origin, other))
+    assert other_seen == ["/img"]
+
+
 def test_browser_tool_egress_policy(monkeypatch):
     from types import SimpleNamespace
 

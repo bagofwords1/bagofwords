@@ -191,7 +191,10 @@ syslog, botocore, git, the Azure SDKs, and headless Chromium.
 - Chromium: `app/core/render_guard.py` — `RendererPolicy` (own render origin
   + `RENDER_ASSET_HOSTS`, which is **empty**: every library and font a page
   artifact uses is vendored and inlined by `artifact_libs`, and the in-app
-  iframe CSP already forbids external scripts / styles / fonts / connect),
+  iframe CSP already forbids external scripts / styles / fonts / connect;
+  plus https images from any host on 443, mirroring the iframe's
+  `img-src https:`, so exports show what the app shows. Off-origin hosts get
+  the admin tier: never metadata / link-local, private only with the flag off),
   `guard_page_requests` (route abort), and `RenderEgressProxy` — an in-process
   forward proxy Chromium is launched behind (`<-loopback>` removes the
   implicit loopback bypass) that decides on every connection, including each
@@ -312,9 +315,13 @@ PASS | PDF export, normal page artifact                       | rendered   (own 
   browser), the proxy resolves; the hostname is still checked.
 - **Agent browser tool behind an environment proxy** keeps the route guard
   only (redirect hops then pass through the deployment's proxy).
-- **Renderer**: the app's own render origin is trusted as configured; pages
-  that load other external assets now render without them in exports and
-  thumbnails (intended).
+- **Renderer**: the app's own render origin is trusted as configured; https
+  images load as they do in the app (admin tier); other external assets
+  (scripts, styles, fonts — already refused in the app) do not load in
+  exports and thumbnails.
+- **Pinned httpx behind an environment proxy**: a target the server cannot
+  resolve itself is sent to the proxy (it resolves there); a target that does
+  resolve locally is still validated.
 
 ## Pre-existing failures (also fail on the package A branch)
 

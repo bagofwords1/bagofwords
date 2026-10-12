@@ -129,7 +129,8 @@ class CreateArtifactTool(Tool):
                 browser = await p.chromium.launch(headless=True, executable_path=_exe, **egress.launch_kwargs())
                 page = await browser.new_page(viewport={"width": 1280, "height": 900})
                 await guard_page_requests(
-                    page, lambda u: u == page_url.get("url") or policy.allows_url(u), label="artifact preview"
+                    page, lambda u: u == page_url.get("url") or policy.allows_url(u),
+                    allows_image=policy.allows_image, label="artifact preview"
                 )
 
                 # Capture JS errors during render. Both channels matter:

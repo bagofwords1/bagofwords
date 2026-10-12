@@ -19,13 +19,16 @@ Two layers, shared by every server-side renderer:
    address (``app.core.egress``) and connects to *that* address — so DNS
    rebinding has nothing to switch either.
 
-Renderer policy (PDF export, thumbnails): only the app's own render origin and
-``RENDER_ASSET_HOSTS``. Everything a page artifact needs (React, ECharts,
-Tailwind, lucide, fonts) is vendored and inlined by ``app.services.artifact_libs``
-— the renderer loads nothing from a CDN, and the in-app artifact iframe's CSP
-(``frontend/utils/artifactIframe.ts``) already refuses external scripts, styles,
-fonts and ``connect-src``. So the asset allowlist is empty: a page that pulls
-other external assets renders without them in exports.
+Renderer policy (PDF export, thumbnails): the app's own render origin,
+``RENDER_ASSET_HOSTS``, and https images from any host. Everything a page
+artifact needs (React, ECharts, Tailwind, lucide, fonts) is vendored and
+inlined by ``app.services.artifact_libs`` — the renderer loads no script or
+style from a CDN, and the in-app artifact iframe's CSP
+(``frontend/utils/artifactIframe.ts``) refuses external scripts, styles, fonts
+and ``connect-src``. That CSP does allow ``img-src https:``, so an export
+loads the same images the user sees in the app. Every host other than the
+app's origin gets the admin egress tier (``app.core.egress``): cloud metadata
+and link-local never, private / LAN unless ``security.block_private_outbound``.
 """
 from __future__ import annotations
 
@@ -65,11 +68,13 @@ def _origin_key(url: str) -> Optional[tuple[str, str, int]]:
 
 
 class RendererPolicy:
-    """Allow the app's own origin(s) and ``RENDER_ASSET_HOSTS``; nothing else.
+    """Allow the app's own origin(s), ``RENDER_ASSET_HOSTS`` and https images
+    (mirroring the in-app ``img-src https:``); nothing else.
 
     The own origin is trusted deployment config (often loopback), so it is
-    connected to without the private-address policy; asset hosts get the
-    admin tier (never metadata / link-local)."""
+    connected to without the private-address policy; every other host gets
+    the admin tier (never metadata / link-local; private only with the flag
+    off). Off-origin traffic is https on 443 only."""
 
     def __init__(self, allowed_origins: Iterable[str] = (), asset_hosts: Iterable[str] = RENDER_ASSET_HOSTS):
         self.origins = {k for k in (_origin_key(o) for o in allowed_origins if o) if k}
@@ -83,6 +88,12 @@ class RendererPolicy:
             return True
         return key[0] == "https" and key[2] == 443 and key[1] in self.asset_hosts
 
+    def allows_image(self, url: str) -> bool:
+        key = _origin_key(url)
+        if key is None:
+            return False
+        return key in self.origins or (key[0] == "https" and key[2] == 443)
+
     def decide(self, host: str, port: int) -> List[IPAddress]:
         name = host.lower().rstrip(".").strip("[]")
         if any(o[1] == name and o[2] == port for o in self.origins):
@@ -90,20 +101,29 @@ class RendererPolicy:
             if not addrs:
                 raise UnsafeURLError(f"Could not resolve host {name!r}.")
             return addrs
-        if name in self.asset_hosts and port == 443:
+        if port == 443:  # asset hosts and https images (see allows_image)
             return check_host(name, Policy.ADMIN)
         raise UnsafeURLError(f"{name}:{port} is not an allowed render destination.")
 
 
-async def guard_page_requests(target, allows_url: Callable[[str], Union[bool, Awaitable[bool]]], *, label: str = "render") -> None:
+async def guard_page_requests(
+    target,
+    allows_url: Callable[[str], Union[bool, Awaitable[bool]]],
+    *,
+    allows_image: Optional[Callable[[str], bool]] = None,
+    label: str = "render",
+) -> None:
     """Route every request of ``target`` (a Page or BrowserContext) through
-    ``allows_url``; inline ``data:`` / ``blob:`` / ``about:`` always load."""
+    ``allows_url`` (image requests also through ``allows_image``); inline
+    ``data:`` / ``blob:`` / ``about:`` always load."""
 
     async def handler(route, request):
         url = request.url
         scheme = url.split(":", 1)[0].lower()
         try:
             if scheme in _INLINE_SCHEMES:
+                return await route.continue_()
+            if allows_image is not None and request.resource_type == "image" and allows_image(url):
                 return await route.continue_()
             ok = allows_url(url)
             if asyncio.iscoroutine(ok):

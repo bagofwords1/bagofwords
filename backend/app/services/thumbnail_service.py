@@ -59,7 +59,7 @@ class ThumbnailService:
                 _exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
                 browser = await p.chromium.launch(headless=True, executable_path=_exe, **egress.launch_kwargs())
                 page = await browser.new_page(viewport={"width": 1280, "height": 720})
-                await guard_page_requests(page, policy.allows_url, label="thumbnail render")
+                await guard_page_requests(page, policy.allows_url, allows_image=policy.allows_image, label="thumbnail render")
 
                 await page.set_content(html_content, wait_until="networkidle")
 

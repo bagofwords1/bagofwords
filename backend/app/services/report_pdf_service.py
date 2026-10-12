@@ -495,7 +495,7 @@ class ReportPdfService:
                     device_scale_factor=2,
                 )
                 await page.emulate_media(media="print", color_scheme="light")
-                await guard_page_requests(page, policy.allows_url, label="PDF render")
+                await guard_page_requests(page, policy.allows_url, allows_image=policy.allows_image, label="PDF render")
 
                 # Injected BEFORE navigation: the page renders from this and
                 # fetches nothing, so the route needs no session — and can
@@ -585,7 +585,7 @@ class ReportPdfService:
                     device_scale_factor=2,
                 )
                 await page.emulate_media(media="print")
-                await guard_page_requests(page, policy.allows_url, label="PDF render")
+                await guard_page_requests(page, policy.allows_url, allows_image=policy.allows_image, label="PDF render")
 
                 await page.set_content(html_content, wait_until="networkidle")
 
