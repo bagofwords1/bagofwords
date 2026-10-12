@@ -132,12 +132,29 @@ invariant, not the scenario — `backend/tests/AGENTS.md`):
 | `test_stop_sub_run_tool_and_route_share_path` | the parent's `stop_sub_run` tool, the card's stop route and the deadline job all leave identical row state |
 | `test_summary_and_reload_endpoints` | `GET /reports/{id}/summary` has `sub_runs`; `GET /reports/{id}/sub-runs/{id}` returns row + envelope + child tool executions |
 
-Observed (fill in per phase):
+Observed (phases 1–2, stub LLM, SQLite, `uv run pytest tests/e2e/test_sub_runs.py
+tests/unit/test_sub_run_prompts.py tests/unit/test_tool_runner_validation.py
+tests/e2e/test_agent_notes.py -q --db=sqlite`):
 
 ```
-phase 1: …
-phase 2: …
+phase 1: 5 unit tests (prompt contract, profiles) pass
+phase 2: 4 e2e + 7 unit + 6 runner + notes suites pass (24 tests, ~70 s)
+         - test_wave_fans_out_runs_children_hidden_and_fans_in also pins
+           history isolation: no parent planner call carries a child goal
+         - test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in
+           tolerates a never-started child: on SQLite the wave runs its
+           children one at a time (effective_concurrency), so a wave stop can
+           reach the second child while it is still pending
 ```
+
+The table above is the designed set; the shipped file folds it into four
+e2e tests (wave fan-out → hidden children → forced finish → fan-in; stop one
+child + stop wave; setting off hides `delegate`; `sub_run_max_per_wave`
+refuses the excess) plus the prompt and runner unit tests. Scenarios not
+covered by a dedicated test: deadline timeout (exercised by the stub's
+never-finishing child through the forced-finish path, not the APScheduler
+job), `agent_ids`/model override validation (unit-level only via
+`_resolve_model`), queue behaviour of a mid-wave prompt (live only).
 
 Regression leg, unchanged suites that touch the same seams:
 
@@ -304,21 +321,76 @@ reaches for parent-only tools; the fan-in turn concludes with the planted
 cause and the decoys; a later turn reaches for the record instead of
 re-running the work.
 
-Observed (fill in per phase, Haiku 5.5 first; second provider at phase 3 exit):
+Observed (Haiku 5.5; second provider not run — only one key was provided):
 
 ```
-phase 2, claude-haiku-5-5: …
-phase 3, claude-haiku-5-5: …
-phase 3, second provider: …
+phase 2, claude-haiku-5-5, live stack through the UI (tools/agent/verify_sub_runs.mjs):
+  run 1  SQLite: no delegation — the planner ran 5 create_data in one batch
+         and answered inline ("quick queries"). Fix: proactive posture made
+         the explicit RCA path (rca_step3/4) + a per-turn <delegation>
+         reminder in the turn head until a wave exists.
+  run 2  SQLite: 4 delegate calls, wave launched; three children crashed
+         out of their loops on "database is locked" (four agent runs each
+         holding a transaction across an LLM call on one writer). Fix: the
+         live stack moved to Postgres (what production runs); on SQLite the
+         launcher now runs children one at a time.
+  run 3  Postgres: wave of 4; 3 records came back blocked/inconclusive in
+         3 steps each — create_data refused with "not available in
+         'subagent' mode" (the runner's mode gate checked the literal mode
+         against allowed_modes; the profile is enforced before dispatch).
+         Fix: the gate treats a sub-run as chat. Also found: the parent's
+         second turn read the children's in-flight tool calls from its own
+         history as outcome_unknown. Fix: every history query in the message
+         context builder excludes trigger_source='sub_run' rows.
+  run 4  Postgres: wave of 3 (payment-provider incident · app release ·
+         traffic/pricing/campaign) → refuted 0.8 / supported 0.7 / partial
+         0.4, 6/8/12 steps, 59k tokens; fan-in strip "3 sub-runs finished ·
+         1 refuted · 1 supported · 1 partial"; synthesis names iOS 5.2.0 /
+         checkout-service deploy 2026-09-14 with the 36.7% iOS failure rate,
+         refutes the provider incident, and lists what stayed unresolved.
+         Mid-wave question answered from <sub_runs> while 3 tasks ran.
+phase 2, claude-haiku-5-5, eval harness (tests/evals, Postgres, BOW_EVAL_CASE_TIMEOUT_S=1500):
+  attempt 1  suite refused on import: the judge rule is `prompt`, not `rubric`.
+  attempt 2  parent never delegated: AgentV2 hid the sub-run tools on eval
+             runs. Fix: eval runs keep them; the watcher is wave-aware.
+  attempt 3  parent delegated 4; the case was graded the moment turn 1
+             ended (the streaming eval path evaluated before the wave fanned
+             in). Fix: _execute_result_agent holds evaluation while
+             _sub_run_waves_pending.
+  attempt 4  see the line below (filled by the final run).
+  simple_ask_does_not_delegate: pass on every attempt (create_data only).
+phase 3, second provider: not run (no second key).
 ```
 
 ---
 
 ## UI evidence (ui-evidence skill; mandatory for phase 3)
 
-Captured with `tools/agent/capture.mjs` against `tools/agent/boot_stack.sh`
-+ `seed_org.py --demo` + the Checkout Ops source, into
-`media/pr/sub-runs/`:
+Captured with `tools/agent/verify_sub_runs.mjs` (a Playwright flow that signs
+in, asks the planted RCA question on Checkout Ops, and shoots each stage)
+against the live stack on Postgres, into `media/pr/sub-runs/`:
+
+| # | File | What it shows |
+|---|---|---|
+| 01 | `01-settings-sub-runs-section.png` | org settings: the Sub-runs section with its nine settings |
+| 02 | `02-wave-launched-cards-running.png` | turn 1: symptom query, then the wave launched; composer free |
+| 03 | `03-background-tasks-indicator.png` | status row: "4 background tasks" while the parent is idle |
+| 04 | `04-background-tasks-popover.png` | hover popover: per sub-run title, live duration, steps, stop; Stop all |
+| 05 | `05-delegate-card-expanded-live.png` | a delegate card expanded: goal + the child's live tool rows; the parent's one-line message |
+| 06 | `06-mid-wave-question-working-plus-tasks.png` | "Thinking 3s · 3 background tasks" side by side during a mid-wave question |
+| 07 | `07-mid-wave-answer.png` | the mid-wave answer written from `<sub_runs>` |
+| 08 | `08-fan-in-strip.png` | the fan-in event strip with outcome counts |
+| 09 | `09-fan-in-synthesis.png` | the synthesis: cause, numbers, ruled-out decoys |
+| 10 | `10-delegate-cards-finished.png` | a finished card's record: findings, ruled out, caveats, unknown, evidence ids, exit, model |
+| 11 | `11-summary-tab-sub-runs.png` | Summary tab: Sub-runs section (outcome badges, steps, tokens) and "via sub-run" tags on queries |
+| 12 | `12-after-reload.png` | the same report after a reload, hydrated from the rows |
+
+Not captured: the trace modal with the child execution and the cost console
+rollup (items 5 and 7 of the original list) — neither was built in this
+pass; the delegate card's step rows and the Summary tokens cover the
+per-child view.
+
+Original list (kept for the evidence contract):
 
 1. Turn 1: five delegate cards in one block, each with its own spinner and
    step counter, wave strip "Wave 1 · 5 sub-runs · 5 running", the parent's
@@ -341,6 +413,21 @@ Captured with `tools/agent/capture.mjs` against `tools/agent/boot_stack.sh`
 Video: the full turn from prompt to fan-in reply, for the PR.
 
 ---
+
+## How the live stack was actually run
+
+Deviations from the commands above, all because of the sandbox:
+
+- The backend ran without uvicorn's reloader (`uv run uvicorn main:app`):
+  a hot reload hung in "waiting for background tasks" while SSE streams
+  were open.
+- `BOW_ENCRYPTION_KEY` must be stable across restarts or every stored
+  provider key becomes undecryptable (the first restart lost the Haiku key).
+- The live DB is Postgres 16 (`TEST_DATABASE_URL=postgresql://…/bow_agent`,
+  migrated with `alembic upgrade head`); the evals use a second database on
+  the same server with `--db=postgres`. SQLite cannot host a wave: see run 2.
+- The eval env installs Checkout Ops next to Chinook (`EXTRA_DEMO_DBS` in
+  `tests/evals/conftest.py`); the per-case wait is `BOW_EVAL_CASE_TIMEOUT_S`.
 
 ## Start order (when the key arrives)
 
