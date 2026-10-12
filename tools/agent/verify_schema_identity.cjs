@@ -84,7 +84,16 @@ usePermissionsLoaded().value = true
         const beforeReload = reads;
         await reload.click();
         await expect.poll(() => reads).toBeGreaterThan(beforeReload);
-        expect(posts).toHaveLength(0);
+        // Reload starts the shared-schema job for non-user_required connections
+        // only; user_required ones keep the explicit choice in the menu.
+        const reloadPosts = onlyShared || mixed ? ['/api/connections/demo-sql/refresh'] : [];
+        await expect.poll(() => posts).toEqual(reloadPosts);
+        if (reloadPosts.length) {
+          await expect(page.getByTestId('schema-refresh-spinner')).toHaveCount(0, { timeout: 15000 });
+          await expect(page.getByText('Schema updated.', { exact: false })).toHaveCount(0, { timeout: 15000 });
+          posts = [];
+          target = '';
+        }
       }
       if (scenario === 'personal') {
         await page.getByTestId('connections-button').click();
