@@ -81,6 +81,12 @@ def test_reads_pass_in_every_dialect(dialect, sql):
     ("PRAGMA journal_mode = DELETE", "sqlite"),
     ("ATTACH DATABASE '/tmp/x.db' AS x", "sqlite"),
     ("VACUUM", "postgres"),
+    ("USE ROLE ACCOUNTADMIN", "snowflake"),
+    ("USE SECONDARY ROLES ALL", "snowflake"),
+    ("USE DATABASE other_db", "snowflake"),
+    ("USE SCHEMA other_db.public", "snowflake"),
+    ("USE other_db", "mysql"),
+    ("USE other_db", "tsql"),
 ])
 def test_dialect_specific_writes_are_refused(sql, dialect):
     with pytest.raises(ReadOnlyViolation):
@@ -92,6 +98,7 @@ def test_dialect_specific_writes_are_refused(sql, dialect):
     ("EXPLAIN SELECT * FROM orders", "postgres"),
     ("PRAGMA table_info(orders)", "sqlite"),
     ("SELECT TOP 5 * FROM orders", "tsql"),
+    ("USE WAREHOUSE analytics_wh", "snowflake"),
 ])
 def test_dialect_specific_reads_pass(sql, dialect):
     check_sql(sql, dialect)

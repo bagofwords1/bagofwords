@@ -62,7 +62,7 @@ CLIENT_DIALECTS = {
 }
 
 # Statements sqlglot leaves as an opaque Command that are still reads.
-_READ_COMMANDS = {"SHOW", "DESCRIBE", "DESC", "EXPLAIN", "PRAGMA", "USE"}
+_READ_COMMANDS = {"SHOW", "DESCRIBE", "DESC", "EXPLAIN", "PRAGMA"}
 
 _WRITE_KEYWORDS = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|EXEC|EXECUTE"
@@ -130,6 +130,15 @@ def check_sql(sql: str, dialect: str) -> None:
             # EXPLAIN ANALYZE executes its statement on Postgres/MySQL.
             _keyword_check(getattr(stmt.expression, "this", "") or "")
         return
+
+    if isinstance(stmt, exp.Use):
+        # Picking a compute warehouse changes no data or privileges. USE ROLE /
+        # DATABASE / SCHEMA could widen what reads can reach, so they stay refused.
+        kind = stmt.args.get("kind")
+        kind = kind.name if isinstance(kind, exp.Expression) else (kind or "")
+        if kind.upper() == "WAREHOUSE":
+            return
+        raise ReadOnlyViolation("Only 'USE WAREHOUSE' is allowed. Only SELECT queries are allowed.")
 
     reads = (exp.Select, exp.SetOperation, exp.Subquery, exp.Describe, exp.Show, exp.Pragma)
     if not isinstance(stmt, reads):
