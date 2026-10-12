@@ -116,7 +116,9 @@ invariant, not the scenario — `backend/tests/AGENTS.md`):
 | `test_agent_ids_default_and_override` | no `agent_ids` → the parent's attached agents; an id the user cannot use → refused receipt; a narrowed set → child roster narrowed |
 | `test_model_override_validated` | allowed `<provider>/<model>` → child runs on it and the envelope says so; disallowed → refused receipt; `sub_run_allow_model_override = off` → ignored with a note in the receipt |
 | `test_settings_gate_and_caps` | `enable_sub_runs = off` hides `delegate` and the DELEGATION block; `sub_run_max_per_wave` refuses the excess; `sub_run_concurrency` queues children inside the wave |
-| `test_stop_parent_stops_children` | stopping the report run marks running children `interrupted`; the wave counts them terminal |
+| `test_stop_wave_cascades_and_skips_fan_in` | sigkill on the launching completion mid-launch, or `stop_wave`, sigkills every child, cancels the deadline job, marks the wave `stopped`, flips delegate blocks to `stopped`, and no fan-in machine turn is created |
+| `test_stop_one_child_keeps_wave_alive` | sigkill on one child's completion → `interrupted` record with `exit_reason = stopped`; the other children finish and the fan-in fires with N records |
+| `test_stop_sub_run_tool_and_route_share_path` | the parent's `stop_sub_run` tool, the card's stop route and the deadline job all leave identical row state |
 | `test_summary_and_reload_endpoints` | `GET /reports/{id}/summary` has `sub_runs`; `GET /reports/{id}/sub-runs/{id}` returns row + envelope + child tool executions |
 
 Observed (fill in per phase):

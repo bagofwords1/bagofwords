@@ -243,9 +243,30 @@ one line per child (id, title, outcome, confidence, status).
   message_type="sub_run_wave_done", summary="5 sub-runs finished · …",
   instruction=<the wave's records, compact>)`. It enqueues behind any running
   user turn.
-- **Stop**: stopping the parent report run stops its running children;
-  stopping one child from its card marks it `interrupted` and the wave counts
-  it as terminal.
+- **Stop**: today's stop is a `sigkill` timestamp on a completion row,
+  broadcast over the websocket, picked up by the one agent listening for
+  that completion id. It already works for background tasks, so a child
+  (its own `AgentV2` on its own hidden completion) is stopped by a sigkill
+  on the child's completion id. Three entry points, one service call:
+  - `stop_wave(wave_id)`: sigkill every child, mark the wave `stopped`,
+    cancel the deadline job, flip the delegate tool executions and blocks to
+    `stopped`, fire **no** fan-in. Reached from the wave strip's stop
+    button, and as a cascade when the launching completion is sigkilled
+    while still in progress (the dispatcher creates the wave row before
+    spawning and checks sigkill before each spawn, so unlaunched children
+    never start).
+  - `stop_sub_run(sub_run_id)`: sigkill one child. Reached from the delegate
+    card's stop button (existing sigkill route; same report and user, so
+    the owner check holds), from a parent-only `stop_sub_run` tool for
+    "stop the pricing one" said mid-wave (mirrors `stop_eval_run` and
+    `cancel_wait`), and by the deadline job for each still-running child.
+  - A stopped child becomes `interrupted`, its record is synthesized from
+    its last text with `exit_reason = stopped`, the wave counts it as
+    terminal, and the fan-in fires when the rest finish. Killing one child
+    never strands the wave; killing the wave never yields a fan-in over
+    nothing.
+  - A child inside a long query stops when the tool returns or
+    `query_timeout_seconds` fires, the same limit every run has.
 - **Report concurrency**: `_get_running_system_completion` excludes
   `trigger_source='sub_run'` rows so children neither block user turns nor
   the queue. The busy indicator counts them. On SQLite the single-writer lock
