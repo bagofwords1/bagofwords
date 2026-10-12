@@ -33,7 +33,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
         
     - name: Install dependencies
       working-directory: ./backend
@@ -110,7 +110,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
 
     - name: Install dependencies
       working-directory: ./backend
@@ -141,7 +141,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
 
     - name: Install backend dependencies
       working-directory: ./backend
@@ -240,7 +240,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
 
     - name: Install dependencies
       working-directory: ./backend
@@ -283,7 +283,7 @@ jobs:
       if: steps.changes.outputs.llm_files == 'true'
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
 
     - name: Install dependencies
       if: steps.changes.outputs.llm_files == 'true'

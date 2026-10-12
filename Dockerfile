@@ -5,9 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-      python3 \
-      python3-venv \
-      python3-dev \
+      ca-certificates \
       build-essential \
       libpq-dev \
       gcc \
@@ -22,12 +20,18 @@ WORKDIR /app/backend
 # independently of application source changes.
 COPY ./backend/pyproject.toml ./backend/uv.lock ./
 
-# Create and use a virtual environment for dependencies
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
+
+# Python 3.13 from uv's standalone builds (Ubuntu 24.04 only ships 3.12).
+# Installed under /opt/python so the runtime stage can copy it to the same
+# path and the venv's interpreter symlink keeps resolving.
+ARG PYTHON_VERSION=3.13
+ENV UV_PYTHON_INSTALL_DIR=/opt/python \
+    UV_PYTHON_PREFERENCE=only-managed
+RUN uv python install ${PYTHON_VERSION} && \
+    uv venv --python ${PYTHON_VERSION} /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Install locked main deps into the venv; dev group excluded from image.
 # The kerberos extra (python-gssapi) enables per-user constrained delegation
@@ -120,7 +124,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 # frontend-builder stage and served directly by FastAPI.
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client python3 python3-venv tini libpq5 vim-tiny && \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client tini libpq5 vim-tiny && \
     # Kerberos runtime for Windows Integrated auth to SQL Server: GSSAPI libs
     # for the ODBC driver / python-gssapi, plus kinit/klist for keytab ops.
     # Mount /etc/krb5.conf and a keytab (see docs/sql-server-kerberos.md).
@@ -187,7 +191,8 @@ RUN groupadd -r app \
     && mkdir -p /home/app /app/backend/db /app/frontend \
     && chown -R app:app /app /home/app
 
-# Copy Python virtual environment and application code
+# Copy the Python interpreter, virtual environment and application code
+COPY --from=backend-builder /opt/python /opt/python
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
