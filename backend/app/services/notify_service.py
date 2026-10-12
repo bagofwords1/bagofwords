@@ -256,7 +256,11 @@ class NotifyService:
         attempted (e.g. no email address at all, which shouldn't happen).
         """
         org_id = str(getattr(organization, "id", "") or "")
-        reader = await self._reader(db, recipient, report)
+        # Only attachments carry rows; a plain message needs no reader.
+        if attachment_specs:
+            reader = await self._reader(db, recipient, report)
+        else:
+            from app.services.artifact_payload import UNSCOPED as reader
 
         # Chat platforms need an account + a verified mapping; invites (no user)
         # skip straight to email.
