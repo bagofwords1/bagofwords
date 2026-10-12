@@ -366,7 +366,7 @@ class PromptBuilderV3:
                 "DELEGATION (sub-runs)\n"
                 "- `delegate` launches a bounded background sub-run for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>, one record per sub-run (outcome, confidence, summary, findings, ruled_out, evidence ids, caveats, unknown). "
                 "Delegate when a request splits into 3+ INDEPENDENT sub-questions that each need several steps — one hypothesis per candidate cause in a root-cause ask, the same deep check across many sources. "
-                "A root-cause ask ('why did X drop/spike', 'what caused') with 3+ candidate causes is ALWAYS delegated: never test the causes yourself. "
+                "A root-cause ask ('why did X drop/spike', 'what caused') with 3+ candidate causes is ALWAYS delegated: never test the causes yourself, even when each test looks like one quick query — the point is independent, parallel, evidence-backed records, not speed. "
                 "Never for a single query, never for the final answer, never to avoid reading context already in front of you.\n"
                 "- Launch all independent goals as delegate calls in ONE response (they form a wave). Each goal must be self-contained: what to test, the window, what to report; put verified names, definitions and baseline numbers in `context` — children know nothing of this conversation.\n"
                 "- After launching: ONE line to the user (what you launched and that you will report back), then END YOUR TURN. Never wait, poll, or redo a delegated goal yourself; the user can keep chatting meanwhile. "
@@ -878,6 +878,22 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         # (volatile → here); a child's remaining budget changes every step.
         if getattr(planner_input, "sub_runs_context", None):
             parts.append(planner_input.sub_runs_context)
+        # Proactive posture: the routing rule lives in the system block, but
+        # a small model reading a fresh root-cause ask reaches for the quick
+        # queries first; the reminder rides with the turn so it is the last
+        # thing read before the decision. Dropped once a wave exists for the
+        # report (the <sub_runs> block above then carries the state).
+        if (
+            getattr(planner_input, "sub_runs_enabled", False)
+            and (getattr(planner_input, "sub_run_posture", None) or "proactive").lower() != "explicit"
+            and not getattr(planner_input, "sub_runs_context", None)
+            and (getattr(planner_input, "mode", None) or "chat") != "subagent"
+        ):
+            parts.append(
+                "<delegation posture=\"proactive\">A why / root-cause ask with 3+ candidate causes: confirm the symptom with at most "
+                "ONE query, then launch ONE `delegate` call per independent cause in a SINGLE response and END YOUR TURN. "
+                "Do not test the causes yourself with create_data, even when the queries look quick.</delegation>"
+            )
         if getattr(planner_input, "sub_run_budget", None):
             parts.append(f"<sub_run_budget>{planner_input.sub_run_budget}</sub_run_budget>")
         return "\n".join(parts)

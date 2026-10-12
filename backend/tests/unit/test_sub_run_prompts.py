@@ -62,6 +62,23 @@ def test_sub_runs_context_rides_in_the_parent_turn_head():
     pi = _parent(sub_runs_enabled=True, sub_runs_context='<sub_runs>\n  <wave id="w" status="running" total="2">\n  </wave>\n</sub_runs>')
     head = PromptBuilderV3._build_turn_head(pi)
     assert '<wave id="w" status="running"' in head
+    # Once a wave exists the per-turn posture reminder steps aside for the state block.
+    assert '<delegation posture="proactive">' not in head
+
+
+def test_proactive_reminder_rides_in_the_turn_head_until_a_wave_exists():
+    fresh = PromptBuilderV3._build_turn_head(_parent(sub_runs_enabled=True, sub_run_posture="proactive"))
+    assert '<delegation posture="proactive">' in fresh and "END YOUR TURN" in fresh
+    for pi in (
+        _parent(sub_runs_enabled=True, sub_run_posture="explicit"),
+        _parent(sub_runs_enabled=False),
+    ):
+        assert "<delegation" not in PromptBuilderV3._build_turn_head(pi)
+    child = PlannerInput(
+        user_message="GOAL", organization_name="Acme", organization_ai_analyst_name="Bow", mode="subagent",
+        sub_runs_enabled=False, sub_run_budget="sub-run step 1 of 40",
+    )
+    assert "<delegation" not in PromptBuilderV3._build_turn_head(child)
 
 
 @pytest.mark.parametrize("key", list(PROFILES))

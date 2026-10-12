@@ -241,9 +241,13 @@ def test_eval_case(
     case_id = imported.json()["cases_by_name"][case_name]
     print(f"[eval] imported case_id={case_id[:8]}", flush=True)
 
+    # A case that fans out sub-runs waits for the whole wave plus the fan-in
+    # turn (docs/feedback-loops/sub-runs.md Loop B), so the ceiling is
+    # overridable: BOW_EVAL_CASE_TIMEOUT_S=1500 for the sub_runs suite.
+    case_timeout_s = float(os.getenv("BOW_EVAL_CASE_TIMEOUT_S") or 300)
     t0 = time.time()
     run_data = run_case_and_wait(
-        [case_id], user_token=token, org_id=org_id, timeout_s=300,
+        [case_id], user_token=token, org_id=org_id, timeout_s=case_timeout_s,
     )
     harness_duration_ms = int((time.time() - t0) * 1000)
 
