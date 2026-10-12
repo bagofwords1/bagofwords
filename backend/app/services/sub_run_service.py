@@ -776,7 +776,10 @@ async def run_wave_deadline(job_id: str, wave_id: str) -> None:
 
 
 async def run_fan_in(wave_id: str) -> None:
-    """One machine turn per wave, carrying every record, queued behind a running user turn."""
+    """One machine turn per wave, carrying every record, queued behind a running user turn.
+
+    trigger_source is ``sub_run_wave`` (not ``sub_run``): children are hidden
+    completions, the fan-in reply is a visible turn."""
     from app.dependencies import async_session_maker
     from app.models.organization import Organization
     from app.models.report import Report
@@ -829,7 +832,7 @@ async def run_fan_in(wave_id: str) -> None:
         try:
             await run_machine_turn(
                 db, report=report, user=user, organization=organization,
-                summary=summary[:300], trigger_source="sub_run", message_type="sub_run_wave_done",
+                summary=summary[:300], trigger_source="sub_run_wave", message_type="sub_run_wave_done",
                 instruction=instruction, meta=meta, mode=(wave.parent_mode or None), on_event=_on_event,
             )
         except Exception:

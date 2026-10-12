@@ -1356,12 +1356,19 @@ class TestRunService:
                         select(Completion.status).where(
                             Completion.report_id == str(report_id),
                             Completion.role == "system",
+                            # Sub-run children are hidden completions: neither a
+                            # turn nor "the agent still working" for this case.
+                            (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run"),
                         )
                     )
                 ).scalars().all()
                 terminal_n = sum(1 for s in sys_rows if s in {"success", "error", "stopped"})
                 any_in_progress = any(s == "in_progress" for s in sys_rows)
-                if terminal_n >= max(1, int(expected_turns)) and not any_in_progress:
+                # Wave-aware terminal state (docs/design/sub-runs.md): a turn that
+                # launched sub-runs ends while they run; the case is finished
+                # only once every wave fanned in and its reply is terminal.
+                waves_open = await self._sub_run_waves_pending(session, str(report_id))
+                if terminal_n >= max(1, int(expected_turns)) and not any_in_progress and not waves_open:
                     timed_out = False
                     break
             await asyncio.sleep(2.0)
@@ -1450,6 +1457,40 @@ class TestRunService:
                 self._schedule_eval_wake(str(run_id))
         except Exception as e:
             logging.exception(f"eval watcher: run {run_id} finalize failed: {e}")
+
+    async def _sub_run_waves_pending(self, db: AsyncSession, report_id: str) -> bool:
+        """True while a sub-run wave of the report is live, or fanned in but its
+        fan-in reply (trigger_source=sub_run_wave) has not reached a terminal
+        status yet."""
+        try:
+            from app.models.sub_run import SubRunWave
+            live = (await db.execute(
+                select(func.count(SubRunWave.id)).where(
+                    SubRunWave.report_id == report_id,
+                    SubRunWave.status.in_(("collecting", "running", "firing")),
+                )
+            )).scalar() or 0
+            if live:
+                return True
+            fanned = (await db.execute(
+                select(func.count(SubRunWave.id)).where(
+                    SubRunWave.report_id == report_id,
+                    SubRunWave.status.in_(("done", "timed_out")),
+                )
+            )).scalar() or 0
+            if not fanned:
+                return False
+            replies = (await db.execute(
+                select(Completion.status).where(
+                    Completion.report_id == report_id,
+                    Completion.role == "system",
+                    Completion.trigger_source == "sub_run_wave",
+                )
+            )).scalars().all()
+            terminal = sum(1 for st in replies if st in {"success", "error", "stopped"})
+            return terminal < fanned
+        except Exception:
+            return False
 
     async def _org_in_progress_runs(self, db: AsyncSession, organization_id: str) -> List[TestRun]:
         """All in-progress runs belonging to this org (scoped via the suite chain)."""

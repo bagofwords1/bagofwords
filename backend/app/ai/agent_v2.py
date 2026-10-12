@@ -515,6 +515,9 @@ class AgentV2:
         # a hidden completion whose prompt carries the sub_runs row id; the
         # parent launches children through the `delegate` tool.
         self._is_sub_run = (self.mode == "subagent")
+        # Instructions and skills are scoped by run mode (applicable_modes);
+        # a child sees the chat-mode set, never an empty "subagent" set.
+        self._instruction_mode = "chat" if self._is_sub_run else self.mode
         self._sub_run_id = None
         try:
             _hp = getattr(head_completion, "prompt", None) if head_completion is not None else None
@@ -792,7 +795,7 @@ class AgentV2:
             widget=self.widget,
             organization_settings=self.organization_settings,
             build_id=build_id,
-            mode=self.mode,
+            mode=self._instruction_mode,
         )
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
@@ -4998,7 +5001,7 @@ class AgentV2:
                                     self.db, self.organization,
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
                                     data_source_ids=_instr_scope,
-                                    mode=self.mode,
+                                    mode=self._instruction_mode,
                                 )
                                 instructions = (await _ib.build(query=None)).render(include_catalog=True)
                                 # Also re-scope the shared hub builder: create_data
@@ -5695,6 +5698,7 @@ class AgentV2:
                                     agent_execution=self.current_execution,
                                     seq=decision_seq,
                                     loop_index=loop_index,
+                                    phase=("subagent" if self._is_sub_run else None),
                                     planner_decision_model=decision,
                                     persist_tool_intents=True,
                                     max_tool_intents=self._max_actions_per_decision(),
@@ -7495,7 +7499,10 @@ class AgentV2:
         try:
             ids = [str(a) for a in (row.agent_ids_json or [])]
             if ids and self.report is not None and len(ids) < len(getattr(self.report, "data_sources", None) or []):
-                self.report.focused_data_source_ids = ids
+                # In-memory only: the child's focus must never be written back
+                # onto the user's report (set_committed_value leaves the row clean).
+                from sqlalchemy.orm.attributes import set_committed_value
+                set_committed_value(self.report, "focused_data_source_ids", ids)
         except Exception:
             pass
         try:

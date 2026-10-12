@@ -22,9 +22,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("agent_executions", sa.Column("parent_agent_execution_id", sa.String(length=36), sa.ForeignKey("agent_executions.id"), nullable=True))
-    op.add_column("agent_executions", sa.Column("parent_tool_execution_id", sa.String(length=36), sa.ForeignKey("tool_executions.id"), nullable=True))
-    op.create_index("ix_agent_executions_parent_agent_execution_id", "agent_executions", ["parent_agent_execution_id"])
+    # Batch mode: SQLite cannot ALTER constraints in place (copy-and-move);
+    # on Postgres this is a plain ALTER TABLE.
+    with op.batch_alter_table("agent_executions") as batch_op:
+        batch_op.add_column(sa.Column("parent_agent_execution_id", sa.String(length=36), nullable=True))
+        batch_op.add_column(sa.Column("parent_tool_execution_id", sa.String(length=36), nullable=True))
+        batch_op.create_foreign_key("fk_agent_executions_parent_agent_execution", "agent_executions", ["parent_agent_execution_id"], ["id"])
+        batch_op.create_index("ix_agent_executions_parent_agent_execution_id", ["parent_agent_execution_id"])
 
     op.create_table(
         "sub_run_waves",
@@ -116,6 +120,8 @@ def downgrade() -> None:
     ):
         op.drop_index(name, table_name="sub_run_waves")
     op.drop_table("sub_run_waves")
-    op.drop_index("ix_agent_executions_parent_agent_execution_id", table_name="agent_executions")
-    op.drop_column("agent_executions", "parent_tool_execution_id")
-    op.drop_column("agent_executions", "parent_agent_execution_id")
+    with op.batch_alter_table("agent_executions") as batch_op:
+        batch_op.drop_index("ix_agent_executions_parent_agent_execution_id")
+        batch_op.drop_constraint("fk_agent_executions_parent_agent_execution", type_="foreignkey")
+        batch_op.drop_column("parent_tool_execution_id")
+        batch_op.drop_column("parent_agent_execution_id")

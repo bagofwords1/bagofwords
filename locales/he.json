@@ -1791,6 +1791,53 @@
       "sendFeedback": "שלח משוב",
       "expired": "הסקירה פגה.",
       "respondFailed": "לא ניתן לשלוח את התשובה — נסה שוב."
+    },
+    "delegate": {
+      "label": "תת-ריצה",
+      "refused": "לא הופעלה",
+      "stop": "עצירה",
+      "stopping": "עוצר…",
+      "steps": "צעדים",
+      "noCallsYet": "מתחיל…",
+      "findings": "ממצאים",
+      "ruledOut": "נשלל",
+      "caveats": "הסתייגויות",
+      "unknown": "לא ידוע",
+      "exit": "יציאה",
+      "openNote": "פתיחת הסיכום",
+      "synthesized": "הרשומה נכתבה על ידי המערכת — תת-הריצה לא סיימה בעצמה.",
+      "status": {
+        "pending": "בתור",
+        "running": "רצה",
+        "finished": "הסתיימה",
+        "failed": "נכשלה",
+        "timed_out": "פג הזמן",
+        "interrupted": "נעצרה",
+        "refused": "לא הופעלה"
+      },
+      "outcomes": {
+        "supported": "נתמכת",
+        "refuted": "נשללה",
+        "inconclusive": "לא חד-משמעי",
+        "done": "בוצע",
+        "partial": "חלקי",
+        "blocked": "חסום",
+        "finished": "הסתיימה",
+        "failed": "נכשלה",
+        "timed_out": "פג הזמן",
+        "interrupted": "נעצרה",
+        "running": "רצה",
+        "pending": "בתור"
+      }
+    },
+    "readSubRun": {
+      "reading": "בודק תת-ריצה…",
+      "checked": "נבדקה '{title}'",
+      "latest": "אחרון"
+    },
+    "stopSubRun": {
+      "stopping": "עוצר תת-ריצה…",
+      "stopped": "תת-הריצה '{title}' נעצרה"
     }
   },
   "entityCreate": {
@@ -5535,7 +5582,9 @@
       "sentWithSubject": "מעקב — נשלחה אליך התראה: {subject}",
       "quiet": "נבדק שוב: אין חדש",
       "failed": "המעקב נכשל"
-    }
+    },
+    "subRunWaveDone": "{total} תת-ריצות הסתיימו · {counts}",
+    "subRunWaveDoneTimedOut": "{total} תת-ריצות — הגיע מועד הסיום · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "ההרצה הופסקה",
@@ -5621,7 +5670,8 @@
     "pending": "ממתין",
     "accepted": "התקבלה",
     "webhooks": "Webhooks",
-    "configureWebhook": "הגדרת webhook"
+    "configureWebhook": "הגדרת webhook",
+    "subRuns": "תת-ריצות"
   },
   "scheduledCard": {
     "active": "פעיל",
@@ -5968,5 +6018,27 @@
     "failed": "לא ניתן לטעון את נתוני התוצר",
     "newest": "החדשים ביותר תחילה",
     "oldest": "הישנים ביותר תחילה"
+  },
+  "subRuns": {
+    "wave": "גל {n}",
+    "count": "{count} תת-ריצות",
+    "running": "{count} רצות",
+    "stoppedWave": "נעצר",
+    "timedOut": "הגיע מועד הסיום",
+    "stopAll": "עצירת הכול",
+    "stoppingAll": "עוצר…",
+    "backgroundTasks": "{count} משימות רקע",
+    "queued": "בתור",
+    "heading": "תת-ריצות",
+    "headerStrip": "{total} תת-ריצות · {tokens} טוקנים",
+    "viaSubRun": "דרך תת-ריצה: {title}",
+    "waveStatus": {
+      "collecting": "מתחיל",
+      "running": "רץ",
+      "firing": "מסיים",
+      "done": "הסתיים",
+      "stopped": "נעצר",
+      "timed_out": "הגיע מועד הסיום"
+    }
   }
 }

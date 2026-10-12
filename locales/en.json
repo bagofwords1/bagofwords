@@ -1817,6 +1817,53 @@
       "sendFeedback": "Send feedback",
       "expired": "This review expired.",
       "respondFailed": "Could not send your answer — try again."
+    },
+    "delegate": {
+      "label": "Sub-run",
+      "refused": "Not started",
+      "stop": "Stop",
+      "stopping": "Stopping…",
+      "steps": "steps",
+      "noCallsYet": "Starting…",
+      "findings": "Findings",
+      "ruledOut": "Ruled out",
+      "caveats": "Caveats",
+      "unknown": "Unknown",
+      "exit": "Exit",
+      "openNote": "Open write-up",
+      "synthesized": "Record written by the runtime — the sub-run did not finish on its own.",
+      "status": {
+        "pending": "queued",
+        "running": "running",
+        "finished": "finished",
+        "failed": "failed",
+        "timed_out": "timed out",
+        "interrupted": "stopped",
+        "refused": "not started"
+      },
+      "outcomes": {
+        "supported": "supported",
+        "refuted": "refuted",
+        "inconclusive": "inconclusive",
+        "done": "done",
+        "partial": "partial",
+        "blocked": "blocked",
+        "finished": "finished",
+        "failed": "failed",
+        "timed_out": "timed out",
+        "interrupted": "stopped",
+        "running": "running",
+        "pending": "queued"
+      }
+    },
+    "readSubRun": {
+      "reading": "Checking sub-run…",
+      "checked": "Checked '{title}'",
+      "latest": "Latest"
+    },
+    "stopSubRun": {
+      "stopping": "Stopping sub-run…",
+      "stopped": "Stopped sub-run '{title}'"
     }
   },
   "entityCreate": {
@@ -5589,7 +5636,9 @@
       "sentWithSubject": "Follow-up — notified you: {subject}",
       "quiet": "Checked back: nothing new",
       "failed": "Follow-up failed"
-    }
+    },
+    "subRunWaveDone": "{total} sub-runs finished · {counts}",
+    "subRunWaveDoneTimedOut": "{total} sub-runs — deadline reached · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "Run was stopped",
@@ -5639,7 +5688,8 @@
     "pending": "Pending",
     "accepted": "Accepted",
     "webhooks": "Webhooks",
-    "configureWebhook": "Configure webhook"
+    "configureWebhook": "Configure webhook",
+    "subRuns": "Sub-runs"
   },
   "scheduledCard": {
     "active": "Active",
@@ -5977,5 +6027,27 @@
     "failed": "Unable to load artifact data",
     "newest": "Newest first",
     "oldest": "Oldest first"
+  },
+  "subRuns": {
+    "wave": "Wave {n}",
+    "count": "{count} sub-runs",
+    "running": "{count} running",
+    "stoppedWave": "stopped",
+    "timedOut": "deadline reached",
+    "stopAll": "Stop all",
+    "stoppingAll": "Stopping…",
+    "backgroundTasks": "{count} background tasks",
+    "queued": "queued",
+    "heading": "Sub-runs",
+    "headerStrip": "{total} sub-runs · {tokens} tokens",
+    "viaSubRun": "via sub-run: {title}",
+    "waveStatus": {
+      "collecting": "starting",
+      "running": "running",
+      "firing": "finishing",
+      "done": "done",
+      "stopped": "stopped",
+      "timed_out": "deadline reached"
+    }
   }
 }

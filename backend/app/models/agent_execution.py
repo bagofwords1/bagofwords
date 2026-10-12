@@ -35,7 +35,9 @@ class AgentExecution(BaseSchema):
     # the parent's `delegate` tool execution that launched it. NULL on every
     # ordinary run. See app.models.sub_run.
     parent_agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True, index=True)
-    parent_tool_execution_id = Column(String(36), ForeignKey('tool_executions.id'), nullable=True)
+    # Plain id, not a FOREIGN KEY: a second FK path between tool_executions and
+    # agent_executions makes every implicit join between the two ambiguous.
+    parent_tool_execution_id = Column(String(36), nullable=True)
 
     # Build
     build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True)

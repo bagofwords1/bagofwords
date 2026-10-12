@@ -28,6 +28,8 @@ from app.schemas.test_expectations import (
 def _normalize_phase(phase: Optional[str]) -> str:
     if phase == "knowledge_harness":
         return "knowledge"
+    if phase == "subagent":
+        return "subagent"
     if phase is None:
         return "main"
     return phase
@@ -128,6 +130,8 @@ class TestEvaluationService:
                     .where(
                         Completion.report_id == str(report_id),
                         Completion.role == "system",
+                        # Sub-run children are hidden completions, not turns.
+                        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run"),
                     )
                     .order_by(Completion.turn_index.asc(), Completion.created_at.asc())
                 )

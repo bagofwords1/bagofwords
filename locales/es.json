@@ -1791,6 +1791,53 @@
       "sendFeedback": "Enviar comentarios",
       "expired": "Esta revisión expiró.",
       "respondFailed": "No se pudo enviar tu respuesta; inténtalo de nuevo."
+    },
+    "delegate": {
+      "label": "Sub-ejecución",
+      "refused": "No iniciada",
+      "stop": "Detener",
+      "stopping": "Deteniendo…",
+      "steps": "pasos",
+      "noCallsYet": "Iniciando…",
+      "findings": "Hallazgos",
+      "ruledOut": "Descartado",
+      "caveats": "Salvedades",
+      "unknown": "Desconocido",
+      "exit": "Salida",
+      "openNote": "Abrir informe",
+      "synthesized": "Registro escrito por el sistema: la sub-ejecución no terminó por sí misma.",
+      "status": {
+        "pending": "en cola",
+        "running": "en ejecución",
+        "finished": "terminada",
+        "failed": "fallida",
+        "timed_out": "tiempo agotado",
+        "interrupted": "detenida",
+        "refused": "no iniciada"
+      },
+      "outcomes": {
+        "supported": "respaldada",
+        "refuted": "refutada",
+        "inconclusive": "no concluyente",
+        "done": "hecho",
+        "partial": "parcial",
+        "blocked": "bloqueada",
+        "finished": "terminada",
+        "failed": "fallida",
+        "timed_out": "tiempo agotado",
+        "interrupted": "detenida",
+        "running": "en ejecución",
+        "pending": "en cola"
+      }
+    },
+    "readSubRun": {
+      "reading": "Consultando sub-ejecución…",
+      "checked": "Consultada '{title}'",
+      "latest": "Último"
+    },
+    "stopSubRun": {
+      "stopping": "Deteniendo sub-ejecución…",
+      "stopped": "Sub-ejecución '{title}' detenida"
     }
   },
   "entityCreate": {
@@ -5515,7 +5562,9 @@
       "sentWithSubject": "Seguimiento — te notificó: {subject}",
       "quiet": "Revisado de nuevo: nada nuevo",
       "failed": "El seguimiento falló"
-    }
+    },
+    "subRunWaveDone": "{total} sub-ejecuciones terminadas · {counts}",
+    "subRunWaveDoneTimedOut": "{total} sub-ejecuciones — plazo alcanzado · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "Se detuvo la ejecución",
@@ -5601,7 +5650,8 @@
     "pending": "Pendiente",
     "accepted": "Aceptada",
     "webhooks": "Webhooks",
-    "configureWebhook": "Configurar webhook"
+    "configureWebhook": "Configurar webhook",
+    "subRuns": "Sub-ejecuciones"
   },
   "scheduledCard": {
     "active": "Activa",
@@ -5948,5 +5998,27 @@
     "failed": "No se pudieron cargar los datos",
     "newest": "Más recientes primero",
     "oldest": "Más antiguos primero"
+  },
+  "subRuns": {
+    "wave": "Ola {n}",
+    "count": "{count} sub-ejecuciones",
+    "running": "{count} en ejecución",
+    "stoppedWave": "detenida",
+    "timedOut": "plazo alcanzado",
+    "stopAll": "Detener todas",
+    "stoppingAll": "Deteniendo…",
+    "backgroundTasks": "{count} tareas en segundo plano",
+    "queued": "en cola",
+    "heading": "Sub-ejecuciones",
+    "headerStrip": "{total} sub-ejecuciones · {tokens} tokens",
+    "viaSubRun": "vía sub-ejecución: {title}",
+    "waveStatus": {
+      "collecting": "iniciando",
+      "running": "en ejecución",
+      "firing": "finalizando",
+      "done": "terminada",
+      "stopped": "detenida",
+      "timed_out": "plazo alcanzado"
+    }
   }
 }

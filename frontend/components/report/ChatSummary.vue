@@ -117,6 +117,32 @@
       </section>
 
       <!-- Notes (agent scratchpad) -->
+      <!-- Sub-runs (delegated background investigations) -->
+      <section v-if="subRunItems.length > 0" data-testid="summary-sub-runs">
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.subRuns') }}</h3>
+        <p class="text-[11px] text-gray-400 mb-2" dir="ltr">{{ $t('subRuns.headerStrip', { total: subRunItems.length, tokens: subRunTokensLabel }) }}<span v-if="subRunOutcomeSummary"> · {{ subRunOutcomeSummary }}</span></p>
+        <ul class="space-y-1">
+          <li
+            v-for="sr in subRunItems"
+            :key="sr.sub_run_id"
+            class="flex items-center gap-2 text-xs px-2 py-1.5 rounded border border-gray-100 dark:border-gray-800 hover:border-gray-200 dark:hover:border-gray-700 cursor-pointer min-w-0"
+            :data-testid="`summary-sub-run-${sr.sub_run_id}`"
+            @click="emit('scrollToMessage', sr.message_id)"
+          >
+            <Icon :name="subRunIcon(sr)" class="w-3.5 h-3.5 flex-shrink-0" :class="subRunIconClass(sr)" />
+            <span class="truncate flex-1 text-gray-700 dark:text-gray-200" :title="sr.summary || sr.title">{{ sr.title }}</span>
+            <span v-if="sr.outcome" class="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0" :class="subRunOutcomeClass(sr.outcome)">
+              {{ $t(`tools.delegate.outcomes.${sr.outcome}`, sr.outcome) }}<template v-if="typeof sr.confidence === 'number'"> · {{ Math.round(sr.confidence * 100) }}%</template>
+            </span>
+            <span v-else class="text-[10px] text-gray-400 flex-shrink-0">{{ $t(`tools.delegate.status.${sr.status}`, sr.status) }}</span>
+            <span class="text-[10px] text-gray-400 flex-shrink-0 tabular-nums" dir="ltr">
+              <template v-if="sr.steps_used !== null && sr.steps_used !== undefined">{{ sr.steps_used }} {{ $t('tools.delegate.steps') }}</template>
+              <template v-if="tokensOf(sr)"> · {{ tokensOf(sr) }}</template>
+            </span>
+          </li>
+        </ul>
+      </section>
+
       <section v-if="notes.length > 0">
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('notes.heading') }}</h3>
         <ul class="space-y-1.5">
@@ -139,15 +165,19 @@
       <section v-if="queryExecutions.length > 0">
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.queries') }}</h3>
         <div class="space-y-2">
-          <ToolWidgetPreview
-            v-for="te in queryExecutions"
-            :key="te.id"
-            :tool-execution="te"
-            :readonly="true"
-            :initial-collapsed="true"
-            :can-expand="canExpand"
-            @openDataPanel="$emit('openDataPanel', $event)"
-          />
+          <div v-for="te in queryExecutions" :key="te.id">
+            <!-- A query created inside a sub-run keeps its provenance visible -->
+            <p v-if="subRunForExecution(te.agent_execution_id)" class="text-[10px] text-gray-400 mb-0.5 truncate" :data-testid="`via-sub-run-${te.id}`">
+              {{ $t('subRuns.viaSubRun', { title: subRunForExecution(te.agent_execution_id)?.title }) }}
+            </p>
+            <ToolWidgetPreview
+              :tool-execution="te"
+              :readonly="true"
+              :initial-collapsed="true"
+              :can-expand="canExpand"
+              @openDataPanel="$emit('openDataPanel', $event)"
+            />
+          </div>
         </div>
       </section>
 
@@ -251,6 +281,8 @@ const props = defineProps<{
   queryExecutions: any[]
   // Agent Lists this conversation wrote to (GET /reports/{id}/summary → lists).
   listSubmissions?: any[]
+  // Delegated sub-runs (GET /reports/{id}/summary → sub_runs).
+  subRuns?: any[]
   // Pending-only: drives session-pill state. Kept for backwards compat with
   // existing callers but no longer rendered directly in the Instructions
   // section — we use reportInstructions for that.
@@ -442,7 +474,60 @@ const instructionsList = computed(() => {
   return out
 })
 
+// ---- Sub-runs ----
+const subRunItems = computed<any[]>(() => props.subRuns || [])
+function tokenTotal(sr: any): number {
+  const tk = sr?.tokens || {}
+  return Number(tk.total_tokens ?? ((tk.prompt_tokens || 0) + (tk.completion_tokens || 0))) || 0
+}
+function fmtTokens(n: number): string {
+  if (!n) return ''
+  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n)
+}
+function tokensOf(sr: any): string { return fmtTokens(tokenTotal(sr)) }
+function subRunForExecution(executionId?: string | null): any | null {
+  if (!executionId) return null
+  return subRunItems.value.find((sr) => sr.child_execution_id === executionId) || null
+}
+const subRunTokensLabel = computed(() => fmtTokens(subRunItems.value.reduce((n, sr) => n + tokenTotal(sr), 0)) || '0')
+const subRunOutcomeSummary = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const sr of subRunItems.value) {
+    const k = sr.outcome || sr.status
+    if (!k) continue
+    counts[k] = (counts[k] || 0) + 1
+  }
+  return Object.entries(counts).map(([k, n]) => `${n} ${t(`tools.delegate.outcomes.${k}`, k)}`).join(' · ')
+})
+function subRunIcon(sr: any): string {
+  switch (sr.status) {
+    case 'running': case 'pending': return 'heroicons-arrow-path'
+    case 'finished': return sr.outcome === 'refuted' ? 'heroicons-x-circle' : 'heroicons-check-circle'
+    case 'failed': return 'heroicons-exclamation-circle'
+    case 'timed_out': return 'heroicons-clock'
+    default: return 'heroicons-stop-circle'
+  }
+}
+function subRunIconClass(sr: any): string {
+  switch (sr.status) {
+    case 'finished': return sr.outcome === 'refuted' ? 'text-gray-400' : 'text-green-500'
+    case 'failed': return 'text-red-400'
+    case 'timed_out': return 'text-amber-500'
+    default: return 'text-gray-400'
+  }
+}
+function subRunOutcomeClass(outcome: string): string {
+  switch (outcome) {
+    case 'supported': case 'done': return 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+    case 'refuted': return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+    case 'inconclusive': case 'partial': return 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+    case 'blocked': return 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+    default: return 'bg-gray-100 text-gray-600'
+  }
+}
+
 const hasAnything = computed(() =>
+  subRunItems.value.length > 0 ||
   props.scheduledPrompts.length > 0 ||
   props.artifactList.length > 0 ||
   props.queryExecutions.length > 0 ||
