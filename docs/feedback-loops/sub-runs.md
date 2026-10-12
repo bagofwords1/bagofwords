@@ -357,7 +357,17 @@ phase 2, claude-haiku-5-5, eval harness (tests/evals, Postgres, BOW_EVAL_CASE_TI
              ended (the streaming eval path evaluated before the wave fanned
              in). Fix: _execute_result_agent holds evaluation while
              _sub_run_waves_pending.
-  attempt 4  see the line below (filled by the final run).
+  attempt 4  PASS (234 s for the suite; the RCA case 208 s): create_data →
+             delegate ×4 (deploy timing · payment-provider incident · price
+             change · traffic and campaign); finish_subtask ×4 in the
+             subagent phase; no clarify, no create_artifact; the judge passed
+             on the fan-in reply, which names the checkout-service 5.2.0
+             release of 2026-09-14 breaking iOS payments through PayFlow,
+             cites the paid-orders delta and the iOS PayFlow failure rate,
+             and rules out the other deploys, the provider outage, demand,
+             the 09-10 price increase and the apac campaign. Children ran on
+             the eval org's defaults (sub_run_allow_create_data off), so
+             their evidence came from inspect_data.
   simple_ask_does_not_delegate: pass on every attempt (create_data only).
 phase 3, second provider: not run (no second key).
 ```
