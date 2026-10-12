@@ -292,6 +292,51 @@ one line per child (id, title, outcome, confidence, status).
 children beyond it queue inside the wave, so a wave of five with
 concurrency three still completes as one wave.
 
+
+### A14. Observations, digests and the card
+
+**`delegate` observation** (what the parent's transcript holds as the
+tool_result): a spawn receipt.
+`{summary: "Started sub-run 'Seasonality' (sr_…) in wave w_…; its record
+arrives in a later turn", sub_run_id, wave_id, title, profile, status:
+"running"}`. Nothing else, so the parent cannot wait on it.
+
+**`read_sub_run(id, include_report=false)`** works at any time:
+
+| Child state | Observation |
+|---|---|
+| running | progress snapshot: `status, steps_used / budget, elapsed_s, latest_calls[≤5]: {tool, title, status, one-line summary}, evidence_so_far (step/query ids created), ledger: note title + first lines` (full note body with `include_report`) |
+| finished / failed / timed_out | the record + envelope; the note body with `include_report` |
+
+Same precedent as `get_eval_run` polling a running eval. Reads use a
+short-lived session over the child's tool executions and the note; it never
+touches the child's live session. The parent uses it mid-wave when a user
+asks how things are going, or in the fan-in turn to pull a note.
+
+**Write-back.** When a child finishes, the wave tracker writes the record
+into the parent's `delegate` `ToolExecution.result_json` next to the
+receipt. Everything downstream then reads `result_json` the way every other
+tool does: the card after a reload, the message-context digest, the
+summary tab. `digest_keys` on `delegate` = `sub_run_id, title, outcome,
+confidence`, so the in-run transcript decay keeps the handle.
+
+**Message-context digest** (`message_context_builder.py`, the per-tool
+`_digest_*` family keyed on tool name): a `_digest_sub_run_tool` for
+`delegate` and `read_sub_run` renders one line from `result_json`:
+`sub_run sr_…: "Seasonality" supported (0.8), 12 steps — <summary>`; a
+still-running one renders `running, 7 steps`. The full records live in the
+fan-in machine turn's hidden prompt, which later turns already see as the
+prompt the agent answered, so the digest stays a handle, not a copy.
+
+**Card.** One surface for the child, the delegate card; the child's hidden
+completions never appear in the timeline. Live: the card folds the child's
+own `block.upsert` / `tool.started` / `tool.finished` events by
+`child_completion_id` from the receipt. Reload: the card hydrates from
+`GET /reports/{id}/sub-runs/{sub_run_id}`, which returns the row, the
+envelope and the child's tool executions (the eval-run page pattern).
+`read_sub_run` renders as a small card: "Checked 'Seasonality': running,
+7 steps, latest: Querying orders by region".
+
 ### A12. Phasing
 
 1. `subagent` mode in `AgentV2` (what it switches off), the subagent system
