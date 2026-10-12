@@ -1,7 +1,10 @@
 """Small metadata leaks: what a caller learns about objects they can't access.
 
 - Rollback of a build outside the caller's org reads exactly like a missing
-  build (404, no agent name), whatever the caller's role.
+  build (404, no agent name), whatever the caller's role; the same holds for
+  build reads (get / contents / diff).
+- An in-org rollback blocked by an agent the caller can't access is a generic
+  403 that never names that agent.
 - An eval run comparison never uses a baseline run the caller can't read.
 - A project's default-agent list shows only agents the caller can see, and a
   save from that filtered list keeps the agents the caller was not shown.
@@ -93,6 +96,69 @@ def test_rollback_within_own_org_still_works(test_client, bootstrap_admin):
     r = test_client.post(f"/api/builds/{target['id']}/rollback", headers=hdr)
     assert r.status_code == 200, r.text
     assert test_client.get("/api/builds/main", headers=hdr).json()["id"] == r.json()["id"]
+
+
+@pytest.mark.e2e
+def test_in_org_rollback_denial_never_names_inaccessible_agent(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source, grant_resource,
+):
+    """A per-agent manager rolling back over a build that touches an agent they
+    can't see gets a generic 403 that names neither the agent nor its id."""
+    admin = bootstrap_admin("ro")
+    org_id = admin["org_id"]
+    hdr_admin = _hdr(admin["token"], org_id)
+    own = sqlite_data_source(name=f"Own_{uuid.uuid4().hex[:6]}", user_token=admin["token"], org_id=org_id)
+    hidden_name = f"Hidden_{uuid.uuid4().hex[:6]}"
+    hidden = sqlite_data_source(name=hidden_name, user_token=admin["token"], org_id=org_id)
+    mgr = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    g = grant_resource(resource_type="data_source", resource_id=own["id"],
+                       principal_type="user", principal_id=mgr["user_id"],
+                       permissions=["manage_instructions"], user_token=admin["token"], org_id=org_id)
+    assert g.status_code == 200, g.text
+    for ds in (hidden, own):
+        r = test_client.post("/api/instructions",
+                             json={"text": f"rule {uuid.uuid4().hex}", "status": "published",
+                                   "category": "general", "data_source_ids": [ds["id"]]},
+                             headers=hdr_admin)
+        assert r.status_code == 200, r.text
+    target = test_client.get("/api/builds/main", headers=hdr_admin).json()["id"]
+    r = test_client.post("/api/instructions",
+                         json={"text": "later", "status": "published",
+                               "category": "general", "data_source_ids": [own["id"]]},
+                         headers=hdr_admin)
+    assert r.status_code == 200, r.text
+
+    r = test_client.post(f"/api/builds/{target}/rollback", headers=_hdr(mgr["token"], org_id))
+    assert r.status_code == 403, r.text
+    assert hidden_name not in r.text
+    assert hidden["id"] not in r.text
+
+    assert test_client.post(f"/api/builds/{target}/rollback", headers=hdr_admin).status_code == 200
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("path", ["", "/contents", "/diff", "/diff/details"])
+def test_build_reads_of_foreign_build_read_as_missing(test_client, foreign_build, bootstrap_admin, path):
+    other = bootstrap_admin("other")
+    hdr = _hdr(other["token"], other["org_id"])
+    r = test_client.post("/api/instructions",
+                         json={"text": "own rule", "status": "published", "category": "general"},
+                         headers=hdr)
+    assert r.status_code == 200, r.text
+    own_main = test_client.get("/api/builds/main", headers=hdr).json()["id"]
+    params = {"compare_to": own_main} if path.startswith("/diff") else None
+
+    foreign = test_client.get(f"/api/builds/{foreign_build['build_id']}{path}", params=params, headers=hdr)
+    missing = test_client.get(f"/api/builds/{uuid.uuid4()}{path}", params=params, headers=hdr)
+
+    assert foreign.status_code == 404, foreign.text
+    assert (foreign.status_code, foreign.json()) == (missing.status_code, missing.json())
+    assert foreign_build["agent_name"] not in foreign.text
+    if not path.startswith("/diff"):
+        owner = foreign_build["owner"]
+        ok = test_client.get(f"/api/builds/{foreign_build['build_id']}{path}",
+                             headers=_hdr(owner["token"], owner["org_id"]))
+        assert ok.status_code == 200, ok.text
 
 
 # ────────────────────────────────────────────────────────────────────

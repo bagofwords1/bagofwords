@@ -71,6 +71,59 @@ GREPPABLE_EXTS = TABULAR_EXTS | TEXT_EXTS | DOC_EXTS
 DEFAULT_WINDOW_BYTES = 1024 * 1024  # 1 MiB default page for windowed reads
 
 
+# Roots refused when ``security.network_dir_allowed_roots`` is unset. A root
+# is refused when it IS one of these, sits BELOW one, or CONTAINS one (so `/`
+# and `/home/user` holding the app checkout are refused too). Unset is a
+# denylist rather than "block everything" so existing installs pointing at a
+# share (/mnt, /srv, /data, /home/<user>/share, …) keep working.
+_SYSTEM_DIRS = (
+    "/", "/etc", "/proc", "/sys", "/root", "/var/lib", "/var/run", "/run",
+    "/usr", "/bin", "/sbin", "/lib", "/lib64", "/boot", "/dev",
+)
+
+
+def _app_dirs() -> List[str]:
+    """The app's own directories: backend checkout (code, db/, uploads/,
+    configs/), the working dir uploads/ resolve against, and the
+    bow-config file's directory."""
+    dirs = [str(Path(__file__).resolve().parents[3]), os.getcwd()]
+    cfg = os.environ.get("BOW_CONFIG_PATH")
+    if cfg:
+        dirs.append(str(Path(cfg).resolve().parent))
+    return dirs
+
+
+def _is_within(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def check_network_dir_root(root_path: str) -> Path:
+    """Resolve ``root_path`` (all symlinks followed) and refuse roots outside
+    policy. Raises ValueError. With ``security.network_dir_allowed_roots`` set
+    the realpath must be inside one listed prefix; unset, system and app
+    directories are refused (see ``_SYSTEM_DIRS``)."""
+    root = Path(root_path).expanduser().resolve()
+    allowed = None
+    try:
+        from app.settings.config import settings
+        allowed = settings.bow_config.security.network_dir_allowed_roots
+    except Exception:
+        allowed = None
+    if allowed:
+        if not any(_is_within(root, Path(a).expanduser().resolve()) for a in allowed if a):
+            raise ValueError("Directory path is outside the allowed network directory roots")
+        return root
+    for d in (*_SYSTEM_DIRS, *_app_dirs()):
+        base = Path(d).resolve()
+        if root == base or _is_within(base, root) or (str(base) != "/" and _is_within(root, base)):
+            raise ValueError("Directory path points at a protected system or application directory")
+    return root
+
+
 def _ext(name: str) -> str:
     if not name or "." not in name:
         return ""
@@ -111,6 +164,8 @@ class NetworkDirClient(DataSourceClient):
     ):
         super().__init__()
         self.root_path = (root_path or "").strip()
+        if self.root_path:
+            check_network_dir_root(self.root_path)
         self.allowed_extensions = self._parse_exts(allowed_extensions)
         # Include-globs scope the connection to matching files AND act as an
         # access boundary enforced in `_resolve` (a read of a real-but-off-glob
@@ -156,7 +211,7 @@ class NetworkDirClient(DataSourceClient):
     def _root(self) -> Path:
         if not self.root_path:
             raise ValueError("root_path is required for a network directory connection")
-        root = Path(self.root_path).expanduser().resolve()
+        root = check_network_dir_root(self.root_path)
         if not root.exists():
             raise ValueError(f"Directory does not exist: {self.root_path}")
         if not root.is_dir():
