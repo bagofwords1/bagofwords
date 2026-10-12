@@ -425,7 +425,7 @@ def test_share_email_of_a_plain_dashboard_is_unchanged(
 
     resp = _notify(test_client, cast, [cast["a"]["email"], cast["external"]])
     assert resp.status_code == 200, resp.text
-    assert resp.json()["errors"] == [] and resp.json()["skipped"] == []
+    assert resp.json()["errors"] == [] and resp.json().get("skipped", []) == []
     assert len(mail.reports) == 1
     assert set(mail.reports[0]["to"]) == {cast["a"]["email"], cast["external"]}
     assert _pdf_accounts(mail.reports[0]["attachments"][0]) == {"EMEA", "APAC"}
@@ -534,3 +534,33 @@ def test_notify_attachment_of_identity_rows_is_rendered_per_recipient(
     assert mail.to(cast["c"]["email"]), "the message itself still reaches a member"
     # The sender (owner) keeps the stored snapshot.
     assert _csv_accounts(cast["owner"]["email"]) == set(book[cast["owner"]["email"]])
+
+
+def test_link_only_report_run_email_skips_non_members_without_running_queries(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, mail, renderers,
+):
+    """The scheduled-report rerun email carries no rows (link only): members who
+    can open the report still get it, nobody else does, and no query is run
+    per recipient for a message with nothing rendered in it."""
+    from sqlalchemy import func, select
+    from app.models.step_user_result import StepUserResult
+    from app.services.notification_service import notification_service
+
+    cast = _cast(test_client, create_report, bootstrap_admin, invite_user_to_org)
+    seeded = _run(_seed_graph(cast["report_id"], identity=True, book=_book(cast)))
+    _share(test_client, cast)
+
+    _run(notification_service.send_scheduled_report_results(
+        report_id=cast["report_id"], report_title="Accounts", subscribers=_subscribers(cast),
+        report_url=f"http://localhost:3000/r/{cast['report_id']}", locale="en",
+    ))
+
+    got = {e for m in mail.reports for e in m["to"]}
+    assert got == {cast["owner"]["email"], cast["a"]["email"], cast["b"]["email"]}
+    assert all(m["attachments"] == [] for m in mail.reports)
+
+    async def _viewer_runs():
+        async with async_session_maker() as db:
+            return (await db.execute(select(func.count(StepUserResult.id)).where(
+                StepUserResult.step_id == seeded["step_id"]))).scalar()
+    assert _run(_viewer_runs()) == 0

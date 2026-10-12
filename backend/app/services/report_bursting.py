@@ -182,16 +182,29 @@ class PreparedCopy:
     rows_ready: bool = True
 
 
-async def prepare_recipient_copy(db, report_id: str, user) -> PreparedCopy:
+async def prepare_recipient_copy(db, report_id: str, user, *, run_steps: bool = True) -> PreparedCopy:
     """Gate the member and run their identity-scoped steps as them.
 
     Goes through ReportService.viewer_rerun_report_steps — the same entry the
     dashboard uses when a signed-in member opens it — so the share gate,
-    agent access, credentials and identity binding are the live app's own."""
+    agent access, credentials and identity binding are the live app's own.
+
+    `run_steps=False` (a link-only copy, nothing rendered) applies the share
+    gate alone: no query runs for a message that carries no rows; the app
+    enforces agent access when the link is opened."""
     from fastapi import HTTPException
 
     from app.errors.app_error import AppError
     from app.services.report_service import ReportService
+
+    if not run_steps:
+        svc = ReportService()
+        try:
+            report = await svc._load_report_for_rerun(db, str(report_id))
+            await svc._check_visibility(db, report, "artifact_visibility", user)
+        except (HTTPException, AppError):
+            return PreparedCopy(skip_reason=SKIP_NO_ACCESS)
+        return PreparedCopy(rows_ready=False)
 
     try:
         result = await ReportService().viewer_rerun_report_steps(
@@ -297,7 +310,7 @@ async def deliver_burst(
                 user = await db.get(User, r.user_id)
                 if user is None:
                     return Delivery(email=r.email, status="skipped", reason=SKIP_EXTERNAL)
-                prep = await prepare_recipient_copy(db, str(report_id), user)
+                prep = await prepare_recipient_copy(db, str(report_id), user, run_steps=want_pdf)
                 if prep.skip_reason:
                     return Delivery(email=r.email, status="skipped", reason=prep.skip_reason)
                 if want_pdf and prep.rows_ready:
