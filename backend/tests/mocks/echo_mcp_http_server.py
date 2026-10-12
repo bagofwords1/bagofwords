@@ -1,14 +1,16 @@
 """A real streamable-HTTP MCP server that ECHOES what it received over the wire.
 
 Unlike ``mock_mcp_server.MockToolProviderClient`` (an in-process stub), this is a
-genuine MCP server reachable over HTTP, so it proves that forwarded **headers**
-and injected **custom_metadata** actually travel the wire. It is the oracle for
-the user-context-forwarding feedback loop and the Playwright E2E.
+genuine MCP server reachable over HTTP, so it proves that forwarded **headers**,
+injected **custom_metadata** and the request's **_meta** actually travel the
+wire. It is the oracle for the user-context-forwarding feedback loop, the
+completion-metadata tests and the Playwright E2E.
 
 It exposes one tool, ``query_production_orders``, whose result contains exactly
-the ``arguments`` (including ``custom_metadata``) and the request ``headers`` the
-server saw. The same capture is written to ``MOCK_MCP_CAPTURE_FILE`` so a test can
-assert on it out-of-band (the app materializes tool output into CSV/preview).
+the ``arguments`` (including ``custom_metadata``), the request ``headers`` and
+the request ``_meta`` the server saw. The same capture is written to
+``MOCK_MCP_CAPTURE_FILE`` so a test can assert on it out-of-band (the app
+materializes tool output into CSV/preview).
 
 Run standalone::
 
@@ -46,6 +48,17 @@ def _request_headers(ctx: Optional[Context]) -> dict[str, str]:
     return {}
 
 
+def _request_meta(ctx: Optional[Context]) -> dict[str, Any]:
+    """The ``_meta`` object of the incoming ``tools/call`` request."""
+    if ctx is None:
+        return {}
+    try:
+        meta = ctx.request_context.meta
+        return meta.model_dump(exclude_none=True) if meta is not None else {}
+    except Exception:
+        return {}
+
+
 def _write_capture(payload: dict[str, Any]) -> None:
     if not _CAPTURE_FILE:
         return
@@ -75,6 +88,7 @@ def query_production_orders(
             "custom_metadata": custom_metadata or {},
         },
         "received_headers": _request_headers(ctx),
+        "received_meta": _request_meta(ctx),
     }
     _write_capture(captured)
     return json.dumps(captured)

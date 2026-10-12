@@ -235,13 +235,22 @@ class McpClient(ToolProviderClient):
             logger.error(f"MCP read_resource failed: {uri}: {msg}")
             return {"success": False, "contents": [], "error": msg}
 
-    async def _acall_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Async implementation of call_tool using the MCP SDK."""
+    async def _acall_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Async implementation of call_tool using the MCP SDK.
+
+        ``meta`` is sent as the request's ``_meta`` (caller context such as the
+        calling app's chat/message ids — see app.utils.mcp_meta).
+        """
         from mcp import ClientSession
 
         try:
             async with self._connect() as session:
-                result = await session.call_tool(tool_name, arguments)
+                result = await session.call_tool(tool_name, arguments, meta=meta)
 
                 # Determine content type from result
                 data = self._extract_result_data(result)
@@ -462,8 +471,13 @@ class McpClient(ToolProviderClient):
     async def alist_tools(self) -> List[Dict[str, Any]]:
         return await self._alist_tools()
 
-    async def acall_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        return await self._acall_tool(tool_name, arguments)
+    async def acall_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return await self._acall_tool(tool_name, arguments, meta=meta)
 
     async def atest_connection(self) -> Dict[str, Any]:
         return await self._atest_connection()

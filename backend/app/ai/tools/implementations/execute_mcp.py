@@ -485,6 +485,11 @@ Do not use when:
         # for an oauth_app connection, carry no user token → the call goes out
         # unauthenticated and X returns 401).
         user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
+        # Caller metadata sent with this run's completion request — forwarded
+        # as MCP ``_meta`` on the call below. Read up front, while the head
+        # completion is surely loaded (a loopback call releases the session).
+        from app.utils.mcp_meta import completion_mcp_meta
+        caller_meta = completion_mcp_meta(runtime_ctx.get("head_completion"))
         if not db or not organization:
             yield ToolEndEvent(
                 type="tool.end",
@@ -654,6 +659,7 @@ Do not use when:
             # server (e.g. a Tableau or other-instance `create_report`) and skip
             # identity forwarding. Pass the run's user so per-user OAuth creds
             # resolve to their token (system creds carry none for oauth_app).
+            from app.data_sources.clients.mcp_client import McpClient
             service = ConnectionService()
             # Forward resolved identity headers (static + per-user injected).
             header_overrides = (
@@ -672,7 +678,10 @@ Do not use when:
             if _is_loopback_url(server_url):
                 await self._release_db(db)
             logger.info(f"execute_mcp: Calling remote MCP: {server_url or '?'}")
-            result = await client.acall_tool(data.tool_name, data.arguments)
+            if caller_meta and isinstance(client, McpClient):
+                result = await client.acall_tool(data.tool_name, data.arguments, meta=caller_meta)
+            else:
+                result = await client.acall_tool(data.tool_name, data.arguments)
             logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
         except BaseException as e:
             logger.error(f"execute_mcp: Tool call failed: {e}", exc_info=True)
