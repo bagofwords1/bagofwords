@@ -103,7 +103,8 @@ def test_in_org_rollback_denial_never_names_inaccessible_agent(
     test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source, grant_resource,
 ):
     """A per-agent manager rolling back over a build that touches an agent they
-    can't see gets a generic 403 that names neither the agent nor its id."""
+    can't see gets the same 404 as a missing build (#1355), naming neither the
+    agent nor its id."""
     admin = bootstrap_admin("ro")
     org_id = admin["org_id"]
     hdr_admin = _hdr(admin["token"], org_id)
@@ -129,7 +130,7 @@ def test_in_org_rollback_denial_never_names_inaccessible_agent(
     assert r.status_code == 200, r.text
 
     r = test_client.post(f"/api/builds/{target}/rollback", headers=_hdr(mgr["token"], org_id))
-    assert r.status_code == 403, r.text
+    assert (r.status_code, r.json()) == (404, {"detail": "Build not found"}), r.text
     assert hidden_name not in r.text
     assert hidden["id"] not in r.text
 

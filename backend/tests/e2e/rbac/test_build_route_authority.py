@@ -148,7 +148,8 @@ def test_per_agent_manager_cannot_roll_back_over_global_rules(test_client, world
 
     r = test_client.post(f"/api/builds/{old_main['id']}/rollback",
                          headers=_hdr(world["manager_a"]["token"], org_id))
-    assert r.status_code == 403, r.text
+    # Denied the same way as a missing build (#1355), so rollback is no existence oracle.
+    assert (r.status_code, r.json()) == (404, {"detail": "Build not found"}), r.text
 
     r_admin = test_client.post(f"/api/builds/{old_main['id']}/rollback",
                                headers=_hdr(admin["token"], org_id))
