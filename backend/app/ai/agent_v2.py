@@ -895,16 +895,18 @@ class AgentV2:
                 if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
             ]
 
-        # Sub-run tools: hidden when the org setting is off, on eval runs, and
-        # on machine turns that cannot receive a later fan-in turn (the
-        # fan-in is a new turn on the report, so a one-shot scheduled run
-        # would never see its results). Children never hold them (profiles).
+        # Sub-run tools: hidden when the org setting is off, and on machine
+        # turns that cannot receive a later fan-in turn (the fan-in is a new
+        # turn on the report, so a one-shot scheduled run would never see its
+        # results). Children never hold them (profiles). Eval runs keep them:
+        # the eval watcher waits for open waves and the fan-in reply
+        # (TestRunService._sub_run_waves_pending), so a suite can pin the
+        # delegation posture and the finish contract.
         from app.services.sub_run_service import sub_runs_enabled as _sub_runs_enabled
         self._sub_runs_enabled = bool(
             _sub_runs_enabled(self.organization_settings)
-            and not self.is_eval_run
             and not self._is_sub_run
-            and getattr(self.report, 'report_type', 'regular') == 'regular'
+            and getattr(self.report, 'report_type', 'regular') in ('regular', 'test')
         )
         if not self._sub_runs_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_run', 'stop_sub_run')]

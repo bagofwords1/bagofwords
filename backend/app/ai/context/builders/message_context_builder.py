@@ -363,6 +363,20 @@ def _digest_eval_tool(tool_execution) -> str:
 SUB_RUN_TOOL_NAMES = ("delegate", "read_sub_run", "stop_sub_run")
 
 
+def _not_sub_run_child(stmt):
+    """Keep sub-run children out of the parent's history.
+
+    A child runs on hidden completions of the same report
+    (trigger_source='sub_run', docs/design/sub-runs.md A3); its goal prompt
+    and in-flight tool calls are not the parent's conversation, and a live
+    run showed the parent reading the children's pending calls as its own
+    "outcome_unknown" results. NULL-safe: trigger_source is NULL on
+    ordinary rows."""
+    return stmt.filter(
+        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run")
+    )
+
+
 def _digest_sub_run_tool(tool_execution) -> str:
     """One-line handle for a sub-run tool call. `delegate` reads the record the
     wave tracker wrote back onto the row when the child finished (result_json
@@ -937,6 +951,7 @@ class MessageContextBuilder:
                 .filter(Completion.report_id == self.report.id)
                 .filter(Completion.deleted_at.is_(None))
                 .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
+                .filter((Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run"))
                 .order_by(Completion.created_at.asc())
                 .limit(PROTECT_FIRST_N)
             )).scalars().all()
@@ -1489,7 +1504,7 @@ class MessageContextBuilder:
         # iteration). +1 covers dropping a trailing in-progress user completion.
         # Queued prompts are not part of the conversation yet — they run later.
         summary_text, watermark_created_at = await self._compaction_state()
-        completions_query = (
+        completions_query = _not_sub_run_child(
             select(Completion)
             .options(lazyload("*"))
             .filter(Completion.report_id == self.report.id)
@@ -1954,19 +1969,19 @@ class MessageContextBuilder:
 
         summary_text = None
         if completion_ids is not None:
-            report_completions = (await self.db.execute(
+            report_completions = (await self.db.execute(_not_sub_run_child(
                 select(Completion)
                 .options(lazyload("*"))
                 .filter(Completion.id.in_([str(cid) for cid in completion_ids]))
                 .order_by(Completion.created_at.asc())
-            )).scalars().all()
+            ))).scalars().all()
             report_completions = list(report_completions)
         else:
             # Most-recent window only (was fetch-all + slice in Python),
             # scoped past the compaction watermark when one exists.
             # Queued prompts are not part of the conversation yet — they run later.
             summary_text, watermark_created_at = await self._compaction_state()
-            completions_query = (
+            completions_query = _not_sub_run_child(
                 select(Completion)
                 .options(lazyload("*"))
                 .filter(Completion.report_id == self.report.id)
@@ -2614,13 +2629,13 @@ class MessageContextBuilder:
             return "\n".join(parts)
         
         # Get recent messages
-        report_completions = await self.db.execute(
+        report_completions = await self.db.execute(_not_sub_run_child(
             select(Completion)
             .options(lazyload("*"))
             .filter(Completion.report_id == self.report.id)
             .order_by(Completion.created_at.desc())
             .limit(max_messages)
-        )
+        ))
         recent_messages = report_completions.scalars().all()
         
         if recent_messages:

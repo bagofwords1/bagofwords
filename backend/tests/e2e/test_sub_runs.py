@@ -105,6 +105,8 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                 shapes.append("str" if isinstance(c, str) else [b.get("type") for b in c if isinstance(b, dict)])
             lo = text.find("<last_observation>")
             calls.append({"system": sys_text[:120], "n_results": n_results, "tools": sorted(x for x in tool_names if x),
+                          # a child's goal prompt must never reach a parent planner call
+                          "child_goal_leak": "CONTEXT FROM THE PARENT" in text,
                           "tool_name_ctx": text[max(0, idx - 150): idx + 150] if idx >= 0 else None, "n_msgs": len(messages or []),
                           "shapes": shapes, "last_obs_ctx": text[max(0, lo - 200): lo + 300] if lo >= 0 else None})
         events = []
@@ -308,6 +310,10 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     assert detail["record"]["outcome"] == "refuted"
     assert detail["envelope"]["exit_reason"] == "finish_call"
     child_calls = [c for c in calls if "Mode: Sub-run" in c["system"]]
+    # History isolation: the children's hidden completions (their goal prompt,
+    # their tool calls) never ride in the parent's conversation history.
+    parent_calls = [c for c in calls if "Mode: Sub-run" not in c["system"]]
+    assert parent_calls and not any(c["child_goal_leak"] for c in parent_calls), [c for c in parent_calls if c["child_goal_leak"]]
     assert [c["tool"] for c in detail["calls"]] == ["create_note", "finish_subtask"], (detail["calls"], child_calls[:2])
     assert detail.get("note", {}).get("content"), detail.get("note")
     assert detail["steps_used"] >= 2

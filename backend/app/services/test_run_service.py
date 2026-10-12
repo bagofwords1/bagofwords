@@ -1917,6 +1917,19 @@ class TestRunService:
                     await turn_agent.main_execution()
                     prev_system = next_system
 
+                # Wave-aware (docs/design/sub-runs.md): a turn that launched
+                # sub-runs ends while they run, and the fan-in reply is a
+                # later machine turn on the report. Hold the evaluation until
+                # every wave fanned in and its reply is terminal, bounded by
+                # the same ceiling the background watcher uses.
+                import time as _time
+                _wave_deadline = _time.monotonic() + CASE_WATCH_TIMEOUT_S
+                while await self._sub_run_waves_pending(session, str(report_id)):
+                    if _time.monotonic() > _wave_deadline:
+                        logging.getLogger(__name__).warning("eval result %s: sub-run wave still open at the watch ceiling; evaluating as is", result_id)
+                        break
+                    await asyncio.sleep(2.0)
+
                 # After the final turn, evaluate assertions and persist the
                 # TestResult (same code path the background watcher uses).
                 try:
