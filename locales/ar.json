@@ -313,7 +313,11 @@
     "exportInstructions": "تصدير حزمة الوكيل — التعليمات والإعدادات والتقييمات (‎.zip)",
     "runSuiteFailed": "تعذّر تشغيل المجموعة",
     "sharedManagedElsewhere": "مشتركة مع وكلاء لا تديرهم — لا يمكن تعديلها إلا لمن يملك صلاحية عليهم جميعًا.",
-    "tipRunSuite": "تشغيل هذه المجموعة"
+    "tipRunSuite": "تشغيل هذه المجموعة",
+    "unchangedLineOne": "سطر واحد دون تغيير",
+    "unchangedLineMany": "أسطر دون تغيير: {n}",
+    "loadPendingFailed": "تعذّر تحميل التغييرات المعلّقة.",
+    "allPendingResolved": "لا توجد تغييرات معلّقة — تمت معالجة الكل."
   },
   "smoke": {
     "hello": "مرحبًا",
@@ -1238,7 +1242,16 @@
       "toastFailedPublish": "تعذّر نشر التعليمة",
       "toastDeletedDesc": "تم حذف التعليمة",
       "toastFailedDelete": "تعذّر حذف التعليمة",
-      "toastSaved": "تم حفظ التعليمة"
+      "toastSaved": "تم حفظ التعليمة",
+      "accept": "قبول",
+      "reject": "رفض",
+      "accepted": "مقبولة",
+      "rejectedLabel": "مرفوضة",
+      "stagedInBuild": "مُجهّزة في build المسوّدة",
+      "acceptedToast": "تم قبول التغيير",
+      "acceptFailed": "تعذّر القبول",
+      "rejectedToast": "تم رفض التغيير",
+      "rejectFailed": "تعذّر الرفض"
     },
     "editInstruction": {
       "rejected": "تم رفض التعديل",
@@ -1275,7 +1288,14 @@
       "toastFailedDelete": "تعذّر حذف التعليمة",
       "toastSaved": "تم حفظ التعليمة",
       "editCount": "{n} تعديلات",
-      "editLabel": "تعديل التعليمة"
+      "editLabel": "تعديل التعليمة",
+      "accepted": "مقبولة",
+      "rejectedLabel": "مرفوضة",
+      "stagedInBuild": "مُجهّزة في build المسوّدة",
+      "acceptedToast": "تم قبول التغيير",
+      "acceptFailed": "تعذّر القبول",
+      "rejectedToast": "تم رفض التغيير",
+      "rejectFailed": "تعذّر الرفض"
     },
     "inspectData": {
       "inspecting": "جارٍ الفحص",
@@ -5734,5 +5754,8 @@
     "failed": "تعذر تحميل بيانات العنصر",
     "newest": "الأحدث أولاً",
     "oldest": "الأقدم أولاً"
+  },
+  "trackedChanges": {
+    "noChanges": "لا توجد تغييرات"
   }
 }

@@ -329,7 +329,11 @@
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Run this suite",
     "runSuiteFailed": "Failed to run suite",
-    "lists": "Lists"
+    "lists": "Lists",
+    "unchangedLineOne": "{n} unchanged line",
+    "unchangedLineMany": "{n} unchanged lines",
+    "loadPendingFailed": "Couldn’t load pending changes.",
+    "allPendingResolved": "No pending changes — all resolved."
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -1332,7 +1336,16 @@
       "toastFailedPublish": "Failed to publish instruction",
       "toastDeletedDesc": "Instruction deleted",
       "toastFailedDelete": "Failed to delete instruction",
-      "toastSaved": "Instruction saved"
+      "toastSaved": "Instruction saved",
+      "accept": "Accept",
+      "reject": "Reject",
+      "accepted": "Accepted",
+      "rejectedLabel": "Rejected",
+      "stagedInBuild": "Staged in draft build",
+      "acceptedToast": "Change accepted",
+      "acceptFailed": "Failed to accept",
+      "rejectedToast": "Change rejected",
+      "rejectFailed": "Failed to reject"
     },
     "listAgentExecutions": {
       "title": "List agent executions",
@@ -1382,7 +1395,14 @@
       "toastFailedDelete": "Failed to delete instruction",
       "toastSaved": "Instruction saved",
       "editCount": "{n} edits",
-      "editLabel": "Edit instruction"
+      "editLabel": "Edit instruction",
+      "accepted": "Accepted",
+      "rejectedLabel": "Rejected",
+      "stagedInBuild": "Staged in draft build",
+      "acceptedToast": "Change accepted",
+      "acceptFailed": "Failed to accept",
+      "rejectedToast": "Change rejected",
+      "rejectFailed": "Failed to reject"
     },
     "sendEmail": {
       "sending": "Sending email...",
@@ -3002,7 +3022,7 @@
         },
         "enable_training_mode": {
           "name": "Training Mode",
-          "description": "Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines"
+          "description": "Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidelines"
         },
         "enable_file_upload": {
           "name": "Allow file upload",
@@ -5937,5 +5957,8 @@
     "failed": "Unable to load artifact data",
     "newest": "Newest first",
     "oldest": "Oldest first"
+  },
+  "trackedChanges": {
+    "noChanges": "No changes"
   }
 }

@@ -313,7 +313,11 @@
     "tipRunSuite": "Diese Suite ausführen",
     "runSuiteFailed": "Suite konnte nicht ausgeführt werden",
     "exportInstructions": "Agent-Paket exportieren — Anweisungen, Konfiguration & Evals (.zip)",
-    "sharedManagedElsewhere": "Mit Agenten geteilt, die du nicht verwaltest — bearbeitbar nur für jemanden mit Rechten über alle."
+    "sharedManagedElsewhere": "Mit Agenten geteilt, die du nicht verwaltest — bearbeitbar nur für jemanden mit Rechten über alle.",
+    "unchangedLineOne": "{n} unveränderte Zeile",
+    "unchangedLineMany": "{n} unveränderte Zeilen",
+    "loadPendingFailed": "Ausstehende Änderungen konnten nicht geladen werden.",
+    "allPendingResolved": "Keine ausstehenden Änderungen – alles erledigt."
   },
   "smoke": {
     "hello": "Hallo",
@@ -1238,7 +1242,16 @@
       "toastFailedPublish": "Anweisung konnte nicht veröffentlicht werden",
       "toastDeletedDesc": "Anweisung gelöscht",
       "toastFailedDelete": "Anweisung konnte nicht gelöscht werden",
-      "toastSaved": "Anweisung gespeichert"
+      "toastSaved": "Anweisung gespeichert",
+      "accept": "Annehmen",
+      "reject": "Ablehnen",
+      "accepted": "Akzeptiert",
+      "rejectedLabel": "Abgelehnt",
+      "stagedInBuild": "Im Build-Entwurf vorgemerkt",
+      "acceptedToast": "Änderung akzeptiert",
+      "acceptFailed": "Akzeptieren fehlgeschlagen",
+      "rejectedToast": "Änderung abgelehnt",
+      "rejectFailed": "Ablehnen fehlgeschlagen"
     },
     "editInstruction": {
       "rejected": "Bearbeitung abgelehnt",
@@ -1275,7 +1288,14 @@
       "toastFailedDelete": "Anweisung konnte nicht gelöscht werden",
       "toastSaved": "Anweisung gespeichert",
       "editCount": "{n} Änderungen",
-      "editLabel": "Anweisung bearbeiten"
+      "editLabel": "Anweisung bearbeiten",
+      "accepted": "Akzeptiert",
+      "rejectedLabel": "Abgelehnt",
+      "stagedInBuild": "Im Build-Entwurf vorgemerkt",
+      "acceptedToast": "Änderung akzeptiert",
+      "acceptFailed": "Akzeptieren fehlgeschlagen",
+      "rejectedToast": "Änderung abgelehnt",
+      "rejectFailed": "Ablehnen fehlgeschlagen"
     },
     "inspectData": {
       "inspecting": "Wird untersucht",
@@ -5734,5 +5754,8 @@
     "failed": "Artefaktdaten konnten nicht geladen werden",
     "newest": "Neueste zuerst",
     "oldest": "Älteste zuerst"
+  },
+  "trackedChanges": {
+    "noChanges": "Keine Änderungen"
   }
 }

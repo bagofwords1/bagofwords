@@ -313,7 +313,11 @@
     "tipRunSuite": "Executar esta suíte",
     "runSuiteFailed": "Falha ao executar a suíte",
     "exportInstructions": "Exportar pacote do agente — instruções, configuração e avaliações (.zip)",
-    "sharedManagedElsewhere": "Compartilhada com agentes que você não gerencia — editável apenas por alguém com autoridade sobre todos eles."
+    "sharedManagedElsewhere": "Compartilhada com agentes que você não gerencia — editável apenas por alguém com autoridade sobre todos eles.",
+    "unchangedLineOne": "{n} linha inalterada",
+    "unchangedLineMany": "{n} linhas inalteradas",
+    "loadPendingFailed": "Não foi possível carregar as alterações pendentes.",
+    "allPendingResolved": "Sem alterações pendentes — tudo resolvido."
   },
   "smoke": {
     "hello": "Olá",
@@ -1238,7 +1242,16 @@
       "toastFailedPublish": "Falha ao publicar instrução",
       "toastDeletedDesc": "Instrução excluída",
       "toastFailedDelete": "Falha ao excluir instrução",
-      "toastSaved": "Instrução salva"
+      "toastSaved": "Instrução salva",
+      "accept": "Aceitar",
+      "reject": "Rejeitar",
+      "accepted": "Aceita",
+      "rejectedLabel": "Rejeitada",
+      "stagedInBuild": "Preparada no build em rascunho",
+      "acceptedToast": "Alteração aceita",
+      "acceptFailed": "Falha ao aceitar",
+      "rejectedToast": "Alteração rejeitada",
+      "rejectFailed": "Falha ao rejeitar"
     },
     "editInstruction": {
       "rejected": "Edição rejeitada",
@@ -1275,7 +1288,14 @@
       "toastFailedDelete": "Falha ao excluir instrução",
       "toastSaved": "Instrução salva",
       "editCount": "{n} edições",
-      "editLabel": "Editar instrução"
+      "editLabel": "Editar instrução",
+      "accepted": "Aceita",
+      "rejectedLabel": "Rejeitada",
+      "stagedInBuild": "Preparada no build em rascunho",
+      "acceptedToast": "Alteração aceita",
+      "acceptFailed": "Falha ao aceitar",
+      "rejectedToast": "Alteração rejeitada",
+      "rejectFailed": "Falha ao rejeitar"
     },
     "inspectData": {
       "inspecting": "Inspecionando",
@@ -5734,5 +5754,8 @@
     "failed": "Não foi possível carregar os dados do artefato",
     "newest": "Mais recentes primeiro",
     "oldest": "Mais antigos primeiro"
+  },
+  "trackedChanges": {
+    "noChanges": "Sem alterações"
   }
 }

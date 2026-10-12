@@ -329,7 +329,11 @@
     "tipRunSuite": "Ejecutar esta suite",
     "runSuiteFailed": "No se pudo ejecutar la suite",
     "exportInstructions": "Exportar paquete del agente: instrucciones, configuración y evaluaciones (.zip)",
-    "lists": "Listas"
+    "lists": "Listas",
+    "unchangedLineOne": "{n} línea sin cambios",
+    "unchangedLineMany": "{n} líneas sin cambios",
+    "loadPendingFailed": "No se pudieron cargar los cambios pendientes.",
+    "allPendingResolved": "No hay cambios pendientes: todo está resuelto."
   },
   "smoke": {
     "hello": "Hola",
@@ -1254,7 +1258,16 @@
       "toastFailedPublish": "Error al publicar instrucción",
       "toastDeletedDesc": "Instrucción eliminada",
       "toastFailedDelete": "Error al eliminar instrucción",
-      "toastSaved": "Instrucción guardada"
+      "toastSaved": "Instrucción guardada",
+      "accept": "Aceptar",
+      "reject": "Rechazar",
+      "accepted": "Aceptada",
+      "rejectedLabel": "Rechazada",
+      "stagedInBuild": "Preparada en el borrador",
+      "acceptedToast": "Cambio aceptado",
+      "acceptFailed": "No se pudo aceptar",
+      "rejectedToast": "Cambio rechazado",
+      "rejectFailed": "No se pudo rechazar"
     },
     "editInstruction": {
       "rejected": "Edición rechazada",
@@ -1291,7 +1304,14 @@
       "toastFailedDelete": "Error al eliminar instrucción",
       "toastSaved": "Instrucción guardada",
       "editCount": "{n} ediciones",
-      "editLabel": "Editar instrucción"
+      "editLabel": "Editar instrucción",
+      "accepted": "Aceptada",
+      "rejectedLabel": "Rechazada",
+      "stagedInBuild": "Preparada en el borrador",
+      "acceptedToast": "Cambio aceptado",
+      "acceptFailed": "No se pudo aceptar",
+      "rejectedToast": "Cambio rechazado",
+      "rejectFailed": "No se pudo rechazar"
     },
     "inspectData": {
       "inspecting": "Inspeccionando",
@@ -5908,5 +5928,8 @@
     "failed": "No se pudieron cargar los datos",
     "newest": "Más recientes primero",
     "oldest": "Más antiguos primero"
+  },
+  "trackedChanges": {
+    "noChanges": "Sin cambios"
   }
 }
