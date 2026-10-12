@@ -1077,7 +1077,11 @@ class CompletionService:
             ),
             # Sub-run children (mode=subagent) are hidden completions: the
             # parent's delegate card is their only surface in the timeline.
-            ~((Completion.trigger_source == 'sub_run') & (Completion.role == 'system')),
+            # NULL-safe: a plain `trigger_source == 'sub_run'` is NULL for every
+            # ordinary row, and NOT NULL filters those rows out too.
+            (Completion.trigger_source.is_(None))
+            | (Completion.trigger_source != 'sub_run')
+            | (Completion.role != 'system'),
         )
         if before:
             # Cursor is "<iso timestamp>~<completion id>" (see next_before below).

@@ -373,8 +373,7 @@ class SubRunService:
         from app.models.organization import Organization
         from app.models.report import Report
         from app.models.user import User
-        from app.schemas.completion_schema import PromptSchema
-        from app.schemas.completion_v2_schema import CompletionCreate
+        from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
         from app.services.completion_service import CompletionService
 
         async with async_session_maker() as db:

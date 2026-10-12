@@ -70,7 +70,7 @@ def _tool_result_count(messages) -> int:
     if n == 0:
         # legacy (non-transcript) path: observations serialized into text
         txt = _all_text(messages)
-        n = len(re.findall(r'"tool_name"\s*:', txt))
+        n = len(re.findall(r"<last_observation>", txt))
     return n
 
 
@@ -98,7 +98,15 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
         n_results = _tool_result_count(messages)
         tool_names = {getattr(t, "name", None) or (t.get("name") if isinstance(t, dict) else None) for t in (tools or [])}
         if calls is not None:
-            calls.append({"system": sys_text[:120], "n_results": n_results, "tools": sorted(x for x in tool_names if x)})
+            idx = text.find('"tool_name"')
+            shapes = []
+            for m in messages or []:
+                c = getattr(m, "content", None) if not isinstance(m, dict) else m.get("content")
+                shapes.append("str" if isinstance(c, str) else [b.get("type") for b in c if isinstance(b, dict)])
+            lo = text.find("<last_observation>")
+            calls.append({"system": sys_text[:120], "n_results": n_results, "tools": sorted(x for x in tool_names if x),
+                          "tool_name_ctx": text[max(0, idx - 150): idx + 150] if idx >= 0 else None, "n_msgs": len(messages or []),
+                          "shapes": shapes, "last_obs_ctx": text[max(0, lo - 200): lo + 300] if lo >= 0 else None})
         events = []
         if "Mode: Sub-run" in sys_text:
             title = _child_title(sys_text)
@@ -116,7 +124,7 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
             else:
                 m = re.search(r'"note_id"\s*:\s*"([^"]+)"', text)
                 note_id = m.group(1) if m else None
-                supported = "Release" in title
+                supported = "release" in title.lower()
                 events += _tool(
                     "finish_subtask",
                     {
@@ -135,7 +143,7 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                         "report_note_id": note_id,
                     },
                 ) + _end("tool_use")
-        elif "<sub_run_results>" in text:
+        elif "<sub_run_results" in text:
             events += [TextDeltaEvent(text=(
                 "Root cause: the checkout-service 5.2.0 release on 2026-09-14 broke PayFlow payments on iOS "
                 "(failure rate 59% vs 3% elsewhere). Ruled out: the premium price change, the APAC campaign "
@@ -167,6 +175,33 @@ async def _plain_text_stream(self, prompt, **kwargs):
     yield "Checkout drop investigation"
 
 
+def _plain_text(self, prompt, *args, **kwargs):
+    # Sync one-shot inference (judge, title, check-in planner): never hit a provider.
+    return "ok"
+
+
+@pytest.fixture
+def live_client():
+    """A TestClient whose event loop lives for the whole test.
+
+    The plain ``test_client`` opens a fresh portal (event loop) per request, so
+    background tasks a request spawns — the sub-run launcher, every child run,
+    the fan-in — are cancelled the moment the request returns. Used as a
+    context manager the client keeps one loop up across requests, which is
+    what the real server does.
+    """
+    from fastapi.testclient import TestClient
+    from main import app
+    with TestClient(app) as client:
+        yield client
+
+
+def _post_completion(client, report_id: str, prompt: str, headers: dict):
+    r = client.post(f"/api/reports/{report_id}/completions", json={"prompt": {"content": prompt, "widget_id": None, "step_id": None, "mentions": [{}]}}, headers=headers, params={"background": False})
+    assert r.status_code == 200, r.text
+    return r.json()["completions"]
+
+
 @pytest.fixture
 def scripted_llm(monkeypatch):
     from app.ai.llm.llm import LLM
@@ -175,6 +210,7 @@ def scripted_llm(monkeypatch):
     def _install(**kw):
         monkeypatch.setattr(LLM, "inference_stream_v2", make_scripted_stream(calls=calls, **kw))
         monkeypatch.setattr(LLM, "inference_stream", _plain_text_stream)
+        monkeypatch.setattr(LLM, "inference", _plain_text)
         return calls
 
     return _install
@@ -222,8 +258,8 @@ def _run(coro):
 
 @pytest.mark.e2e
 def test_wave_fans_out_runs_children_hidden_and_fans_in(
-    test_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
-    create_completion, monkeypatch, scripted_llm,
+    live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
+    monkeypatch, scripted_llm,
 ):
     """One planner response with N delegate calls → one wave with N children;
     children are hidden completions with parent links; each finishes through
@@ -235,11 +271,12 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     from app.models.completion import Completion
     from app.models.sub_run import SubRun, SubRunWave
 
-    scripted_llm()
+    calls = scripted_llm()
     report, headers, org_id, token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch)
     rid = report["id"]
 
-    completions = create_completion(report_id=rid, prompt="Paid orders dropped about 15% since mid-September. Why?", user_token=token, org_id=org_id)
+    test_client = live_client
+    completions = _post_completion(test_client, rid, "Paid orders dropped about 15% since mid-September. Why?", headers)
     parent_sys = next(c for c in completions if c["role"] == "system")
     assert parent_sys["status"] == "success", parent_sys
 
@@ -270,7 +307,8 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     detail = test_client.get(f"/api/reports/{rid}/sub-runs/{runs['Pricing change hypothesis']['sub_run_id']}", headers=headers).json()
     assert detail["record"]["outcome"] == "refuted"
     assert detail["envelope"]["exit_reason"] == "finish_call"
-    assert [c["tool"] for c in detail["calls"]] == ["create_note", "finish_subtask"]
+    child_calls = [c for c in calls if "Mode: Sub-run" in c["system"]]
+    assert [c["tool"] for c in detail["calls"]] == ["create_note", "finish_subtask"], (detail["calls"], child_calls[:2])
     assert detail.get("note", {}).get("content"), detail.get("note")
     assert detail["steps_used"] >= 2
 
@@ -284,7 +322,11 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     assert strips[0]["prompt"]["meta"]["total"] == len(HYPOTHESES)
     replies = [c for c in comps if c["role"] == "system" and c.get("trigger_source") == "sub_run_wave"]
     assert len(replies) == 1 and replies[0]["status"] == "success"
-    assert "Root cause" in (replies[0]["completion"] or {}).get("content", "")
+    _reply_text = " ".join(
+        [((replies[0].get("completion") or {}).get("content") or "")]
+        + [(b.get("content") or "") for b in (replies[0].get("completion_blocks") or [])]
+    )
+    assert "Root cause" in _reply_text, replies[0]
 
     # Write-back: the parent's delegate tool executions carry the records.
     delegate_blocks = [b for c in comps if c["id"] == parent_sys["id"] for b in (c.get("completion_blocks") or [])
@@ -321,8 +363,8 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
 
 @pytest.mark.e2e
 def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
-    test_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
-    create_completion, monkeypatch, scripted_llm,
+    live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
+    monkeypatch, scripted_llm,
 ):
     """Stopping one child records it as interrupted and the wave still fans in
     with every record; stopping a whole wave stops its children and creates no
@@ -334,7 +376,8 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
     scripted_llm(hypotheses=hyps, slow_seconds=25.0)
     report, headers, org_id, token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, "Stop one")
     rid = report["id"]
-    create_completion(report_id=rid, prompt="Why did paid orders drop?", user_token=token, org_id=org_id)
+    test_client = live_client
+    _post_completion(test_client, rid, "Why did paid orders drop?", headers)
 
     data = _wait_for(lambda: (lambda d: d if d["waves"] and any(r["status"] == "running" and "Slow" in r["title"] for r in d["waves"][-1]["sub_runs"]) else None)(_sub_runs(test_client, rid, headers)),
                      timeout_s=90, what="slow child to start")
@@ -359,7 +402,7 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
     scripted_llm(hypotheses=hyps2, slow_seconds=40.0)
     report2 = create_report(title="Stop wave", user_token=token, org_id=org_id, data_sources=[])
     rid2 = report2["id"]
-    create_completion(report_id=rid2, prompt="Why did paid orders drop?", user_token=token, org_id=org_id)
+    _post_completion(test_client, rid2, "Why did paid orders drop?", headers)
     data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] == "running" else None)(_sub_runs(test_client, rid2, headers)),
                      timeout_s=60, what="wave to start")
     wave_id = data["waves"][-1]["id"]
@@ -383,8 +426,8 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
 
 @pytest.mark.e2e
 def test_setting_off_hides_delegate_and_no_wave_is_created(
-    test_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
-    create_completion, update_organization_settings, monkeypatch, scripted_llm,
+    live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
+    update_organization_settings, monkeypatch, scripted_llm,
 ):
     """enable_sub_runs=false: delegate is not in the catalog (the scripted
     parent sees no delegate tool and answers directly), and no wave exists."""
@@ -392,7 +435,8 @@ def test_setting_off_hides_delegate_and_no_wave_is_created(
     report, headers, org_id, token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, "Setting off")
     update_organization_settings({"enable_sub_runs": {"value": False}}, user_token=token, org_id=org_id)
     rid = report["id"]
-    completions = create_completion(report_id=rid, prompt="Paid orders dropped about 15% since mid-September. Why?", user_token=token, org_id=org_id)
+    test_client = live_client
+    completions = _post_completion(test_client, rid, "Paid orders dropped about 15% since mid-September. Why?", headers)
     parent_sys = next(c for c in completions if c["role"] == "system")
     assert parent_sys["status"] == "success"
     planner_calls = [c for c in calls if "Mode: Chat" in c["system"]]
@@ -402,8 +446,8 @@ def test_setting_off_hides_delegate_and_no_wave_is_created(
 
 @pytest.mark.e2e
 def test_max_per_wave_refuses_excess_with_a_receipt(
-    test_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
-    create_completion, update_organization_settings, monkeypatch, scripted_llm,
+    live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
+    update_organization_settings, monkeypatch, scripted_llm,
 ):
     """sub_run_max_per_wave caps a wave; the extra delegate call gets a refused
     receipt (never a silent drop) and the wave still fans in with the rest."""
@@ -411,7 +455,8 @@ def test_max_per_wave_refuses_excess_with_a_receipt(
     report, headers, org_id, token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, "Cap")
     update_organization_settings({"sub_run_max_per_wave": {"value": 2}}, user_token=token, org_id=org_id)
     rid = report["id"]
-    completions = create_completion(report_id=rid, prompt="Why did paid orders drop?", user_token=token, org_id=org_id)
+    test_client = live_client
+    completions = _post_completion(test_client, rid, "Why did paid orders drop?", headers)
     parent_sys = next(c for c in completions if c["role"] == "system")
     data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] == "done" else None)(_sub_runs(test_client, rid, headers)),
                      timeout_s=180, what="capped wave to fan in")
@@ -419,6 +464,6 @@ def test_max_per_wave_refuses_excess_with_a_receipt(
     comps = test_client.get(f"/api/reports/{rid}/completions", headers=headers).json()["completions"]
     delegate_results = [b["tool_execution"]["result_json"] for c in comps if c["id"] == parent_sys["id"]
                         for b in (c.get("completion_blocks") or []) if (b.get("tool_execution") or {}).get("tool_name") == "delegate"]
-    assert len(delegate_results) == len(HYPOTHESES)
+    assert len(delegate_results) == len(HYPOTHESES), [(c["id"] == parent_sys["id"], c["role"], [((b.get("tool_execution") or {}).get("tool_name")) for b in (c.get("completion_blocks") or [])]) for c in comps]
     refused = [r for r in delegate_results if r.get("status") == "refused"]
     assert len(refused) == len(HYPOTHESES) - 2 and all(r.get("refused") for r in refused)

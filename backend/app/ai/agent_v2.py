@@ -4625,7 +4625,8 @@ class AgentV2:
             # commit to startup.
             try:
                 durable_transcript = (
-                    self.context_hub.message_builder.get_durable_transcript()
+                    None if self._is_sub_run  # a child starts with an empty history: no parent turns, no siblings
+                    else self.context_hub.message_builder.get_durable_transcript()
                 )
                 if durable_transcript is not None and durable_transcript.turns:
                     self.transcript.turns.extend(durable_transcript.turns)
