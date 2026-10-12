@@ -3599,7 +3599,11 @@ class MCPConfig(BaseModel):
             "Inject the user's identity into a metadata object on every tool call. "
             "Shape: {argument_key='custom_metadata', fields:[{name, source, mode, on_missing}]}. "
             "mode 'locked' hides the field from the model and always overrides; "
-            "'ai' surfaces it as a default the model may set."
+            "'ai' surfaces it as a default the model may set. Optional "
+            "dynamic_params_enabled + dynamic_params {key: default}: allow-list of "
+            "per-question values the caller sends as prompt.metadata; a listed key "
+            "takes the sent value, else its default (null = omit); unlisted keys are "
+            "dropped; a field of the same name wins."
         ),
         json_schema_extra={"ui:type": "json"}
     )

@@ -3764,6 +3764,10 @@
     "mcpModeAiTip": "ה-AI רשאי לקבוע; השרת ממלא אם ריק",
     "mcpModeLockedTip": "ערך המנהל תמיד גובר; מוסתר מה-AI",
     "mcpAddMetaField": "+ הוספת שדה מטא-נתונים",
+    "mcpDynamicParams": "פרמטרים דינמיים",
+    "mcpDynamicParamsHint": "אילו ערכים האפליקציה הקוראת רשאית לשלוח עם כל שאלה, ולכל אחד ערך ברירת מחדל (null = רק אם נשלח). הם נכנסים ל-{key} ומוסתרים מה-AI. שדה למעלה עם אותו שם גובר. האפליקציה שולחת אותם בשדה",
+    "mcpDynamicParamsInvalid": "JSON לא תקין.",
+    "mcpDynamicParamsNotObject": "צריך להיות אובייקט JSON (זוגות של מפתח וערך).",
     "verify": "אימות",
     "browserForm": {
       "allowDownloads": "אפשר הורדות",
@@ -3903,6 +3907,7 @@
     "organization.required": "חסרה כותרת מזהה הארגון",
     "api_key.invalid": "מפתח API לא תקף או שפג תוקפו",
     "mcp.disabled": "אינטגרציית MCP אינה מופעלת בארגון זה",
+    "mcp.dynamic_params_invalid": "פרמטרים דינמיים חייבים להיות אובייקט JSON בגודל של עד 8KB, עם מפתחות לא ריקים.",
     "feature.locked": "לא ניתן לשנות תכונה זו",
     "license.enterprise_required": "התכונה דורשת רישיון ארגוני.",
     "locale.invalid": "השפה אינה מופעלת",

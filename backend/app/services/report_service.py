@@ -3560,6 +3560,7 @@ class ReportService:
         # lone surrogates (e.g. pypdf output) crash JSONResponse's utf-8 encode,
         # which would 500 the whole shared page. Same guard the v2 serializer uses.
         from app.utils.json_sanitize import sanitize_json_strings
+        from app.utils.request_metadata import without_request_metadata
 
         # Build query with pagination - fetch newest first, then reverse for display.
         #
@@ -3741,7 +3742,9 @@ class ReportService:
                 "id": c.id,
                 "role": c.role,
                 "status": c.status,
-                "prompt": c.prompt if c.role == "user" else None,
+                # Request metadata (the calling app's per-question values) is
+                # for this run's MCP servers, not for public share viewers.
+                "prompt": without_request_metadata(c.prompt) if c.role == "user" else None,
                 "completion_blocks": c_blocks if c.role == "system" else [],
                 "created_at": c.created_at.isoformat() if c.created_at else None,
             }
