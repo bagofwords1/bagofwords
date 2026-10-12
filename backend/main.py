@@ -896,5 +896,8 @@ if __name__ == "__main__":
 # Bound new resource payloads without changing legacy upload contracts.
 from app.services.artifact_body_limit import ArtifactBodyLimit
 app.add_middleware(ArtifactBodyLimit)
+# Site-wide security headers (fills gaps; route-set headers win).
+from app.core.security_headers import SecurityHeadersMiddleware
+app.add_middleware(SecurityHeadersMiddleware)
 # Outermost: reject control characters in the URL before any routing.
 app.add_middleware(ControlCharGuardMiddleware)

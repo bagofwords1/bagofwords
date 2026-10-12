@@ -77,7 +77,7 @@ async def step_access(db, step):
                            .where(Widget.id == str(step.widget_id)))
 
 
-async def guard_route(db, user, kwargs):
+async def guard_route(db, user, kwargs, organization=None):
     """Resolve route IDs without loading artifacts; run before ordinary role shortcuts."""
     from app.models.query import Query
     from app.models.completion import Completion
@@ -98,8 +98,15 @@ async def guard_route(db, user, kwargs):
         if rid:
             report_ids.add(str(rid))
     if kwargs.get("entity_id"):
-        access = await db.scalar(select(Entity.bow_source_access).where(Entity.id == str(kwargs["entity_id"])))
-        await assert_read(db, access, user)
+        stmt = select(Entity.bow_source_access).where(Entity.id == str(kwargs["entity_id"]))
+        if organization is not None:
+            stmt = stmt.where(Entity.organization_id == str(organization.id))
+        access = await db.scalar(stmt)
+        # An entity the caller may not read answers exactly like a missing one,
+        # so entity routes are not an existence oracle (pentest 828562259).
+        if not await can_read(db, access, user):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Entity not found")
     for rid in report_ids:
         await assert_read(db, await report_access(db, rid), user)
 
