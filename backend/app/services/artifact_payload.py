@@ -65,17 +65,11 @@ def _ordered_visualizations(artifact, visualizations: list) -> list:
     return ordered
 
 
-async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> list[dict[str, Any]]:
-    """Ordered visualizations with their stored rows, columns and data model.
-
-    With `viewer` given, rows and applied params are what that reader may see
-    (see UNSCOPED)."""
+async def _viz_steps(db, artifact) -> list[tuple[Any, Any, Any]]:
+    """(visualization, query, step) for the artifact, in its index order."""
     from app.models.visualization import Visualization
     from app.models.query import Query
-    from app.models.report import Report
     from app.models.step import Step
-
-    report = await db.get(Report, artifact.report_id) if viewer is not UNSCOPED else None
 
     viz_stmt = (
         select(Visualization)
@@ -90,7 +84,7 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
     viz_result = await db.execute(viz_stmt)
     visualizations = _ordered_visualizations(artifact, list(viz_result.scalars().all()))
 
-    viz_data: list[dict[str, Any]] = []
+    out: list[tuple[Any, Any, Any]] = []
     for viz in visualizations:
         if not viz.query_id:
             continue
@@ -109,7 +103,21 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
                 .limit(1)
             )
             step = step_result.scalar_one_or_none()
+        out.append((viz, query, step))
+    return out
 
+
+async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> list[dict[str, Any]]:
+    """Ordered visualizations with their stored rows, columns and data model.
+
+    With `viewer` given, rows and applied params are what that reader may see
+    (see UNSCOPED)."""
+    from app.models.report import Report
+
+    report = await db.get(Report, artifact.report_id) if viewer is not UNSCOPED else None
+
+    viz_data: list[dict[str, Any]] = []
+    for viz, query, step in await _viz_steps(db, artifact):
         data, withheld = await _resolve_rows(db, step, report, viewer)
         applied = getattr(step, "applied_params", None) or {}
         if viewer is not UNSCOPED:
@@ -132,6 +140,28 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
         })
 
     return viz_data
+
+
+async def any_rows_withheld(db, artifact, viewer: Any) -> bool:
+    """Whether `viewer` is denied any of the rows this artifact draws on.
+
+    For outputs that were rendered once with the stored snapshot and cannot be
+    filtered afterwards (a generated .pptx deck and its PDF conversion): if the
+    public JSON view would withhold even one of their queries from this
+    reader, the file must not be served to them at all.
+    """
+    if viewer is UNSCOPED:
+        return False
+    from app.models.report import Report
+
+    report = await db.get(Report, artifact.report_id)
+    for _viz, _query, step in await _viz_steps(db, artifact):
+        if step is None:
+            continue
+        _, withheld = await _resolve_rows(db, step, report, viewer)
+        if withheld:
+            return True
+    return False
 
 
 async def collect_files(db, artifact) -> list[dict[str, Any]]:
