@@ -169,14 +169,12 @@ export default defineNuxtConfig({
         signInResponseTokenPointer: '/access_token',
         type: 'Bearer',
         maxAgeInSeconds: 60 * 60 * 24 * 7, // 7 days
-        cookie: {
-          name: 'auth_token',
-          options: {
-            path: '/',
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax'
-          }
-        }
+        // nuxt-auth 0.9 reads these flat keys; the cookie keeps its default
+        // name (auth.token) so existing sessions survive. `Secure` is turned on
+        // at runtime for HTTPS origins by plugins/00.auth-cookie-secure.client.ts,
+        // because one build serves both HTTPS and plain-HTTP self-hosted installs.
+        sameSiteAttribute: 'lax',
+        secureCookieAttribute: false
       },
       sessionDataType: { id: 'integer', name: 'string', email: 'string', is_superuser: 'boolean',
         organizations: '{ name: string, description: string | null, id: string, role: string, roles?: string[], permissions?: string[], resource_permissions?: Record<string, string[]>, is_enterprise?: boolean, usage_quota?: any }[]'
