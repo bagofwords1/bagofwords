@@ -366,6 +366,7 @@ class PromptBuilderV3:
                 "DELEGATION (sub-runs)\n"
                 "- `delegate` launches a bounded background sub-run for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>, one record per sub-run (outcome, confidence, summary, findings, ruled_out, evidence ids, caveats, unknown). "
                 "Delegate when a request splits into 3+ INDEPENDENT sub-questions that each need several steps — one hypothesis per candidate cause in a root-cause ask, the same deep check across many sources. "
+                "A root-cause ask ('why did X drop/spike', 'what caused') with 3+ candidate causes is ALWAYS delegated: never test the causes yourself. "
                 "Never for a single query, never for the final answer, never to avoid reading context already in front of you.\n"
                 "- Launch all independent goals as delegate calls in ONE response (they form a wave). Each goal must be self-contained: what to test, the window, what to report; put verified names, definitions and baseline numbers in `context` — children know nothing of this conversation.\n"
                 "- After launching: ONE line to the user (what you launched and that you will report back), then END YOUR TURN. Never wait, poll, or redo a delegated goal yourself; the user can keep chatting meanwhile. "
@@ -373,10 +374,24 @@ class PromptBuilderV3:
                 "- In the fan-in turn (<sub_run_results> in your prompt): synthesize from the records, cite their evidence ids, carry every ruled_out item and caveat into the answer, and treat an inconclusive/blocked record with a named unknown as a follow-up or a second wave — never a guess.\n"
                 "- A record is the sub-run's SELF-REPORT, not a verified fact: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim, read its note when a finding contradicts a sibling. Never show sub-run ids to the user.\n\n"
             )
-            rca_delegate_bit = " — when 3+ candidate causes are independent, test them as parallel `delegate` sub-runs (one hypothesis each) and conclude in the fan-in turn"
+            rca_delegate_bit = ""
         else:
             delegation_text = ""
             rca_delegate_bit = ""
+        # Root-cause step (3): with proactive sub-runs the fan-out IS the
+        # delegation — the parent must not run the hypothesis tests itself.
+        if _sub_runs_on and _posture != "explicit":
+            rca_step3 = (
+                "(3) enumerate the candidate causes and launch ONE `delegate` sub-run per independent cause in a SINGLE response "
+                "(one hypothesis each, self-contained goal + context) — do NOT run those tests yourself with create_data/inspect_data; "
+                "then write one line and END YOUR TURN, the records come back in a fan-in turn"
+            )
+            rca_step4 = (
+                "(4) in the fan-in turn conclude from the records: the causal chain, your confidence, every ruled-out cause, named confounders"
+            )
+        else:
+            rca_step3 = f"(3) enumerate candidate causes and test each with targeted queries (batch the independent ones){rca_notes_bit}{rca_delegate_bit}"
+            rca_step4 = "(4) conclude with the causal chain, your confidence, and named confounders"
 
         # Mirror-the-user's-language rule (same body as the legacy planner /
         # reporter / answer agents). The org locale only serves as the fallback
@@ -419,7 +434,7 @@ ROUTING (classify the ask first; the tool follows)
 - **Same question, different value → `run_query`, not `create_data`.** When a query in `<queries>` carries `<parameters>` and the ask is that query narrowed to a specific value of one of them (a region, a genre, a year, a customer, a status), call `run_query(query_id, params={{name: value}})` using the param's `name` attribute exactly (not a column name); the query's `viz_id` works in place of `query_id`. It runs the SAVED code with those values — no code generation, the query keeps its id and visualizations, and neither its saved defaults nor the shared dashboard change. Omitted params keep their defaults. Reach for `create_data` only when the SHAPE of the result must change (different columns, grouping, or aggregation), and `add_parameter` when the query needs a filter it does not yet declare. If the result comes back with `missing_params`, `clarify` for those values — never guess them.
 - **Oversized inputs**: window through them (offset/pagination; grep_files when hunting a specific token) and accumulate findings in notes — never force one giant read. Convert unstructured→structured (write_csv) only when the ask needs aggregation AND the input has a regular, parseable pattern; otherwise stay on the read-and-note path.
 - **Business terms, metrics, KPIs**: check org instructions first — scan <available_instructions>/<available_skills> and read_instruction anything relevant BEFORE writing queries (search_instructions if you suspect an unlisted rule). A term that is undefined and has no unambiguous schema mapping → CLARIFY. Never invent a definition.
-- **Root-cause asks** ("why did X drop", "what caused the spike"): iterate, don't jump to a conclusion — (1) confirm and quantify the symptom first; (2) decompose across dimensions (time, segment, geography, product, funnel) to localize where it concentrates; (3) enumerate candidate causes and test each with targeted queries (batch the independent ones){rca_notes_bit}{rca_delegate_bit}; (4) conclude with the causal chain, your confidence, and named confounders. Heavy investigations deliver via create_doc; a quick "why" answers in chat with cited evidence. A "how many" never triggers this loop; a "why" never resolves in one query.
+- **Root-cause asks** ("why did X drop", "what caused the spike"): iterate, don't jump to a conclusion — (1) confirm and quantify the symptom first; (2) decompose across dimensions (time, segment, geography, product, funnel) to localize where it concentrates; {rca_step3}; {rca_step4}. Heavy investigations deliver via create_doc; a quick "why" answers in chat with cited evidence. A "how many" never triggers this loop; a "why" never resolves in one query.
 - The user attached an image/screenshot → describe it in your text; never inspect_data an image.
 {mcp_directives_text}{web_fetch_directives_text}
 {web_search_directives_text}{ml_directives_text}

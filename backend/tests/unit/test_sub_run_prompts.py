@@ -30,12 +30,13 @@ def test_delegation_block_follows_catalog_and_posture():
     assert "END YOUR TURN" in proactive
     assert "SELF-REPORT" in proactive
     # Root-cause routing names delegate as the fan-out for independent causes.
-    assert "parallel `delegate` sub-runs" in proactive
+    assert "ONE `delegate` sub-run per independent cause" in proactive
+    assert "is ALWAYS delegated" in proactive
 
     explicit = PromptBuilderV3._build_system(_parent(sub_runs_enabled=True, sub_run_posture="explicit"))
     assert "explicit posture" in explicit
     assert "ONLY when the user or an instruction asks" in explicit
-    assert "parallel `delegate` sub-runs" not in explicit
+    assert "ONE `delegate` sub-run per independent cause" not in explicit
 
 
 def test_subagent_system_prompt_is_the_lean_variant_with_finish_contract():
