@@ -860,13 +860,16 @@ async def export_public_report_pptx(
     if artifact is None or artifact.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Not found")
 
-    # The deck was rendered once with the stored rows and cannot be filtered
-    # per reader. If the public JSON view withholds any of its queries from
-    # this viewer (an identity-scoped query, for anyone but the owner), the
-    # file would hand them those rows — refuse instead.
-    from app.services.artifact_payload import any_rows_withheld
+    # The deck on disk was rendered once with the stored rows. If the public
+    # JSON view withholds any of its queries from this viewer (an
+    # identity-scoped query, for anyone but the owner), the file would hand
+    # them those rows — refuse. If instead the viewer resolves to their OWN
+    # rows for some query (a signed-in member who ran it), the baked file is
+    # still someone else's: re-run the deck's stored code over their rows.
+    from app.services.artifact_payload import ROWS_PERSONAL, ROWS_WITHHELD, viewer_rows_state
 
-    if await any_rows_withheld(db, artifact, user):
+    rows_state = await viewer_rows_state(db, artifact, user)
+    if rows_state == ROWS_WITHHELD:
         raise HTTPException(
             status_code=409,
             detail="This deck contains data that is only visible to its owner, so it cannot be exported.",
@@ -900,6 +903,24 @@ async def export_public_report_pptx(
     except Exception:
         pass
 
+    safe_title = (artifact.title or "presentation").encode("ascii", "ignore").decode("ascii")
+    safe_title = re.sub(r"[^\w\s-]", "", safe_title).strip() or "presentation"
+
+    if rows_state == ROWS_PERSONAL:
+        from fastapi.responses import Response
+
+        personal = await ReportPdfService().deck_bytes_for_viewer(db, artifact, user)
+        if personal is None:
+            raise HTTPException(
+                status_code=409,
+                detail="This deck contains data that is only visible to its owner, so it cannot be exported.",
+            )
+        return Response(
+            content=personal,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={"Content-Disposition": f'attachment; filename="{safe_title}.pptx"'},
+        )
+
     # Serve only a file under the generated-decks root, rebuilt from that fixed
     # root plus the bare filename, so no stored path component can point out of
     # the export tree.
@@ -914,8 +935,6 @@ async def export_public_report_pptx(
             detail="PowerPoint export is not available for this report",
         )
 
-    safe_title = (artifact.title or "presentation").encode("ascii", "ignore").decode("ascii")
-    safe_title = re.sub(r"[^\w\s-]", "", safe_title).strip() or "presentation"
     return FileResponse(
         str(safe_pptx),
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",

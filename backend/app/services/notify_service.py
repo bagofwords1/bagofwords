@@ -44,6 +44,11 @@ _CHAT_PLATFORMS = ("teams", "slack", "google_chat")
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
+def attachment_ready(recipient: "ResolvedRecipient") -> bool:
+    """A recipient with an account (attachments can be rendered as them)."""
+    return bool(recipient.user_id)
+
+
 def _snippet(body: str, body_format: str, limit: int = 280) -> str:
     """A short plain-text preview of the body for the in-app row."""
     text = body or ""
@@ -251,6 +256,7 @@ class NotifyService:
         attempted (e.g. no email address at all, which shouldn't happen).
         """
         org_id = str(getattr(organization, "id", "") or "")
+        reader = await self._reader(db, recipient, report)
 
         # Chat platforms need an account + a verified mapping; invites (no user)
         # skip straight to email.
@@ -258,7 +264,8 @@ class NotifyService:
             for ptype in _CHAT_PLATFORMS:
                 try:
                     ch = await self._try_chat(
-                        db, org_id, ptype, report, recipient, body, body_format, attachment_specs
+                        db, org_id, ptype, report, recipient, body, body_format, attachment_specs,
+                        reader=reader,
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("notify: %s nudge failed for %s", ptype, recipient.email)
@@ -268,11 +275,27 @@ class NotifyService:
 
         return await self._send_email(
             db, organization, report, recipient, subject, body, body_format,
-            attachment_specs, system_completion, agent_execution_id,
+            attachment_specs, system_completion, agent_execution_id, reader=reader,
         )
 
+    @staticmethod
+    async def _reader(db, recipient: ResolvedRecipient, report: Any) -> Any:
+        """Who this recipient's attachments are rendered for.
+
+        Identity-scoped content is rendered as the recipient (their own rows)
+        or withheld (an invite with no account → None); see
+        EmailSendService.resolve_attachment. No report → nothing to scope."""
+        from app.services.artifact_payload import UNSCOPED
+
+        if report is None or not attachment_ready(recipient):
+            return UNSCOPED if report is None else None
+        from app.models.user import User
+
+        return await db.get(User, recipient.user_id)
+
     async def _try_chat(
-        self, db, org_id, ptype, report, recipient, body, body_format, attachment_specs
+        self, db, org_id, ptype, report, recipient, body, body_format, attachment_specs,
+        reader: Any = None,
     ) -> Optional[bool]:
         """Send a DM on ``ptype`` if the org has it active and the recipient has a
         verified mapping. Returns the send result, or None if not reachable here
@@ -305,7 +328,7 @@ class NotifyService:
 
         # Best-effort attachments — never fail the message over an attachment.
         if ok and attachment_specs:
-            files, temps = await self._resolve_files(db, report, None, attachment_specs)
+            files, temps = await self._resolve_files(db, report, None, attachment_specs, reader=reader)
             try:
                 for path, filename in files:
                     try:
@@ -318,7 +341,7 @@ class NotifyService:
 
     async def _send_email(
         self, db, organization, report, recipient, subject, body, body_format,
-        attachment_specs, system_completion, agent_execution_id=None,
+        attachment_specs, system_completion, agent_execution_id=None, reader: Any = None,
     ) -> Tuple[str, bool, Optional[str]]:
         from app.services.email_send_service import EmailSendService
 
@@ -334,13 +357,14 @@ class NotifyService:
                 organization=organization,
                 system_completion=system_completion,
                 agent_execution_id=agent_execution_id,
+                recipient_user=reader,
             )
             return "email", bool(out.success), (None if out.success else out.error)
         except Exception as e:  # noqa: BLE001
             logger.exception("notify: email send failed for %s", recipient.email)
             return "email", False, str(e)
 
-    async def _resolve_files(self, db, report, organization, specs) -> Tuple[List[Tuple[str, str]], List[str]]:
+    async def _resolve_files(self, db, report, organization, specs, reader: Any = None) -> Tuple[List[Tuple[str, str]], List[str]]:
         """Reuse EmailSendService's report-scoped attachment resolution to produce
         on-disk files for a chat upload. Returns ([(path, filename)], temp_paths)."""
         from app.services.email_send_service import EmailSendService
@@ -350,7 +374,9 @@ class NotifyService:
         temps: List[str] = []
         for spec in specs:
             try:
-                res, att_dict, temp_path = await svc.resolve_attachment(spec, db, report, organization)
+                res, att_dict, temp_path = await svc.resolve_attachment(
+                    spec, db, report, organization, recipient=reader,
+                )
             except Exception:  # noqa: BLE001
                 logger.exception("notify: attachment resolution failed")
                 continue

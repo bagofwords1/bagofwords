@@ -1518,8 +1518,15 @@ class ReportService:
         report_id: str,
         current_user: User,
         artifact_id: str | None = None,
+        only_identity_scoped: bool = False,
     ) -> dict:
         """Re-execute a shared artifact's steps for a viewer.
+
+        `only_identity_scoped` limits the run to steps whose rows depend on
+        who runs them (step_identity_scope) — the per-recipient email render
+        (report_bursting) needs exactly those; every other step serves the
+        shared snapshot to this viewer anyway, so re-running it per recipient
+        would only multiply warehouse load.
 
         Unlike rerun_report_steps (owner refresh), results land in the
         viewer's own step_user_results rows — the shared Step.data snapshot
@@ -1646,6 +1653,13 @@ class ReportService:
 
         query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
         targets, unrunnable = await self._rerun_target_steps(db, query_ids)
+        if only_identity_scoped:
+            from app.services.report_bursting import identity_scoped_step_ids
+            scoped = await identity_scoped_step_ids(db, [sid for sid, _ in targets])
+            targets = [(sid, code) for sid, code in targets if sid in scoped]
+            # A query with no step renders nothing for anyone — not this
+            # viewer's failure.
+            unrunnable = 0
         for step_id, code in targets:
             steps_total += 1
             if not code or not str(code).strip():

@@ -446,6 +446,10 @@
       "trigger_run": {
         "title": "⚡ \"{name}\" utlöstes — {summary}",
         "body": "Utredningen är klar — öppna sessionen för att se resultaten."
+      },
+      "delivery_skipped": {
+        "title": "Vissa mottagare fick inte \"{report}\"",
+        "body": "{count} mottagare fick inte rapporten eftersom den innehåller data som är specifik för varje användare: {recipients}"
       }
     },
     "checkin": {

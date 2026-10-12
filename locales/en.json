@@ -479,6 +479,10 @@
       "trigger_run": {
         "title": "⚡ \"{name}\" fired — {summary}",
         "body": "The investigation completed — open the session for the findings."
+      },
+      "delivery_skipped": {
+        "title": "Some recipients did not get \"{report}\"",
+        "body": "{count} recipient(s) were not sent this report because it contains data scoped to each viewer: {recipients}"
       }
     },
     "checkin": {
