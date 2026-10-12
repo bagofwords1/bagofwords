@@ -446,6 +446,10 @@
       "trigger_run": {
         "title": "⚡ « {name} » s'est déclenché — {summary}",
         "body": "L'enquête est terminée — ouvrez la session pour voir les résultats."
+      },
+      "delivery_skipped": {
+        "title": "Certains destinataires n'ont pas reçu « {report} »",
+        "body": "{count} destinataire(s) n'ont pas reçu ce rapport, car il contient des données propres à chaque lecteur : {recipients}"
       }
     },
     "checkin": {

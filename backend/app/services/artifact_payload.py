@@ -164,6 +164,46 @@ async def any_rows_withheld(db, artifact, viewer: Any) -> bool:
     return False
 
 
+# What a viewer's resolved rows are, relative to the stored snapshot:
+ROWS_SNAPSHOT = "snapshot"   # exactly the stored rows (owner, plain content)
+ROWS_PERSONAL = "personal"   # at least one query serves the viewer's OWN run
+ROWS_WITHHELD = "withheld"   # at least one query has nothing for this viewer
+
+
+async def viewer_rows_state(db, artifact, viewer: Any) -> str:
+    """Classify what `viewer` gets for the queries this artifact renders.
+
+    A file rendered once from the stored rows (a generated .pptx deck) is only
+    correct for a reader whose rows ARE the stored rows. A signed-in viewer who
+    ran an identity-scoped query themselves resolves to their own
+    step_user_results slice instead — for them the baked deck holds someone
+    else's rows even though nothing is "withheld". Callers re-render
+    (ROWS_PERSONAL) or refuse (ROWS_WITHHELD); ROWS_SNAPSHOT may be served
+    as stored.
+
+    Scoped to the artifact's own visualization_ids when it lists them — those
+    are the only rows a deck's code is handed.
+    """
+    if viewer is UNSCOPED:
+        return ROWS_SNAPSHOT
+    from app.models.report import Report
+    from app.services.viewer_data_policy import resolve_step_data
+
+    report = await db.get(Report, artifact.report_id)
+    included = set((artifact.content or {}).get("visualization_ids") or [])
+    state = ROWS_SNAPSHOT
+    for viz, _query, step in await _viz_steps(db, artifact):
+        if step is None or (included and str(viz.id) not in included):
+            continue
+        resolution = await resolve_step_data(db, step, report, viewer)
+        if resolution.withheld:
+            return ROWS_WITHHELD
+        vr = resolution.viewer_result or {}
+        if vr.get("status") == "success":
+            state = ROWS_PERSONAL
+    return state
+
+
 async def collect_files(db, artifact) -> list[dict[str, Any]]:
     """Embedded images/PDFs as data: URIs.
 

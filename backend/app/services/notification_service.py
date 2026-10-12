@@ -82,6 +82,7 @@ class NotificationService:
         """
         dispatched: list[ChannelResult] = []
         errors: list[ChannelResult] = []
+        skipped: list[ChannelResult] = []
 
         context = {
             "notification_type": notification_type,
@@ -106,13 +107,23 @@ class NotificationService:
                 ))
                 continue
 
-            result = await handler(recipients, context)
-            if result.status == "sent":
-                dispatched.append(result)
-            else:
-                errors.append(result)
+            outcome = await handler(recipients, context)
+            # A per-recipient (bursting) send reports one result per outcome.
+            for result in (outcome if isinstance(outcome, list) else [outcome]):
+                if result.status == "sent":
+                    dispatched.append(result)
+                elif result.status == "skipped":
+                    skipped.append(result)
+                else:
+                    errors.append(result)
 
-        return NotifyResponse(dispatched=dispatched, errors=errors)
+        # Nothing went out at all but someone was skipped: say so as an error,
+        # so a caller that only checks `errors` never reports "sent" for an
+        # email nobody received.
+        if skipped and not dispatched and not errors:
+            errors.extend(skipped)
+
+        return NotifyResponse(dispatched=dispatched, errors=errors, skipped=skipped)
 
     # ---- channel registry ----
 
@@ -389,6 +400,16 @@ class NotificationService:
             message=context.get("message"),
         )
 
+        # A shared dashboard with identity-scoped content is rendered per
+        # recipient (report_bursting); everything else keeps the single send.
+        if (
+            context["notification_type"] == NotificationType.SHARE_DASHBOARD
+            and context.get("report_id") and organization_id
+        ):
+            burst = await self._burst_share_dashboard(recipients, subject, html, context)
+            if burst is not None:
+                return burst
+
         async def _build_attachments() -> list:
             # Generate the PDF attachment for dashboard shares.
             # Withheld in viewer-identity mode on user-scoped connections:
@@ -475,6 +496,90 @@ class NotificationService:
             source=outcome.source,
             stage=outcome.stage,
         )
+
+    # ---- per-recipient (bursting) report emails ----
+
+    @staticmethod
+    def _pdf_attachment(pdf_path: Optional[str], title: Optional[str]) -> list:
+        from pathlib import Path
+
+        if not pdf_path or not Path(pdf_path).exists():
+            return []
+        return [{
+            "file": str(pdf_path),
+            "filename": f"{title or 'report'}.pdf",
+            "type": "application",
+            "subtype": "pdf",
+        }]
+
+    def _make_burst_sender(self, organization_id, subject_html_for, title, *, retries=0, timeout=None):
+        """send(recipients, pdf_path, personal) for report_bursting.deliver_burst."""
+        async def send(rcpts: List[str], pdf_path: Optional[str], personal: bool):
+            subject, html = subject_html_for(personal)
+            from app.dependencies import async_session_maker
+            async with async_session_maker() as send_db:
+                return await self._resolved_send(
+                    rcpts, subject, html, subtype="html",
+                    attachments=self._pdf_attachment(pdf_path, title) or None,
+                    db=send_db, organization_id=organization_id, purpose="system",
+                    retries=retries, timeout=timeout,
+                )
+        return send
+
+    async def _burst_plan(self, report_id: str, *, emails=(), user_ids=()):
+        """(recipients, want_pdf_allowed) when the report needs bursting, else None."""
+        from app.dependencies import async_session_maker
+        from app.models.report import Report
+        from app.services.report_bursting import classify_recipients, report_identity_scoped
+        from app.services.viewer_data_policy import report_snapshot_withheld
+
+        async with async_session_maker() as db:
+            report = await db.get(Report, str(report_id))
+            if report is None or not await report_identity_scoped(db, str(report_id)):
+                return None
+            recipients = await classify_recipients(db, report, emails=emails, user_ids=user_ids)
+            # The credential-level withholding policy still applies to every
+            # copy, exactly as on the single-send path.
+            pdf_allowed = not await report_snapshot_withheld(db, str(report_id))
+        return recipients, pdf_allowed
+
+    async def _burst_share_dashboard(self, recipients, subject, html, context):
+        from app.models.notification import SOURCE_SHARE
+        from app.services.report_bursting import SKIP_MESSAGES, deliver_burst, notify_owner_of_undelivered
+
+        report_id = str(context["report_id"])
+        try:
+            plan = await self._burst_plan(report_id, emails=recipients)
+        except Exception:  # noqa: BLE001
+            # Cannot tell whether the report is identity-scoped: fail closed.
+            logger.exception("bursting: could not plan share email for report %s", report_id)
+            return ChannelResult(channel="email", status="failed", recipients=recipients,
+                                 error="Could not prepare personalized copies")
+        if plan is None:
+            return None
+        burst_recipients, pdf_allowed = plan
+
+        send = self._make_burst_sender(
+            context.get("organization_id"), lambda personal: (subject, html),
+            context.get("report_title"), retries=1, timeout=20,
+        )
+        result = await deliver_burst(
+            report_id=report_id, recipients=burst_recipients, want_pdf=pdf_allowed, send=send,
+        )
+        await notify_owner_of_undelivered(report_id, result, source=SOURCE_SHARE)
+
+        out: list[ChannelResult] = []
+        if result.sent:
+            out.append(ChannelResult(channel="email", status="sent",
+                                     recipients=[d.email for d in result.sent],
+                                     source=result.sent[0].source))
+        for d in result.failed:
+            out.append(ChannelResult(channel="email", status="failed", recipients=[d.email],
+                                     error=d.error or d.reason or "send failed"))
+        for d in result.skipped:
+            out.append(ChannelResult(channel="email", status="skipped", recipients=[d.email],
+                                     error=f"{d.email} {SKIP_MESSAGES.get(d.reason, 'not sent')}"))
+        return out
 
     # ---- free-form email ----
 
@@ -636,6 +741,21 @@ class NotificationService:
         if not subscribers:
             return
 
+        # A report with identity-scoped content is delivered per recipient
+        # (report_bursting): each member gets their own rows, external
+        # addresses are skipped. Everything else keeps the single send below.
+        try:
+            if await self._burst_scheduled_results(
+                report_id=report_id, report_title=report_title, subscribers=subscribers,
+                report_url=report_url, exec_summary=exec_summary, locale=locale,
+            ):
+                return
+        except Exception:  # noqa: BLE001
+            # Cannot tell whether the report is identity-scoped: fail closed
+            # rather than mail the owner's rows to everyone.
+            logger.exception("bursting: scheduled results for report %s not sent", report_id)
+            return
+
         # Resolve subscriber emails + the report's org (for Org SMTP routing).
         recipient_emails = []
         organization_id = None
@@ -722,6 +842,50 @@ class NotificationService:
             logger.info("Scheduled prompt results sent to %s for report %s", recipient_emails, report_id)
         except Exception as e:
             logger.error("Failed to send scheduled prompt results: %s", e)
+
+    async def _burst_scheduled_results(
+        self, *, report_id, report_title, subscribers, report_url, exec_summary, locale,
+    ) -> bool:
+        """Per-recipient scheduled-results delivery; False when not needed."""
+        from app.dependencies import async_session_maker
+        from app.models.notification import SOURCE_SCHEDULE
+        from app.models.report import Report
+        from app.services.report_bursting import deliver_burst, notify_owner_of_undelivered
+
+        user_ids = [str(s.get("id")) for s in subscribers if s.get("type") == "user" and s.get("id")]
+        emails = [s["address"] for s in subscribers if s.get("type") == "email" and s.get("address")]
+        plan = await self._burst_plan(str(report_id), emails=emails, user_ids=user_ids)
+        if plan is None:
+            return False
+        recipients, pdf_allowed = plan
+        async with async_session_maker() as db:
+            rep = await db.get(Report, str(report_id))
+            organization_id = rep.organization_id if rep else None
+
+        effective_locale = _valid_locale(locale)
+        owner_summary = ""
+        if exec_summary and exec_summary.get("last_content"):
+            content = exec_summary["last_content"]
+            if len(content) > 2000:
+                content = content[:2000] + "..."
+            owner_summary = self._md_to_html(content)
+
+        def subject_html_for(personal: bool):
+            # The run's written summary was produced from the OWNER's rows —
+            # a personalized copy carries the run's counts and the link, and
+            # its own data in the attachment, never the owner's narrative.
+            return render_scheduled_prompt_email(
+                effective_locale, report_title=report_title, report_url=report_url,
+                exec_summary=exec_summary, summary_html="" if personal else owner_summary,
+            )
+
+        want_pdf = bool(exec_summary and exec_summary.get("artifacts", 0) > 0) and pdf_allowed
+        result = await deliver_burst(
+            report_id=str(report_id), recipients=recipients, want_pdf=want_pdf,
+            send=self._make_burst_sender(organization_id, subject_html_for, report_title),
+        )
+        await notify_owner_of_undelivered(str(report_id), result, source=SOURCE_SCHEDULE)
+        return True
 
     @staticmethod
     def _md_to_html(text: str) -> str:
