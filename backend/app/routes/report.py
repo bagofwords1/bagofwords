@@ -43,6 +43,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
 
+
+async def _require_report_viewer(db, report_id: str, current_user, organization) -> None:
+    """Per-user report endpoints (viewed, star, fork_status) are open to anyone
+    who can see the report: its owner, a full admin, or whoever its
+    conversation/artifact visibility (shared directly or via a group, internal,
+    public) or project admits -- the read rule of the shared-report routes and
+    of the query routes (`_can_read_query`). Anyone else
+    gets the same 404 as a missing id, so these endpoints reveal nothing about
+    reports the caller cannot see."""
+    from sqlalchemy.orm import lazyload
+    from app.errors.app_error import AppError
+    from app.services.file_access_service import user_can_view_report, CONVERSATION_OR_ARTIFACT
+
+    report = (await db.execute(
+        select(Report).options(lazyload("*")).where(
+            Report.id == str(report_id),
+            Report.organization_id == str(organization.id),
+        )
+    )).scalar_one_or_none()
+    try:
+        allowed = report is not None and await user_can_view_report(
+            db, current_user, organization, report, CONVERSATION_OR_ARTIFACT
+        )
+    except AppError:
+        allowed = False
+    if not allowed:
+        raise HTTPException(status_code=404, detail="Not found")
+
 @router.post("/reports", response_model=ReportSchema)
 @requires_permission('create_reports')
 async def create_report(
@@ -152,9 +180,10 @@ async def stream_reports_activity(
     })
 
 @router.post("/reports/{report_id}/viewed")
-@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+@requires_permission('view_reports', model=Report)
 async def mark_report_viewed(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Bump the current user's last-viewed watermark (clears the unread badge)."""
+    await _require_report_viewer(db, report_id, current_user, organization)
     return await report_service.mark_report_viewed(db, report_id, current_user, organization)
 
 @router.put("/reports/{report_id}", response_model=ReportSchema)
@@ -239,15 +268,17 @@ async def publish_report(
     return result
 
 @router.post("/reports/{report_id}/star", response_model=StarResponse)
-@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+@requires_permission('view_reports', model=Report)
 async def star_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Star (favorite) a report for the current user. Per-user; any viewer may star."""
+    await _require_report_viewer(db, report_id, current_user, organization)
     return await report_service.set_report_star(db, report_id, current_user, organization, starred=True)
 
 @router.delete("/reports/{report_id}/star", response_model=StarResponse)
-@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+@requires_permission('view_reports', model=Report)
 async def unstar_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Remove the current user's star from a report."""
+    await _require_report_viewer(db, report_id, current_user, organization)
     return await report_service.set_report_star(db, report_id, current_user, organization, starred=False)
 
 @router.post("/reports/{report_id}/conversation-share")
@@ -399,7 +430,7 @@ async def fork_report(
 
 
 @router.get("/reports/{report_id}/fork_status")
-@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+@requires_permission('view_reports', model=Report)
 async def get_fork_status(
     report_id: str,
     current_user: User = Depends(current_user),
@@ -412,6 +443,7 @@ async def get_fork_status(
     the forker's credentials; the report page polls this and waits instead of
     rendering an empty dashboard, then loads once hydration has settled.
     """
+    await _require_report_viewer(db, report_id, current_user, organization)
     return {"hydrating": await fork_service.is_hydrating(db, report_id)}
 
 

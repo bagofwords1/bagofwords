@@ -228,6 +228,83 @@ def test_private_report_hidden_from_other_members(
     assert test_client.post(f"/api/reports/{rid}/star", headers=_headers(token1, org_id)).status_code == 200
 
 
+def _add_member(test_client, create_user, login_user, whoami, owner_token, org_id, prefix):
+    email = f"{prefix}_{uuid.uuid4().hex[:6]}@test.com"
+    test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email, "role": "member"},
+        headers=_headers(owner_token, org_id),
+    )
+    create_user(email=email, password="test123")
+    token = login_user(email=email, password="test123")
+    return token, whoami(token)["id"]
+
+
+def _per_user_statuses(test_client, rid, headers):
+    return [
+        test_client.post(f"/api/reports/{rid}/viewed", headers=headers).status_code,
+        test_client.post(f"/api/reports/{rid}/star", headers=headers).status_code,
+        test_client.delete(f"/api/reports/{rid}/star", headers=headers).status_code,
+        test_client.get(f"/api/reports/{rid}/fork_status", headers=headers).status_code,
+    ]
+
+
+@pytest.mark.e2e
+def test_conversation_share_admits_per_user_endpoints(
+    test_client, create_report, set_visibility, create_user, login_user, whoami,
+):
+    """A report shared only through its conversation is in the recipient's list,
+    so they can star it and clear its unread badge; a member it was not shared
+    with still gets 404."""
+    email1 = f"act_owner_{uuid.uuid4().hex[:6]}@test.com"
+    create_user(email=email1, password="test123")
+    token1 = login_user(email=email1, password="test123")
+    org_id = whoami(token1)["organizations"][0]["id"]
+    token2, user2_id = _add_member(test_client, create_user, login_user, whoami, token1, org_id, "act_shared")
+    token3, _ = _add_member(test_client, create_user, login_user, whoami, token1, org_id, "act_other")
+
+    report = create_report(title="Conversation share", user_token=token1, org_id=org_id, data_sources=[])
+    rid = report["id"]
+    set_visibility(rid, "conversation", "shared", user_token=token1, org_id=org_id, shared_user_ids=[user2_id])
+
+    assert rid in _activity(test_client, [rid], token2, org_id)
+    assert _per_user_statuses(test_client, rid, _headers(token2, org_id)) == [200, 200, 200, 200]
+    assert _per_user_statuses(test_client, rid, _headers(token3, org_id)) == [404, 404, 404, 404]
+
+
+@pytest.mark.e2e
+def test_group_share_admits_per_user_endpoints(
+    test_client, create_report, set_visibility, create_user, login_user, whoami,
+):
+    """A report shared with a group admits its members, not other members."""
+    email1 = f"act_owner_{uuid.uuid4().hex[:6]}@test.com"
+    create_user(email=email1, password="test123")
+    token1 = login_user(email=email1, password="test123")
+    org_id = whoami(token1)["organizations"][0]["id"]
+    token2, user2_id = _add_member(test_client, create_user, login_user, whoami, token1, org_id, "act_grp")
+    token3, _ = _add_member(test_client, create_user, login_user, whoami, token1, org_id, "act_other")
+
+    group = test_client.post(
+        f"/api/organizations/{org_id}/groups", json={"name": "Readers"}, headers=_headers(token1, org_id),
+    )
+    if group.status_code == 402:
+        pytest.skip("Enterprise license required for groups")
+    assert group.status_code == 200, group.json()
+    group_id = group.json()["id"]
+    added = test_client.post(
+        f"/api/organizations/{org_id}/groups/{group_id}/members",
+        json={"user_id": user2_id}, headers=_headers(token1, org_id),
+    )
+    assert added.status_code in (200, 201), added.json()
+
+    report = create_report(title="Group share", user_token=token1, org_id=org_id, data_sources=[])
+    rid = report["id"]
+    set_visibility(rid, "conversation", "shared", user_token=token1, org_id=org_id, shared_group_ids=[group_id])
+
+    assert _per_user_statuses(test_client, rid, _headers(token2, org_id)) == [200, 200, 200, 200]
+    assert _per_user_statuses(test_client, rid, _headers(token3, org_id)) == [404, 404, 404, 404]
+
+
 @pytest.mark.e2e
 def test_running_state_while_completion_in_progress(
     monkeypatch, test_client, create_report, create_user, login_user, whoami,
