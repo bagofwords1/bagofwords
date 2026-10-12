@@ -194,8 +194,14 @@ class EditScheduledTaskTool(Tool):
             from app.schemas.scheduled_prompt_schema import ScheduledPromptUpdate
 
             sp = await db.get(ScheduledPrompt, data.task_id)
-            # Guard: must exist, not be deleted, and belong to the current report.
-            if not sp or sp.deleted_at is not None or str(sp.report_id) != str(report.id):
+            # Guard: must exist, not be deleted, and belong to the current report
+            # — its host report, or a run report it spawned (report-per-run mode).
+            # Authority is then checked against the host report by the service.
+            on_this_report = sp is not None and (
+                str(sp.report_id) == str(report.id)
+                or str(getattr(report, "scheduled_prompt_id", None) or "") == str(sp.id)
+            )
+            if not sp or sp.deleted_at is not None or not on_this_report:
                 msg = "No active scheduled task with that id was found on this report."
                 yield ToolEndEvent(
                     type="tool.end",

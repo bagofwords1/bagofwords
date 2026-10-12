@@ -103,6 +103,14 @@ class ScheduledPromptService:
                 detail="You need the update_reports permission to manage scheduled tasks",
             )
 
+    async def _ensure_can_manage_prompt(
+        self, db: AsyncSession, sp: ScheduledPrompt, current_user: User, organization: Organization,
+    ) -> None:
+        """ensure_can_manage against the schedule's HOST report (sp.report_id),
+        wherever the caller is acting from (host report or a spawned run report)."""
+        report = (await db.execute(select(Report).filter(Report.id == sp.report_id))).scalar_one_or_none()
+        await self.ensure_can_manage(db, report, current_user, organization)
+
     async def create_scheduled_prompt(
         self,
         db: AsyncSession,
@@ -173,8 +181,7 @@ class ScheduledPromptService:
         organization: Organization,
     ) -> ScheduledPrompt:
         sp = await self._get_or_404(db, scheduled_prompt_id)
-        report = (await db.execute(select(Report).filter(Report.id == sp.report_id))).scalar_one_or_none()
-        await self.ensure_can_manage(db, report, current_user, organization)
+        await self._ensure_can_manage_prompt(db, sp, current_user, organization)
 
         if data.prompt is not None:
             sp.prompt = data.prompt
@@ -212,6 +219,7 @@ class ScheduledPromptService:
         organization: Organization,
     ) -> None:
         sp = await self._get_or_404(db, scheduled_prompt_id)
+        await self._ensure_can_manage_prompt(db, sp, current_user, organization)
         sp.deleted_at = datetime.utcnow()
         await db.commit()
         self._remove_job(sp.id)

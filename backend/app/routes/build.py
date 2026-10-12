@@ -46,6 +46,7 @@ async def _require_authority_over_instructions(
     if ds_ids:
         await check_resource_permissions(
             db, user_id, org_id, "data_source", ds_ids, "manage_instructions",
+            name_resource=False,
         )
     if any(not ds for ds in scopes.values()):
         await require_org_permission(db, user_id, org_id, "manage_instructions")
@@ -76,6 +77,7 @@ async def _enforce_build_ds_access(
     if ds_ids:
         await check_resource_permissions(
             db, user_id, org_id, "data_source", ds_ids, "manage_instructions",
+            name_resource=False,
         )
     if changed_instruction_ids is None:
         changed_instruction_ids = await build_service.get_build_changed_instruction_ids(db, build_id)
@@ -202,7 +204,7 @@ async def get_build(
         raise HTTPException(status_code=404, detail="Build not found")
     
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
+        raise HTTPException(status_code=404, detail="Build not found")
     
     return InstructionBuildSchema.model_validate(build)
 
@@ -221,7 +223,7 @@ async def get_build_contents(
         raise HTTPException(status_code=404, detail="Build not found")
     
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
+        raise HTTPException(status_code=404, detail="Build not found")
     
     contents = await build_service.get_build_contents(db, build_id)
     read_filter = await _instruction_read_filter(db, current_user, organization)
@@ -295,7 +297,7 @@ async def submit_build(
         raise HTTPException(status_code=404, detail="Build not found")
 
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
+        raise HTTPException(status_code=404, detail="Build not found")
 
     await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
     build = await build_service.submit_build(db, build_id)
@@ -319,7 +321,7 @@ async def reject_build(
         raise HTTPException(status_code=404, detail="Build not found")
 
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
+        raise HTTPException(status_code=404, detail="Build not found")
 
     await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
     build = await build_service.reject_build(db, build_id, current_user.id, reject_data.reason)
@@ -346,7 +348,7 @@ async def add_or_update_build_content(
         raise HTTPException(status_code=404, detail="Build not found")
     
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
+        raise HTTPException(status_code=404, detail="Build not found")
 
     await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
     await _require_authority_over_instructions(
@@ -380,7 +382,7 @@ async def remove_build_content(
         raise HTTPException(status_code=404, detail="Build not found")
     
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
+        raise HTTPException(status_code=404, detail="Build not found")
 
     await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
     await _require_authority_over_instructions(
@@ -409,13 +411,13 @@ async def diff_builds(
     build_a = await build_service.get_build(db, build_id)
     build_b = await build_service.get_build(db, compare_to)
     
-    if not build_a:
-        raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
-    if not build_b:
-        raise HTTPException(status_code=404, detail=f"Build {compare_to} not found")
-    
-    if build_a.organization_id != organization.id or build_b.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="One or both builds do not belong to this organization")
+    # Missing and foreign builds read the same (no existence oracle).
+    if (
+        not build_a or not build_b
+        or build_a.organization_id != organization.id
+        or build_b.organization_id != organization.id
+    ):
+        raise HTTPException(status_code=404, detail="Build not found")
     
     diff = await build_service.diff_builds(db, build_id, compare_to)
     read_filter = await _instruction_read_filter(db, current_user, organization)
@@ -449,13 +451,13 @@ async def diff_builds_detailed(
     build_a = await build_service.get_build(db, compare_to)  # parent
     build_b = await build_service.get_build(db, build_id)    # current
     
-    if not build_a:
-        raise HTTPException(status_code=404, detail=f"Build {compare_to} not found")
-    if not build_b:
-        raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
-    
-    if build_a.organization_id != organization.id or build_b.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="One or both builds do not belong to this organization")
+    # Missing and foreign builds read the same (no existence oracle).
+    if (
+        not build_a or not build_b
+        or build_a.organization_id != organization.id
+        or build_b.organization_id != organization.id
+    ):
+        raise HTTPException(status_code=404, detail="Build not found")
     
     diff = await build_service.diff_builds_detailed(db, compare_to, build_id)
     read_filter = await _instruction_read_filter(db, current_user, organization)
@@ -483,6 +485,14 @@ async def rollback_to_build(
     versions from the target build, then promotes it to main. This provides
     a clear audit trail of when rollbacks occurred.
     """
+    # Resolve the build inside the caller's org BEFORE any permission check.
+    # The checks below name the agents a build touches, so running them on a
+    # foreign build id told the caller it existed and what its agents were
+    # called. Missing and foreign builds now read the same.
+    target = await build_service.get_build(db, build_id)
+    if target is None or str(target.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Build not found")
+
     # Rollback swaps the whole live set for the target's, so it changes every
     # instruction in either snapshot.
     replaced = await build_service.get_build_instruction_ids(db, build_id)
@@ -537,7 +547,7 @@ async def publish_build(
         raise HTTPException(status_code=404, detail="Build not found")
 
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
+        raise HTTPException(status_code=404, detail="Build not found")
 
     if build.status == 'rejected':
         raise HTTPException(status_code=400, detail="Cannot publish a rejected build")

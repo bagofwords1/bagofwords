@@ -235,25 +235,21 @@ class FileService:
         return db_file
     
     async def remove_file_from_report(self, db: AsyncSession, file_id: str, report_id: str, organization: Organization, current_user: User):
-        stmt = select(Report).filter(Report.id == report_id)
+        stmt = select(Report).filter(Report.id == report_id, Report.organization_id == organization.id)
         result = await db.execute(stmt)
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        stmt = select(File).filter(File.id == file_id)
-        result = await db.execute(stmt)
-        file = result.scalar_one_or_none()
-        if not file:
-            raise HTTPException(status_code=404, detail="File not found")
-
+        # Only the association is looked up: whether some file with this id
+        # exists elsewhere (another report/org) must not change the answer.
         stmt = select(report_file_association).filter_by(
             report_id=report_id, file_id=file_id
         )
         result = await db.execute(stmt)
         association = result.first()
         if not association:
-            raise HTTPException(status_code=404, detail="File is not associated with this report")
+            raise HTTPException(status_code=404, detail="File not found")
 
         await db.execute(
             report_file_association.delete().where(

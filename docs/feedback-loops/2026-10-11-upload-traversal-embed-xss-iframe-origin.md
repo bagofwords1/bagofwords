@@ -38,6 +38,10 @@ mkdir -p srv/__h && cp frontend/public/mcp-artifact-app.html srv/ \
 node docs/feedback-loops/harness/upload-embed-iframe/run.mjs
 ```
 
+> Since `2026-10-12-aikido-retest-highs.md` the URL-served shell no longer starts its runtime (it needs the marker
+> that only `resources/read` stamps in) and is served with `frame-ancestors 'none'`. To replay this loop, copy the
+> `resources/read` text of `ui://bagofwords/artifact` into `srv/mcp-artifact-app.html` instead of the raw file.
+
 `attack.html` has a sandboxed sibling frame that floods forged JSON-RPC replies. `legit.html` is a real host
 that returns an error containing markup.
 

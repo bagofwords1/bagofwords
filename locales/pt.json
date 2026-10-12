@@ -446,6 +446,10 @@
       "trigger_run": {
         "title": "⚡ \"{name}\" foi acionado — {summary}",
         "body": "A investigação foi concluída — abra a sessão para ver os resultados."
+      },
+      "delivery_skipped": {
+        "title": "Alguns destinatários não receberam \"{report}\"",
+        "body": "{count} destinatário(s) não receberam este relatório porque ele contém dados específicos de cada usuário: {recipients}"
       }
     },
     "checkin": {

@@ -2925,7 +2925,8 @@ class InstructionService:
         data_source_context = await self._build_data_source_context(
             db,
             organization,
-            instruction_data.data_source_ids or []
+            instruction_data.data_source_ids or [],
+            current_user=current_user,
         )
 
         instructions_builder = InstructionContextBuilder(db, organization)
@@ -5126,8 +5127,14 @@ class InstructionService:
         db: AsyncSession,
         organization: Organization,
         data_source_ids: List[str],
+        current_user: Optional[User] = None,
     ) -> str:
-        """Build a lightweight context string for selected data sources."""
+        """Build a lightweight context string for selected data sources.
+
+        The ids are caller-supplied, so with a ``current_user`` only the agents
+        they can see are used. Others are dropped silently: an error naming
+        them would itself confirm which ids exist.
+        """
         if not data_source_ids:
             return ""
 
@@ -5142,6 +5149,11 @@ class InstructionService:
         )
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
+        if current_user is not None:
+            from app.services.data_source_service import DataSourceService
+            data_sources = await DataSourceService().filter_user_visible_data_sources(
+                db, list(data_sources), current_user, organization
+            )
 
         parts: list[str] = []
         for ds in data_sources:

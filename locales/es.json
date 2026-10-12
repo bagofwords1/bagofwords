@@ -462,6 +462,10 @@
       "trigger_run": {
         "title": "⚡ \"{name}\" se activó — {summary}",
         "body": "La investigación terminó — abre la sesión para ver los hallazgos."
+      },
+      "delivery_skipped": {
+        "title": "Algunos destinatarios no recibieron \"{report}\"",
+        "body": "{count} destinatario(s) no recibieron este informe porque contiene datos específicos de cada usuario: {recipients}"
       }
     },
     "checkin": {
@@ -1813,7 +1817,7 @@
     "publishedToast": "Consulta publicada en el catálogo",
     "suggestedToast": "Sugerencia enviada para revisión",
     "parametersHeading": "Parámetros",
-    "parametersBody": "Se guardan con la consulta. Quien cargue esta entidad puede pasar sus propios valores; los parámetros de identidad siempre se vinculan al usuario que la ve.",
+    "parametersBody": "Se guardan con la consulta. Quien cargue esta entidad puede pasar sus propios valores; los parámetros de identidad siempre se vinculan al usuario que la ve. La comprobación del filtro de identidad es una salvaguarda; para un aislamiento estricto usa seguridad a nivel de fila en la base de datos o credenciales por usuario.",
     "paramIdentity": "según el usuario",
     "paramAll": "= Todos"
   },
@@ -5911,5 +5915,11 @@
     "failed": "No se pudieron cargar los datos",
     "newest": "Más recientes primero",
     "oldest": "Más antiguos primero"
+  },
+  "integrationConnection": {
+    "noConnection": "Este agente aún no tiene ninguna conexión.",
+    "notFound": "No se encontró esta conexión.",
+    "forbidden": "No tienes acceso a esta conexión.",
+    "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde."
   }
 }

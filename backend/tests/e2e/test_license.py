@@ -382,7 +382,11 @@ class TestLicenseAPIEndpoint:
         data = response.json()
         assert data["licensed"] is True
         assert data["tier"] == "enterprise"
-        assert data["org_name"] == "API Test Corp"
+        # Unauthenticated callers only get what feature gating needs; the
+        # licensee, license id and expiry are for signed-in users/admins.
+        assert data["org_name"] is None
+        assert data["license_id"] is None
+        assert data["expires_at"] is None
 
 
 @pytest.mark.e2e

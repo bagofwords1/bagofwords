@@ -11,6 +11,9 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.models.connection import Connection
 from app.models.file_reference import FileReference
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["file_references"])
 
@@ -138,7 +141,11 @@ async def list_connection_files(
     except NotImplementedError:
         raise HTTPException(status_code=400, detail="This connection does not support file listing.")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to list files: {e}")
+        # The raw exception can carry hostnames, paths or upstream bodies; log
+        # it (redacted) and return a generic message.
+        from app.errors.redact import redact_error
+        logger.warning("list_connection_files failed for connection %s: %s", connection_id, redact_error(e))
+        raise HTTPException(status_code=400, detail="Failed to list files for this connection.")
     out = []
     for f in (files or [])[:50]:
         out.append({"id": f.get("id"), "name": f.get("name"), "mime": f.get("mimeType")})

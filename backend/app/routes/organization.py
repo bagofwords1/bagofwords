@@ -33,7 +33,7 @@ async def add_member(
     db: AsyncSession = Depends(get_async_db)
 ):
     membership.organization_id = organization_id
-    result = await organization_service.add_member(db, membership, current_user.id)
+    result = await organization_service.add_member(db, membership, current_user)
     await audit_service.log(
         db=db,
         organization_id=organization_id,

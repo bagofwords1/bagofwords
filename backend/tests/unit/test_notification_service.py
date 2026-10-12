@@ -232,6 +232,9 @@ class TestSendScheduledReportResults:
             patch("app.services.notification_service.settings") as mock_settings,
             patch("app.dependencies.async_session_maker", return_value=mock_session_ctx),
             patch("app.services.report_pdf_service.ReportPdfService") as mock_pdf_cls,
+            # A report with no identity-scoped queries: the single-send path
+            # (per-recipient delivery is covered in e2e/rbac/test_report_email_bursting.py).
+            patch("app.services.report_bursting.report_identity_scoped", new=AsyncMock(return_value=False)),
         ):
             mock_settings.email_client = mock_fm
             mock_pdf_cls.return_value.generate_for_report = AsyncMock(return_value=None)

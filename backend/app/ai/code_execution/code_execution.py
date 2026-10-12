@@ -814,7 +814,10 @@ class QueryCapturingClientWrapper:
         ):
             capture = json.dumps(capture, sort_keys=True, default=str)
         if isinstance(capture, str):
-            self._captured_queries.append(capture)
+            # Tagged with the client class so the identity-bind check can
+            # parse it in the right grammar (SQL dialect / SPL); still a str.
+            from app.ai.code_execution.identity_bind import CapturedQuery
+            self._captured_queries.append(CapturedQuery(capture, type(self._original).__name__))
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:

@@ -98,6 +98,26 @@
     (function() {
       'use strict';
 
+      // Run only as MCP-delivered content. MCP hosts get this shell as the
+      // text of the ui:// resource (backend/app/routes/mcp.py
+      // _load_html_bundle stamps __BOW_MCP_HOST_DELIVERED__ into it) and render
+      // it in their own sandbox origin. The copy served by URL from the app
+      // origin (/mcp-artifact-app.html) has no legitimate embedder, and running
+      // host-supplied artifact code there would execute it in the app origin —
+      // so that copy never starts the postMessage runtime.
+      if (!window.__BOW_MCP_HOST_DELIVERED__) {
+        var gl = document.getElementById('global-loader');
+        if (gl) gl.classList.add('hidden');
+        var r = document.getElementById('root');
+        if (r) {
+          var note = document.createElement('div');
+          note.className = 'artifact-error';
+          note.textContent = 'This artifact viewer only runs inside an MCP host.';
+          r.replaceChildren(note);
+        }
+        return;
+      }
+
       // ================================================================
       // MCP Apps JSON-RPC 2.0 over postMessage transport
       // ================================================================

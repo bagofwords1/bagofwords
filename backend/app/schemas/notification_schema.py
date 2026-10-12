@@ -39,7 +39,7 @@ class NotifyRequest(BaseModel):
 
 class ChannelResult(BaseModel):
     channel: str
-    status: str  # "sent" or "failed"
+    status: str  # "sent", "failed" or "skipped"
     recipients: List[str] = []
     error: Optional[str] = None
     # Which transport actually carried the mail: "org_smtp" | "global" |
@@ -56,6 +56,10 @@ class ChannelResult(BaseModel):
 class NotifyResponse(BaseModel):
     dispatched: List[ChannelResult] = []
     errors: List[ChannelResult] = []
+    # Recipients deliberately not sent to (status "skipped"): a dashboard with
+    # identity-scoped content goes only to org members who can open it, each
+    # with their own rows (services/report_bursting.py).
+    skipped: List[ChannelResult] = []
 
 
 class NotificationSubscriber(BaseModel):

@@ -36,6 +36,11 @@ def _check_provider_url(url: str) -> None:
     except UnsafeURLError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+# Upper bound for a manual context-window override (INTEGER column is 32-bit).
+MAX_CONTEXT_WINDOW_TOKENS = 2_147_483_647
+
+
 class LLMService:
     def __init__(self):
         pass
@@ -1199,6 +1204,9 @@ class LLMService:
         """
         if tokens is not None and tokens <= 0:
             raise HTTPException(status_code=400, detail="Context window must be a positive number of tokens")
+        # Column is a 32-bit INTEGER; anything larger is a client error, not a DB crash.
+        if tokens is not None and tokens > MAX_CONTEXT_WINDOW_TOKENS:
+            raise HTTPException(status_code=400, detail="Context window is too large")
 
         model = await db.execute(
             select(LLMModel).join(LLMProvider).filter(
@@ -1968,6 +1976,12 @@ class LLMService:
                         detail="Vertex service account key JSON is missing 'private_key' — "
                                "paste the whole key file."
                     )
+                from app.core.egress import check_google_token_uri
+                from app.core.url_safety import UnsafeURLError
+                try:
+                    check_google_token_uri(parsed_key)
+                except UnsafeURLError as exc:
+                    raise HTTPException(status_code=400, detail=f"Vertex service account key: {exc}")
                 api_key = raw_key
                 # A key file names its own project; adopt it when the admin
                 # left the field blank so the common case needs one paste.

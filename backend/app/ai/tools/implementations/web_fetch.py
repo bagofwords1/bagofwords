@@ -10,7 +10,8 @@ from pydantic import BaseModel
 from selectolax.parser import HTMLParser
 
 from app.ai.tools.base import Tool
-from app.core.url_safety import host_is_public
+from app.ai.http.safe_client import is_safe_host, pinned_curl_get
+from app.core.url_safety import UnsafeURLError
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.web_fetch import WebFetchInput, WebFetchOutput
 from app.ai.tools.schemas import (
@@ -50,8 +51,9 @@ _NEWLINE_RE = re.compile(r"\n{3,}")
 def _is_safe_host(hostname: str) -> bool:
     """True only if every address the hostname resolves to is globally routable
     (rejects private, loopback, link-local, CGNAT, reserved and metadata
-    addresses). See app.core.url_safety."""
-    return host_is_public(hostname)
+    addresses). Used to report a refused redirect with its target; the fetch
+    itself is guarded and pinned by ``pinned_curl_get`` (app.core.egress)."""
+    return is_safe_host(hostname)
 
 
 def _content_type_matches(content_type: str, prefixes: Tuple[str, ...]) -> bool:
@@ -266,214 +268,220 @@ Do not use when:
             )
             return
 
-        if not _is_safe_host(parsed_url.hostname):
-            await log_tool_audit(
-                runtime_ctx,
-                action="tool.web_fetch_blocked_unsafe_host",
-                resource_type="report",
-                resource_id=report_id,
-                details={"tool": "web_fetch", "hostname": parsed_url.hostname},
-            )
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "fetching"})
+
+        current_url = data.url
+        try:
+            for _hop in range(MAX_REDIRECTS + 1):
+                try:
+                    # Resolve once, validate every address, connect to the
+                    # validated one: a rebinding DNS answer is never used.
+                    response = await pinned_curl_get(current_url, timeout=REQUEST_TIMEOUT_SECONDS)
+                except UnsafeURLError:
+                    await log_tool_audit(
+                        runtime_ctx,
+                        action="tool.web_fetch_blocked_unsafe_host",
+                        resource_type="report",
+                        resource_id=report_id,
+                        details={
+                            "tool": "web_fetch",
+                            "hostname": urlparse(current_url).hostname,
+                            "via_redirect": _hop > 0,
+                        },
+                    )
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": WebFetchOutput(
+                                success=False,
+                                url=data.url,
+                                final_url=current_url if _hop > 0 else None,
+                                error_message=(
+                                    "Refusing to follow redirect to a non-public address."
+                                    if _hop > 0 else "Refusing to fetch a non-public address."
+                                ),
+                            ).model_dump(),
+                            "observation": {"summary": "Blocked non-public host", "success": False},
+                        },
+                    )
+                    return
+                status = response.status_code
+
+                if 300 <= status < 400 and status != 304:
+                    location = response.headers.get("location")
+                    if not location:
+                        break
+                    redirect_url = urljoin(current_url, location)
+                    redirect_host = urlparse(redirect_url).hostname
+                    if not redirect_host or not _is_safe_host(redirect_host):
+                        await log_tool_audit(
+                            runtime_ctx,
+                            action="tool.web_fetch_blocked_unsafe_host",
+                            resource_type="report",
+                            resource_id=report_id,
+                            details={
+                                "tool": "web_fetch",
+                                "hostname": redirect_host,
+                                "via_redirect": True,
+                            },
+                        )
+                        yield ToolEndEvent(
+                            type="tool.end",
+                            payload={
+                                "output": WebFetchOutput(
+                                    success=False,
+                                    url=data.url,
+                                    final_url=redirect_url,
+                                    error_message="Refusing to follow redirect to a non-public address.",
+                                ).model_dump(),
+                                "observation": {
+                                    "summary": "Blocked redirect to non-public host",
+                                    "success": False,
+                                },
+                            },
+                        )
+                        return
+                    current_url = redirect_url
+                    continue
+
+                content_type = (response.headers.get("content-type") or "").lower()
+                final_url = str(response.url)
+                body_bytes = response.content or b""
+                truncated = False
+                if len(body_bytes) > MAX_RESPONSE_BYTES:
+                    body_bytes = body_bytes[:MAX_RESPONSE_BYTES]
+                    truncated = True
+
+                is_html = _content_type_matches(content_type, HTML_CONTENT_PREFIXES)
+                is_text = _content_type_matches(content_type, TEXT_CONTENT_PREFIXES) or is_html
+
+                if not is_text:
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": WebFetchOutput(
+                                success=True,
+                                url=data.url,
+                                final_url=final_url,
+                                status_code=status,
+                                content_type=content_type or None,
+                                content=None,
+                                truncated=False,
+                                error_message=f"Skipped non-text content-type: {content_type or 'unknown'}.",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": f"Fetched {status} ({content_type or 'unknown'}); body skipped",
+                                "success": True,
+                            },
+                        },
+                    )
+                    return
+
+                encoding = response.encoding or "utf-8"
+                try:
+                    body_text = body_bytes.decode(encoding, errors="replace")
+                except LookupError:
+                    body_text = body_bytes.decode("utf-8", errors="replace")
+
+                output = WebFetchOutput(
+                    success=True,
+                    url=data.url,
+                    final_url=final_url,
+                    status_code=status,
+                    content_type=content_type or None,
+                    content=None,
+                    truncated=truncated,
+                )
+                summary_extras: List[str] = []
+
+                if is_html:
+                    try:
+                        parsed = _parse_html(body_text)
+                        output.title = parsed["title"]
+                        output.description = parsed["description"]
+                        output.metadata = parsed["metadata"] or None
+                        output.json_ld = parsed["json_ld"] or None
+                        output.headings = parsed["headings"] or None
+                        text_body = parsed["text"] or ""
+                        if len(text_body) > MAX_TEXT_CHARS:
+                            text_body = text_body[:MAX_TEXT_CHARS]
+                            output.truncated = True
+                        output.content = text_body
+                        if output.title:
+                            summary_extras.append(f'title="{output.title[:60]}"')
+                        if output.json_ld:
+                            summary_extras.append(f"{len(output.json_ld)} json-ld block(s)")
+                    except Exception as exc:
+                        logger.warning(f"web_fetch: HTML parse failed for {final_url}: {exc}")
+                        fallback = body_text
+                        if len(fallback) > MAX_TEXT_CHARS:
+                            fallback = fallback[:MAX_TEXT_CHARS]
+                            output.truncated = True
+                        output.content = fallback
+                        summary_extras.append("parse-failed; raw HTML")
+                else:
+                    if len(body_text) > MAX_TEXT_CHARS:
+                        body_text = body_text[:MAX_TEXT_CHARS]
+                        output.truncated = True
+                    output.content = body_text
+
+                await log_tool_audit(
+                    runtime_ctx,
+                    action="tool.web_fetch_executed",
+                    resource_type="report",
+                    resource_id=report_id,
+                    details={
+                        "tool": "web_fetch",
+                        "url": data.url,
+                        "final_url": final_url,
+                        "status_code": status,
+                        "content_type": content_type,
+                        "bytes": len(body_bytes),
+                        "truncated": output.truncated,
+                        "is_html": is_html,
+                    },
+                )
+
+                summary = f"Fetched {status} ({content_type or 'unknown'}); {len(output.content or '')} chars"
+                if output.truncated:
+                    summary += " (truncated)"
+                if summary_extras:
+                    summary += " · " + " · ".join(summary_extras)
+
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": output.model_dump(),
+                        "observation": {
+                            "summary": summary,
+                            "success": True,
+                            "url": data.url,
+                            "final_url": final_url,
+                            "status_code": status,
+                            "title": output.title,
+                            "description": output.description,
+                            "content": output.content,
+                            "metadata": output.metadata,
+                            "json_ld": output.json_ld,
+                            "headings": output.headings,
+                            "truncated": output.truncated,
+                        },
+                    },
+                )
+                return
+
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
                     "output": WebFetchOutput(
                         success=False,
                         url=data.url,
-                        error_message="Refusing to fetch a non-public address.",
+                        final_url=current_url,
+                        error_message=f"Too many redirects (limit {MAX_REDIRECTS}).",
                     ).model_dump(),
-                    "observation": {"summary": "Blocked non-public host", "success": False},
+                    "observation": {"summary": "Too many redirects", "success": False},
                 },
             )
-            return
-
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "fetching"})
-
-        current_url = data.url
-        try:
-            async with cf_requests.AsyncSession(
-                impersonate=IMPERSONATE_PROFILE,
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            ) as session:
-                for _hop in range(MAX_REDIRECTS + 1):
-                    response = await session.get(current_url, allow_redirects=False, stream=False)
-                    status = response.status_code
-
-                    if 300 <= status < 400 and status != 304:
-                        location = response.headers.get("location")
-                        if not location:
-                            break
-                        redirect_url = urljoin(current_url, location)
-                        redirect_host = urlparse(redirect_url).hostname
-                        if not redirect_host or not _is_safe_host(redirect_host):
-                            await log_tool_audit(
-                                runtime_ctx,
-                                action="tool.web_fetch_blocked_unsafe_host",
-                                resource_type="report",
-                                resource_id=report_id,
-                                details={
-                                    "tool": "web_fetch",
-                                    "hostname": redirect_host,
-                                    "via_redirect": True,
-                                },
-                            )
-                            yield ToolEndEvent(
-                                type="tool.end",
-                                payload={
-                                    "output": WebFetchOutput(
-                                        success=False,
-                                        url=data.url,
-                                        final_url=redirect_url,
-                                        error_message="Refusing to follow redirect to a non-public address.",
-                                    ).model_dump(),
-                                    "observation": {
-                                        "summary": "Blocked redirect to non-public host",
-                                        "success": False,
-                                    },
-                                },
-                            )
-                            return
-                        current_url = redirect_url
-                        continue
-
-                    content_type = (response.headers.get("content-type") or "").lower()
-                    final_url = str(response.url)
-                    body_bytes = response.content or b""
-                    truncated = False
-                    if len(body_bytes) > MAX_RESPONSE_BYTES:
-                        body_bytes = body_bytes[:MAX_RESPONSE_BYTES]
-                        truncated = True
-
-                    is_html = _content_type_matches(content_type, HTML_CONTENT_PREFIXES)
-                    is_text = _content_type_matches(content_type, TEXT_CONTENT_PREFIXES) or is_html
-
-                    if not is_text:
-                        yield ToolEndEvent(
-                            type="tool.end",
-                            payload={
-                                "output": WebFetchOutput(
-                                    success=True,
-                                    url=data.url,
-                                    final_url=final_url,
-                                    status_code=status,
-                                    content_type=content_type or None,
-                                    content=None,
-                                    truncated=False,
-                                    error_message=f"Skipped non-text content-type: {content_type or 'unknown'}.",
-                                ).model_dump(),
-                                "observation": {
-                                    "summary": f"Fetched {status} ({content_type or 'unknown'}); body skipped",
-                                    "success": True,
-                                },
-                            },
-                        )
-                        return
-
-                    encoding = response.encoding or "utf-8"
-                    try:
-                        body_text = body_bytes.decode(encoding, errors="replace")
-                    except LookupError:
-                        body_text = body_bytes.decode("utf-8", errors="replace")
-
-                    output = WebFetchOutput(
-                        success=True,
-                        url=data.url,
-                        final_url=final_url,
-                        status_code=status,
-                        content_type=content_type or None,
-                        content=None,
-                        truncated=truncated,
-                    )
-                    summary_extras: List[str] = []
-
-                    if is_html:
-                        try:
-                            parsed = _parse_html(body_text)
-                            output.title = parsed["title"]
-                            output.description = parsed["description"]
-                            output.metadata = parsed["metadata"] or None
-                            output.json_ld = parsed["json_ld"] or None
-                            output.headings = parsed["headings"] or None
-                            text_body = parsed["text"] or ""
-                            if len(text_body) > MAX_TEXT_CHARS:
-                                text_body = text_body[:MAX_TEXT_CHARS]
-                                output.truncated = True
-                            output.content = text_body
-                            if output.title:
-                                summary_extras.append(f'title="{output.title[:60]}"')
-                            if output.json_ld:
-                                summary_extras.append(f"{len(output.json_ld)} json-ld block(s)")
-                        except Exception as exc:
-                            logger.warning(f"web_fetch: HTML parse failed for {final_url}: {exc}")
-                            fallback = body_text
-                            if len(fallback) > MAX_TEXT_CHARS:
-                                fallback = fallback[:MAX_TEXT_CHARS]
-                                output.truncated = True
-                            output.content = fallback
-                            summary_extras.append("parse-failed; raw HTML")
-                    else:
-                        if len(body_text) > MAX_TEXT_CHARS:
-                            body_text = body_text[:MAX_TEXT_CHARS]
-                            output.truncated = True
-                        output.content = body_text
-
-                    await log_tool_audit(
-                        runtime_ctx,
-                        action="tool.web_fetch_executed",
-                        resource_type="report",
-                        resource_id=report_id,
-                        details={
-                            "tool": "web_fetch",
-                            "url": data.url,
-                            "final_url": final_url,
-                            "status_code": status,
-                            "content_type": content_type,
-                            "bytes": len(body_bytes),
-                            "truncated": output.truncated,
-                            "is_html": is_html,
-                        },
-                    )
-
-                    summary = f"Fetched {status} ({content_type or 'unknown'}); {len(output.content or '')} chars"
-                    if output.truncated:
-                        summary += " (truncated)"
-                    if summary_extras:
-                        summary += " · " + " · ".join(summary_extras)
-
-                    yield ToolEndEvent(
-                        type="tool.end",
-                        payload={
-                            "output": output.model_dump(),
-                            "observation": {
-                                "summary": summary,
-                                "success": True,
-                                "url": data.url,
-                                "final_url": final_url,
-                                "status_code": status,
-                                "title": output.title,
-                                "description": output.description,
-                                "content": output.content,
-                                "metadata": output.metadata,
-                                "json_ld": output.json_ld,
-                                "headings": output.headings,
-                                "truncated": output.truncated,
-                            },
-                        },
-                    )
-                    return
-
-                yield ToolEndEvent(
-                    type="tool.end",
-                    payload={
-                        "output": WebFetchOutput(
-                            success=False,
-                            url=data.url,
-                            final_url=current_url,
-                            error_message=f"Too many redirects (limit {MAX_REDIRECTS}).",
-                        ).model_dump(),
-                        "observation": {"summary": "Too many redirects", "success": False},
-                    },
-                )
         except Timeout:
             yield ToolEndEvent(
                 type="tool.end",

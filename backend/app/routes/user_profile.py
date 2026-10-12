@@ -351,6 +351,44 @@ async def update_my_default_agents(
 _AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 MB upload cap
 
 
+_AVATAR_URL_PREFIX = "/api/users/avatar/"
+
+
+def _avatar_dir() -> str:
+    return os.path.realpath(os.path.join(os.getcwd(), "uploads", "avatars"))
+
+
+async def _stored_avatar_url(db: AsyncSession, user_id) -> Optional[str]:
+    # current_user lives on the auth session and may be stale; read the row.
+    return (await db.execute(
+        select(User.image_url).where(User.id == str(user_id))
+    )).scalar_one_or_none()
+
+
+def _remove_avatar_file(image_url: Optional[str], user_id) -> None:
+    """Delete the stored file behind one of this user's avatar URLs.
+
+    Avatars are served publicly by key, so a file left on disk stays
+    reachable at its old URL after the user removed or replaced it. Only a
+    file this route wrote for this user (``{user_id}-<digest>.png`` in the
+    avatars dir) is touched; anything else — an external URL, another
+    user's key, a path escape — is ignored.
+    """
+    if not image_url or not image_url.startswith(_AVATAR_URL_PREFIX):
+        return
+    key = image_url[len(_AVATAR_URL_PREFIX):]
+    if "/" in key or "\\" in key or ".." in key or not key.startswith(f"{user_id}-"):
+        return
+    base_dir = _avatar_dir()
+    path = os.path.realpath(os.path.join(base_dir, key))
+    if not path.startswith(base_dir + os.sep):
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 class UserAvatarSchema(BaseModel):
     image_url: Optional[str] = None
 
@@ -398,6 +436,7 @@ async def upload_my_avatar(
         f.write(buf.getvalue())
 
     image_url = f"/api/users/avatar/{filename}"
+    previous_url = await _stored_avatar_url(db, current_user.id)
     # current_user is bound to the auth/user-manager session, not `db`, so we
     # update via a statement rather than mutating the ORM object (mirrors
     # _update_last_seen in app/core/auth.py).
@@ -405,6 +444,9 @@ async def upload_my_avatar(
         update(User).where(User.id == str(current_user.id)).values(image_url=image_url)
     )
     await db.commit()
+    # Re-uploading the same image yields the same key; keep that file.
+    if previous_url != image_url:
+        _remove_avatar_file(previous_url, current_user.id)
     return UserAvatarSchema(image_url=image_url)
 
 
@@ -414,8 +456,10 @@ async def delete_my_avatar(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Remove the current user's avatar, reverting to the initial placeholder."""
+    previous_url = await _stored_avatar_url(db, current_user.id)
     await db.execute(
         update(User).where(User.id == str(current_user.id)).values(image_url=None)
     )
     await db.commit()
+    _remove_avatar_file(previous_url, current_user.id)
     return UserAvatarSchema(image_url=None)

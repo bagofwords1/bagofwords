@@ -29,9 +29,15 @@ async def get_integration_users(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get all users for a specific integration"""
-    return await external_user_mapping_service.get_mappings_by_platform(
-        db, organization, platform_id
+    # Resolve the platform within the caller's org (404 otherwise), then list
+    # the org's mappings for that platform. (The previous call targeted a
+    # service method that never existed and 500'd on every request.)
+    from app.services.external_platform_service import ExternalPlatformService
+    platform = await ExternalPlatformService().get_platform_by_id(db, platform_id, organization)
+    mappings = await external_user_mapping_service.get_mappings(
+        db, organization, platform_type=platform.platform_type
     )
+    return [m for m in mappings if str(getattr(m, "platform_id", platform.id)) == str(platform.id)]
 
 @router.post("/settings/integrations/{platform_id}/users", response_model=ExternalUserMappingSchema)
 @requires_permission('manage_members')

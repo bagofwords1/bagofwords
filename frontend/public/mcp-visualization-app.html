@@ -76,6 +76,21 @@
 (function() {
   'use strict';
 
+  // Run only as MCP-delivered content (see the same guard in
+  // mcp-artifact-app.html): the app-origin URL copy of this shell never
+  // starts the postMessage runtime, so a page that frames it can't feed it
+  // host messages in the app origin.
+  if (!window.__BOW_MCP_HOST_DELIVERED__) {
+    var app0 = document.getElementById('app');
+    if (app0) {
+      var note = document.createElement('div');
+      note.className = 'error';
+      note.textContent = 'This visualization viewer only runs inside an MCP host.';
+      app0.replaceChildren(note);
+    }
+    return;
+  }
+
   // ================================================================
   // MCP Apps JSON-RPC 2.0 over postMessage transport
   // Spec: https://github.com/modelcontextprotocol/ext-apps

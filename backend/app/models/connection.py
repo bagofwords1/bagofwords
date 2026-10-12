@@ -195,7 +195,9 @@ class Connection(BaseSchema):
             import logging
             logger = logging.getLogger(__name__)
             logger.info(f"Client params for {self.type}")
-            
+
+            from app.core.egress import check_connection_params
+            check_connection_params(self.type, client_params)
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load data source client for {self.type}: {str(e)}")

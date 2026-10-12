@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 from app.models.organization import Organization
 from app.models.data_source import DataSource
 from app.errors.redact import redact_error
+from app.core.egress import acheck_connection_params as _acheck_connection_destination
 from app.schemas.data_source_registry import (
     list_available_data_sources,
     config_schema_for,
@@ -760,6 +761,10 @@ class DataSourceService:
             
             # Extract connection-related fields
             ds_type = data_source_dict.pop("type", None)
+            # Save-time guards (the validation above is skipped for user_required).
+            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys
+            _check_network_dir_root(ds_type, config)
+            _reject_unsafe_google_keys(credentials)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
 
             # Default allowed_user_auth_modes for user_required connections —
@@ -1031,6 +1036,8 @@ class DataSourceService:
         # get data source by id
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
 
         model = await organization.get_default_llm_model(db)
         if not model:
@@ -2508,6 +2515,20 @@ class DataSourceService:
             config = payload.get("config") or {}
             credentials = payload.get("credentials") or {}
 
+            # SSRF guard for MCP / custom API URLs (the clients' pinned
+            # transport guards the connect itself, rebinding included).
+            from app.services.connection_service import (
+                _check_network_dir_root,
+                _check_tool_provider_url,
+                _reject_unsafe_google_keys,
+            )
+            try:
+                _check_tool_provider_url(data_source_type, config)
+                _check_network_dir_root(data_source_type, config)
+                _reject_unsafe_google_keys(credentials)
+            except HTTPException as e:
+                return {"success": False, "message": e.detail}
+
             # Instantiate client by type using same naming convention as DataSource.get_client
             client = self._resolve_client_by_type(
                 data_source_type=data_source_type,
@@ -2700,6 +2721,7 @@ class DataSourceService:
                 allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             allowed = params
+        await _acheck_connection_destination(conn.type, params)
         return ClientClass(**allowed)
 
     @staticmethod
@@ -2996,6 +3018,7 @@ class DataSourceService:
                 except Exception:
                     allowed = params
 
+                await _acheck_connection_destination(conn.type, params)
                 client = ClientClass(**allowed)
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
@@ -3294,6 +3317,8 @@ class DataSourceService:
             meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
             client_params = {k: v for k, v in (client_params or {}).items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
 
+            from app.core.egress import check_connection_params
+            check_connection_params(data_source_type, client_params)
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load data source client for {data_source_type}: {str(e)}")
@@ -4933,6 +4958,7 @@ class DataSourceService:
             }
         except Exception:
             allowed = params
+        await _acheck_connection_destination(connection.type, params)
         return ClientClass(**allowed)
 
     async def get_user_data_source_schema(

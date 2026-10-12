@@ -34,6 +34,7 @@ from app.models.scheduled_prompt import ScheduledPrompt
 from app.models.user import User
 from app.ai.tools.implementations.create_scheduled_task import CreateScheduledTaskTool
 from app.ai.tools.implementations.edit_scheduled_task import EditScheduledTaskTool
+from app.ai.tools.implementations.cancel_scheduled_task import CancelScheduledTaskTool
 
 
 REPORT_PERMS = ["view_reports", "create_reports", "update_reports"]
@@ -147,7 +148,7 @@ def world(test_client, enterprise_license, bootstrap_admin, invite_user_to_org,
 
 @pytest.mark.e2e
 def test_tools_declare_update_reports_for_the_planner_filter():
-    for tool in (CreateScheduledTaskTool(), EditScheduledTaskTool()):
+    for tool in (CreateScheduledTaskTool(), EditScheduledTaskTool(), CancelScheduledTaskTool()):
         assert "update_reports" in tool.metadata.required_permissions
 
 
@@ -241,3 +242,123 @@ def test_report_owner_creates_and_edits_via_api(test_client, world):
                         json={"cron_schedule": "0 8 * * 2"}, headers=h)
     assert r.status_code == 200, r.text
     assert r.json()["cron_schedule"] == "0 8 * * 2"
+
+
+# ── cancel ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_principal_without_update_reports_cannot_cancel_via_tool(world):
+    w = world
+    before = _sps(w["sa_report"])
+    _denied(_invoke(CancelScheduledTaskTool(), {"task_id": w["sa_sp_id"]},
+                    w["sa_user_id"], w["sa_report"], w["org_id"]))
+    assert before and _sps(w["sa_report"]) == before
+
+
+@pytest.mark.e2e
+def test_non_owner_cannot_cancel_someone_elses_task_via_tool(test_client, world):
+    w = world
+    r = test_client.post(f"/api/reports/{w['admin_report']}/scheduled-prompts",
+                         json=_sp_body(), headers=_hdr(w["admin"]["token"], w["org_id"]))
+    assert r.status_code == 200, r.text
+    before = _sps(w["admin_report"])
+    _denied(_invoke(CancelScheduledTaskTool(), {"task_id": r.json()["id"]},
+                    w["member"]["user_id"], w["admin_report"], w["org_id"]))
+    assert _sps(w["admin_report"]) == before
+
+
+@pytest.mark.e2e
+def test_report_owner_cancels_via_tool_and_api(test_client, world):
+    w = world
+    h = _hdr(w["member"]["token"], w["org_id"])
+    rep = w["member_report"]
+    ids = [test_client.post(f"/api/reports/{rep}/scheduled-prompts", json=_sp_body(title=t), headers=h).json()["id"]
+           for t in ("one", "two")]
+    out = _succeeded(_invoke(CancelScheduledTaskTool(), {"task_id": ids[0]}, w["member"]["user_id"], rep, w["org_id"]))
+    assert out["task_id"] == ids[0]
+    r = test_client.delete(f"/api/reports/{rep}/scheduled-prompts/{ids[1]}", headers=h)
+    assert r.status_code == 204, r.text
+    assert _sps(rep) == []
+
+
+# ── report-per-run (spawn_new_report) ───────────────────────────────────
+
+
+def _stub_agent_run(monkeypatch, calls):
+    """Boundary stub for the LLM run: record it and write the system completion
+    the scheduler reads back to decide success."""
+    from app.models.completion import Completion
+    from app.services.completion_service import CompletionService
+
+    async def fake_create_completion(self, db, report_id, completion_data,
+                                     current_user, organization, background=False, **kw):
+        calls.append({"report_id": str(report_id), "user_id": str(current_user.id)})
+        db.add(Completion(
+            prompt={"content": completion_data.prompt.content}, completion={"content": "done"},
+            model="stub", report_id=str(report_id), turn_index=0, role="system",
+            status="success", user_id=str(current_user.id),
+        ))
+        await db.commit()
+
+    monkeypatch.setattr(CompletionService, "create_completion", fake_create_completion)
+
+
+def _spawned_reports(sp_id):
+    async def _q():
+        async with async_session_maker() as db:
+            rows = (await db.execute(select(Report).where(Report.scheduled_prompt_id == str(sp_id)))).scalars().all()
+            return [(str(r.id), str(r.user_id)) for r in rows]
+    return asyncio.run(_q())
+
+
+@pytest.fixture
+def spawned(test_client, world, monkeypatch):
+    """A member's report-per-run schedule, fired once through the real run path."""
+    from app.services.scheduled_prompt_service import scheduled_prompt_service
+    w = world
+    h = _hdr(w["member"]["token"], w["org_id"])
+    r = test_client.post(f"/api/reports/{w['member_report']}/scheduled-prompts",
+                         json={**_sp_body(), "spawn_new_report": True}, headers=h)
+    assert r.status_code == 200, r.text
+    sp_id = r.json()["id"]
+    calls = []
+    _stub_agent_run(monkeypatch, calls)
+    asyncio.run(scheduled_prompt_service.scheduled_run_prompt(sp_id, force=True))
+    return {"sp_id": sp_id, "calls": calls, "runs": _spawned_reports(sp_id)}
+
+
+@pytest.mark.e2e
+def test_report_per_run_still_spawns_and_runs_as_owner(world, spawned):
+    w = world
+    assert len(spawned["runs"]) == 1, "the run must spawn its own report"
+    run_id, run_owner = spawned["runs"][0]
+    assert run_owner == w["member"]["user_id"]
+    assert run_id != w["member_report"]
+    assert spawned["calls"] == [{"report_id": run_id, "user_id": w["member"]["user_id"]}]
+
+
+@pytest.mark.e2e
+def test_owner_edits_and_cancels_schedule_from_a_spawned_run_report(world, spawned):
+    w = world
+    run_id = spawned["runs"][0][0]
+    out = _succeeded(_invoke(EditScheduledTaskTool(), {"task_id": spawned["sp_id"], "cron_schedule": "0 6 * * 3"},
+                             w["member"]["user_id"], run_id, w["org_id"]))
+    assert out["cron_schedule"] == "0 6 * * 3"
+    _succeeded(_invoke(CancelScheduledTaskTool(), {"task_id": spawned["sp_id"]},
+                       w["member"]["user_id"], run_id, w["org_id"]))
+    assert _sps(w["member_report"]) == []
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("tool,extra", [
+    (EditScheduledTaskTool, {"cron_schedule": "0 6 * * 3"}),
+    (CancelScheduledTaskTool, {}),
+])
+def test_other_member_cannot_edit_or_cancel_from_a_spawned_run_report(world, spawned, tool, extra):
+    w = world
+    run_id = spawned["runs"][0][0]
+    before = _sps(w["member_report"])
+    _denied(_invoke(tool(), {"task_id": spawned["sp_id"], **extra},
+                    _report_owner(w["admin_report"]), run_id, w["org_id"]))
+    assert _sps(w["member_report"]) == before

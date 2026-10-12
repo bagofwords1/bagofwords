@@ -1,0 +1,50 @@
+# ai/beautiful-wright-su9lb9-bursting — run_loop.sh: real Chromium + LibreOffice renders, aiosmtpd sink
+identity share 200
+identity notify 200 {"dispatched": [["alice@example.com", "bob@example.com"]], "skipped": [["partner@acme-partner.com"], ["carol@example.com"]], "errors": []}
+identity scheduled-prompt results sent
+identity schedule 200
+identity scheduled refresh fired
+plain share 200
+plain notify 200 {"dispatched": [["alice@example.com", "bob@example.com", "carol@example.com", "partner@acme-partner.com"]], "skipped": [], "errors": []}
+plain scheduled-prompt results sent
+plain schedule 200
+plain scheduled refresh fired
+deck share 200
+deck notify 200 {"dispatched": [["alice@example.com", "bob@example.com"]], "skipped": [["partner@acme-partner.com"], ["carol@example.com"]], "errors": []}
+deck scheduled-prompt results sent
+deck schedule 200
+deck scheduled refresh fired
+
+subject                                                 recipient                    to# attachment     rows in attachment                 owner-summary-in-body
+Identity accounts - Dashboard shared with you           alice@example.com              1 pdf 39539B     ALICE-ACCTx2                       no
+Identity accounts - Dashboard shared with you           bob@example.com                1 pdf 38965B     BOB-ACCTx1                         no
+Identity accounts - Scheduled prompt results            admin@example.com              1 none           -                                  no
+Identity accounts - Scheduled prompt results            alice@example.com              1 none           -                                  no
+Identity accounts - Scheduled prompt results            bob@example.com                1 none           -                                  no
+Identity deck - Dashboard shared with you               alice@example.com              1 pdf 8487B      ALICE-ACCTx2                       no
+Identity deck - Dashboard shared with you               bob@example.com                1 pdf 8312B      BOB-ACCTx1                         no
+Identity deck - Scheduled prompt results                admin@example.com              1 none           -                                  no
+Identity deck - Scheduled prompt results                alice@example.com              1 none           -                                  no
+Identity deck - Scheduled prompt results                bob@example.com                1 none           -                                  no
+Plain revenue - Dashboard shared with you               alice@example.com              4 pdf 36667B     PLAIN-ROWx4                        no
+Plain revenue - Dashboard shared with you               bob@example.com                4 pdf 36667B     PLAIN-ROWx4                        no
+Plain revenue - Dashboard shared with you               carol@example.com              4 pdf 36667B     PLAIN-ROWx4                        no
+Plain revenue - Dashboard shared with you               partner@acme-partner.com       4 pdf 36667B     PLAIN-ROWx4                        no
+Plain revenue - Scheduled prompt results                admin@example.com              5 none           -                                  no
+Plain revenue - Scheduled prompt results                alice@example.com              5 none           -                                  no
+Plain revenue - Scheduled prompt results                bob@example.com                5 none           -                                  no
+Plain revenue - Scheduled prompt results                carol@example.com              5 none           -                                  no
+Plain revenue - Scheduled prompt results                partner@acme-partner.com       5 none           -                                  no
+[scheduled-prompt] deck - Scheduled prompt results      admin@example.com              1 pdf 9282B      OWNER-ACCTx3                       yes
+[scheduled-prompt] deck - Scheduled prompt results      alice@example.com              1 pdf 8487B      ALICE-ACCTx2                       no
+[scheduled-prompt] deck - Scheduled prompt results      bob@example.com                1 pdf 8312B      BOB-ACCTx1                         no
+[scheduled-prompt] identity - Scheduled prompt results  admin@example.com              1 pdf 40063B     OWNER-ACCTx3                       yes
+[scheduled-prompt] identity - Scheduled prompt results  alice@example.com              1 pdf 39539B     ALICE-ACCTx2                       no
+[scheduled-prompt] identity - Scheduled prompt results  bob@example.com                1 pdf 38965B     BOB-ACCTx1                         no
+[scheduled-prompt] plain - Scheduled prompt results     admin@example.com              5 pdf 36667B     PLAIN-ROWx4                        yes
+[scheduled-prompt] plain - Scheduled prompt results     alice@example.com              5 pdf 36667B     PLAIN-ROWx4                        yes
+[scheduled-prompt] plain - Scheduled prompt results     bob@example.com                5 pdf 36667B     PLAIN-ROWx4                        yes
+[scheduled-prompt] plain - Scheduled prompt results     carol@example.com              5 pdf 36667B     PLAIN-ROWx4                        yes
+[scheduled-prompt] plain - Scheduled prompt results     partner@acme-partner.com       5 pdf 36667B     PLAIN-ROWx4                        yes
+
+30 deliveries
