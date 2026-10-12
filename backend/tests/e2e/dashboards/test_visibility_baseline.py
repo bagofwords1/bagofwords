@@ -44,13 +44,13 @@ def test_groups_cover_every_role():
     assert sorted(p for g in GROUPS.values() for p in g) == sorted(ROLES)
 
 
-def _summary(snaps: dict, bodies: dict) -> str:
+def _summary(snaps: dict, bodies: dict, *, partial: bool = False) -> str:
     return (
         "# Who sees what on /r — main baseline\n\n"
         "Each cell: HTTP status of `GET /api/r/{id}`, then the dashboard version the "
         "page shows (first non-doc row of `/api/r/{id}/artifacts`).\n"
         "Generated from the golden JSON files; review it by hand, never just regenerate.\n\n"
-        + summary_rows(snaps)
+        + summary_rows(snaps, partial=partial)
     )
 
 
@@ -64,7 +64,7 @@ def _finish_update() -> None:
         referenced_hashes(snap, used)
     bodies = {h: b for h, b in load_bodies().items() if h in used}
     write_bodies(bodies)
-    (GOLDEN_DIR / "SUMMARY.md").write_text(_summary(snaps, bodies), encoding="utf-8")
+    (GOLDEN_DIR / "SUMMARY.md").write_text(_summary(snaps, bodies, partial=True), encoding="utf-8")
 
 
 @pytest.mark.e2e

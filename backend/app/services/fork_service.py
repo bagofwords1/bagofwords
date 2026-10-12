@@ -19,7 +19,7 @@ from sqlalchemy.orm import selectinload
 from app.models.report import Report
 from app.models.completion import Completion
 from app.models.query import Query
-from app.models.visualization import Visualization
+from app.services.dashboard_copy import Placement, copy_query_rows, load_step_closure, remap_ids
 from app.models.widget import Widget
 from app.models.artifact import ArtifactVersion
 from app.models.data_source import DataSource
@@ -680,7 +680,6 @@ class ForkService:
         #     forker rows their own identity would never return. These live on
         #     system_only connections, so the user-scoped check alone misses
         #     them.
-        from app.models.step import Step
         from app.services.viewer_data_policy import (
             has_user_scoped_connections,
             has_rls_relations,
@@ -708,12 +707,15 @@ class ForkService:
         # hydration pass writes it back per step, but only onto the steps whose
         # run under the forker's own credentials actually succeeded.
         pending_code: Dict[str, str] = {}
-        # (new_query, source parameter specs), remapped once every query has
-        # been copied — see the block after the query loop.
-        pending_params: List[tuple] = []
 
         # -- Widgets --
+        # A widget only deleted queries used is left behind with them.
+        copied_widget_ids = {str(q.widget_id) for q in load_step_closure(
+            list(original.queries), [q for q in original.queries if q.deleted_at is None])}
+        dropped_widget_ids = {str(q.widget_id) for q in original.queries} - copied_widget_ids
         for old_widget in original.widgets:
+            if str(old_widget.id) in dropped_widget_ids:
+                continue
             new_widget = Widget(
                 title=old_widget.title,
                 slug=f"fork-{uuid.uuid4().hex[:8]}",
@@ -729,7 +731,12 @@ class ForkService:
             widget_id_map[str(old_widget.id)] = str(new_widget.id)
 
         # -- Queries & Visualizations --
-        for old_query in original.queries:
+        # Rows are copied, and their references rewritten, by the shared copy
+        # engine (app/services/dashboard_copy.py). The fork keeps its own
+        # scope (every live query of the conversation), its widgets, its owner
+        # and the data policy below.
+
+        async def widget_for(old_query) -> str:
             old_widget_id = str(old_query.widget_id)
             new_widget_id = widget_id_map.get(old_widget_id)
             if not new_widget_id:
@@ -745,162 +752,108 @@ class ForkService:
                 await db.flush()
                 new_widget_id = str(new_widget.id)
                 widget_id_map[old_widget_id] = new_widget_id
+            return new_widget_id
 
-            new_query = Query(
-                title=old_query.title,
-                description=old_query.description,
-                report_id=str(new_report.id),
-                widget_id=new_widget_id,
-                # default_step_id set below to the COPIED step — never the
-                # original's step id. Sharing the reference let a fork's rerun
-                # overwrite the source report's data (cross-report write) and
-                # exposed the source owner's rows through the fork.
-                default_step_id=None,
-                organization_id=str(new_report.organization_id),
-                user_id=str(user.id),
+        def step_overrides(old_step, old_query) -> dict:
+            # Only a step hydration will actually run may be marked
+            # pending. A user-scoped step with no code to re-run is never
+            # entered into pending_code, so hydrate_fork would never settle
+            # it: 'pending' would stick until the staleness cutoff, holding
+            # the page on its spinner and refresh-on-view off the report
+            # for five minutes (and if EVERY step were blank, hydration is
+            # not even spawned, so nothing would settle it at all). Such a
+            # step has nothing to withhold either — there is no code and no
+            # rows to copy — so it goes straight to its terminal status.
+            will_hydrate = user_scoped and bool((old_step.code or "").strip())
+            return dict(  # noqa: C408  (keyword form keeps the per-field comments readable)
+                # A delegated-source step arrives empty and is filled in by
+                # hydrate_fork. 'pending' (never used by steps otherwise) is
+                # what marks it as not yet run for this forker: the report
+                # page waits on it instead of rendering an empty dashboard,
+                # and refresh-on-view stays off it so the queries do not run
+                # twice. Hydration moves it to 'success' or 'error'.
+                status=FORK_PENDING_STATUS if will_hydrate else old_step.status,
+                status_reason=None if user_scoped else old_step.status_reason,
+                # prompt rides with `code`: same authorship, and the share
+                # never exposes it at all. (Empty on every row today.)
+                prompt="" if user_scoped else old_step.prompt,
+                code="" if user_scoped else old_step.code,
+                # Strict-mode (user-scoped) data is credential-differentiated
+                # to the source owner — never copy it into the fork; the
+                # forker runs it under their own credentials. System-only
+                # data is shared by definition, so copy it as-is.
+                data={} if strict_source else old_step.data,
+                # applied_params is the filter state the dashboard was
+                # built with — the year, the branch, the agent the creator
+                # had selected. It is carried for EVERY source, snapshot or
+                # not, because the forker's first run replays it:
+                # hydrate_fork → rerun_step resolves the step's params from
+                # `stored=step.applied_params`, and with nothing stored the
+                # copied code ran under the declared defaults instead.
+                # For a dashboard whose filters carry no default that is a
+                # run the creator never made — an empty year, an empty
+                # period — and code that had only ever executed with a
+                # value set takes a path that was never exercised. In the
+                # field that path built DAX against a table the semantic
+                # model does not have, so every query of a delegated fork
+                # failed and the forker landed on an empty dashboard,
+                # labelled as a credentials problem, although the same user
+                # ran the same queries on the source report fine.
+                #
+                # Deliberately NOT gated on whether the read path would
+                # serve this forker a snapshot (a successful viewer run of
+                # their own). Forking is usually the first thing a reader
+                # does on a shared page, before any run of theirs exists;
+                # gating on it left exactly those forks on the defaults.
+                #
+                # Identity-sourced values are stripped on the way (the same
+                # boundary redact_applied_params draws for a reader): those
+                # name the creator, not the data, and rerun_step re-derives
+                # them for the forker anyway. What remains is the filter
+                # selection — the dashboard's own state, which the shared
+                # page already shows a reader — never rows.
+                applied_params=redact_applied_params(
+                    old_step.applied_params, old_query.parameters,
+                    withheld=False,
+                ),
+                context_summary_json=None,
             )
-            db.add(new_query)
-            await db.flush()
-            query_id_map[str(old_query.id)] = str(new_query.id)
-            if old_query.parameters:
-                pending_params.append((new_query, old_query.parameters))
 
-            # Copy the query's default step into a NEW row owned by the fork.
+        # Deleted queries stay behind — nothing shows them — unless a step
+        # still loads one (load_step reaches deleted queries' steps); that one
+        # is copied still deleted. A deleted chart of a copied query is copied
+        # still deleted.
+        live_queries = [q for q in original.queries if q.deleted_at is None]
+        selected = load_step_closure(list(original.queries), live_queries)
+        # Query.parameters: the DEFINITION (names, types, labels, defaults,
+        # identity bindings) is the dashboard's own design, not anyone's data,
+        # so it is copied; saved code reads its parameters by name and would
+        # raise KeyError without them. The values the creator last ran with
+        # travel on the copied step through redact_applied_params. A filter's
+        # option query (by id or by title) is repointed at the fork's copy so
+        # the filter never reads the creator's report; a reference to a query
+        # outside this report is dropped, and the filter just offers no preset
+        # options.
+        maps = await copy_query_rows(
+            db, selected,
+            placement=Placement(report_id=str(new_report.id), widget_for=widget_for, slug_prefix="fork"),
+            organization_id=str(new_report.organization_id),
+            user_id=str(user.id),
+            step_overrides=step_overrides,
+            copy_source_refs=False,
+        )
+        query_id_map.update(maps.query_map)
+        viz_id_map.update(maps.viz_map)
+        for old_query in selected:
             old_step = old_query.default_step
-            if old_step is not None:
-                # Only a step hydration will actually run may be marked
-                # pending. A user-scoped step with no code to re-run is never
-                # entered into pending_code, so hydrate_fork would never settle
-                # it: 'pending' would stick until the staleness cutoff, holding
-                # the page on its spinner and refresh-on-view off the report
-                # for five minutes (and if EVERY step were blank, hydration is
-                # not even spawned, so nothing would settle it at all). Such a
-                # step has nothing to withhold either — there is no code and no
-                # rows to copy — so it goes straight to its terminal status.
-                will_hydrate = user_scoped and bool((old_step.code or "").strip())
-                new_step = Step(
-                    title=old_step.title,
-                    slug=f"fork-{uuid.uuid4().hex[:8]}",
-                    # A delegated-source step arrives empty and is filled in by
-                    # hydrate_fork. 'pending' (never used by steps otherwise) is
-                    # what marks it as not yet run for this forker: the report
-                    # page waits on it instead of rendering an empty dashboard,
-                    # and refresh-on-view stays off it so the queries do not run
-                    # twice. Hydration moves it to 'success' or 'error'.
-                    status=FORK_PENDING_STATUS if will_hydrate else old_step.status,
-                    status_reason=None if user_scoped else old_step.status_reason,
-                    # prompt rides with `code`: same authorship, and the share
-                    # never exposes it at all. (Empty on every row today.)
-                    prompt="" if user_scoped else old_step.prompt,
-                    code="" if user_scoped else old_step.code,
-                    # Strict-mode (user-scoped) data is credential-differentiated
-                    # to the source owner — never copy it into the fork; the
-                    # forker runs it under their own credentials. System-only
-                    # data is shared by definition, so copy it as-is.
-                    data={} if strict_source else old_step.data,
-                    # applied_params is the filter state the dashboard was
-                    # built with — the year, the branch, the agent the creator
-                    # had selected. It is carried for EVERY source, snapshot or
-                    # not, because the forker's first run replays it:
-                    # hydrate_fork → rerun_step resolves the step's params from
-                    # `stored=step.applied_params`, and with nothing stored the
-                    # copied code ran under the declared defaults instead.
-                    # For a dashboard whose filters carry no default that is a
-                    # run the creator never made — an empty year, an empty
-                    # period — and code that had only ever executed with a
-                    # value set takes a path that was never exercised. In the
-                    # field that path built DAX against a table the semantic
-                    # model does not have, so every query of a delegated fork
-                    # failed and the forker landed on an empty dashboard,
-                    # labelled as a credentials problem, although the same user
-                    # ran the same queries on the source report fine.
-                    #
-                    # Deliberately NOT gated on whether the read path would
-                    # serve this forker a snapshot (a successful viewer run of
-                    # their own). Forking is usually the first thing a reader
-                    # does on a shared page, before any run of theirs exists;
-                    # gating on it left exactly those forks on the defaults.
-                    #
-                    # Identity-sourced values are stripped on the way (the same
-                    # boundary redact_applied_params draws for a reader): those
-                    # name the creator, not the data, and rerun_step re-derives
-                    # them for the forker anyway. What remains is the filter
-                    # selection — the dashboard's own state, which the shared
-                    # page already shows a reader — never rows.
-                    applied_params=redact_applied_params(
-                        old_step.applied_params, old_query.parameters,
-                        withheld=False,
-                    ),
-                    description=old_step.description,
-                    type=old_step.type,
-                    data_model=old_step.data_model,
-                    view=old_step.view,
-                    widget_id=new_widget_id,
-                    query_id=str(new_query.id),
-                )
-                db.add(new_step)
-                await db.flush()
-                new_query.default_step_id = str(new_step.id)
-                await db.flush()
-                if will_hydrate:
-                    pending_code[str(new_step.id)] = old_step.code
-
-            for old_viz in old_query.visualizations:
-                new_viz = Visualization(
-                    title=old_viz.title,
-                    status=old_viz.status,
-                    report_id=str(new_report.id),
-                    query_id=str(new_query.id),
-                    view=old_viz.view,
-                )
-                db.add(new_viz)
-                await db.flush()
-                viz_id_map[str(old_viz.id)] = str(new_viz.id)
-
-        # -- Query parameters (depends on the complete query_id_map) --
-        #
-        # The fork used to drop Query.parameters entirely. Saved step code
-        # reads its parameters by name — `depot = params["depot"]` — and with
-        # no specs the resolver hands the code `{}`, so every parameterized
-        # query in a fork raised KeyError: the dashboard's filters vanished and,
-        # under hydration, the query failed outright even for a forker with
-        # full access to the data.
-        #
-        # What is copied here is the DEFINITION — names, types, labels,
-        # defaults, identity bindings — which is the dashboard's own design,
-        # not anyone's data. The values the creator last ran with travel on
-        # the copied step (Step.applied_params, above), through
-        # redact_applied_params: identity-derived values (an email, a
-        # department) stay behind, and the forker's first run fills those
-        # from their own identity and anything missing from the defaults.
-        #
-        # `options_source.query_id` points a dropdown at the query that lists
-        # its options — a query in the SOURCE report. Left as-is, the fork's
-        # filter would keep reading the creator's report (the cross-report
-        # reference class the step-copy fix removed), so it is repointed at
-        # the fork's own copy. This runs after the loop because the options
-        # query may be copied after the query that uses it. A reference to a
-        # query outside this report has no copy to point at and is dropped —
-        # the parameter still works, it just offers no preset options.
-        import copy
-
-        for new_q, specs in pending_params:
-            remapped = copy.deepcopy(specs)
-            for spec in (remapped if isinstance(remapped, list) else []):
-                src = spec.get("options_source") if isinstance(spec, dict) else None
-                if isinstance(src, dict) and src.get("query_id"):
-                    target = query_id_map.get(str(src["query_id"]))
-                    if target:
-                        src["query_id"] = target
-                    else:
-                        spec["options_source"] = None
-            new_q.parameters = remapped
-        if pending_params:
-            await db.flush()
+            if old_step is not None and user_scoped and (old_step.code or "").strip():
+                # Held out of the fork and written back by hydration, already
+                # pointing its load_step calls at the fork's own steps.
+                pending_code[maps.step_map[str(old_step.id)]] = maps.rewrite_code(old_step.code)
 
         # -- Artifact (depends on viz_id_map) --
         new_artifact, needs_thumbnail = await self._duplicate_artifact(
-            db, original, new_report, user, viz_id_map, strict_source, user_scoped,
+            db, original, new_report, user, maps.ids(), strict_source, user_scoped,
         )
 
         return DuplicatedAssets(
@@ -914,7 +867,7 @@ class ForkService:
         original: Report,
         new_report: Report,
         user: User,
-        viz_id_map: Dict[str, str],
+        id_map: Dict[str, str],
         strict_source: bool = False,
         user_scoped: bool = False,
     ) -> Tuple[Optional[ArtifactVersion], bool]:
@@ -933,33 +886,24 @@ class ForkService:
         if not latest:
             return None, False
 
-        # Remap every visualization id the artifact carries — not only the
+        # Remap every id the artifact carries — not only the
         # `visualization_ids` list, but the ids baked into its source too.
         #
         # Dashboards reach their data by id: `vizById("<viz uuid>")` in page
         # code (182 calls across a live install, and the only id-keyed helper
-        # the artifact runtime has), and the equivalent references in doc-mode
-        # `markdown`. vizById only searches the data the host loaded for THIS
-        # artifact, which for a fork is the fork's own visualizations. Remapping
-        # just the list left the code asking for the source report's ids, so
-        # every fork of a vizById dashboard rendered empty — silently, since
-        # vizById returns null rather than raising. (It never fetched the
-        # source's data: the failure was empty, not a leak.)
+        # the artifact runtime has), the equivalent references in doc-mode
+        # `markdown`, and query ids passed to useParams(). vizById only
+        # searches the data the host loaded for THIS artifact, which for a fork
+        # is the fork's own visualizations. Remapping just the list left the
+        # code asking for the source report's ids, so every fork of a vizById
+        # dashboard rendered empty — silently, since vizById returns null
+        # rather than raising. (It never fetched the source's data: the
+        # failure was empty, not a leak.)
         #
-        # Rewriting the serialized content covers code, markdown and the list
-        # in one pass. Only ids present in viz_id_map are touched, so file ids
-        # and anything else pass through unchanged; UUIDs cannot collide with
-        # other text.
-        old_content = latest.content or {}
-        if viz_id_map:
-            import json
-
-            raw = json.dumps(old_content)
-            for old_vid, new_vid in viz_id_map.items():
-                raw = raw.replace(old_vid, new_vid)
-            new_content = json.loads(raw)
-        else:
-            new_content = dict(old_content)
+        # remap_ids rewrites the serialized content in one pass, any letter
+        # case. Only copied chart, query and step ids are touched, so file ids
+        # and anything else pass through unchanged.
+        new_content = remap_ids(latest.content or {}, id_map)
 
         new_artifact = await new_artifact_row(
             db,
@@ -1046,10 +990,12 @@ class ForkService:
         new_artifact: Optional[ArtifactVersion],
     ):
         """Create a summary completion with asset references for the forked report."""
-        # Build asset refs list using NEW IDs
+        # Build asset refs list using NEW IDs. What was deleted in the source
+        # (and copied still deleted, or not at all) is not offered to the agent.
         asset_refs: List[Dict[str, Any]] = []
+        live_queries = [q for q in original.queries if q.deleted_at is None]
 
-        for old_query in original.queries:
+        for old_query in live_queries:
             new_qid = query_id_map.get(str(old_query.id))
             if new_qid:
                 asset_refs.append({
@@ -1060,7 +1006,7 @@ class ForkService:
                 })
             for old_viz in old_query.visualizations:
                 new_vid = viz_id_map.get(str(old_viz.id))
-                if new_vid:
+                if new_vid and old_viz.deleted_at is None:
                     asset_refs.append({
                         "type": "visualization",
                         "id": new_vid,
@@ -1079,9 +1025,9 @@ class ForkService:
         summary_parts = []
         summary_parts.append(f'This report was forked from "{original.title}".')
 
-        if original.queries:
-            summary_parts.append(f"\n{len(original.queries)} queries were inherited:")
-            for old_query in original.queries:
+        if live_queries:
+            summary_parts.append(f"\n{len(live_queries)} queries were inherited:")
+            for old_query in live_queries:
                 new_qid = query_id_map.get(str(old_query.id), "")
                 step_info = ""
                 if old_query.default_step:
@@ -1089,7 +1035,8 @@ class ForkService:
                     step_info = f" ({step.type})"
                     if step.description:
                         step_info += f" - {step.description[:100]}"
-                viz_ids = [viz_id_map[str(v.id)] for v in old_query.visualizations if str(v.id) in viz_id_map]
+                viz_ids = [viz_id_map[str(v.id)] for v in old_query.visualizations
+                           if str(v.id) in viz_id_map and v.deleted_at is None]
                 viz_info = f" | viz: {', '.join(viz_ids)}" if viz_ids else ""
                 summary_parts.append(
                     f"- {old_query.title or 'Untitled'}{step_info} [query: {new_qid}{viz_info}]"

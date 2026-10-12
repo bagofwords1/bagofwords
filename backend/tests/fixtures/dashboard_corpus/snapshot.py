@@ -18,7 +18,7 @@ from tests.fixtures.dashboard_corpus.kinds import Corpus
 
 GOLDEN_DIR = Path(__file__).resolve().parents[2] / "golden" / "dashboards"
 
-UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 HEX32_RE = re.compile(r"\b[0-9a-f]{32}\b")
 ISO_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$")
 JWT_RE = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+")
@@ -63,6 +63,8 @@ class Normaliser:
     def _id(self, raw: str) -> str:
         if raw in self.names:
             return f"<{self.names[raw]}>"
+        if raw.lower() in self.names:  # a known id written in upper case
+            return f"<{self.names[raw.lower()]}:upper>"
         if raw not in self._new:
             self._new[raw] = f"<new#{len(self._new) + 1}>"
         return self._new[raw]
@@ -365,7 +367,7 @@ def explain_diff(role: str, expected: str, actual: str, old_bodies: dict, new_bo
     return "\n".join(out)
 
 
-def summary_rows(snapshots: dict[str, dict]) -> str:
+def summary_rows(snapshots: dict[str, dict], *, partial: bool = False) -> str:
     """SUMMARY.md: one line per conversation, one column per person.
 
     A cell reads `<status of /api/r/{id}> <what /r shows>` -- the facts the
@@ -379,7 +381,13 @@ def summary_rows(snapshots: dict[str, dict]) -> str:
     for key in reports:
         cells = []
         for p in people:
-            rep = snapshots[p]["reports"][key]
+            # While BOW_UPDATE_GOLDEN rewrites one group at a time (partial),
+            # the other groups' files may not know a newly seeded conversation
+            # yet; anywhere else a missing conversation is an error.
+            rep = snapshots[p]["reports"].get(key) if partial else snapshots[p]["reports"][key]
+            if rep is None:
+                cells.append("—")
+                continue
             st = rep["r"]["status"]
             cells.append(f"{st} {rep['r_shows']}" if st == 200 and rep["r_shows"] else str(st))
         lines.append(f"| {key} | " + " | ".join(cells) + " |")

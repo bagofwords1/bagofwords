@@ -277,6 +277,15 @@ corpus row, with decision 5 as the only allowed difference),
 missing ids answering as before), `test_schema_dashfc02.py`,
 `test_widget_lookups_frozen.py`.
 
+### Notes for later phases (from phase 3)
+
+- A release copies `applied_params` and `data` as they are, including values
+  derived from the publisher's identity and rows of user-scoped or RLS
+  sources. The `/d` reader (phase 4) must apply `redact_applied_params` and
+  the withholding policy, as Fork does at copy time.
+- `load_step` by title in a release resolves among the release's copies only
+  once `ExecContext.from_release` (phase 6) gives load_step a release scope.
+
 ### Notes for later phases (from part B)
 
 - The daily step-data purge joins through widgets, so it skips copies; copies
@@ -290,3 +299,58 @@ missing ids answering as before), `test_schema_dashfc02.py`,
 - Table-usage events must not be recorded for copy runs, or copy code reaches
   the agent's examples (phase 6). Console metrics join through widgets and do
   not count copies.
+
+## Phase 3 — the copy engine
+
+`app/services/dashboard_copy.py` copies rows and rewrites every reference to
+them. Publish (phase 5) and the data migration (phase 9) copy one dashboard
+version into an `ArtifactRelease`; Fork copies a whole conversation. Nothing
+calls the release path yet.
+
+- **What a dashboard needs** (`collect_dashboard_deps`): the queries its link
+  shows — what `GET /api/r/{report}/queries?artifact_id=` returns today: live
+  queries with a successful default step that own a listed chart, or all of
+  them when the version lists none — plus, transitively, every query those
+  reach: a filter's option query (by id, else exact title ignoring case, as
+  the page resolves it: shown queries first) and every `load_step` target (id,
+  slug, then title, as `LoadablesResolver` does — a deleted query's step
+  still loads, so it is copied still deleted). Only the dashboard's own
+  conversation is read; step data is not loaded for this.
+- **Copying rows** (`copy_query_rows`): each query, its default step (a new
+  unique slug) and its charts. A deleted chart is copied still deleted: the
+  page receives the charts of the queries it shows, deleted ones included.
+  The copies' filter references and `load_step` calls point at the copies from
+  the first INSERT (ids and slugs are chosen up front, so no UPDATE fires step
+  hooks): an id or slug becomes the copy's; a title stays, unless several
+  copied steps share it, then it becomes the slug of the copy the draft
+  resolves to (the most recent). Literals are found and rewritten through the
+  AST, the same walk `extract_loadable_refs` uses.
+- **Rewriting content** (`remap_ids`): every copied chart, query and step id
+  anywhere in the content (chart list, page code, doc markdown, slides), in
+  any letter case. Other ids (files, sources) pass through.
+- **Into a release** (`copy_dashboard`): the rewritten content, the source
+  version, the conversation's data sources, files, theme and monitoring
+  access, and the thumbnail, deck and slide previews copied as the release's
+  own files (`release-<id>`; a deck's thumbnail is its first copied preview).
+  Previews are resolved like the preview route resolves them (PNGs inside
+  `uploads/pptx_previews` only), the deck must be a `.pptx` inside `uploads/`;
+  anything else keeps its path and is not copied. Data is copied as it is;
+  nothing runs.
+- **Fork** uses the same row copy and rewriting with its own scope (every live
+  query of the conversation, plus deleted ones a step still loads, copied
+  still deleted), widgets, owner and data policy; the code it withholds is
+  rewritten the same way before hydration writes it back, and its summary for
+  the agent names live queries and charts only. Four things a
+  fork used to get wrong are fixed by it: deleted charts and queries came back
+  to life; a filter naming its option query by title lost its options; a
+  `load_step` by id or slug stopped resolving; query ids and upper-case chart
+  ids in page code were not rewritten.
+
+The corpus gained `refs_in_code` (load_step by id and by slug, a query id in
+page code, an upper-case chart id, a deleted chart of a live query). Tests:
+`test_dashboard_copy.py` copies every live dashboard version in the corpus and
+checks it holds what the link shows (plus the hidden queries), that no
+reference to a copied row's old id is left, that the data is the same and the
+draft untouched; filters, `load_step`, chart order, deleted charts, the empty
+chart list, files, and copying twice. `test_fork_copy_fixes.py` pins the four
+fork fixes; the existing fork tests pin everything else.

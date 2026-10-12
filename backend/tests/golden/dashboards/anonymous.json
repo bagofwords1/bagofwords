@@ -4473,6 +4473,156 @@
     }
    }
   },
+  "refs_in_code": {
+   "artifact_chat_agents": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "artifacts_latest": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "completions": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "files": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "fork_status": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "queries": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "query_detail": {
+    "refs_in_code/q_base": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_base#default_step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_by_id": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_by_id#default_step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_by_slug": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_by_slug#default_step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_hidden": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_hidden#default_step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_regions": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_regions#default_step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    }
+   },
+   "r": {
+    "body": "#32578c7f7a9488c9",
+    "status": 401
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#32578c7f7a9488c9",
+    "status": 401
+   },
+   "r_chat": {
+    "body": "#b929a2297c820c9c",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "r_queries": {
+    "body": "#32578c7f7a9488c9",
+    "status": 401
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "shares_artifact": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "shares_conversation": {
+    "body": "#6d185b8f98df7aea",
+    "status": 401
+   },
+   "step_detail": {
+    "refs_in_code/q_base/step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_by_id/step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_by_slug/step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_hidden/step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_regions/step": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "refs_in_code/q_base/viz": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_by_id/viz": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    },
+    "refs_in_code/q_by_slug/viz": {
+     "body": "#6d185b8f98df7aea",
+     "status": 401
+    }
+   }
+  },
   "report_deleted_at": {
    "artifact_chat_agents": {
     "body": "#6d185b8f98df7aea",

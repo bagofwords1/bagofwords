@@ -4,6 +4,10 @@
    {
     "cards": [
      {
+      "body": "#53184610fde57c8d",
+      "status": 200
+     },
+     {
       "body": "#5dc45c562a2970ed",
       "status": 200
      },
@@ -241,7 +245,7 @@
      "has_prev": false,
      "limit": 100,
      "page": 1,
-     "total": 58,
+     "total": 59,
      "total_pages": 1
     },
     "status": 200
@@ -274,6 +278,10 @@
    {
     "cards": [
      {
+      "body": "#53184610fde57c8d",
+      "status": 200
+     },
+     {
       "body": "#248612e9cbc5a513",
       "status": 200
      },
@@ -483,7 +491,7 @@
      "has_prev": false,
      "limit": 100,
      "page": 1,
-     "total": 51,
+     "total": 52,
      "total_pages": 1
     },
     "status": 200
@@ -496,6 +504,10 @@
   "my": [
    {
     "cards": [
+     {
+      "body": "#53184610fde57c8d",
+      "status": 200
+     },
      {
       "body": "#5dc45c562a2970ed",
       "status": 200
@@ -734,7 +746,7 @@
      "has_prev": false,
      "limit": 100,
      "page": 1,
-     "total": 58,
+     "total": 59,
      "total_pages": 1
     },
     "status": 200
@@ -766,6 +778,10 @@
   "my&has_artifacts=yes&artifact_mode=page": [
    {
     "cards": [
+     {
+      "body": "#53184610fde57c8d",
+      "status": 200
+     },
      {
       "body": "#248612e9cbc5a513",
       "status": 200
@@ -976,7 +992,7 @@
      "has_prev": false,
      "limit": 100,
      "page": 1,
-     "total": 51,
+     "total": 52,
      "total_pages": 1
     },
     "status": 200
@@ -993,6 +1009,10 @@
   "published": [
    {
     "cards": [
+     {
+      "body": "#53184610fde57c8d",
+      "status": 200
+     },
      {
       "body": "#5dc45c562a2970ed",
       "status": 200
@@ -1203,7 +1223,7 @@
      "has_prev": false,
      "limit": 100,
      "page": 1,
-     "total": 51,
+     "total": 52,
      "total_pages": 1
     },
     "status": 200
@@ -1235,6 +1255,10 @@
   "published&has_artifacts=yes&artifact_mode=page": [
    {
     "cards": [
+     {
+      "body": "#53184610fde57c8d",
+      "status": 200
+     },
      {
       "body": "#248612e9cbc5a513",
       "status": 200
@@ -1421,7 +1445,7 @@
      "has_prev": false,
      "limit": 100,
      "page": 1,
-     "total": 45,
+     "total": 46,
      "total_pages": 1
     },
     "status": 200
@@ -6662,6 +6686,191 @@
    "viz_detail": {
     "refresh_off/q_sales/viz": {
      "body": "#125b74b232c8be06",
+     "status": 200
+    }
+   }
+  },
+  "refs_in_code": {
+   "artifact_chat_agents": {
+    "body": "#affe3384d0b47170",
+    "status": 200
+   },
+   "artifact_detail": {
+    "refs_in_code/dash/v1": {
+     "body": "#822bfc4d1ba46581",
+     "status": 200
+    }
+   },
+   "artifacts": {
+    "body": "#310f067e25779ece",
+    "status": 200
+   },
+   "artifacts_latest": {
+    "body": "#822bfc4d1ba46581",
+    "status": 200
+   },
+   "completions": {
+    "body": "#c80808456bc0f478",
+    "status": 200
+   },
+   "files": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "fork_status": {
+    "body": "#76a41c5bbf16b56e",
+    "status": 200
+   },
+   "queries": {
+    "body": "#5a01d13cbde207b3",
+    "status": 200
+   },
+   "query_detail": {
+    "refs_in_code/q_base": {
+     "body": "#fc3b010247f2eccb",
+     "status": 200
+    },
+    "refs_in_code/q_base#default_step": {
+     "body": "#2918d0db39b895c7",
+     "status": 200
+    },
+    "refs_in_code/q_by_id": {
+     "body": "#b2e990b5e9fc1cdc",
+     "status": 200
+    },
+    "refs_in_code/q_by_id#default_step": {
+     "body": "#c8daeec80791e897",
+     "status": 200
+    },
+    "refs_in_code/q_by_slug": {
+     "body": "#00d6fa2f0e1a8660",
+     "status": 200
+    },
+    "refs_in_code/q_by_slug#default_step": {
+     "body": "#ba71615e7a8ddb0b",
+     "status": 200
+    },
+    "refs_in_code/q_hidden": {
+     "body": "#59b22cffba1d6a17",
+     "status": 200
+    },
+    "refs_in_code/q_hidden#default_step": {
+     "body": "#cde7cf2f0a326333",
+     "status": 200
+    },
+    "refs_in_code/q_regions": {
+     "body": "#1f21af3fda08457d",
+     "status": 200
+    },
+    "refs_in_code/q_regions#default_step": {
+     "body": "#b237c175dfa0a633",
+     "status": 200
+    }
+   },
+   "r": {
+    "body": "#db8c67c09f67601a",
+    "status": 200
+   },
+   "r_artifact_detail": {
+    "refs_in_code/dash/v1": {
+     "body": "#822bfc4d1ba46581",
+     "status": 200
+    }
+   },
+   "r_artifacts": {
+    "body": "#310f067e25779ece",
+    "status": 200
+   },
+   "r_chat": {
+    "body": "#16e8097760998747",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#e366c828835c7d54",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#91a08f3749d84675",
+    "status": 200
+   },
+   "r_queries_shown": {
+    "body": "#af4876ef103c7c45",
+    "status": 200
+   },
+   "r_shows": "refs_in_code/dash/v1",
+   "r_steps": {
+    "refs_in_code/q_base": {
+     "body": "#943100746ff21e8c",
+     "status": 200
+    },
+    "refs_in_code/q_by_id": {
+     "body": "#5332b8929277dd65",
+     "status": 200
+    },
+    "refs_in_code/q_by_slug": {
+     "body": "#2525159cc19cc61b",
+     "status": 200
+    },
+    "refs_in_code/q_hidden": {
+     "body": "#2775d1fc3f278f1c",
+     "status": 200
+    },
+    "refs_in_code/q_regions": {
+     "body": "#7d1e1e0a3020e702",
+     "status": 200
+    }
+   },
+   "report": {
+    "body": "#8204986b277e905c",
+    "status": 200
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "shares_artifact": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "shares_conversation": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "step_detail": {
+    "refs_in_code/q_base/step": {
+     "body": "#f9431c99ace79104",
+     "status": 200
+    },
+    "refs_in_code/q_by_id/step": {
+     "body": "#221711dd48181e9b",
+     "status": 200
+    },
+    "refs_in_code/q_by_slug/step": {
+     "body": "#251e495966ada08c",
+     "status": 200
+    },
+    "refs_in_code/q_hidden/step": {
+     "body": "#7ab2dcee50ad05e1",
+     "status": 200
+    },
+    "refs_in_code/q_regions/step": {
+     "body": "#24eb8f842701a129",
+     "status": 200
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "refs_in_code/q_base/viz": {
+     "body": "#18fb9672d30335f7",
+     "status": 200
+    },
+    "refs_in_code/q_by_id/viz": {
+     "body": "#d9838270b708e1e3",
+     "status": 200
+    },
+    "refs_in_code/q_by_slug/viz": {
+     "body": "#1cff33a6080a3f59",
      "status": 200
     }
    }

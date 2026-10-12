@@ -142,6 +142,10 @@ def test_every_kind_is_in_the_database(corpus, corpus_rows):
                              "JOIN widgets w ON w.id = q.widget_id WHERE q.id = :id",
                        id=ids[f"widget_without_report/{qkey}"])[0]
             assert row["w_report"] is None and row["q_report"] == own
+        assert ids["refs_in_code/q_base/step"] in step("refs_in_code/q_by_id/step")["code"]
+        assert "refs-in-code-q-base-step" in step("refs_in_code/q_by_slug/step")["code"]
+        refs = _content(versions("refs_in_code")[0])["code"]
+        assert ids["refs_in_code/q_by_slug/viz"].upper() in refs and ids["refs_in_code/q_by_id"] in refs
 
 
 def _json(value):

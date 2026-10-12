@@ -695,6 +695,39 @@ def seed_corpus(rows: Rows, cast: Cast, thumbnails_dir: str, written: list[str])
             created_at=t, updated_at=t))
         s.rows.update("queries", qid, default_step_id=sid)
 
+    # The references a dashboard copy must rewrite that the kinds above lack:
+    # load_step by step id and by slug, a query id inside page code, and a
+    # viz id in upper case (the readers match ids case-insensitively).
+    s.report("refs_in_code", title="הפניות בקוד", artifact_visibility="internal")
+    # Two queries the dashboard needs without showing them (no chart): the
+    # option list of q_base's filter, named by title, and a step q_base loads
+    # (so q_by_id reaches it through q_base).
+    s.query("refs_in_code", "q_regions", title="רשימת אזורים", viz=False)
+    s.query("refs_in_code", "q_hidden", title="נסתרת", viz=False)
+    base = s.query("refs_in_code", "q_base", title="בסיס", code=(
+        "def generate_df(ds_clients, excel_files, load_step):\n"
+        "    return load_step('נסתרת · ריצה')\n"), parameters=[{
+            "name": "region", "type": "string", "source": "input",
+            "options_source": {"query_id": "רשימת אזורים", "value_column": "חודש"}}])
+    # A deleted chart on a live query: the shared page still receives it with
+    # its query's other charts, so a copy keeps it, still deleted.
+    t = s.tick()
+    c.name("refs_in_code/q_base/viz_deleted", s.rows.insert(
+        "visualizations", title="גרף שנמחק", status="success", report_id=c.reports["refs_in_code"],
+        query_id=base["query"], view={"type": "bar_chart"}, created_at=t, updated_at=t, deleted_at=t))
+    s.query("refs_in_code", "q_by_id", title="לפי מזהה", code=(
+        "def generate_df(ds_clients, excel_files, load_step):\n"
+        f"    return load_step('{base['step']}')\n"))
+    s.query("refs_in_code", "q_by_slug", title="לפי שם קוד", code=(
+        "def generate_df(ds_clients, excel_files, load_step):\n"
+        f"    return load_step('{s.slug('refs_in_code/q_base', 'step')}')\n"))
+    viz_ids = [c.ids[f"refs_in_code/{k}/viz"] for k in ("q_base", "q_by_id", "q_by_slug")]
+    code = page_code("הפניות בקוד") + (
+        f'\nconst first = vizById("{viz_ids[0]}"); const third = vizById("{viz_ids[2].upper()}");'
+        f'\nconst refresh = () => useParams().apply(["{c.ids["refs_in_code/q_by_id"]}"]);\n')
+    s.artifact("refs_in_code", "dash", title="לוח הפניות", versions=[{"content": {
+        "code": code, "runtime_version": 1, "visualization_ids": viz_ids}}])
+
     return c
 
 
