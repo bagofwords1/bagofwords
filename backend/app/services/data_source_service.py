@@ -761,6 +761,10 @@ class DataSourceService:
             
             # Extract connection-related fields
             ds_type = data_source_dict.pop("type", None)
+            # Save-time guards (the validation above is skipped for user_required).
+            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys
+            _check_network_dir_root(ds_type, config)
+            _reject_unsafe_google_keys(credentials)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
 
             # Default allowed_user_auth_modes for user_required connections —
@@ -2513,9 +2517,15 @@ class DataSourceService:
 
             # SSRF guard for MCP / custom API URLs (the clients' pinned
             # transport guards the connect itself, rebinding included).
-            from app.services.connection_service import _check_tool_provider_url
+            from app.services.connection_service import (
+                _check_network_dir_root,
+                _check_tool_provider_url,
+                _reject_unsafe_google_keys,
+            )
             try:
                 _check_tool_provider_url(data_source_type, config)
+                _check_network_dir_root(data_source_type, config)
+                _reject_unsafe_google_keys(credentials)
             except HTTPException as e:
                 return {"success": False, "message": e.detail}
 

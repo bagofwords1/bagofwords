@@ -1976,6 +1976,12 @@ class LLMService:
                         detail="Vertex service account key JSON is missing 'private_key' — "
                                "paste the whole key file."
                     )
+                from app.core.egress import check_google_token_uri
+                from app.core.url_safety import UnsafeURLError
+                try:
+                    check_google_token_uri(parsed_key)
+                except UnsafeURLError as exc:
+                    raise HTTPException(status_code=400, detail=f"Vertex service account key: {exc}")
                 api_key = raw_key
                 # A key file names its own project; adopt it when the admin
                 # left the field blank so the common case needs one paste.

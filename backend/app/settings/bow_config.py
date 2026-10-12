@@ -395,6 +395,12 @@ class SecurityConfig(BaseModel):
     # because self-hosted installs point these at internal hosts; cloud
     # metadata / link-local addresses are blocked either way.
     block_private_outbound: bool = False
+    # Directory prefixes a network_dir connection's root_path may resolve
+    # into (realpath, symlinks followed), e.g. ["/mnt", "/srv/shares"]. When
+    # set it is enforced strictly. Unset (default) keeps existing installs
+    # working and only refuses system dirs (/, /etc, /proc, /root, /usr, …)
+    # and the app's own dirs — see network_dir_client.check_network_dir_root.
+    network_dir_allowed_roots: Optional[List[str]] = None
 
 
 class BowConfig(BaseModel):

@@ -73,6 +73,50 @@ def _check_tool_provider_url(conn_type: str, config) -> None:
             raise HTTPException(status_code=400, detail=f"{key}: {e}")
 
 
+def _check_network_dir_root(conn_type: str, config) -> None:
+    """Save/test-time guard: a network_dir root must pass the root policy
+    (``security.network_dir_allowed_roots``). Enforced again in the client."""
+    if conn_type != "network_dir":
+        return
+    from app.data_sources.clients.network_dir_client import check_network_dir_root
+
+    cfg = json.loads(config) if isinstance(config, str) else (config or {})
+    root = (cfg.get("root_path") or "").strip() if isinstance(cfg.get("root_path"), str) else ""
+    if not root:
+        return
+    try:
+        check_network_dir_root(root)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"root_path: {e}")
+
+
+_GOOGLE_SA_KEYS = ("credentials_json", "service_account_json")
+
+
+def _reject_unsafe_google_keys(credentials) -> None:
+    """A pasted service-account key's ``token_uri`` is where google-auth
+    POSTs a signed assertion; refuse anything but Google's endpoint at save
+    time (same check as Google Chat). Enforced again in the clients."""
+    from app.core.egress import check_google_token_uri
+    from app.core.url_safety import UnsafeURLError
+
+    if not isinstance(credentials, dict):
+        return
+    for key in _GOOGLE_SA_KEYS:
+        raw = credentials.get(key)
+        info = raw
+        if isinstance(raw, str):
+            try:
+                info = json.loads(raw)
+            except ValueError:
+                continue  # not JSON (e.g. a server file path) — checked at use
+        if isinstance(info, dict) and info.get("type") == "service_account":
+            try:
+                check_google_token_uri(info)
+            except UnsafeURLError as e:
+                raise HTTPException(status_code=400, detail=f"{key}: {e}")
+
+
 async def grant_connection_owner(
     db: AsyncSession, organization_id: str, connection_id: str, user_id: str,
 ) -> None:
@@ -362,6 +406,8 @@ class ConnectionService:
     ) -> Connection:
         """Create a new connection with validation."""
         _reject_unsafe_oauth_urls(config, credentials)
+        _reject_unsafe_google_keys(credentials)
+        _check_network_dir_root(type, config)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -584,6 +630,7 @@ class ConnectionService:
     ) -> Connection:
         """Update a connection."""
         _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
+        _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
 
         # Check enterprise license if switching to user_required auth policy
@@ -715,6 +762,7 @@ class ConnectionService:
 
         if connection_changed:
             _check_tool_provider_url(connection.type, connection.config)
+            _check_network_dir_root(connection.type, connection.config)
 
         # Revalidate if connection fields changed
         if connection_changed and connection.auth_policy == "system_only":
@@ -1040,6 +1088,8 @@ class ConnectionService:
         # is validated at the OAuth callback (test_user_connection).
         try:
             _check_tool_provider_url(data_source_type, config)
+            _check_network_dir_root(data_source_type, config)
+            _reject_unsafe_google_keys(credentials)
         except HTTPException as e:
             return {"success": False, "message": e.detail, "connectivity": False}
         oauth_user_mode = (
