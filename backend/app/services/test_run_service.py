@@ -1182,6 +1182,15 @@ class TestRunService:
                 if not user or not organization:
                     logging.warning(f"eval wake {run_id}: origin user/org gone")
                     return
+                # Same fire-time rule as wait wake-ups: the run was started
+                # while the user could act; a deactivated or removed user must
+                # not have an agent turn run as them when it finishes.
+                from app.core.permission_resolver import principal_can_act_in_org
+                if not await principal_can_act_in_org(session, user, str(organization.id)):
+                    logging.warning(
+                        f"eval wake {run_id}: user {origin_user_id} deactivated or left org; dropping"
+                    )
+                    return
 
                 passed = summary.get("passed", 0)
                 total = summary.get("total", 0)
