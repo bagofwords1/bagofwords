@@ -82,7 +82,10 @@ class OrganizationService:
             pass
 
         await self.organization_settings_service.create_default_settings(db, organization, current_user)
-        await self.add_member(db, MembershipCreate(role="admin", user_id=current_user.id, organization_id=organization.id), current_user)
+        await self.add_member(
+            db, MembershipCreate(role="admin", user_id=current_user.id, organization_id=organization.id),
+            current_user, enforce_role_guard=False,
+        )
         await self.llm_service.set_default_models_from_config(db, organization, current_user)
         await self.test_suite_service.ensure_default_for_org(db, organization.id, current_user)
 
@@ -329,7 +332,22 @@ class OrganizationService:
         from app.core.seats import enforce_seat_limit
         await enforce_seat_limit(db, organization_id, adding)
 
-    async def add_member(self, db: AsyncSession, membership_data: MembershipCreate, current_user: User) -> MembershipSchema:
+    async def add_member(
+        self, db: AsyncSession, membership_data: MembershipCreate, current_user: User,
+        *, enforce_role_guard: bool = True,
+    ) -> MembershipSchema:
+        """Invite/add a member with ``membership_data.role``.
+
+        ``enforce_role_guard`` applies the same escalation rule as member role
+        updates (#1305/#1328): a non-full-admin may only invite with a role whose
+        permissions they already hold, so ``manage_members`` can't mint admins.
+        Only org bootstrap (the creator becoming the first admin, before any
+        membership exists to resolve) passes ``False``.
+        """
+        if enforce_role_guard:
+            await self._assert_can_invite_with_role(
+                db, str(membership_data.organization_id), current_user, membership_data.role or "member"
+            )
         #check if email is already a user
         # if it is, add user_id to membership and remove email
         # then, check if user (or email) already maps to a membership in this organization
@@ -636,12 +654,29 @@ class OrganizationService:
         except Exception:
             logger.warning("Failed to cancel pending waits for removed member", exc_info=True)
 
+    async def _system_role_permissions(self, db: AsyncSession, role_name: str) -> list:
+        """Permissions of the system role a legacy ``Membership.role`` string maps to.
+
+        Only system roles are materialized from the role string (see
+        ``_assign_system_role`` / ``_sync_system_role_assignment`` and the
+        invite-accept path in core/auth.py), so an unknown name grants nothing.
+        """
+        from app.models.role import Role
+
+        return (await db.execute(
+            select(Role.permissions).where(
+                Role.name == role_name,
+                Role.is_system == True,
+                Role.organization_id.is_(None),
+                Role.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none() or []
+
     async def _assert_can_set_member_role(
         self, db: AsyncSession, organization_id: str, current_user: Optional[User],
         membership: Membership, new_role: str,
     ) -> None:
         """Apply rbac_service's escalation guard to a legacy role-string change."""
-        from app.models.role import Role
         from app.services.rbac_service import rbac_service
 
         actor_id = str(current_user.id) if current_user is not None else None
@@ -649,16 +684,27 @@ class OrganizationService:
         await rbac_service._assert_not_self(
             db, organization_id, actor_id, target_user_id, action="member.role_change"
         )
-        role_perms = (await db.execute(
-            select(Role.permissions).where(
-                Role.name == new_role,
-                Role.is_system == True,
-                Role.organization_id.is_(None),
-                Role.deleted_at.is_(None),
-            )
-        )).scalar_one_or_none() or []
+        role_perms = await self._system_role_permissions(db, new_role)
         await rbac_service._assert_can_grant(
             db, organization_id, actor_id, permissions=role_perms, action="member.role_change"
+        )
+
+    async def _assert_can_invite_with_role(
+        self, db: AsyncSession, organization_id: str, current_user: Optional[User], role: str,
+    ) -> None:
+        """Same grant rule as ``_assert_can_set_member_role``, for a new membership.
+
+        The invited role is materialized into a RoleAssignment immediately (an
+        existing user) or on invite acceptance (a pending email), so inviting
+        as ``admin`` is granting ``full_admin_access``. Denials are audited as
+        ``member.invite.denied``; full admins pass unrestricted.
+        """
+        from app.services.rbac_service import rbac_service
+
+        actor_id = str(current_user.id) if current_user is not None else None
+        role_perms = await self._system_role_permissions(db, role)
+        await rbac_service._assert_can_grant(
+            db, organization_id, actor_id, permissions=role_perms, action="member.invite"
         )
 
     async def update_member(self,db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
