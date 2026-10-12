@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
+import logging
 
 from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
@@ -26,6 +27,7 @@ from app.schemas.build_schema import (
 
 router = APIRouter(prefix="/builds", tags=["builds"])
 build_service = BuildService()
+logger = logging.getLogger(__name__)
 
 
 async def _require_authority_over_instructions(
@@ -499,10 +501,21 @@ async def rollback_to_build(
     main = await build_service.get_main_build(db, organization.id)
     if main is not None:
         replaced |= await build_service.get_build_instruction_ids(db, main.id)
-    await _enforce_build_ds_access(
-        db, build_id, str(current_user.id), str(organization.id),
-        changed_instruction_ids=replaced,
-    )
+    try:
+        await _enforce_build_ds_access(
+            db, build_id, str(current_user.id), str(organization.id),
+            changed_instruction_ids=replaced,
+        )
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        # Object-level denials must not distinguish hidden builds from missing
+        # IDs. Keep the authorization reason in server logs only.
+        logger.warning(
+            "Rollback denied: organization=%s user=%s build=%s reason=%s",
+            organization.id, current_user.id, build_id, exc.detail,
+        )
+        raise HTTPException(status_code=404, detail="Build not found") from exc
     build = await build_service.rollback_to_build(
         db, build_id, organization.id, current_user.id
     )
