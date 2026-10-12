@@ -142,3 +142,44 @@ step once unguarded (base) and once through the compiled
   (option (a); see Loop A2). If an http deployment leaves `base_url` unset or
   at the placeholder, the default is rejected and the admin must set
   `base_url` or use https.
+
+## Follow-up: no base_url, fall back to the request's own origin
+
+Problem: an on-prem plain-http install that never set `base_url` (served at,
+e.g., `http://bow.corp:3000`) could not save the OAuth Clients modal's
+pre-filled `${window.location.origin}/oauth/callback`. With `base_url` unset
+or at the `0.0.0.0` placeholder only loopback http was allowed.
+
+Fix: when `base_url` is unset/placeholder, the app's own http origin is the
+origin the browser used to reach the server (`request_http_origin` in
+`backend/app/core/url_safety.py`). It is checked at save time (create/update
+client, the admin's request) and at use time (`GET`/`POST /api/oauth/authorize`,
+`GET /api/oauth/clients/{id}/info`, the authorize request). A configured
+`base_url` is still used exclusively. Matching stays exact (scheme, lowercased
+host, port with defaults); userinfo and lookalikes are still refused.
+
+Proxy trust is reused, not added: the scheme is `request.url.scheme`, which
+uvicorn's `--proxy-headers` rewrites from `X-Forwarded-Proto` only for peers in
+`--forwarded-allow-ips` (`start.sh`, default `127.0.0.1`). The host is the
+`Host` header. `X-Forwarded-Host` is never read, because nothing in the server
+is configured to trust it.
+
+### Loop D: live backend, no base_url, reached as `http://bow.corp:8823`
+
+`uvicorn main:app --port 8823 --proxy-headers --forwarded-allow-ips 127.0.0.2`
+on a scratch sqlite DB, `base_url` at the `http://0.0.0.0:3000` placeholder,
+seeded with `tools/agent/seed_org.py`. Requests carry `Host: bow.corp:8823`.
+
+| Request | Before | After |
+|---|---|---|
+| `POST /api/oauth/clients` `http://bow.corp:8823/oauth/callback` | 400 | 200 |
+| `GET /api/oauth/authorize` with that URI (Host `bow.corp:8823`) | n/a | 302 to consent |
+| `GET /api/oauth/authorize` with that URI (Host `other.corp`) | n/a | 400 |
+| `POST /api/oauth/authorize` then `POST /api/oauth/token` | n/a | 200, then 200 with a `bow_oauth_` token |
+| `http://other.corp/cb`, `http://bow.corp.evil.com:8823/cb`, `http://bow.corp@evil.com:8823/cb`, `http://bow.corp:8823@evil.com/cb`, `http://bow.corp:8824/cb`, `javascript:alert(1)` | 400 | 400 |
+| Own-origin URI with `Host: 127.0.0.1:8823` + `X-Forwarded-Host: bow.corp:8823` | 400 | 400 |
+
+Tests: `tests/e2e/test_oauth_redirect_uri_schemes.py` (`unset_base_url`,
+`configured_base_url`, `request_http_origin` cases). 11 of them fail on the base
+branch and all pass with the fix. The negative cases pass on both, because they
+guard against widening.

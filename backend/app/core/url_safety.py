@@ -191,10 +191,14 @@ def _has_http_authority(url: str, scheme: str) -> bool:
         return False
 
 
-def is_safe_redirect_uri(url: object) -> bool:
+def is_safe_redirect_uri(url: object, request_origin: str | None = None) -> bool:
     """Allowlist: https with a host; http only on a loopback host or the app's own
-    configured base_url origin (exact scheme+host+port; local MCP tools, on-prem).
-    Custom app schemes are not supported (product decision, WP8)."""
+    http origin (exact scheme+host+port; local MCP tools, on-prem).
+
+    The app's own origin is ``bow_config.base_url`` when configured; only when
+    it is unset (or the 0.0.0.0 placeholder) is ``request_origin`` -- the origin
+    the browser used to reach this server, see :func:`request_http_origin` --
+    used instead. Custom app schemes are not supported (product decision, WP8)."""
     scheme = _url_scheme(url)
     if scheme == "https":
         return _has_http_authority(url, scheme)
@@ -206,9 +210,9 @@ def is_safe_redirect_uri(url: object) -> bool:
             return True
         # On-prem installs served over plain http (e.g. http://bow.corp:3000)
         # register their own ``<origin>/oauth/callback``: allow an exact
-        # origin match with the configured base_url, nothing looser.
+        # origin match with the app's own origin, nothing looser.
         origin = _http_origin(url)
-        return origin is not None and origin in _app_http_origins()
+        return origin is not None and origin in _app_http_origins(request_origin)
     return False
 
 
@@ -225,15 +229,39 @@ def _http_origin(url: str) -> tuple[str, str, int] | None:
         return None
 
 
-def _app_http_origins() -> set[tuple[str, str, int]]:
-    """The app's own http origin(s) from ``bow_config.base_url`` (unset or the
-    0.0.0.0 placeholder means none)."""
+def _app_http_origins(request_origin: str | None = None) -> set[tuple[str, str, int]]:
+    """The app's own http origin(s). A configured ``bow_config.base_url`` is
+    used exclusively (an https base_url therefore allows no http origin). Only
+    when it is unset or the 0.0.0.0 placeholder does the requesting origin
+    stand in for it."""
     from app.settings.config import settings
     configured = (getattr(settings.bow_config, "base_url", None) or "").strip().rstrip("/")
-    if not configured or configured in _BASE_URL_PLACEHOLDERS:
-        return set()
-    origin = _http_origin(configured)
+    if configured and configured not in _BASE_URL_PLACEHOLDERS:
+        origin = _http_origin(configured)
+        return {origin} if origin else set()
+    origin = _http_origin(request_origin) if request_origin else None
     return {origin} if origin else set()
+
+
+def request_http_origin(request) -> str | None:
+    """``scheme://host[:port]`` the client used to reach this server.
+
+    The scheme is ``request.url.scheme``: uvicorn's ``--proxy-headers`` rewrites
+    it from X-Forwarded-Proto only for peers in ``--forwarded-allow-ips``
+    (start.sh), so proxy trust stays exactly where the deployment configured
+    it. The host is the ``Host`` header; X-Forwarded-Host is deliberately not
+    read because nothing in the server is configured to trust it.
+    """
+    try:
+        host = (request.headers.get("host") or "").strip()
+        scheme = (request.url.scheme or "").lower()
+    except Exception:
+        return None
+    if not host or scheme not in ("http", "https") or _url_scheme(f"{scheme}://{host}") is None:
+        return None
+    if any(c in host for c in "/?#@\\"):
+        return None
+    return f"{scheme}://{host}"
 
 
 def is_safe_http_url(url: object) -> bool:
