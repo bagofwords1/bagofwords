@@ -2,7 +2,7 @@
 ### Local Development
 
 #### Prerequisites
-- Python 3.12+
+- Python 3.13 (3.12+ supported)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) (package manager)
 - Node.js 22+
 - Yarn
