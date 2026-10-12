@@ -21,7 +21,15 @@ import uuid
 import pytest
 
 from app.ai.agent_v2 import AgentV2
+from app.errors.app_error import AppError
 from app.settings.config import settings as bow_settings
+# Explicit re-exports register shared fixtures with pytest.
+from tests.e2e.rbac.conftest import (
+    invite_user_to_org as invite_user_to_org,
+    create_group as create_group,
+    add_user_to_group as add_user_to_group,
+    enterprise_license as enterprise_license,
+)
 
 
 @pytest.fixture
@@ -228,16 +236,7 @@ def test_private_report_hidden_from_other_members(
     assert test_client.post(f"/api/reports/{rid}/star", headers=_headers(token1, org_id)).status_code == 200
 
 
-def _add_member(test_client, create_user, login_user, whoami, owner_token, org_id, prefix):
-    email = f"{prefix}_{uuid.uuid4().hex[:6]}@test.com"
-    test_client.post(
-        f"/api/organizations/{org_id}/members",
-        json={"organization_id": org_id, "email": email, "role": "member"},
-        headers=_headers(owner_token, org_id),
-    )
-    create_user(email=email, password="test123")
-    token = login_user(email=email, password="test123")
-    return token, whoami(token)["id"]
+PER_USER_ENDPOINTS = ("mark_report_viewed", "star_report", "unstar_report", "get_fork_status")
 
 
 def _per_user_statuses(test_client, rid, headers):
@@ -249,60 +248,98 @@ def _per_user_statuses(test_client, rid, headers):
     ]
 
 
-@pytest.mark.e2e
-def test_conversation_share_admits_per_user_endpoints(
-    test_client, create_report, set_visibility, create_user, login_user, whoami,
-):
-    """A report shared only through its conversation is in the recipient's list,
-    so they can star it and clear its unread badge; a member it was not shared
-    with still gets 404."""
+def _denied_endpoints(test_client, owner_token, org_id, user_id):
+    """Endpoints named by the org's `access.denied` audit rows for `user_id`,
+    read through the audit API as the org admin."""
+    resp = test_client.get(
+        "/api/enterprise/audit",
+        params={"action": "access.denied", "user_id": user_id, "page_size": 100},
+        headers=_headers(owner_token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    return [(row.get("details") or {}).get("endpoint") for row in resp.json()["items"]]
+
+
+def _owner_and_members(create_user, login_user, whoami, invite_user_to_org):
     email1 = f"act_owner_{uuid.uuid4().hex[:6]}@test.com"
     create_user(email=email1, password="test123")
     token1 = login_user(email=email1, password="test123")
     org_id = whoami(token1)["organizations"][0]["id"]
-    token2, user2_id = _add_member(test_client, create_user, login_user, whoami, token1, org_id, "act_shared")
-    token3, _ = _add_member(test_client, create_user, login_user, whoami, token1, org_id, "act_other")
+    shared = invite_user_to_org(org_id=org_id, admin_token=token1)
+    other = invite_user_to_org(org_id=org_id, admin_token=token1)
+    return token1, org_id, shared, other
+
+
+@pytest.mark.e2e
+def test_conversation_share_admits_per_user_endpoints(
+    test_client, create_report, set_visibility, create_user, login_user, whoami, invite_user_to_org,
+):
+    """A report shared only through its conversation is in the recipient's list,
+    so they can star it and clear its unread badge; a member it was not shared
+    with still gets 404, and each denial is audited."""
+    token1, org_id, shared, other = _owner_and_members(create_user, login_user, whoami, invite_user_to_org)
 
     report = create_report(title="Conversation share", user_token=token1, org_id=org_id, data_sources=[])
     rid = report["id"]
-    set_visibility(rid, "conversation", "shared", user_token=token1, org_id=org_id, shared_user_ids=[user2_id])
+    set_visibility(rid, "conversation", "shared", user_token=token1, org_id=org_id, shared_user_ids=[shared["user_id"]])
 
-    assert rid in _activity(test_client, [rid], token2, org_id)
-    assert _per_user_statuses(test_client, rid, _headers(token2, org_id)) == [200, 200, 200, 200]
-    assert _per_user_statuses(test_client, rid, _headers(token3, org_id)) == [404, 404, 404, 404]
+    assert rid in _activity(test_client, [rid], shared["token"], org_id)
+    assert _per_user_statuses(test_client, rid, _headers(shared["token"], org_id)) == [200, 200, 200, 200]
+    assert _per_user_statuses(test_client, rid, _headers(other["token"], org_id)) == [404, 404, 404, 404]
+    assert _per_user_statuses(test_client, rid, _headers(token1, org_id)) == [200, 200, 200, 200]
+
+    assert _denied_endpoints(test_client, token1, org_id, shared["user_id"]) == []
+    assert sorted(_denied_endpoints(test_client, token1, org_id, other["user_id"])) == sorted(PER_USER_ENDPOINTS)
 
 
 @pytest.mark.e2e
 def test_group_share_admits_per_user_endpoints(
     test_client, create_report, set_visibility, create_user, login_user, whoami,
+    invite_user_to_org, create_group, add_user_to_group, enterprise_license,
 ):
     """A report shared with a group admits its members, not other members."""
-    email1 = f"act_owner_{uuid.uuid4().hex[:6]}@test.com"
-    create_user(email=email1, password="test123")
-    token1 = login_user(email=email1, password="test123")
-    org_id = whoami(token1)["organizations"][0]["id"]
-    token2, user2_id = _add_member(test_client, create_user, login_user, whoami, token1, org_id, "act_grp")
-    token3, _ = _add_member(test_client, create_user, login_user, whoami, token1, org_id, "act_other")
+    token1, org_id, member, other = _owner_and_members(create_user, login_user, whoami, invite_user_to_org)
 
-    group = test_client.post(
-        f"/api/organizations/{org_id}/groups", json={"name": "Readers"}, headers=_headers(token1, org_id),
-    )
-    if group.status_code == 402:
-        pytest.skip("Enterprise license required for groups")
+    group = create_group(name=f"Readers {uuid.uuid4().hex[:6]}", user_token=token1, org_id=org_id)
     assert group.status_code == 200, group.json()
     group_id = group.json()["id"]
-    added = test_client.post(
-        f"/api/organizations/{org_id}/groups/{group_id}/members",
-        json={"user_id": user2_id}, headers=_headers(token1, org_id),
-    )
+    added = add_user_to_group(group_id=group_id, user_id=member["user_id"], user_token=token1, org_id=org_id)
     assert added.status_code in (200, 201), added.json()
 
     report = create_report(title="Group share", user_token=token1, org_id=org_id, data_sources=[])
     rid = report["id"]
     set_visibility(rid, "conversation", "shared", user_token=token1, org_id=org_id, shared_group_ids=[group_id])
 
-    assert _per_user_statuses(test_client, rid, _headers(token2, org_id)) == [200, 200, 200, 200]
-    assert _per_user_statuses(test_client, rid, _headers(token3, org_id)) == [404, 404, 404, 404]
+    assert _per_user_statuses(test_client, rid, _headers(member["token"], org_id)) == [200, 200, 200, 200]
+    assert _per_user_statuses(test_client, rid, _headers(other["token"], org_id)) == [404, 404, 404, 404]
+    assert sorted(_denied_endpoints(test_client, token1, org_id, other["user_id"])) == sorted(PER_USER_ENDPOINTS)
+
+
+@pytest.mark.e2e
+def test_per_user_endpoints_hide_only_access_denials(
+    monkeypatch, test_client, create_report, create_user, login_user, whoami, invite_user_to_org,
+):
+    """While deciding visibility, an access denial (403 AppError, e.g. a
+    bow_source_access read check) is a 404 like any hidden report; any other
+    typed failure surfaces as itself instead of being masked as "not found"."""
+    from app.services import file_access_service
+
+    token1, org_id, member, _ = _owner_and_members(create_user, login_user, whoami, invite_user_to_org)
+    report = create_report(title="Visibility errors", user_token=token1, org_id=org_id, data_sources=[])
+    rid = report["id"]
+    headers = _headers(member["token"], org_id)
+
+    async def _denied(*a, **k):
+        raise AppError.forbidden()
+    monkeypatch.setattr(file_access_service, "user_can_view_report", _denied)
+    assert _per_user_statuses(test_client, rid, headers) == [404, 404, 404, 404]
+
+    async def _broken(*a, **k):
+        raise AppError.bad_request("test.visibility_broken")
+    monkeypatch.setattr(file_access_service, "user_can_view_report", _broken)
+    resp = test_client.post(f"/api/reports/{rid}/star", headers=headers)
+    assert resp.status_code == 400, resp.json()
+    assert resp.json().get("error_code") == "test.visibility_broken"
 
 
 @pytest.mark.e2e
