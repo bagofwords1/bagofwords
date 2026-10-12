@@ -347,7 +347,8 @@ class LLM:
             base_url = additional_config.get("base_url")
             if base_url and not needs_responses_for_tools(self._capability_model_id()) and not additional_config.get("use_responses_api"):
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
-                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers)
+                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers,
+                                     pin_egress=True)
             else:
                 # Native OpenAI, GPT-6 and GPT-5.6 (including gateways) use
                 # Responses: their tool calling on Chat Completions only works
@@ -358,6 +359,9 @@ class LLM:
                     enable_web_search=enable_web_search,
                     temperature=configured_temperature,
                     default_headers=custom_headers,
+                    # Pin only an admin-supplied gateway; api.openai.com keeps
+                    # the SDK's stock client.
+                    pin_egress=bool(base_url),
                 )
         elif self.provider == "anthropic":
             self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers)
@@ -454,7 +458,7 @@ class LLM:
                 self.client = OpenAIResponsesClient(
                     api_key=api_key, base_url=base_url,
                     temperature=configured_temperature, default_headers=custom_headers,
-                    verify_ssl=verify_ssl,
+                    verify_ssl=verify_ssl, pin_egress=True,
                 )
             else:
                 # Claude behind the gateway caches only what the request marks;
@@ -462,7 +466,8 @@ class LLM:
                 cache_markers = (_is_anthropic_model_id(self.model_id)
                                  and additional_config.get("prompt_cache_markers", True) is not False)
                 self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature,
-                                     default_headers=custom_headers, prompt_cache_markers=cache_markers)
+                                     default_headers=custom_headers, prompt_cache_markers=cache_markers,
+                                     pin_egress=True)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")

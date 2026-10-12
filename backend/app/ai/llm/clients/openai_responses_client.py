@@ -68,6 +68,7 @@ class OpenAIResponsesClient(LLMClient):
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, Any]] = None,
         verify_ssl: bool = True,
+        pin_egress: bool = False,
     ):
         super().__init__()
         client_kwargs: dict[str, Any] = {"api_key": api_key}
@@ -82,7 +83,13 @@ class OpenAIResponsesClient(LLMClient):
         # OpenAi (Chat Completions) client: build an http_client only when we
         # actually need to override a default, so the secure path keeps the SDK's
         # own httpx defaults untouched.
-        if not verify_ssl:
+        if pin_egress:
+            from app.ai.llm.clients.openai_client import pinned_openai_http_clients
+
+            sync_http, async_http = pinned_openai_http_clients({} if verify_ssl else {"verify": False})
+            self.client = OpenAI(**client_kwargs, http_client=sync_http)
+            self.async_client = AsyncOpenAI(**client_kwargs, http_client=async_http)
+        elif not verify_ssl:
             import httpx
             http_kwargs: dict[str, Any] = {"verify": False}
             self.client = OpenAI(**client_kwargs, http_client=httpx.Client(**http_kwargs))

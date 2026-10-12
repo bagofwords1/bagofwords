@@ -31,6 +31,9 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from app.core.egress import Policy, check_url, pinned_async_client
+from app.core.url_safety import UnsafeURLError
+
 from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
@@ -154,11 +157,18 @@ async def discover_mcp_oauth(server_url: str) -> dict:
     authorization_server_scopes}. ``scopes`` is what a sign-in should request.
     Raises ValueError if the authorization server can't be resolved.
     """
+    try:
+        check_url(server_url, Policy.ADMIN)
+    except UnsafeURLError as e:
+        raise ValueError(f"MCP server URL refused: {e}")
     p = urlsplit(server_url)
     origin = _origin(server_url)
     path = p.path.rstrip("/")  # e.g. "/mcp"
 
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+    # Every discovery URL (the server's challenge target, the well-known
+    # documents, and wherever their redirects lead) goes through the pinned
+    # admin-tier client: metadata/link-local refused, rebinding closed.
+    async with pinned_async_client(Policy.ADMIN, timeout=20, follow_redirects=True) as client:
         # 0) The 401 challenge: names the resource-metadata URL and the scope
         #    this server requires. Not every server sends one.
         challenge = await probe_auth_challenge(client, server_url)
@@ -197,6 +207,14 @@ async def discover_mcp_oauth(server_url: str) -> dict:
 
     if not md or not md.get("authorization_endpoint") or not md.get("token_endpoint"):
         raise ValueError(f"Could not discover OAuth metadata for MCP server {server_url}")
+    # The metadata document names the endpoints we later POST to (token,
+    # registration) and send the user to (authorization): same guard.
+    for key in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
+        if md.get(key):
+            try:
+                check_url(str(md[key]), Policy.ADMIN)
+            except UnsafeURLError as e:
+                raise ValueError(f"OAuth metadata {key} refused: {e}")
     # The authorization endpoint becomes a browser navigation target; a
     # malicious MCP server must not be able to hand us a javascript: URL.
     from app.core.url_safety import is_safe_http_url
@@ -234,7 +252,7 @@ async def register_client(
         # Public client + PKCE; the AS may downgrade/override in its response.
         "token_endpoint_auth_method": "none",
     }
-    async with httpx.AsyncClient(timeout=20) as client:
+    async with pinned_async_client(Policy.ADMIN, timeout=20) as client:
         r = await client.post(
             registration_endpoint, json=body, headers={"Accept": "application/json"}
         )

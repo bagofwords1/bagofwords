@@ -131,7 +131,7 @@ def test_file_embed_token_roundtrip():
     token or file id fails."""
     from app.core.file_tokens import mint_file_token, verify_file_token, file_embed_url
     fid = "11111111-1111-1111-1111-111111111111"
-    tok = mint_file_token(fid)
+    tok = mint_file_token(fid, organization_id="org-1")
     assert verify_file_token(tok, fid) is True
     assert verify_file_token(tok, "22222222-2222-2222-2222-222222222222") is False
     assert verify_file_token("not-a-token", fid) is False
@@ -142,7 +142,7 @@ def test_file_embed_token_roundtrip():
 def test_file_embed_token_expires():
     from app.core.file_tokens import mint_file_token, verify_file_token
     fid = "33333333-3333-3333-3333-333333333333"
-    expired = mint_file_token(fid, ttl_seconds=-10)  # already expired
+    expired = mint_file_token(fid, ttl_seconds=-10, organization_id="org-1")  # already expired
     assert verify_file_token(expired, fid) is False
 
 

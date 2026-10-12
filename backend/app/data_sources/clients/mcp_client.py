@@ -409,6 +409,9 @@ class McpClient(ToolProviderClient):
         from mcp.client.sse import sse_client
         from mcp.client.streamable_http import streamablehttp_client
         from contextlib import asynccontextmanager
+        # Pinned admin-tier client: metadata/link-local refused, private only
+        # with block_private_outbound, DNS rebinding closed (app.core.egress).
+        from app.core.egress import Policy, mcp_client_factory
 
         @asynccontextmanager
         async def _session():
@@ -416,6 +419,7 @@ class McpClient(ToolProviderClient):
                 async with sse_client(
                     url=self.server_url,
                     headers=self._build_headers(),
+                    httpx_client_factory=mcp_client_factory(Policy.ADMIN),
                 ) as (read_stream, write_stream):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
@@ -425,6 +429,7 @@ class McpClient(ToolProviderClient):
                 async with streamablehttp_client(
                     url=self.server_url,
                     headers=self._build_headers(),
+                    httpx_client_factory=mcp_client_factory(Policy.ADMIN),
                 ) as (read_stream, write_stream, _):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()

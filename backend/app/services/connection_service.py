@@ -50,6 +50,29 @@ def _user_auth_needs_enterprise(conn_type: str) -> bool:
         return True
 
 
+# Config keys that name the host a tool-provider connection talks to.
+_TOOL_PROVIDER_URL_KEYS = {"mcp": ("server_url",), "custom_api": ("base_url",)}
+
+
+def _check_tool_provider_url(conn_type: str, config) -> None:
+    """Save/test-time SSRF guard for MCP / custom API URLs (admin tier:
+    metadata + link-local always refused, private only with
+    ``block_private_outbound``). Connect time is guarded again by the pinned
+    transport in the clients, which also closes DNS rebinding."""
+    from app.core.egress import Policy, check_url
+    from app.core.url_safety import UnsafeURLError
+
+    cfg = json.loads(config) if isinstance(config, str) else (config or {})
+    for key in _TOOL_PROVIDER_URL_KEYS.get(conn_type, ()):
+        url = cfg.get(key)
+        if not url:
+            continue
+        try:
+            check_url(str(url), Policy.ADMIN)
+        except UnsafeURLError as e:
+            raise HTTPException(status_code=400, detail=f"{key}: {e}")
+
+
 async def grant_connection_owner(
     db: AsyncSession, organization_id: str, connection_id: str, user_id: str,
 ) -> None:
@@ -361,6 +384,8 @@ class ConnectionService:
         # so null/[] would silently disable both auto-provision and the /authorize route.
         if auth_policy == "user_required" and not allowed_user_auth_modes:
             allowed_user_auth_modes = default_user_auth_modes(type, config, credentials)
+
+        _check_tool_provider_url(type, config)
 
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
@@ -688,6 +713,9 @@ class ConnectionService:
             if value is not None and hasattr(connection, field):
                 setattr(connection, field, value)
 
+        if connection_changed:
+            _check_tool_provider_url(connection.type, connection.config)
+
         # Revalidate if connection fields changed
         if connection_changed and connection.auth_policy == "system_only":
             current_config = json.loads(connection.config) if isinstance(connection.config, str) else connection.config
@@ -1010,6 +1038,10 @@ class ConnectionService:
         # challenge (401/403/WWW-Authenticate) is the *expected* healthy response.
         # Treat "reachable but requires sign-in" as a pass; the real per-user auth
         # is validated at the OAuth callback (test_user_connection).
+        try:
+            _check_tool_provider_url(data_source_type, config)
+        except HTTPException as e:
+            return {"success": False, "message": e.detail, "connectivity": False}
         oauth_user_mode = (
             data_source_type == "mcp"
             and (config or {}).get("auth_type") in ("oauth_app", "dcr")

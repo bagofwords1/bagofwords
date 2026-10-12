@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     PROJECT_VERSION: str = open("../VERSION").read().strip()
     API_PREFIX: str = "/api"
     DEBUG: bool = True
+    # Starlette's HTML traceback page is never served unless this is explicitly
+    # enabled (env DEBUG_TRACEBACKS=true) on a DEBUG deployment. Local-dev only.
+    DEBUG_TRACEBACKS: bool = False
     TESTING: bool = False
     TEST_DATABASE_URL: str = "sqlite:///db/test_{}.db".format(os.getpid())
     ENVIRONMENT: str = os.environ.get("ENVIRONMENT", "development")

@@ -1031,6 +1031,8 @@ class DataSourceService:
         # get data source by id
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
 
         model = await organization.get_default_llm_model(db)
         if not model:
@@ -2507,6 +2509,14 @@ class DataSourceService:
             data_source_type = payload.get("type")
             config = payload.get("config") or {}
             credentials = payload.get("credentials") or {}
+
+            # SSRF guard for MCP / custom API URLs (the clients' pinned
+            # transport guards the connect itself, rebinding included).
+            from app.services.connection_service import _check_tool_provider_url
+            try:
+                _check_tool_provider_url(data_source_type, config)
+            except HTTPException as e:
+                return {"success": False, "message": e.detail}
 
             # Instantiate client by type using same naming convention as DataSource.get_client
             client = self._resolve_client_by_type(

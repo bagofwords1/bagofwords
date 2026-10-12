@@ -611,10 +611,37 @@ async def get_public_file_embed_token(
         for a in artifacts
     )
     if not embedded:
-        raise HTTPException(status_code=404, detail="File is not part of this report")
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # (3) the file belongs to the report's org and the report's owner may read
+    # it. Putting an id into artifact JSON is not authorization: without this
+    # a public-report owner could reference ANY file id (another user's
+    # private upload) and mint a public token for it.
+    from sqlalchemy.orm import lazyload as _lazyload
+    from app.models.report import Report as _Report
+    from app.models.file import File as _File
+    from app.models.organization import Organization as _Org
+    from app.models.user import User as _User
+    from app.services.file_access_service import user_can_view_file
+    report_row = (await db.execute(
+        select(_Report).options(_lazyload("*")).where(_Report.id == report_id)
+    )).scalar_one_or_none()
+    file_row = (await db.execute(
+        select(_File).options(_lazyload("*")).where(_File.id == file_id)
+    )).scalar_one_or_none()
+    owner = await db.get(_User, report_row.user_id) if report_row is not None and report_row.user_id else None
+    org = await db.get(_Org, report_row.organization_id) if report_row is not None else None
+    if (
+        report_row is None or file_row is None or owner is None or org is None
+        or str(file_row.organization_id) != str(report_row.organization_id)
+        or not await user_can_view_file(db, owner, org, file_row)
+    ):
+        raise HTTPException(status_code=404, detail="File not found")
 
     from app.core.file_tokens import mint_file_token, file_embed_url
-    token = mint_file_token(file_id)
+    token = mint_file_token(
+        file_id, organization_id=str(report_row.organization_id), report_id=str(report_row.id)
+    )
     return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
 
 

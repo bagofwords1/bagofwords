@@ -14,6 +14,8 @@ from typing import Optional, Tuple
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
+
+from app.core.egress import Policy, pinned_async_client
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, update
 
@@ -567,7 +569,7 @@ async def exchange_code_for_tokens(
     if oauth_params.get("audience"):
         data["resource"] = oauth_params["audience"]
 
-    async with httpx.AsyncClient() as client:
+    async with pinned_async_client(Policy.ADMIN) as client:
         resp = await client.post(
             oauth_params["token_url"],
             data=data,
@@ -613,7 +615,7 @@ async def refresh_access_token(
     if oauth_params.get("audience"):
         data["resource"] = oauth_params["audience"]
 
-    async with httpx.AsyncClient() as client:
+    async with pinned_async_client(Policy.ADMIN) as client:
         resp = await client.post(
             oauth_params["token_url"],
             data=data,
@@ -735,7 +737,7 @@ async def exchange_obo_token(
         "requested_token_use": "on_behalf_of",
     }
 
-    async with httpx.AsyncClient() as client:
+    async with pinned_async_client(Policy.ADMIN) as client:
         resp = await client.post(
             token_url,
             data=data,

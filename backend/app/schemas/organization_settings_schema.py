@@ -486,3 +486,11 @@ class OrgSmtpUpdate(BaseModel):
     from_address: Optional[str] = None
     from_name: Optional[str] = None
     validate_certs: bool = True
+
+    @validator("host", "username", "from_address", "from_name")
+    def _no_header_breaks(cls, v):
+        # These end up in SMTP commands / message headers; a CR or LF there is
+        # header injection (and crashed the test send with a traceback).
+        if v is not None and ("\r" in v or "\n" in v):
+            raise ValueError("must not contain line breaks")
+        return v
