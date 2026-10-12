@@ -4407,6 +4407,9 @@
       "runSuite": "Executar {name}",
       "runningCount": "Executando {done}/{total}",
       "title": "Avaliações desta alteração"
+    },
+    "runEvals": {
+      "notRun": "{n} caso em rascunho ou arquivado não incluído | {n} casos em rascunho ou arquivados não incluídos"
     }
   },
   "monitoring": {

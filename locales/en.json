@@ -4627,6 +4627,9 @@
       "default": "default",
       "emptyShelf": "No evals filed here yet",
       "noneResolved": "No evals resolved for this agent yet"
+    },
+    "runEvals": {
+      "notRun": "{n} draft or archived case not included | {n} draft or archived cases not included"
     }
   },
   "monitoring": {

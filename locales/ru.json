@@ -4407,6 +4407,9 @@
       "runSuite": "Запустить {name}",
       "runningCount": "Выполнение {done}/{total}",
       "title": "Тесты для этого изменения"
+    },
+    "runEvals": {
+      "notRun": "Не включено (черновики или архив): {n}"
     }
   },
   "monitoring": {

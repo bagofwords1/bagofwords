@@ -4536,6 +4536,9 @@
       "default": "predeterminado",
       "emptyShelf": "Aún no hay evaluaciones aquí",
       "noneResolved": "Aún no hay evaluaciones para este agente"
+    },
+    "runEvals": {
+      "notRun": "{n} caso en borrador o archivado no incluido | {n} casos en borrador o archivados no incluidos"
     }
   },
   "monitoring": {
