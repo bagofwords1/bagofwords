@@ -2508,6 +2508,14 @@ class DataSourceService:
             config = payload.get("config") or {}
             credentials = payload.get("credentials") or {}
 
+            # SSRF guard for MCP / custom API URLs (the clients' pinned
+            # transport guards the connect itself, rebinding included).
+            from app.services.connection_service import _check_tool_provider_url
+            try:
+                _check_tool_provider_url(data_source_type, config)
+            except HTTPException as e:
+                return {"success": False, "message": e.detail}
+
             # Instantiate client by type using same naming convention as DataSource.get_client
             client = self._resolve_client_by_type(
                 data_source_type=data_source_type,

@@ -10,11 +10,9 @@ running loop.
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import logging
 import re
-import socket
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
@@ -22,6 +20,9 @@ from urllib.parse import urljoin, urlparse
 from curl_cffi import requests as cf_requests
 from curl_cffi.requests.exceptions import RequestException, Timeout
 from selectolax.parser import HTMLParser
+
+from app.core.egress import Policy, check_connected_ip, check_host, curl_pinned_request
+from app.core.url_safety import UnsafeURLError
 
 logger = logging.getLogger(__name__)
 
@@ -54,32 +55,30 @@ _NEWLINE_RE = re.compile(r"\n{3,}")
 
 
 def is_safe_host(hostname: Optional[str]) -> bool:
-    """Reject non-public hosts (loopback, RFC1918, link-local, metadata, etc.)."""
-    if not hostname:
-        return False
-    lowered = hostname.lower()
-    if lowered == "localhost" or lowered.endswith(".localhost"):
-        return False
+    """Strict (public) tier: every resolved address must be globally routable.
+    See app.core.egress / app.core.url_safety."""
     try:
-        infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
+        check_host(hostname, Policy.PUBLIC)
+        return True
+    except UnsafeURLError:
         return False
-    for info in infos:
-        addr = info[4][0]
-        try:
-            ip = ipaddress.ip_address(addr)
-        except ValueError:
-            return False
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return False
-    return True
+
+
+async def pinned_curl_get(url: str, *, timeout: int, policy: Policy = Policy.PUBLIC):
+    """One GET (no redirect following) pinned to the address that was checked.
+
+    Resolves ``url``'s host once, validates every address under ``policy`` and
+    hands curl that address via ``CURLOPT_RESOLVE`` so a second DNS answer
+    (rebinding) is never used. Raises ``UnsafeURLError`` when refused. Callers
+    follow redirects themselves and call this again per hop.
+    """
+    canonical, curl_options = curl_pinned_request(url, policy)
+    async with cf_requests.AsyncSession(
+        impersonate=IMPERSONATE_PROFILE, timeout=timeout, curl_options=curl_options
+    ) as session:
+        response = await session.get(canonical, allow_redirects=False, stream=False, timeout=timeout)
+    check_connected_ip(getattr(response, "primary_ip", None), canonical, policy)
+    return response
 
 
 def _content_type_matches(content_type: str, prefixes: Tuple[str, ...]) -> bool:
@@ -212,23 +211,24 @@ class FetchedPage:
         )
 
 
-async def _fetch_one_async(
-    session: "cf_requests.AsyncSession",
-    url: str,
-    timeout: int,
-) -> FetchedPage:
+async def _fetch_one_async(url: str, timeout: int) -> FetchedPage:
     parsed_url = urlparse(url)
     if parsed_url.scheme not in ("http", "https") or not parsed_url.hostname:
         return FetchedPage(url=url, error="URL must be http(s) with a hostname.")
-    if not is_safe_host(parsed_url.hostname):
-        return FetchedPage(url=url, error="Refusing to fetch a non-public address.")
 
     current_url = url
     try:
         for _hop in range(MAX_REDIRECTS + 1):
-            response = await session.get(
-                current_url, allow_redirects=False, stream=False, timeout=timeout
-            )
+            try:
+                response = await pinned_curl_get(current_url, timeout=timeout)
+            except UnsafeURLError:
+                if _hop == 0:
+                    return FetchedPage(url=url, error="Refusing to fetch a non-public address.")
+                return FetchedPage(
+                    url=url,
+                    final_url=current_url,
+                    error="Refusing to follow redirect to a non-public address.",
+                )
             status = response.status_code
 
             if 300 <= status < 400 and status != 304:
@@ -320,15 +320,11 @@ async def _batch_get_async(
 ) -> List[FetchedPage]:
     semaphore = asyncio.Semaphore(concurrency)
 
-    async with cf_requests.AsyncSession(
-        impersonate=IMPERSONATE_PROFILE,
-        timeout=timeout,
-    ) as session:
-        async def one(u: str) -> FetchedPage:
-            async with semaphore:
-                return await _fetch_one_async(session, u, timeout)
+    async def one(u: str) -> FetchedPage:
+        async with semaphore:
+            return await _fetch_one_async(u, timeout)
 
-        return await asyncio.gather(*(one(u) for u in urls))
+    return await asyncio.gather(*(one(u) for u in urls))
 
 
 class SafeHttpClient:
@@ -377,10 +373,7 @@ class SafeHttpClient:
         return pages
 
     async def _get_one(self, url: str, timeout: int) -> FetchedPage:
-        async with cf_requests.AsyncSession(
-            impersonate=IMPERSONATE_PROFILE, timeout=timeout
-        ) as session:
-            return await _fetch_one_async(session, url, timeout)
+        return await _fetch_one_async(url, timeout)
 
     def _audit(self, action: str, *, urls: List[str], errors: int) -> None:
         if self._audit_callback is None:

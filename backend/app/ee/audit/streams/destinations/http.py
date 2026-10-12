@@ -13,6 +13,9 @@ from typing import Dict, List, Optional
 
 import httpx
 
+from app.core.egress import Policy, pinned_async_client
+from app.core.url_safety import UnsafeURLError
+
 from app.ee.audit.streams.destinations.base import (
     INVALID,
     RETRYABLE,
@@ -42,8 +45,13 @@ class _HttpDestination(Destination):
     async def _post(self, url: str, *, content: bytes, headers: Dict[str, str]) -> SendResult:
         headers = {"User-Agent": _USER_AGENT, **headers}
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT, verify=self._verify()) as client:
+            # Validated and pinned at send time, not only when the stream was
+            # saved: a hostname can be re-pointed after save (or rebound
+            # between check and connect).
+            async with pinned_async_client(Policy.ADMIN, timeout=_TIMEOUT, verify=self._verify()) as client:
                 r = await client.post(url, content=content, headers=headers)
+        except UnsafeURLError as e:
+            return SendResult(INVALID, short_error(f"destination refused: {e}"))
         except httpx.TimeoutException as e:
             return SendResult(RETRYABLE, short_error(f"timeout: {e}"))
         except httpx.HTTPError as e:
@@ -205,13 +213,15 @@ class SentinelDestination(_HttpDestination):
             return SendResult.success()
         url = f"{self.cfg('authority_url').rstrip('/')}/{self.cfg('tenant_id')}/oauth2/v2.0/token"
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            async with pinned_async_client(Policy.ADMIN, timeout=_TIMEOUT) as client:
                 r = await client.post(url, data={
                     "grant_type": "client_credentials",
                     "client_id": self.cfg("client_id"),
                     "client_secret": self.secrets.get("client_secret", ""),
                     "scope": self.SCOPE,
                 })
+        except UnsafeURLError as e:
+            return SendResult(INVALID, short_error(f"token endpoint refused: {e}"))
         except httpx.HTTPError as e:
             return SendResult(RETRYABLE, short_error(f"token endpoint: {e}"))
         if r.status_code in (400, 401, 403):

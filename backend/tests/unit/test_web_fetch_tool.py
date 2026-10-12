@@ -82,6 +82,12 @@ def _patched_session(*responses: _FakeResponse):
     return patch.object(web_fetch_module.cf_requests, "AsyncSession", factory), session
 
 
+def _public_dns():
+    """Every hostname resolves to one public address (DNS is the boundary;
+    the pinned fetch resolves and validates it itself)."""
+    return patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))])
+
+
 async def _collect(tool, tool_input, ctx):
     events = []
     async for evt in tool.run_stream(tool_input, ctx):
@@ -310,7 +316,7 @@ async def test_html_response_returns_structured_fields():
     )
     ctx_p, session = _patched_session(fake)
     tool = WebFetchTool()
-    with patch.object(web_fetch_module, "_is_safe_host", return_value=True), ctx_p:
+    with _public_dns(), ctx_p:
         events = await _collect(tool, {"url": "https://example.com/p"}, _runtime_ctx())
 
     out = _end_payload(events)["output"]
@@ -336,7 +342,7 @@ async def test_json_api_response_returned_raw():
     )
     ctx_p, _ = _patched_session(fake)
     tool = WebFetchTool()
-    with patch.object(web_fetch_module, "_is_safe_host", return_value=True), ctx_p:
+    with _public_dns(), ctx_p:
         events = await _collect(tool, {"url": "https://api.example.com/item"}, _runtime_ctx())
 
     out = _end_payload(events)["output"]
@@ -358,7 +364,7 @@ async def test_truncates_large_text_response():
     )
     ctx_p, _ = _patched_session(fake)
     tool = WebFetchTool()
-    with patch.object(web_fetch_module, "_is_safe_host", return_value=True), ctx_p:
+    with _public_dns(), ctx_p:
         events = await _collect(tool, {"url": "https://example.com/big"}, _runtime_ctx())
 
     out = _end_payload(events)["output"]
@@ -377,7 +383,7 @@ async def test_skips_non_text_content_type():
     )
     ctx_p, _ = _patched_session(fake)
     tool = WebFetchTool()
-    with patch.object(web_fetch_module, "_is_safe_host", return_value=True), ctx_p:
+    with _public_dns(), ctx_p:
         events = await _collect(tool, {"url": "https://example.com/img"}, _runtime_ctx())
 
     out = _end_payload(events)["output"]
@@ -396,13 +402,8 @@ async def test_blocks_redirect_to_private_host():
     )
     ctx_p, _ = _patched_session(redirect)
     tool = WebFetchTool()
-    counter = {"n": 0}
-
-    def fake_safe(host):
-        counter["n"] += 1
-        return counter["n"] == 1  # first call (initial) safe; redirect target unsafe
-
-    with patch.object(web_fetch_module, "_is_safe_host", side_effect=fake_safe), ctx_p:
+    # example.com resolves public; the redirect names a private IP literal.
+    with _public_dns(), ctx_p:
         events = await _collect(tool, {"url": "https://example.com/r"}, _runtime_ctx())
 
     out = _end_payload(events)["output"]
@@ -426,7 +427,7 @@ async def test_follows_redirect_to_safe_host():
     )
     ctx_p, _ = _patched_session(redirect, final)
     tool = WebFetchTool()
-    with patch.object(web_fetch_module, "_is_safe_host", return_value=True), ctx_p:
+    with _public_dns(), ctx_p:
         events = await _collect(tool, {"url": "https://example.com/start"}, _runtime_ctx())
 
     out = _end_payload(events)["output"]

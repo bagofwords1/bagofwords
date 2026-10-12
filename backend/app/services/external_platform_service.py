@@ -712,6 +712,13 @@ class ExternalPlatformService:
                 status_code=400,
                 detail="service_account_json must be a service-account key (JSON whose type field is service_account)",
             )
+        from app.core.egress import check_google_token_uri
+        from app.core.url_safety import UnsafeURLError
+
+        try:
+            check_google_token_uri(info)
+        except UnsafeURLError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return info
 
     async def _test_google_chat_credentials(self, sa_info: dict, subscription: str) -> dict:
@@ -725,7 +732,9 @@ class ExternalPlatformService:
         def _mint(scope: str) -> str:
             from google.oauth2 import service_account
             import google.auth.transport.requests
+            from app.core.egress import check_google_token_uri
 
+            check_google_token_uri(sa_info)
             creds = service_account.Credentials.from_service_account_info(
                 sa_info, scopes=[scope]
             )
