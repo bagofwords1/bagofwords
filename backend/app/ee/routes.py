@@ -5,7 +5,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -24,7 +24,7 @@ from app.ee.scim.routes import scim_admin_router
 from app.ee.ldap.routes import ldap_admin_router
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
-from app.core.auth import current_user
+from app.core.auth import current_user, current_user_optional
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.membership import Membership
@@ -43,12 +43,35 @@ router.include_router(ldap_admin_router)
 
 
 @router.get("/license", response_model=LicenseInfo)
-async def get_license_status():
+async def get_license_status(
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
+    user: Optional[User] = Depends(current_user_optional),
+):
     """
-    Get current license status.
-    This endpoint is public and does not require authentication.
+    Current license status, disclosed by audience:
+
+    * anonymous — only what feature gating needs: ``licensed``, ``tier``,
+      ``features``. No licensee name, license id, expiry, or quotas.
+    * any signed-in user — plus ``expires_at`` (drives the expiry banner).
+    * ``manage_settings`` in the request's organization — everything
+      (Settings → License shows licensee, license id and quotas).
     """
-    return get_license_info()
+    info = get_license_info()
+    minimal = LicenseInfo(licensed=info.licensed, tier=info.tier, features=list(info.features or []))
+    if user is None:
+        return minimal
+    minimal.expires_at = info.expires_at
+    org_id = request.headers.get("X-Organization-Id")
+    if org_id:
+        from app.core.permission_resolver import resolve_permissions
+        try:
+            resolved = await resolve_permissions(db, str(user.id), str(org_id))
+        except Exception:
+            resolved = None
+        if resolved is not None and resolved.has_org_permission("manage_settings"):
+            return info
+    return minimal
 
 
 class LicenseUsage(BaseModel):

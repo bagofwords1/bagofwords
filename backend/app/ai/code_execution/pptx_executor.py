@@ -289,7 +289,7 @@ class PptxCodeExecutor:
         result = run_sandbox_job(job, log=self.logger or logging.getLogger(__name__))
         if not result.pptx_bytes:
             raise RuntimeError(
-                f"PPTX code executed but no file was created at {output_path}. "
+                "PPTX code executed but no file was created. "
                 "Ensure the code calls prs.save(_pptx_output_path)"
             )
         output_path.parent.mkdir(parents=True, exist_ok=True)

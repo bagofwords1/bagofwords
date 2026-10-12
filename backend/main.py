@@ -39,6 +39,11 @@ from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler, try_acquire_scheduler_leader
 from app.core.spa import mount_spa
+from app.core.request_hardening import (
+    ControlCharGuardMiddleware,
+    traceback_pages_enabled,
+    validate_id_path_params,
+)
 from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
@@ -128,7 +133,10 @@ google_client_secret = settings.bow_config.google_oauth.client_secret
 swagger_enabled = settings.bow_config.swagger.enabled
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    debug=settings.DEBUG,
+    # Traceback pages are opt-in only (see Settings.DEBUG_TRACEBACKS); with
+    # debug off, unhandled errors go to the sanitized handler in app.errors.
+    debug=traceback_pages_enabled(settings),
+    dependencies=[Depends(validate_id_path_params)],
     docs_url="/swagger" if swagger_enabled else None,
     redoc_url=None,
     openapi_url="/openapi.json" if swagger_enabled else None,
@@ -888,3 +896,5 @@ if __name__ == "__main__":
 # Bound new resource payloads without changing legacy upload contracts.
 from app.services.artifact_body_limit import ArtifactBodyLimit
 app.add_middleware(ArtifactBodyLimit)
+# Outermost: reject control characters in the URL before any routing.
+app.add_middleware(ControlCharGuardMiddleware)

@@ -282,7 +282,7 @@ async def get_file_embed_token(
     await file_access.get_viewable_file_or_404(db, current_user, organization, file_id)
 
     from app.core.file_tokens import mint_file_token, file_embed_url
-    token = mint_file_token(file_id)
+    token = mint_file_token(file_id, organization_id=str(organization.id))
     return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
 
 
@@ -303,16 +303,30 @@ async def get_file_embed(
     except (ValueError, AttributeError):
         raise HTTPException(status_code=404, detail="File not found")
 
-    from app.core.file_tokens import verify_file_token
-    if not verify_file_token(token, file_id):
+    from app.core.file_tokens import decode_file_token
+    claims = decode_file_token(token, file_id)
+    if claims is None:
         raise HTTPException(status_code=403, detail="Invalid or expired file token")
 
-    # Load by id only — the token is the capability, not the session.
+    # The token is the capability, not the session, but it is bound to the
+    # org (and, for published reports, the report) it was minted in; both are
+    # re-checked here against the file itself.
     file = (await db.execute(
         select(FileModel).filter(FileModel.id == file_id)
     )).scalar_one_or_none()
-    if not file:
+    if not file or str(file.organization_id) != str(claims["org"]):
         raise HTTPException(status_code=404, detail="File not found")
+    if claims.get("rid"):
+        from app.models.report import Report as _Report
+        bound_report = (await db.execute(
+            select(_Report.id).where(
+                _Report.id == str(claims["rid"]),
+                _Report.organization_id == str(claims["org"]),
+                _Report.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if bound_report is None:
+            raise HTTPException(status_code=404, detail="File not found")
 
     content = _read_file_bytes_or_404(file)
     media_type = file.content_type or "application/octet-stream"

@@ -483,6 +483,14 @@ async def rollback_to_build(
     versions from the target build, then promotes it to main. This provides
     a clear audit trail of when rollbacks occurred.
     """
+    # Resolve the build inside the caller's org BEFORE any permission check.
+    # The checks below name the agents a build touches, so running them on a
+    # foreign build id told the caller it existed and what its agents were
+    # called. Missing and foreign builds now read the same.
+    target = await build_service.get_build(db, build_id)
+    if target is None or str(target.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Build not found")
+
     # Rollback swaps the whole live set for the target's, so it changes every
     # instruction in either snapshot.
     replaced = await build_service.get_build_instruction_ids(db, build_id)

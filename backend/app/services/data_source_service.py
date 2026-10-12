@@ -1032,6 +1032,8 @@ class DataSourceService:
         # get data source by id
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
 
         model = await organization.get_default_llm_model(db)
         if not model:

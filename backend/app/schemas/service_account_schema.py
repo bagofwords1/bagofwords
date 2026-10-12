@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -11,7 +11,7 @@ class ServiceAccountRoleSummary(BaseModel):
 
 
 class ServiceAccountCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=255)
     description: Optional[str] = None
     # The org role to assign. If omitted, the account gets the system "member"
     # role. Must be a role the creator's own permissions cover.
@@ -19,7 +19,7 @@ class ServiceAccountCreate(BaseModel):
 
 
 class ServiceAccountUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = None
     role_id: Optional[str] = None
     # Set disabled=True to disable the account (rejects all its keys), False to
@@ -43,7 +43,7 @@ class ServiceAccountResponse(BaseModel):
 
 
 class ServiceAccountKeyCreate(BaseModel):
-    name: str = "Default"
+    name: str = Field(default="Default", max_length=255)
     expires_at: Optional[datetime] = None
 
 

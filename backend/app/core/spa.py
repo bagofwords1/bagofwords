@@ -91,7 +91,12 @@ def mount_spa(app: FastAPI) -> None:
         # Inline path-traversal guard at the sink (Snyk python/PT). Reject
         # absolute paths, parent refs, and backslashes before joining; then
         # verify the resolved path stays under the dist dir.
-        if ".." in spa_path or spa_path.startswith("/") or "\\" in spa_path:
+        if (
+            ".." in spa_path
+            or spa_path.startswith("/")
+            or "\\" in spa_path
+            or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in spa_path)
+        ):
             raise HTTPException(status_code=404)
 
         resolved = os.path.realpath(os.path.join(dist_dir_str, spa_path))

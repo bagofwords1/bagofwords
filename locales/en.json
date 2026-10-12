@@ -1839,7 +1839,7 @@
     "publishedToast": "Query published to the catalog",
     "suggestedToast": "Suggestion submitted for review",
     "parametersHeading": "Parameters",
-    "parametersBody": "Saved with the query. Anyone loading this entity can pass their own values; identity parameters always bind to the viewer.",
+    "parametersBody": "Saved with the query. Anyone loading this entity can pass their own values; identity parameters always bind to the viewer. The identity filter check is a guardrail; for strict isolation use database row-level security or per-user credentials.",
     "paramIdentity": "scoped to viewer",
     "paramAll": "= All"
   },
@@ -5940,5 +5940,11 @@
     "failed": "Unable to load artifact data",
     "newest": "Newest first",
     "oldest": "Oldest first"
+  },
+  "integrationConnection": {
+    "noConnection": "This agent has no connection yet.",
+    "notFound": "This connection could not be found.",
+    "forbidden": "You don't have access to this connection.",
+    "loadFailed": "Failed to load the connection. Try again later."
   }
 }

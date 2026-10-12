@@ -104,14 +104,15 @@ def test_allowed_redirect_uri_registers_and_completes_auth_code_flow(
     _complete_auth_code_flow(test_client, headers, client, redirect_uri)
 
 
-def _complete_auth_code_flow(test_client, headers, client, redirect_uri):
+def _complete_auth_code_flow(test_client, headers, client, redirect_uri, extra_headers=None):
     # Consent entry point redirects to the in-app consent page.
+    extra_headers = extra_headers or {}
     verifier, challenge = _pkce()
     entry = test_client.get(
         "/api/oauth/authorize",
         params={"client_id": client["client_id"], "redirect_uri": redirect_uri, "response_type": "code",
                 "scope": "mcp", "code_challenge": challenge, "code_challenge_method": "S256", "state": "s1"},
-        follow_redirects=False,
+        headers=extra_headers, follow_redirects=False,
     )
     assert entry.status_code == 302
     assert entry.headers["location"].startswith("/authorize?")
@@ -132,6 +133,7 @@ def _complete_auth_code_flow(test_client, headers, client, redirect_uri):
         data={"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri,
               "client_id": client["client_id"], "client_secret": client["client_secret"],
               "code_verifier": verifier},
+        headers=extra_headers,
     )
     assert tokens.status_code == 200, tokens.json()
     assert tokens.json()["access_token"].startswith("bow_oauth_")
@@ -304,3 +306,169 @@ def test_http_non_loopback_rejected_without_matching_base_url(test_client, creat
     resp = test_client.post("/api/oauth/clients", json={"name": "x", "redirect_uris": [f"{APP_HTTP_BASE}/oauth/callback"]},
                             headers=headers)
     assert resp.status_code == 400
+
+
+# ── On-prem http deployment without base_url: the request's own origin ──────
+#
+# base_url unset (or the 0.0.0.0 placeholder): the origin the browser used to
+# reach the app stands in for it, at save time (the admin's request) and at use
+# time (the authorize request). A configured base_url is used exclusively.
+
+ONPREM_HOST = "bow.corp:3000"
+ONPREM_CALLBACK = f"http://{ONPREM_HOST}/oauth/callback"
+
+
+@pytest.fixture(params=[None, "", "http://0.0.0.0:3000"])
+def unset_base_url(request, monkeypatch):
+    from app.settings.config import settings
+    monkeypatch.setattr(settings.bow_config, "base_url", request.param, raising=False)
+    return request.param
+
+
+@pytest.mark.e2e
+def test_unset_base_url_own_request_origin_registers_and_completes_flow(
+    unset_base_url, test_client, create_user, login_user, whoami,
+):
+    _, _, headers = _admin(create_user, login_user, whoami)
+    onprem = {**headers, "Host": ONPREM_HOST}
+    created = test_client.post("/api/oauth/clients", json={"name": "Onprem", "redirect_uris": [ONPREM_CALLBACK]},
+                               headers=onprem)
+    assert created.status_code == 200, created.json()
+    client = created.json()
+    assert client["redirect_uris"] == [ONPREM_CALLBACK]
+
+    updated = test_client.patch(f"/api/oauth/clients/{client['id']}",
+                                json={"redirect_uris": [ONPREM_CALLBACK, f"http://{ONPREM_HOST}/cb2"]}, headers=onprem)
+    assert updated.status_code == 200, updated.json()
+
+    info = test_client.get(f"/api/oauth/clients/{client['client_id']}/info",
+                           params={"redirect_uri": ONPREM_CALLBACK}, headers={"Host": ONPREM_HOST})
+    assert info.status_code == 200, info.json()
+    _complete_auth_code_flow(test_client, onprem, client, ONPREM_CALLBACK, extra_headers={"Host": ONPREM_HOST})
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("uri", [
+    "http://other.corp/cb",
+    "http://bow.corp:3001/oauth/callback",
+    "http://bow.corp/oauth/callback",
+    "http://bow.corp.evil.com:3000/oauth/callback",
+    "http://evil-bow.corp:3000/oauth/callback",
+    "http://bow.corp@evil.com:3000/oauth/callback",
+    "http://bow.corp:3000@evil.com/oauth/callback",
+    "http://user:pw@bow.corp:3000/oauth/callback",
+    "http://bow.corp:3000.evil.com/oauth/callback",
+])
+def test_unset_base_url_other_origins_and_lookalikes_rejected(
+    uri, unset_base_url, test_client, create_user, login_user, whoami,
+):
+    _, _, headers = _admin(create_user, login_user, whoami)
+    resp = test_client.post("/api/oauth/clients", json={"name": "x", "redirect_uris": [uri]},
+                            headers={**headers, "Host": ONPREM_HOST})
+    assert resp.status_code == 400
+
+
+@pytest.mark.e2e
+def test_unset_base_url_use_time_needs_matching_request_origin(
+    unset_base_url, test_client, create_user, login_user, whoami,
+):
+    # Registered from http://bow.corp:3000; an authorize request reaching the
+    # server under another Host does not accept that http URI.
+    _, _, headers = _admin(create_user, login_user, whoami)
+    created = test_client.post("/api/oauth/clients", json={"name": "Onprem", "redirect_uris": [ONPREM_CALLBACK]},
+                               headers={**headers, "Host": ONPREM_HOST})
+    assert created.status_code == 200, created.json()
+    client = created.json()
+    _, challenge = _pkce()
+    entry = test_client.get(
+        "/api/oauth/authorize",
+        params={"client_id": client["client_id"], "redirect_uri": ONPREM_CALLBACK, "response_type": "code",
+                "scope": "mcp", "code_challenge": challenge, "code_challenge_method": "S256"},
+        headers={"Host": "other.corp"}, follow_redirects=False,
+    )
+    assert entry.status_code == 400
+    info = test_client.get(f"/api/oauth/clients/{client['client_id']}/info",
+                           params={"redirect_uri": ONPREM_CALLBACK}, headers={"Host": "other.corp"})
+    assert info.status_code == 400
+    approved = test_client.post(
+        "/api/oauth/authorize",
+        json={"client_id": client["client_id"], "redirect_uri": ONPREM_CALLBACK, "scope": "mcp",
+              "code_challenge": challenge, "code_challenge_method": "S256"},
+        headers={**headers, "Host": "other.corp"},
+    )
+    assert approved.status_code == 400
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("configured", ["https://bow.example.com", "http://bow.example.com:8080"])
+def test_configured_base_url_disables_request_origin_fallback(
+    configured, monkeypatch, test_client, create_user, login_user, whoami,
+):
+    from app.settings.config import settings
+    monkeypatch.setattr(settings.bow_config, "base_url", configured, raising=False)
+    _, _, headers = _admin(create_user, login_user, whoami)
+    resp = test_client.post("/api/oauth/clients", json={"name": "x", "redirect_uris": [ONPREM_CALLBACK]},
+                            headers={**headers, "Host": ONPREM_HOST})
+    assert resp.status_code == 400
+
+
+@pytest.mark.e2e
+def test_unset_base_url_ignores_untrusted_forwarded_headers(
+    unset_base_url, test_client, create_user, login_user, whoami,
+):
+    # The server trusts no X-Forwarded-Host, and X-Forwarded-Proto only via
+    # uvicorn --proxy-headers for --forwarded-allow-ips peers (not this client).
+    _, _, headers = _admin(create_user, login_user, whoami)
+    spoofed = test_client.post("/api/oauth/clients", json={"name": "x", "redirect_uris": [ONPREM_CALLBACK]},
+                               headers={**headers, "X-Forwarded-Host": ONPREM_HOST, "X-Forwarded-Proto": "http"})
+    assert spoofed.status_code == 400
+    proto = test_client.post("/api/oauth/clients", json={"name": "x", "redirect_uris": [ONPREM_CALLBACK]},
+                             headers={**headers, "Host": ONPREM_HOST, "X-Forwarded-Proto": "https"})
+    assert proto.status_code == 200, proto.json()
+
+
+@pytest.mark.parametrize("peer,expected", [
+    ("10.0.0.7", "https://bow.corp:3000"),   # trusted proxy: X-Forwarded-Proto honored
+    ("203.0.113.9", "http://bow.corp:3000"),  # untrusted peer: header ignored
+])
+def test_request_http_origin_honors_proxy_proto_only_when_trusted(peer, expected):
+    import asyncio
+
+    from starlette.requests import Request
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    from app.core import url_safety
+
+    request_http_origin = getattr(url_safety, "request_http_origin", None)
+    assert request_http_origin is not None, "request_http_origin helper missing"
+    seen = {}
+
+    async def app(scope, receive, send):
+        seen["origin"] = request_http_origin(Request(scope))
+
+    scope = {"type": "http", "scheme": "http", "method": "GET", "path": "/", "query_string": b"",
+             "client": (peer, 1234), "server": ("10.0.0.2", 3000),
+             "headers": [(b"host", ONPREM_HOST.encode()), (b"x-forwarded-proto", b"https"),
+                         (b"x-forwarded-host", b"evil.example")]}
+    asyncio.run(ProxyHeadersMiddleware(app, trusted_hosts=["10.0.0.7"])(scope, None, None))
+    assert seen["origin"] == expected
+
+
+@pytest.mark.e2e
+def test_unset_base_url_member_cannot_register_own_origin_redirect(
+    unset_base_url, test_client, create_user, login_user, whoami,
+):
+    # Only manage_settings holders register redirect URIs; the own-origin
+    # fallback does not open that to members.
+    _, org_id, admin_headers = _admin(create_user, login_user, whoami)
+    member_email = f"onprem-member-{secrets.token_hex(6)}@example.com"
+    invite = test_client.post(f"/api/organizations/{org_id}/members",
+                              json={"organization_id": org_id, "email": member_email, "role": "member"},
+                              headers=admin_headers)
+    assert invite.status_code == 200, invite.json()
+    member = create_user(email=member_email)
+    member_headers = {"Authorization": f"Bearer {login_user(member['email'], member['password'])}",
+                      "X-Organization-Id": str(org_id), "Host": ONPREM_HOST}
+    resp = test_client.post("/api/oauth/clients", json={"name": "x", "redirect_uris": [ONPREM_CALLBACK]},
+                            headers=member_headers)
+    assert resp.status_code == 403
