@@ -289,6 +289,26 @@ one line per child (id, title, outcome, confidence, status).
   response; queries created by a child carry "via sub-run: title" in the
   Queries section; a header strip with counts and tokens.
 - **Trace modal**: expand the delegate row to the child execution.
+- **Background-tasks indicator** (prompt box status row, next to
+  "Working for 62s" in `PromptBoxV2.vue`). Independent of the working
+  label: `Working for 62s · 3 background tasks` while both run,
+  `3 background tasks` with the spinner when the parent is idle, hidden at
+  zero. Fed by a `background_tasks` list on the report payload (task id,
+  kind, title, state, server-UTC `started_at`, steps used of budget, wave
+  id), hydrated on load and updated from the child completions' own events;
+  the elapsed counter ticks client-side from the server start with the
+  same timezone-safe parse the working counter uses. Kinds: sub-runs
+  first, then the other things that run while the composer is free (a
+  pending `wait`, a running eval), so there is one indicator for "what is
+  still going on". Hover (tap on touch) opens a popover grouped by wave:
+  per row a state glyph, title, live duration, steps while running or
+  outcome + confidence when finished, a stop button on running rows
+  (child stop route), "Stop all" on the wave header (`stop_wave`), click
+  scrolls to the delegate card. The count includes running tasks only;
+  finished rows stay listed until the fan-in turn starts, then the wave
+  leaves the list. The main stop button keeps its meaning (stop the parent
+  turn) and never touches the wave.
+
 - **Cost**: Roo-style rollup on the parent, own + children + total, on the
   card, the summary header and the cost console (B6).
 

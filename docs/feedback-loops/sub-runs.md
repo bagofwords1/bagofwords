@@ -308,6 +308,10 @@ Captured with `tools/agent/capture.mjs` against `tools/agent/boot_stack.sh`
 6. Reload of the same report: identical cards hydrated from rows (before/after
    pair).
 7. Cost console: parent run with own + children + total.
+8. Background-tasks indicator: idle parent with `3 background tasks`, then
+   `Working for 12s · 3 background tasks` during a mid-wave question; the
+   popover with live durations, a per-row stop and "Stop all"; the row
+   flipping to stopped after a per-row stop.
 
 Video: the full turn from prompt to fan-in reply, for the PR.
 
