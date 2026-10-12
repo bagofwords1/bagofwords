@@ -14,6 +14,24 @@ from typing import List, Generator
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+import re
+
+# A pinned per-user role travels in the libpq startup packet
+# (``options=-c role=<name>``), so keep names to characters that need no
+# escaping there. Postgres itself rejects a role that doesn't exist (or that
+# the login user isn't a member of) at connect time.
+_SESSION_ROLE_RE = re.compile(r"^[A-Za-z0-9_.$@-]{1,63}$")
+
+# Statements that would move a session off its pinned role. RESET ROLE alone
+# would be harmless (the reset value IS the pinned role), but nothing a read
+# query needs looks like any of these, so refuse them all.
+_ROLE_ESCAPE_RE = re.compile(
+    r"\b(?:set|reset)\s+(?:session\s+|local\s+)?(?:role|session\s+authorization)\b"
+    r"|\bset_config\s*\("
+    r"|\breset\s+all\b"
+    r"|\bdiscard\s+all\b",
+    re.IGNORECASE,
+)
 
 
 class PostgresqlClient(DataSourceClient):
@@ -23,13 +41,22 @@ class PostgresqlClient(DataSourceClient):
     # of literal dates that go stale when saved code is re-executed.
     relative_date_hint = "Relative dates (PostgreSQL): CURRENT_DATE, CURRENT_DATE - INTERVAL '7 days', date_trunc('month', CURRENT_DATE); the clock is the DB server's."
 
-    def __init__(self, host, port, database, user, password="", schema=None, sslmode="prefer"):
+    def __init__(self, host, port, database, user, password="", schema=None, sslmode="prefer", session_role=None):
         self.host = host
         self.port = port
         self.database = database
         self.user = user
         self.password = password
         self.sslmode = sslmode
+        # Per-user identity (registry identity slot ``session_role``): every
+        # session runs as this role. Private so generated code — which may not
+        # touch ``_``-prefixed attributes — cannot clear or swap it.
+        role = (session_role or "").strip() or None
+        if role is not None and not _SESSION_ROLE_RE.match(role):
+            raise ValueError(
+                f"Invalid Postgres session role {role!r}: use letters, digits and _ . $ @ - only."
+            )
+        self._session_role = role
         # Optional schema or comma-separated list of schemas
         self.schema = schema
         self._schemas = []
@@ -42,6 +69,11 @@ class PostgresqlClient(DataSourceClient):
                 if low not in seen:
                     seen.add(low)
                     self._schemas.append(low)
+
+    @property
+    def session_role(self):
+        """The role every session of this client runs as (None = the login user)."""
+        return self._session_role
 
     @cached_property
     def pg_uri(self):
@@ -57,7 +89,14 @@ class PostgresqlClient(DataSourceClient):
         """Yield a connection to a Postgres db."""
         conn = None
         try:
-            engine = get_engine(self.pg_uri, connect_args={"sslmode": self.sslmode})
+            connect_args = {"sslmode": self.sslmode}
+            if self._session_role:
+                # Set at session start, so it's a property of the physical
+                # connection: the role is part of the pool key (connect_args),
+                # and a pooled connection can never carry one member's role to
+                # another member.
+                connect_args["options"] = f"-c role={self._session_role}"
+            engine = get_engine(self.pg_uri, connect_args=connect_args)
             conn = engine.connect()
             # Set search_path if schemas are provided
             if self._schemas:
@@ -86,6 +125,11 @@ class PostgresqlClient(DataSourceClient):
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
+        if self._session_role and isinstance(sql, str) and _ROLE_ESCAPE_RE.search(sql):
+            raise PermissionError(
+                "This connection runs queries as your own database role; statements "
+                "that change the session role or session settings are not allowed."
+            )
         try:
             with self.connect() as conn:
                 df = pd.read_sql(text(sql), conn)
@@ -336,10 +380,13 @@ class PostgresqlClient(DataSourceClient):
         """Test connection to PostgreSQL and return status information."""
         try:
             with self.connect() as conn:
-                conn.execute(text("SELECT 1"))
+                acting_as = conn.execute(text("SELECT current_user")).scalar()
+                message = "Successfully connected to PostgreSQL"
+                if self._session_role:
+                    message += f" as role {acting_as}"
                 return {
                     "success": True,
-                    "message": "Successfully connected to PostgreSQL"
+                    "message": message,
                 }
         except Exception as e:
             return {

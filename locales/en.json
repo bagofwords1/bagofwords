@@ -2669,7 +2669,25 @@
       "copyLink": "Copy link",
       "linkCopied": "Invite link copied",
       "failedToCopyLink": "Couldn't copy invite link",
-      "linkRegenerated": "Invite link refreshed and copied"
+      "linkRegenerated": "Invite link refreshed and copied",
+      "colAttributes": "Attributes",
+      "colAttributesHint": "Admin-set values that identify the member in other systems (e.g. qlik_user_id). Members can't edit them.",
+      "editAttributes": "Edit attributes",
+      "attributeAdd": "Add attribute",
+      "attributeKey": "Attribute name",
+      "attributeValue": "Value",
+      "attributeKeyPlaceholder": "name, e.g. qlik_user_id",
+      "attributeValuePlaceholder": "value, e.g. dana",
+      "attributeRemove": "Remove attribute",
+      "attributeKeyRequired": "Name is required",
+      "attributeKeyInvalid": "Letters, digits, _ . - only; start with a letter",
+      "attributeKeyDuplicate": "Duplicate name",
+      "attributesTitle": "Member attributes",
+      "attributesHint": "Connections can run this member's queries as the account these values name (Manage connection → Per-member identity). Only admins can change them.",
+      "attributesInviteHint": "Optional. Identifies this member in other systems, e.g. their Qlik user or database role.",
+      "attributesSaved": "Attributes saved",
+      "attributesSaveFailed": "Failed to save attributes",
+      "importAttributesHint": "Add {column} columns to set member attributes, e.g. {example}. An empty cell leaves that attribute unchanged."
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",
@@ -3879,7 +3897,48 @@
     "refreshAccess": "Refresh access",
     "yourAccount": "Your account",
     "managementOrganizationHint": "Tests and schema refreshes use the organization’s saved credentials.",
-    "managementPersonalHint": "This connector requires your sign-in. Tests and refreshes use your account."
+    "managementPersonalHint": "This connector requires your sign-in. Tests and refreshes use your account.",
+    "identityMapping": {
+      "title": "Per-member identity",
+      "statusOn": "On",
+      "statusOff": "Off",
+      "hint": "Run each member's queries as their own account on this source, resolved from values members can't edit. A member without a value is blocked — never given this connection's own access.",
+      "sourceKind": "Source",
+      "kindAttribute": "Member attribute",
+      "kindStatic": "Fixed value",
+      "kindEmail": "Member email",
+      "kindName": "Member name",
+      "attributePlaceholder": "attribute, e.g. pg_role",
+      "staticPlaceholder": "value, e.g. CORP",
+      "previewTitle": "Who runs as whom",
+      "previewCounts": "{resolved} mapped · {blocked} blocked",
+      "blocked": "Blocked",
+      "blockedMissing": "Blocked: no value for {fields}",
+      "test": "Test",
+      "testOk": "Connected",
+      "incomplete": "Fill in every field to preview.",
+      "saveFailed": "Failed to save the identity mapping",
+      "savedOn": "Per-member identity is on",
+      "savedOff": "Per-member identity is off"
+    },
+    "identitySlots": {
+      "postgresql": {
+        "session_role": {
+          "title": "Session role",
+          "description": "Postgres role each member's queries run as (SET ROLE at login). The connection's login user must be a member of every mapped role; grant tables to the roles, not to the login user."
+        }
+      },
+      "qlik_sense_onprem": {
+        "user_directory": {
+          "title": "User Directory",
+          "description": "Qlik user directory as named in the QMC, e.g. the AD domain CORP."
+        },
+        "user_id": {
+          "title": "User ID",
+          "description": "Qlik user id (e.g. the AD sAMAccountName). Qlik applies that account's stream access and Section Access to the member's queries."
+        }
+      }
+    }
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -4016,7 +4075,10 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Resource unavailable",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Request interrupted",
     "ARTIFACT_RESOURCE_ABORTED": "Request cancelled",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Unsupported SDK version"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Unsupported SDK version",
+    "member_attributes.invalid": "Invalid member attributes.",
+    "identity_mapping.invalid": "Invalid identity mapping.",
+    "identity_mapping.unresolved": "This connection runs queries as your own account, but your profile has no value for {fields}. Ask an admin to set it in Settings → Members."
   },
   "email": {
     "dashboardShare": {

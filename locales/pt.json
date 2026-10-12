@@ -2484,7 +2484,25 @@
       "linkCopied": "Link de convite copiado",
       "failedToCopyLink": "Não foi possível copiar o link",
       "linkRegenerated": "Link de convite atualizado e copiado",
-      "moreGroups": "grupos"
+      "moreGroups": "grupos",
+      "colAttributes": "Atributos",
+      "colAttributesHint": "Valores definidos por um administrador que identificam o membro em outros sistemas (ex.: qlik_user_id). Os membros não podem editá-los.",
+      "editAttributes": "Editar atributos",
+      "attributeAdd": "Adicionar atributo",
+      "attributeKey": "Nome do atributo",
+      "attributeValue": "Valor",
+      "attributeKeyPlaceholder": "nome, ex.: qlik_user_id",
+      "attributeValuePlaceholder": "valor, ex.: dana",
+      "attributeRemove": "Remover atributo",
+      "attributeKeyRequired": "O nome é obrigatório",
+      "attributeKeyInvalid": "Apenas letras, dígitos, _ . -; começa com uma letra",
+      "attributeKeyDuplicate": "Nome duplicado",
+      "attributesTitle": "Atributos do membro",
+      "attributesHint": "As conexões podem executar as consultas deste membro como a conta indicada por estes valores (Gerenciar conexão → Identidade por membro). Apenas administradores podem alterá-los.",
+      "attributesInviteHint": "Opcional. Identifica este membro em outros sistemas, ex.: seu usuário do Qlik ou papel no banco de dados.",
+      "attributesSaved": "Atributos salvos",
+      "attributesSaveFailed": "Falha ao salvar os atributos",
+      "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado."
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",
@@ -3697,7 +3715,48 @@
     "refreshAccess": "Atualizar acesso",
     "yourAccount": "Sua conta",
     "managementOrganizationHint": "Os testes e as atualizações do esquema usam as credenciais salvas da organização.",
-    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta."
+    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta.",
+    "identityMapping": {
+      "title": "Identidade por membro",
+      "statusOn": "Ativada",
+      "statusOff": "Desativada",
+      "hint": "Executa as consultas de cada membro com a própria conta dele nesta fonte, a partir de valores que os membros não podem editar. Um membro sem valor é bloqueado — nunca recebe o acesso da própria conexão.",
+      "sourceKind": "Origem",
+      "kindAttribute": "Atributo do membro",
+      "kindStatic": "Valor fixo",
+      "kindEmail": "E-mail do membro",
+      "kindName": "Nome do membro",
+      "attributePlaceholder": "atributo, ex.: pg_role",
+      "staticPlaceholder": "valor, ex.: CORP",
+      "previewTitle": "Quem executa como quem",
+      "previewCounts": "{resolved} mapeados · {blocked} bloqueados",
+      "blocked": "Bloqueado",
+      "blockedMissing": "Bloqueado: sem valor para {fields}",
+      "test": "Testar",
+      "testOk": "Conectado",
+      "incomplete": "Preencha todos os campos para visualizar.",
+      "saveFailed": "Falha ao salvar o mapeamento de identidade",
+      "savedOn": "Identidade por membro ativada",
+      "savedOff": "Identidade por membro desativada"
+    },
+    "identitySlots": {
+      "postgresql": {
+        "session_role": {
+          "title": "Papel da sessão",
+          "description": "Papel do Postgres com o qual as consultas de cada membro são executadas (SET ROLE no login). O usuário de login da conexão deve ser membro de cada papel mapeado; conceda as tabelas aos papéis, não ao usuário de login."
+        }
+      },
+      "qlik_sense_onprem": {
+        "user_directory": {
+          "title": "Diretório de usuários",
+          "description": "Diretório de usuários do Qlik como nomeado na QMC, ex.: o domínio AD CORP."
+        },
+        "user_id": {
+          "title": "ID do usuário",
+          "description": "ID do usuário do Qlik (ex.: o sAMAccountName do AD). O Qlik aplica às consultas do membro o acesso a streams e a Section Access dessa conta."
+        }
+      }
+    }
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -3836,7 +3895,10 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso indisponível",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitação interrompida",
     "ARTIFACT_RESOURCE_ABORTED": "Solicitação cancelada",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível",
+    "member_attributes.invalid": "Atributos de membro inválidos.",
+    "identity_mapping.invalid": "Mapeamento de identidade inválido.",
+    "identity_mapping.unresolved": "Esta conexão executa consultas com a sua própria conta, mas o seu perfil não tem valor para {fields}. Peça a um administrador para defini-lo em Configurações → Membros."
   },
   "email": {
     "dashboardShare": {

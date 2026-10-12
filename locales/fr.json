@@ -2484,7 +2484,25 @@
       "linkCopied": "Lien d'invitation copié",
       "failedToCopyLink": "Impossible de copier le lien",
       "linkRegenerated": "Lien d'invitation actualisé et copié",
-      "moreGroups": "groupes"
+      "moreGroups": "groupes",
+      "colAttributes": "Attributs",
+      "colAttributesHint": "Valeurs définies par un administrateur qui identifient le membre dans d'autres systèmes (ex. qlik_user_id). Les membres ne peuvent pas les modifier.",
+      "editAttributes": "Modifier les attributs",
+      "attributeAdd": "Ajouter un attribut",
+      "attributeKey": "Nom de l'attribut",
+      "attributeValue": "Valeur",
+      "attributeKeyPlaceholder": "nom, ex. qlik_user_id",
+      "attributeValuePlaceholder": "valeur, ex. dana",
+      "attributeRemove": "Supprimer l'attribut",
+      "attributeKeyRequired": "Le nom est obligatoire",
+      "attributeKeyInvalid": "Lettres, chiffres, _ . - uniquement ; commence par une lettre",
+      "attributeKeyDuplicate": "Nom en double",
+      "attributesTitle": "Attributs du membre",
+      "attributesHint": "Les connexions peuvent exécuter les requêtes de ce membre sous le compte désigné par ces valeurs (Gérer la connexion → Identité par membre). Seuls les administrateurs peuvent les modifier.",
+      "attributesInviteHint": "Facultatif. Identifie ce membre dans d'autres systèmes, ex. son utilisateur Qlik ou son rôle de base de données.",
+      "attributesSaved": "Attributs enregistrés",
+      "attributesSaveFailed": "Échec de l'enregistrement des attributs",
+      "importAttributesHint": "Ajoutez des colonnes {column} pour définir des attributs, ex. {example}. Une cellule vide laisse l'attribut inchangé."
     },
     "organizationName": "Nom de l'organisation",
     "organizationIcon": "Icône de l'organisation",
@@ -3697,7 +3715,48 @@
     "refreshAccess": "Actualiser l’accès",
     "yourAccount": "Votre compte",
     "managementOrganizationHint": "Les tests et actualisations du schéma utilisent les identifiants enregistrés de l’organisation.",
-    "managementPersonalHint": "Ce connecteur nécessite votre connexion. Les tests et actualisations utilisent votre compte."
+    "managementPersonalHint": "Ce connecteur nécessite votre connexion. Les tests et actualisations utilisent votre compte.",
+    "identityMapping": {
+      "title": "Identité par membre",
+      "statusOn": "Activée",
+      "statusOff": "Désactivée",
+      "hint": "Exécute les requêtes de chaque membre sous son propre compte sur cette source, à partir de valeurs que les membres ne peuvent pas modifier. Un membre sans valeur est bloqué — il ne reçoit jamais l'accès propre de la connexion.",
+      "sourceKind": "Source",
+      "kindAttribute": "Attribut du membre",
+      "kindStatic": "Valeur fixe",
+      "kindEmail": "E-mail du membre",
+      "kindName": "Nom du membre",
+      "attributePlaceholder": "attribut, ex. pg_role",
+      "staticPlaceholder": "valeur, ex. CORP",
+      "previewTitle": "Qui s'exécute en tant que qui",
+      "previewCounts": "{resolved} associés · {blocked} bloqués",
+      "blocked": "Bloqué",
+      "blockedMissing": "Bloqué : aucune valeur pour {fields}",
+      "test": "Tester",
+      "testOk": "Connecté",
+      "incomplete": "Remplissez tous les champs pour l'aperçu.",
+      "saveFailed": "Échec de l'enregistrement du mappage d'identité",
+      "savedOn": "Identité par membre activée",
+      "savedOff": "Identité par membre désactivée"
+    },
+    "identitySlots": {
+      "postgresql": {
+        "session_role": {
+          "title": "Rôle de session",
+          "description": "Rôle Postgres sous lequel s'exécutent les requêtes de chaque membre (SET ROLE à la connexion). L'utilisateur de connexion doit être membre de chaque rôle associé ; accordez les tables aux rôles, pas à l'utilisateur de connexion."
+        }
+      },
+      "qlik_sense_onprem": {
+        "user_directory": {
+          "title": "Annuaire d'utilisateurs",
+          "description": "Annuaire d'utilisateurs Qlik tel que nommé dans la QMC, ex. le domaine AD CORP."
+        },
+        "user_id": {
+          "title": "ID utilisateur",
+          "description": "ID utilisateur Qlik (ex. le sAMAccountName AD). Qlik applique l'accès aux streams et la Section Access de ce compte aux requêtes du membre."
+        }
+      }
+    }
   },
   "share": {
     "shareDashboard": "Partager le tableau de bord",
@@ -3836,7 +3895,10 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource indisponible",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Requête interrompue",
     "ARTIFACT_RESOURCE_ABORTED": "Requête annulée",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge",
+    "member_attributes.invalid": "Attributs de membre non valides.",
+    "identity_mapping.invalid": "Mappage d'identité non valide.",
+    "identity_mapping.unresolved": "Cette connexion exécute les requêtes sous votre propre compte, mais votre profil n'a aucune valeur pour {fields}. Demandez à un administrateur de la définir dans Paramètres → Membres."
   },
   "email": {
     "dashboardShare": {

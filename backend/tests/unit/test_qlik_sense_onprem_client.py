@@ -1335,18 +1335,28 @@ class TestRegistry:
         # The key passphrase is single-line and genuinely a password.
         assert fields["client_key_password"].json_schema_extra["ui:type"] == "password"
 
-    def test_the_user_variant_is_an_identity_overlay(self):
-        """Per-user auth asks for User Directory + User ID and nothing else —
-        the certificate stays on the connection's system credentials."""
-        from app.schemas.data_source_registry import REGISTRY
+    def test_members_cannot_supply_their_own_qlik_identity(self):
+        """The certificate can act as ANY account on the site, so a member must
+        never be the one naming that account — no auth variant is offered at
+        user scope. Per-user identity comes from the admin-owned identity
+        mapping instead (see TestIdentityMapping below)."""
+        from app.schemas.data_source_registry import REGISTRY, supports_user_auth
 
-        variant = REGISTRY["qlik_sense_onprem"].credentials_auth.by_auth["identity"]
-        assert set(variant.scopes) == {"user"}
-        assert variant.overlay is True
-        fields = variant.schema.model_fields
-        assert set(fields) == {"user_directory", "user_id"}
-        assert fields["user_directory"].is_required()
-        assert fields["user_id"].is_required()
+        variants = REGISTRY["qlik_sense_onprem"].credentials_auth.by_auth
+        assert all("user" not in v.scopes for v in variants.values())
+        assert supports_user_auth("qlik_sense_onprem") is False
+
+    def test_identity_slots_are_constructor_parameters(self):
+        """Mapped identity values are passed to the constructor by slot name —
+        a slot the client does not accept would silently never take effect."""
+        import inspect
+
+        from app.schemas.data_source_registry import identity_slots_for
+
+        params = set(inspect.signature(QlikSenseOnPremClient.__init__).parameters)
+        slots = {slot.param for slot in identity_slots_for("qlik_sense_onprem")}
+        assert slots == {"user_directory", "user_id"}
+        assert slots <= params
 
     def test_config_form_is_slim_like_the_peer_connectors(self):
         """Crawl-behavior knobs are constructor defaults, not form fields —
@@ -1375,80 +1385,57 @@ class TestRegistry:
         assert declared <= params, f"not accepted by the client: {sorted(declared - params)}"
 
 
-class TestIdentityOverlayResolution:
-    """The overlay merge that makes per-user auth work: the user's identity
-    fields layered over the connection's system credentials."""
+class TestIdentityMapping:
+    """A connection's identity mapping resolves the member's Qlik account from
+    admin-set member attributes and passes it to the client — on top of the
+    connection's certificate, and immune to generated code."""
 
-    class _FakeConnection:
-        type = "qlik_sense_onprem"
+    SYSTEM_CREDS = {"client_cert": CERT_PEM, "client_key": KEY_PEM}
+    MAPPING = {"user_directory": "static:EXAMPLECORP", "user_id": "membership.attr:qlik_user_id"}
 
-        def __init__(self, creds):
-            self._creds = creds
+    @staticmethod
+    def _ctx(**attributes):
+        from app.services.mcp_context_injection import IdentityContext
 
-        def decrypt_credentials(self):
-            return self._creds
+        return IdentityContext(email="dana@example.com", attributes=attributes)
 
-    SYSTEM_CREDS = {
-        "client_cert": CERT_PEM,
-        "client_key": KEY_PEM,
-        "root_ca": None,
-        "user_directory": None,
-        "user_id": None,
-    }
+    @pytest.mark.parametrize("qlik_user", ["dana", "svc.analytics", "j-o'neil"])
+    def test_mapped_identity_is_what_qlik_sees(self, qlik_user):
+        from app.services.connection_identity_mapping import resolve_with_context
 
-    def test_identity_creds_merge_over_the_system_certificate(self):
-        from app.schemas.data_source_registry import overlay_system_credentials
-
-        conn = self._FakeConnection(self.SYSTEM_CREDS)
-        merged = overlay_system_credentials(
-            conn, {"user_directory": "EXAMPLECORP", "user_id": "dana"}, "identity"
+        values, missing = resolve_with_context(self.MAPPING, self._ctx(qlik_user_id=qlik_user))
+        assert missing == []
+        client = QlikSenseOnPremClient(
+            server_url="https://qlik.corp.example.com", **self.SYSTEM_CREDS, **values
         )
-        assert merged["client_cert"] == CERT_PEM
-        assert merged["client_key"] == KEY_PEM
-        assert merged["user_directory"] == "EXAMPLECORP"
-        assert merged["user_id"] == "dana"
-
-    def test_the_merged_credentials_construct_a_working_client(self):
-        """End to end through the constructor: identity + system certs must
-        yield a client that acts as the user on every request."""
-        from app.schemas.data_source_registry import overlay_system_credentials
-
-        conn = self._FakeConnection(self.SYSTEM_CREDS)
-        merged = overlay_system_credentials(
-            conn, {"user_directory": "EXAMPLECORP", "user_id": "dana"}, "identity"
-        )
-        client = QlikSenseOnPremClient(server_url="https://qlik.corp.example.com", **merged)
-        assert client._acting_user() == "UserDirectory=EXAMPLECORP; UserId=dana"
-        # The explicit identity also wins over app-owner impersonation.
+        assert client._acting_user() == f"UserDirectory=EXAMPLECORP; UserId={qlik_user}"
+        # The mapped identity also wins over app-owner impersonation.
         assert client._acting_user({"owner": {"userDirectory": "X", "userId": "y"}}) == (
-            "UserDirectory=EXAMPLECORP; UserId=dana"
+            f"UserDirectory=EXAMPLECORP; UserId={qlik_user}"
         )
 
-    def test_blank_user_values_do_not_clobber_system_values(self):
-        from app.schemas.data_source_registry import overlay_system_credentials
+    def test_a_member_without_the_attribute_resolves_nothing(self):
+        """No value → the slot is reported missing (the resolver then blocks);
+        it must never quietly become the default service identity."""
+        from app.services.connection_identity_mapping import resolve_with_context
 
-        conn = self._FakeConnection({**self.SYSTEM_CREDS, "user_directory": "SVCDIR"})
-        merged = overlay_system_credentials(conn, {"user_directory": "", "user_id": "dana"}, "identity")
-        assert merged["user_directory"] == "SVCDIR"
+        values, missing = resolve_with_context(self.MAPPING, self._ctx())
+        assert missing == ["user_id"]
+        assert "user_id" not in values
 
-    def test_non_overlay_modes_pass_through_untouched(self):
-        """A certificate credential replaces system creds wholesale, exactly as
-        every non-overlay variant always has."""
-        from app.schemas.data_source_registry import overlay_system_credentials
+    def test_generated_code_cannot_reassign_the_identity(self):
+        client = QlikSenseOnPremClient(
+            server_url="https://qlik.corp.example.com", **self.SYSTEM_CREDS,
+            user_directory="EXAMPLECORP", user_id="dana",
+        )
+        with pytest.raises(AttributeError):
+            client.user_id = "ceo"
+        with pytest.raises(AttributeError):
+            client.user_directory = "OTHER"
+        assert client._acting_user() == "UserDirectory=EXAMPLECORP; UserId=dana"
 
-        conn = self._FakeConnection(self.SYSTEM_CREDS)
-        user_creds = {"client_cert": "other", "client_key": "other-key"}
-        assert overlay_system_credentials(conn, user_creds, "certificate") == user_creds
-
-    def test_other_connector_types_are_unaffected(self):
-        from app.schemas.data_source_registry import is_overlay_auth
-
-        assert is_overlay_auth("qlik_sense_onprem", "identity") is True
-        assert is_overlay_auth("qlik_sense_onprem", "certificate") is False
-        assert is_overlay_auth("postgresql", "userpass") is False
-        assert is_overlay_auth("nonexistent_type", "identity") is False
-
-    def test_user_required_connections_default_to_the_identity_mode(self):
+    def test_user_required_has_no_default_member_auth_mode(self):
         from app.services.connection_service import default_user_auth_modes
 
-        assert default_user_auth_modes("qlik_sense_onprem", {}, {}) == ["identity"]
+        assert not default_user_auth_modes("qlik_sense_onprem", {}, {})
+

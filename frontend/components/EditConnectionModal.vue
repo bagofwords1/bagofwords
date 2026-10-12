@@ -40,6 +40,7 @@
             <button :disabled="refreshing || active || needsPersonalSignIn" class="status-body border border-gray-200 dark:border-gray-700 rounded px-3 py-1.5 disabled:opacity-50" @click="refreshSchema">{{ active || refreshing ? $t('data.refreshing') : $t(personalManagement ? 'data.refreshMySchema' : 'data.refreshSharedSchema') }}</button>
           </div>
           <ConnectionScheduleSettings v-if="!personalManagement" :connection="connection" :displayed-error="indexing?.error" />
+          <ConnectionIdentityMapping v-if="!personalManagement" :connection="connection" />
           <ConnectionDeleteAction :connection="connection" compact @deleted="open = false; emit('deleted')" />
         </aside>
       </div>

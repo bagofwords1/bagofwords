@@ -2618,6 +2618,18 @@ class DataSourceService:
             }
 
     async def resolve_credentials(self, db: AsyncSession, data_source: DataSource, current_user: User | None) -> dict:
+        conn = data_source.connections[0] if data_source.connections else None
+        if not conn:
+            return await self._resolve_base_credentials(db, data_source, current_user)
+        # Pin the signed-in user's mapped identity (Connection.identity_mapping)
+        # on every path, system_only included — resolved first, so an unmapped
+        # member is refused before any credential is resolved for them.
+        from app.services.connection_identity_mapping import resolve_identity_params
+        identity = await resolve_identity_params(db, conn, current_user)
+        creds = await self._resolve_base_credentials(db, data_source, current_user)
+        return {**(creds or {}), **identity} if identity else creds
+
+    async def _resolve_base_credentials(self, db: AsyncSession, data_source: DataSource, current_user: User | None) -> dict:
         # Get connection from data source
         conn = data_source.connections[0] if data_source.connections else None
         if not conn:
@@ -3046,9 +3058,17 @@ class DataSourceService:
         an RLS policy. It has no permissive default: None resolves to an
         anonymous identity, which sees nothing from a protected relation. A
         background path that legitimately needs rows must name a real user.
+
+        None as well when the connection pins a per-user identity: a custom
+        table is one copy materialized with the connection's own identity, and
+        serving it would hand every member data their mapped identity cannot see.
         """
         from app.models.connection_table import ConnectionTable, KIND_BOW
         from app.services.custom_query_service import CustomQueryService
+        from app.services.connection_identity_mapping import identity_mapping_active
+
+        if identity_mapping_active(connection):
+            return None
 
         try:
             rows = (await db.execute(
@@ -3239,7 +3259,22 @@ class DataSourceService:
         """
         Resolve credentials for a specific connection.
         Falls back to system credentials stored on the connection.
+
+        The signed-in user's mapped identity (Connection.identity_mapping) is
+        laid over the result on every path, system_only included.
         """
+        from app.services.connection_identity_mapping import resolve_identity_params
+        identity = await resolve_identity_params(db, connection, current_user)
+        creds = await self._resolve_connection_base_credentials(db, connection, data_source, current_user)
+        return {**(creds or {}), **identity} if identity else creds
+
+    async def _resolve_connection_base_credentials(
+        self,
+        db: AsyncSession,
+        connection,
+        data_source: DataSource,
+        current_user: User | None,
+    ) -> dict:
         auth_policy = connection.auth_policy or "system_only"
 
         # For user_required, resolve per-user credentials.

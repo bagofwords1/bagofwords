@@ -17,6 +17,9 @@ class ConnectionCreate(BaseModel):
     credentials: Optional[dict] = None
     auth_policy: str = "system_only"
     allowed_user_auth_modes: Optional[list] = None
+    # Per-user identity rules {slot_param: source}; see
+    # services/connection_identity_mapping.py.
+    identity_mapping: Optional[dict] = None
 
 
 class ConnectionUpdate(BaseModel):
@@ -27,6 +30,8 @@ class ConnectionUpdate(BaseModel):
     is_active: Optional[bool] = None
     auth_policy: Optional[str] = None  # system_only, user_required
     allowed_user_auth_modes: Optional[list] = None
+    # Per-user identity rules {slot_param: source}; {} turns the mapping off.
+    identity_mapping: Optional[dict] = None
     # Scheduled auto-reindex (enterprise `scheduled_reindex` feature).
     auto_reindex_enabled: Optional[bool] = None
     reindex_interval_hours: Optional[int] = None  # legacy; superseded by minutes
@@ -156,6 +161,10 @@ class ConnectionDetailSchema(BaseModel):
     rate_limit_per_day: Optional[int] = None
     # Registry data_shape (tables | files | objects | tools).
     data_shape: str = "tables"
+    # Per-user identity: the saved rules (admins only) and the slots this
+    # connector type accepts (empty → no per-user identity for this type).
+    identity_mapping: Optional[Dict[str, str]] = None
+    identity_slots: List[Dict[str, Any]] = []
 
     class Config:
         from_attributes = True

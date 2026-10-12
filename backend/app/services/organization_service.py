@@ -23,6 +23,7 @@ from app.models.user import User
 from typing import List
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException
+from app.errors import AppError
 from sqlalchemy import delete, update
 from app.services.llm_service import LLMService
 from app.services.test_suite_service import TestSuiteService
@@ -203,9 +204,16 @@ class OrganizationService:
 
         from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 
+        # Member attributes can name accounts in other systems (database roles,
+        # Qlik user ids); only those who may edit them get to read them.
+        caller = await resolve_permissions(db, str(current_user.id), str(organization.id)) if current_user else None
+        can_see_attributes = bool(caller and caller.has_org_permission("manage_members"))
+
         schemas = []
         for membership in memberships:
             schema = MembershipSchema.from_orm(membership)
+            if not can_see_attributes:
+                schema.custom_attributes = None
             if membership.user_id:
                 # Registered user: direct ('user' principal) + group-inherited.
                 schema.roles = await self._resolve_member_roles(
@@ -338,6 +346,8 @@ class OrganizationService:
         # an SSO/OIDC provider returns at login (Entra/Okta casing is out of our control).
         if membership_data.email:
             membership_data.email = membership_data.email.strip().lower()
+        from app.services.member_attributes import normalize_custom_attributes
+        membership_data.custom_attributes = normalize_custom_attributes(membership_data.custom_attributes) or None
         membership_exists = await self._is_email_already_in_organization(db, membership_data.email, membership_data.organization_id)
         if membership_exists:
             raise HTTPException(status_code=400, detail="Already a member with this email")
@@ -655,6 +665,9 @@ class OrganizationService:
             membership.role = update["role"]
         if "note" in update:
             membership.note = update["note"]
+        if "custom_attributes" in update and update["custom_attributes"] is not None:
+            from app.services.member_attributes import normalize_custom_attributes
+            membership.custom_attributes = normalize_custom_attributes(update["custom_attributes"]) or None
         # Keep RBAC (the source of truth) in sync with the legacy role change so
         # this path can't leave the two stores diverged (a "demoted" admin must
         # actually lose full_admin_access, not just have the string flipped).
@@ -893,11 +906,19 @@ class OrganizationService:
     ) -> MembershipImportReport:
         """Import memberships from .xlsx or .csv.
 
-        Columns: `email` (required), `note` (optional). Other columns are ignored.
+        Columns: `email` (required), `note` (optional), and any number of
+        `attr.<key>` columns setting admin member attributes (e.g.
+        `attr.qlik_user_id`). Other columns are ignored.
         Re-import is additive: existing roles/groups/status are never touched;
-        only the `note` field is overwritten. Invites are not re-sent for rows
-        whose email already has a (pending or active) membership.
+        the `note` is overwritten only when the file has a note column, and
+        attribute cells are merged into the member's attributes (an empty cell
+        leaves that attribute as it is). Invites are not re-sent for rows whose
+        email already has a (pending or active) membership.
         """
+        from app.services.member_attributes import (
+            IMPORT_COLUMN_PREFIX,
+            normalize_custom_attributes,
+        )
         rows = self._parse_membership_import(file_bytes, filename)
         report_rows: List[MembershipImportRow] = []
         summary = MembershipImportSummary()
@@ -915,6 +936,20 @@ class OrganizationService:
         for idx, raw in enumerate(rows, start=2):  # data starts at row 2 (header is row 1)
             email = (raw.get("email") or "").strip()
             note = raw.get("note")
+            has_note_column = "note" in raw
+            try:
+                attrs = normalize_custom_attributes({
+                    k[len(IMPORT_COLUMN_PREFIX):]: v
+                    for k, v in raw.items()
+                    if k.startswith(IMPORT_COLUMN_PREFIX)
+                })
+            except AppError as e:
+                report_rows.append(MembershipImportRow(
+                    row=idx, email=email or None, status="error", error=e.message,
+                ))
+                summary.errors += 1
+                continue
+            row_attrs = attrs or None
             if note is not None:
                 note = str(note).strip() or None
                 if note and len(note) > MEMBERSHIP_NOTE_MAX_LENGTH:
@@ -940,17 +975,24 @@ class OrganizationService:
 
             existing = await self._find_membership_by_email(db, email, organization.id)
             if existing:
-                if (existing.note or None) == (note or None):
+                note_changed = has_note_column and (existing.note or None) != (note or None)
+                current_attrs = dict(existing.custom_attributes or {})
+                merged_attrs = {**current_attrs, **attrs}
+                attrs_changed = merged_attrs != current_attrs
+                if not note_changed and not attrs_changed:
                     report_rows.append(MembershipImportRow(
-                        row=idx, email=email, note=note, status="unchanged",
+                        row=idx, email=email, note=note, custom_attributes=row_attrs, status="unchanged",
                     ))
                     summary.unchanged += 1
                 else:
                     if not dry_run:
-                        existing.note = note
+                        if note_changed:
+                            existing.note = note
+                        if attrs_changed:
+                            existing.custom_attributes = normalize_custom_attributes(merged_attrs) or None
                         await db.flush()
                     report_rows.append(MembershipImportRow(
-                        row=idx, email=email, note=note, status="updated",
+                        row=idx, email=email, note=note, custom_attributes=row_attrs, status="updated",
                     ))
                     summary.updated += 1
                 continue
@@ -972,7 +1014,7 @@ class OrganizationService:
 
             if dry_run:
                 report_rows.append(MembershipImportRow(
-                    row=idx, email=email, note=note, status="created",
+                    row=idx, email=email, note=note, custom_attributes=row_attrs, status="created",
                 ))
                 summary.created += 1
             else:
@@ -984,11 +1026,12 @@ class OrganizationService:
                             email=email,
                             role="member",
                             note=note,
+                            custom_attributes=row_attrs,
                         ),
                         current_user,
                     )
                     report_rows.append(MembershipImportRow(
-                        row=idx, email=email, note=note, status="created",
+                        row=idx, email=email, note=note, custom_attributes=row_attrs, status="created",
                     ))
                     summary.created += 1
                 except HTTPException as e:
@@ -1093,14 +1136,24 @@ class OrganizationService:
 
     @staticmethod
     def _build_header_map(header_row) -> dict:
-        """Map known column names (case-insensitive) to their column indexes."""
+        """Map known column names (case-insensitive) to their column indexes.
+
+        ``attr.<key>`` columns map to ``attr.<key>`` with the key's own case
+        kept (attribute names are case-sensitive; only the prefix is not).
+        """
+        from app.services.member_attributes import IMPORT_COLUMN_PREFIX
         mapping = {}
         for idx, name in enumerate(header_row or []):
             if name is None:
                 continue
-            key = str(name).strip().lower()
+            raw_name = str(name).strip()
+            key = raw_name.lower()
             if key in ("email", "note") and key not in mapping:
                 mapping[key] = idx
+            elif key.startswith(IMPORT_COLUMN_PREFIX) and len(raw_name) > len(IMPORT_COLUMN_PREFIX):
+                attr_key = IMPORT_COLUMN_PREFIX + raw_name[len(IMPORT_COLUMN_PREFIX):].strip()
+                if attr_key not in mapping:
+                    mapping[attr_key] = idx
         return mapping
 
     @staticmethod

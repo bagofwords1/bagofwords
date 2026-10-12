@@ -35,6 +35,14 @@ class Membership(BaseSchema):
     # <user_profile> context block alongside ``note``/``memory``. JSON object of
     # attribute name -> value ({} / NULL when nothing is synced).
     profile_attributes = Column(JSON, nullable=True)
+    # Per-user, per-org attributes an org admin sets by hand (invite, member
+    # edit, CSV import) — e.g. the member's Qlik user id or Postgres role.
+    # Separate from ``profile_attributes`` because the IdP sync replaces that
+    # dict wholesale on every login and would erase admin-entered values.
+    # Members cannot edit these; connection identity mappings read them via
+    # ``membership.attr:<key>`` (see services/member_attributes.py). Not
+    # rendered into the agent prompt. JSON object of str -> str.
+    custom_attributes = Column(JSON, nullable=True)
     # Per-user opt-out of agent check-ins (the agent's own follow-ups) in this
     # org. Only meaningful while the org's enable_agent_checkins setting is on;
     # respected at plan time (no planner call) and at fire time.

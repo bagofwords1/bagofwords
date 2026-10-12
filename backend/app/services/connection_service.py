@@ -287,12 +287,6 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
         if creds.get("otds_url") and creds.get("client_id") and creds.get("client_secret"):
             return ["otds_impersonation", "oauth"]
         return None
-    if conn_type == "qlik_sense_onprem":
-        # Per-user auth is the identity overlay: the user names their Qlik
-        # account, the connection's certificate is merged underneath. The
-        # certificate variant itself is system-scope only — it is
-        # admin-equivalent on the Qlik site and must not be requested per user.
-        return ["identity"]
     return None
 
 
@@ -325,8 +319,11 @@ class ConnectionService:
         credentials: dict = None,
         auth_policy: str = "system_only",
         allowed_user_auth_modes: list = None,
+        identity_mapping: Optional[dict] = None,
     ) -> Connection:
         """Create a new connection with validation."""
+        from app.services.connection_identity_mapping import validate_identity_mapping
+        identity_mapping = validate_identity_mapping(type, identity_mapping)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -388,6 +385,7 @@ class ConnectionService:
             config=json.dumps(config) if isinstance(config, dict) else config,
             auth_policy=auth_policy,
             allowed_user_auth_modes=allowed_user_auth_modes,
+            identity_mapping=identity_mapping,
             organization_id=organization.id,
             is_active=True,
         )
@@ -645,6 +643,15 @@ class ConnectionService:
             if defaulted:
                 updates["allowed_user_auth_modes"] = defaulted
 
+        if "identity_mapping" in updates:
+            # Explicit (not via the setattr loop, which skips None): {} / None
+            # turns the mapping off. Pooled clients need no invalidation — the
+            # resolved identity is part of each client's own connect params.
+            from app.services.connection_identity_mapping import validate_identity_mapping
+            connection.identity_mapping = validate_identity_mapping(
+                connection.type, updates.pop("identity_mapping")
+            )
+
         # Track if connection-relevant fields changed
         connection_changed = False
 
@@ -674,6 +681,16 @@ class ConnectionService:
         for field, value in updates.items():
             if value is not None and hasattr(connection, field):
                 setattr(connection, field, value)
+
+        from app.services.connection_identity_mapping import needs_identity_mapping
+        if connection.identity_mapping and needs_identity_mapping(connection):
+            # A per-user connection whose members cannot supply credentials of
+            # their own (legacy Qlik on-prem self-typed identities): with a
+            # mapping, each member's identity rides on the shared credential —
+            # which is what system_only + mapping means. Normalized after every
+            # update so a later settings save cannot flip it back.
+            connection.auth_policy = "system_only"
+            connection.allowed_user_auth_modes = None
 
         # Revalidate if connection fields changed
         if connection_changed and connection.auth_policy == "system_only":
@@ -1972,6 +1989,29 @@ class ConnectionService:
             logger.debug("attach_connection_table_metadata failed", exc_info=True)
 
     async def resolve_credentials(
+        self,
+        db: AsyncSession,
+        connection: Connection,
+        current_user: User = None,
+    ) -> dict:
+        """Resolve credentials for a connection, then pin the signed-in user's
+        mapped identity on top (``Connection.identity_mapping``).
+
+        A mapped identity is the CALLER's identity even over shared system
+        credentials, so it marks the resolve as ``"user"`` — the shared
+        catalog must never be rewritten from one member's view.
+        """
+        # Identity first: a member who cannot be mapped is refused before any
+        # credential is resolved for them.
+        from app.services.connection_identity_mapping import resolve_identity_params
+        identity = await resolve_identity_params(db, connection, current_user)
+        creds = await self._resolve_base_credentials(db, connection, current_user)
+        if identity:
+            self.last_credential_identity = "user"
+            creds = {**(creds or {}), **identity}
+        return creds
+
+    async def _resolve_base_credentials(
         self,
         db: AsyncSession,
         connection: Connection,

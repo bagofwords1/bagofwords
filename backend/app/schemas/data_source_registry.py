@@ -133,7 +133,6 @@ from app.schemas.data_sources.configs import (
     # Qlik Sense Enterprise on Windows (on-prem)
     QlikSenseOnPremConfig,
     QlikSenseOnPremCertCredentials,
-    QlikSenseOnPremUserIdentityCredentials,
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
@@ -267,6 +266,28 @@ class AuthOptions(BaseModel):
         arbitrary_types_allowed = True
 
 
+class IdentitySlot(BaseModel):
+    """One identity parameter a connector can take per signed-in user.
+
+    A connector declares its slots on its registry entry; an admin then maps
+    each slot to a source on the connection (``Connection.identity_mapping``,
+    e.g. ``membership.attr:pg_role`` or ``static:CORP``). At query time the
+    resolved value is passed to the client constructor as ``param``, on top of
+    the connection's shared credentials — so the connector code only has to
+    accept the parameter; resolution, the block-on-missing rule and auditing
+    live in one place (services/connection_identity_mapping.py).
+    """
+
+    param: str  # client constructor argument the value is passed as
+    title: str
+    description: str = ""
+    # Suggested source shown as the form placeholder.
+    example: Optional[str] = None
+    # A mapped required slot that resolves empty blocks the query instead of
+    # falling back to the connection's own identity.
+    required: bool = True
+
+
 class SetupStep(BaseModel):
     """One step of a connector's setup guide, rendered by the connect form above
     the fields (numbered, with a copy button on `code`). For sources whose
@@ -301,6 +322,9 @@ class DataSourceRegistryEntry(BaseModel):
     credentials_auth: AuthOptions
     # Optional explicit client path; if None, fallback to dynamic resolution
     client_path: Optional[str] = None
+    # Per-user identity parameters this connector accepts (see IdentitySlot).
+    # Empty → the connection cannot pin a per-user identity.
+    identity_slots: List[IdentitySlot] = []
     dev_only: bool = False
     # Optional Python module the client needs but we don't ship (e.g. a driver
     # whose license forbids redistribution). When it isn't importable the entry
@@ -560,7 +584,19 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system","user"])
         }),
-        client_path=None
+        client_path=None,
+        identity_slots=[
+            IdentitySlot(
+                param="session_role",
+                title="Session role",
+                description=(
+                    "Postgres role each member's queries run as (SET ROLE at login). The "
+                    "connection's login user must be a member of every mapped role; grant "
+                    "tables to the roles, not to the login user."
+                ),
+                example="membership.attr:pg_role",
+            ),
+        ],
     ),
     "sqlite": DataSourceRegistryEntry(
         type="sqlite",
@@ -1534,24 +1570,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             by_auth={
                 # The certificate is admin-equivalent on the Qlik site, so it is
                 # system-scope only — per-user auth must never mean handing the
-                # site certificate to every user.
+                # site certificate to every user. Per-user identity comes from
+                # the connection's identity mapping (below), resolved from
+                # admin-set member attributes — never typed by the member, who
+                # could otherwise name any account the certificate can act as.
                 "certificate": AuthVariant(
                     title="Client Certificate (mutual TLS)",
                     schema=QlikSenseOnPremCertCredentials,
                     scopes=["system"],
                 ),
-                # Per-user auth: the user contributes only their Qlik identity;
-                # the admin's certificate is merged underneath at query time
-                # (overlay). Qlik then evaluates their queries with their own
-                # stream access and Section Access rules.
-                "identity": AuthVariant(
-                    title="Qlik Identity (uses the connection's certificate)",
-                    schema=QlikSenseOnPremUserIdentityCredentials,
-                    scopes=["user"],
-                    overlay=True,
-                ),
             },
         ),
+        identity_slots=[
+            IdentitySlot(
+                param="user_directory",
+                title="User Directory",
+                description="Qlik user directory as named in the QMC, e.g. the AD domain CORP.",
+                example="static:CORP",
+            ),
+            IdentitySlot(
+                param="user_id",
+                title="User ID",
+                description=(
+                    "Qlik user id (e.g. the AD sAMAccountName). Qlik applies that account's "
+                    "stream access and Section Access to the member's queries."
+                ),
+                example="membership.attr:qlik_user_id",
+            ),
+        ],
         client_path="app.data_sources.clients.qlik_sense_onprem_client.QlikSenseOnPremClient",
         requires_license="enterprise",
     ),
@@ -2301,6 +2347,12 @@ def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     if entry.dev_only and not _is_dev_environment():
         raise ValueError(f"Unknown data source type: {ds_type}")
     return entry
+
+
+def identity_slots_for(ds_type: str) -> List[IdentitySlot]:
+    """Identity slots a connector type accepts ([] when unknown / none)."""
+    entry = REGISTRY.get(ds_type) or REGISTRY.get((ds_type or "").lower())
+    return list(entry.identity_slots) if entry else []
 
 
 def is_overlay_auth(ds_type: str, auth_mode: str) -> bool:

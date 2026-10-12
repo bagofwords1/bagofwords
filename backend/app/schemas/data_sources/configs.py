@@ -3017,33 +3017,6 @@ class QlikSenseOnPremCertCredentials(BaseModel):
     )
 
 
-class QlikSenseOnPremUserIdentityCredentials(BaseModel):
-    """Per-user identity for a connection that requires user authentication.
-
-    Deliberately holds NO certificate material: the admin's client certificate
-    stays on the connection's system credentials, and this identity is merged
-    over it at query time (the variant is marked ``overlay`` in the registry).
-    The user only states who Qlik should evaluate their queries as — Qlik then
-    applies that account's stream access and Section Access rules.
-    """
-
-    user_directory: str = Field(
-        ...,
-        title="User Directory",
-        description=(
-            "Your Qlik user directory, e.g. your AD domain name — the part before the "
-            "backslash in DOMAIN\\user in the Qlik hub."
-        ),
-        json_schema_extra={"ui:type": "string"},
-    )
-    user_id: str = Field(
-        ...,
-        title="User ID",
-        description="Your Qlik user id — queries run with your stream access and Section Access rules.",
-        json_schema_extra={"ui:type": "string"},
-    )
-
-
 class QlikSenseOnPremConfig(BaseModel):
     """Connection form for QSEoW — deliberately small, like the Power BI and
     BigQuery forms. Crawl-behavior knobs (impersonate_app_owner,

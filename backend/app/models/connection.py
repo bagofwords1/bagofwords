@@ -31,6 +31,13 @@ class Connection(BaseSchema):
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required
     allowed_user_auth_modes = Column(JSON, nullable=True, default=None)
+    # Per-user identity mapping: {client_param: source_expression}. When set,
+    # every query made for a signed-in user runs as the identity these rules
+    # resolve from that user's membership (e.g. Postgres session_role, Qlik
+    # user_id) on top of the connection's shared credentials. Slots a type
+    # accepts are declared on its registry entry (identity_slots). NULL / {}
+    # = off. See services/connection_identity_mapping.py.
+    identity_mapping = Column(JSON, nullable=True, default=None)
 
     # Scheduled schema auto-reload (enterprise feature `scheduled_reindex`).
     # A background sweeper periodically re-indexes the shared catalog so tables

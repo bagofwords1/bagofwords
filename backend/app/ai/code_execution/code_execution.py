@@ -623,6 +623,11 @@ FORBIDDEN_SQL_PATTERNS = [
     r'\bLOAD\b',
     r'\bINTO\s+OUTFILE\b',
     r'\bINTO\s+DUMPFILE\b',
+    # Session identity switches: a connection may pin each member's database
+    # role (identity mapping); nothing a read query needs changes it.
+    r'\b(SET|RESET)\s+(SESSION\s+|LOCAL\s+)?ROLE\b',
+    r'\bSET\s+SESSION\s+AUTHORIZATION\b',
+    r"\bSET_CONFIG\s*\(\s*'role'",
 ]
 
 # Pre-compile regex for performance
@@ -653,6 +658,9 @@ _FORBIDDEN_SQL_IN_STRING_PATTERNS = [
     r'\bLOAD\s+DATA\b',
     r'\bINTO\s+OUTFILE\b',
     r'\bINTO\s+DUMPFILE\b',
+    r'\b(SET|RESET)\s+(SESSION\s+|LOCAL\s+)?ROLE\b',
+    r'\bSET\s+SESSION\s+AUTHORIZATION\b',
+    r"\bSET_CONFIG\s*\(\s*'role'",
 ]
 _FORBIDDEN_SQL_IN_STRING_REGEX = re.compile(
     '|'.join(_FORBIDDEN_SQL_IN_STRING_PATTERNS),

@@ -2484,7 +2484,25 @@
       "linkCopied": "Inbjudningslänk kopierad",
       "failedToCopyLink": "Det gick inte att kopiera länken",
       "linkRegenerated": "Inbjudningslänk uppdaterad och kopierad",
-      "moreGroups": "grupper"
+      "moreGroups": "grupper",
+      "colAttributes": "Attribut",
+      "colAttributesHint": "Värden som en administratör anger och som identifierar medlemmen i andra system (t.ex. qlik_user_id). Medlemmar kan inte ändra dem.",
+      "editAttributes": "Redigera attribut",
+      "attributeAdd": "Lägg till attribut",
+      "attributeKey": "Attributnamn",
+      "attributeValue": "Värde",
+      "attributeKeyPlaceholder": "namn, t.ex. qlik_user_id",
+      "attributeValuePlaceholder": "värde, t.ex. dana",
+      "attributeRemove": "Ta bort attribut",
+      "attributeKeyRequired": "Namn krävs",
+      "attributeKeyInvalid": "Endast bokstäver, siffror, _ . -; måste börja med en bokstav",
+      "attributeKeyDuplicate": "Dubblettnamn",
+      "attributesTitle": "Medlemsattribut",
+      "attributesHint": "Anslutningar kan köra den här medlemmens frågor som det konto värdena anger (Hantera anslutning → Identitet per medlem). Endast administratörer kan ändra dem.",
+      "attributesInviteHint": "Valfritt. Identifierar medlemmen i andra system, t.ex. Qlik-användare eller databasroll.",
+      "attributesSaved": "Attributen sparades",
+      "attributesSaveFailed": "Det gick inte att spara attributen",
+      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat."
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
@@ -3697,7 +3715,48 @@
     "refreshAccess": "Uppdatera åtkomst",
     "yourAccount": "Ditt konto",
     "managementOrganizationHint": "Tester och schemauppdateringar använder organisationens sparade inloggningsuppgifter.",
-    "managementPersonalHint": "Den här anslutningen kräver att du loggar in. Tester och uppdateringar använder ditt konto."
+    "managementPersonalHint": "Den här anslutningen kräver att du loggar in. Tester och uppdateringar använder ditt konto.",
+    "identityMapping": {
+      "title": "Identitet per medlem",
+      "statusOn": "På",
+      "statusOff": "Av",
+      "hint": "Kör varje medlems frågor som medlemmens eget konto i den här källan, utifrån värden som medlemmar inte kan ändra. En medlem utan värde blockeras — får aldrig anslutningens egen åtkomst.",
+      "sourceKind": "Källa",
+      "kindAttribute": "Medlemsattribut",
+      "kindStatic": "Fast värde",
+      "kindEmail": "Medlemmens e-post",
+      "kindName": "Medlemmens namn",
+      "attributePlaceholder": "attribut, t.ex. pg_role",
+      "staticPlaceholder": "värde, t.ex. CORP",
+      "previewTitle": "Vem kör som vem",
+      "previewCounts": "{resolved} mappade · {blocked} blockerade",
+      "blocked": "Blockerad",
+      "blockedMissing": "Blockerad: inget värde för {fields}",
+      "test": "Testa",
+      "testOk": "Ansluten",
+      "incomplete": "Fyll i alla fält för att förhandsgranska.",
+      "saveFailed": "Det gick inte att spara identitetsmappningen",
+      "savedOn": "Identitet per medlem är på",
+      "savedOff": "Identitet per medlem är av"
+    },
+    "identitySlots": {
+      "postgresql": {
+        "session_role": {
+          "title": "Sessionsroll",
+          "description": "Postgres-roll som varje medlems frågor körs som (SET ROLE vid inloggning). Anslutningens inloggningsanvändare måste vara medlem i varje mappad roll; ge rollerna behörighet till tabellerna, inte inloggningsanvändaren."
+        }
+      },
+      "qlik_sense_onprem": {
+        "user_directory": {
+          "title": "Användarkatalog",
+          "description": "Qlik-användarkatalogen så som den heter i QMC, t.ex. AD-domänen CORP."
+        },
+        "user_id": {
+          "title": "Användar-ID",
+          "description": "Qlik-användar-ID (t.ex. AD:s sAMAccountName). Qlik tillämpar kontots stream-åtkomst och Section Access på medlemmens frågor."
+        }
+      }
+    }
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",
@@ -3836,7 +3895,10 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Resursen är inte tillgänglig",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Begäran avbröts",
     "ARTIFACT_RESOURCE_ABORTED": "Begäran avbruten",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte",
+    "member_attributes.invalid": "Ogiltiga medlemsattribut.",
+    "identity_mapping.invalid": "Ogiltig identitetsmappning.",
+    "identity_mapping.unresolved": "Den här anslutningen kör frågor som ditt eget konto, men din profil saknar värde för {fields}. Be en administratör ange det under Inställningar → Medlemmar."
   },
   "email": {
     "dashboardShare": {

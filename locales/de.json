@@ -2484,7 +2484,25 @@
       "linkCopied": "Einladungslink kopiert",
       "failedToCopyLink": "Link konnte nicht kopiert werden",
       "linkRegenerated": "Einladungslink erneuert und kopiert",
-      "moreGroups": "Gruppen"
+      "moreGroups": "Gruppen",
+      "colAttributes": "Attribute",
+      "colAttributesHint": "Von Admins gesetzte Werte, die das Mitglied in anderen Systemen identifizieren (z. B. qlik_user_id). Mitglieder können sie nicht ändern.",
+      "editAttributes": "Attribute bearbeiten",
+      "attributeAdd": "Attribut hinzufügen",
+      "attributeKey": "Attributname",
+      "attributeValue": "Wert",
+      "attributeKeyPlaceholder": "Name, z. B. qlik_user_id",
+      "attributeValuePlaceholder": "Wert, z. B. dana",
+      "attributeRemove": "Attribut entfernen",
+      "attributeKeyRequired": "Name ist erforderlich",
+      "attributeKeyInvalid": "Nur Buchstaben, Ziffern, _ . -; beginnt mit einem Buchstaben",
+      "attributeKeyDuplicate": "Doppelter Name",
+      "attributesTitle": "Mitgliedsattribute",
+      "attributesHint": "Verbindungen können die Abfragen dieses Mitglieds als das Konto ausführen, das diese Werte benennen (Verbindung verwalten → Identität pro Mitglied). Nur Admins können sie ändern.",
+      "attributesInviteHint": "Optional. Identifiziert das Mitglied in anderen Systemen, z. B. seinen Qlik-Benutzer oder seine Datenbankrolle.",
+      "attributesSaved": "Attribute gespeichert",
+      "attributesSaveFailed": "Attribute konnten nicht gespeichert werden",
+      "importAttributesHint": "Fügen Sie {column}-Spalten hinzu, um Attribute zu setzen, z. B. {example}. Eine leere Zelle lässt das Attribut unverändert."
     },
     "organizationName": "Organisationsname",
     "organizationIcon": "Organisationssymbol",
@@ -3697,7 +3715,48 @@
     "refreshAccess": "Zugriff aktualisieren",
     "yourAccount": "Ihr Konto",
     "managementOrganizationHint": "Tests und Schemaaktualisierungen verwenden die gespeicherten Zugangsdaten der Organisation.",
-    "managementPersonalHint": "Dieser Konnektor erfordert Ihre Anmeldung. Tests und Aktualisierungen verwenden Ihr Konto."
+    "managementPersonalHint": "Dieser Konnektor erfordert Ihre Anmeldung. Tests und Aktualisierungen verwenden Ihr Konto.",
+    "identityMapping": {
+      "title": "Identität pro Mitglied",
+      "statusOn": "An",
+      "statusOff": "Aus",
+      "hint": "Führt die Abfragen jedes Mitglieds mit dessen eigenem Konto auf dieser Quelle aus – aus Werten, die Mitglieder nicht ändern können. Ein Mitglied ohne Wert wird blockiert und erhält nie den eigenen Zugriff der Verbindung.",
+      "sourceKind": "Quelle",
+      "kindAttribute": "Mitgliedsattribut",
+      "kindStatic": "Fester Wert",
+      "kindEmail": "E-Mail des Mitglieds",
+      "kindName": "Name des Mitglieds",
+      "attributePlaceholder": "Attribut, z. B. pg_role",
+      "staticPlaceholder": "Wert, z. B. CORP",
+      "previewTitle": "Wer läuft als wer",
+      "previewCounts": "{resolved} zugeordnet · {blocked} blockiert",
+      "blocked": "Blockiert",
+      "blockedMissing": "Blockiert: kein Wert für {fields}",
+      "test": "Testen",
+      "testOk": "Verbunden",
+      "incomplete": "Füllen Sie alle Felder für die Vorschau aus.",
+      "saveFailed": "Identitätszuordnung konnte nicht gespeichert werden",
+      "savedOn": "Identität pro Mitglied ist an",
+      "savedOff": "Identität pro Mitglied ist aus"
+    },
+    "identitySlots": {
+      "postgresql": {
+        "session_role": {
+          "title": "Sitzungsrolle",
+          "description": "Postgres-Rolle, unter der die Abfragen jedes Mitglieds laufen (SET ROLE bei der Anmeldung). Der Anmeldebenutzer der Verbindung muss Mitglied jeder zugeordneten Rolle sein; vergeben Sie Tabellenrechte an die Rollen, nicht an den Anmeldebenutzer."
+        }
+      },
+      "qlik_sense_onprem": {
+        "user_directory": {
+          "title": "Benutzerverzeichnis",
+          "description": "Qlik-Benutzerverzeichnis wie in der QMC benannt, z. B. die AD-Domäne CORP."
+        },
+        "user_id": {
+          "title": "Benutzer-ID",
+          "description": "Qlik-Benutzer-ID (z. B. der AD-sAMAccountName). Qlik wendet den Stream-Zugriff und Section Access dieses Kontos auf die Abfragen des Mitglieds an."
+        }
+      }
+    }
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
@@ -3836,7 +3895,10 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource nicht verfügbar",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Anfrage unterbrochen",
     "ARTIFACT_RESOURCE_ABORTED": "Anfrage abgebrochen",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Nicht unterstützte SDK-Version"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Nicht unterstützte SDK-Version",
+    "member_attributes.invalid": "Ungültige Mitgliedsattribute.",
+    "identity_mapping.invalid": "Ungültige Identitätszuordnung.",
+    "identity_mapping.unresolved": "Diese Verbindung führt Abfragen mit Ihrem eigenen Konto aus, aber Ihr Profil hat keinen Wert für {fields}. Bitten Sie einen Admin, ihn unter Einstellungen → Mitglieder zu setzen."
   },
   "email": {
     "dashboardShare": {

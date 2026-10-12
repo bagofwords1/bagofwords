@@ -94,6 +94,11 @@ class ErrorCode(str, Enum):
     LLM_MODEL_ID_NOT_EDITABLE = "llm.model_id_not_editable"
     LLM_MODEL_ID_DUPLICATE = "llm.model_id_duplicate"
 
+    # Member attributes / connection identity mapping
+    MEMBER_ATTRIBUTES_INVALID = "member_attributes.invalid"
+    IDENTITY_MAPPING_INVALID = "identity_mapping.invalid"
+    IDENTITY_MAPPING_UNRESOLVED = "identity_mapping.unresolved"
+
     # Data execution
     QUERY_TIMEOUT = "query.timeout"
     QUERY_FAILED_SILENTLY = "query.failed_silently"

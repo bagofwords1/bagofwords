@@ -2484,7 +2484,25 @@
       "linkCopied": "تم نسخ رابط الدعوة",
       "failedToCopyLink": "تعذّر نسخ الرابط",
       "linkRegenerated": "تم تحديث رابط الدعوة ونسخه",
-      "moreGroups": "مجموعات"
+      "moreGroups": "مجموعات",
+      "colAttributes": "السمات",
+      "colAttributesHint": "قيم يحددها المسؤول لتعريف العضو في أنظمة أخرى (مثل qlik_user_id). لا يمكن للأعضاء تعديلها.",
+      "editAttributes": "تعديل السمات",
+      "attributeAdd": "إضافة سمة",
+      "attributeKey": "اسم السمة",
+      "attributeValue": "القيمة",
+      "attributeKeyPlaceholder": "الاسم، مثل qlik_user_id",
+      "attributeValuePlaceholder": "القيمة، مثل dana",
+      "attributeRemove": "إزالة السمة",
+      "attributeKeyRequired": "الاسم مطلوب",
+      "attributeKeyInvalid": "أحرف وأرقام و_ . - فقط؛ يبدأ بحرف",
+      "attributeKeyDuplicate": "اسم مكرر",
+      "attributesTitle": "سمات العضو",
+      "attributesHint": "يمكن للاتصالات تشغيل استعلامات هذا العضو باسم الحساب الذي تحدده هذه القيم (إدارة الاتصال ← هوية لكل عضو). يمكن للمسؤولين فقط تغييرها.",
+      "attributesInviteHint": "اختياري. يعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو دور قاعدة البيانات.",
+      "attributesSaved": "تم حفظ السمات",
+      "attributesSaveFailed": "تعذّر حفظ السمات",
+      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير."
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",
@@ -3697,7 +3715,48 @@
     "refreshAccess": "تحديث الوصول",
     "yourAccount": "حسابك",
     "managementOrganizationHint": "تستخدم الاختبارات وتحديثات المخطط بيانات الاعتماد المحفوظة للمؤسسة.",
-    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك."
+    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك.",
+    "identityMapping": {
+      "title": "هوية لكل عضو",
+      "statusOn": "مفعّلة",
+      "statusOff": "معطّلة",
+      "hint": "شغّل استعلامات كل عضو بحسابه الخاص في هذا المصدر، استنادًا إلى قيم لا يستطيع الأعضاء تعديلها. يُحظر العضو الذي لا يملك قيمة، ولا يحصل أبدًا على صلاحية الاتصال نفسه.",
+      "sourceKind": "المصدر",
+      "kindAttribute": "سمة العضو",
+      "kindStatic": "قيمة ثابتة",
+      "kindEmail": "بريد العضو",
+      "kindName": "اسم العضو",
+      "attributePlaceholder": "سمة، مثل pg_role",
+      "staticPlaceholder": "قيمة، مثل CORP",
+      "previewTitle": "من يعمل باسم من",
+      "previewCounts": "{resolved} معيّن · {blocked} محظور",
+      "blocked": "محظور",
+      "blockedMissing": "محظور: لا توجد قيمة لـ {fields}",
+      "test": "اختبار",
+      "testOk": "متصل",
+      "incomplete": "املأ جميع الحقول للمعاينة.",
+      "saveFailed": "تعذّر حفظ تعيين الهوية",
+      "savedOn": "الهوية لكل عضو مفعّلة",
+      "savedOff": "الهوية لكل عضو معطّلة"
+    },
+    "identitySlots": {
+      "postgresql": {
+        "session_role": {
+          "title": "دور الجلسة",
+          "description": "دور Postgres الذي تُشغَّل به استعلامات كل عضو (SET ROLE عند تسجيل الدخول). يجب أن يكون مستخدم تسجيل الدخول للاتصال عضوًا في كل دور معيّن؛ امنح صلاحيات الجداول للأدوار وليس لمستخدم تسجيل الدخول."
+        }
+      },
+      "qlik_sense_onprem": {
+        "user_directory": {
+          "title": "دليل المستخدمين",
+          "description": "دليل مستخدمي Qlik كما يظهر في QMC، مثل نطاق AD ‏CORP."
+        },
+        "user_id": {
+          "title": "معرّف المستخدم",
+          "description": "معرّف مستخدم Qlik (مثل sAMAccountName في AD). يطبّق Qlik صلاحيات الوصول إلى Streams وSection Access الخاصة بهذا الحساب على استعلامات العضو."
+        }
+      }
+    }
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -3836,7 +3895,10 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "المورد غير متاح",
     "ARTIFACT_RESOURCE_INTERRUPTED": "انقطع الطلب",
     "ARTIFACT_RESOURCE_ABORTED": "أُلغي الطلب",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم",
+    "member_attributes.invalid": "سمات العضو غير صالحة.",
+    "identity_mapping.invalid": "تعيين الهوية غير صالح.",
+    "identity_mapping.unresolved": "يشغّل هذا الاتصال الاستعلامات بحسابك الخاص، لكن ملفك لا يحتوي على قيمة لـ {fields}. اطلب من المسؤول تعيينها في الإعدادات ← الأعضاء."
   },
   "email": {
     "dashboardShare": {

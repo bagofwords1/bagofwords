@@ -222,6 +222,16 @@ class CustomQueryService:
                     "security support is planned."
                 ),
             )
+        from app.services.connection_identity_mapping import identity_mapping_active
+        if identity_mapping_active(connection):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Custom tables are not available while this connection runs "
+                    "queries as each member's own identity: one materialized copy "
+                    "cannot represent what each mapped identity may see."
+                ),
+            )
 
     # -- extraction targets -------------------------------------------------
     #

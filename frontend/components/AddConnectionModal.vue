@@ -229,6 +229,7 @@
               <p v-if="retestResult" role="status" class="text-sm whitespace-pre-wrap break-words mb-4" :class="retestResult.success ? 'text-green-600' : 'text-red-600'">{{ retestResult.message }}</p>
               <ConnectionIndexingProgress v-if="createdConnection" :indexing="indexingState" :show-logs="true" />
               <ConnectionScheduleSettings v-if="createdConnection" :connection="createdConnection" />
+              <ConnectionIdentityMapping v-if="createdConnection" :connection="createdConnection" />
             </aside>
           </div>
           <div class="flex shrink-0 justify-end gap-3 border-t border-gray-100 dark:border-gray-800 pt-4">

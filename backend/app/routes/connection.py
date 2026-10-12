@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List
+from typing import List, Optional
 
 from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, release_request_db
@@ -55,6 +55,13 @@ from app.schemas.custom_query_schema import (
     CustomQueryTarget,
 )
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
+from app.services.connection_identity_mapping import (
+    identity_mapping_active,
+    identity_mapping_of,
+    preview_identity_mapping,
+    validate_identity_mapping,
+)
+from app.schemas.data_source_registry import identity_slots_for
 
 
 router = APIRouter(prefix="/connections", tags=["connections"])
@@ -357,6 +364,7 @@ async def list_connections(
             custom_queries_supported=(
                 is_accelerable_type(conn.type)
                 and (conn.auth_policy or "system_only") == "system_only"
+                and not identity_mapping_active(conn)
             ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
@@ -389,6 +397,7 @@ async def create_connection(
         credentials=data.credentials,
         auth_policy=data.auth_policy,
         allowed_user_auth_modes=data.allowed_user_auth_modes,
+        identity_mapping=data.identity_mapping,
     )
     
     # Inline the latest indexing run so the modal can show progress
@@ -422,6 +431,7 @@ async def create_connection(
         custom_queries_supported=(
             is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
+            and not identity_mapping_active(connection)
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
@@ -510,6 +520,7 @@ async def get_connection(
         custom_queries_supported=(
             is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
+            and not identity_mapping_active(connection)
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
@@ -531,6 +542,8 @@ async def get_connection(
         rate_limit_per_hour=connection.rate_limit_per_hour,
         rate_limit_per_day=connection.rate_limit_per_day,
         data_shape=data_shape_for(connection.type),
+        identity_mapping=(identity_mapping_of(connection) or None) if is_admin else None,
+        identity_slots=[slot.model_dump() for slot in identity_slots_for(connection.type)],
     )
 
 
@@ -539,12 +552,18 @@ async def get_connection(
 async def update_connection(
     connection_id: str,
     data: ConnectionUpdate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """Update a connection."""
     updates = data.dict(exclude_unset=True)
+    previous_mapping = None
+    if "identity_mapping" in updates:
+        previous_mapping = identity_mapping_of(
+            await connection_service.get_connection(db, connection_id, organization)
+        )
     connection = await connection_service.update_connection(
         db=db,
         connection_id=connection_id,
@@ -552,6 +571,26 @@ async def update_connection(
         current_user=current_user,
         **updates,
     )
+    if "identity_mapping" in updates and identity_mapping_of(connection) != previous_mapping:
+        # The mapping decides which account every member acts as on this
+        # source — audit each change with before/after rules.
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="connection.identity_mapping_changed",
+                user_id=str(current_user.id),
+                resource_type="connection",
+                resource_id=str(connection.id),
+                details={
+                    "connection_name": connection.name,
+                    "before": previous_mapping or {},
+                    "after": identity_mapping_of(connection),
+                },
+                request=request,
+            )
+        except Exception:
+            pass
     
     from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
     # Counts come from one grouped aggregate rather than len() over the
@@ -575,11 +614,59 @@ async def update_connection(
         custom_queries_supported=(
             is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
+            and not identity_mapping_active(connection)
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         data_shape=data_shape_for(connection.type),
     )
+
+
+class IdentityMappingPreviewRequest(BaseModel):
+    # Unsaved rules to preview; omit to preview the saved mapping.
+    identity_mapping: Optional[dict] = None
+
+
+@router.post("/{connection_id}/identity-mapping/preview")
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_identity_mapping(
+    connection_id: str,
+    body: IdentityMappingPreviewRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Resolve identity-mapping rules for every member of the org: who would
+    act as which identity on this connection, and who would be blocked."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    mapping = None
+    if body.identity_mapping is not None:
+        mapping = validate_identity_mapping(connection.type, body.identity_mapping) or {}
+    return await preview_identity_mapping(db, connection, mapping)
+
+
+class IdentityMappingTestRequest(BaseModel):
+    membership_id: str
+    # Unsaved rules to test; omit to test the saved mapping.
+    identity_mapping: Optional[dict] = None
+
+
+@router.post("/{connection_id}/identity-mapping/test")
+@requires_resource_permission('connection', 'manage_connection')
+async def test_connection_identity_mapping(
+    connection_id: str,
+    body: IdentityMappingTestRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Connect as one member's mapped identity and report whether it works."""
+    from app.services.connection_identity_mapping import test_identity_for_member
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    mapping = None
+    if body.identity_mapping is not None:
+        mapping = validate_identity_mapping(connection.type, body.identity_mapping) or {}
+    return await test_identity_for_member(db, connection, body.membership_id, mapping)
 
 
 @router.delete("/{connection_id}")

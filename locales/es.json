@@ -2606,7 +2606,25 @@
       "copyLink": "Copiar enlace",
       "linkCopied": "Enlace de invitación copiado",
       "failedToCopyLink": "No se pudo copiar el enlace",
-      "linkRegenerated": "Enlace de invitación renovado y copiado"
+      "linkRegenerated": "Enlace de invitación renovado y copiado",
+      "colAttributes": "Atributos",
+      "colAttributesHint": "Valores definidos por un administrador que identifican al miembro en otros sistemas (p. ej. qlik_user_id). Los miembros no pueden editarlos.",
+      "editAttributes": "Editar atributos",
+      "attributeAdd": "Añadir atributo",
+      "attributeKey": "Nombre del atributo",
+      "attributeValue": "Valor",
+      "attributeKeyPlaceholder": "nombre, p. ej. qlik_user_id",
+      "attributeValuePlaceholder": "valor, p. ej. dana",
+      "attributeRemove": "Quitar atributo",
+      "attributeKeyRequired": "El nombre es obligatorio",
+      "attributeKeyInvalid": "Solo letras, dígitos, _ . -; debe empezar por una letra",
+      "attributeKeyDuplicate": "Nombre duplicado",
+      "attributesTitle": "Atributos del miembro",
+      "attributesHint": "Las conexiones pueden ejecutar las consultas de este miembro como la cuenta que indican estos valores (Gestionar conexión → Identidad por miembro). Solo los administradores pueden cambiarlos.",
+      "attributesInviteHint": "Opcional. Identifica a este miembro en otros sistemas, p. ej. su usuario de Qlik o su rol de base de datos.",
+      "attributesSaved": "Atributos guardados",
+      "attributesSaveFailed": "No se pudieron guardar los atributos",
+      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios."
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",
@@ -3817,7 +3835,48 @@
     "refreshAccess": "Actualizar acceso",
     "yourAccount": "Tu cuenta",
     "managementOrganizationHint": "Las pruebas y actualizaciones del esquema usan las credenciales guardadas de la organización.",
-    "managementPersonalHint": "Este conector requiere que inicies sesión. Las pruebas y actualizaciones usan tu cuenta."
+    "managementPersonalHint": "Este conector requiere que inicies sesión. Las pruebas y actualizaciones usan tu cuenta.",
+    "identityMapping": {
+      "title": "Identidad por miembro",
+      "statusOn": "Activada",
+      "statusOff": "Desactivada",
+      "hint": "Ejecuta las consultas de cada miembro con su propia cuenta en esta fuente, a partir de valores que los miembros no pueden editar. Un miembro sin valor queda bloqueado; nunca recibe el acceso propio de la conexión.",
+      "sourceKind": "Origen",
+      "kindAttribute": "Atributo del miembro",
+      "kindStatic": "Valor fijo",
+      "kindEmail": "Correo del miembro",
+      "kindName": "Nombre del miembro",
+      "attributePlaceholder": "atributo, p. ej. pg_role",
+      "staticPlaceholder": "valor, p. ej. CORP",
+      "previewTitle": "Quién se ejecuta como quién",
+      "previewCounts": "{resolved} asignados · {blocked} bloqueados",
+      "blocked": "Bloqueado",
+      "blockedMissing": "Bloqueado: sin valor para {fields}",
+      "test": "Probar",
+      "testOk": "Conectado",
+      "incomplete": "Completa todos los campos para ver la vista previa.",
+      "saveFailed": "No se pudo guardar la asignación de identidad",
+      "savedOn": "La identidad por miembro está activada",
+      "savedOff": "La identidad por miembro está desactivada"
+    },
+    "identitySlots": {
+      "postgresql": {
+        "session_role": {
+          "title": "Rol de sesión",
+          "description": "Rol de Postgres con el que se ejecutan las consultas de cada miembro (SET ROLE al iniciar sesión). El usuario de inicio de sesión de la conexión debe ser miembro de cada rol asignado; concede las tablas a los roles, no al usuario de inicio de sesión."
+        }
+      },
+      "qlik_sense_onprem": {
+        "user_directory": {
+          "title": "Directorio de usuarios",
+          "description": "Directorio de usuarios de Qlik tal como aparece en la QMC, p. ej. el dominio de AD CORP."
+        },
+        "user_id": {
+          "title": "ID de usuario",
+          "description": "ID de usuario de Qlik (p. ej. el sAMAccountName de AD). Qlik aplica a las consultas del miembro el acceso a streams y el Section Access de esa cuenta."
+        }
+      }
+    }
   },
   "share": {
     "shareDashboard": "Compartir panel",
@@ -3956,7 +4015,10 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso no disponible",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitud interrumpida",
     "ARTIFACT_RESOURCE_ABORTED": "Solicitud cancelada",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versión del SDK no compatible"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versión del SDK no compatible",
+    "member_attributes.invalid": "Atributos de miembro no válidos.",
+    "identity_mapping.invalid": "Asignación de identidad no válida.",
+    "identity_mapping.unresolved": "Esta conexión ejecuta las consultas con tu propia cuenta, pero tu perfil no tiene valor para {fields}. Pide a un administrador que lo defina en Configuración → Miembros."
   },
   "email": {
     "dashboardShare": {
