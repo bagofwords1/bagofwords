@@ -139,22 +139,37 @@ await strip.waitFor({ state: 'visible', timeout: 1500000 });
 log('fan-in strip visible');
 await page.locator('.thinking-shimmer').waitFor({ state: 'detached', timeout: 600000 }).catch(() => {});
 await page.waitForTimeout(2500);
-await page.keyboard.press('End');
+await strip.scrollIntoViewIfNeeded();
 await page.waitForTimeout(800);
-await shot(page, 'fan-in-strip-and-synthesis', 'the fan-in event strip with outcome counts, then the synthesis reply');
+await shot(page, 'fan-in-strip', 'the fan-in event strip with outcome counts, where the wave reported back');
+// The synthesis reply is the last assistant message; bring its end into view.
+const lastReply = page.locator('[data-testid="chat-timeline"] .markdown, .prose, [class*="markdown"]').last();
+if (await lastReply.count()) { await lastReply.scrollIntoViewIfNeeded(); await page.mouse.wheel(0, 4000); }
+await page.waitForTimeout(800);
+await shot(page, 'fan-in-synthesis', 'the synthesis reply: cause, evidence and ruled-out decoys from the records');
 // Finished cards with outcome badges
 await page.locator('[data-testid^="delegate-card-"]').first().scrollIntoViewIfNeeded();
 await page.waitForTimeout(800);
 await shot(page, 'delegate-cards-finished', 'delegate cards with outcome badges, confidence, steps and tokens');
 
 // ============ STAGE 5: Summary tab ============
-const summaryTab = page.locator('button:has-text("Summary"), [role="tab"]:has-text("Summary")').first();
+// The Summary tab lives in the right panel header; the panel is collapsed on
+// a chat-only report, so open it with the Sidebar toggle first.
+let summaryTab = page.locator('button:has-text("Summary"), [role="tab"]:has-text("Summary")').first();
+if (!(await summaryTab.count())) {
+  const sidebarToggle = page.locator('button:has-text("Sidebar")').first();
+  if (await sidebarToggle.count()) { await sidebarToggle.click(); await page.waitForTimeout(800); }
+  summaryTab = page.locator('button:has-text("Summary"), [role="tab"]:has-text("Summary")').first();
+}
 if (await summaryTab.count()) {
   await summaryTab.click();
-  await page.locator('[data-testid="summary-sub-runs"]').waitFor({ state: 'visible', timeout: 30000 });
+  const section = page.locator('[data-testid="summary-sub-runs"]');
+  await section.waitFor({ state: 'visible', timeout: 30000 });
+  await section.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
   await shot(page, 'summary-tab-sub-runs', 'Summary tab: Sub-runs section with outcome badges, steps, tokens');
 } else {
-  log('Summary tab control not found by text; skipping');
+  log('Summary tab control not found; skipping');
 }
 
 // ============ STAGE 6: reload hydrates everything from rows ============

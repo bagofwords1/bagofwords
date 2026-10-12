@@ -117,3 +117,38 @@ async def test_changed_invalid_arguments_are_a_different_approach():
 
     assert result["observation"]["error"]["type"] == "validation_error"
     assert "retry_exhausted" not in result["observation"]
+
+
+class _ChatOnlySpec:
+    allowed_modes = ["chat", "training"]
+
+
+class _ChatOnlyTool(_FakeTool):
+    name = "create_data"
+    spec = _ChatOnlySpec()
+
+
+class _SubagentOnlySpec:
+    allowed_modes = ["subagent"]
+
+
+class _SubagentOnlyTool(_FakeTool):
+    name = "finish_subtask"
+    spec = _SubagentOnlySpec()
+
+
+@pytest.mark.asyncio
+async def test_mode_gate_treats_a_sub_run_as_chat():
+    """A sub-run (docs/design/sub-runs.md) is a chat-mode run with a narrower
+    catalog enforced before dispatch, so a chat tool its profile allows must
+    not be refused here; a plain 'subagent' mode without a sub_run_id, and a
+    subagent-only tool in chat, still are."""
+    runner = ToolRunner()
+    ok = await runner.run(_ChatOnlyTool(), {"user_prompt": "x"}, {"mode": "subagent", "sub_run_id": "sr-1"}, _noop_emit)
+    assert ok["observation"]["success"] is True
+
+    refused = await runner.run(_ChatOnlyTool(), {"user_prompt": "x"}, {"mode": "subagent"}, _noop_emit)
+    assert refused["error"]["type"] == "mode_not_allowed"
+
+    refused_in_chat = await runner.run(_SubagentOnlyTool(), {"user_prompt": "x"}, {"mode": "chat"}, _noop_emit)
+    assert refused_in_chat["error"]["type"] == "mode_not_allowed"
