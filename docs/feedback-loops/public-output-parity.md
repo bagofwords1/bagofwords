@@ -128,8 +128,108 @@ frontend code.
   the owner view. With PII off, it is byte-identical to before.
 - Related suites passed: 162 + 97 tests, 3 skipped (browser-only offline tests
   without Chromium in pytest), 0 failures. See the PR for the file list.
-- Not changed: the public PDF and PPTX exports
-  (`/r/{id}/export_pdf|export_pptx`) render through `report_pdf_service`. Both
-  routes already refuse credential-scoped snapshots with 409, but neither was
-  re-verified here for identity-scoped queries. They are a candidate follow-up
-  for the same `viewer=` threading.
+- Not changed in #1331: the public PDF and PPTX exports
+  (`/r/{id}/export_pdf|export_pptx`). They were verified in the follow-up
+  below, and both leaked.
+
+## Follow-up — public PDF and PPTX exports (after #1331)
+
+Claim under test: `/r/{id}/export_pdf` and `/r/{id}/export_pptx` only had the
+report-level 409 for credential-scoped (`user_required`) connections, so they
+could still bake the owner's rows for an identity-scoped query on a shared
+connection.
+
+### Root cause (validated, base `ai/friendly-dijkstra-2e8qmj`)
+
+- **PDF, dashboard and doc.** The public route called
+  `ReportPdfService().generate_for_report(str(report_id))` with no reader
+  (`backend/app/routes/report.py:731`). That rendered
+  `collect_artifact_payload(db, artifact)` (`report_pdf_service.py:963`) or
+  `collect_visualizations(db, artifact)` (`:890`), both `UNSCOPED`, which
+  means raw `step.data`. Headless Chromium then printed those rows into the
+  file.
+- **PPTX, and the PDF of a deck.** The route serves the `.pptx` that slide
+  generation wrote once, with the owner's snapshot baked in. The deck PDF is
+  a LibreOffice conversion of that same file (`report_pdf_service.py:863`).
+  The only gate was `report_snapshot_withheld` (`report.py:821`). That gate is
+  credential-level, and `resolve_step_data` withholds identity-scoped steps per
+  step (`step_identity_scope`), not at the report level.
+
+### Fix
+
+- `generate_for_report(report_id, *, viewer=UNSCOPED)` passes `viewer` to
+  `collect_artifact_payload` / `collect_visualizations`, the same
+  `resolve_step_data` path that `export_html` and `get_public_step` use. The
+  public `export_pdf` passes `viewer=user`. No new policy is added.
+- A deck cannot be filtered after it is rendered. The new
+  `artifact_payload.any_rows_withheld(db, artifact, viewer)` asks
+  `resolve_step_data` whether any of the artifact's queries is withheld from
+  this reader. If one is, the public `export_pptx` and the deck branch of the
+  public PDF return **409** and serve no file. The owner, and any reader who
+  is served every row, still gets the deck.
+- Unchanged, still `UNSCOPED`: `generate_for_artifact` (in-app export and
+  emailed share), scheduled and notification PDFs (`notification_service`
+  calls `generate_for_report` with no viewer), thumbnails, and the existing
+  credential-scoped 409s.
+
+### Loop A — pytest (renderers stubbed at the Chromium/LibreOffice boundary)
+
+The following tests were added to `backend/tests/e2e/test_public_output_parity.py`:
+
+| Test | Base | Fix |
+|---|---|---|
+| `test_public_pdf_withholds_identity_scoped_rows_like_the_json_view[identity, input_identity_default]` | FAIL (5 owner rows baked) | pass |
+| `test_public_pdf_of_a_mixed_report_withholds_only_identity_rows` | FAIL | pass |
+| `test_public_pdf_of_a_doc_withholds_identity_scoped_rows` | FAIL | pass |
+| `test_public_pptx_is_refused_when_the_deck_baked_withheld_rows[identity, input_identity_default]` | FAIL (200) | pass (409) |
+| `test_public_pdf_of_a_deck_is_refused_when_rows_are_withheld` | FAIL (200) | pass (409; owner 200) |
+| `test_public_pdf_matches_the_json_view_for_plain_shared_rows` (guard) | pass | pass |
+| `test_owner_public_pdf_keeps_their_own_identity_scoped_rows` (guard) | pass | pass |
+| `test_in_app_pdf_keeps_the_owner_snapshot` (guard) | pass | pass |
+| `test_public_pptx_serves_plain_decks_and_the_owner` (guard) | pass | pass |
+
+### Loop B — live stack (real Chromium PDF, real LibreOffice, real HTTP)
+
+The run used a backend on a non-default port with a scratch SQLite DB, an
+admin and org from `tools/agent/seed_org.py`, and the steps below.
+
+```
+# from backend/
+BOW_SANDBOX_PORT=8047 python ../docs/feedback-loops/public-output-parity/launch.py
+python ../docs/feedback-loops/public-output-parity/seed_wp7_exports.py > ids.json
+python ../docs/feedback-loops/public-output-parity/probe_exports.py ids.json http://localhost:8047 org.json out/
+```
+
+`seed_wp7_exports.py` seeds five public reports:
+
+- identity dashboard;
+- plain dashboard;
+- mixed dashboard;
+- identity deck, a real `.pptx` that bakes `SECRET-ROW-*`;
+- plain deck.
+
+`probe_exports.py` downloads each export anonymously and as the owner. It
+extracts the text from the file (pypdfium2 / python-pptx) and counts distinct
+row labels. The full output is in `public-output-parity/exports-before.txt` and
+`exports-after.txt`.
+
+| Report / export | JSON view (anon) | Base anon | Fix anon | Owner (base = fix) |
+|---|---|---|---|---|
+| identity dash, PDF | 0 rows | **SECRET 4** | SECRET 0 | SECRET 4 |
+| mixed dash, PDF | [0, 4] | **SECRET 4**, PUBLIC 4 | SECRET 0, PUBLIC 4 | SECRET 4, PUBLIC 4 |
+| plain dash, PDF | 4 | PUBLIC 4 | PUBLIC 4 | PUBLIC 4 |
+| identity deck, PPTX | 0 rows | **200, SECRET 4** | 409 | 200, SECRET 4 |
+| identity deck, PDF | 0 rows | **200, SECRET 4** | 409 | 200, SECRET 4 |
+| plain deck, PPTX / PDF | 4 | PUBLIC 4 | PUBLIC 4 | PUBLIC 4 |
+
+Dashboards have no deck, so their PPTX returns 409 in both runs, as before.
+
+### Limits
+
+- A deck that mixes identity-scoped and plain queries is refused as a whole
+  for non-owners. The `.pptx` is a finished file, so it cannot carry only the
+  plain rows. Regenerating the deck per viewer would be a separate feature.
+- Scheduled and notification report PDFs (`notification_service`) still render
+  `UNSCOPED` for their recipients. They are out of scope here, because they
+  are owner-configured deliveries and not the share link. They are worth a
+  separate look under the same rule.

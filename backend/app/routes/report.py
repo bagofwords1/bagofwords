@@ -747,6 +747,11 @@ async def export_public_report_pdf(
     other /r read endpoints, and the same viewer-data policy: in
     viewer-identity mode on user-scoped connections the shared snapshot is
     withheld, so generate_for_report refuses and this returns 409.
+
+    Rows are resolved for THIS reader (viewer=user), exactly as export_html
+    and the public JSON view resolve them: an identity-scoped query prints
+    empty for anyone but the owner, and a deck — rendered once with the
+    stored rows — is refused (409) when any of them is withheld.
     """
     # Raises 401/403/404 exactly like the page's other public endpoints.
     schema = await report_service.get_public_report(db, report_id, user=user)
@@ -755,7 +760,7 @@ async def export_public_report_pdf(
 
     async def _generate_locked() -> str | None:
         async with _pdf_export_locks[str(report_id)]:
-            return await ReportPdfService().generate_for_report(str(report_id))
+            return await ReportPdfService().generate_for_report(str(report_id), viewer=user)
 
     try:
         pdf_path = await _asyncio.wait_for(
@@ -854,6 +859,18 @@ async def export_public_report_pptx(
     artifact = await db.get(ArtifactModel, chosen_id)
     if artifact is None or artifact.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Not found")
+
+    # The deck was rendered once with the stored rows and cannot be filtered
+    # per reader. If the public JSON view withholds any of its queries from
+    # this viewer (an identity-scoped query, for anyone but the owner), the
+    # file would hand them those rows — refuse instead.
+    from app.services.artifact_payload import any_rows_withheld
+
+    if await any_rows_withheld(db, artifact, user):
+        raise HTTPException(
+            status_code=409,
+            detail="This deck contains data that is only visible to its owner, so it cannot be exported.",
+        )
 
     # Same gate as the in-app twin: a failed artifact would export stale or
     # broken content.code as a successful download, with nothing telling the

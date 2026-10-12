@@ -36,6 +36,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from app.core.url_safety import host_is_public
 from app.services.artifact_libs import get_inline_scripts
+from app.services.artifact_payload import UNSCOPED, any_rows_withheld
 
 logger = logging.getLogger(__name__)
 
@@ -767,8 +768,13 @@ class ReportPdfService:
             pass
         await asyncio.sleep(self.SETTLE_SECONDS)
 
-    async def generate_for_report(self, report_id: str) -> Optional[str]:
+    async def generate_for_report(self, report_id: str, *, viewer: Any = UNSCOPED) -> Optional[str]:
         """Generate a PDF for the latest artifact of a report.
+
+        `viewer` (a User, or None for an anonymous share-link reader) resolves
+        every query's rows through viewer_data_policy.resolve_step_data — the
+        public JSON view's path — so the PDF holds exactly what that reader
+        may see. Omitted (UNSCOPED), the stored snapshot is rendered as before.
 
         Returns:
             Absolute filesystem path to the PDF, or None on failure.
@@ -821,7 +827,7 @@ class ReportPdfService:
                     logger.warning(f"No artifact found for report {report_id}")
                     return None
 
-                return await self._render_artifact_pdf(db, artifact)
+                return await self._render_artifact_pdf(db, artifact, viewer=viewer)
 
         except Exception as e:
             logger.exception(f"Failed to generate PDF for report {report_id}: {e}")
@@ -849,7 +855,7 @@ class ReportPdfService:
             logger.exception(f"Failed to generate PDF for artifact {artifact_id}: {e}")
             return None
 
-    async def _render_artifact_pdf(self, db, artifact) -> Optional[str]:
+    async def _render_artifact_pdf(self, db, artifact, *, viewer: Any = UNSCOPED) -> Optional[str]:
         """Dispatch to the renderer that matches the artifact's mode.
 
         Returns the absolute filesystem path to the PDF, or None on failure.
@@ -859,18 +865,23 @@ class ReportPdfService:
         if mode == "slides":
             # A slides artifact's content['code'] is python-pptx source, not
             # HTML — feeding it to the HTML renderer produced a blank page.
-            # The deck itself is the artifact; convert that.
+            # The deck itself is the artifact; convert that. It was rendered
+            # once with the stored rows and cannot be filtered, so a reader
+            # denied any of them gets no PDF at all.
+            if await any_rows_withheld(db, artifact, viewer):
+                logger.info("Refusing deck PDF for %s: rows withheld from this viewer", artifact.id)
+                return None
             return await self._render_slides_pdf(artifact)
 
         if mode == "doc":
             # A doc is markdown + {{viz:...}} placeholders, rendered by
             # DocViewer.vue. It has no content['code'] for the HTML path below,
             # and its own renderer is the frontend's — so print that.
-            return await self._render_doc_pdf(db, artifact)
+            return await self._render_doc_pdf(db, artifact, viewer=viewer)
 
-        return await self._render_page_pdf(db, artifact)
+        return await self._render_page_pdf(db, artifact, viewer=viewer)
 
-    async def _render_doc_pdf(self, db, artifact) -> Optional[str]:
+    async def _render_doc_pdf(self, db, artifact, *, viewer: Any = UNSCOPED) -> Optional[str]:
         """Collect a document's data and print it on paper.
 
         Returns the absolute filesystem path to the PDF, or None on failure.
@@ -887,7 +898,7 @@ class ReportPdfService:
             "markdown": markdown,
             # Same collection (and same ordering) the dashboard export uses, so
             # a {{viz:id}} binds to exactly the rows the viewer sees.
-            "visualizations": await collect_visualizations(db, artifact),
+            "visualizations": await collect_visualizations(db, artifact, viewer=viewer),
             "files": await self._doc_file_datauris(db, markdown),
         }
         rel_path = await self.generate_doc_pdf(str(artifact.id), doc)
@@ -953,14 +964,14 @@ class ReportPdfService:
         dest.write_bytes(data)
         return str(dest)
 
-    async def _render_page_pdf(self, db, artifact) -> Optional[str]:
+    async def _render_page_pdf(self, db, artifact, *, viewer: Any = UNSCOPED) -> Optional[str]:
         """Build the dashboard HTML (with its report's data) and render to PDF.
 
         Returns the absolute filesystem path to the PDF, or None on failure.
         """
         from app.services.artifact_payload import collect_artifact_payload
 
-        payload = await collect_artifact_payload(db, artifact)
+        payload = await collect_artifact_payload(db, artifact, viewer=viewer)
         if payload is None:
             return None
 
