@@ -91,7 +91,8 @@ def _prefix_cache_control() -> dict[str, Any]:
 
 class Anthropic(LLMClient):
     def __init__(self, api_key: str = None, base_url: str = None, temperature: Optional[float] = None,
-                 default_headers: Optional[dict] = None, vertex: Optional[dict] = None):
+                 default_headers: Optional[dict] = None, vertex: Optional[dict] = None,
+                 pin_egress: bool = False):
         super().__init__()
         # base_url was accepted but silently dropped here, so every caller got
         # api.anthropic.com no matter what it asked for. It is a real routing
@@ -123,8 +124,19 @@ class Anthropic(LLMClient):
                 client_kwargs["base_url"] = base_url
             if default_headers:
                 client_kwargs["default_headers"] = default_headers
-            self.client = AnthropicAPI(**client_kwargs)
-            self.async_client = AsyncAnthropic(**client_kwargs)
+            if pin_egress:
+                # Admin-configured base_url (Azure AI Foundry): validate and
+                # pin every request to the checked address (app.core.egress).
+                import anthropic as _anthropic_sdk
+                from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
+
+                self.client = AnthropicAPI(**client_kwargs, http_client=_anthropic_sdk.DefaultHttpxClient(
+                    transport=PinnedTransport(Policy.ADMIN)))
+                self.async_client = AsyncAnthropic(**client_kwargs, http_client=_anthropic_sdk.DefaultAsyncHttpxClient(
+                    transport=AsyncPinnedTransport(Policy.ADMIN)))
+            else:
+                self.client = AnthropicAPI(**client_kwargs)
+                self.async_client = AsyncAnthropic(**client_kwargs)
         self.max_tokens = 32768
         # Admin-configured override, or the historical default. Either way the
         # _accepts_temperature gate stays authoritative: model families that

@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit, urlunsplit
 
-from app.core.url_safety import host_is_public
+from app.core.render_guard import RenderEgressProxy, RendererPolicy, guard_page_requests
 from app.services.artifact_libs import get_inline_scripts
 from app.services.artifact_payload import UNSCOPED, any_rows_withheld
 
@@ -361,35 +361,6 @@ def _kill_chromium_tree(marker: str) -> int:
     return killed
 
 
-async def _guard_requests(page, allowed_origin: Optional[str] = None) -> None:
-    """Abort every request the headless page makes to a non-public address.
-
-    Artifact code is model-authored and runs server-side here, so without this
-    an <img src="http://169.254.169.254/..."> or a fetch() to an internal
-    service is made from inside the deployment (SSRF). Inline, data: and blob:
-    content, the app's own render origin, and public hosts (CDN fonts, map
-    tiles) still load.
-    """
-    cache: Dict[str, bool] = {}
-
-    async def handler(route, request):
-        parts = urlsplit(request.url)
-        if parts.scheme in ("data", "blob", "about"):
-            return await route.continue_()
-        if allowed_origin and f"{parts.scheme}://{parts.netloc}" == allowed_origin:
-            return await route.continue_()
-        host = parts.hostname or ""
-        if parts.scheme in ("http", "https") and host:
-            if host not in cache:
-                cache[host] = await asyncio.to_thread(host_is_public, host)
-            if cache[host]:
-                return await route.continue_()
-        logger.warning("PDF render blocked request to non-public URL: %s", request.url[:200])
-        await route.abort("blockedbyclient")
-
-    await page.route("**/*", handler)
-
-
 class ReportPdfService:
     """Generates PDF snapshots of artifacts using headless Chromium."""
 
@@ -508,11 +479,14 @@ class ReportPdfService:
         pdf_path = self.UPLOADS_DIR / f"{artifact_id}.pdf"
         content_w, content_h = _doc_page_geometry()
         url = f"{_render_origin()}/print/doc"
+        # Only the app's own render origin (+ RENDER_ASSET_HOSTS) is reachable.
+        policy = RendererPolicy([_render_origin()])
 
         try:
-            async with async_playwright() as p:
+            async with RenderEgressProxy(policy.decide, label="PDF render") as egress, async_playwright() as p:
                 browser = await p.chromium.launch(
-                    headless=True, args=[marker], executable_path=_chromium_executable()
+                    headless=True, args=[marker], executable_path=_chromium_executable(),
+                    **egress.launch_kwargs(),
                 )
                 # Lay out at the printable width from the start so ECharts
                 # bakes the paper's width into its canvas, and at 2x so those
@@ -522,7 +496,7 @@ class ReportPdfService:
                     device_scale_factor=2,
                 )
                 await page.emulate_media(media="print", color_scheme="light")
-                await _guard_requests(page, allowed_origin=_render_origin())
+                await guard_page_requests(page, policy.allows_url, allows_image=policy.allows_image, label="PDF render")
 
                 # Injected BEFORE navigation: the page renders from this and
                 # fetches nothing, so the route needs no session — and can
@@ -592,11 +566,15 @@ class ReportPdfService:
         # decks convert from their .pptx and docs print through
         # _generate_doc_pdf_inner, portrait and unshrunk.)
         paper_w_in, paper_h_in, content_w, content_h = _page_geometry(landscape=True)
+        # The page is set_content()'d with every library inlined: it needs no
+        # network at all, so nothing but RENDER_ASSET_HOSTS is reachable.
+        policy = RendererPolicy()
 
         try:
-            async with async_playwright() as p:
+            async with RenderEgressProxy(policy.decide, label="PDF render") as egress, async_playwright() as p:
                 browser = await p.chromium.launch(
-                    headless=True, args=[marker], executable_path=_chromium_executable()
+                    headless=True, args=[marker], executable_path=_chromium_executable(),
+                    **egress.launch_kwargs(),
                 )
                 # Lay out at the printable width from the start: responsive
                 # breakpoints and every JS-measured chart size are then computed
@@ -608,7 +586,7 @@ class ReportPdfService:
                     device_scale_factor=2,
                 )
                 await page.emulate_media(media="print")
-                await _guard_requests(page)
+                await guard_page_requests(page, policy.allows_url, allows_image=policy.allows_image, label="PDF render")
 
                 await page.set_content(html_content, wait_until="networkidle")
 

@@ -62,8 +62,13 @@ class AzureClient(LLMClient):
             client_kwargs["api_key"] = api_key
         if default_headers:
             client_kwargs["default_headers"] = default_headers
-        self.client = AzureOpenAI(**client_kwargs)
-        self.async_client = AsyncAzureOpenAI(**client_kwargs)
+        # endpoint_url is admin-configured: validate and pin every request to
+        # the checked address (app.core.egress), as for custom base_urls.
+        from app.ai.llm.clients.openai_client import pinned_openai_http_clients
+
+        sync_http, async_http = pinned_openai_http_clients({})
+        self.client = AzureOpenAI(**client_kwargs, http_client=sync_http)
+        self.async_client = AsyncAzureOpenAI(**client_kwargs, http_client=async_http)
 
     def _resolve_temperature(self, model_id: str) -> float:
         """Admin-configured value when set, else the historical default

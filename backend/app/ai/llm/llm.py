@@ -395,6 +395,7 @@ class LLM:
                     base_url=_azure_foundry_anthropic_base_url(endpoint_url),
                     temperature=configured_temperature,
                     default_headers=custom_headers,
+                    pin_egress=True,
                 )
             else:
                 # Default to Chat Completions — works in every region. Admins opt
@@ -428,6 +429,7 @@ class LLM:
                         enable_web_search=enable_web_search,
                         temperature=configured_temperature,
                         default_headers=custom_headers,
+                        pin_egress=True,
                     )
                 elif _is_azure_foundry_endpoint(endpoint_url) and azure_ad_token_provider is None:
                     # Foundry: OpenAI-compatible Chat Completions under /openai/v1,
@@ -438,6 +440,7 @@ class LLM:
                         base_url=self._azure_v1_base_url(endpoint_url),
                         temperature=configured_temperature,
                         default_headers=custom_headers,
+                        pin_egress=True,
                     )
                 else:
                     self.client = AzureClient(

@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 from app.models.organization import Organization
 from app.models.data_source import DataSource
 from app.errors.redact import redact_error
+from app.core.egress import acheck_connection_params as _acheck_connection_destination
 from app.schemas.data_source_registry import (
     list_available_data_sources,
     config_schema_for,
@@ -2710,6 +2711,7 @@ class DataSourceService:
                 allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             allowed = params
+        await _acheck_connection_destination(conn.type, params)
         return ClientClass(**allowed)
 
     @staticmethod
@@ -3006,6 +3008,7 @@ class DataSourceService:
                 except Exception:
                     allowed = params
 
+                await _acheck_connection_destination(conn.type, params)
                 client = ClientClass(**allowed)
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
@@ -3304,6 +3307,8 @@ class DataSourceService:
             meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
             client_params = {k: v for k, v in (client_params or {}).items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
 
+            from app.core.egress import check_connection_params
+            check_connection_params(data_source_type, client_params)
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load data source client for {data_source_type}: {str(e)}")
@@ -4943,6 +4948,7 @@ class DataSourceService:
             }
         except Exception:
             allowed = params
+        await _acheck_connection_destination(connection.type, params)
         return ClientClass(**allowed)
 
     async def get_user_data_source_schema(

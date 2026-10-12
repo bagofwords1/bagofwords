@@ -231,6 +231,37 @@ def test_env_proxy_still_validates_hostname(dns, monkeypatch):
         pinned_client(Policy.ADMIN).get("http://metadata-alias.invalid/")
 
 
+@pytest.mark.parametrize("make_client", [
+    lambda: pinned_client(Policy.ADMIN),
+    lambda: pinned_async_client(Policy.ADMIN),
+])
+def test_env_proxy_reaches_host_the_server_cannot_resolve(dns, monkeypatch, make_client):
+    # Locked-down on-prem: no outbound DNS, everything leaves via HTTP(S)_PROXY.
+    # The target resolves only at the proxy, so it must not be refused here.
+    import asyncio
+
+    with local_server() as (port, seen):
+        monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{port}")
+        dns({})  # nothing resolves locally
+        client = make_client()
+        if isinstance(client, httpx.AsyncClient):
+            async def go():
+                async with client:
+                    return await client.get("http://llm.corp.invalid/v1/models")
+            r = asyncio.run(go())
+        else:
+            with client:
+                r = client.get("http://llm.corp.invalid/v1/models")
+    assert r.status_code == 200
+    assert seen == [("GET", "http://llm.corp.invalid/v1/models", "llm.corp.invalid")]
+
+
+def test_unresolvable_host_without_proxy_still_refused(dns):
+    dns({})
+    with pytest.raises(EgressBlockedError):
+        pinned_client(Policy.ADMIN).get("http://llm.corp.invalid/")
+
+
 def test_blocked_error_is_an_httpx_connect_error():
     # Existing `except httpx.HTTPError` handlers keep working.
     assert issubclass(EgressBlockedError, httpx.ConnectError)

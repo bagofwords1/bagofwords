@@ -114,13 +114,24 @@ class CreateArtifactTool(Tool):
 
         try:
             import tempfile, os
-            async with async_playwright() as p:
+            from app.core.render_guard import RenderEgressProxy, RendererPolicy, guard_page_requests
+
+            # Model-authored code runs here on the server: the same egress
+            # guard as PDF export / thumbnails (only the temp file itself and
+            # RENDER_ASSET_HOSTS load).
+            policy = RendererPolicy()
+            page_url: dict = {}
+            async with RenderEgressProxy(policy.decide, label="artifact preview") as egress, async_playwright() as p:
                 # Optional executable override for deployments where the
                 # Playwright-managed browser download is unavailable but a
                 # compatible Chromium exists on disk.
                 _exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
-                browser = await p.chromium.launch(headless=True, executable_path=_exe)
+                browser = await p.chromium.launch(headless=True, executable_path=_exe, **egress.launch_kwargs())
                 page = await browser.new_page(viewport={"width": 1280, "height": 900})
+                await guard_page_requests(
+                    page, lambda u: u == page_url.get("url") or policy.allows_url(u),
+                    allows_image=policy.allows_image, label="artifact preview"
+                )
 
                 # Capture JS errors during render. Both channels matter:
                 # pageerror catches thrown/uncaught exceptions (incl. Babel
@@ -154,7 +165,8 @@ class CreateArtifactTool(Tool):
                 try:
                     tmp.write(html_content)
                     tmp.close()
-                    await page.goto(f"file://{tmp.name}", wait_until="networkidle")
+                    page_url["url"] = f"file://{tmp.name}"
+                    await page.goto(page_url["url"], wait_until="networkidle")
 
                     # Wait for React to mount and charts to render (short timeout)
                     try:

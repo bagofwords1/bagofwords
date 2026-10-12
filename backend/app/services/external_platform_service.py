@@ -300,7 +300,7 @@ class ExternalPlatformService:
         XOAUTH2 (SMTP AUTH XOAUTH2 / IMAP AUTHENTICATE XOAUTH2) without sending.
         """
         import asyncio
-        import aiosmtplib
+        from app.services.email.pinned import PinnedIMAP4, PinnedIMAP4_SSL, PinnedSMTP
         from app.services.email.sender import SmtpConfig
         from app.services.email.mailbox_reader import ImapConfig
         from app.services.email.oauth import (
@@ -327,7 +327,7 @@ class ExternalPlatformService:
         # starttls() after connect double-negotiates -> "already using TLS").
         try:
             smtp = SmtpConfig.from_credentials(creds, cfg).resolved()
-            client = aiosmtplib.SMTP(
+            client = PinnedSMTP(
                 hostname=smtp.host, port=smtp.port,
                 use_tls=(smtp.security == "ssl"),
                 start_tls=(smtp.security == "starttls"),
@@ -351,10 +351,9 @@ class ExternalPlatformService:
         if imap.host and (cfg.get("inbound_enabled") or auth_type == "password"):
             try:
                 def _probe():
-                    import imaplib
                     conn = (
-                        imaplib.IMAP4_SSL(imap.host, imap.port)
-                        if imap.use_ssl else imaplib.IMAP4(imap.host, imap.port)
+                        PinnedIMAP4_SSL(imap.host, imap.port)
+                        if imap.use_ssl else PinnedIMAP4(imap.host, imap.port)
                     )
                     if sasl_raw is not None:
                         conn.authenticate("XOAUTH2", lambda _c: sasl_raw.encode("ascii"))

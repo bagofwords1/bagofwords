@@ -418,6 +418,10 @@ class UserDataSourceCredentialsService:
         try:
             # Constructing the client can itself fail on bad/missing params or
             # a missing driver; report it as a failed test, not a 500.
+            # SSRF guard: the destination is re-checked right before connect
+            # (a refusal is reported as a failed test, like any other).
+            from app.core.egress import acheck_connection_params
+            await acheck_connection_params(ds_type, {**(config or {}), **creds})
             client = ClientClass(**params)
             res = await client.atest_connection()
             success = bool(res.get("success")) if isinstance(res, dict) else bool(res)
