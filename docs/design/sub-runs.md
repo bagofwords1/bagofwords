@@ -76,17 +76,33 @@ delegate(
   context:    str            # what the parent learned this turn that the child needs
   title:      str            # 3-6 words; the card's status line
   profile:    "investigate" | "validate"
-  agent_ids:  [str] | null   # narrow the data sources the child focuses on
+  agent_ids:  [str] | null   # default: the parent's agents; override to narrow or extend
+  model:      str | null     # default: profile/org setting; override "<provider>/<model>"
   max_steps:  int | null     # only below the org ceiling
 )
-→ { sub_run_id, wave_id, status: "running" }
+→ { sub_run_id, wave_id, status: "running", agents: [...], model: "..." }
 ```
 
-Pydantic `extra="forbid"`; empty strings normalised to null (B9). No `model`
-argument: model is profile and org config, never the model's call (B7). All
+**Agents.** Default is the parent's set: every agent attached to the report,
+with the parent's current focus as the child's focus. `agent_ids` narrows
+(one source per hypothesis is the common RCA shape) or extends, but only to
+agents the acting user can use; an id outside that set is refused in the
+receipt, never silently dropped. A child never gains an agent the user lacks.
+
+**Model.** Default resolves profile → `sub_run_model` org setting → the
+parent's model. `model` overrides it with a `<provider>/<model>` pair or a
+model id, validated against `list_models_for_principal` for the acting user
+(per-model RBAC applies, see `docs/design/llm-model-access-control.md`), and
+refused in the receipt when not allowed. Gated by
+`sub_run_allow_model_override`. The tool description says: set `model` only
+when the user asked for a model, an instruction names one, or the profile
+calls for a stronger model on a hard hypothesis; otherwise leave it unset
+(B7: Codex and opencode both found models over-setting it).
+
+Pydantic `extra="forbid"`; empty strings normalised to null (B9). All
 `delegate` calls in one planner response share one wave; a lone `delegate`
 is a wave of one. Calls beyond `sub_run_max_per_wave` are refused with a
-spawn receipt saying so, so the parent can plan a second wave.
+receipt saying so, so the parent can plan a second wave.
 
 Tool description carries the mechanics (B8): children are stateless and know
 nothing of the conversation; `goal` and `context` must be complete; name the
@@ -285,7 +301,8 @@ one line per child (id, title, outcome, confidence, status).
 | `sub_run_deadline_minutes` | 15 | 2–60 | no |
 | `sub_run_concurrency` | 3 | 1–6 | yes |
 | `sub_run_max_per_wave` | 5 | 1–10 | yes |
-| `sub_run_model` | `auto` | `auto` / `small` / `default` | no |
+| `sub_run_model` | `auto` | `auto` / `small` / `default` / a model id | no |
+| `sub_run_allow_model_override` | on | bool | yes |
 | `sub_run_allow_create_data` | off | bool | yes |
 
 `sub_run_concurrency` is a semaphore over running children per report;
