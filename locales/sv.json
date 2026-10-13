@@ -4417,6 +4417,9 @@
       "runSuite": "Kör {name}",
       "runningCount": "Kör {done}/{total}",
       "title": "Utvärderingar för den här ändringen"
+    },
+    "runEvals": {
+      "notRun": "{n} utkast eller arkiverat fall ingår inte | {n} utkast eller arkiverade fall ingår inte"
     }
   },
   "monitoring": {

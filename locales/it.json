@@ -4417,6 +4417,9 @@
       "runSuite": "Esegui {name}",
       "runningCount": "In esecuzione {done}/{total}",
       "title": "Eval per questa modifica"
+    },
+    "runEvals": {
+      "notRun": "{n} caso in bozza o archiviato non incluso | {n} casi in bozza o archiviati non inclusi"
     }
   },
   "monitoring": {

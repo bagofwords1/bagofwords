@@ -4417,6 +4417,9 @@
       "runSuite": "تشغيل {name}",
       "runningCount": "قيد التشغيل {done}/{total}",
       "title": "تقييمات هذا التغيير"
+    },
+    "runEvals": {
+      "notRun": "غير مضمّنة (مسودة أو مؤرشفة): {n}"
     }
   },
   "monitoring": {

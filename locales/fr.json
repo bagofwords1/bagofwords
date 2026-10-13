@@ -4417,6 +4417,9 @@
       "runSuite": "Exécuter {name}",
       "runningCount": "Exécution {done}/{total}",
       "title": "Évaluations pour ce changement"
+    },
+    "runEvals": {
+      "notRun": "{n} cas brouillon ou archivé non inclus | {n} cas brouillons ou archivés non inclus"
     }
   },
   "monitoring": {
