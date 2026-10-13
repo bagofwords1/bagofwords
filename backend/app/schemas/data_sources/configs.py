@@ -1654,6 +1654,73 @@ class ElasticsearchConfig(BaseModel):
         json_schema_extra={"ui:type": "string"},
     )
 
+    # ---- Query guardrails (admin-set; enforced on every agent query) ---- #
+    block_all_indices_search: bool = Field(
+        True,
+        title="Block All-Index Searches",
+        description=(
+            "Reject queries that target every index at once (`_all`, `*`, or a "
+            "target made only of wildcards) — the equivalent of GET /_search. "
+            "Applies to DSL, SQL and ES|QL queries."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    allowed_index_patterns: Optional[str] = Field(
+        None,
+        title="Allowed Query Targets",
+        description=(
+            "Optional comma-separated index names or globs queries may target "
+            "(e.g. logs-*,metrics-*). Every index a query names must fall under "
+            "one of them. Empty: any index the credentials can read."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    max_result_size: Optional[int] = Field(
+        None,
+        ge=1,
+        le=10_000,
+        title="Max Documents per Query",
+        description=(
+            "Upper bound on documents one query may return (size + from for DSL; "
+            "row cap for SQL and ES|QL). Empty: 10,000 (the engine's limit)."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_aggregations: Optional[int] = Field(
+        None,
+        ge=1,
+        title="Max Aggregations per Query",
+        description="Upper bound on the number of aggregations in one DSL query (all nesting levels). Empty: no limit.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_aggregation_depth: Optional[int] = Field(
+        None,
+        ge=1,
+        title="Max Aggregation Nesting Depth",
+        description="Upper bound on how deeply aggregations may nest in one DSL query. Empty: no limit.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_aggregation_buckets: Optional[int] = Field(
+        None,
+        ge=1,
+        title="Max Aggregation Buckets",
+        description=(
+            "Upper bound on the buckets one DSL query may request: a single "
+            "terms/composite size, and the sizes multiplied down nested levels. "
+            "Empty: no limit (the cluster's search.max_buckets still applies)."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    aggregation_limits_observe_only: bool = Field(
+        False,
+        title="Aggregation Limits: Log Only",
+        description=(
+            "Log queries that exceed the aggregation limits instead of rejecting "
+            "them — use to measure real queries before enforcing."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
 
 # Azure Data Explorer (Kusto)
 class AzureDataExplorerCredentials(BaseModel):

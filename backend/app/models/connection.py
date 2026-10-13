@@ -5,6 +5,11 @@ from cryptography.fernet import Fernet
 from app.settings.config import settings
 import json
 
+# Per-connection runtime query limits stored in `config` but read by the
+# code-execution wrapper (stashed onto the client), never passed to a client
+# constructor.
+RUNTIME_CONFIG_KEYS = frozenset({"query_timeout_seconds", "max_concurrent_queries"})
+
 
 class Connection(BaseSchema):
     """
@@ -197,6 +202,11 @@ class Connection(BaseSchema):
                 del client_params["auth_type"]
             if "demo_id" in client_params:
                 del client_params["demo_id"]
+            # Runtime query limits read by the code-execution wrapper, not
+            # constructor arguments — splatting them would break every client
+            # whose __init__ does not take them.
+            for runtime_key in RUNTIME_CONFIG_KEYS:
+                client_params.pop(runtime_key, None)
             
             import logging
             logger = logging.getLogger(__name__)
