@@ -148,50 +148,182 @@ def check_target(target: str | None, *, block_all: bool,
             )
 
 
-def _strip_comments_and_literals(text: str, line_comment: str) -> str:
-    """Blank out comments and '…' string literals so a keyword inside them is
-    not mistaken for query structure (and a leading comment cannot hide one)."""
-    text = re.sub(r"/\*.*?\*/", " ", text or "", flags=re.DOTALL)
-    text = re.sub(re.escape(line_comment) + r"[^\n]*", " ", text)
-    return re.sub(r"'(?:[^']|'')*'", "''", text)
+# ------------------------------------------------- SQL / ES|QL targets --- #
+#
+# Index names live in query *text* here, so finding them means lexing the text
+# the way the engine does. Regex stripping is not enough: `'--'` inside a
+# string literal would read as a comment and swallow the FROM that follows it.
+# Each lexer walks the text once, tracking quote and comment state, and an
+# input it cannot lex (an unterminated quote or comment) is refused — these
+# are access checks, so they fail closed.
+
+@dataclass
+class _Tok:
+    kind: str    # word | quoted | string | punct
+    value: str
 
 
-_SQL_FROM_RE = re.compile(r"\bFROM\s+(?:\"([^\"]+)\"|`([^`]+)`|([^\s,;()]+))", re.IGNORECASE)
+def _lex(text: str, *, line_comment: str, string_quote: str,
+         ident_quotes: str, escape: str) -> list[_Tok]:
+    """Tokenize SQL or ES|QL text.
+
+    string_quote: the literal quote (`'` for SQL, `"` for ES|QL).
+    ident_quotes: identifier quotes, whose content is a name (an index).
+    escape: "double" (`''` inside '…') or "backslash" (`\"` inside "…").
+    Comments and string literals are dropped; quoted identifiers are kept.
+    """
+    toks: list[_Tok] = []
+    i, n = 0, len(text or "")
+    punct = "(),|;"
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+        elif text.startswith(line_comment, i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j + 1
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            if j < 0:
+                raise QueryGuardrailError("Unterminated /* comment in the query.")
+            i = j + 2
+        elif string_quote == '"' and text.startswith('"""', i):
+            j = text.find('"""', i + 3)
+            if j < 0:
+                raise QueryGuardrailError('Unterminated """ string in the query.')
+            toks.append(_Tok("string", text[i + 3:j]))
+            i = j + 3
+        elif c == string_quote or c in ident_quotes:
+            j, buf = i + 1, []
+            while True:
+                if j >= n:
+                    raise QueryGuardrailError(f"Unterminated {c} quote in the query.")
+                ch = text[j]
+                if escape == "backslash" and ch == "\\" and c == string_quote:
+                    buf.append(text[j:j + 2])
+                    j += 2
+                    continue
+                if ch == c:
+                    if j + 1 < n and text[j + 1] == c:   # doubled quote = escaped
+                        buf.append(c)
+                        j += 2
+                        continue
+                    break
+                buf.append(ch)
+                j += 1
+            toks.append(_Tok("string" if c == string_quote else "quoted", "".join(buf)))
+            i = j + 1
+        elif c in punct:
+            toks.append(_Tok("punct", c))
+            i += 1
+        else:
+            j = i
+            while (j < n and not text[j].isspace() and text[j] not in punct
+                   and text[j] != string_quote and text[j] not in ident_quotes
+                   and not text.startswith(line_comment, j) and not text.startswith("/*", j)):
+                j += 1
+            toks.append(_Tok("word", text[i:j]))
+            i = j
+    return toks
+
+
+def _is_name(t: _Tok | None) -> bool:
+    return t is not None and t.kind in ("word", "quoted")
 
 
 def sql_targets(sql: str) -> list[str]:
-    """Index names after each FROM that introduces a relation.
+    """Index names after each FROM that introduces a relation in an
+    Elasticsearch SQL statement (lexical rules: '…' literals with '' escapes,
+    "…" and `…` identifiers, -- and /* */ comments).
 
-    Skips FROM inside a function call — `EXTRACT(YEAR FROM ts)`,
-    `TRIM(LEADING 'x' FROM s)` — by checking the innermost open parenthesis:
-    only a subquery (`(SELECT …`) owns a real FROM.
+    FROM inside a function call — `EXTRACT(YEAR FROM ts)` — is not a relation;
+    FROM inside a subquery — `(SELECT … FROM x)` — is.
     """
-    text = _strip_comments_and_literals(sql, "--")
-    targets = []
-    for m in _SQL_FROM_RE.finditer(text):
-        depth_opens = []
-        for i, ch in enumerate(text[:m.start()]):
-            if ch == "(":
-                depth_opens.append(i)
-            elif ch == ")" and depth_opens:
-                depth_opens.pop()
-        if depth_opens and not re.match(r"\(\s*SELECT\b", text[depth_opens[-1]:], re.IGNORECASE):
-            continue
-        targets.append(next(g for g in m.groups() if g))
+    toks = _lex(sql, line_comment="--", string_quote="'", ident_quotes='"`',
+                escape="double")
+    targets: list[str] = []
+    parens: list[bool] = []          # per open paren: is it a subquery?
+    for k, t in enumerate(toks):
+        nxt = toks[k + 1] if k + 1 < len(toks) else None
+        if t.kind == "punct" and t.value == "(":
+            parens.append(nxt is not None and nxt.kind == "word" and nxt.value.upper() == "SELECT")
+        elif t.kind == "punct" and t.value == ")":
+            if parens:
+                parens.pop()
+        elif t.kind == "word" and t.value.upper() in ("FROM", "IN") and (not parens or parens[-1]):
+            if t.value.upper() == "IN":
+                # Only `SHOW COLUMNS IN <index>` names an index; `x IN (…)` doesn't.
+                prev = toks[k - 1] if k else None
+                if not (prev and prev.kind == "word" and prev.value.upper() == "COLUMNS"):
+                    continue
+            if _is_name(nxt):
+                targets.append(nxt.value)
     return targets
 
 
-_ESQL_SOURCE_RE = re.compile(r"^\s*(?:FROM|TS)\s+(.+?)(?:\s+METADATA\b|\||$)",
-                             re.IGNORECASE | re.DOTALL)
+# ES|QL commands that read no index. A command outside this set and the
+# index-bearing ones below is refused while target rules are active: a new
+# command could read an index the checks do not know to look at.
+_ESQL_PLAIN_COMMANDS = {
+    "WHERE", "EVAL", "STATS", "INLINESTATS", "INLINE", "KEEP", "DROP", "RENAME",
+    "SORT", "LIMIT", "DISSECT", "GROK", "MV_EXPAND", "FORK", "CHANGE_POINT",
+    "SAMPLE", "COMPLETION", "RERANK", "FUSE", "ROW", "SHOW", "EXPLAIN",
+}
 
 
-def esql_target(esql: str) -> str | None:
-    """The source list of an ES|QL `FROM a,b | …` (or `TS …`) query; None for
-    source commands that read no index (ROW, SHOW)."""
-    m = _ESQL_SOURCE_RE.match(_strip_comments_and_literals(esql, "//"))
-    if not m:
-        return None
-    return ",".join(p.strip().strip('"') for p in m.group(1).split(","))
+@dataclass
+class EsqlSources:
+    indices: list[str]               # FROM / TS / LOOKUP JOIN targets
+    enrich_policies: list[str]
+    unknown_commands: list[str]
+
+
+def esql_sources(esql: str) -> EsqlSources:
+    """Every index an ES|QL query reads, command by command: the FROM/TS
+    source (and `(FROM …)` subqueries), each LOOKUP JOIN index, plus ENRICH
+    policies and any command this parser does not recognise."""
+    toks = _lex(esql, line_comment="//", string_quote='"', ident_quotes="`",
+                escape="backslash")
+    out = EsqlSources([], [], [])
+    k = 0
+    while k < len(toks):
+        t = toks[k]
+        prev = toks[k - 1] if k else None
+        at_command = prev is None or (prev.kind == "punct" and prev.value == "|")
+        after_paren = prev is not None and prev.kind == "punct" and prev.value == "("
+        word = t.value.upper() if t.kind == "word" else None
+        nxt = toks[k + 1] if k + 1 < len(toks) else None
+        is_subquery = (after_paren and word == "FROM"
+                       and nxt is not None and (_is_name(nxt) or nxt.kind == "string"))
+        if word in ("FROM", "TS") and (at_command or is_subquery):
+            j = k + 1
+            # Source list: names separated by commas, up to METADATA / | / ( / ).
+            while j < len(toks) and (_is_name(toks[j]) or toks[j].kind == "string"
+                                     or (toks[j].kind == "punct" and toks[j].value == ",")):
+                tj = toks[j]
+                if tj.kind == "word" and tj.value.upper() == "METADATA":
+                    break
+                if tj.kind != "punct":
+                    out.indices.append(tj.value)
+                j += 1
+            if j == k + 1 and not (j < len(toks) and toks[j].kind == "punct" and toks[j].value == "("):
+                out.indices.append("")      # a source command with no source
+            k = j
+            continue
+        if at_command and word == "LOOKUP":
+            j = k + 1
+            if j < len(toks) and toks[j].kind == "word" and toks[j].value.upper() == "JOIN":
+                j += 1
+            named = j < len(toks) and (_is_name(toks[j]) or toks[j].kind == "string")
+            out.indices.append(toks[j].value if named else "")
+            k = j + 1
+            continue
+        if at_command and word == "ENRICH":
+            out.enrich_policies.append(nxt.value if _is_name(nxt) or (nxt and nxt.kind == "string") else "")
+        elif at_command and t.kind == "word" and word not in _ESQL_PLAIN_COMMANDS:
+            out.unknown_commands.append(t.value)
+        k += 1
+    return out
 
 
 # ----------------------------------------------------------- aggregations --- #

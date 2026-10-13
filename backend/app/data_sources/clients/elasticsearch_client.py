@@ -62,7 +62,7 @@ from app.data_sources.clients.elasticsearch_guardrails import (
     as_bool,
     check_aggregations,
     check_target,
-    esql_target,
+    esql_sources,
     parse_duration_seconds,
     positive_int,
     split_patterns,
@@ -240,6 +240,31 @@ class ElasticsearchClient(DataSourceClient):
     def _check_target(self, target: Optional[str]) -> None:
         check_target(target, block_all=self.block_all_indices_search,
                      allowed_patterns=self.allowed_index_patterns)
+
+    def _target_rules_active(self) -> bool:
+        return self.block_all_indices_search or bool(self.allowed_index_patterns)
+
+    def _check_esql_sources(self, esql: str) -> None:
+        """Check every index an ES|QL query reads, not just its FROM: LOOKUP
+        JOIN indices and `(FROM …)` subqueries too. ENRICH reads a policy's
+        source indices, which this client cannot resolve without cluster
+        privileges, so it is refused while an allowlist is set; a command the
+        parser does not recognise is refused outright."""
+        sources = esql_sources(esql)
+        for target in sources.indices:
+            self._check_target(target)
+        if sources.enrich_policies and self.allowed_index_patterns:
+            raise QueryGuardrailError(
+                f"ENRICH ({', '.join(sources.enrich_policies)}) is not allowed on "
+                "this connection: it reads the enrich policy's source indices, "
+                "which are outside the allowed query targets. Join the data "
+                "with LOOKUP JOIN on an allowed index or query it separately.")
+        if sources.unknown_commands:
+            raise QueryGuardrailError(
+                f"ES|QL command(s) {', '.join(sources.unknown_commands)} are not "
+                "recognised by this connection's query guardrails, so the query "
+                "is refused. Rewrite it with standard commands (FROM, WHERE, "
+                "EVAL, STATS, KEEP, SORT, LIMIT, LOOKUP JOIN, …).")
 
     def guardrail_summary(self) -> str:
         """The active limits, phrased for the agent's system prompt."""
@@ -1279,8 +1304,9 @@ class ElasticsearchClient(DataSourceClient):
 
         Response shape: {columns:[{name,type}], rows:[[...]]}.
         """
-        for target in sql_targets(sql):
-            self._check_target(target)
+        if self._target_rules_active():
+            for target in sql_targets(sql):
+                self._check_target(target)
         body: Dict[str, Any] = {"query": sql,
                                 "request_timeout": f"{self.query_timeout_seconds}s"}
         if self.max_result_size < self.MAX_RESULT_WINDOW:
@@ -1296,9 +1322,8 @@ class ElasticsearchClient(DataSourceClient):
 
         Response shape: {columns:[{name,type}], values:[[...]]}.
         """
-        target = esql_target(esql)
-        if target is not None:
-            self._check_target(target)
+        if self._target_rules_active():
+            self._check_esql_sources(esql)
         if self.max_result_size < self.MAX_RESULT_WINDOW:
             # ES|QL takes the smallest LIMIT in the pipe, so appending one
             # caps the rows without changing a tighter limit the query set.

@@ -161,6 +161,99 @@ def test_sql_subquery_source_is_still_checked(monkeypatch):
     assert cluster.calls == []
 
 
+# Comment markers inside literals are data, not comments: lexing them as
+# comments swallowed the FROM after them and the query ran unchecked.
+@pytest.mark.parametrize("sql", [
+    """SELECT '--' AS marker, secret FROM "finance-secret" """,
+    """SELECT '/*' AS a, secret FROM "finance-secret" WHERE b = '*/'""",
+    """SELECT 'it''s -- fine' AS a, secret FROM "finance-secret" """,
+    """SELECT "--weird col" FROM "finance-secret" """,
+    """SELECT x FROM "applogs-1" UNION SELECT y FROM (SELECT '--' FROM "finance-secret") t""",
+])
+def test_sql_literal_comment_markers_cannot_hide_a_target(monkeypatch, sql):
+    client, cluster = make_client(monkeypatch, allowed_index_patterns="applogs-*")
+    with pytest.raises(QueryGuardrailError, match="finance-secret"):
+        client.execute_query(json.dumps({"sql": sql}))
+    assert cluster.calls == []
+
+
+def test_sql_literal_comment_marker_cannot_hide_an_all_index_target(monkeypatch):
+    client, cluster = make_client(monkeypatch)
+    with pytest.raises(QueryGuardrailError, match="all indices"):
+        client.execute_query(json.dumps({"sql": """SELECT '--' AS m, x FROM "*" """}))
+    assert cluster.calls == []
+
+
+@pytest.mark.parametrize("query", [
+    {"sql": "SELECT 'unterminated FROM \"finance-secret\""},
+    {"sql": 'SELECT x FROM "applogs-1" /* never closed'},
+    {"esql": 'FROM applogs-1 | WHERE m == "unterminated'},
+])
+def test_queries_that_cannot_be_lexed_are_refused(monkeypatch, query):
+    client, cluster = make_client(monkeypatch, allowed_index_patterns="applogs-*")
+    with pytest.raises(QueryGuardrailError, match="Unterminated"):
+        client.execute_query(json.dumps(query))
+    assert cluster.calls == []
+
+
+@pytest.mark.parametrize("esql", [
+    "FROM applogs-1 | LOOKUP JOIN finance-secret ON employee_id",
+    "FROM applogs-1\n| WHERE level == \"error\"\n| lookup join finance-secret on employee_id",
+    'FROM applogs-1 | EVAL x = "| LOOKUP JOIN ok-index" | LOOKUP JOIN finance-secret ON id',
+    "FROM applogs-1, (FROM finance-secret | KEEP secret)",
+    "FROM applogs-1 | FORK (WHERE a > 1) (WHERE b > 1 | LOOKUP JOIN finance-secret ON id)",
+])
+def test_every_esql_index_bearing_command_is_checked(monkeypatch, esql):
+    client, cluster = make_client(monkeypatch, allowed_index_patterns="applogs-*")
+    with pytest.raises(QueryGuardrailError, match="finance-secret"):
+        client.execute_query(json.dumps({"esql": esql}))
+    assert cluster.calls == []
+
+
+def test_lookup_join_on_an_allowed_index_runs(monkeypatch):
+    client, cluster = make_client(monkeypatch, allowed_index_patterns="applogs-*,lookup-*")
+    client.execute_query(json.dumps({"esql": "FROM applogs-1 | LOOKUP JOIN lookup-hosts ON host | KEEP host, team"}))
+    assert len(cluster.calls) == 1
+
+
+def test_lookup_join_cannot_reach_all_indices(monkeypatch):
+    client, cluster = make_client(monkeypatch)
+    with pytest.raises(QueryGuardrailError, match="all indices"):
+        client.execute_query(json.dumps({"esql": "FROM applogs-1 | LOOKUP JOIN * ON id"}))
+    assert cluster.calls == []
+
+
+def test_enrich_is_refused_under_an_allowlist_but_not_otherwise(monkeypatch):
+    query = json.dumps({"esql": "FROM applogs-1 | ENRICH finance_policy ON account"})
+    client, cluster = make_client(monkeypatch, allowed_index_patterns="applogs-*")
+    with pytest.raises(QueryGuardrailError, match="ENRICH"):
+        client.execute_query(query)
+    assert cluster.calls == []
+    client, cluster = make_client(monkeypatch)
+    client.execute_query(query)
+    assert len(cluster.calls) == 1
+
+
+def test_unrecognised_esql_command_is_refused(monkeypatch):
+    client, cluster = make_client(monkeypatch)
+    with pytest.raises(QueryGuardrailError, match="not recognised"):
+        client.execute_query(json.dumps({"esql": "FROM applogs-1 | SNEAKY_READ finance-secret"}))
+    assert cluster.calls == []
+
+
+@pytest.mark.parametrize("esql", [
+    'FROM applogs-1 | WHERE message == "FROM * | LOOKUP JOIN finance-secret" | STATS n = COUNT(*)',
+    'FROM applogs-1 | EVAL ts = MAX(ts) | STATS n = COUNT(from) BY ts',
+    'FROM "applogs-1" METADATA _id, _index | KEEP _id',
+    'FROM applogs-1 | WHERE url LIKE "http://x" // trailing comment\n| LIMIT 5',
+    'ROW a = 1 | EVAL b = a + 1',
+])
+def test_esql_strings_comments_and_field_names_are_not_targets(monkeypatch, esql):
+    client, cluster = make_client(monkeypatch, allowed_index_patterns="applogs-*")
+    client.execute_query(json.dumps({"esql": esql}))
+    assert len(cluster.calls) == 1
+
+
 # ---------------------------------------------------------------- allowlist --- #
 
 @pytest.mark.parametrize("target", ["logs-app-*", "logs-2026.10", "metrics-cpu", "logs-*", "remote:logs-x"])
