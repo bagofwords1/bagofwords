@@ -432,6 +432,7 @@ const editFormValues = computed(() => {
     name: connectionDetails.value.name,
     config: connectionDetails.value.config || {},
     auth_policy: connectionDetails.value.auth_policy,
+    member_bindings: connectionDetails.value.member_bindings,
     has_credentials: connectionDetails.value.has_credentials,
     credentials: connectionDetails.value.credentials_meta || {}
   }

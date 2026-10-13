@@ -209,4 +209,13 @@ async function testMember(row: PreviewRow) {
 }
 
 onMounted(() => { if (props.connectionId) refreshPreview() })
+// The parent may hydrate saved bindings after mount, and permissions may load
+// after it too — re-sync and retry the preview when either arrives.
+watch(() => JSON.stringify(props.modelValue || {}), (next) => {
+  if (next === JSON.stringify(bindings.value)) return
+  load(props.modelValue || {})
+  emit('valid', valid.value)
+  refreshPreview()
+})
+watch(canPreview, (ok) => { if (ok) refreshPreview() })
 </script>

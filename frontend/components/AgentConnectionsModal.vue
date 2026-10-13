@@ -401,6 +401,7 @@ function getEditFormValues(conn: any) {
         name: d?.name ?? conn.name,
         config: d?.config ?? conn.config ?? {},
         auth_policy: d?.auth_policy ?? conn.auth_policy ?? 'system_only',
+        member_bindings: d?.member_bindings ?? null,
         has_credentials: d?.has_credentials ?? true,
         credentials: d?.credentials_meta ?? {},
     }
