@@ -6,6 +6,9 @@ be case-insensitive, singular/plural-forgiving, and glob-capable. The
 zero-match fallback (usage-ranked candidates instead of a dead end) is
 covered by the e2e eval; here we pin the pure matching layer.
 """
+import pytest
+
+from app.utils import safe_regex
 from app.ai.tools.implementations.search_agents import compile_query_patterns
 
 
@@ -127,3 +130,71 @@ def test_mark_agent_used_and_enumeration_guard():
     assert hint and "already enumerated" in hint and "11" in hint
     # a different connection starts fresh
     assert note_enumeration(ctx2, "conn-b", 3) is None
+
+
+# ---------------------------------------------------------------------------
+# Bounded matching. Query terms are model-written and run synchronously on the
+# event loop against every candidate agent's table list; a pattern whose cost
+# grows with the haystack froze the single web worker (health checks failed).
+# The timeout marks are a hang guard, not a speed assertion.
+# ---------------------------------------------------------------------------
+def _wide_tables(n, stem):
+    return "\n".join(f"t{i:05d}_{stem}" for i in range(n))
+
+
+@pytest.mark.timeout(20)
+@pytest.mark.parametrize("glob", [
+    "*sales*order*",
+    "*sales*order*detail*",
+    "sales*region*missing",
+    "*fact?region*zzz*",
+])
+def test_multi_wildcard_globs_stay_bounded_on_wide_agents(glob):
+    weak = _wide_tables(20000, "sales_fact_region")
+    pats = compile_query_patterns([glob])
+    for _ in range(5):  # several candidate agents per search
+        assert match_quality(pats, "Wide Warehouse\nsales facts", weak) == (None, 0)
+
+
+@pytest.mark.timeout(20)
+@pytest.mark.parametrize("term", [r"(\w+\s?)+$", r"(a|aa)+$", r"(x+x+)+y"])
+def test_backtracking_regex_terms_stay_bounded(term):
+    weak = " ".join(["a" * 40, "x" * 40] * 50)
+    pats = compile_query_patterns([term])
+    for _ in range(50):
+        match_quality(pats, "a" * 60 + "!", weak)
+
+
+def test_runaway_regex_term_does_not_disable_other_terms(monkeypatch):
+    monkeypatch.setattr(safe_regex, "SEARCH_TIMEOUT_S", 0.0)  # every regex search times out
+    pats = compile_query_patterns([r"(\w+\s?)+$", "invoices"])
+    strength, hits = match_quality(pats, "Music Store", MUSIC_WEAK)
+    assert strength == "weak" and hits >= 1
+
+
+@pytest.mark.parametrize("glob,name", [
+    ("*sales*order*", "fact_sales_order_detail"),
+    ("Invoice*Line", "InvoiceLine"),
+    ("inv?ice", "Invoice"),
+    ("*CUSTOMER*", "dim_customer"),
+])
+def test_glob_matches_within_a_single_table_name(glob, name):
+    assert match_quality(compile_query_patterns([glob]), "", "\n".join(["Other", name]))[0] == "weak"
+
+
+@pytest.mark.parametrize("glob,names", [
+    ("*sales*order*", ["sales_fact", "order_lines"]),
+    ("*album*track*", ["Album", "Track"]),
+])
+def test_glob_does_not_span_two_table_names(glob, names):
+    weak = "\n".join(names)
+    assert match_quality(compile_query_patterns([glob]), "", weak) == (None, 0)
+
+
+@pytest.mark.parametrize("term,hay", [
+    ("sales|revenue", "monthly revenue"),
+    (r"invoice_\d+", "invoice_2026"),
+    (".*Opportunit.*", "SalesforceOpportunities"),
+])
+def test_well_formed_regex_terms_still_match(term, hay):
+    assert match_quality(compile_query_patterns([term]), "", hay)[0] == "weak"
