@@ -4549,6 +4549,7 @@
       "colFeedback": "Отзыв",
       "expandRow": "Показать вызовы инструментов",
       "pivotReport": "Показать этот диалог",
+      "openReport": "Открыть отчёт",
       "turnOf": "ход {n} из {m}",
       "nFailed": "{n} неудачных",
       "feedbackPositive": "Положительный",

@@ -40,6 +40,9 @@
                                         </div>
                                         <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-400 truncate">
                                             <button v-if="item.report.id" type="button" class="text-gray-500 hover:text-blue-600 hover:underline truncate" :title="$t('monitoring.diagnosis.pivotReport')" @click.stop="$emit('pivot', `report_id:${item.report.id}`)">{{ item.report.title || item.report.id }}</button>
+                                            <NuxtLink v-if="item.report.id" :to="`/reports/${item.report.id}`" target="_blank" class="flex-shrink-0 inline-flex text-gray-400 hover:text-blue-600" :title="$t('monitoring.diagnosis.openReport')" :aria-label="$t('monitoring.diagnosis.openReport')" data-testid="open-report" @click.stop>
+                                                <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3 h-3" />
+                                            </NuxtLink>
                                             <template v-if="item.report.turn">
                                                 <span>·</span>
                                                 <span class="whitespace-nowrap">{{ $t('monitoring.diagnosis.turnOf', { n: item.report.turn, m: item.report.turns || item.report.turn }) }}</span>
