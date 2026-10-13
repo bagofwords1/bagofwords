@@ -440,6 +440,13 @@ class SubAgentService:
             row.child_head_completion_id = head_id
             row.child_completion_id = sys_id
             await db.commit()
+            # A stop that landed while create_completion ran found no child id to
+            # kill. The stop paths commit the terminal status before reading the id,
+            # and this reads the status after committing the id, so one side always
+            # sees the other and the child is killed exactly when it was stopped.
+            status = await db.scalar(select(SubAgentRun.status).where(SubAgentRun.id == sub_agent_id))
+            if sys_id and status in TERMINAL_RUN_STATUSES:
+                await _sigkill_completion(db, sys_id)
 
     # ── child side ──────────────────────────────────────────────────────────
 
@@ -601,8 +608,9 @@ class SubAgentService:
         if row.status in TERMINAL_RUN_STATUSES:
             return row
         won = await self._mark_terminal(db, row, RUN_INTERRUPTED, EXIT_STOPPED, error=(reason or None))
-        if row.child_completion_id:
-            await _sigkill_completion(db, row.child_completion_id)
+        child_id = await _current_child_completion_id(db, row.id)
+        if child_id:
+            await _sigkill_completion(db, child_id)
         row.envelope_json = _envelope(row)
         await db.commit()
         await self._write_back(db, row)
@@ -630,8 +638,9 @@ class SubAgentService:
             if c.status in TERMINAL_RUN_STATUSES:
                 continue
             await self._mark_terminal(db, c, RUN_INTERRUPTED, EXIT_STOPPED, error=(reason or "wave stopped"))
-            if c.child_completion_id:
-                await _sigkill_completion(db, c.child_completion_id)
+            child_id = await _current_child_completion_id(db, c.id)
+            if child_id:
+                await _sigkill_completion(db, child_id)
             c.envelope_json = _envelope(c)
             await db.commit()
             await self._write_back(db, c)
@@ -785,8 +794,9 @@ async def run_wave_deadline(job_id: str, wave_id: str) -> None:
             if c.status in TERMINAL_RUN_STATUSES:
                 continue
             await svc._mark_terminal(db, c, RUN_TIMED_OUT, EXIT_DEADLINE, error="wave deadline reached")
-            if c.child_completion_id:
-                await _sigkill_completion(db, c.child_completion_id)
+            child_id = await _current_child_completion_id(db, c.id)
+            if child_id:
+                await _sigkill_completion(db, child_id)
             c.envelope_json = _envelope(c)
             await db.commit()
             await svc._write_back(db, c)
@@ -881,6 +891,12 @@ async def _report_busy(db, wave_id: str) -> bool:
         ).limit(1)
     )).scalar_one_or_none()
     return running is not None
+
+
+async def _current_child_completion_id(db, sub_agent_id: str) -> Optional[str]:
+    """The committed child completion id, not the session's cached copy: the
+    launcher may have written it after this session loaded the row."""
+    return await db.scalar(select(SubAgentRun.child_completion_id).where(SubAgentRun.id == sub_agent_id))
 
 
 async def _sigkill_completion(db, completion_id: str) -> None:
