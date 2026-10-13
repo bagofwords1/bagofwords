@@ -130,10 +130,16 @@ const draftProject = computed(() => {
 // Picks made here ride on the created report only; unlike the home page this
 // never writes back to the user's saved selection, since a draft opened for
 // one agent shouldn't repin their whole workspace.
+//
+// An id the cached agent list doesn't know yet stays as a bare { id }: that
+// list is loaded once per page load, so it is still in flight on a fresh load
+// and misses agents created since. Dropping the id would leave the selection
+// empty — which is Auto — and a prompt sent then would create an Auto report.
+// The selector fills in the full object from its own fetch (alignSelection).
 const initialAgents = computed(() => {
 	if (agentIds.value.length) {
 		const byId = new Map((agents.value || []).map((a: any) => [String(a.id), a]))
-		return agentIds.value.map(id => byId.get(String(id))).filter(Boolean)
+		return agentIds.value.map(id => byId.get(String(id)) || { id })
 	}
 	if (projectId.value) return []
 	return selectedAgentObjects.value
