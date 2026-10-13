@@ -1,7 +1,7 @@
 # SharePoint Server (on-premises)
 
 `sharepoint_onprem` is a read-only document-library connector using SharePoint's
-REST API. It is separate from the existing Microsoft Graph SharePoint and
+modern REST API or SharePoint 2010 SOAP services. It is separate from the existing Microsoft Graph SharePoint and
 SharePoint Lists connectors. An enterprise license is required.
 
 ## Supported workflow
@@ -12,22 +12,87 @@ reports. The connector never writes to SharePoint. Report attachments and saved
 queries are stored in BOW, not in the source library.
 
 - All visible document libraries (`*`), one named library, or the default library
-  (blank). With all libraries, returned paths include the library name.
+  (blank, Modern REST only). SharePoint 2010 requires a name or `*`. With all
+  libraries, returned paths include the library name.
 - Folder scope, recursive enumeration, include globs, metadata indexing or live
   listing. Reads enforce scope even when given an absolute server-relative ID.
 - CSV/TSV and XLS/XLSX as DataFrames; PDF, DOCX, PPTX and text extraction; JSON;
   original binary downloads and the existing BOW document-preview pipeline.
-- SharePoint indexed content search plus immediate live filename matching.
+- Modern REST: SharePoint indexed content search plus immediate live filename matching.
   New document **contents require a SharePoint search crawl**. BOW metadata
   indexing does not run that crawl. Search results outside the configured URL
   origin/site/library/folder/globs are rejected, and hits are reauthorized live.
+- SharePoint 2010: filename/path search within the enumeration cap, without
+  indexed content search. Existing document extraction and CSV/Excel analysis
+  run after a file is read.
 - Default bounds: 5,000 catalog files and 50 MB per file; maximum configurable
   bounds: 50,000 files and 250 MB. Narrow the scope for larger libraries.
 
 Document-library files are supported; arbitrary SharePoint lists, pages,
 attachments to list items, writes, and Microsoft Graph OAuth are not part of
-this connector. Older servers without the ResourcePath REST API are not
-verified. The live lab uses SharePoint Server Subscription Edition.
+this connector. Modern REST requires the ResourcePath endpoints used by this
+connector; the existing live lab uses SharePoint Server Subscription Edition.
+SharePoint 2010 mode has automated SOAP-contract and application coverage, but
+has not yet been verified on a real 2010 farm.
+
+## SharePoint 2010 setup
+
+Choose **SharePoint API → SharePoint 2010** on the existing **SharePoint Server
+(on-prem)** connector. Keep the same Windows authentication choice and account.
+Saved connections without this setting retain **Modern REST**. There is no
+automatic fallback after a 404: a wrong URL or missing library must not silently
+switch protocols.
+
+The site URL must address the SharePoint web containing the library. Put the
+library's display name (or GUID) in **Document Library**, and a path relative to
+that library in **Folder Path**. Use `*` for all visible document libraries.
+A site URL containing the library/folder or a view page such as `AllItems.aspx`
+will not work. Enable **Include Subfolders** when needed.
+
+The backend must be able to call these read operations with the configured
+identity:
+
+| Endpoint beneath the site URL | Operations | Purpose |
+|---|---|---|
+| `/_vti_bin/Lists.asmx` | `GetListCollection`, `GetList`, `GetListItems` | Libraries, scope, paged file metadata |
+| `/_vti_bin/Copy.asmx` | `GetItem` | File bytes, returned as base64 |
+
+These are SOAP POSTs, but they do not write or create SharePoint content. No
+Graph OAuth, SharePlum installation, new credentials, or database migration is
+required. Large libraries remain subject to the farm's list-view thresholds;
+page size is not a bypass. Narrow **Folder Path** for large libraries. Copy
+responses have base64 overhead and are bounded before parsing and after decoding.
+
+### Read-only on-prem smoke test
+
+Run from the deployed backend environment, with its Python dependencies, network
+access, CA trust, and existing Windows credentials. Set `SP_SITE_URL`,
+`SP_LIBRARY`, `SP_USERNAME`, and `SP_PASSWORD` securely in the environment;
+never put the password in a command or report. Compute a known file's SHA-256
+independently from its original bytes, then run from the repository root:
+
+```bash
+python tools/sharepoint_onprem/verify_2010.py \
+  --file 'Reports/known.csv' --sha256 '<64-character-original-file-sha256>' \
+  --min-files 3 --require-paging
+```
+
+The default diagnostic page size is two. Choose a scope with more than two items
+in one folder to exercise paging. `--folder` narrows scope; `--file` then becomes
+relative to that folder. Use `--auth kerberos` with the existing keytab/cache
+setup (`SP_PRINCIPAL` is optional) for Kerberos. `--allow-http` is only for an
+isolated HTTP lab, consistent with the connector's existing setting.
+
+Success requires connection, listing, filename search, and exact downloaded-byte
+hash verification. `--require-paging` also requires a successful continuation
+request. The output contains counts and booleans, not credentials or file data.
+Run again for a Unicode filename, a nested file, and an empty file as applicable.
+A restricted account reading a known denied file must fail. No fixture files are
+created on SharePoint by this script.
+
+Remaining deployment checks: actual NTLM/Kerberos negotiation, endpoint exposure,
+public URL/alternate-access mappings, permissions, and farm query limits. See the
+[2010 feedback loop and source comparison](feedback-loops/sharepoint-2010.md).
 
 ## Authentication choices
 
@@ -58,7 +123,7 @@ by this connector. Do not select service mode expecting user-level delegation.
 3. A least-privilege account with read access to the selected site and libraries,
    or individual accounts if using user-required NTLM. No Domain Admin or SQL
    access is required by the connector.
-4. For indexed content search: Search Service Application, a working content
+4. For Modern REST indexed content search: Search Service Application, a working content
    source/crawl, and search URLs matching the configured access URL. Verify
    security trimming with allowed and denied test users.
 5. For Kerberos: Windows Integrated Authentication/Negotiate on the web

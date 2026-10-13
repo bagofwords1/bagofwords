@@ -449,9 +449,14 @@ watch(typeSupportsUserAuth, (ok) => { if (!ok) require_user_auth.value = false }
 const configFields = computed(() => {
   if (!fields.value?.config?.properties) return [] as any[]
   return Object.entries(fields.value.config.properties)
-    .map(([field_name, schema]: any) => ({ field_name, ...schema }))
+    .map(([field_name, schema]: any) => ({
+      field_name, ...schema,
+      title: schema['ui:titleKey'] ? t(schema['ui:titleKey']) : schema.title,
+      description: schema['ui:descriptionKey'] ? t(schema['ui:descriptionKey']) : schema.description,
+    }))
     // Hide fields explicitly marked ui:hidden (e.g. deprecated/back-compat).
     .filter((f: any) => !(f['ui:hidden'] === true))
+    .sort((a: any, b: any) => (a['ui:order'] ?? 0) - (b['ui:order'] ?? 0))
 })
 
 const authOptions = computed(() => {
@@ -507,7 +512,9 @@ function fieldOptions(field: any): Array<{ value: string | number | boolean; lab
     .find(value => Array.isArray(value) && value.length) || []
   return options.map((option: any) => {
     const value = typeof option === 'object' && option !== null ? option.value : option
-    const label = field['ui:enumLabels']?.[String(value)]
+    const labelKey = field['ui:enumLabelKeys']?.[String(value)]
+    const label = (labelKey ? t(labelKey) : undefined)
+      ?? field['ui:enumLabels']?.[String(value)]
       ?? (typeof option === 'object' && option !== null ? option.label : undefined)
       ?? String(value)
     return { value, label }

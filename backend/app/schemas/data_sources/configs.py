@@ -2201,8 +2201,30 @@ class SharePointConfig(BaseModel):
     )
 
 
-# SharePoint Server uses Windows auth and its own REST API, not Graph.
+# SharePoint Server uses Windows auth with modern REST or legacy SOAP APIs.
 class SharePointOnpremConfig(SharePointConfig):
+    drive_name: Optional[str] = Field(
+        "*", title="Document Library",
+        description="Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only.",
+        json_schema_extra={"ui:type": "string", "ui:descriptionKey": "data.sharepointApi.libraryDescription"},
+    )
+    # Graph-only tuning is inherited for stored-config compatibility, but unused.
+    walk_concurrency: int = Field(4, ge=1, le=16, json_schema_extra={"ui:hidden": True})
+    api_mode: Literal["modern", "2010"] = Field(
+        "modern", title="SharePoint API",
+        description="SharePoint 2010 uses legacy services and searches filenames only. Enter a library name or *; do not leave the library blank.",
+        json_schema_extra={"ui:type": "select", "ui:order": -1, "ui:titleKey": "data.sharepointApi.title",
+                           "ui:descriptionKey": "data.sharepointApi.description",
+                           "ui:enumLabels": {"modern": "Modern REST", "2010": "SharePoint 2010"},
+                           "ui:enumLabelKeys": {"modern": "data.sharepointApi.modern", "2010": "data.sharepointApi.legacy"}},
+    )
+
+    @model_validator(mode="after")
+    def legacy_library_required(self):
+        if self.api_mode == "2010" and not (self.drive_name or "").strip():
+            raise ValueError("SharePoint 2010 requires a document library name or * for all libraries.")
+        return self
+
     site_url: str = Field(..., title="Site URL", description="SharePoint Server site URL, including /sites/name. Not the Central Administration URL.", json_schema_extra={"ui:type": "string"})
     allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
     max_file_size_mb: int = Field(50, ge=1, le=250, title="Max file size (MB)", description="Reject oversized downloads before parsing; files are never silently truncated.", json_schema_extra={"ui:type": "number"})

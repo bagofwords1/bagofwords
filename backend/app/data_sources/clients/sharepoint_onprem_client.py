@@ -77,7 +77,13 @@ class SharepointOnpremClient(DataSourceClient):
                  allowed_extensions: str | None = None, recursive: bool = False,
                  index_mode: str = "metadata", max_catalog_objects: int = 5000,
                  allow_http: bool = False, max_file_size_mb: int = 50,
+                 api_mode: str = "modern",
                  **kwargs):
+        if api_mode not in ("modern", "2010"):
+            raise ValueError("API mode must be modern or 2010.")
+        if api_mode == "2010" and not (drive_name or "").strip():
+            raise ValueError("SharePoint 2010 requires a document library name or * for all libraries.")
+        self.api_mode = api_mode
         self.site_url = site_url.rstrip("/")
         parsed = urlsplit(self.site_url)
         if (parsed.scheme not in ("http", "https") or not parsed.hostname
@@ -107,9 +113,18 @@ class SharepointOnpremClient(DataSourceClient):
         if not kerberos and (not username or not password):
             raise ValueError("NTLM requires a domain username and password.")
         self._local = threading.local()
+        self._legacy = None
+        if api_mode == "2010":
+            from app.data_sources.clients._sharepoint_2010 import Sharepoint2010API
+            self._legacy = Sharepoint2010API(self)
 
     @property
     def description(self):
+        if self._legacy:
+            return ("Read-only SharePoint 2010 document libraries. Use list_files and read_file "
+                    "with returned file ids or scoped paths. search_files matches filenames and paths "
+                    "within the configured enumeration limit; it does not search document contents. "
+                    "CSV/Excel reads return DataFrames; PDF/DOCX/PPTX return document text.")
         return (
             "Read-only SharePoint Server document libraries. Use list_files, search_files, "
             "and read_file with the returned server-relative file id or scoped path. "
@@ -217,6 +232,8 @@ class SharepointOnpremClient(DataSourceClient):
         raise ValueError("SharePoint pagination limit exceeded; narrow the connection scope.")
 
     def _libraries(self):
+        if self._legacy:
+            return self._legacy.libraries()
         libs = list(self._pages("web/lists", {
             "$filter": "BaseTemplate eq 101 and Hidden eq false",
             "$select": "Id,Title,RootFolder/ServerRelativeUrl", "$expand": "RootFolder", "$top": 200,
@@ -260,6 +277,8 @@ class SharepointOnpremClient(DataSourceClient):
                 "web_url": self._origin_url + quote(path, safe="/")}
 
     def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
+        if self._legacy:
+            return self._legacy.list_files(folder_id, recursive, limit, progress_callback)
         cap = min(max(0, int(limit)) if limit is not None else self.max_catalog_objects, self.max_catalog_objects)
         if cap == 0:
             return []
@@ -336,6 +355,8 @@ class SharepointOnpremClient(DataSourceClient):
         return candidates[0]
 
     def read_raw_bytes(self, file_id, *, max_bytes=None):
+        if self._legacy:
+            return self._legacy.read_raw_bytes(file_id, max_bytes=max_bytes)
         libraries = self._libraries()
         path = self._resolve(file_id, libraries)
         endpoint = f"web/GetFileByServerRelativePath(decodedurl={_literal(path)})"
@@ -377,6 +398,9 @@ class SharepointOnpremClient(DataSourceClient):
         cap = min(max(0, int(limit)), self.max_catalog_objects, 500)
         if not cap:
             return []
+        if self._legacy:
+            return [entry for entry in self.list_files()
+                    if str(query).casefold() in entry["path"].casefold()][:cap]
         libraries = self._libraries()
         # Quoted literal query: do not let model-generated KQL escape scope.
         term = str(query).replace('"', ' ').replace("\\", " ").strip()
@@ -418,6 +442,11 @@ class SharepointOnpremClient(DataSourceClient):
 
     def test_connection(self):
         try:
+            if self._legacy:
+                self.list_files(limit=1, recursive=False)
+                return {"success": True, "message": "Connected to SharePoint 2010.",
+                        "details": {"site": self.site_url, "api_mode": self.api_mode,
+                                    "auth_method": "kerberos" if self.kerberos else "ntlm"}}
             web = self._request("web", params={"$select": "Title,Url"})
             user = self._request("web/currentuser", params={"$select": "LoginName"})
             self.list_files(limit=1, recursive=False)

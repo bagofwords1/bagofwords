@@ -3768,6 +3768,13 @@
       "blocked": "Blockerad: saknar {attributes}",
       "test": "Testa",
       "testOk": "Ansluten som denna medlem"
+    },
+    "sharepointApi": {
+      "title": "SharePoint-API",
+      "description": "SharePoint 2010 använder äldre tjänster och söker endast i filnamn. Ange ett biblioteksnamn eller *; lämna inte biblioteket tomt.",
+      "modern": "Modern REST",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Dokumentbibliotekets namn, eller * för alla synliga bibliotek. Ett tomt fält väljer standardbiblioteket endast i läget Modern REST."
     }
   },
   "share": {
