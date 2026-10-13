@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.587 (October 13, 2026)
+- Fixed adding a filter to a chart failing when the agent passed the chart's id (#1347)
+- Added a chat card for added filters, showing the filter, query and errors (#1348)
+- Fixed Run evals including draft and archived cases and following the Tests search (#1352)
+- Fixed untranslated Accept/Reject buttons and statuses on training-mode review cards (#1346)
+
 ## Version 0.0.586 (October 10, 2026)
 - Bug fixes and UI improvements (#1291)
 
