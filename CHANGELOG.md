@@ -5,6 +5,7 @@
 - Added a chat card for added filters, showing the filter, query and errors (#1348)
 - Fixed Run evals including draft and archived cases and following the Tests search (#1352)
 - Fixed untranslated Accept/Reject buttons and statuses on training-mode review cards (#1346)
+- Fixed Reload not refreshing the schema of shared connections (#1358)
 
 ## Version 0.0.586 (October 10, 2026)
 - Bug fixes and UI improvements (#1291)
