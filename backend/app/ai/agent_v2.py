@@ -528,6 +528,9 @@ class AgentV2:
         self._sub_agent_allowed_tools = None   # frozenset of tool names (profile ∩ catalog)
         self._sub_agent_finished = False       # finish_subtask observed this run
         self._sub_agent_finish_nudges = 0
+        self._sub_agent_tokens_used = 0          # LLM tokens summed over this child's planner calls
+        self._sub_agent_tokens_exhausted_at = None  # loop index at which the token cap was reached
+        self._sub_agent_tokens_exhausted = False
         self._planner_steps_exhausted = False
         self._wave_pending = False
         # Stamp the asker's identity for LLM header injection BEFORE the
@@ -4875,6 +4878,32 @@ class AgentV2:
             _mlog(f"loop_starting step_limit={step_limit}")
 
             for loop_index in range(step_limit):
+
+                # Sub-agent token cap: the step that hit it was told to finish; a
+
+                # further step means it did not, so stop as step exhaustion does.
+
+                if (
+
+                    self._is_sub_agent and not self._sub_agent_finished
+
+                    and self._sub_agent_tokens_exhausted_at is not None
+
+                    and loop_index > self._sub_agent_tokens_exhausted_at + 1
+
+                ):
+
+                    planner_steps_exhausted = True
+
+                    self._planner_steps_exhausted = True
+
+                    self._sub_agent_tokens_exhausted = True
+
+                    completion_errored = True
+
+                    logger.warning("[agent] sub-agent token cap reached (%s tokens); stopping", self._sub_agent_tokens_used)
+
+                    break
                 self._iteration_count += 1
                 try:
                     # Test-only fault injection (inert unless BOW_AGENT_LOOP_FAULTS is set):
@@ -6801,6 +6830,19 @@ class AgentV2:
                                     )
                                     if _repeat == "nudge":
                                         _obs["repeat_warning"] = repeated_call_nudge(_tn)
+                                    elif _repeat == "stop" and self._is_sub_agent and not self._sub_agent_finished and self._sub_agent_finish_nudges < 1:
+                                        # A sub-agent's deliverable is its record. Ending
+                                        # the turn here left the breaker's own text as the
+                                        # synthesized summary (seen live: three children
+                                        # re-saving the same note). Spend the one finish
+                                        # nudge instead; a further repeat still stops.
+                                        self._sub_agent_finish_nudges += 1
+                                        _obs["repeat_warning"] = (
+                                            repeated_call_nudge(_tn)
+                                            + " You are a sub-agent and you are repeating yourself: stop here and call "
+                                            "finish_subtask NOW with what you have (outcome=partial if unsure)."
+                                        )
+                                        _obs["error"] = {"code": "finish_subtask_required", "message": "repeated call; finish_subtask not called"}
                                     elif _repeat == "stop":
                                         analysis_done = True
                                         _obs.update({
@@ -7491,6 +7533,7 @@ class AgentV2:
         self._sub_agent = {
             "id": str(row.id), "wave_id": str(row.wave_id), "title": row.title, "profile": row.profile,
             "goal": row.goal, "context": row.context, "max_steps": row.max_steps or limits["max_steps"],
+            "max_tokens": int(limits.get("max_tokens") or 0),
             "agent_ids": list(row.agent_ids_json or []), "addendum": profile.addendum,
         }
         self._sub_agent_allowed_tools = allowed
@@ -7535,8 +7578,15 @@ class AgentV2:
                 planner_input.sub_agent_title = self._sub_agent.get("title")
                 planner_input.sub_agent_profile_addendum = self._sub_agent.get("addendum")
                 used = int(loop_index) + 1
+                cap = int(self._sub_agent.get("max_tokens") or 0)
+                tokens_spent = cap and self._sub_agent_tokens_used >= cap
+                if tokens_spent and self._sub_agent_tokens_exhausted_at is None:
+                    self._sub_agent_tokens_exhausted_at = int(loop_index)
                 planner_input.sub_agent_budget = f"sub-agent step {used} of {step_limit}" + (
-                    " — finish NOW with finish_subtask" if used >= step_limit - 1 else ""
+                    f"; tokens {self._sub_agent_tokens_used:,} of {cap:,}" if cap else ""
+                ) + (
+                    " — TOKEN BUDGET SPENT: call finish_subtask NOW with what you have" if tokens_spent
+                    else (" — finish NOW with finish_subtask" if used >= step_limit - 1 else "")
                 )
             return
         planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
@@ -7603,6 +7653,7 @@ class AgentV2:
             error=err, duration_ms=duration,
             model_name=getattr(self.model, "name", None) or getattr(self.model, "model_id", None),
             steps_exhausted=bool(self._planner_steps_exhausted),
+            tokens_exhausted=bool(self._sub_agent_tokens_exhausted),
         )
 
     async def _build_planner_prompt_text(self, view=None) -> str:
@@ -7717,6 +7768,12 @@ class AgentV2:
             metrics = getattr(decision, "metrics", None)
             token_usage = getattr(metrics, "token_usage", None) if metrics else None
             prompt_tokens = getattr(token_usage, "prompt_tokens", None) if token_usage else None
+            if token_usage is not None and self._is_sub_agent:
+                # Running total for the sub-agent token cap (sub_agent_max_tokens).
+                _total = getattr(token_usage, "total_tokens", None)
+                if _total is None:
+                    _total = int(prompt_tokens or 0) + int(getattr(token_usage, "completion_tokens", 0) or 0)
+                self._sub_agent_tokens_used += int(_total or 0)
             if prompt_tokens is None:
                 return
             prompt_tokens = int(prompt_tokens or 0)

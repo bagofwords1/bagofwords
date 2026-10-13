@@ -3577,6 +3577,13 @@ class ReportService:
         # The second clause hides the internal machine trigger — the synthetic
         # prompt the agent answers for a webhook/scheduled run — exactly as
         # get_completions_v2 does for the owner-facing timeline.
+        #
+        # The third clause hides sub-agent children (docs/design/sub-agents.md
+        # A3): a child runs on hidden completions of the same report with
+        # trigger_source='sub_agent'. Its user row is already caught above; its
+        # system row is the child's whole transcript and used to render on the
+        # share page as an orphan assistant bubble. NULL-safe, like the
+        # owner-facing timeline.
         completions_query = select(Completion).where(
             Completion.report_id == report.id,
             Completion.role.in_(("user", "system")),
@@ -3584,6 +3591,7 @@ class ReportService:
                 (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
                 & (Completion.role == "user")
             ),
+            (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
         )
 
         # If 'before' cursor provided, fetch older completions. The id

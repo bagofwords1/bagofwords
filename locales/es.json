@@ -1805,7 +1805,7 @@
       "unknown": "Desconocido",
       "exit": "Salida",
       "openNote": "Abrir informe",
-      "synthesized": "Registro escrito por el sistema: la sub-ejecución no terminó por sí misma.",
+      "synthesized": "Registro escrito por el sistema: el subagente no terminó por sí mismo.",
       "status": {
         "pending": "en cola",
         "running": "en ejecución",
@@ -3161,39 +3161,43 @@
         },
         "enable_sub_agents": {
           "name": "Subagentes",
-          "description": "Permite que el agente delegue sub-preguntas independientes (por ejemplo, una hipótesis por cada causa en un análisis de causa raíz) a sub-ejecuciones acotadas en segundo plano que investigan por su cuenta y devuelven registros tipificados en un único turno de consolidación. Si está desactivado, la herramienta delegate se oculta."
+          "description": "Permite que el agente delegue sub-preguntas independientes (por ejemplo, una hipótesis por cada causa en un análisis de causa raíz) a subagentes acotados en segundo plano que investigan por su cuenta y devuelven registros tipificados en un único turno de consolidación. Si está desactivado, la herramienta delegate se oculta."
         },
         "sub_agent_posture": {
-          "name": "Postura de sub-ejecuciones",
+          "name": "Postura de subagentes",
           "description": "'proactive': el agente delega por iniciativa propia cuando una petición se divide en tres o más sub-preguntas independientes. 'explicit': el agente solo delega cuando el usuario o una instrucción lo pide."
         },
         "sub_agent_max_steps": {
-          "name": "Pasos máximos por sub-ejecución",
-          "description": "Pasos del planificador que una sub-ejecución puede dar antes de verse obligada a terminar con un registro parcial. Limitado a 5-200."
+          "name": "Pasos máximos por subagente",
+          "description": "Pasos del planificador que un subagente puede dar antes de verse obligado a terminar con un registro parcial. Limitado a 5-200."
+        },
+        "sub_agent_max_tokens": {
+          "name": "Tokens máximos por subagente",
+          "description": "Tokens de LLM (prompt más respuesta, sumados en todos sus pasos) que un subagente puede gastar antes de que se le pida terminar; se permite un paso más para el registro y después se detiene con un registro parcial. Los pasos limitan el tiempo; esto limita el coste. Limitado a 20.000-5.000.000."
         },
         "sub_agent_deadline_minutes": {
-          "name": "Plazo de sub-ejecuciones (minutos)",
-          "description": "Límite de tiempo para una ola de sub-ejecuciones. Al cumplirse, las sub-ejecuciones aún activas se detienen y se registran como expiradas, y el turno de consolidación se ejecuta con los registros existentes. Limitado a 2-60."
+          "name": "Plazo de subagentes (minutos)",
+          "description": "Límite de tiempo para una ola de subagentes. Al cumplirse, los subagentes aún activos se detienen y se registran como expirados, y el turno de consolidación se ejecuta con los registros existentes. Limitado a 2-60."
         },
         "sub_agent_concurrency": {
-          "name": "Sub-ejecuciones simultáneas",
-          "description": "Cuántas sub-ejecuciones de un informe pueden ejecutarse a la vez. Las que superan el límite esperan dentro de su ola. Limitado a 1-6."
+          "name": "Subagentes simultáneas",
+          "description": "Cuántas subagentes de un informe pueden ejecutarse a la vez. Las que superan el límite esperan dentro de su ola. Limitado a 1-6."
         },
         "sub_agent_max_per_wave": {
-          "name": "Máximo de sub-ejecuciones por ola",
+          "name": "Máximo de subagentes por ola",
           "description": "Cuántas llamadas delegate puede lanzar el agente desde un paso de planificación. Las llamadas sobrantes se rechazan con una nota para que el agente planifique una segunda ola. Limitado a 1-10."
         },
         "sub_agent_model": {
-          "name": "Modelo de sub-ejecuciones",
-          "description": "Modelo con el que planifican las sub-ejecuciones. 'auto' = el modelo pequeño por defecto para el perfil investigate y el modelo por defecto para validate; 'small' o 'default' fuerzan uno; o un id de modelo de la página de LLM."
+          "name": "Modelo de subagentes",
+          "description": "Modelo con el que planifican los subagentes. 'auto' = el modelo pequeño por defecto para el perfil investigate y el modelo por defecto para validate; 'small' o 'default' fuerzan uno; o un id de modelo de la página de LLM."
         },
         "sub_agent_allow_model_override": {
-          "name": "Permitir cambiar el modelo de una sub-ejecución",
-          "description": "Permite que el agente elija otro modelo para una sub-ejecución cuando el usuario lo pide o una instrucción lo indica. La elección se valida contra los modelos que el usuario puede usar."
+          "name": "Permitir cambiar el modelo de un subagente",
+          "description": "Permite que el agente elija otro modelo para un subagente cuando el usuario lo pide o una instrucción lo indica. La elección se valida contra los modelos que el usuario puede usar."
         },
         "sub_agent_allow_create_data": {
-          "name": "Las sub-ejecuciones pueden crear consultas",
-          "description": "Permite que las sub-ejecuciones creen consultas rastreadas (create_data) cuyos ids vuelven como evidencia que el agente puede graficar y citar. Desactivado = sub-ejecuciones solo de investigación."
+          "name": "Las subagentes pueden crear consultas",
+          "description": "Permite que los subagentes creen consultas rastreadas (create_data) cuyos ids vuelven como evidencia que el agente puede graficar y citar. Desactivado = subagentes solo de investigación."
         }
       }
     },
@@ -6001,7 +6005,7 @@
   },
   "subAgents": {
     "wave": "Ola {n}",
-    "count": "{count} sub-ejecuciones",
+    "count": "{count} subagentes",
     "running": "{count} en ejecución",
     "stoppedWave": "detenida",
     "timedOut": "plazo alcanzado",
@@ -6010,7 +6014,7 @@
     "backgroundTasks": "{count} tareas en segundo plano",
     "queued": "en cola",
     "heading": "Subagentes",
-    "headerStrip": "{total} sub-ejecuciones · {tokens} tokens",
+    "headerStrip": "{total} subagentes · {tokens} tokens",
     "viaSubAgent": "vía subagente: {title}",
     "waveStatus": {
       "collecting": "iniciando",
