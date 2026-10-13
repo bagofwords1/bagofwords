@@ -7,6 +7,7 @@
 - Added Elasticsearch query guardrails set by admins: block all-index searches, index allowlist, and caps on documents and aggregations (#1372)
 - Added per-connection query timeout and concurrency overrides under a new Query limits panel on the connection (#1372)
 - Added a per-run token cap for sub-agents (#1374) — `sub_agent_max_tokens` org setting (default 400,000)
+- Added AI suggestions that turn an instruction on or off, reviewed with Accept/Reject like any other edit (#1375)
 - Added an "Open report" link to Diagnosis run rows for full admins (#1369)
 - Fixed "New report" from an agent page losing the agent and creating an Auto report (#1371)
 - Fixed LLM calls failing when a forwarded identity header held non-ASCII characters, such as a Hebrew user name (#1366)
