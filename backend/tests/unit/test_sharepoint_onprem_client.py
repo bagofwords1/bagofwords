@@ -252,3 +252,14 @@ def test_transient_read_failure_retries_a_fresh_session(remote, monkeypatch):
     monkeypatch.setattr(requests.Session, "get", fail_once)
     assert client().test_connection()["success"]
     assert sessions[0] is not sessions[1]
+
+@pytest.mark.parametrize('indexed', [True, False])
+def test_search_does_not_crawl_after_result_limit(remote, indexed):
+    remote['search_paths'] = [SITE.split('/sites/')[0] + ROOT + '/revenue.csv'] if indexed else []
+    # Following this next page would fail at the HTTP boundary. The first live
+    # page already contains a match, or the content index already satisfied us.
+    remote['next'] = SITE + '/_api/unneeded-next-page'
+    results = client(drive_name='Documents').search_files('revenue', limit=1)
+    assert len(results) == 1 and results[0]['name'] == 'revenue.csv'
+    file_requests = [url for url, _ in remote['calls'] if url.endswith('/Files')]
+    assert len(file_requests) == (0 if indexed else 1)

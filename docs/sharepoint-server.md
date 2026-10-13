@@ -35,6 +35,21 @@ connector; the existing live lab uses SharePoint Server Subscription Edition.
 SharePoint 2010 mode has automated SOAP-contract and application coverage, but
 has not yet been verified on a real 2010 farm.
 
+### Enumeration and lookup costs
+
+Filename searches stop once the requested number of matches is found. A sparse
+or absent match can still scan up to **Max Files**; narrow the library/folder
+scope for large farms. SharePoint 2010 reads use an exact filename CAML query in
+the requested parent folder, without enumerating its ancestors. Farm query
+thresholds still apply.
+
+Validated 2010 library metadata is reused for each client instance; file rows,
+folder existence and downloads remain live under that client's identity. A new
+client discovers library additions/renames. Library names are trimmed, and
+repeated separators in configured folder paths are normalized after scope
+validation. An oversized metadata response calls for narrower discovery scope,
+not a larger file download limit.
+
 ## SharePoint 2010 setup
 
 Choose **SharePoint API → SharePoint 2010** on the existing **SharePoint Server

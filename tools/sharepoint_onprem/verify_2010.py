@@ -41,7 +41,7 @@ def main():
         api_mode='2010', recursive=True, allow_http=args.allow_http, kerberos=args.auth == 'kerberos',
         username=os.environ.get('SP_USERNAME'), password=os.environ.get('SP_PASSWORD'),
         principal=os.environ.get('SP_PRINCIPAL'))
-    client._legacy.page_size = args.page_size
+    client._adapter.page_size = args.page_size
     # Hook the external HTTP boundary. Record counts only, never payloads/headers.
     counters = {'successful_soap_requests': 0, 'continuation_requests': 0}
     def observed(response, **kwargs):

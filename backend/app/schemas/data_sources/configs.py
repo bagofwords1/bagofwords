@@ -2221,6 +2221,8 @@ class SharePointOnpremConfig(SharePointConfig):
 
     @model_validator(mode="after")
     def legacy_library_required(self):
+        if self.drive_name is not None:
+            self.drive_name = self.drive_name.strip()
         if self.api_mode == "2010" and not (self.drive_name or "").strip():
             raise ValueError("SharePoint 2010 requires a document library name or * for all libraries.")
         return self

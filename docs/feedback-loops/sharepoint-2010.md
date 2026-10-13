@@ -166,3 +166,111 @@ Existing catalogs without `api_mode` keep modern REST behavior. No migration or
 new dependency is required; the same BOW file metadata/extraction interfaces are
 used. A full natural-language report run was not performed in the sandbox because
 no LLM provider was configured; deterministic CSV/text extraction is verified.
+
+## PR review follow-up — correctness and request budgets
+
+Review baseline: `54927f567`. The regression additions first produced **14
+failures** against that implementation: padded library names (3 cases), repeated
+folder separators (2), oversized metadata with/without Content-Length (2),
+incomplete library metadata (2), eager legacy searches (2), deep exact reads (2),
+and repeated library discovery (1). The new modern-search cases independently
+failed against the baseline too: both fetched an unnecessary next page after
+having enough results. The full final SQLite set passes **152 tests**; the same
+PostgreSQL API set passes **38**.
+
+Root causes at that baseline were the eager `search_files` call to `list_files`
+in `sharepoint_onprem_client.py:402`, unnormalized configuration in its
+constructor, library rediscovery and premature `lib['ID']` access in
+`_sharepoint_2010.py:127`, ancestor enumeration in `_find`, and the use of
+`FileTooLargeError` for XML listings in `_soap`. In `ConnectForm.vue:516`, a
+missing translation returns the key, so the nullish fallback was unreachable.
+
+| Review item | Resolution and evidence |
+|---|---|
+| 1. Unexpected folder rows / doubled separators | Normalize configured folder separators after traversal checks. Preserve rejection of unexpected/out-of-scope provider rows; silently skipping these could conceal an incomplete catalog. Both nested input variants now list the correct scope. |
+| 2. Metadata reported as oversized file | Shared transport raises a metadata-specific `ValueError` for bounded listing responses; only downloads raise `FileTooLargeError`. Header and streamed limits are tested. |
+| 3. Library whitespace | Strip library names in saved config validation and direct client construction. Named and wildcard inputs pass. |
+| 4. Missing library ID | Validate ID/title before fallback GetList, and validate the returned fallback metadata before use. Missing fields now raise a domain error instead of KeyError. |
+| 5. Missing translation | Check `te` in the active locale/English before translating titles, descriptions and enum labels; otherwise use schema text. Browser checks reproduce missing keys and pass after the change in English and Hebrew. |
+| 6. Eager search | Both adapters expose lazy enumeration. Filename search stops at the result limit; modern search skips live listing if the content index already fills the limit. A 5,000-file early-match search falls from 25 listing requests to 1 at page size 200. Sparse/no-match queries can still enumerate up to the catalog cap. |
+| 7. Expensive path lookup | An exact filename query scoped to the known parent folder resolves a deep path in one GetListItems request per candidate library. Returned parent/name/type and read scope are still checked. Unicode and XML-significant names are covered. |
+| 8. Repeated library discovery | Cache validated library metadata per client under a lock, including RootFolder fallback results. Never cache file rows, folder existence, permissions or bytes. Tests cover reuse, denied subsequent reads, separate clients and collections without RootFolder. Library additions/renames require a new client. |
+| 9. Duplicated HTTP handling | SOAP and REST share `_request_bytes` for bounded streaming, TLS, redirect/AAM guidance, status handling and one fresh-session retry. Protocol parsers remain separate. Existing fault, retry, scope and TLS tests pass. |
+| 10. Scattered version branches | Choose one `SharepointAPI` implementation at construction. The abstract interface requires listing, reading, searching, checking and description; REST endpoints live in `_sharepoint_rest.py`. Shared file extraction and scope enforcement stay on the client. |
+| 11. Redundancy | Perform initial visibility selection once, then validate fresh fallback metadata when fetched. Retain distinct visited-folder and emitted-file sets: they prevent different kinds of duplication. Remove the unused legacy library-scope wrapper. |
+
+### Targeted query basis
+
+Microsoft's [SharePoint Foundation 2010 document retrieval example](https://learn.microsoft.com/en-us/previous-versions/office/developer/sharepoint-2010/ee956524%28v%3Doffice.14%29)
+uses `Where/Eq/FieldRef Name="FileLeafRef"` with a Text value to locate a document.
+The SOAP [CamlQueryOptions specification](https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-listsws/fa650bde-c79b-4a2a-bb5d-c43e74166322)
+defines the server-relative Folder restriction. We combine that documented exact
+leaf predicate with the known parent folder and row limit 1, avoiding a recursive
+whole-library FileRef query. This is evidence for the request shape, **not proof
+that a particular farm's list-view threshold or configuration permits it**.
+
+### Repeat the focused loop
+
+Run the full Loop A command above, or the two unit modules for **114 passing
+cases**. To observe the original review failures, copy the updated unit tests to
+a disposable checkout of `54927f567` and run the new contract tests there. They
+mock HTTP only; their request counts express the externally visible performance
+budget, not internal helper call order.
+
+For the form fallback, boot/seed the isolated app as above, then:
+
+```bash
+cd frontend
+BOW_QA_SEED_FILE=/path/to/seed.json \
+BOW_QA_BASE_URL=http://127.0.0.1:3011 \
+BOW_QA_EVIDENCE_DIR=../media/pr/sharepoint-2010 \
+node tests/sharepoint-schema-fallback.mjs
+```
+
+The script changes only the field-schema HTTP response to reference catalog keys
+that do not exist yet. It asserts readable schema labels in `en` and `he`; on the
+baseline, `EXPECT_MISSING_LABELS=1` captures the broken state. No saved connection
+or catalog is modified. The regular ten-locale sweep also passes **30/30**.
+
+| Missing catalog keys | Schema fallback |
+|---|---|
+| ![Before](../../media/pr/sharepoint-2010/fallback-before-en.png) | ![After](../../media/pr/sharepoint-2010/fallback-after-en.png) |
+| ![Before Hebrew](../../media/pr/sharepoint-2010/fallback-before-he.png) | ![After Hebrew](../../media/pr/sharepoint-2010/fallback-after-he.png) |
+
+The revised local HTTP smoke lists four files and verifies the same 33-byte CSV
+hash and filename search, with **14 SOAP requests / 4 continuation requests**.
+These counts belong to the small diagnostic fixture; they are not a farm latency
+benchmark. Windows authentication negotiation and actual farm behavior remain
+for the deployment owner's on-prem test.
+
+### Full CI unit failures: attribution outside this change
+
+The original PR-head CI unit job (`54927f567`, GitHub job `115432621329`)
+reported **6,820 passed, 8 failed, 20 skipped**. All eight failures were reproduced
+without the SharePoint changes in an exported base checkout of `caf4c58da`.
+The production/test files below have zero diff from that base in this PR.
+They are not silently counted as green in the targeted verification above.
+
+| Failing test (under `backend/tests/unit/`) | Attribution | Base evidence |
+|---|---|---|
+| `test_artifact_feedback_loop.py::test_page_edit_prompt_static_reference_lives_in_system_prompt` | pre-existing-defect | `edit_artifact_legacy.py:557` interpolates unescaped `{setQuery}`; blame `1c36790c10`; same NameError on base. |
+| `test_openai_tool_call_ids.py::test_provider_ids_are_used_verbatim` | stale-test | Fixture bypasses `OpenAi.__init__` via `__new__`; `_mark_prompt_cache` now requires `prompt_cache_markers` (`openai_client.py:119`, blame `d395207bed`). Fixture last changed in `c55aa235d`; same AttributeError on base. |
+| `test_openai_tool_call_ids.py::test_missing_ids_are_minted_and_unique_per_call` | stale-test | Same fixture/attribute mismatch and base reproduction. |
+| `test_openai_tool_call_ids.py::test_minted_id_is_stable_from_start_to_complete` | stale-test | Same fixture/attribute mismatch and base reproduction. |
+| `test_openai_tool_call_ids.py::test_late_real_id_does_not_replace_a_minted_one` | stale-test | Same fixture/attribute mismatch and base reproduction. |
+| `test_openai_tool_call_ids.py::test_minted_ids_do_not_repeat_across_requests` | stale-test | Same fixture/attribute mismatch and base reproduction. |
+| `test_query_timeout.py::test_timeout_triggers_retry_and_recovers_on_smaller_query` | stale-test | Successful execution now returns `errors=[]`, retaining history in `attempt_errors` (`code_execution.py:2063–2064`, blame `fb95f65fd8`); test still checks `errors`. Same assertion failure on base. |
+| `test_sandbox_feedback_loop.py::TestUnsafePythonIsRetryable::test_violation_then_clean_code_succeeds` | stale-test | Same success/history contract change (`fb95f65fd8`); test checks `errors` rather than `attempt_errors`. Same assertion failure on base. |
+
+Reproduction in that base checkout, with Python 3.12 and the locked dependencies:
+
+```bash
+cd backend
+TESTING=true BOW_DATABASE_URL=sqlite:///db/test.db uv run pytest \
+  tests/unit/test_artifact_feedback_loop.py::test_page_edit_prompt_static_reference_lives_in_system_prompt \
+  tests/unit/test_openai_tool_call_ids.py \
+  tests/unit/test_query_timeout.py::test_timeout_triggers_retry_and_recovers_on_smaller_query \
+  tests/unit/test_sandbox_feedback_loop.py::TestUnsafePythonIsRetryable::test_violation_then_clean_code_succeeds \
+  -q --tb=short --disable-warnings
+# Observed: 8 failed, identical exceptions/assertions to CI.
+```

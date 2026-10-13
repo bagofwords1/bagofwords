@@ -76,7 +76,15 @@ class LegacyServer:
                 while parent.startswith(libroot + '/'):
                     directories.add(parent)
                     parent = parent.rsplit('/', 1)[0]
-            children = sorted(p for p in set(self.blobs) | directories if p.rsplit('/', 1)[0] == folder)
+            children = sorted(p for p in set(self.blobs) | directories if p.rsplit('/', 1)[0].casefold() == folder.casefold())
+            # MS-LISTSWS Query uses CAML; apply the documented exact leaf filter.
+            where = command.find(f'{{{SP}}}query/Query/Where')
+            if where is not None:
+                eq = where.find('Eq')
+                assert eq is not None and eq.find('FieldRef').get('Name') == 'FileLeafRef'
+                assert eq.find('Value').get('Type') == 'Text'
+                leaf = eq.findtext('Value')
+                children = [p for p in children if p.rsplit('/', 1)[1].casefold() == leaf.casefold()]
             page = children[offset:offset + min(limit, self.page_size)]
             items = ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListItemsResult'), f'{{{SP}}}listitems')
             rows = ET.SubElement(items, f'{{{RS}}}data', ItemCount=str(len(page)))
@@ -344,8 +352,12 @@ def test_collection_without_root_folder_resolves_list_metadata(legacy):
             </Lists></GetListCollectionResult></GetListCollectionResponse>
             </s:Body></s:Envelope>'''.encode(), 200)
     legacy.override = override
-    files = client(recursive=True).list_files()
+    c = client(recursive=True)
+    files = c.list_files()
     assert {f['id'] for f in files} == {p for p in legacy.blobs if p.startswith(ROOT + '/')}
+    assert c.list_files() == files
+    assert legacy.calls.count('GetListCollection') == 1
+    assert legacy.calls.count('GetList') == 1
 
 
 @pytest.mark.parametrize('header', [True, False])
@@ -373,3 +385,76 @@ def test_copy_response_default_namespace_whitespace_and_ignored_result(legacy):
             </s:Body></s:Envelope>'''.encode(), 200)
     legacy.override = override
     assert client(drive_name='Documents').read_raw_bytes('empty.txt')[0] == b'sample text.\r\n'
+
+
+@pytest.mark.parametrize('library', [' Documents ', '\tDocuments\t', ' * '])
+def test_library_input_whitespace_is_normalized(legacy, library):
+    from app.schemas.data_sources.configs import SharePointOnpremConfig
+    config = SharePointOnpremConfig(site_url=SITE, api_mode='2010', drive_name=library)
+    assert config.drive_name == library.strip()
+    assert client(drive_name=library).test_connection()['success']
+
+@pytest.mark.parametrize('folder', ['nested//deep', '/nested///deep/'])
+def test_configured_folder_separators_are_normalized(legacy, folder):
+    legacy.blobs[ROOT + '/nested/deep/data.txt'] = b'data'
+    files = client(drive_name='Documents', folder_path=folder).list_files()
+    assert {f['id'] for f in files} == {ROOT + '/nested/deep/data.txt'}
+
+@pytest.mark.parametrize('header', [True, False])
+def test_metadata_response_limit_is_not_a_file_size_error(legacy, monkeypatch, header):
+    def oversized(*args, **kwargs):
+        r = response(b'x' * (8 * 1024 * 1024 + 1))
+        if not header:
+            del r.headers['Content-Length']
+        return r
+    monkeypatch.setattr(requests.Session, 'post', oversized)
+    with pytest.raises(ValueError) as caught:
+        client(drive_name='Documents').list_files()
+    assert not isinstance(caught.value, FileTooLargeError)
+    assert 'metadata' in str(caught.value).lower()
+
+@pytest.mark.parametrize('missing', ['ID', 'Title'])
+def test_incomplete_library_metadata_is_a_domain_error(legacy, missing):
+    def override(op, command):
+        if op == 'GetList':
+            root, out = envelope(op)
+            attrs = dict(ID='lib1', Title='Documents', ServerTemplate='101', Hidden='False')
+            del attrs[missing]
+            ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListResult'), f'{{{SP}}}List', **attrs)
+            return ET.tostring(root), 200
+    legacy.override = override
+    with pytest.raises(ValueError, match='incomplete library metadata'):
+        client(drive_name='Documents').list_files()
+
+@pytest.mark.parametrize('count,limit', [(5000, 5), (900, 1)])
+def test_search_stops_requesting_pages_when_limit_is_satisfied(legacy, count, limit):
+    legacy.blobs = {ROOT + f'/match-{i:05}.txt': b'x' for i in range(count)}
+    legacy.empty_folders.clear()
+    legacy.page_size = 200
+    results = client(drive_name='Documents', max_catalog_objects=50000).search_files('match-', limit=limit)
+    assert len(results) == limit
+    assert legacy.calls.count('GetListItems') == 1
+
+@pytest.mark.parametrize('name', ["z-last & O'Brien.txt", 'דוח.txt'])
+def test_exact_read_does_not_enumerate_parent_folders(legacy, name):
+    legacy.blobs = {ROOT + f'/nested/deep/a-{i:05}.txt': b'x' for i in range(5000)}
+    path = ROOT + '/nested/deep/' + name
+    legacy.blobs[path] = b'target'
+    legacy.page_size = 200
+    assert client(drive_name='Documents').read_raw_bytes(path)[0] == b'target'
+    assert legacy.calls.count('GetListItems') == 1
+
+
+def test_library_metadata_is_reused_but_file_access_stays_live(legacy):
+    c = client(drive_name='Documents')
+    c.list_files(limit=1)
+    c.search_files('revenue', limit=1)
+    assert c.read_raw_bytes('revenue.csv')[0]
+    assert legacy.calls.count('GetList') == 1
+    legacy.status = 403
+    with pytest.raises(ValueError):
+        c.read_raw_bytes('revenue.csv')
+    # A different caller gets its own discovery and authenticated requests.
+    legacy.status = None
+    client(drive_name='Documents').list_files(limit=1)
+    assert legacy.calls.count('GetList') == 2
