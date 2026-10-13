@@ -1131,6 +1131,16 @@
       "needsValues": "Väntar på värden för:",
       "cachedHint": "Levererat från ditt cachade resultat för dessa värden – källan frågades inte igen"
     },
+    "addParameter": {
+      "adding": "Lägger till filtret \"{name}\"…",
+      "added": "Filtret \"{name}\" har lagts till i \"{query}\"",
+      "addedNoQuery": "Filtret \"{name}\" har lagts till",
+      "failed": "Det gick inte att lägga till filtret \"{name}\"",
+      "type": "Typ: {type}",
+      "default": "Standard: {value}",
+      "defaultAll": "alla",
+      "column": "Kolumn: {column}"
+    },
     "createArtifact": {
       "creating": "Skapar artefakt",
       "created": "Artefakt skapad",

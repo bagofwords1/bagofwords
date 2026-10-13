@@ -1131,6 +1131,16 @@
       "needsValues": "En attente de valeurs pour :",
       "cachedHint": "Servi depuis votre résultat en cache pour ces valeurs ; la source n’a pas été réinterrogée"
     },
+    "addParameter": {
+      "adding": "Ajout du filtre \"{name}\"…",
+      "added": "Filtre \"{name}\" ajouté à \"{query}\"",
+      "addedNoQuery": "Filtre \"{name}\" ajouté",
+      "failed": "Impossible d'ajouter le filtre \"{name}\"",
+      "type": "Type : {type}",
+      "default": "Par défaut : {value}",
+      "defaultAll": "tous",
+      "column": "Colonne : {column}"
+    },
     "createArtifact": {
       "creating": "Création de l'artefact",
       "created": "Artefact créé",

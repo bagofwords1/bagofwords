@@ -993,6 +993,7 @@ import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResour
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
+import AddParameterTool from '~/components/tools/AddParameterTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -2738,6 +2739,8 @@ function getToolComponent(toolName: string) {
 			return ReadQueryTool
 		case 'run_query':
 			return RunQueryTool
+		case 'add_parameter':
+			return AddParameterTool
 		case 'search_reports':
 			return SearchReportsTool
 		case 'read_report':
