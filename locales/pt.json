@@ -3749,7 +3749,26 @@
     "refreshAccess": "Atualizar acesso",
     "yourAccount": "Sua conta",
     "managementOrganizationHint": "Os testes e as atualizações do esquema usam as credenciais salvas da organização.",
-    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta."
+    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta.",
+    "memberIdentity": {
+      "title": "Identidade por membro",
+      "hint": "Cada membro atua com a própria conta. Escolha quais campos vêm de um atributo de membro que os administradores definem em Configurações → Membros; os demais usam o valor acima para todos. Os valores acima continuam sendo usados para indexar o catálogo compartilhado.",
+      "sourceFor": "Origem de {field}",
+      "attributeFor": "Atributo de membro para {field}",
+      "sameForEveryone": "Igual para todos",
+      "fromAttribute": "Do atributo de membro",
+      "attributePlaceholder": "ex.: qlik_user_id",
+      "usesValue": "Todos usam {value}",
+      "usesValueAbove": "Todos usam o valor acima (ou o padrão dele)",
+      "attributeRequired": "Informe o nome do atributo de membro.",
+      "attributeInvalid": "Use letras, dígitos, _ . - e comece com uma letra.",
+      "needOne": "Associe pelo menos um campo a um atributo de membro ou desative a autenticação de usuário.",
+      "previewTitle": "Quem atua como quem",
+      "previewCounts": "{ok} prontos · {blocked} bloqueados",
+      "blocked": "Bloqueado: falta {attributes}",
+      "test": "Testar",
+      "testOk": "Conectado como este membro"
+    }
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -3890,7 +3909,10 @@
     "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitação interrompida",
     "ARTIFACT_RESOURCE_ABORTED": "Solicitação cancelada",
     "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível",
-    "member_attributes.invalid": "Atributos de membro inválidos."
+    "member_attributes.invalid": "Atributos de membro inválidos.",
+    "member_identity.invalid": "Mapeamento de identidade por membro inválido.",
+    "member_identity.not_configured": "Um administrador ainda não escolheu qual atributo de membro identifica os membros nesta conexão.",
+    "member_identity.unresolved": "Sua conta nesta conexão ainda não está configurada. Peça a um administrador para definir seus atributos de membro ({attributes})."
   },
   "email": {
     "dashboardShare": {

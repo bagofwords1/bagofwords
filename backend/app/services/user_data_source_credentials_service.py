@@ -104,6 +104,12 @@ class UserDataSourceCredentialsService:
                 last_checked_at=last_checked
             )
 
+        # Admin-mapped identity: see build_user_status_for_connection.
+        if connection is not None:
+            from app.services.member_identity import member_mapped, build_member_mapped_status
+            if member_mapped(connection):
+                return await build_member_mapped_status(db, connection, user, get_last_checked_at())
+
         # Delegated/OBO connections: status follows the admin query-identity toggle.
         if connection is not None:
             from app.services.connection_identity import supports_user_token, build_token_identity_status
@@ -236,6 +242,12 @@ class UserDataSourceCredentialsService:
                 effective_auth="system",
                 last_checked_at=last_checked
             )
+
+        # Admin-mapped identity: nothing for the member to connect — they have
+        # access iff an admin set the attributes the connection is bound to.
+        from app.services.member_identity import member_mapped, build_member_mapped_status
+        if member_mapped(connection):
+            return await build_member_mapped_status(db, connection, user, get_last_checked_at())
 
         # Delegated/OBO connections: status is driven by the admin query-identity
         # toggle (service account vs self) — handled in one place.

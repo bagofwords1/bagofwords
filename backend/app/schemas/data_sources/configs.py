@@ -3003,7 +3003,9 @@ class QlikSenseOnPremCertCredentials(BaseModel):
             "Directory of the account Qlik should act as, e.g. an AD domain name. "
             "Defaults to INTERNAL."
         ),
-        json_schema_extra={"ui:type": "string"},
+        # Under "Require user authentication" the admin can bind this to a
+        # member attribute instead (services/member_identity.py).
+        json_schema_extra={"ui:type": "string", "ui:memberBindable": True},
     )
     user_id: Optional[str] = Field(
         None,
@@ -3013,34 +3015,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
             "which sees the whole site. Set it to a real user to have Qlik apply that user's "
             "app permissions and Section Access rules."
         ),
-        json_schema_extra={"ui:type": "string"},
-    )
-
-
-class QlikSenseOnPremUserIdentityCredentials(BaseModel):
-    """Per-user identity for a connection that requires user authentication.
-
-    Deliberately holds NO certificate material: the admin's client certificate
-    stays on the connection's system credentials, and this identity is merged
-    over it at query time (the variant is marked ``overlay`` in the registry).
-    The user only states who Qlik should evaluate their queries as — Qlik then
-    applies that account's stream access and Section Access rules.
-    """
-
-    user_directory: str = Field(
-        ...,
-        title="User Directory",
-        description=(
-            "Your Qlik user directory, e.g. your AD domain name — the part before the "
-            "backslash in DOMAIN\\user in the Qlik hub."
-        ),
-        json_schema_extra={"ui:type": "string"},
-    )
-    user_id: str = Field(
-        ...,
-        title="User ID",
-        description="Your Qlik user id — queries run with your stream access and Section Access rules.",
-        json_schema_extra={"ui:type": "string"},
+        json_schema_extra={"ui:type": "string", "ui:memberBindable": True},
     )
 
 

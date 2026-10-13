@@ -97,6 +97,10 @@ class ErrorCode(str, Enum):
 
     # Member attributes
     MEMBER_ATTRIBUTES_INVALID = "member_attributes.invalid"
+    # Per-member connection identity (member_mapped auth)
+    MEMBER_IDENTITY_INVALID = "member_identity.invalid"
+    MEMBER_IDENTITY_NOT_CONFIGURED = "member_identity.not_configured"
+    MEMBER_IDENTITY_UNRESOLVED = "member_identity.unresolved"
 
     # Data execution
     QUERY_TIMEOUT = "query.timeout"

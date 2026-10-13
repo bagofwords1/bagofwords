@@ -3749,7 +3749,26 @@
     "refreshAccess": "Aggiorna accesso",
     "yourAccount": "Il tuo account",
     "managementOrganizationHint": "I test e gli aggiornamenti dello schema usano le credenziali salvate dell’organizzazione.",
-    "managementPersonalHint": "Questo connettore richiede il tuo accesso. I test e gli aggiornamenti usano il tuo account."
+    "managementPersonalHint": "Questo connettore richiede il tuo accesso. I test e gli aggiornamenti usano il tuo account.",
+    "memberIdentity": {
+      "title": "Identità per membro",
+      "hint": "Ogni membro agisce con il proprio account. Scegli quali campi provengono da un attributo del membro che gli amministratori impostano in Impostazioni → Membri; gli altri usano il valore sopra per tutti. I valori sopra sono comunque usati per indicizzare il catalogo condiviso.",
+      "sourceFor": "Origine per {field}",
+      "attributeFor": "Attributo del membro per {field}",
+      "sameForEveryone": "Uguale per tutti",
+      "fromAttribute": "Da attributo del membro",
+      "attributePlaceholder": "es. qlik_user_id",
+      "usesValue": "Tutti usano {value}",
+      "usesValueAbove": "Tutti usano il valore sopra (o il suo valore predefinito)",
+      "attributeRequired": "Inserisci il nome dell'attributo del membro.",
+      "attributeInvalid": "Usa lettere, cifre, _ . - e inizia con una lettera.",
+      "needOne": "Associa almeno un campo a un attributo del membro oppure disattiva l'autenticazione utente.",
+      "previewTitle": "Chi agisce come chi",
+      "previewCounts": "{ok} pronti · {blocked} bloccati",
+      "blocked": "Bloccato: manca {attributes}",
+      "test": "Prova",
+      "testOk": "Connesso come questo membro"
+    }
   },
   "share": {
     "shareDashboard": "Condividi dashboard",
@@ -3890,7 +3909,10 @@
     "ARTIFACT_RESOURCE_INTERRUPTED": "Richiesta interrotta",
     "ARTIFACT_RESOURCE_ABORTED": "Richiesta annullata",
     "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versione SDK non supportata",
-    "member_attributes.invalid": "Attributi del membro non validi."
+    "member_attributes.invalid": "Attributi del membro non validi.",
+    "member_identity.invalid": "Associazione dell'identità per membro non valida.",
+    "member_identity.not_configured": "Un amministratore non ha ancora scelto quale attributo del membro identifica i membri su questa connessione.",
+    "member_identity.unresolved": "Il tuo account su questa connessione non è ancora configurato. Chiedi a un amministratore di impostare i tuoi attributi del membro ({attributes})."
   },
   "email": {
     "dashboardShare": {

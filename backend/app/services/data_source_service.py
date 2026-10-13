@@ -670,6 +670,7 @@ class DataSourceService:
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         channel_availability = data_source_dict.pop("channel_availability", None)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
+        member_bindings = data_source_dict.pop("member_bindings", None)
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
         # Check if linking to existing connection(s)
@@ -771,6 +772,10 @@ class DataSourceService:
 
             from app.services.connection_service import _check_mcp_forwarding
             _check_mcp_forwarding(ds_type, config)
+            from app.services.connection_service import check_member_bindings
+            member_bindings = check_member_bindings(
+                ds_type, config, auth_policy, allowed_user_auth_modes, member_bindings
+            )
 
             # Check enterprise license for restricted data sources
             from app.ee.license import is_datasource_allowed
@@ -800,6 +805,7 @@ class DataSourceService:
                 is_active=True,
                 auth_policy=auth_policy,
                 allowed_user_auth_modes=allowed_user_auth_modes,
+                member_bindings=member_bindings or None,
             )
             
             # Encrypt and store credentials on connection
@@ -2636,6 +2642,11 @@ class DataSourceService:
         # user_required → require per-user credentials
         if not current_user:
             raise HTTPException(status_code=403, detail="User credentials required")
+        from app.services.member_identity import member_mapped
+        if member_mapped(conn):
+            # Admin-mapped identity: stored per-user rows never apply.
+            from app.services.connection_service import ConnectionService
+            return await ConnectionService().resolve_credentials(db, conn, current_user)
         row = await db.execute(
             select(UserDataSourceCredentials)
             .where(
@@ -3246,6 +3257,11 @@ class DataSourceService:
         auth_policy = connection.auth_policy or "system_only"
 
         # For user_required, resolve per-user credentials.
+        from app.services.member_identity import member_mapped
+        if auth_policy == "user_required" and current_user and member_mapped(connection):
+            # Admin-mapped identity: stored per-user rows never apply.
+            from app.services.connection_service import ConnectionService
+            return await ConnectionService().resolve_credentials(db, connection, current_user)
         if auth_policy == "user_required" and current_user:
             # Data-source-level per-user creds (legacy user/pass keyed on the DS).
             from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
@@ -6379,6 +6395,7 @@ class DataSourceService:
         credentials = data_source_dict.pop("credentials", {})
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
+        member_bindings = data_source_dict.pop("member_bindings", None)
         
         # Extract domain-specific fields
         name = data_source_dict.get("name")
@@ -6400,6 +6417,7 @@ class DataSourceService:
             credentials=credentials,
             auth_policy=auth_policy,
             allowed_user_auth_modes=allowed_user_auth_modes,
+            member_bindings=member_bindings,
         )
         
         # Create the DataSource (Domain) - connection fields are now on Connection model
