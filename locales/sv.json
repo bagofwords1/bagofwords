@@ -3715,7 +3715,26 @@
     "refreshAccess": "Uppdatera åtkomst",
     "yourAccount": "Ditt konto",
     "managementOrganizationHint": "Tester och schemauppdateringar använder organisationens sparade inloggningsuppgifter.",
-    "managementPersonalHint": "Den här anslutningen kräver att du loggar in. Tester och uppdateringar använder ditt konto."
+    "managementPersonalHint": "Den här anslutningen kräver att du loggar in. Tester och uppdateringar använder ditt konto.",
+    "memberIdentity": {
+      "title": "Identitet per medlem",
+      "hint": "Varje medlem agerar med sitt eget konto. Välj vilka fält som hämtas från ett medlemsattribut som administratörer anger under Inställningar → Medlemmar; övriga använder värdet ovan för alla. Värdena ovan används fortfarande för att indexera den delade katalogen.",
+      "sourceFor": "Källa för {field}",
+      "attributeFor": "Medlemsattribut för {field}",
+      "sameForEveryone": "Samma för alla",
+      "fromAttribute": "Från medlemsattribut",
+      "attributePlaceholder": "t.ex. qlik_user_id",
+      "usesValue": "Alla använder {value}",
+      "usesValueAbove": "Alla använder värdet ovan (eller dess standardvärde)",
+      "attributeRequired": "Ange namnet på medlemsattributet.",
+      "attributeInvalid": "Använd bokstäver, siffror, _ . - och börja med en bokstav.",
+      "needOne": "Koppla minst ett fält till ett medlemsattribut, eller stäng av användarautentisering.",
+      "previewTitle": "Vem agerar som vem",
+      "previewCounts": "{ok} redo · {blocked} blockerade",
+      "blocked": "Blockerad: saknar {attributes}",
+      "test": "Testa",
+      "testOk": "Ansluten som denna medlem"
+    }
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",
@@ -3855,7 +3874,10 @@
     "ARTIFACT_RESOURCE_INTERRUPTED": "Begäran avbröts",
     "ARTIFACT_RESOURCE_ABORTED": "Begäran avbruten",
     "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte",
-    "member_attributes.invalid": "Ogiltiga medlemsattribut."
+    "member_attributes.invalid": "Ogiltiga medlemsattribut.",
+    "member_identity.invalid": "Ogiltig identitetskoppling per medlem.",
+    "member_identity.not_configured": "En administratör har ännu inte valt vilket medlemsattribut som identifierar medlemmar på den här anslutningen.",
+    "member_identity.unresolved": "Ditt konto på den här anslutningen är inte konfigurerat än. Be en administratör ange dina medlemsattribut ({attributes})."
   },
   "email": {
     "dashboardShare": {

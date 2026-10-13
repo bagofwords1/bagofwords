@@ -3715,7 +3715,26 @@
     "refreshAccess": "تحديث الوصول",
     "yourAccount": "حسابك",
     "managementOrganizationHint": "تستخدم الاختبارات وتحديثات المخطط بيانات الاعتماد المحفوظة للمؤسسة.",
-    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك."
+    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك.",
+    "memberIdentity": {
+      "title": "هوية لكل عضو",
+      "hint": "يعمل كل عضو بحسابه الخاص. اختر الحقول التي تأتي من سمة عضو يحددها المسؤولون في الإعدادات ← الأعضاء؛ وتستخدم الحقول الأخرى القيمة أعلاه للجميع. لا تزال القيم أعلاه تُستخدم لفهرسة الكتالوج المشترك.",
+      "sourceFor": "مصدر {field}",
+      "attributeFor": "سمة العضو لـ {field}",
+      "sameForEveryone": "نفس القيمة للجميع",
+      "fromAttribute": "من سمة العضو",
+      "attributePlaceholder": "مثال: qlik_user_id",
+      "usesValue": "يستخدم الجميع {value}",
+      "usesValueAbove": "يستخدم الجميع القيمة أعلاه (أو قيمتها الافتراضية)",
+      "attributeRequired": "أدخل اسم سمة العضو.",
+      "attributeInvalid": "استخدم حروفًا وأرقامًا و _ . - وابدأ بحرف.",
+      "needOne": "اربط حقلًا واحدًا على الأقل بسمة عضو، أو أوقف مصادقة المستخدم.",
+      "previewTitle": "من يعمل بصفة من",
+      "previewCounts": "{ok} جاهز · {blocked} محظور",
+      "blocked": "محظور: لا توجد {attributes}",
+      "test": "اختبار",
+      "testOk": "متصل بصفة هذا العضو"
+    }
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -3855,7 +3874,10 @@
     "ARTIFACT_RESOURCE_INTERRUPTED": "انقطع الطلب",
     "ARTIFACT_RESOURCE_ABORTED": "أُلغي الطلب",
     "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم",
-    "member_attributes.invalid": "سمات العضو غير صالحة."
+    "member_attributes.invalid": "سمات العضو غير صالحة.",
+    "member_identity.invalid": "ربط هوية الأعضاء غير صالح.",
+    "member_identity.not_configured": "لم يختر المسؤول بعد سمة العضو التي تعرّف الأعضاء في هذا الاتصال.",
+    "member_identity.unresolved": "حسابك في هذا الاتصال غير مُعد بعد. اطلب من المسؤول تعيين سمات العضو الخاصة بك ({attributes})."
   },
   "email": {
     "dashboardShare": {

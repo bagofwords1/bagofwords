@@ -3897,7 +3897,26 @@
     "refreshAccess": "Refresh access",
     "yourAccount": "Your account",
     "managementOrganizationHint": "Tests and schema refreshes use the organization’s saved credentials.",
-    "managementPersonalHint": "This connector requires your sign-in. Tests and refreshes use your account."
+    "managementPersonalHint": "This connector requires your sign-in. Tests and refreshes use your account.",
+    "memberIdentity": {
+      "title": "Per-member identity",
+      "hint": "Each member acts as their own account. Choose which fields come from a member attribute that admins set in Settings → Members; the others use the value above for everyone. The values above are still used to index the shared catalog.",
+      "sourceFor": "Source for {field}",
+      "attributeFor": "Member attribute for {field}",
+      "sameForEveryone": "Same for everyone",
+      "fromAttribute": "From member attribute",
+      "attributePlaceholder": "e.g. qlik_user_id",
+      "usesValue": "Everyone uses {value}",
+      "usesValueAbove": "Everyone uses the value above (or its default)",
+      "attributeRequired": "Enter the member attribute name.",
+      "attributeInvalid": "Use letters, digits, _ . - and start with a letter.",
+      "needOne": "Map at least one field to a member attribute, or turn off user authentication.",
+      "previewTitle": "Who acts as whom",
+      "previewCounts": "{ok} ready · {blocked} blocked",
+      "blocked": "Blocked: no {attributes}",
+      "test": "Test",
+      "testOk": "Connected as this member"
+    }
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -4035,7 +4054,10 @@
     "ARTIFACT_RESOURCE_INTERRUPTED": "Request interrupted",
     "ARTIFACT_RESOURCE_ABORTED": "Request cancelled",
     "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Unsupported SDK version",
-    "member_attributes.invalid": "Invalid member attributes."
+    "member_attributes.invalid": "Invalid member attributes.",
+    "member_identity.invalid": "Invalid per-member identity mapping.",
+    "member_identity.not_configured": "An admin hasn't chosen which member attribute identifies members on this connection yet.",
+    "member_identity.unresolved": "Your account on this connection isn't set up yet. Ask an admin to set your member attributes ({attributes})."
   },
   "email": {
     "dashboardShare": {

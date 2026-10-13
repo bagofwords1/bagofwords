@@ -3835,7 +3835,26 @@
     "refreshAccess": "רענון הגישה",
     "yourAccount": "החשבון שלך",
     "managementOrganizationHint": "בדיקות החיבור ורענון הסכמה משתמשים בפרטי ההתחברות השמורים של הארגון.",
-    "managementPersonalHint": "מחבר זה דורש התחברות אישית. הבדיקות והרענונים משתמשים בחשבון שלך."
+    "managementPersonalHint": "מחבר זה דורש התחברות אישית. הבדיקות והרענונים משתמשים בחשבון שלך.",
+    "memberIdentity": {
+      "title": "זהות לכל חבר",
+      "hint": "כל חבר פועל עם החשבון שלו. בחרו אילו שדות מגיעים ממאפיין חבר שמנהלים מגדירים בהגדרות ← חברים; שאר השדות משתמשים בערך שלמעלה עבור כולם. הערכים שלמעלה עדיין משמשים לאינדוקס הקטלוג המשותף.",
+      "sourceFor": "מקור עבור {field}",
+      "attributeFor": "מאפיין חבר עבור {field}",
+      "sameForEveryone": "זהה לכולם",
+      "fromAttribute": "ממאפיין חבר",
+      "attributePlaceholder": "לדוגמה qlik_user_id",
+      "usesValue": "כולם משתמשים ב-{value}",
+      "usesValueAbove": "כולם משתמשים בערך שלמעלה (או בברירת המחדל שלו)",
+      "attributeRequired": "הזינו את שם מאפיין החבר.",
+      "attributeInvalid": "השתמשו באותיות, ספרות, _ . - והתחילו באות.",
+      "needOne": "מפו לפחות שדה אחד למאפיין חבר, או כבו את אימות המשתמשים.",
+      "previewTitle": "מי פועל בתור מי",
+      "previewCounts": "{ok} מוכנים · {blocked} חסומים",
+      "blocked": "חסום: חסר {attributes}",
+      "test": "בדיקה",
+      "testOk": "מחובר בתור חבר זה"
+    }
   },
   "share": {
     "shareDashboard": "שיתוף דשבורד",
@@ -3975,7 +3994,10 @@
     "ARTIFACT_RESOURCE_INTERRUPTED": "הבקשה נקטעה",
     "ARTIFACT_RESOURCE_ABORTED": "הבקשה בוטלה",
     "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "גרסת SDK אינה נתמכת",
-    "member_attributes.invalid": "מאפייני חבר לא תקינים."
+    "member_attributes.invalid": "מאפייני חבר לא תקינים.",
+    "member_identity.invalid": "מיפוי זהות לכל חבר אינו תקין.",
+    "member_identity.not_configured": "מנהל עדיין לא בחר איזה מאפיין חבר מזהה את החברים בחיבור הזה.",
+    "member_identity.unresolved": "החשבון שלך בחיבור הזה עדיין לא הוגדר. בקשו ממנהל להגדיר את מאפייני החבר שלכם ({attributes})."
   },
   "email": {
     "dashboardShare": {

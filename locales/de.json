@@ -3715,7 +3715,26 @@
     "refreshAccess": "Zugriff aktualisieren",
     "yourAccount": "Ihr Konto",
     "managementOrganizationHint": "Tests und Schemaaktualisierungen verwenden die gespeicherten Zugangsdaten der Organisation.",
-    "managementPersonalHint": "Dieser Konnektor erfordert Ihre Anmeldung. Tests und Aktualisierungen verwenden Ihr Konto."
+    "managementPersonalHint": "Dieser Konnektor erfordert Ihre Anmeldung. Tests und Aktualisierungen verwenden Ihr Konto.",
+    "memberIdentity": {
+      "title": "Identität pro Mitglied",
+      "hint": "Jedes Mitglied handelt mit seinem eigenen Konto. Wählen Sie, welche Felder aus einem Mitgliedsattribut stammen, das Admins unter Einstellungen → Mitglieder festlegen; die übrigen verwenden den obigen Wert für alle. Die obigen Werte werden weiterhin zum Indexieren des gemeinsamen Katalogs verwendet.",
+      "sourceFor": "Quelle für {field}",
+      "attributeFor": "Mitgliedsattribut für {field}",
+      "sameForEveryone": "Für alle gleich",
+      "fromAttribute": "Aus Mitgliedsattribut",
+      "attributePlaceholder": "z. B. qlik_user_id",
+      "usesValue": "Alle verwenden {value}",
+      "usesValueAbove": "Alle verwenden den obigen Wert (oder dessen Standard)",
+      "attributeRequired": "Geben Sie den Namen des Mitgliedsattributs ein.",
+      "attributeInvalid": "Verwenden Sie Buchstaben, Ziffern, _ . - und beginnen Sie mit einem Buchstaben.",
+      "needOne": "Ordnen Sie mindestens ein Feld einem Mitgliedsattribut zu oder deaktivieren Sie die Benutzerauthentifizierung.",
+      "previewTitle": "Wer handelt als wer",
+      "previewCounts": "{ok} bereit · {blocked} blockiert",
+      "blocked": "Blockiert: {attributes} fehlt",
+      "test": "Testen",
+      "testOk": "Als dieses Mitglied verbunden"
+    }
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
@@ -3855,7 +3874,10 @@
     "ARTIFACT_RESOURCE_INTERRUPTED": "Anfrage unterbrochen",
     "ARTIFACT_RESOURCE_ABORTED": "Anfrage abgebrochen",
     "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Nicht unterstützte SDK-Version",
-    "member_attributes.invalid": "Ungültige Mitgliedsattribute."
+    "member_attributes.invalid": "Ungültige Mitgliedsattribute.",
+    "member_identity.invalid": "Ungültige Identitätszuordnung pro Mitglied.",
+    "member_identity.not_configured": "Ein Admin hat noch nicht festgelegt, welches Mitgliedsattribut Mitglieder auf dieser Verbindung identifiziert.",
+    "member_identity.unresolved": "Ihr Konto für diese Verbindung ist noch nicht eingerichtet. Bitten Sie einen Admin, Ihre Mitgliedsattribute ({attributes}) festzulegen."
   },
   "email": {
     "dashboardShare": {

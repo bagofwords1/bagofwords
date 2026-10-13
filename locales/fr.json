@@ -3715,7 +3715,26 @@
     "refreshAccess": "Actualiser l’accès",
     "yourAccount": "Votre compte",
     "managementOrganizationHint": "Les tests et actualisations du schéma utilisent les identifiants enregistrés de l’organisation.",
-    "managementPersonalHint": "Ce connecteur nécessite votre connexion. Les tests et actualisations utilisent votre compte."
+    "managementPersonalHint": "Ce connecteur nécessite votre connexion. Les tests et actualisations utilisent votre compte.",
+    "memberIdentity": {
+      "title": "Identité par membre",
+      "hint": "Chaque membre agit avec son propre compte. Choisissez quels champs proviennent d'un attribut de membre défini par les administrateurs dans Paramètres → Membres ; les autres utilisent la valeur ci-dessus pour tous. Les valeurs ci-dessus servent toujours à indexer le catalogue partagé.",
+      "sourceFor": "Source pour {field}",
+      "attributeFor": "Attribut de membre pour {field}",
+      "sameForEveryone": "Identique pour tous",
+      "fromAttribute": "Depuis un attribut de membre",
+      "attributePlaceholder": "ex. qlik_user_id",
+      "usesValue": "Tout le monde utilise {value}",
+      "usesValueAbove": "Tout le monde utilise la valeur ci-dessus (ou sa valeur par défaut)",
+      "attributeRequired": "Saisissez le nom de l'attribut de membre.",
+      "attributeInvalid": "Utilisez des lettres, chiffres, _ . - et commencez par une lettre.",
+      "needOne": "Associez au moins un champ à un attribut de membre, ou désactivez l'authentification utilisateur.",
+      "previewTitle": "Qui agit en tant que qui",
+      "previewCounts": "{ok} prêts · {blocked} bloqués",
+      "blocked": "Bloqué : {attributes} manquant",
+      "test": "Tester",
+      "testOk": "Connecté en tant que ce membre"
+    }
   },
   "share": {
     "shareDashboard": "Partager le tableau de bord",
@@ -3855,7 +3874,10 @@
     "ARTIFACT_RESOURCE_INTERRUPTED": "Requête interrompue",
     "ARTIFACT_RESOURCE_ABORTED": "Requête annulée",
     "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge",
-    "member_attributes.invalid": "Attributs de membre non valides."
+    "member_attributes.invalid": "Attributs de membre non valides.",
+    "member_identity.invalid": "Association d'identité par membre non valide.",
+    "member_identity.not_configured": "Un administrateur n'a pas encore choisi quel attribut de membre identifie les membres sur cette connexion.",
+    "member_identity.unresolved": "Votre compte sur cette connexion n'est pas encore configuré. Demandez à un administrateur de définir vos attributs de membre ({attributes})."
   },
   "email": {
     "dashboardShare": {
