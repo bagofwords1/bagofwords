@@ -1,9 +1,9 @@
-"""Sub-runs — delegated agent runs with wave fan-in.
+"""Sub-agents — delegated agent runs with wave fan-in.
 
-A *sub-run* is an ``AgentV2`` run in mode ``subagent`` on a hidden pair of
+A *sub-agent* is an ``AgentV2`` run in mode ``subagent`` on a hidden pair of
 completions of the same report, launched by the parent's ``delegate`` tool.
 All ``delegate`` calls in one planner response form a *wave*; when every
-sub-run in the wave is terminal, one machine turn (``trigger_source=sub_run``)
+sub-agent in the wave is terminal, one machine turn (``trigger_source=sub_run``)
 wakes the parent with the wave's records. See ``docs/design/sub-runs.md``.
 
 The ``sub_runs`` row is the record: the typed ``finish_subtask`` result plus
@@ -24,7 +24,7 @@ WAVE_DONE = "done"            # fan-in turn created
 WAVE_STOPPED = "stopped"      # user/agent stopped the wave; no fan-in
 WAVE_TIMED_OUT = "timed_out"  # deadline fired; fan-in created with partial records
 
-# ── Sub-run status ───────────────────────────────────────────────────────────
+# ── Sub-agent status ───────────────────────────────────────────────────────────
 RUN_PENDING = "pending"         # recorded, not yet launched (waits for the batch / a slot)
 RUN_RUNNING = "running"
 RUN_FINISHED = "finished"       # finish_subtask was called

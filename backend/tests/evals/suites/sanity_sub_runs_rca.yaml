@@ -1,7 +1,7 @@
-name: Sanity · Sub-runs RCA
+name: Sanity · Sub-agents RCA
 description: >
   A "why did it drop" ask on the planted Checkout Ops incident must fan out to
-  one sub-run per candidate cause in a single response, end the turn, and
+  one sub-agent per candidate cause in a single response, end the turn, and
   conclude in the fan-in turn with the planted cause (iOS 5.2.0 on PayFlow),
   cited evidence, and the decoys ruled out. A "how many" must not delegate.
   Pins the DELEGATION posture, the finish_subtask contract and the wave fan-in
@@ -50,7 +50,7 @@ cases:
             for it (a failure rate, a paid share, or a paid-orders delta); and
             (c) explicitly rule out at least two of: the premium price change,
             the APAC campaign, the us-east PayFlow blip, seasonality. It must
-            not show a sub-run id to the user. Answer "pass" only if (a), (b)
+            not show a sub-agent id to the user. Answer "pass" only if (a), (b)
             and (c) are all clearly true; cite the sentences you relied on.
 
   - name: simple_ask_does_not_delegate

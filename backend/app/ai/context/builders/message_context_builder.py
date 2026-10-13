@@ -364,7 +364,7 @@ SUB_RUN_TOOL_NAMES = ("delegate", "read_sub_run", "stop_sub_run")
 
 
 def _not_sub_run_child(stmt):
-    """Keep sub-run children out of the parent's history.
+    """Keep sub-agent children out of the parent's history.
 
     A child runs on hidden completions of the same report
     (trigger_source='sub_run', docs/design/sub-runs.md A3); its goal prompt
@@ -378,7 +378,7 @@ def _not_sub_run_child(stmt):
 
 
 def _digest_sub_run_tool(tool_execution) -> str:
-    """One-line handle for a sub-run tool call. `delegate` reads the record the
+    """One-line handle for a sub-agent tool call. `delegate` reads the record the
     wave tracker wrote back onto the row when the child finished (result_json
     = receipt + record); until then it reads as running. The full records
     live in the fan-in turn's hidden prompt, so this stays a handle."""

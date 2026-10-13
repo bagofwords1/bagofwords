@@ -139,7 +139,7 @@ class _SubagentOnlyTool(_FakeTool):
 
 @pytest.mark.asyncio
 async def test_mode_gate_treats_a_sub_run_as_chat():
-    """A sub-run (docs/design/sub-runs.md) is a chat-mode run with a narrower
+    """A sub-agent (docs/design/sub-runs.md) is a chat-mode run with a narrower
     catalog enforced before dispatch, so a chat tool its profile allows must
     not be refused here; a plain 'subagent' mode without a sub_run_id, and a
     subagent-only tool in chat, still are."""

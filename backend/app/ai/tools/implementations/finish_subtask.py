@@ -1,4 +1,4 @@
-"""finish_subtask — the mandatory terminal tool of a sub-run (mode=subagent).
+"""finish_subtask — the mandatory terminal tool of a sub-agent (mode=subagent).
 
 Validates the typed record, stores it on the sub_runs row and ends the child
 run (analysis_complete). The runtime adds the envelope at finalize.
@@ -25,7 +25,7 @@ class FinishSubtaskTool(Tool):
         return ToolMetadata(
             name="finish_subtask",
             description=(
-                "ACTION: End this sub-run with its typed record — the ONLY way your work reaches the "
+                "ACTION: End this sub-agent with its typed record — the ONLY way your work reaches the "
                 "parent (your final chat text is not delivered). Call it as soon as the goal is settled, "
                 "and always before your step budget runs out. outcome: for a hypothesis supported | "
                 "refuted | inconclusive; otherwise done | partial | blocked. Put the one number that "
@@ -45,7 +45,7 @@ class FinishSubtaskTool(Tool):
             required_permissions=[],
             allowed_modes=["subagent"],
             observation_policy="always",
-            tags=["sub-run", "finish", "record"],
+            tags=["sub-agent", "finish", "record"],
         )
 
     @property
@@ -72,7 +72,7 @@ class FinishSubtaskTool(Tool):
             sub_run_id = None
         sub_run_id = sub_run_id or runtime_ctx.get("sub_run_id")
         if not sub_run_id:
-            yield ToolErrorEvent(type="tool.error", payload={"error": "Not running as a sub-run.", "code": "NOT_A_SUB_RUN"})
+            yield ToolErrorEvent(type="tool.error", payload={"error": "Not running as a sub-agent.", "code": "NOT_A_SUB_RUN"})
             return
 
         from app.services.sub_run_service import sub_run_service
@@ -85,13 +85,13 @@ class FinishSubtaskTool(Tool):
             yield ToolErrorEvent(type="tool.error", payload={"error": f"Could not store the record: {e}", "code": "SUB_RUN_ERROR"})
             return
         if row is None:
-            yield ToolErrorEvent(type="tool.error", payload={"error": "Sub-run row not found.", "code": "SUB_RUN_ERROR"})
+            yield ToolErrorEvent(type="tool.error", payload={"error": "Sub-agent row not found.", "code": "SUB_RUN_ERROR"})
             return
         runtime_ctx["sub_run_finished"] = True
         yield ToolEndEvent(type="tool.end", payload={
             "output": {"status": "recorded", "sub_run_id": str(row.id), "outcome": data.outcome},
             "observation": {
-                "summary": f"Record stored ({data.outcome}, confidence {data.confidence}). Sub-run finished.",
+                "summary": f"Record stored ({data.outcome}, confidence {data.confidence}). Sub-agent finished.",
                 "success": True,
                 "artifacts": [],
                 "analysis_complete": True,

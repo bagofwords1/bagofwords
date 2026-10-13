@@ -1,4 +1,4 @@
-"""Sub-runs — delegated agent runs with wave fan-in.
+"""Sub-agents — delegated agent runs with wave fan-in.
 
 Lifecycle (docs/design/sub-runs.md, A8):
 
@@ -105,7 +105,7 @@ def effective_concurrency(configured: int, dialect: str) -> int:
     runs its children one at a time; Postgres honours the org setting."""
     if "sqlite" in (dialect or ""):
         if configured > 1:
-            logger.info("sub-runs: SQLite backend — children run one at a time (configured concurrency %s)", configured)
+            logger.info("sub-agents: SQLite backend — children run one at a time (configured concurrency %s)", configured)
         return 1
     return int(configured)
 
@@ -136,7 +136,7 @@ class SubRunService:
         parent_model,
         small_model,
     ) -> Dict[str, Any]:
-        """Record one `delegate` call as a pending sub-run in the decision's wave.
+        """Record one `delegate` call as a pending sub-agent in the decision's wave.
 
         Returns the spawn receipt (the tool's output). Children are NOT
         started here — `launch_pending` runs once the whole batch is recorded,
@@ -162,7 +162,7 @@ class SubRunService:
                 "sub_run_id": None, "wave_id": str(wave.id), "status": "refused",
                 "title": data.title, "profile": data.profile,
                 "refused": (
-                    f"This wave already holds {count} sub-runs (org cap {limits['max_per_wave']}). "
+                    f"This wave already holds {count} sub-agents (org cap {limits['max_per_wave']}). "
                     "Not started. Plan a second wave after this one reports back."
                 ),
             }
@@ -345,7 +345,7 @@ class SubRunService:
                 replace_existing=True, misfire_grace_time=3600,
             )
         except Exception:
-            logger.warning("sub-run wave %s: could not arm deadline job", wave_id, exc_info=True)
+            logger.warning("sub-agent wave %s: could not arm deadline job", wave_id, exc_info=True)
 
     def _cancel_deadline(self, job_id: Optional[str]) -> None:
         if not job_id:
@@ -384,7 +384,7 @@ class SubRunService:
                     continue
                 await self._start_child(str(nxt.id))
         except Exception:
-            logger.exception("sub-run launcher for wave %s crashed", wave_id)
+            logger.exception("sub-agent launcher for wave %s crashed", wave_id)
 
     async def _start_child(self, sub_run_id: str) -> None:
         """Create the child's hidden completions and start its run."""
@@ -425,7 +425,7 @@ class SubRunService:
                     background=True, trigger_source="sub_run",
                 )
             except Exception as e:
-                logger.exception("sub-run %s: could not start child", sub_run_id)
+                logger.exception("sub-agent %s: could not start child", sub_run_id)
                 row = await db.get(SubRun, sub_run_id)
                 await self._mark_terminal(db, row, RUN_FAILED, EXIT_ERROR, error=f"could not start: {e}")
                 await self._after_terminal(db, row)
@@ -590,7 +590,7 @@ class SubRunService:
                 te.result_summary = f"{row.title}: {outcome}"
             await db.commit()
         except Exception:
-            logger.warning("sub-run %s: write-back failed", row.id, exc_info=True)
+            logger.warning("sub-agent %s: write-back failed", row.id, exc_info=True)
 
     # ── control ─────────────────────────────────────────────────────────────
 
@@ -832,7 +832,7 @@ async def run_fan_in(wave_id: str) -> None:
             o = (c.result_json or {}).get("outcome") or c.status
             counts[o] = counts.get(o, 0) + 1
         summary_bits = [f"{n} {k}" for k, n in counts.items()]
-        summary = f"{len(children)} sub-run{'s' if len(children) != 1 else ''} finished · " + " · ".join(summary_bits)
+        summary = f"{len(children)} sub-agent{'s' if len(children) != 1 else ''} finished · " + " · ".join(summary_bits)
         if wave.status == WAVE_TIMED_OUT:
             summary += " · deadline reached"
         meta = {"wave_id": str(wave.id), "total": len(children), "counts": counts,
@@ -949,21 +949,21 @@ def _synthesized_result(row: SubRun, status: str, exit_reason: str, last_text: s
         summary = "Stopped before finishing." + (f" Last notes: {text[:300]}" if text else "")
         outcome = "partial"
     elif exit_reason == EXIT_DEADLINE:
-        summary = "Wave deadline reached before this sub-run finished." + (f" Last notes: {text[:300]}" if text else "")
+        summary = "Wave deadline reached before this sub-agent finished." + (f" Last notes: {text[:300]}" if text else "")
         outcome = "partial"
     elif exit_reason == EXIT_ERROR:
-        summary = f"The sub-run failed: {(error or 'unknown error')[:300]}"
+        summary = f"The sub-agent failed: {(error or 'unknown error')[:300]}"
         outcome = "blocked"
     elif exit_reason == EXIT_MAX_STEPS:
         summary = "Step budget exhausted before a finish_subtask call." + (f" Last text: {text[:300]}" if text else "")
         outcome = "partial"
     else:
-        summary = (text[:560] + ("…" if len(text) > 560 else "")) if text else "The sub-run ended without calling finish_subtask."
+        summary = (text[:560] + ("…" if len(text) > 560 else "")) if text else "The sub-agent ended without calling finish_subtask."
         outcome = "partial"
     return {
         "outcome": outcome, "confidence": 0.2 if outcome == "partial" else 0.0,
         "summary": summary, "findings": [], "ruled_out": [], "evidence": [],
-        "caveats": [f"synthesized by the runtime ({exit_reason}); not authored by the sub-run"],
+        "caveats": [f"synthesized by the runtime ({exit_reason}); not authored by the sub-agent"],
         "unknown": None, "report_note_id": row.report_note_id, "synthesized": True,
     }
 
@@ -986,12 +986,12 @@ def _run_brief(r: SubRun) -> Dict[str, Any]:
 
 def _fan_in_prompt(wave: SubRunWave, children: List[SubRun]) -> str:
     lines = [
-        "[Sub-run wave finished] The sub-runs you launched earlier have all reported. Their records are below, in launch order; each answered the goal you gave it. "
+        "[Sub-agent wave finished] The sub-agents you launched earlier have all reported. Their records are below, in launch order; each answered the goal you gave it. "
         "Synthesize now: answer the original ask from these records, cite evidence ids (read_query / load_step / run_query on them when a claim is surprising or you need the numbers), "
         "carry every ruled_out item and caveat into your answer, and treat an inconclusive or blocked record with a named unknown as a follow-up (or a second wave), never a guess. "
-        "A record marked synthesized was written by the runtime, not the sub-run — weigh it accordingly. "
-        "Use read_sub_run(sub_run_id, include_report=true) for a sub-run's full write-up when you need detail. "
-        "Do not relaunch sub-runs for goals that already have a record. Never show sub-run ids to the user.",
+        "A record marked synthesized was written by the runtime, not the sub-agent — weigh it accordingly. "
+        "Use read_sub_run(sub_run_id, include_report=true) for a sub-agent's full write-up when you need detail. "
+        "Do not relaunch sub-agents for goals that already have a record. Never show sub-agent ids to the user.",
         "",
         f"<original_ask>{_attr(wave.parent_prompt or '')}</original_ask>",
         f'<sub_run_results wave="{wave.id}" status="{wave.status}" total="{len(children)}">',

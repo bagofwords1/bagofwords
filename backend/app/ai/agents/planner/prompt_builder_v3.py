@@ -346,25 +346,25 @@ class PromptBuilderV3:
         )
         rca_notes_bit = ", recording verdicts in notes as they land" if _notes_on else ""
 
-        # Sub-runs (docs/design/sub-runs.md A5/A10). Only when the delegate tool
+        # Sub-agents (docs/design/sub-runs.md A5/A10). Only when the delegate tool
         # is in the catalog; the posture is an org setting because the field
         # could not agree on it (Part B8) and flipped it between versions.
         _sub_runs_on = bool(getattr(planner_input, "sub_runs_enabled", False))
         _posture = (getattr(planner_input, "sub_run_posture", None) or "proactive").lower()
         if _sub_runs_on and _posture == "explicit":
             delegation_text = (
-                "DELEGATION (sub-runs, explicit posture)\n"
-                "- `delegate` launches a bounded background sub-run for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>. "
+                "DELEGATION (sub-agents, explicit posture)\n"
+                "- `delegate` launches a bounded background sub-agent for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>. "
                 "Use it ONLY when the user or an instruction asks for parallel/background investigation. Otherwise do the work yourself.\n"
                 "- After launching: one line to the user, then END YOUR TURN. Never wait or poll; never redo a delegated goal yourself. "
                 "<sub_runs> lists waves already launched — never relaunch a goal that has a record; read_sub_run for detail.\n"
-                "- A sub-run's record is its SELF-REPORT: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim. Never show sub-run ids to the user.\n\n"
+                "- A sub-agent's record is its SELF-REPORT: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim. Never show sub-agent ids to the user.\n\n"
             )
             rca_delegate_bit = ""
         elif _sub_runs_on:
             delegation_text = (
-                "DELEGATION (sub-runs)\n"
-                "- `delegate` launches a bounded background sub-run for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>, one record per sub-run (outcome, confidence, summary, findings, ruled_out, evidence ids, caveats, unknown). "
+                "DELEGATION (sub-agents)\n"
+                "- `delegate` launches a bounded background sub-agent for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>, one record per sub-agent (outcome, confidence, summary, findings, ruled_out, evidence ids, caveats, unknown). "
                 "Delegate when a request splits into 3+ INDEPENDENT sub-questions that each need several steps — one hypothesis per candidate cause in a root-cause ask, the same deep check across many sources. "
                 "A root-cause ask ('why did X drop/spike', 'what caused') with 3+ candidate causes is ALWAYS delegated: never test the causes yourself, even when each test looks like one quick query — the point is independent, parallel, evidence-backed records, not speed. "
                 "Never for a single query, never for the final answer, never to avoid reading context already in front of you.\n"
@@ -372,17 +372,17 @@ class PromptBuilderV3:
                 "- After launching: ONE line to the user (what you launched and that you will report back), then END YOUR TURN. Never wait, poll, or redo a delegated goal yourself; the user can keep chatting meanwhile. "
                 "<sub_runs> lists waves already launched with each child's status — never relaunch a goal that has a record; use read_sub_run for progress or a child's full write-up.\n"
                 "- In the fan-in turn (<sub_run_results> in your prompt): synthesize from the records, cite their evidence ids, carry every ruled_out item and caveat into the answer, and treat an inconclusive/blocked record with a named unknown as a follow-up or a second wave — never a guess.\n"
-                "- A record is the sub-run's SELF-REPORT, not a verified fact: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim, read its note when a finding contradicts a sibling. Never show sub-run ids to the user.\n\n"
+                "- A record is the sub-agent's SELF-REPORT, not a verified fact: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim, read its note when a finding contradicts a sibling. Never show sub-agent ids to the user.\n\n"
             )
             rca_delegate_bit = ""
         else:
             delegation_text = ""
             rca_delegate_bit = ""
-        # Root-cause step (3): with proactive sub-runs the fan-out IS the
+        # Root-cause step (3): with proactive sub-agents the fan-out IS the
         # delegation — the parent must not run the hypothesis tests itself.
         if _sub_runs_on and _posture != "explicit":
             rca_step3 = (
-                "(3) enumerate the candidate causes and launch ONE `delegate` sub-run per independent cause in a SINGLE response "
+                "(3) enumerate the candidate causes and launch ONE `delegate` sub-agent per independent cause in a SINGLE response "
                 "(one hypothesis each, self-contained goal + context) — do NOT run those tests yourself with create_data/inspect_data; "
                 "then write one line and END YOUR TURN, the records come back in a fan-in turn"
             )
@@ -874,7 +874,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(planner_input.messages_context)
         if getattr(planner_input, "steering_context", None):
             parts.append(planner_input.steering_context)
-        # Sub-runs: the parent's <sub_runs> block changes as children finish
+        # Sub-agents: the parent's <sub_runs> block changes as children finish
         # (volatile → here); a child's remaining budget changes every step.
         if getattr(planner_input, "sub_runs_context", None):
             parts.append(planner_input.sub_runs_context)
@@ -1065,14 +1065,14 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 
     @staticmethod
     def _build_subagent_system(planner_input: PlannerInput) -> str:
-        """System prompt for a sub-run child (mode=subagent). Lean on purpose:
+        """System prompt for a sub-agent child (mode=subagent). Lean on purpose:
         identity, the goal posture, verification, the finish contract, and the
         profile addendum. No dashboards, documents, memory or clarify."""
         language_text = language_directive_body(getattr(planner_input, "locale", None))
-        title = getattr(planner_input, "sub_run_title", None) or "sub-run"
+        title = getattr(planner_input, "sub_run_title", None) or "sub-agent"
         addendum = getattr(planner_input, "sub_run_profile_addendum", None) or ""
         return (
-            f"SYSTEM\nMode: Sub-run\n"
+            f"SYSTEM\nMode: Sub-agent\n"
             f"You are {planner_input.organization_ai_analyst_name}, a focused SUB-RUN of the AI data analyst for "
             f"{planner_input.organization_name}, working on one delegated goal: \"{title}\". A parent agent launched you "
             "and will read ONLY the typed record you return through finish_subtask; your chat text is not delivered to anyone. "

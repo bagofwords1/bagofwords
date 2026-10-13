@@ -31,7 +31,7 @@ class AgentExecution(BaseSchema):
     # tiers, rendered size, memory tool refusals. See MemoryContext.trace().
     memory_context_json = Column(JSON, nullable=True)
 
-    # Sub-runs: a child execution (mode=subagent) carries the parent run and
+    # Sub-agents: a child execution (mode=subagent) carries the parent run and
     # the parent's `delegate` tool execution that launched it. NULL on every
     # ordinary run. See app.models.sub_run.
     parent_agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True, index=True)

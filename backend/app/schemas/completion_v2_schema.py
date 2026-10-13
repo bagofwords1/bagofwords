@@ -76,7 +76,7 @@ class PromptSchema(BaseModel):
     #   per-completion > report level > trigger words > LLMModel.config default > off
     # None = Default. Each provider client clamps it to what the model accepts.
     reasoning_effort: Optional[str] = None  # off|minimal|low|medium|high|xhigh|max
-    # Set only on the hidden head completion of a sub-run (mode='subagent'):
+    # Set only on the hidden head completion of a sub-agent (mode='subagent'):
     # the sub_runs row this child run reports to. See app.models.sub_run.
     sub_run_id: Optional[str] = None
 

@@ -1,4 +1,4 @@
-# Feedback Loop — sub-runs (delegated agent runs with wave fan-in)
+# Feedback Loop — sub-agents (delegated agent runs with wave fan-in)
 
 **Status: plan, approved, not started.** Implementation begins when the
 Anthropic key is provided; nothing in this doc runs before that. Loops below
@@ -17,11 +17,11 @@ repo, a doc, a log, or command output. Design decisions are not repeated here; t
 proof that they hold, on one root-cause-analysis (RCA) use case.
 
 Claim being validated: when a user asks *why* a metric moved, the agent
-launches one sub-run per candidate cause in a single response, ends its
-turn, each sub-run investigates on its own and finishes with a typed record,
+launches one sub-agent per candidate cause in a single response, ends its
+turn, each sub-agent investigates on its own and finishes with a typed record,
 one fan-in turn wakes the agent with all records, and the agent names the
 real cause with cited evidence, rules out the decoys, and never fabricates a
-sub-run result. Tokens, steps and cost per sub-run are visible on the card
+sub-agent result. Tokens, steps and cost per sub-agent are visible on the card
 and the summary tab, and everything survives a reload.
 
 ---
@@ -53,7 +53,7 @@ either series), an APAC campaign 09-12 → 09-20 (sessions up 40 %, conversion
 flat), a `PayFlow` incident flag on 09-15 in `us-east` only (fails there for
 six hours, recovers), and the ordinary weekly seasonality. Five candidate
 causes, one true, each separable by one or two queries. That is what makes
-the case a sub-run case: the hypotheses are independent and each needs
+the case a sub-agent case: the hypotheses are independent and each needs
 several steps.
 
 Prompt used in every loop:
@@ -194,10 +194,10 @@ Suite `backend/tests/evals/suites/sanity_sub_runs_rca.yaml` (lands with
 phase 2; draft):
 
 ```yaml
-name: Sanity · Sub-runs RCA
+name: Sanity · Sub-agents RCA
 description: >
   A "why did it drop" ask on the planted Checkout Ops incident must fan out
-  to one sub-run per candidate cause in a single response, end the turn,
+  to one sub-agent per candidate cause in a single response, end the turn,
   and conclude in the fan-in turn with the planted cause, cited evidence,
   and the decoys ruled out. Pins the DELEGATION posture, the finish_subtask
   contract and the wave fan-in.
@@ -266,14 +266,14 @@ cases:
               category: final_answer
               field: text
               matcher: text.not_contains
-              value: "sr_"            # no raw sub-run ids in user-facing text
+              value: "sr_"            # no raw sub-agent ids in user-facing text
         - type: judge
           rubric: >
             The answer names the iOS 5.2.0 checkout release on PayFlow as the
             cause, cites at least one query or chart per claim, explicitly
             rules out the price change, the APAC campaign and the us-east
             PayFlow blip as not explaining the drop, and does not present any
-            number that no sub-run produced. Score 1-5; pass ≥ 4.
+            number that no sub-agent produced. Score 1-5; pass ≥ 4.
 
   - name: simple_ask_does_not_delegate
     prompt:
@@ -338,20 +338,20 @@ phase 2, claude-haiku-5-5, live stack through the UI (tools/agent/verify_sub_run
          3 steps each — create_data refused with "not available in
          'subagent' mode" (the runner's mode gate checked the literal mode
          against allowed_modes; the profile is enforced before dispatch).
-         Fix: the gate treats a sub-run as chat. Also found: the parent's
+         Fix: the gate treats a sub-agent as chat. Also found: the parent's
          second turn read the children's in-flight tool calls from its own
          history as outcome_unknown. Fix: every history query in the message
          context builder excludes trigger_source='sub_run' rows.
   run 4  Postgres: wave of 3 (payment-provider incident · app release ·
          traffic/pricing/campaign) → refuted 0.8 / supported 0.7 / partial
-         0.4, 6/8/12 steps, 59k tokens; fan-in strip "3 sub-runs finished ·
+         0.4, 6/8/12 steps, 59k tokens; fan-in strip "3 sub-agents finished ·
          1 refuted · 1 supported · 1 partial"; synthesis names iOS 5.2.0 /
          checkout-service deploy 2026-09-14 with the 36.7% iOS failure rate,
          refutes the provider incident, and lists what stayed unresolved.
          Mid-wave question answered from <sub_runs> while 3 tasks ran.
 phase 2, claude-haiku-5-5, eval harness (tests/evals, Postgres, BOW_EVAL_CASE_TIMEOUT_S=1500):
   attempt 1  suite refused on import: the judge rule is `prompt`, not `rubric`.
-  attempt 2  parent never delegated: AgentV2 hid the sub-run tools on eval
+  attempt 2  parent never delegated: AgentV2 hid the sub-agent tools on eval
              runs. Fix: eval runs keep them; the watcher is wave-aware.
   attempt 3  parent delegated 4; the case was graded the moment turn 1
              ended (the streaming eval path evaluated before the wave fanned
@@ -382,17 +382,17 @@ against the live stack on Postgres, into `media/pr/sub-runs/`:
 
 | # | File | What it shows |
 |---|---|---|
-| 01 | `01-settings-sub-runs-section.png` | org settings: the Sub-runs section with its nine settings |
+| 01 | `01-settings-sub-runs-section.png` | org settings: the Sub-agents section with its nine settings |
 | 02 | `02-wave-launched-cards-running.png` | turn 1: symptom query, then the wave launched; composer free |
 | 03 | `03-background-tasks-indicator.png` | status row: "4 background tasks" while the parent is idle |
-| 04 | `04-background-tasks-popover.png` | hover popover: per sub-run title, live duration, steps, stop; Stop all |
+| 04 | `04-background-tasks-popover.png` | hover popover: per sub-agent title, live duration, steps, stop; Stop all |
 | 05 | `05-delegate-card-expanded-live.png` | a delegate card expanded: goal + the child's live tool rows; the parent's one-line message |
 | 06 | `06-mid-wave-question-working-plus-tasks.png` | "Thinking 3s · 3 background tasks" side by side during a mid-wave question |
 | 07 | `07-mid-wave-answer.png` | the mid-wave answer written from `<sub_runs>` |
 | 08 | `08-fan-in-strip.png` | the fan-in event strip with outcome counts |
 | 09 | `09-fan-in-synthesis.png` | the synthesis: cause, numbers, ruled-out decoys |
 | 10 | `10-delegate-cards-finished.png` | a finished card's record: findings, ruled out, caveats, unknown, evidence ids, exit, model |
-| 11 | `11-summary-tab-sub-runs.png` | Summary tab: Sub-runs section (outcome badges, steps, tokens) and "via sub-run" tags on queries |
+| 11 | `11-summary-tab-sub-runs.png` | Summary tab: Sub-agents section (outcome badges, steps, tokens) and "via sub-agent" tags on queries |
 | 12 | `12-after-reload.png` | the same report after a reload, hydrated from the rows |
 
 Not captured: the trace modal with the child execution and the cost console
@@ -403,14 +403,14 @@ per-child view.
 Original list (kept for the evidence contract):
 
 1. Turn 1: five delegate cards in one block, each with its own spinner and
-   step counter, wave strip "Wave 1 · 5 sub-runs · 5 running", the parent's
+   step counter, wave strip "Wave 1 · 5 sub-agents · 5 running", the parent's
    one-line message, composer free.
 2. Mid-wave: a card expanded showing live step rows; a `read_sub_run` card
    from a mid-wave user question.
 3. Fan-in: the `sub_run` event strip with outcome counts, then the synthesis
    reply with embedded evidence charts.
-4. Summary tab: "Sub-runs" section with outcome badges, steps, tokens;
-   header strip; "via sub-run" tags in Queries.
+4. Summary tab: "Sub-agents" section with outcome badges, steps, tokens;
+   header strip; "via sub-agent" tags in Queries.
 5. Trace modal: delegate row expanded to the child execution.
 6. Reload of the same report: identical cards hydrated from rows (before/after
    pair).
@@ -443,7 +443,7 @@ Deviations from the commands above, all because of the sandbox:
 
 1. Export the key in the shell only; confirm `tools/agent/setup_haiku_llm.py`
    can register `claude-haiku-5-5` against a booted stack (smoke, no
-   sub-runs code yet). Record the model badge screenshot as evidence 0.
+   sub-agents code yet). Record the model badge screenshot as evidence 0.
 2. Commit `seed_rca_incident.py` and the generated SQLite, with a unit test
    that the planted series are where the doc says (failure rate per
    platform/version/provider before and after 09-14; decoys flat).
@@ -478,4 +478,4 @@ exceed roughly 200 Haiku planner calls per case.
   judge something concrete to check for in the ruled-out list.
 - Pre-existing quirks to verify-before-blaming when they show up: the eval
   finalizer's reliance on the first system completion (harness change 1) will
-  make every sub-run case look like a pass-with-no-answer until it lands.
+  make every sub-agent case look like a pass-with-no-answer until it lands.

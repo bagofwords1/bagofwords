@@ -1793,7 +1793,7 @@
       "respondFailed": "לא ניתן לשלוח את התשובה — נסה שוב."
     },
     "delegate": {
-      "label": "תת-ריצה",
+      "label": "סוכן משנה",
       "refused": "לא הופעלה",
       "stop": "עצירה",
       "stopping": "עוצר…",
@@ -1831,13 +1831,13 @@
       }
     },
     "readSubRun": {
-      "reading": "בודק תת-ריצה…",
+      "reading": "בודק סוכן משנה…",
       "checked": "נבדקה '{title}'",
       "latest": "אחרון"
     },
     "stopSubRun": {
-      "stopping": "עוצר תת-ריצה…",
-      "stopped": "תת-הריצה '{title}' נעצרה"
+      "stopping": "עוצר סוכן משנה…",
+      "stopped": "סוכן המשנה '{title}' נעצר"
     }
   },
   "entityCreate": {
@@ -2931,7 +2931,7 @@
           "description": "הגדרות שעדיין לא שויכו לקבוצה"
         },
         "sub_runs": {
-          "title": "תת-ריצות",
+          "title": "סוכני משנה",
           "description": "חקירות מואצלות ברקע והמגבלות שלהן"
         }
       },
@@ -3160,7 +3160,7 @@
           "description": "במצב אימון, מנהלים שיכולים לנהל חיבורים יכולים לבקש מהסוכן לתכנן וליצור מסד נתוני SQLite פיקטיבי ומציאותי לכל תחום, ואז ליצור מעליו סוכנים מוצעים. השורות נוצרות על ידי מודל ברירת המחדל הקטן."
         },
         "enable_sub_runs": {
-          "name": "תת-ריצות",
+          "name": "סוכני משנה",
           "description": "מאפשר לסוכן להאציל תת-שאלות עצמאיות (למשל השערה אחת לכל סיבה בניתוח סיבת שורש) לתת-ריצות תחומות ברקע שחוקרות בעצמן ומחזירות רשומות מובנות בתור איסוף אחד. כשהאפשרות כבויה, הכלי delegate מוסתר."
         },
         "sub_run_posture": {
@@ -5583,8 +5583,8 @@
       "quiet": "נבדק שוב: אין חדש",
       "failed": "המעקב נכשל"
     },
-    "subRunWaveDone": "{total} תת-ריצות הסתיימו · {counts}",
-    "subRunWaveDoneTimedOut": "{total} תת-ריצות — הגיע מועד הסיום · {counts}"
+    "subRunWaveDone": "{total} סוכני משנה הסתיימו · {counts}",
+    "subRunWaveDoneTimedOut": "{total} סוכני משנה — הגיע מועד הסיום · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "ההרצה הופסקה",
@@ -5671,7 +5671,7 @@
     "accepted": "התקבלה",
     "webhooks": "Webhooks",
     "configureWebhook": "הגדרת webhook",
-    "subRuns": "תת-ריצות"
+    "subRuns": "סוכני משנה"
   },
   "scheduledCard": {
     "active": "פעיל",
@@ -6029,9 +6029,9 @@
     "stoppingAll": "עוצר…",
     "backgroundTasks": "{count} משימות רקע",
     "queued": "בתור",
-    "heading": "תת-ריצות",
+    "heading": "סוכני משנה",
     "headerStrip": "{total} תת-ריצות · {tokens} טוקנים",
-    "viaSubRun": "דרך תת-ריצה: {title}",
+    "viaSubRun": "דרך סוכן משנה: {title}",
     "waveStatus": {
       "collecting": "מתחיל",
       "running": "רץ",

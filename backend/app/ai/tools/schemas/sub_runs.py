@@ -1,4 +1,4 @@
-"""Schemas for the sub-run tools: delegate, finish_subtask, read_sub_run, stop_sub_run."""
+"""Schemas for the sub-agent tools: delegate, finish_subtask, read_sub_run, stop_sub_run."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional

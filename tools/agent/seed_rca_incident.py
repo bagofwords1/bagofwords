@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate the "Checkout Ops" demo database: a planted checkout incident for
-root-cause-analysis (RCA) evaluation of sub-runs.
+root-cause-analysis (RCA) evaluation of sub-agents.
 
 Deterministic (seeded RNG) so every loop sees the same numbers. Writes a
 SQLite file (default ``backend/demo-datasources/rca_incident.sqlite``) with

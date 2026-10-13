@@ -1,4 +1,4 @@
-"""delegate — launch a bounded background sub-run for one self-contained goal.
+"""delegate — launch a bounded background sub-agent for one self-contained goal.
 
 Returns a spawn receipt only. Children start after the whole planner batch is
 recorded (SubRunService.launch_pending) and report back as records in one
@@ -53,7 +53,7 @@ class DelegateTool(Tool):
             allowed_modes=["chat", "training"],
             observation_policy="always",
             digest_keys=["sub_run_id", "wave_id", "title", "status", "record"],
-            tags=["sub-run", "delegate", "background", "parallel", "rca"],
+            tags=["sub-agent", "delegate", "background", "parallel", "rca"],
             examples=[
                 {
                     "input": {
@@ -88,15 +88,15 @@ class DelegateTool(Tool):
         if not sub_runs_enabled(settings):
             yield ToolEndEvent(type="tool.end", payload={
                 "output": DelegateOutput(status="refused", title=data.title, profile=data.profile,
-                                         refused="Sub-runs are disabled for this organization.").model_dump(),
-                "observation": {"summary": "Sub-runs are disabled for this organization; do the work yourself.", "success": False},
+                                         refused="Sub-agents are disabled for this organization.").model_dump(),
+                "observation": {"summary": "Sub-agents are disabled for this organization; do the work yourself.", "success": False},
             })
             return
         if (runtime_ctx.get("mode") or "chat") == "subagent":
             yield ToolEndEvent(type="tool.end", payload={
                 "output": DelegateOutput(status="refused", title=data.title, profile=data.profile,
-                                         refused="A sub-run cannot delegate.").model_dump(),
-                "observation": {"summary": "You are a sub-run and cannot delegate; solve the goal yourself.", "success": False},
+                                         refused="A sub-agent cannot delegate.").model_dump(),
+                "observation": {"summary": "You are a sub-agent and cannot delegate; solve the goal yourself.", "success": False},
             })
             return
 
@@ -127,18 +127,18 @@ class DelegateTool(Tool):
                 parent_model=runtime_ctx.get("model"), small_model=runtime_ctx.get("small_model"),
             )
         except Exception as e:
-            logger.exception("delegate: could not record sub-run")
-            yield ToolErrorEvent(type="tool.error", payload={"error": f"Could not start a sub-run: {e}", "code": "SUB_RUN_ERROR"})
+            logger.exception("delegate: could not record sub-agent")
+            yield ToolErrorEvent(type="tool.error", payload={"error": f"Could not start a sub-agent: {e}", "code": "SUB_RUN_ERROR"})
             return
 
         out = DelegateOutput(**{k: v for k, v in receipt.items() if k in DelegateOutput.model_fields})
         if receipt.get("status") == "refused":
-            obs = {"summary": f"Sub-run '{data.title}' NOT started: {receipt.get('refused')}", "success": False,
+            obs = {"summary": f"Sub-agent '{data.title}' NOT started: {receipt.get('refused')}", "success": False,
                    "wave_id": receipt.get("wave_id"), "status": "refused"}
         else:
             agents = ", ".join(a.get("name") or a.get("id") for a in receipt.get("agents") or []) or "all attached agents"
             summary = (
-                f"Started sub-run '{data.title}' ({receipt['sub_run_id']}) in wave {receipt['wave_id']} "
+                f"Started sub-agent '{data.title}' ({receipt['sub_run_id']}) in wave {receipt['wave_id']} "
                 f"[profile={data.profile}, model={receipt.get('model') or 'default'}, agents={agents}, "
                 f"max_steps={receipt.get('max_steps')}]. Its record arrives in a later turn; write one line "
                 f"to the user and end this turn."

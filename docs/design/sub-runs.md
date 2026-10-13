@@ -1,12 +1,16 @@
-# Sub-runs — delegated agent runs with wave fan-in
+# Sub-agents — delegated agent runs with wave fan-in
 
-**Status: design + research. No implementation yet.**
+**Status: implemented (see `docs/feedback-loops/sub-runs.md` for the verified
+runs). Naming: the user sees *sub-agents* and, in the status row, *background
+tasks*; code, tables, settings keys, routes and tool names keep `sub_run`
+(`sub_runs`, `sub_run_waves`, `enable_sub_runs`, `/reports/{id}/sub-runs`,
+`read_sub_run`, `stop_sub_run`, mode `subagent`).**
 
-A *sub-run* is a bounded agent run the main agent delegates a self-contained
-goal to. Sub-runs launched in one planner response form a *wave*. The parent
-ends its turn after launching a wave; when every sub-run in the wave is
+A *sub-agent* is a bounded agent run the main agent delegates a self-contained
+goal to. Sub-agents launched in one planner response form a *wave*. The parent
+ends its turn after launching a wave; when every sub-agent in the wave is
 terminal, one machine turn wakes the parent with the wave's records, and the
-parent synthesizes. Root-cause analysis is the first consumer (one sub-run per
+parent synthesizes. Root-cause analysis is the first consumer (one sub-agent per
 hypothesis); the mechanism is general.
 
 Part A is the design. Part B is the survey of ten other harnesses (read from
@@ -19,7 +23,7 @@ and why it was dropped.
 
 ### A1. The five decisions
 
-1. **A sub-run is an `AgentV2` run in mode `subagent` on a hidden completion
+1. **A sub-agent is an `AgentV2` run in mode `subagent` on a hidden completion
    of the same report.** Not an inner loop inside the parent's tool call. The
    parent's turn ends while children run, so a child must own its DB session,
    clients and context the way every completion does; `CompletionService`
@@ -58,7 +62,7 @@ child k  ... describe / inspect / create_data / notes ...
          wave W: remaining -= 1 (conditional UPDATE); last one → fire fan-in
 
 turn N+1 machine turn (trigger_source=sub_run, message_type=sub_run_wave_done):
-         visible event strip "5 sub-runs finished · 3 supported · 1 refuted · 1 inconclusive"
+         visible event strip "5 sub-agents finished · 3 supported · 1 refuted · 1 inconclusive"
          hidden trigger carrying the 5 records
          parent synthesizes, reads notes on demand, may launch wave W+1 or deliver
 ```
@@ -157,7 +161,7 @@ finish_subtask(
 )
 ```
 
-One schema for every sub-run; `done/partial/blocked` serve ordinary
+One schema for every sub-agent; `done/partial/blocked` serve ordinary
 delegation, `supported/refuted/inconclusive` serve hypothesis tests. The tool
 validates with Pydantic, writes the `sub_runs` row and ends the run.
 
@@ -215,7 +219,7 @@ sub_runs:      id, wave_id, report_id, parent_tool_execution_id,
 
 `sub_runs` is deliberately not an Agent List: lists are user-authored,
 data-source-scoped schemas with flat typed columns and their own UI; a
-sub-run record is report-scoped system plumbing with nested fields. The
+sub-agent record is report-scoped system plumbing with nested fields. The
 parent may still submit final conclusions into a user list when a user wants
 verdicts tracked across incidents.
 
@@ -240,7 +244,7 @@ one line per child (id, title, outcome, confidence, status).
   through the existing stop path, synthesises their records (A5 step 3), and
   fires the fan-in.
 - **Fan-in**: `run_machine_turn(trigger_source="sub_run",
-  message_type="sub_run_wave_done", summary="5 sub-runs finished · …",
+  message_type="sub_run_wave_done", summary="5 sub-agents finished · …",
   instruction=<the wave's records, compact>)`. It enqueues behind any running
   user turn.
 - **Stop**: today's stop is a `sigkill` timestamp on a completion row,
@@ -281,12 +285,12 @@ one line per child (id, title, outcome, confidence, status).
   report channel under the child's completion id; the spawn receipt gives
   the card that id, the same discovery opencode's TUI does (B6).
 - **Wave strip**: a group line above the wave's cards, "Wave 1 · 5
-  sub-runs · 3 running"; on fan-in, the machine-turn event strip with the
+  sub-agents · 3 running"; on fan-in, the machine-turn event strip with the
   outcome counts, followed by the parent's synthesis. Same rendering path
   as wait and check-in events.
-- **Summary tab**: a "Sub-runs" section (title, outcome badge, confidence,
+- **Summary tab**: a "Sub-agents" section (title, outcome badge, confidence,
   steps, tokens, scroll-to-message) from a `sub_runs` list on the summary
-  response; queries created by a child carry "via sub-run: title" in the
+  response; queries created by a child carry "via sub-agent: title" in the
   Queries section; a header strip with counts and tokens.
 - **Trace modal**: expand the delegate row to the child execution.
 - **Background-tasks indicator** (prompt box status row, next to
@@ -297,7 +301,7 @@ one line per child (id, title, outcome, confidence, status).
   kind, title, state, server-UTC `started_at`, steps used of budget, wave
   id), hydrated on load and updated from the child completions' own events;
   the elapsed counter ticks client-side from the server start with the
-  same timezone-safe parse the working counter uses. Kinds: sub-runs
+  same timezone-safe parse the working counter uses. Kinds: sub-agents
   first, then the other things that run while the composer is free (a
   pending `wait`, a running eval), so there is one indicator for "what is
   still going on". Hover (tap on touch) opens a popover grouped by wave:
@@ -355,7 +359,7 @@ concurrency three still completes as one wave.
 
 **`delegate` observation** (what the parent's transcript holds as the
 tool_result): a spawn receipt.
-`{summary: "Started sub-run 'Seasonality' (sr_…) in wave w_…; its record
+`{summary: "Started sub-agent 'Seasonality' (sr_…) in wave w_…; its record
 arrives in a later turn", sub_run_id, wave_id, title, profile, status:
 "running"}`. Nothing else, so the parent cannot wait on it.
 

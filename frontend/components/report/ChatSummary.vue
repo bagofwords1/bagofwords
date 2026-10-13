@@ -117,7 +117,7 @@
       </section>
 
       <!-- Notes (agent scratchpad) -->
-      <!-- Sub-runs (delegated background investigations) -->
+      <!-- Sub-agents (delegated background investigations) -->
       <section v-if="subRunItems.length > 0" data-testid="summary-sub-runs">
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.subRuns') }}</h3>
         <p class="text-[11px] text-gray-400 mb-2" dir="ltr">{{ $t('subRuns.headerStrip', { total: subRunItems.length, tokens: subRunTokensLabel }) }}<span v-if="subRunOutcomeSummary"> · {{ subRunOutcomeSummary }}</span></p>
@@ -166,7 +166,7 @@
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.queries') }}</h3>
         <div class="space-y-2">
           <div v-for="te in queryExecutions" :key="te.id">
-            <!-- A query created inside a sub-run keeps its provenance visible -->
+            <!-- A query created inside a sub-agent keeps its provenance visible -->
             <p v-if="subRunForExecution(te.agent_execution_id)" class="text-[10px] text-gray-400 mb-0.5 truncate" :data-testid="`via-sub-run-${te.id}`">
               {{ $t('subRuns.viaSubRun', { title: subRunForExecution(te.agent_execution_id)?.title }) }}
             </p>
@@ -281,7 +281,7 @@ const props = defineProps<{
   queryExecutions: any[]
   // Agent Lists this conversation wrote to (GET /reports/{id}/summary → lists).
   listSubmissions?: any[]
-  // Delegated sub-runs (GET /reports/{id}/summary → sub_runs).
+  // Delegated sub-agents (GET /reports/{id}/summary → sub_runs).
   subRuns?: any[]
   // Pending-only: drives session-pill state. Kept for backwards compat with
   // existing callers but no longer rendered directly in the Instructions
@@ -474,7 +474,7 @@ const instructionsList = computed(() => {
   return out
 })
 
-// ---- Sub-runs ----
+// ---- Sub-agents ----
 const subRunItems = computed<any[]>(() => props.subRuns || [])
 function tokenTotal(sr: any): number {
   const tk = sr?.tokens || {}

@@ -4,7 +4,7 @@ Revision ID: subruns01
 Revises: mrgheads07
 Create Date: 2026-10-12 00:00:00.000000
 
-Sub-runs are delegated agent runs (mode=subagent) launched by the parent's
+Sub-agents are delegated agent runs (mode=subagent) launched by the parent's
 ``delegate`` tool and fanned back in once per wave. The child is its own
 ``AgentExecution`` carrying the parent execution / tool execution ids, so the
 existing per-run token and cost columns and the diagnosis rollup cover

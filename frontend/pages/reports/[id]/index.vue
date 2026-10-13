@@ -321,7 +321,7 @@
 								<div class="w-full ms-0 md:ms-4 max-w-2xl">
 									<!-- System message -->
 									<div>
-										<!-- Sub-run waves launched by this turn: one group line per wave -->
+										<!-- Sub-agent waves launched by this turn: one group line per wave -->
 										<SubRunWaveStrip
 											v-for="w in wavesForMessage(m)"
 											:key="'wave-' + w.id"
@@ -1633,7 +1633,7 @@ provide('reportSnapshot', report)
 const activeArtifactVizIds = ref<string[]>([])
 provide('artifactVizIds', activeArtifactVizIds)
 
-// ---- Sub-runs (docs/design/sub-runs.md A8/A9) ----
+// ---- Sub-agents (docs/design/sub-runs.md A8/A9) ----
 // The DB is the bus (see report_activity_hub): the page polls
 // GET /reports/{id}/sub-runs every 3s while a wave is live and provides the
 // rows by id so every delegate card reads from one poll. Hydration on load
@@ -1676,7 +1676,7 @@ function waveNumber(w: any): number {
 async function stopSubRun(subRunId: string) {
 	try {
 		await useMyFetch(`/reports/${report_id}/sub-runs/${subRunId}/stop`, { method: 'POST' })
-	} catch (e) { console.error('Failed to stop sub-run', e) }
+	} catch (e) { console.error('Failed to stop sub-agent', e) }
 	await loadSubRuns()
 }
 async function stopWave(waveId: string) {
@@ -1747,7 +1747,7 @@ const summaryQueries = ref<any[]>([])
 const summaryInstructions = ref<any[]>([])
 // Agent Lists this conversation wrote to — one item per list.
 const summaryLists = ref<any[]>([])
-// Sub-runs (delegated background investigations) of this report, for the
+// Sub-agents (delegated background investigations) of this report, for the
 // Summary tab (GET /reports/{id}/summary → sub_runs).
 const summarySubRuns = ref<any[]>([])
 // Historical list of instructions created during this report's agent runs.
@@ -4227,7 +4227,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
-			// A turn that launched sub-runs ends while they run: pick the wave up now.
+			// A turn that launched sub-agents ends while they run: pick the wave up now.
 			loadSubRuns().catch(() => {})
 			// Measure the run here: the server's total_duration_ms isn't stamped
 			// yet at this point (see clientRunMs), so without this the footer

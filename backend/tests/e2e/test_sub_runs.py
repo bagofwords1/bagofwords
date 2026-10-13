@@ -1,4 +1,4 @@
-"""Sub-runs — delegated agent runs with wave fan-in (docs/design/sub-runs.md).
+"""Sub-agents — delegated agent runs with wave fan-in (docs/design/sub-runs.md).
 
 Loop A of docs/feedback-loops/sub-runs.md: the whole mechanism on a scripted
 LLM, no provider. Only the LLM boundary is stubbed (``LLM.inference_stream_v2``
@@ -8,7 +8,7 @@ services, the agent loop, the wave tracker and persistence run real.
 The script plays four roles, keyed on what the request carries:
   * parent, first planner call   → N `delegate` calls in ONE response
   * parent, after the receipts   → one line of text, turn ends
-  * child (system prompt "Mode: Sub-run") → create_note, then finish_subtask;
+  * child (system prompt "Mode: Sub-agent") → create_note, then finish_subtask;
     a child titled "Seasonality" answers in prose only and never finishes, to
     exercise the forced-finish nudge and the synthesized partial record;
     a child titled "Slow" stalls so a test can stop it mid-run
@@ -110,7 +110,7 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                           "tool_name_ctx": text[max(0, idx - 150): idx + 150] if idx >= 0 else None, "n_msgs": len(messages or []),
                           "shapes": shapes, "last_obs_ctx": text[max(0, lo - 200): lo + 300] if lo >= 0 else None})
         events = []
-        if "Mode: Sub-run" in sys_text:
+        if "Mode: Sub-agent" in sys_text:
             title = _child_title(sys_text)
             if "Slow" in title and slow_seconds:
                 await asyncio.sleep(slow_seconds)
@@ -151,7 +151,7 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                 "(failure rate 59% vs 3% elsewhere). Ruled out: the premium price change, the APAC campaign "
                 "and seasonality. One investigation ended without a verdict and is listed as partial."
             ))] + _end()
-        elif "DELEGATION (sub-runs" in sys_text and "delegate" in tool_names:
+        elif "DELEGATION (sub-agents" in sys_text and "delegate" in tool_names:
             if n_results == 0:
                 for title, goal in hypotheses:
                     events += _tool("delegate", {
@@ -161,10 +161,10 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                     })
                 events += _end("tool_use")
             else:
-                events += [TextDeltaEvent(text=f"Launched {len(hypotheses)} sub-runs to test the candidate causes; I will report back when they finish.")] + _end()
+                events += [TextDeltaEvent(text=f"Launched {len(hypotheses)} sub-agents to test the candidate causes; I will report back when they finish.")] + _end()
         elif "delegate" not in tool_names and "DELEGATION" not in sys_text and n_results == 0 and "Launched" not in text and "<sub_run" not in text and "Mode: Chat" in sys_text:
             # delegate hidden (setting off): answer directly
-            events += [TextDeltaEvent(text="Sub-runs are off here, so I answer directly: paid orders fell 14% from 2026-09-14.")] + _end()
+            events += [TextDeltaEvent(text="Sub-agents are off here, so I answer directly: paid orders fell 14% from 2026-09-14.")] + _end()
         else:
             events += [TextDeltaEvent(text="ok")] + _end()
         for e in events:
@@ -187,7 +187,7 @@ def live_client():
     """A TestClient whose event loop lives for the whole test.
 
     The plain ``test_client`` opens a fresh portal (event loop) per request, so
-    background tasks a request spawns — the sub-run launcher, every child run,
+    background tasks a request spawns — the sub-agent launcher, every child run,
     the fan-in — are cancelled the moment the request returns. Used as a
     context manager the client keeps one loop up across requests, which is
     what the real server does.
@@ -222,7 +222,7 @@ def scripted_llm(monkeypatch):
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, title="Sub-runs"):
+def _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, title="Sub-agents"):
     monkeypatch.setenv("OPENAI_API_KEY_TEST", "dummy-local-provider-boundary")
     user = create_user()
     token = login_user(user["email"], user["password"])
@@ -309,10 +309,10 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     detail = test_client.get(f"/api/reports/{rid}/sub-runs/{runs['Pricing change hypothesis']['sub_run_id']}", headers=headers).json()
     assert detail["record"]["outcome"] == "refuted"
     assert detail["envelope"]["exit_reason"] == "finish_call"
-    child_calls = [c for c in calls if "Mode: Sub-run" in c["system"]]
+    child_calls = [c for c in calls if "Mode: Sub-agent" in c["system"]]
     # History isolation: the children's hidden completions (their goal prompt,
     # their tool calls) never ride in the parent's conversation history.
-    parent_calls = [c for c in calls if "Mode: Sub-run" not in c["system"]]
+    parent_calls = [c for c in calls if "Mode: Sub-agent" not in c["system"]]
     assert parent_calls and not any(c["child_goal_leak"] for c in parent_calls), [c for c in parent_calls if c["child_goal_leak"]]
     assert [c["tool"] for c in detail["calls"]] == ["create_note", "finish_subtask"], (detail["calls"], child_calls[:2])
     assert detail.get("note", {}).get("content"), detail.get("note")

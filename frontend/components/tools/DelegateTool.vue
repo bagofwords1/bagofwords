@@ -226,7 +226,7 @@ async function stop() {
     await fetchDetail()
     subRuns?.refresh?.()
   } catch (e) {
-    console.error('Failed to stop sub-run', e)
+    console.error('Failed to stop sub-agent', e)
   } finally {
     stopping.value = false
   }

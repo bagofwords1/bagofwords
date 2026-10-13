@@ -1,4 +1,4 @@
-"""Sub-run profiles — an allow-list of tools, a model preference and a prompt
+"""Sub-agent profiles — an allow-list of tools, a model preference and a prompt
 addendum for a delegated child run (``AgentV2`` mode ``subagent``).
 
 A child never holds a tool the parent lacks: the profile is intersected with
@@ -49,7 +49,7 @@ class SubRunProfile:
     # sub_run_model=auto.
     model_pref: str
     addendum: str
-    # Tools added when the org allows sub-runs to create tracked queries.
+    # Tools added when the org allows sub-agents to create tracked queries.
     with_create_data: FrozenSet[str] = field(default_factory=frozenset)
 
 

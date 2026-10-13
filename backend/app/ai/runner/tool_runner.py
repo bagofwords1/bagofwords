@@ -125,7 +125,7 @@ class ToolRunner:
         if (
             tool_allowed_modes is not None
             and current_mode not in tool_allowed_modes
-            # A sub-run (docs/design/sub-runs.md) is a chat-mode run with a
+            # A sub-agent (docs/design/sub-runs.md) is a chat-mode run with a
             # narrower catalog: its profile is enforced before dispatch in
             # AgentV2, so the mode gate treats it as chat. Without this a
             # child that may create_data per its profile was refused here.

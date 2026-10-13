@@ -49,7 +49,7 @@ class PendingTrainingBuildSchema(BaseModel):
 
 
 class SummarySubRunItem(BaseModel):
-    """One delegated sub-run (docs/design/sub-runs.md A9)."""
+    """One delegated sub-agent (docs/design/sub-runs.md A9)."""
     sub_run_id: str
     wave_id: str
     wave_status: Optional[str] = None

@@ -4073,7 +4073,7 @@ class ReportService:
                 item.data_source_id = str(lst.data_source_id)
                 item.agent_name = agent_names.get(item.data_source_id)
 
-        # Sub-runs: one row per delegated child across the report's recent waves.
+        # Sub-agents: one row per delegated child across the report's recent waves.
         sub_runs: list = []
         try:
             from app.services.sub_run_service import sub_run_service
@@ -4090,7 +4090,7 @@ class ReportService:
                         "child_execution_id": r.get("child_execution_id"),
                     })
         except Exception:
-            logging.getLogger(__name__).debug("summary: sub-runs unavailable", exc_info=True)
+            logging.getLogger(__name__).debug("summary: sub-agents unavailable", exc_info=True)
 
         return {
             "queries": queries,

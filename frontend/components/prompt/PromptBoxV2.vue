@@ -22,7 +22,7 @@
                     <span class="thinking-shimmer">{{ thinkingLabel }}</span>
                     <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
                 </template>
-                <!-- Background sub-runs: independent of the working label — the
+                <!-- Background sub-agents: independent of the working label — the
                      parent can be idle while children run (docs/design/sub-runs.md A9). -->
                 <BackgroundTasksIndicator
                     v-if="hasBackgroundTasks"
@@ -625,7 +625,7 @@ const props = defineProps({
         default: null
     },
     latestInProgressCompletion: Object,
-    // Live sub-run waves of the report (GET /reports/{id}/sub-runs → waves);
+    // Live sub-agent waves of the report (GET /reports/{id}/sub-runs → waves);
     // drives the background-tasks indicator next to the working counter.
     backgroundWaves: { type: Array, default: () => [] },
     isStopping: Boolean,

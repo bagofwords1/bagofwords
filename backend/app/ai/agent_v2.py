@@ -511,7 +511,7 @@ class AgentV2:
         # Scalar copy (see report_id note below): machine-turn source of the
         # head completion, e.g. 'checkin' for an agent check-in run.
         self._head_trigger_source = getattr(head_completion, "trigger_source", None) if head_completion is not None else None
-        # Sub-runs (docs/design/sub-runs.md). A child run is mode="subagent" on
+        # Sub-agents (docs/design/sub-runs.md). A child run is mode="subagent" on
         # a hidden completion whose prompt carries the sub_runs row id; the
         # parent launches children through the `delegate` tool.
         self._is_sub_run = (self.mode == "subagent")
@@ -895,7 +895,7 @@ class AgentV2:
                 if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
             ]
 
-        # Sub-run tools: hidden when the org setting is off, and on machine
+        # Sub-agent tools: hidden when the org setting is off, and on machine
         # turns that cannot receive a later fan-in turn (the fan-in is a new
         # turn on the report, so a one-shot scheduled run would never see its
         # results). Children never hold them (profiles). Eval runs keep them:
@@ -4514,7 +4514,7 @@ class AgentV2:
                 build_id=self.build_id,
                 is_eval_run=self.is_eval_run,
             )
-            # Sub-run child: bind the execution to its row, narrow the catalog to
+            # Sub-agent child: bind the execution to its row, narrow the catalog to
             # the profile, and load the budget. Must precede the first planner call.
             if self._is_sub_run:
                 await self._bind_sub_run()
@@ -5859,7 +5859,7 @@ class AgentV2:
 
                             # Only treat analysis_complete as terminal if there's NO action
                             if decision.analysis_complete and not action:
-                                # Sub-run: the record is the deliverable. A child that
+                                # Sub-agent: the record is the deliverable. A child that
                                 # ends in prose without finish_subtask gets exactly one
                                 # more iteration told to call it; the finalize step
                                 # synthesises a partial record if it still does not.
@@ -5867,7 +5867,7 @@ class AgentV2:
                                     self._sub_run_finish_nudges += 1
                                     observation = {
                                         "summary": (
-                                            "You ended with text, but nothing was delivered: a sub-run reports ONLY "
+                                            "You ended with text, but nothing was delivered: a sub-agent reports ONLY "
                                             "through finish_subtask. Call finish_subtask NOW with your record "
                                             "(outcome=partial or inconclusive if you are not sure; put what you "
                                             "found in summary/findings/evidence)."
@@ -6139,8 +6139,8 @@ class AgentV2:
                                         })
                                 if self._is_sub_run and self._sub_run_allowed_tools is not None and tool_name not in self._sub_run_allowed_tools:
                                     return await _refuse_before_dispatch({
-                                            "summary": f"Tool '{tool_name}' is not available to a sub-run; use the tools in your catalog and finish with finish_subtask.",
-                                            "error": {"code": "resolve_error", "message": "outside sub-run profile"},
+                                            "summary": f"Tool '{tool_name}' is not available to a sub-agent; use the tools in your catalog and finish with finish_subtask.",
+                                            "error": {"code": "resolve_error", "message": "outside sub-agent profile"},
                                         })
 
                                 # Artifact budget is enforced BEFORE execution: an
@@ -6953,7 +6953,7 @@ class AgentV2:
                             if any(_o.get("tool_name") in ("create_artifact", "edit_artifact") for _o in outcomes):
                                 active_artifact = await self._get_active_artifact()
 
-                            # Sub-runs recorded by this batch's delegate calls start now,
+                            # Sub-agents recorded by this batch's delegate calls start now,
                             # once every sibling exists (a fast child must not fire the
                             # fan-in before its wave is complete).
                             if self._wave_pending:
@@ -7420,14 +7420,14 @@ class AgentV2:
                 pass
             raise
         finally:
-            # Sub-run child: close the sub_runs row exactly once (record +
+            # Sub-agent child: close the sub_runs row exactly once (record +
             # envelope, write-back to the parent's delegate tool execution,
             # wave decrement, fan-in when last). Runs on every exit path.
             if self._is_sub_run:
                 try:
                     await self._finalize_sub_run()
                 except Exception:
-                    logger.exception("[agent] sub-run finalize failed")
+                    logger.exception("[agent] sub-agent finalize failed")
             # Let the prompt-time title task finish (and enqueue its SSE event)
             # before the stream closes. Runs on the error path too: a turn that
             # failed still deserves a titled report in the sidebar.
@@ -7470,7 +7470,7 @@ class AgentV2:
                     pass
 
     # ------------------------------------------------------------------
-    # Sub-runs (docs/design/sub-runs.md)
+    # Sub-agents (docs/design/sub-runs.md)
     # ------------------------------------------------------------------
     async def _bind_sub_run(self) -> None:
         """Child run start: load the sub_runs row, link the execution to the
@@ -7497,7 +7497,7 @@ class AgentV2:
         try:
             self.planner.tool_catalog = [t for t in self.planner.tool_catalog if t.name in allowed]
         except Exception:
-            logger.warning("[agent] could not narrow the sub-run catalog", exc_info=True)
+            logger.warning("[agent] could not narrow the sub-agent catalog", exc_info=True)
         # Focus the child on the agents it was given (a subset of the report's).
         try:
             ids = [str(a) for a in (row.agent_ids_json or [])]
@@ -7535,7 +7535,7 @@ class AgentV2:
                 planner_input.sub_run_title = self._sub_run.get("title")
                 planner_input.sub_run_profile_addendum = self._sub_run.get("addendum")
                 used = int(loop_index) + 1
-                planner_input.sub_run_budget = f"sub-run step {used} of {step_limit}" + (
+                planner_input.sub_run_budget = f"sub-agent step {used} of {step_limit}" + (
                     " — finish NOW with finish_subtask" if used >= step_limit - 1 else ""
                 )
             return
@@ -7563,9 +7563,9 @@ class AgentV2:
                 sigkilled=self.sigkill_event.is_set(),
             )
             if wave_id:
-                logger.info("[agent] launched sub-run wave %s", wave_id)
+                logger.info("[agent] launched sub-agent wave %s", wave_id)
         except Exception:
-            logger.exception("[agent] launching sub-runs failed")
+            logger.exception("[agent] launching sub-agents failed")
 
     async def _finalize_sub_run(self) -> None:
         from app.services.sub_run_service import sub_run_service

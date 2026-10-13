@@ -1,4 +1,4 @@
-// End-to-end UI verification of sub-runs (docs/design/sub-runs.md) as a human
+// End-to-end UI verification of sub-agents (docs/design/sub-runs.md) as a human
 // would see it: sign in, ask the planted RCA question on the Checkout Ops demo,
 // watch the delegate cards and the background-tasks indicator, ask a mid-wave
 // question, see the fan-in strip and the synthesis, check the Summary tab,
@@ -66,14 +66,14 @@ const api = async (path, init = {}) => page.evaluate(async ({ t, org, path, init
   try { return { status: r.status, body: JSON.parse(text) }; } catch { return { status: r.status, body: text }; }
 }, { t: token, org: orgId, path, init });
 
-// --- Settings page: the Sub-runs section exists and is on ---
+// --- Settings page: the Sub-agents section exists and is on ---
 await page.goto(`${BASE}/settings/ai_settings`, { waitUntil: 'domcontentloaded' });
 const section = page.locator('[data-testid="ai-section-sub_runs"]');
 await section.waitFor({ state: 'visible', timeout: 60000 });
 await section.locator('button').first().click();
 await page.locator('[data-testid="ai-setting-enable_sub_runs"]').waitFor({ state: 'visible', timeout: 20000 });
 await section.scrollIntoViewIfNeeded();
-await shot(page, 'settings-sub-runs-section', 'org settings: the Sub-runs section with its nine settings');
+await shot(page, 'settings-sub-runs-section', 'org settings: the Sub-agents section with its nine settings');
 
 // Make sure the posture is proactive and children may create queries for evidence.
 const settingsBefore = await api('/api/organization/settings');
@@ -89,7 +89,7 @@ log('settings updated:', upd.status);
 const dsList = await api('/api/data_sources');
 const ds = (dsList.body || []).find((d) => d.name === DS_NAME);
 if (!ds) { log('data source not found:', DS_NAME, JSON.stringify(dsList.body).slice(0, 300)); process.exit(2); }
-const report = (await api('/api/reports', { method: 'POST', body: JSON.stringify({ title: 'Sub-runs RCA demo', files: [], data_sources: [ds.id] }) })).body;
+const report = (await api('/api/reports', { method: 'POST', body: JSON.stringify({ title: 'Sub-agents RCA demo', files: [], data_sources: [ds.id] }) })).body;
 log('report created:', report.id);
 
 await page.goto(`${BASE}/reports/${report.id}`, { waitUntil: 'domcontentloaded' });
@@ -114,7 +114,7 @@ await shot(page, 'background-tasks-indicator', 'status row shows N background ta
 await indicator.hover();
 await page.locator('[data-testid="background-tasks-popover"]').waitFor({ state: 'visible', timeout: 15000 });
 await page.waitForTimeout(1200);
-await shot(page, 'background-tasks-popover', 'popover: per sub-run title, live duration, steps, stop; Stop all on the wave');
+await shot(page, 'background-tasks-popover', 'popover: per sub-agent title, live duration, steps, stop; Stop all on the wave');
 await page.mouse.move(10, 10);
 
 // Expand the first card for the live step rows.
@@ -134,7 +134,7 @@ await page.waitForTimeout(1500);
 await shot(page, 'mid-wave-answer', 'the parent answered from <sub_runs> (read_sub_run card if it read one)');
 
 // ============ STAGE 4: fan-in ============
-const strip = page.locator('text=/sub-runs finished|sub-runs — deadline/').first();
+const strip = page.locator('text=/sub-runs finished|sub-agents — deadline/').first();
 await strip.waitFor({ state: 'visible', timeout: 1500000 });
 log('fan-in strip visible');
 await page.locator('.thinking-shimmer').waitFor({ state: 'detached', timeout: 600000 }).catch(() => {});
@@ -167,7 +167,7 @@ if (await summaryTab.count()) {
   await section.waitFor({ state: 'visible', timeout: 30000 });
   await section.scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
-  await shot(page, 'summary-tab-sub-runs', 'Summary tab: Sub-runs section with outcome badges, steps, tokens');
+  await shot(page, 'summary-tab-sub-runs', 'Summary tab: Sub-agents section with outcome badges, steps, tokens');
 } else {
   log('Summary tab control not found; skipping');
 }
