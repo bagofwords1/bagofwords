@@ -1157,11 +1157,17 @@ class BuildService:
         *,
         expected_main_build_id: Optional[str] = None,
         enforce_expected_main: bool = False,
+        apply_staged_deactivation: Optional[bool] = None,
     ) -> InstructionBuild:
         """
         Promote an approved build to main.
         Sets is_main=True on this build and is_main=False on the previous main build.
         Also updates Instruction.current_version_id for all instructions in the build.
+
+        ``apply_staged_deactivation`` (default: the build is an AI suggestion)
+        lets a staged ``status='draft'`` version switch its live row off — see
+        the status note below. Auto-merge passes the ORIGINATING build's answer,
+        since the merged build it promotes is its own source ('merge').
         """
         build = await self.get_build(db, build_id)
         if not build:
@@ -1182,6 +1188,8 @@ class BuildService:
         )
         # Keep the in-memory object consistent for any caller that reads it.
         build.is_main = True
+        if apply_staged_deactivation is None:
+            apply_staged_deactivation = build.source == "ai"
 
         # Update Instruction.current_version_id AND sync the versioned fields
         # onto the live row. Training/knowledge tools stage edits as versions
@@ -1268,6 +1276,14 @@ class BuildService:
             # live.
             if v_status == "published":
                 values["status"] = "published"
+            # AI suggestions also carry an explicit deactivation: edit_instruction
+            # stages the requested status, or the instruction's own status when
+            # none was requested (so a text edit never toggles it). User and git
+            # builds are excluded — their versions snapshot whatever the row said
+            # when the build was forked, and mirroring that would let a stale
+            # build silently revert a later Active/Inactive change.
+            elif v_status == "draft" and apply_staged_deactivation:
+                values["status"] = "draft"
             await db.execute(
                 sql_update(Instruction)
                 .where(Instruction.id == instruction_id)
@@ -1409,7 +1425,10 @@ class BuildService:
         merged.approved_at = datetime.utcnow()
         await db.commit()
         
-        promoted = await self.promote_build(db, merged.id, user_id)
+        promoted = await self.promote_build(
+            db, merged.id, user_id,
+            apply_staged_deactivation=(build.source == "ai"),
+        )
 
         logger.info(f"Deployed build {build_id} via auto-merge: +{user_diff['added_count']} ~{user_diff['modified_count']} -{user_diff['removed_count']}")
 

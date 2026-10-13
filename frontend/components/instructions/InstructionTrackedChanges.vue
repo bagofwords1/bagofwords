@@ -36,9 +36,44 @@
           <button class="mt-1 text-gray-400 dark:text-gray-500 underline hover:text-gray-700 dark:hover:text-gray-300" @click="load()">{{ $t('common.retry') }}</button>
         </div>
         <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 dark:text-gray-500 py-6">{{ $t('agentsPage.allPendingResolved') }}</div>
+        <!-- Field changes (status, load mode) have no text to mark up, so they
+             get their own rows above the text — each its own decision, with
+             its own Accept/Reject, independent of the text hunks below. -->
+        <div v-if="!loading && !loadError && fieldChanges.length" class="space-y-1.5" :class="compact ? 'mb-2' : 'mb-4'">
+          <div
+            v-for="fc in fieldChanges"
+            :key="`${fc.build_id}:${fc.key}`"
+            class="flex items-start gap-2.5 rounded-md border border-amber-200/70 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/5 px-2.5 py-2 transition-opacity"
+            :class="resolving === fc.key ? 'opacity-60' : ''"
+            data-testid="field-change"
+            :data-field="fc.field"
+          >
+            <UIcon :name="fc.field === 'status' ? 'i-heroicons-power' : 'i-heroicons-bolt'" class="w-3.5 h-3.5 mt-0.5 shrink-0" :class="fc.field === 'status' && fc.to === 'draft' ? 'text-gray-500 dark:text-gray-400' : 'text-emerald-600 dark:text-emerald-400'" />
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5" :class="compact ? 'text-[12px]' : 'text-[13px]'">
+                <span class="font-medium text-gray-700 dark:text-gray-200">{{ fieldLabel(fc.field) }}</span>
+                <del class="text-rose-500/80 line-through decoration-rose-300 decoration-1">{{ fieldValueLabel(fc.field, fc.from) }}</del>
+                <UIcon name="i-heroicons-arrow-right" class="w-3 h-3 text-gray-400 dark:text-gray-500 rtl-flip" />
+                <ins class="no-underline font-medium text-emerald-700 dark:text-emerald-400">{{ fieldValueLabel(fc.field, fc.to) }}</ins>
+              </div>
+              <div v-if="fieldHint(fc)" class="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">{{ fieldHint(fc) }}</div>
+              <div class="mt-1 flex items-center gap-1.5 min-w-0">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="fc.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
+                <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ fc.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="fc.created_by"> · {{ fc.created_by.name }}</template><template v-if="fc.created_at"> · {{ fmtWhen(fc.created_at) }}</template></span>
+              </div>
+              <div v-if="fc.evidence" dir="auto" class="mt-0.5 text-[10px] leading-snug text-gray-400 dark:text-gray-500 italic line-clamp-2">{{ fc.evidence }}</div>
+            </div>
+            <div v-if="canApprove" class="flex items-center gap-1.5 shrink-0">
+              <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy || !!resolving" data-testid="field-change-accept" @click.stop="_resolve(fc, 'accept')"><UIcon :name="resolving === fc.key ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === fc.key }]" />{{ $t('agentsPage.accept') }}</button>
+              <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy || !!resolving" data-testid="field-change-reject" @click.stop="_resolve(fc, 'reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.reject') }}</button>
+            </div>
+          </div>
+        </div>
         <!-- dir=auto + plaintext: per-line bidi, same policy as the read view
-             (KnowledgeExplorer), so Hebrew prose lays out RTL while code lines stay LTR. -->
-        <div v-else ref="contentEl" dir="auto" style="unicode-bidi: plaintext; text-align: start;" class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]'">
+             (KnowledgeExplorer), so Hebrew prose lays out RTL while code lines stay LTR.
+             Muted while the only pending change switches the instruction off:
+             the text is kept, but it is about to stop being used. -->
+        <div v-if="!loading && !loadError && totalHunks" ref="contentEl" dir="auto" style="unicode-bidi: plaintext; text-align: start;" class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="[compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]', pendingDeactivation && !actionableHunks.length ? 'opacity-60' : '']">
           <template v-for="(seg, si) in displaySegments" :key="si">
             <span v-if="seg.kind === 'gap'" class="block my-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines === 1 ? $t('agentsPage.unchangedLineOne', { n: seg.lines }) : $t('agentsPage.unchangedLineMany', { n: seg.lines }) }} ···</span>
             <template v-else-if="seg.kind === 'context'">
@@ -265,6 +300,44 @@ const enrichedHunks = computed(() => suggestions.value.flatMap((s: any) =>
   })),
 ))
 
+// Field-level changes (status, load mode) — one action unit each, carrying
+// the same provenance as a hunk so the row can say who proposed it and why.
+const fieldChanges = computed(() => suggestions.value.flatMap((s: any) =>
+  (s.field_changes || []).map((f: any) => ({
+    ...f,
+    build_id: s.build_id,
+    source: s.source,
+    created_by: s.created_by,
+    created_at: s.created_at,
+    evidence: s.evidence,
+  })),
+))
+const pendingDeactivation = computed(() =>
+  fieldChanges.value.some((f: any) => f.field === 'status' && f.to === 'draft'),
+)
+
+function fieldLabel(field: string): string {
+  if (field === 'status') return t('agentsPage.fieldStatus')
+  if (field === 'load_mode') return t('agentsPage.fieldLoadMode')
+  return field
+}
+function fieldValueLabel(field: string, value: string): string {
+  if (field === 'status') {
+    if (value === 'published') return t('agentsPage.optStatusActive')
+    if (value === 'draft') return t('agentsPage.optStatusInactive')
+  }
+  if (field === 'load_mode') {
+    if (value === 'always') return t('agentsPage.optLoadAlways')
+    if (value === 'intelligent') return t('agentsPage.optLoadSmart')
+    if (value === 'disabled') return t('agentsPage.optLoadOff')
+  }
+  return value
+}
+function fieldHint(fc: any): string {
+  if (fc.field !== 'status') return ''
+  return fc.to === 'draft' ? t('agentsPage.fieldDeactivateHint') : t('agentsPage.fieldActivateHint')
+}
+
 function rangesOverlap(a: any, b: any): boolean {
   const as = Number(a.start), ae = Math.max(Number(a.end), as)
   const bs = Number(b.start), be = Math.max(Number(b.end), bs)
@@ -286,7 +359,7 @@ const actionableHunks = computed(() => {
   return kept.sort((a, b) => a.start - b.start)
 })
 
-const totalHunks = computed(() => actionableHunks.value.length)
+const totalHunks = computed(() => actionableHunks.value.length + fieldChanges.value.length)
 
 // Mirror what the header shows to a `hide-header` host, so it can render the
 // count and drive Accept/Reject all (via the exposed `resolveAll`) from its own
@@ -438,7 +511,7 @@ async function resolveAll(mode: 'accept' | 'reject') {
     const body = {
       against_main_build_id: mainBuildId.value,
       against_main_version_id: mainVersionId.value,
-      hunks: actionableHunks.value.map(h => ({ build_id: h.build_id, hunk_key: h.key })),
+      hunks: [...actionableHunks.value, ...fieldChanges.value].map(h => ({ build_id: h.build_id, hunk_key: h.key })),
     }
     const { error } = await useMyFetch(url, { method: 'POST', body })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
