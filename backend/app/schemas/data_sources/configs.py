@@ -2268,8 +2268,32 @@ class SharePointConfig(BaseModel):
     )
 
 
-# SharePoint Server uses Windows auth and its own REST API, not Graph.
+# SharePoint Server uses Windows auth with modern REST or legacy SOAP APIs.
 class SharePointOnpremConfig(SharePointConfig):
+    drive_name: Optional[str] = Field(
+        "*", title="Document Library",
+        description="Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only.",
+        json_schema_extra={"ui:type": "string", "ui:descriptionKey": "data.sharepointApi.libraryDescription"},
+    )
+    # Graph-only tuning is inherited for stored-config compatibility, but unused.
+    walk_concurrency: int = Field(4, ge=1, le=16, json_schema_extra={"ui:hidden": True})
+    api_mode: Literal["modern", "2010"] = Field(
+        "modern", title="SharePoint API",
+        description="SharePoint 2010 uses legacy services and searches filenames only. Enter a library name or *; do not leave the library blank.",
+        json_schema_extra={"ui:type": "select", "ui:order": -1, "ui:titleKey": "data.sharepointApi.title",
+                           "ui:descriptionKey": "data.sharepointApi.description",
+                           "ui:enumLabels": {"modern": "Modern REST", "2010": "SharePoint 2010"},
+                           "ui:enumLabelKeys": {"modern": "data.sharepointApi.modern", "2010": "data.sharepointApi.legacy"}},
+    )
+
+    @model_validator(mode="after")
+    def legacy_library_required(self):
+        if self.drive_name is not None:
+            self.drive_name = self.drive_name.strip()
+        if self.api_mode == "2010" and not (self.drive_name or "").strip():
+            raise ValueError("SharePoint 2010 requires a document library name or * for all libraries.")
+        return self
+
     site_url: str = Field(..., title="Site URL", description="SharePoint Server site URL, including /sites/name. Not the Central Administration URL.", json_schema_extra={"ui:type": "string"})
     allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
     max_file_size_mb: int = Field(50, ge=1, le=250, title="Max file size (MB)", description="Reject oversized downloads before parsing; files are never silently truncated.", json_schema_extra={"ui:type": "number"})
@@ -3070,7 +3094,9 @@ class QlikSenseOnPremCertCredentials(BaseModel):
             "Directory of the account Qlik should act as, e.g. an AD domain name. "
             "Defaults to INTERNAL."
         ),
-        json_schema_extra={"ui:type": "string"},
+        # Under "Require user authentication" the admin can bind this to a
+        # member attribute instead (services/member_identity.py).
+        json_schema_extra={"ui:type": "string", "ui:memberBindable": True},
     )
     user_id: Optional[str] = Field(
         None,
@@ -3080,34 +3106,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
             "which sees the whole site. Set it to a real user to have Qlik apply that user's "
             "app permissions and Section Access rules."
         ),
-        json_schema_extra={"ui:type": "string"},
-    )
-
-
-class QlikSenseOnPremUserIdentityCredentials(BaseModel):
-    """Per-user identity for a connection that requires user authentication.
-
-    Deliberately holds NO certificate material: the admin's client certificate
-    stays on the connection's system credentials, and this identity is merged
-    over it at query time (the variant is marked ``overlay`` in the registry).
-    The user only states who Qlik should evaluate their queries as — Qlik then
-    applies that account's stream access and Section Access rules.
-    """
-
-    user_directory: str = Field(
-        ...,
-        title="User Directory",
-        description=(
-            "Your Qlik user directory, e.g. your AD domain name — the part before the "
-            "backslash in DOMAIN\\user in the Qlik hub."
-        ),
-        json_schema_extra={"ui:type": "string"},
-    )
-    user_id: str = Field(
-        ...,
-        title="User ID",
-        description="Your Qlik user id — queries run with your stream access and Section Access rules.",
-        json_schema_extra={"ui:type": "string"},
+        json_schema_extra={"ui:type": "string", "ui:memberBindable": True},
     )
 
 
@@ -3666,7 +3665,11 @@ class MCPConfig(BaseModel):
             "Inject the user's identity into a metadata object on every tool call. "
             "Shape: {argument_key='custom_metadata', fields:[{name, source, mode, on_missing}]}. "
             "mode 'locked' hides the field from the model and always overrides; "
-            "'ai' surfaces it as a default the model may set."
+            "'ai' surfaces it as a default the model may set. Optional "
+            "dynamic_params_enabled + dynamic_params {key: default}: allow-list of "
+            "per-question values the caller sends as prompt.metadata; a listed key "
+            "takes the sent value, else its default (null = omit); unlisted keys are "
+            "dropped; a field of the same name wins."
         ),
         json_schema_extra={"ui:type": "json"}
     )

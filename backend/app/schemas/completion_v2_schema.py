@@ -1,6 +1,7 @@
 from pydantic import BaseModel, field_validator
 
 from app.utils.reasoning_effort import normalize_effort
+from app.utils.request_metadata import validate_request_metadata
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
@@ -76,11 +77,24 @@ class PromptSchema(BaseModel):
     #   per-completion > report level > trigger words > LLMModel.config default > off
     # None = Default. Each provider client clamps it to what the model accepts.
     reasoning_effort: Optional[str] = None  # off|minimal|low|medium|high|xhigh|max
+    # Free-form values the calling app attaches to this question (e.g. its chat
+    # id). Stored with the completion; merged into MCP tool-call metadata on
+    # connections with Dynamic params on. Never shown to the LLM. See
+    # app.utils.request_metadata.
+    metadata: Optional[Dict[str, Any]] = None
+    # Set only on the hidden head completion of a sub-agent (mode='subagent'):
+    # the sub_agents row this child run reports to. See app.models.sub_agent.
+    sub_agent_id: Optional[str] = None
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod
     def _validate_reasoning_effort(cls, v):
         return normalize_effort(v)
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_metadata(cls, v):
+        return validate_request_metadata(v)
 
     class Config:
         from_attributes = True

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List
+from typing import Dict, List, Optional
 
 from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, release_request_db
@@ -55,6 +55,14 @@ from app.schemas.custom_query_schema import (
     CustomQueryTarget,
 )
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
+from app.errors import AppError
+from app.services.member_attributes import require_attribute_admin
+from app.services.member_identity import (
+    member_mapped,
+    preview_member_identity,
+    resolve_member_credentials,
+    validate_member_bindings,
+)
 
 
 router = APIRouter(prefix="/connections", tags=["connections"])
@@ -389,6 +397,7 @@ async def create_connection(
         credentials=data.credentials,
         auth_policy=data.auth_policy,
         allowed_user_auth_modes=data.allowed_user_auth_modes,
+        member_bindings=data.member_bindings,
     )
     
     # Inline the latest indexing run so the modal can show progress
@@ -476,6 +485,8 @@ async def get_connection(
                     "authorize_url", "token_url", "client_id", "scopes", "audience",
                     "api_key_header", "token_endpoint_auth_method", "tenant_id",
                     "user", "username", "oauth_tenant_id", "oauth_client_id",
+                    # Qlik on-prem: which account the certificate acts as.
+                    "user_directory", "user_id",
                     # What DCR discovery derived from the server, so the edit
                     # form can show "Detected: …" next to the override field.
                     "discovered_scopes", "scopes_source",
@@ -503,6 +514,7 @@ async def get_connection(
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=allowed_user_auth_modes,
+        member_bindings=(connection.member_bindings or None) if is_admin else None,
         config=config or {},
         last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
@@ -576,6 +588,9 @@ async def update_connection(
 ):
     """Update a connection."""
     updates = data.dict(exclude_unset=True)
+    before = await connection_service.get_connection(db, connection_id, organization)
+    previous_bindings = dict(before.member_bindings or {})
+    previous_mapped = member_mapped(before)
     connection = await connection_service.update_connection(
         db=db,
         connection_id=connection_id,
@@ -583,6 +598,25 @@ async def update_connection(
         current_user=current_user,
         **updates,
     )
+    after_bindings = dict(connection.member_bindings or {})
+    if after_bindings != previous_bindings or member_mapped(connection) != previous_mapped:
+        # Bindings decide which account every member acts as on this source.
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="connection.member_identity_changed",
+                user_id=str(current_user.id),
+                resource_type="connection",
+                resource_id=str(connection.id),
+                details={
+                    "connection_name": connection.name,
+                    "before": {"enabled": previous_mapped, "bindings": previous_bindings},
+                    "after": {"enabled": member_mapped(connection), "bindings": after_bindings},
+                },
+            )
+        except Exception:
+            pass
     
     from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
     # Counts come from one grouped aggregate rather than len() over the
@@ -700,6 +734,94 @@ async def test_connection(
         credential_overrides=overrides.credentials if overrides else None,
     )
     
+    return ConnectionTestResult(
+        success=result.get("success", False),
+        message=result.get("message", ""),
+        connectivity=result.get("connectivity", result.get("success", False)),
+        schema_access=result.get("schema_access", False),
+        table_count=result.get("table_count", 0),
+        timings=result.get("timings"),
+        details=result.get("details"),
+    )
+
+
+class MemberIdentityPreviewRequest(BaseModel):
+    # Unsaved bindings to preview; omit to preview the saved ones.
+    member_bindings: Optional[Dict[str, str]] = None
+
+
+@router.post("/{connection_id}/member-identity/preview")
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_member_identity(
+    connection_id: str,
+    body: MemberIdentityPreviewRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Which account each member acts as on this connection, and who is
+    blocked for a missing attribute. Full admins only: it reveals member
+    attributes."""
+    await require_attribute_admin(db, current_user.id, organization.id)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    bindings = None
+    if body.member_bindings is not None:
+        config = connection.config
+        if isinstance(config, str):
+            import json
+            config = json.loads(config or "{}")
+        bindings = validate_member_bindings(
+            connection.type, (config or {}).get("auth_type"), body.member_bindings
+        )
+    return await preview_member_identity(db, connection, bindings)
+
+
+class MemberIdentityTestRequest(BaseModel):
+    user_id: str
+    # Unsaved bindings to test; omit to test the saved ones.
+    member_bindings: Optional[Dict[str, str]] = None
+
+
+@router.post("/{connection_id}/member-identity/test", response_model=ConnectionTestResult)
+@requires_resource_permission('connection', 'manage_connection')
+async def test_connection_member_identity(
+    connection_id: str,
+    body: MemberIdentityTestRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Test the connection as one member: the saved bindings resolved from
+    that member's attributes. Full admins only."""
+    await require_attribute_admin(db, current_user.id, organization.id)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    import json
+    config = connection.config
+    if isinstance(config, str):
+        config = json.loads(config or "{}")
+    config = config or {}
+    bindings = None
+    if body.member_bindings is not None:
+        bindings = validate_member_bindings(connection.type, config.get("auth_type"), body.member_bindings)
+    elif not member_mapped(connection):
+        raise HTTPException(status_code=400, detail="This connection does not map member identities.")
+    member = await db.get(User, body.user_id)
+    in_org = member is not None and (await db.execute(
+        select(Membership.id).where(
+            Membership.user_id == str(member.id),
+            Membership.organization_id == str(organization.id),
+            Membership.deleted_at.is_(None),
+        )
+    )).first() is not None
+    if not in_org:
+        raise HTTPException(status_code=404, detail="Member not found")
+    try:
+        credentials = await resolve_member_credentials(db, connection, member, bindings)
+    except AppError as e:
+        return ConnectionTestResult(success=False, message=e.message, connectivity=False)
+    result = await connection_service.test_connection_params(
+        data_source_type=connection.type, config=config, credentials=credentials,
+    )
     return ConnectionTestResult(
         success=result.get("success", False),
         message=result.get("message", ""),

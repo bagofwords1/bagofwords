@@ -2,7 +2,6 @@
 Schema Context Builder - builds TablesSchemaContext object for schemas
 """
 from typing import List, Optional, Dict, Any
-import re
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,6 +10,7 @@ from app.ai.context.sections.tables_schema_section import TablesSchemaContext, M
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable, TableColumn as PromptTableColumn, ForeignKey as PromptForeignKey
 from app.models.table_stats import TableStats
+from app.utils.safe_regex import compile_bounded_all
 from app.models.organization import Organization
 from app.models.report import Report
 from app.models.data_source import DataSource
@@ -838,21 +838,15 @@ class SchemaContextBuilder:
             # Apply table-level filters (name matching only - active filtering already done above)
             if table_names or name_patterns:
                 name_set = set((table_names or []))
-                patterns = []
-                for p in (name_patterns or []):
-                    try:
-                        patterns.append(re.compile(p))
-                    except Exception:
-                        continue
+                # name_patterns carry model-written regex (describe_tables,
+                # create_widget) — matched with a timeout, never stdlib re.
+                patterns = compile_bounded_all(name_patterns)
                 def _match(n: str) -> bool:
                     if name_set and n in name_set:
                         return True
                     for rp in patterns:
-                        try:
-                            if rp.search(n or ''):
-                                return True
-                        except Exception:
-                            continue
+                        if rp.search(n or ''):
+                            return True
                     return (not name_set) and (not patterns)
                 filtered = []
                 for t in tables:
@@ -923,10 +917,11 @@ class SchemaContextBuilder:
                 bow_allowed = False
             if bow_allowed and (not ds_filter or SOURCE_ID in ds_filter):
                 bow_tables = []
+                bow_patterns = compile_bounded_all(name_patterns)
                 for name, columns in catalog().items():
                     if table_names and name not in table_names:
                         continue
-                    if name_patterns and not any(re.search(p, name) for p in name_patterns):
+                    if name_patterns and not any(p.search(name) for p in bow_patterns):
                         continue
                     bow_tables.append(PromptTable(
                         name=name, columns=[PromptTableColumn(name=c, dtype=column_type(c)) for c in columns],
@@ -959,10 +954,11 @@ class SchemaContextBuilder:
         ds_ids = [str(getattr(d, "id", "")) for d in (self.data_sources or [])]
         entries = await list_tables(self.db, self.user, self.organization, ds_ids)
         tables = []
+        list_patterns = compile_bounded_all(name_patterns)
         for e in entries:
             if table_names and e["name"] not in table_names:
                 continue
-            if name_patterns and not any(re.search(p, e["name"]) for p in name_patterns):
+            if name_patterns and not any(p.search(e["name"]) for p in list_patterns):
                 continue
             tables.append(PromptTable(
                 name=e["name"],

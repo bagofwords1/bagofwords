@@ -6,7 +6,7 @@ import importlib
 import logging
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
@@ -287,13 +287,36 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
         if creds.get("otds_url") and creds.get("client_id") and creds.get("client_secret"):
             return ["otds_impersonation", "oauth"]
         return None
-    if conn_type == "qlik_sense_onprem":
-        # Per-user auth is the identity overlay: the user names their Qlik
-        # account, the connection's certificate is merged underneath. The
-        # certificate variant itself is system-scope only — it is
-        # admin-equivalent on the Qlik site and must not be requested per user.
-        return ["identity"]
+    from app.schemas.data_source_registry import member_bindable_fields
+    if member_bindable_fields(conn_type, (config or {}).get("auth_type")):
+        # One admin-equivalent secret that can act as any account (Qlik
+        # certificate): per-user auth means each member acts as the account
+        # an admin mapped to them — never one they name themselves.
+        from app.services.member_identity import MEMBER_MAPPED_MODE
+        return [MEMBER_MAPPED_MODE]
     return None
+
+
+def check_member_bindings(conn_type, config, auth_policy, allowed_user_auth_modes, bindings) -> dict:
+    """Validate a connection's member bindings against its resulting state.
+
+    A member_mapped connection needs at least one binding — otherwise every
+    member would act as the single saved identity, which per-user auth exists
+    to prevent. Bindings are kept (inactive) while per-user auth is off, so
+    turning it back on restores the admin's mapping.
+    """
+    from app.errors import AppError, ErrorCode
+    from app.services.member_identity import MEMBER_MAPPED_MODE, validate_member_bindings
+
+    normalized = validate_member_bindings(conn_type, (config or {}).get("auth_type"), bindings)
+    mapped = auth_policy == "user_required" and MEMBER_MAPPED_MODE in (allowed_user_auth_modes or [])
+    if mapped and not normalized:
+        raise AppError.bad_request(
+            ErrorCode.MEMBER_IDENTITY_INVALID,
+            "Per-user authentication on this connection needs at least one field mapped "
+            "to a member attribute.",
+        )
+    return normalized
 
 
 def _dialect_insert(db: AsyncSession):
@@ -306,6 +329,18 @@ def _dialect_insert(db: AsyncSession):
     else:
         raise ValueError(f"Unsupported application database: {dialect}")
     return insert
+
+
+def _check_mcp_forwarding(conn_type: Optional[str], config: Any) -> None:
+    """400 on a malformed MCP forwarding block (dynamic params) before saving."""
+    if conn_type != "mcp" or not isinstance(config, dict):
+        return
+    from app.errors import AppError, ErrorCode
+    from app.services.mcp_context_injection import validate_dynamic_params
+    try:
+        validate_dynamic_params(config)
+    except ValueError as e:
+        raise AppError.bad_request(ErrorCode.MCP_DYNAMIC_PARAMS_INVALID, str(e))
 
 
 class ConnectionService:
@@ -325,6 +360,7 @@ class ConnectionService:
         credentials: dict = None,
         auth_policy: str = "system_only",
         allowed_user_auth_modes: list = None,
+        member_bindings: Optional[dict] = None,
     ) -> Connection:
         """Create a new connection with validation."""
 
@@ -349,6 +385,11 @@ class ConnectionService:
         # so null/[] would silently disable both auto-provision and the /authorize route.
         if auth_policy == "user_required" and not allowed_user_auth_modes:
             allowed_user_auth_modes = default_user_auth_modes(type, config, credentials)
+
+        _check_mcp_forwarding(type, config)
+        member_bindings = check_member_bindings(
+            type, config, auth_policy, allowed_user_auth_modes, member_bindings
+        )
 
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
@@ -388,6 +429,7 @@ class ConnectionService:
             config=json.dumps(config) if isinstance(config, dict) else config,
             auth_policy=auth_policy,
             allowed_user_auth_modes=allowed_user_auth_modes,
+            member_bindings=member_bindings or None,
             organization_id=organization.id,
             is_active=True,
         )
@@ -645,6 +687,21 @@ class ConnectionService:
             if defaulted:
                 updates["allowed_user_auth_modes"] = defaulted
 
+        # Member bindings: validated against the resulting state whenever the
+        # update touches them or the policy/modes they depend on.
+        if any(k in updates for k in ("member_bindings", "auth_policy", "allowed_user_auth_modes", "config")):
+            cfg = updates.get("config")
+            if cfg is None:
+                cfg = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+            bindings = updates.pop("member_bindings", None) if "member_bindings" in updates else connection.member_bindings
+            connection.member_bindings = check_member_bindings(
+                updates.get("type", connection.type),
+                cfg,
+                updates.get("auth_policy") or connection.auth_policy,
+                updates.get("allowed_user_auth_modes") or connection.allowed_user_auth_modes,
+                bindings,
+            ) or None
+
         # Track if connection-relevant fields changed
         connection_changed = False
 
@@ -654,6 +711,7 @@ class ConnectionService:
 
         if "config" in updates:
             new_config = updates.pop("config")
+            _check_mcp_forwarding(updates.get("type", connection.type), new_config)
             if isinstance(new_config, dict):
                 # The connection form edits the type's own fields only; keep
                 # the runtime query limits it does not render.
@@ -2032,6 +2090,17 @@ class ConnectionService:
                 except Exception:
                     pass
             raise HTTPException(status_code=403, detail="User credentials required")
+
+        # --- Admin-mapped identity (member_mapped) ---
+        # The connection's secret + identity fields taken from the member's
+        # admin-set attributes. No stored per-user row is consulted (legacy
+        # member-typed identities are ignored) and there is no owner/admin
+        # fallback: a member without the attributes is blocked.
+        from app.services.member_identity import member_mapped, resolve_member_credentials
+        if member_mapped(connection):
+            credentials = await resolve_member_credentials(db, connection, current_user)
+            self.last_credential_identity = "user"
+            return credentials
 
         from app.services.connection_identity import (
             supports_user_token,

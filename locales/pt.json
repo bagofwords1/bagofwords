@@ -313,7 +313,11 @@
     "tipRunSuite": "Executar esta suíte",
     "runSuiteFailed": "Falha ao executar a suíte",
     "exportInstructions": "Exportar pacote do agente — instruções, configuração e avaliações (.zip)",
-    "sharedManagedElsewhere": "Compartilhada com agentes que você não gerencia — editável apenas por alguém com autoridade sobre todos eles."
+    "sharedManagedElsewhere": "Compartilhada com agentes que você não gerencia — editável apenas por alguém com autoridade sobre todos eles.",
+    "unchangedLineOne": "{n} linha inalterada",
+    "unchangedLineMany": "{n} linhas inalteradas",
+    "loadPendingFailed": "Não foi possível carregar as alterações pendentes.",
+    "allPendingResolved": "Sem alterações pendentes — tudo resolvido."
   },
   "smoke": {
     "hello": "Olá",
@@ -1131,6 +1135,16 @@
       "needsValues": "Aguardando valores para:",
       "cachedHint": "Servido do seu resultado em cache para esses valores; a fonte não foi consultada novamente"
     },
+    "addParameter": {
+      "adding": "Adicionando o filtro \"{name}\"…",
+      "added": "Filtro \"{name}\" adicionado a \"{query}\"",
+      "addedNoQuery": "Filtro \"{name}\" adicionado",
+      "failed": "Não foi possível adicionar o filtro \"{name}\"",
+      "type": "Tipo: {type}",
+      "default": "Padrão: {value}",
+      "defaultAll": "todos",
+      "column": "Coluna: {column}"
+    },
     "createArtifact": {
       "creating": "Criando artefato",
       "created": "Artefato criado",
@@ -1238,7 +1252,16 @@
       "toastFailedPublish": "Falha ao publicar instrução",
       "toastDeletedDesc": "Instrução excluída",
       "toastFailedDelete": "Falha ao excluir instrução",
-      "toastSaved": "Instrução salva"
+      "toastSaved": "Instrução salva",
+      "accept": "Aceitar",
+      "reject": "Rejeitar",
+      "accepted": "Aceita",
+      "rejectedLabel": "Rejeitada",
+      "stagedInBuild": "Preparada no build em rascunho",
+      "acceptedToast": "Alteração aceita",
+      "acceptFailed": "Falha ao aceitar",
+      "rejectedToast": "Alteração rejeitada",
+      "rejectFailed": "Falha ao rejeitar"
     },
     "editInstruction": {
       "rejected": "Edição rejeitada",
@@ -1275,7 +1298,14 @@
       "toastFailedDelete": "Falha ao excluir instrução",
       "toastSaved": "Instrução salva",
       "editCount": "{n} edições",
-      "editLabel": "Editar instrução"
+      "editLabel": "Editar instrução",
+      "accepted": "Aceita",
+      "rejectedLabel": "Rejeitada",
+      "stagedInBuild": "Preparada no build em rascunho",
+      "acceptedToast": "Alteração aceita",
+      "acceptFailed": "Falha ao aceitar",
+      "rejectedToast": "Alteração rejeitada",
+      "rejectFailed": "Falha ao rejeitar"
     },
     "inspectData": {
       "inspecting": "Inspecionando",
@@ -2484,7 +2514,25 @@
       "linkCopied": "Link de convite copiado",
       "failedToCopyLink": "Não foi possível copiar o link",
       "linkRegenerated": "Link de convite atualizado e copiado",
-      "moreGroups": "grupos"
+      "moreGroups": "grupos",
+      "colAttributes": "Atributos",
+      "colAttributesHint": "Valores definidos por um administrador que identificam o membro em outros sistemas (ex.: qlik_user_id). Os membros não podem editá-los.",
+      "editAttributes": "Editar atributos",
+      "attributeAdd": "Adicionar atributo",
+      "attributeKey": "Nome do atributo",
+      "attributeValue": "Valor",
+      "attributeKeyPlaceholder": "nome, ex.: qlik_user_id",
+      "attributeValuePlaceholder": "valor, ex.: dana",
+      "attributeRemove": "Remover atributo",
+      "attributeKeyRequired": "O nome é obrigatório",
+      "attributeKeyInvalid": "Apenas letras, dígitos, _ . -; começa com uma letra",
+      "attributeKeyDuplicate": "Nome duplicado",
+      "attributesTitle": "Atributos do membro",
+      "attributesHint": "Valores que identificam este membro em outros sistemas, ex.: seu usuário do Qlik ou matrícula. Apenas administradores podem vê-los ou alterá-los.",
+      "attributesInviteHint": "Opcional. Identifica este membro em outros sistemas, ex.: seu usuário do Qlik ou papel no banco de dados.",
+      "attributesSaved": "Atributos salvos",
+      "attributesSaveFailed": "Falha ao salvar os atributos",
+      "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado."
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",
@@ -3585,6 +3633,10 @@
     "mcpModeAiTip": "A IA pode defini-lo; o servidor preenche se vazio",
     "mcpModeLockedTip": "O valor do admin sempre prevalece; oculto da IA",
     "mcpAddMetaField": "+ Adicionar campo de metadados",
+    "mcpDynamicParams": "Parâmetros dinâmicos",
+    "mcpDynamicParamsHint": "Quais valores o app chamador pode enviar com cada pergunta, cada um com um valor padrão (null = só se enviado). Eles vão para {key}, ocultos da IA; um campo acima com o mesmo nome tem prioridade. O app os envia em",
+    "mcpDynamicParamsInvalid": "JSON inválido.",
+    "mcpDynamicParamsNotObject": "Deve ser um objeto JSON (pares chave-valor).",
     "verify": "Verificar",
     "autoReindex": "Reindexação automática do esquema",
     "autoReindexAt": "Reindexar diariamente às",
@@ -3707,7 +3759,33 @@
     "refreshAccess": "Atualizar acesso",
     "yourAccount": "Sua conta",
     "managementOrganizationHint": "Os testes e as atualizações do esquema usam as credenciais salvas da organização.",
-    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta."
+    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta.",
+    "memberIdentity": {
+      "title": "Identidade por membro",
+      "hint": "Cada membro atua com a própria conta. Escolha quais campos vêm de um atributo de membro que os administradores definem em Configurações → Membros; os demais usam o valor acima para todos. Os valores acima continuam sendo usados para indexar o catálogo compartilhado.",
+      "sourceFor": "Origem de {field}",
+      "attributeFor": "Atributo de membro para {field}",
+      "sameForEveryone": "Igual para todos",
+      "fromAttribute": "Do atributo de membro",
+      "attributePlaceholder": "ex.: qlik_user_id",
+      "usesValue": "Todos usam {value}",
+      "usesValueAbove": "Todos usam o valor acima (ou o padrão dele)",
+      "attributeRequired": "Informe o nome do atributo de membro.",
+      "attributeInvalid": "Use letras, dígitos, _ . - e comece com uma letra.",
+      "needOne": "Associe pelo menos um campo a um atributo de membro ou desative a autenticação de usuário.",
+      "previewTitle": "Quem atua como quem",
+      "previewCounts": "{ok} prontos · {blocked} bloqueados",
+      "blocked": "Bloqueado: falta {attributes}",
+      "test": "Testar",
+      "testOk": "Conectado como este membro"
+    },
+    "sharepointApi": {
+      "title": "API do SharePoint",
+      "description": "O SharePoint 2010 usa serviços legados e pesquisa apenas nomes de arquivos. Informe uma biblioteca ou *; não deixe a biblioteca vazia.",
+      "modern": "REST moderno",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Nome da biblioteca de documentos ou * para todas as bibliotecas visíveis. O campo vazio seleciona a biblioteca padrão apenas no modo REST moderno."
+    }
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -3793,6 +3871,7 @@
     "organization.required": "Cabeçalho de ID da organização ausente",
     "api_key.invalid": "Chave de API inválida ou expirada",
     "mcp.disabled": "A integração MCP não está ativada para esta organização",
+    "mcp.dynamic_params_invalid": "Os parâmetros dinâmicos devem ser um objeto JSON de no máximo 8 KB, sem chaves vazias.",
     "feature.locked": "O recurso não pode ser modificado",
     "license.enterprise_required": "Este recurso requer uma licença enterprise.",
     "locale.invalid": "O idioma não está ativado",
@@ -3846,7 +3925,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso indisponível",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitação interrompida",
     "ARTIFACT_RESOURCE_ABORTED": "Solicitação cancelada",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível",
+    "member_attributes.invalid": "Atributos de membro inválidos.",
+    "member_identity.invalid": "Mapeamento de identidade por membro inválido.",
+    "member_identity.not_configured": "Um administrador ainda não escolheu qual atributo de membro identifica os membros nesta conexão.",
+    "member_identity.unresolved": "Sua conta nesta conexão ainda não está configurada. Peça a um administrador para definir seus atributos de membro ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -4417,6 +4500,9 @@
       "runSuite": "Executar {name}",
       "runningCount": "Executando {done}/{total}",
       "title": "Avaliações desta alteração"
+    },
+    "runEvals": {
+      "notRun": "{n} caso em rascunho ou arquivado não incluído | {n} casos em rascunho ou arquivados não incluídos"
     }
   },
   "monitoring": {
@@ -5744,5 +5830,8 @@
     "failed": "Não foi possível carregar os dados do artefato",
     "newest": "Mais recentes primeiro",
     "oldest": "Mais antigos primeiro"
+  },
+  "trackedChanges": {
+    "noChanges": "Sem alterações"
   }
 }

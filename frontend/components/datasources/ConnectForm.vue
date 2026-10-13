@@ -145,6 +145,18 @@
             <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('data.requireUserAuth') }}</span>
           </div>
 
+          <!-- Per-user auth for a shared secret that can act as any account
+               (Qlik certificate): bind identity fields to member attributes. -->
+          <MemberIdentityBindings
+            v-if="showMemberBindings"
+            v-model="memberBindings"
+            :fields="bindableFields"
+            :fixed-values="formData.credentials"
+            :connection-id="isConnectionEdit ? props.connectionId : undefined"
+            :read-only="readOnly"
+            @valid="memberBindingsValid = $event"
+          />
+
           <!-- OAuth credential overrides (only visible when user auth is enabled) -->
           <template v-if="!credentialsLocked && require_user_auth && oauthCredentialFields.length">
             <div class="border-t border-gray-200 dark:border-gray-700 mt-3 pt-3">
@@ -209,6 +221,7 @@
 
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
+import MemberIdentityBindings from '@/components/datasources/MemberIdentityBindings.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { isLicensed } = useEnterprise()
@@ -433,12 +446,23 @@ const typeSupportsUserAuth = computed(() => fields.value?.supports_user_auth !==
 const showRequireUserAuth = computed(() => (props.showRequireUserAuthToggle !== false) && isLicensed.value && typeSupportsUserAuth.value)
 watch(typeSupportsUserAuth, (ok) => { if (!ok) require_user_auth.value = false })
 
+// Preserve catalog fallback to English, then use the schema's readable label
+// when the backend knows a field that this frontend catalog does not yet know.
+function schemaTranslation(key?: string): string | undefined {
+  return key && (te(key) || te(key, 'en')) ? t(key) : undefined
+}
+
 const configFields = computed(() => {
   if (!fields.value?.config?.properties) return [] as any[]
   return Object.entries(fields.value.config.properties)
-    .map(([field_name, schema]: any) => ({ field_name, ...schema }))
+    .map(([field_name, schema]: any) => ({
+      field_name, ...schema,
+      title: schemaTranslation(schema['ui:titleKey']) ?? schema.title,
+      description: schemaTranslation(schema['ui:descriptionKey']) ?? schema.description,
+    }))
     // Hide fields explicitly marked ui:hidden (e.g. deprecated/back-compat).
     .filter((f: any) => !(f['ui:hidden'] === true))
+    .sort((a: any, b: any) => (a['ui:order'] ?? 0) - (b['ui:order'] ?? 0))
 })
 
 const authOptions = computed(() => {
@@ -468,6 +492,17 @@ const coreCredentialFields = computed(() => {
   return credentialFields.value.filter((f: any) => !f.field_name.startsWith('oauth_'))
 })
 
+// Fields an admin may bind to a member attribute under per-user auth.
+const bindableFields = computed(() => credentialFields.value.filter((f: any) => f['ui:memberBindable'] === true))
+const showMemberBindings = computed(() => showRequireUserAuth.value && require_user_auth.value && bindableFields.value.length > 0
+  && (isCreateMode.value || isCreateConnectionOnly.value || isConnectionEdit.value))
+const memberBindings = ref<Record<string, string>>({})
+const memberBindingsValid = ref(true)
+function withMemberBindings(payload: any) {
+  if (bindableFields.value.length) payload.member_bindings = { ...memberBindings.value }
+  return payload
+}
+
 // OAuth override fields (only oauth_* fields, shown separately when user auth is enabled)
 const oauthCredentialFields = computed(() => {
   return credentialFields.value.filter((f: any) => f.field_name.startsWith('oauth_'))
@@ -483,7 +518,9 @@ function fieldOptions(field: any): Array<{ value: string | number | boolean; lab
     .find(value => Array.isArray(value) && value.length) || []
   return options.map((option: any) => {
     const value = typeof option === 'object' && option !== null ? option.value : option
-    const label = field['ui:enumLabels']?.[String(value)]
+    const labelKey = field['ui:enumLabelKeys']?.[String(value)]
+    const label = schemaTranslation(labelKey)
+      ?? field['ui:enumLabels']?.[String(value)]
       ?? (typeof option === 'object' && option !== null ? option.label : undefined)
       ?? String(value)
     return { value, label }
@@ -549,6 +586,7 @@ async function fetchFields() {
         is_public.value = typeof iv.is_public === 'boolean' ? iv.is_public : is_public.value
         require_user_auth.value = (iv.auth_policy === 'user_required')
         selectedAuth.value = iv.config?.auth_type || selectedAuth.value
+        memberBindings.value = { ...(iv.member_bindings || {}) }
         // Exclude auth_type from hydrated config to avoid sending it during tests
         const { auth_type: _ignoredAuthType, ...restConfig } = (iv.config || {})
         formData.config = { ...formData.config, ...restConfig }
@@ -679,9 +717,13 @@ async function onSubmit() {
     await testConnection()
     if (!connectionTestPassed.value) return
   }
+  if (showMemberBindings.value && !memberBindingsValid.value) {
+    submitError.value = t('data.memberIdentity.needOne')
+    return
+  }
   submitting.value = true
   try {
-    const payload: any = {
+    const payload: any = withMemberBindings({
       name: name.value || selectedType.value,
       type: selectedType.value,
       config: { ...formData.config, auth_type: selectedAuth.value || undefined },
@@ -692,16 +734,16 @@ async function onSubmit() {
       generate_conversation_starters: use_llm_onboarding.value,
       generate_ai_rules: use_llm_onboarding.value,
       use_llm_sync: use_llm_onboarding.value
-    }
+    })
     emit('submitted', payload)
 
     // Handle connection editing (uses /connections endpoint)
     if (isConnectionEdit.value && props.connectionId) {
-      const connectionPayload: any = {
+      const connectionPayload: any = withMemberBindings({
         name: name.value || selectedType.value,
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },
         auth_policy: auth_policy.value
-      }
+      })
       // Only include credentials if user explicitly unlocked and edited them
       if (!credentialsLocked.value) {
         const hasNewCredentials = Object.values(formData.credentials).some(v => v && String(v).trim())
@@ -735,13 +777,13 @@ async function onSubmit() {
       }
     } else if (isCreateConnectionOnly.value) {
       // Create connection only (without agent)
-      const connectionPayload = {
+      const connectionPayload = withMemberBindings({
         name: name.value || selectedType.value,
         type: selectedType.value,
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },
         credentials: showSystemCredentialFields.value ? cleanCredentials(formData.credentials) : {},
         auth_policy: auth_policy.value
-      }
+      })
       const res = await useMyFetch('/connections', { method: 'POST', body: JSON.stringify(connectionPayload), headers: { 'Content-Type': 'application/json' } })
       if ((res.status as any)?.value === 'success') {
         const created = (res.data as any)?.value

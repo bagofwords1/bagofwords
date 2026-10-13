@@ -6,6 +6,7 @@ must translate them into something that model's API accepts — never a value
 it rejects (every rejection here was reproduced live against the provider).
 """
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -379,7 +380,10 @@ def test_google_off_keeps_existing_minimum_without_enabling_a_budget(model_id):
 
 
 @pytest.mark.parametrize("model_id", ["gpt-6-astra", "gpt-6.1-sol", "o3"])
-def test_off_never_sends_unsupported_none(model_id, caplog):
+def test_off_never_sends_unsupported_none(model_id, caplog, monkeypatch):
+    # Migration-backed tests run alembic's fileConfig(), which disables every
+    # logger that already exists; re-enable the one this test asserts on.
+    monkeypatch.setattr(logging.getLogger("app.ai.llm.reasoning"), "disabled", False)
     req = _responses_request(model_id, "off")
     assert req["reasoning"]["effort"] == "low"
     assert "off is unsupported" in caplog.text

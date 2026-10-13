@@ -275,6 +275,7 @@ import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
+import AddParameterTool from '~/components/tools/AddParameterTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -324,6 +325,9 @@ import RunEvalTool from '~/components/tools/RunEvalTool.vue'
 import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
+import DelegateTool from '~/components/tools/DelegateTool.vue'
+import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
 import MemoryTool from '~/components/tools/MemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
@@ -582,6 +586,8 @@ function getToolComponent(toolName: string) {
             return ReadQueryTool
         case 'run_query':
             return RunQueryTool
+        case 'add_parameter':
+            return AddParameterTool
         case 'read_resources':
             return ReadResourcesTool
         case 'inspect_data':
@@ -688,6 +694,12 @@ function getToolComponent(toolName: string) {
         // transcript exactly as it happened.
         case 'clarify':
             return ClarifyTool
+        case 'delegate':
+            return DelegateTool
+        case 'read_sub_agent':
+            return ReadSubAgentTool
+        case 'stop_sub_agent':
+            return StopSubAgentTool
         case 'wait':
             return WaitTool
         case 'create_memory':
