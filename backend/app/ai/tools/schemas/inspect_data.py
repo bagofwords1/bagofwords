@@ -1,5 +1,7 @@
 from typing import Optional, List, Any, Dict
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, field_validator
+
+from ._coerce import coerce_json_list
 
 class InspectDataInput(BaseModel):
     user_prompt: str = Field(
@@ -19,6 +21,12 @@ class InspectDataInput(BaseModel):
             "column shape, instead of leaving it to guess which attachment you meant."
         ),
     )
+
+    @field_validator("tables_by_source", "source_file_ids", mode="before")
+    @classmethod
+    def _coerce_list_arguments(cls, value):
+        return coerce_json_list(value)
+
 
 class InspectDataOutput(BaseModel):
     execution_log: str = Field(..., description="The standard output (stdout) from the inspection code.")
