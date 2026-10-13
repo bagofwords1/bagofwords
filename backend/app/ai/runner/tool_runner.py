@@ -122,7 +122,15 @@ class ToolRunner:
         _meta = getattr(tool, 'spec', None) or getattr(tool, 'metadata', None)
         tool_allowed_modes = getattr(_meta, 'allowed_modes', None) if _meta is not None else None
         current_mode = runtime_ctx.get('mode') or 'chat'  # Default to 'chat' if mode is None
-        if tool_allowed_modes is not None and current_mode not in tool_allowed_modes:
+        if (
+            tool_allowed_modes is not None
+            and current_mode not in tool_allowed_modes
+            # A sub-agent (docs/design/sub-agents.md) is a chat-mode run with a
+            # narrower catalog: its profile is enforced before dispatch in
+            # AgentV2, so the mode gate treats it as chat. Without this a
+            # child that may create_data per its profile was refused here.
+            and not (current_mode == 'subagent' and runtime_ctx.get('sub_agent_id') and 'chat' in tool_allowed_modes)
+        ):
             return {
                 "summary": f"Tool '{tool.name}' is not available in '{current_mode}' mode",
                 "error": {

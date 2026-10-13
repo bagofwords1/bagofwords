@@ -48,8 +48,29 @@ class PendingTrainingBuildSchema(BaseModel):
     total_instructions: int
 
 
+class SummarySubAgentItem(BaseModel):
+    """One delegated sub-agent (docs/design/sub-agents.md A9)."""
+    sub_agent_id: str
+    wave_id: str
+    wave_status: Optional[str] = None
+    message_id: Optional[str] = None  # the parent completion, for scrollToMessage
+    title: Optional[str] = None
+    status: Optional[str] = None
+    outcome: Optional[str] = None
+    confidence: Optional[float] = None
+    summary: Optional[str] = None
+    steps_used: Optional[int] = None
+    tokens: Optional[dict] = None
+    model: Optional[str] = None
+    profile: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    child_execution_id: Optional[str] = None
+
+
 class ReportSummaryResponse(BaseModel):
     queries: List[SummaryToolExecutionSchema]
     instructions: List[SummaryInstructionItem]
     lists: List[SummaryListItem] = []
+    sub_agents: List[SummarySubAgentItem] = []
     pending_training_build: Optional[PendingTrainingBuildSchema] = None

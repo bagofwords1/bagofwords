@@ -1821,6 +1821,53 @@
       "sendFeedback": "שלח משוב",
       "expired": "הסקירה פגה.",
       "respondFailed": "לא ניתן לשלוח את התשובה — נסה שוב."
+    },
+    "delegate": {
+      "label": "סוכן משנה",
+      "refused": "לא הופעלה",
+      "stop": "עצירה",
+      "stopping": "עוצר…",
+      "steps": "צעדים",
+      "noCallsYet": "מתחיל…",
+      "findings": "ממצאים",
+      "ruledOut": "נשלל",
+      "caveats": "הסתייגויות",
+      "unknown": "לא ידוע",
+      "exit": "יציאה",
+      "openNote": "פתיחת הסיכום",
+      "synthesized": "הרשומה נכתבה על ידי המערכת — תת-הריצה לא סיימה בעצמה.",
+      "status": {
+        "pending": "בתור",
+        "running": "רצה",
+        "finished": "הסתיימה",
+        "failed": "נכשלה",
+        "timed_out": "פג הזמן",
+        "interrupted": "נעצרה",
+        "refused": "לא הופעלה"
+      },
+      "outcomes": {
+        "supported": "נתמכת",
+        "refuted": "נשללה",
+        "inconclusive": "לא חד-משמעי",
+        "done": "בוצע",
+        "partial": "חלקי",
+        "blocked": "חסום",
+        "finished": "הסתיימה",
+        "failed": "נכשלה",
+        "timed_out": "פג הזמן",
+        "interrupted": "נעצרה",
+        "running": "רצה",
+        "pending": "בתור"
+      }
+    },
+    "readSubAgent": {
+      "reading": "בודק סוכן משנה…",
+      "checked": "נבדקה '{title}'",
+      "latest": "אחרון"
+    },
+    "stopSubAgent": {
+      "stopping": "עוצר סוכן משנה…",
+      "stopped": "סוכן המשנה '{title}' נעצר"
     }
   },
   "entityCreate": {
@@ -2930,6 +2977,10 @@
         "other": {
           "title": "אחר",
           "description": "הגדרות שעדיין לא שויכו לקבוצה"
+        },
+        "sub_agents": {
+          "title": "סוכני משנה",
+          "description": "חקירות מואצלות ברקע והמגבלות שלהן"
         }
       },
       "llmAccessWarning": "שינוי הגדרה זו משפיע על פרטיות הנתונים. תידרש אישור.",
@@ -3155,6 +3206,42 @@
         "enable_demo_data_generation": {
           "name": "יצירת נתוני הדגמה",
           "description": "במצב אימון, מנהלים שיכולים לנהל חיבורים יכולים לבקש מהסוכן לתכנן וליצור מסד נתוני SQLite פיקטיבי ומציאותי לכל תחום, ואז ליצור מעליו סוכנים מוצעים. השורות נוצרות על ידי מודל ברירת המחדל הקטן."
+        },
+        "enable_sub_agents": {
+          "name": "סוכני משנה",
+          "description": "מאפשר לסוכן להאציל תת-שאלות עצמאיות (למשל השערה אחת לכל סיבה בניתוח סיבת שורש) לסוכני משנה תחומים ברקע שחוקרים בעצמם ומחזירים רשומות מובנות בתור איסוף אחד. כשהאפשרות כבויה, הכלי delegate מוסתר."
+        },
+        "sub_agent_posture": {
+          "name": "מדיניות סוכני משנה",
+          "description": "'proactive': הסוכן מאציל מיוזמתו כשבקשה מתפצלת לשלוש תת-שאלות עצמאיות או יותר. 'explicit': הסוכן מאציל רק כשהמשתמש או הנחיה מבקשים זאת."
+        },
+        "sub_agent_max_steps": {
+          "name": "מקסימום צעדים לסוכן משנה",
+          "description": "מספר צעדי התכנון שסוכן משנה רשאי לבצע לפני שהוא נאלץ לסיים עם רשומה חלקית. מוגבל ל-5 עד 200."
+        },
+        "sub_agent_deadline_minutes": {
+          "name": "מועד סיום לסוכני משנה (דקות)",
+          "description": "מגבלת זמן לגל של סוכני משנה. כשהיא מגיעה, סוכני משנה שעדיין רצים נעצרים ונרשמים כפגי תוקף, ותור האיסוף רץ עם הרשומות הקיימות. מוגבל ל-2 עד 60."
+        },
+        "sub_agent_concurrency": {
+          "name": "סוכני משנה במקביל",
+          "description": "כמה סוכני משנה של דוח אחד יכולים לרוץ בו-זמנית. סוכני משנה מעבר למגבלה ממתינים בתוך הגל שלהם. מוגבל ל-1 עד 6."
+        },
+        "sub_agent_max_per_wave": {
+          "name": "מקסימום סוכני משנה לגל",
+          "description": "כמה קריאות delegate הסוכן רשאי להפעיל מצעד תכנון אחד. קריאות נוספות נדחות עם הערה כדי שהסוכן יתכנן גל שני. מוגבל ל-1 עד 10."
+        },
+        "sub_agent_model": {
+          "name": "מודל סוכני משנה",
+          "description": "המודל שסוכני משנה מתכננים איתו. 'auto' = מודל ברירת המחדל הקטן לפרופיל investigate ומודל ברירת המחדל לפרופיל validate; 'small' או 'default' כופים אחד מהם; או מזהה מודל מעמוד ה-LLM."
+        },
+        "sub_agent_allow_model_override": {
+          "name": "לאפשר שינוי מודל לסוכן משנה",
+          "description": "מאפשר לסוכן לבחור מודל אחר לסוכן משנה אחד כשהמשתמש ביקש זאת או כשהנחיה מציינת מודל. הבחירה מאומתת מול המודלים שהמשתמש רשאי להשתמש בהם."
+        },
+        "sub_agent_allow_create_data": {
+          "name": "סוכני משנה רשאים ליצור שאילתות",
+          "description": "מאפשר לסוכני משנה ליצור שאילתות מעוקבות (create_data) שהמזהים שלהן חוזרים כראיות שהסוכן יכול להציג בגרף ולצטט. כבוי = סוכני משנה למחקר בלבד."
         }
       }
     },
@@ -5552,7 +5639,9 @@
       "sentWithSubject": "מעקב — נשלחה אליך התראה: {subject}",
       "quiet": "נבדק שוב: אין חדש",
       "failed": "המעקב נכשל"
-    }
+    },
+    "subAgentWaveDone": "{total} סוכני משנה הסתיימו · {counts}",
+    "subAgentWaveDoneTimedOut": "{total} סוכני משנה — הגיע מועד הסיום · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "ההרצה הופסקה",
@@ -5638,7 +5727,8 @@
     "pending": "ממתין",
     "accepted": "התקבלה",
     "webhooks": "Webhooks",
-    "configureWebhook": "הגדרת webhook"
+    "configureWebhook": "הגדרת webhook",
+    "subAgents": "סוכני משנה"
   },
   "scheduledCard": {
     "active": "פעיל",
@@ -5988,5 +6078,27 @@
   },
   "trackedChanges": {
     "noChanges": "אין שינויים"
+  },
+  "subAgents": {
+    "wave": "גל {n}",
+    "count": "{count} סוכני משנה",
+    "running": "{count} רצות",
+    "stoppedWave": "נעצר",
+    "timedOut": "הגיע מועד הסיום",
+    "stopAll": "עצירת הכול",
+    "stoppingAll": "עוצר…",
+    "backgroundTasks": "{count} משימות רקע",
+    "queued": "בתור",
+    "heading": "סוכני משנה",
+    "headerStrip": "{total} סוכני משנה · {tokens} טוקנים",
+    "viaSubAgent": "דרך סוכן משנה: {title}",
+    "waveStatus": {
+      "collecting": "מתחיל",
+      "running": "רץ",
+      "firing": "מסיים",
+      "done": "הסתיים",
+      "stopped": "נעצר",
+      "timed_out": "הגיע מועד הסיום"
+    }
   }
 }

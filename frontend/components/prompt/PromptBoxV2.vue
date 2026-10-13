@@ -8,19 +8,31 @@
              only feedback needed. -->
         <Transition name="thinking-fade">
             <div
-                v-if="isThinking && props.report_id"
+                v-if="(isThinking || hasBackgroundTasks) && props.report_id"
                 class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
                 aria-live="polite"
+                data-testid="status-row"
             >
-                <template v-if="isAwaitingInput">
+                <template v-if="isThinking && isAwaitingInput">
                     <Icon name="heroicons:hand-raised" class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
                     <span class="text-gray-600 dark:text-gray-300">{{ $t('prompt.awaitingConfirmation') }}</span>
                 </template>
-                <template v-else>
+                <template v-else-if="isThinking">
                     <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
                     <span class="thinking-shimmer">{{ thinkingLabel }}</span>
                     <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
-                </template>            </div>
+                </template>
+                <!-- Background sub-agents: independent of the working label — the
+                     parent can be idle while children run (docs/design/sub-agents.md A9). -->
+                <BackgroundTasksIndicator
+                    v-if="hasBackgroundTasks"
+                    :waves="props.backgroundWaves as any[]"
+                    :has-working-label="isThinking"
+                    @stopSubAgent="(id) => emit('stopSubAgent', id)"
+                    @stopWave="(id) => emit('stopWave', id)"
+                    @scrollToMessage="(id) => emit('scrollToMessage', id)"
+                />
+            </div>
         </Transition>
 
         <!-- Queued prompts (run after the current completion finishes) -->
@@ -597,6 +609,7 @@ import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
+import BackgroundTasksIndicator from '@/components/prompt/BackgroundTasksIndicator.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import { useCan, useCanAny } from '@/composables/usePermissions'
@@ -612,6 +625,9 @@ const props = defineProps({
         default: null
     },
     latestInProgressCompletion: Object,
+    // Live sub-agent waves of the report (GET /reports/{id}/sub-agents → waves);
+    // drives the background-tasks indicator next to the working counter.
+    backgroundWaves: { type: Array, default: () => [] },
     isStopping: Boolean,
     // Allow fine-tuning alignment if needed later
     popoverOffset: { type: Number, default: 16 },
@@ -686,7 +702,7 @@ const props = defineProps({
     persistSelection: { type: Boolean, default: true }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:
@@ -842,6 +858,10 @@ watch(isThinking, (active) => {
         thinkingElapsedSeconds.value = 0
     }
 }, { immediate: true })
+
+const hasBackgroundTasks = computed(() => ((props.backgroundWaves as any[]) || []).some((w: any) =>
+    ['collecting', 'running', 'firing'].includes(w?.status)
+))
 
 const thinkingElapsedLabel = computed(() => {
     const s = thinkingElapsedSeconds.value

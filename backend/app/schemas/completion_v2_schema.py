@@ -82,6 +82,9 @@ class PromptSchema(BaseModel):
     # connections with Dynamic params on. Never shown to the LLM. See
     # app.utils.request_metadata.
     metadata: Optional[Dict[str, Any]] = None
+    # Set only on the hidden head completion of a sub-agent (mode='subagent'):
+    # the sub_agents row this child run reports to. See app.models.sub_agent.
+    sub_agent_id: Optional[str] = None
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod

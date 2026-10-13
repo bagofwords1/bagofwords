@@ -1,8 +1,9 @@
 from typing import Dict, Any, Optional, List, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Reuse per-source targeting schema for consistent behavior
 from .create_widget import TablesBySource
+from ._coerce import coerce_json_list
 from .create_data_model import DataModel
 from app.schemas.param_schema import ParamSpec
 
@@ -102,6 +103,11 @@ class CreateDataInput(BaseModel):
             "filtering."
         ),
     )
+
+    @field_validator("tables_by_source", "source_file_ids", mode="before")
+    @classmethod
+    def _coerce_list_arguments(cls, value):
+        return coerce_json_list(value)
 
 
 class CreateDataOutput(BaseModel):
