@@ -26,7 +26,10 @@ const input = page.locator('div.mention-input-field[contenteditable="true"]').fi
 await input.waitFor({ state: 'visible', timeout: 120000 }); await page.waitForTimeout(2000);
 await input.fill(PROMPT); await input.press('Enter');
 await page.locator('[data-testid^="delegate-card-"]').first().waitFor({ state: 'visible', timeout: 300000 });
-await page.waitForTimeout(2500);
+// The planner streams its delegate calls one by one; the wave line appears
+// once the turn ended with the whole wave launched. Wait for it (or settle).
+await page.locator('text=/Wave 1/').first().waitFor({ state: 'visible', timeout: 90000 }).catch(() => log('wave line not seen in 90s; shooting anyway'));
+await page.waitForTimeout(2000);
 // Fold the symptom widget (its header toggles collapse) so the cards sit
 // right under the prompt; the Created Data tool row is collapsed by default.
 try { await page.locator('.widget-header').first().click({ timeout: 5000 }); await page.waitForTimeout(800); } catch (e) { log('widget collapse skipped:', e.message.split('\n')[0]); }
