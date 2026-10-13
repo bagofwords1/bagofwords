@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 
 from app.data_sources.clients.progress import IndexingCancelled
-from app.models.connection import Connection
+from app.models.connection import Connection, RUNTIME_CONFIG_KEYS
 from app.models.connection_table import ConnectionTable, KIND_TABLE, KIND_BOW
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
@@ -705,11 +705,36 @@ class ConnectionService:
         # Track if connection-relevant fields changed
         connection_changed = False
 
+        current_config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+        if not isinstance(current_config, dict):
+            current_config = {}
+
         if "config" in updates:
             new_config = updates.pop("config")
             _check_mcp_forwarding(updates.get("type", connection.type), new_config)
+            if isinstance(new_config, dict):
+                # The connection form edits the type's own fields only; keep
+                # the runtime query limits it does not render.
+                for key in RUNTIME_CONFIG_KEYS:
+                    if key not in new_config and key in current_config:
+                        new_config = {**new_config, key: current_config[key]}
+                current_config = new_config
             connection.config = json.dumps(new_config) if isinstance(new_config, dict) else new_config
             connection_changed = True
+
+        # Per-connection query limits live in `config` (read when the client is
+        # built) but are not connection parameters: changing one must not
+        # re-test the connection or re-index its schema. 0 / null clears the
+        # override so the org default applies.
+        limit_updates = {k: updates.pop(k) for k in RUNTIME_CONFIG_KEYS if k in updates}
+        if limit_updates and isinstance(current_config, dict):
+            merged = dict(current_config)
+            for key, value in limit_updates.items():
+                if value:
+                    merged[key] = int(value)
+                else:
+                    merged.pop(key, None)
+            connection.config = json.dumps(merged)
 
         if "credentials" in updates:
             new_credentials = updates.pop("credentials")
@@ -1953,7 +1978,7 @@ class ConnectionService:
         params = {**(config or {}), **(creds or {})}
 
         # Strip meta keys and oauth override keys (but keep auth_type — needed by custom_api/mcp clients)
-        meta_keys = {"auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
 
         # Narrow to constructor signature
@@ -2275,7 +2300,7 @@ class ConnectionService:
             # it here made the pre-save "Test Connection" build the client as
             # auth_type="none", so an oauth_app API root 404 looked like a failure.
             # Clients that don't accept auth_type drop it via the signature narrowing below.
-            meta_keys = {"auth_policy", "allowed_user_auth_modes"}
+            meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
             client_params = {k: v for k, v in client_params.items()
                              if v is not None and (v != "" or (data_source_type == "sharepoint_onprem" and k == "drive_name"))
                              and k not in meta_keys and not k.startswith("oauth_")}

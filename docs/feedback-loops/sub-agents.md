@@ -494,3 +494,28 @@ exceed roughly 200 Haiku planner calls per case.
 - Pre-existing quirks to verify-before-blaming when they show up: the eval
   finalizer's reliance on the first system completion (harness change 1) will
   make every sub-agent case look like a pass-with-no-answer until it lands.
+
+## Robustness pass (from a real Haiku trace)
+
+A production trace of the first sub-agent loop showed four failure modes that
+the stub tests had not covered. Each now has a fix and a regression test:
+
+| Observed | Fix | Test |
+|---|---|---|
+| A child hit the repeated-identical-call breaker and its "Stopping: …" text became the record summary the parent reasoned over | inside a child the breaker first nudges toward `finish_subtask`; the synthesized record says the child stopped without concluding and points at its note | `test_synthesized_record_never_carries_the_repeat_guard_text`, e2e wave test asserts no summary starts with "Stopping" |
+| A child created the same note three times while refining it | `create_note` in sub-agent mode returns the existing note on a duplicate title; the investigate profile says keep ONE note and `edit_note` it | e2e wave test: a stub child calls `create_note` twice with identical args, exactly one note per hypothesis results |
+| A failed tool call flipped the whole turn to `error` in the console | derived turn status follows the agent execution status; tool failure counts are still reported | console query |
+| `write_csv` wrote a file the same turn could not read back by id | the new file is registered in the turn's runtime context and on the report | `test_write_csv_same_turn_file.py` |
+
+Two further changes came out of the same analysis: the share page filters
+`trigger_source='sub_agent'` completions (NULL-safe) so child system rows do
+not render for viewers, and `sub_agent_max_tokens` (default 400,000) bounds
+cost the way `sub_agent_max_steps` bounds time; when it is spent the child
+gets one more step for its record and is then stopped with `exit_reason =
+max_tokens`.
+
+Live re-verification after the pass (Postgres, Haiku 5.5, Checkout Ops):
+the settings page shows the token cap; a 5-child wave fanned out and in; all
+five children exited via `finish_call`; three wrote exactly one note each
+and two wrote none; no record carried breaker text. Screenshots in
+`media/pr/sub-agents/01…12` are from this run.

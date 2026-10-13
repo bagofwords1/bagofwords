@@ -11,7 +11,9 @@ from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, OpenAI
+
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import (
@@ -68,6 +70,7 @@ class OpenAIResponsesClient(LLMClient):
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, Any]] = None,
         verify_ssl: bool = True,
+        identity_headers: Optional[IdentityHeaders] = None,
     ):
         super().__init__()
         client_kwargs: dict[str, Any] = {"api_key": api_key}
@@ -82,11 +85,19 @@ class OpenAIResponsesClient(LLMClient):
         # OpenAi (Chat Completions) client: build an http_client only when we
         # actually need to override a default, so the secure path keeps the SDK's
         # own httpx defaults untouched.
+        # Identity-forwarding headers resolve per request via an httpx hook.
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
         if not verify_ssl:
             import httpx
             http_kwargs: dict[str, Any] = {"verify": False}
-            self.client = OpenAI(**client_kwargs, http_client=httpx.Client(**http_kwargs))
-            self.async_client = AsyncOpenAI(**client_kwargs, http_client=httpx.AsyncClient(**http_kwargs))
+            self.client = OpenAI(**client_kwargs, http_client=httpx.Client(
+                **http_kwargs, **({"event_hooks": sync_hooks} if sync_hooks else {})))
+            self.async_client = AsyncOpenAI(**client_kwargs, http_client=httpx.AsyncClient(
+                **http_kwargs, **({"event_hooks": async_hooks} if async_hooks else {})))
+        elif sync_hooks:
+            self.client = OpenAI(**client_kwargs, http_client=DefaultHttpxClient(event_hooks=sync_hooks))
+            self.async_client = AsyncOpenAI(**client_kwargs, http_client=DefaultAsyncHttpxClient(event_hooks=async_hooks))
         else:
             self.client = OpenAI(**client_kwargs)
             self.async_client = AsyncOpenAI(**client_kwargs)

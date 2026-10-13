@@ -1,5 +1,21 @@
 # Release Notes
 
+## Version 0.0.588 (October 13, 2026)
+- Added read-only SharePoint 2010 connections (#1368)
+- Added Elasticsearch query guardrails and per-connection query limits (#1372)
+- Added a token cap for sub-agents (#1374) — `sub_agent_max_tokens` org setting (default 400,000)
+- Added AI suggestions that turn an instruction on or off (#1375)
+- Added `agent.name` as an LLM identity header, for per-agent usage in gateways such as LiteLLM (#1366)
+- Added completions API opt-outs for follow-ups and instruction suggestions (#1365) — `follow_ups: false`, `suggest_instructions: false`
+- Added an "Open report" link to Diagnosis runs for full admins (#1369)
+- Fixed sub-agents reporting internal stop messages as findings, writing duplicate notes, and showing on shared pages (#1374)
+- Fixed LLM calls failing on non-ASCII identity header values (#1366)
+- Fixed "New report" from an agent page falling back to Auto (#1371)
+- Fixed chart previews flickering while a report runs (#1373)
+- Fixed Aria Operations alert definitions failing with 403 (#1367)
+- Fixed Mermaid syntax errors leaving error graphics on the page (#1364)
+- Fixed agent search freezing the server on certain queries (#1323)
+
 ## Version 0.0.587 (October 13, 2026)
 - Added sub-agents: the agent delegates independent sub-questions (one hypothesis each in a root-cause analysis) to bounded background runs that report back in one fan-in turn (#1362) — controlled by the `enable_sub_agents` org setting and its `sub_agent_*` limits
 - Added delegate cards with live progress, a background-tasks indicator with per-run stop, a Sub-agents section in the report Summary, and a Checkout Ops demo dataset for root-cause analysis (#1362)

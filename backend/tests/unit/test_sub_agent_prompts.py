@@ -101,3 +101,23 @@ def test_sqlite_runs_children_one_at_a_time():
     assert effective_concurrency(1, "sqlite") == 1
     assert effective_concurrency(3, "postgresql") == 3
     assert effective_concurrency(3, "") == 3
+
+
+def test_synthesized_record_never_carries_the_repeat_guard_text():
+    from types import SimpleNamespace
+    from app.models.sub_agent import EXIT_MAX_TOKENS, EXIT_NO_FINISH_CALL
+    from app.services.sub_agent_service import _synthesized_result
+
+    row = SimpleNamespace(report_note_id="note-1")
+    guard = "Stopping: the create_note tool was called 2 times with identical parameters. Its result was already returned above"
+    rec = _synthesized_result(row, "finished", EXIT_NO_FINISH_CALL, guard, None)
+    assert rec["outcome"] == "partial" and rec["synthesized"] is True
+    assert "Stopping" not in rec["summary"] and "note" in rec["summary"].lower()
+
+    rec = _synthesized_result(SimpleNamespace(report_note_id=None), "finished", EXIT_MAX_TOKENS, "", None)
+    assert rec["outcome"] == "partial" and "Token budget" in rec["summary"]
+
+
+def test_sub_agent_limits_carry_the_token_cap():
+    from app.services.sub_agent_service import sub_agent_limits
+    assert sub_agent_limits(None)["max_tokens"] == 400000

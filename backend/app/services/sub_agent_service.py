@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func, select, update
 
 from app.models.sub_agent import (
-    EXIT_DEADLINE, EXIT_ERROR, EXIT_FINISH_CALL, EXIT_MAX_STEPS, EXIT_NO_FINISH_CALL, EXIT_STOPPED,
+    EXIT_DEADLINE, EXIT_ERROR, EXIT_FINISH_CALL, EXIT_MAX_STEPS, EXIT_MAX_TOKENS, EXIT_NO_FINISH_CALL, EXIT_STOPPED,
     RUN_FAILED, RUN_FINISHED, RUN_INTERRUPTED, RUN_PENDING, RUN_RUNNING, RUN_TIMED_OUT,
     TERMINAL_RUN_STATUSES,
     WAVE_COLLECTING, WAVE_DONE, WAVE_FIRING, WAVE_RUNNING, WAVE_STOPPED, WAVE_TIMED_OUT,
@@ -82,6 +82,7 @@ def sub_agent_posture(settings) -> str:
 def sub_agent_limits(settings) -> Dict[str, Any]:
     return {
         "max_steps": _clamp(_cfg(settings, "sub_agent_max_steps", 40), 5, 200, 40),
+        "max_tokens": _clamp(_cfg(settings, "sub_agent_max_tokens", 400000), 20000, 5000000, 400000),
         "deadline_minutes": _clamp(_cfg(settings, "sub_agent_deadline_minutes", 15), 2, 60, 15),
         "concurrency": _clamp(_cfg(settings, "sub_agent_concurrency", 3), 1, 6, 3),
         "max_per_wave": _clamp(_cfg(settings, "sub_agent_max_per_wave", 5), 1, 10, 5),
@@ -491,6 +492,7 @@ class SubAgentService:
         duration_ms: Optional[float] = None,
         model_name: Optional[str] = None,
         steps_exhausted: bool = False,
+        tokens_exhausted: bool = False,
     ) -> None:
         """AgentV2 (mode=subagent) `finally`: close the row exactly once."""
         from app.dependencies import async_session_maker
@@ -508,6 +510,8 @@ class SubAgentService:
                     status, exit_reason = RUN_INTERRUPTED, EXIT_STOPPED
                 elif agent_status == "error" and not steps_exhausted:
                     status, exit_reason = RUN_FAILED, EXIT_ERROR
+                elif tokens_exhausted:
+                    status, exit_reason = RUN_FINISHED, EXIT_MAX_TOKENS
                 else:
                     status, exit_reason = RUN_FINISHED, (EXIT_MAX_STEPS if steps_exhausted else EXIT_NO_FINISH_CALL)
                 transitioned = await self._mark_terminal(db, row, status, exit_reason, error=error, last_text=last_text)
@@ -954,8 +958,19 @@ def _synthesized_result(row: SubAgentRun, status: str, exit_reason: str, last_te
     elif exit_reason == EXIT_ERROR:
         summary = f"The sub-agent failed: {(error or 'unknown error')[:300]}"
         outcome = "blocked"
+    elif exit_reason == EXIT_MAX_TOKENS:
+        summary = "Token budget exhausted before a finish_subtask call." + (" Its note holds what it checked so far." if row.report_note_id else "")
+        outcome = "partial"
     elif exit_reason == EXIT_MAX_STEPS:
         summary = "Step budget exhausted before a finish_subtask call." + (f" Last text: {text[:300]}" if text else "")
+        outcome = "partial"
+    elif text.startswith("Stopping:") or "called" in text[:80] and "identical" in text[:160]:
+        # The repeated-call breaker ended the run; its message is for the
+        # model, not a finding. Point the parent at the child's note instead.
+        summary = (
+            "Stopped after repeating the same tool call before writing its record; nothing was concluded. "
+            + ("Its note holds what it checked so far." if row.report_note_id else "It left no note.")
+        )
         outcome = "partial"
     else:
         summary = (text[:560] + ("…" if len(text) > 560 else "")) if text else "The sub-agent ended without calling finish_subtask."

@@ -36,6 +36,7 @@ TERMINAL_RUN_STATUSES = (RUN_FINISHED, RUN_FAILED, RUN_TIMED_OUT, RUN_INTERRUPTE
 # ── Exit reasons (envelope) ──────────────────────────────────────────────────
 EXIT_FINISH_CALL = "finish_call"
 EXIT_MAX_STEPS = "max_steps"
+EXIT_MAX_TOKENS = "max_tokens"
 EXIT_DEADLINE = "deadline"
 EXIT_STOPPED = "stopped"
 EXIT_ERROR = "error"

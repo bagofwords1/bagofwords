@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 
+from app.models.connection import RUNTIME_CONFIG_KEYS
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -2687,7 +2688,7 @@ class DataSourceService:
         creds = await self.resolve_credentials(db=db, data_source=data_source, current_user=current_user)
         params = {**(config or {}), **(creds or {})}
         # Strip meta keys and oauth override keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
         # Narrow to constructor signature — same VAR_KEYWORD-aware logic as
         # ConnectionService.construct_client. Forwarder subclasses (e.g.
@@ -2963,7 +2964,7 @@ class DataSourceService:
         ]
 
         clients: Dict[str, Any] = {}
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         failed: list = []
 
         for conn in active_connections:
@@ -3303,7 +3304,7 @@ class DataSourceService:
                 client_params.update(credentials)
 
             # Strip meta keys, empty values, and oauth override keys (not part of client signatures)
-            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
             client_params = {k: v for k, v in (client_params or {}).items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
 
             return ClientClass(**client_params)
@@ -4897,7 +4898,7 @@ class DataSourceService:
             db=db, connection=connection, data_source=data_source, current_user=user
         )
         params = {**(config or {}), **(creds or {})}
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {
             k: v for k, v in (params or {}).items()
             if v is not None and k not in meta_keys and not k.startswith("oauth_")

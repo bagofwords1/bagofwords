@@ -947,6 +947,7 @@ const FORWARD_KINDS = [
     { value: 'user.id', label: 'User ID' },
     { value: 'membership.role', label: 'Org role' },
     { value: 'membership.attr', label: 'Profile attribute' },
+    { value: 'agent.name', label: 'Agent name' },
     { value: 'static', label: 'Static value' },
 ];
 

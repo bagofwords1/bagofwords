@@ -5,6 +5,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
+from app.models.connection import RUNTIME_CONFIG_KEYS
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource
@@ -403,7 +404,7 @@ class UserDataSourceCredentialsService:
         ClientClass = resolve_client_class(ds_type)
         params = {**(config or {}), **creds}
         # Strip meta keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
         # Filter by signature
         try:

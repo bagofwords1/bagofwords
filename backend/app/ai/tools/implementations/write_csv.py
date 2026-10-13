@@ -378,6 +378,15 @@ Arguments:
 
         await db.flush()
 
+        # Make the file visible to the tools that run after this one in the
+        # same turn: inspect_data / create_data resolve source_file_ids
+        # against runtime_ctx["excel_files"] and report.files, both loaded at
+        # run start. Without this the very next inspect_data on the file_id
+        # just returned said "source file(s) not found" (seen live in a
+        # sub-agent, trace f5e2f94f). Same registration execute_mcp does.
+        from app.ai.tools.implementations.execute_mcp import _register_same_turn
+        _register_same_turn(file, runtime_ctx, report)
+
         # Build data_model and view for visualization
         query_title = data.title or "Generated CSV"
         final_dm = {"type": "table", "series": []}

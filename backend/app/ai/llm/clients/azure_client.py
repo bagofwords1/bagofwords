@@ -3,7 +3,8 @@ import json
 from app.ai.llm.clients.chat_effort import apply_chat_reasoning, create_chat_stream
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
-from openai import AzureOpenAI, AsyncAzureOpenAI
+from openai import AzureOpenAI, AsyncAzureOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
 from app.ai.llm.clients.base import LLMClient
@@ -40,7 +41,8 @@ class AzureClient(LLMClient):
 
     def __init__(self, api_key: str | None, endpoint_url: str, temperature: float | None = None,
                  default_headers: dict | None = None,
-                 azure_ad_token_provider=None):
+                 azure_ad_token_provider=None,
+                 identity_headers: IdentityHeaders | None = None):
         super().__init__()
         # Admin-configured override; None keeps the per-call historical default
         # (see _default_temperature).
@@ -62,8 +64,13 @@ class AzureClient(LLMClient):
             client_kwargs["api_key"] = api_key
         if default_headers:
             client_kwargs["default_headers"] = default_headers
-        self.client = AzureOpenAI(**client_kwargs)
-        self.async_client = AsyncAzureOpenAI(**client_kwargs)
+        # Identity-forwarding headers resolve per request via an httpx hook.
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+        self.client = AzureOpenAI(**client_kwargs, **(
+            {"http_client": DefaultHttpxClient(event_hooks=sync_hooks)} if sync_hooks else {}))
+        self.async_client = AsyncAzureOpenAI(**client_kwargs, **(
+            {"http_client": DefaultAsyncHttpxClient(event_hooks=async_hooks)} if async_hooks else {}))
 
     def _resolve_temperature(self, model_id: str) -> float:
         """Admin-configured value when set, else the historical default

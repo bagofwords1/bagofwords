@@ -2355,7 +2355,12 @@ class ConsoleService:
             turn_llm_tokens = usage.get(_METRIC_LLM_TOKENS) or None
             _cost_micro = usage.get(_METRIC_LLM_COST) or 0
             turn_llm_cost_usd = round(_cost_micro / 1_000_000, 6) if _cost_micro else None
-            derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
+            # A turn is an error when the run itself failed (planner retries
+            # exhausted, step limit, crash). A tool that failed inside an
+            # otherwise completed turn is reported by total_failed_tools; it
+            # used to flip the whole turn to 'error', so a parent that launched
+            # a wave and the one child that finished both read as failures.
+            derived_status = r.ae_status or 'success'
             if derived_status == 'error':
                 failed_turns += 1
             if fb['status'] == 'negative':
@@ -2795,7 +2800,12 @@ class ConsoleService:
             report_link = f"/reports/{r.report_id}" if r.report_id else None
 
             # Derive status: if any tool failed in this AE, mark as error
-            derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
+            # A turn is an error when the run itself failed (planner retries
+            # exhausted, step limit, crash). A tool that failed inside an
+            # otherwise completed turn is reported by total_failed_tools; it
+            # used to flip the whole turn to 'error', so a parent that launched
+            # a wave and the one child that finished both read as failures.
+            derived_status = r.ae_status or 'success'
 
             items.append(AgentExecutionSummaryItem(
                 agent_execution_id=str(r.ae_id),
