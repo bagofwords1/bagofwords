@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.587 (October 13, 2026)
+- Added sub-agents: the agent delegates independent sub-questions (one hypothesis each in a root-cause analysis) to bounded background runs that report back in one fan-in turn (#1362) — controlled by the `enable_sub_agents` org setting and its `sub_agent_*` limits
+- Added delegate cards with live progress, a background-tasks indicator with per-run stop, a Sub-agents section in the report Summary, and a Checkout Ops demo dataset for root-cause analysis (#1362)
+- Added dynamic params for MCP connections (#1359) — values sent per question in `prompt.metadata`, limited to an admin allow-list
+- Added admin-set member attributes in Settings → Members (#1361) — key/value pairs set on invite, edit or members import (`attr.<key>` columns)
+- Added per-member identity for Qlik on-prem connections with per-user auth, taken from admin-set member attributes (#1363)
+- Fixed adding a filter to a chart failing when the agent passed the chart's id (#1347)
+- Added a chat card for added filters, showing the filter, query and errors (#1348)
+- Fixed Run evals including draft and archived cases and following the Tests search (#1352)
+- Fixed untranslated Accept/Reject buttons and statuses on training-mode review cards (#1346)
+- Fixed Reload not refreshing the schema of shared connections (#1358)
+
 ## Version 0.0.586 (October 10, 2026)
 - Bug fixes and UI improvements (#1291)
 

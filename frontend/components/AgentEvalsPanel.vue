@@ -119,7 +119,7 @@
             <div v-else-if="activeTab === 'runs'">
                 <div class="flex items-center justify-between mb-3">
                     <div class="text-xs text-gray-500 dark:text-gray-400">Every eval run — manual checks and automation.</div>
-                    <UButton v-if="canManage && !isGlobal && agentCases.length > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
+                    <UButton v-if="canManage && !isGlobal && suiteGroups.size > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
                         @click="openRunEvalsModal">
                         Run evals
                     </UButton>
@@ -206,13 +206,16 @@
                     :ui="{ width: 'w-full' }"
                 >
                     <template #label>
-                        <span v-if="runEvalsAllSelected">All suites ({{ agentCases.length }} cases)</span>
+                        <span v-if="runEvalsAllSelected">All suites ({{ runEvalsCount }} cases)</span>
                         <span v-else-if="runEvalsSuiteIds.length">{{ runEvalsSuiteIds.length }} suite{{ runEvalsSuiteIds.length === 1 ? '' : 's' }} · {{ runEvalsCount }} cases</span>
                         <span v-else class="text-gray-400 dark:text-gray-500">No suites selected</span>
                     </template>
                 </USelectMenu>
                 <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
                     Runs every case in the selected suites as one test run.
+                </p>
+                <p v-if="runEvalsSkipped > 0" class="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    {{ $t('evals.runEvals.notRun', { n: runEvalsSkipped }, runEvalsSkipped) }}
                 </p>
                 <div class="flex justify-end gap-2 mt-5">
                     <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showRunEvals = false">Cancel</button>
@@ -674,13 +677,21 @@ function onSelfLearningSaved() { toast.add({ title: 'Self Learning settings save
 // --- Run-evals modal: pick a suite, run its cases as one test run ---
 const showRunEvals = ref(false)
 const runEvalsSuiteIds = ref<string[]>([])
-// This agent's cases grouped by suite → id list + resolved suite name.
+// This agent's runnable cases grouped by suite → id list + resolved suite name.
+// Built from allCases, not agentCases: the Tests-tab search box must not narrow
+// what "Run evals" runs. Only active cases are runnable, matching run_suite /
+// _get_cases(status='active'); drafts and archived cases are counted in
+// `skipped` so the modal can say what was left out.
 const suiteGroups = computed(() => {
-    const m = new Map<string, { name: string; ids: string[] }>()
-    for (const c of agentCases.value) {
-        const g = m.get(c.suite_id) || { name: suitesById.value[c.suite_id] || c.suite_name || '—', ids: [] }
-        g.ids.push(c.id); m.set(c.suite_id, g)
+    const m = new Map<string, { name: string; ids: string[]; skipped: number }>()
+    for (const c of allCases.value) {
+        const g = m.get(c.suite_id) || { name: suitesById.value[c.suite_id] || c.suite_name || '—', ids: [], skipped: 0 }
+        if (c.status === 'active') g.ids.push(c.id)
+        else g.skipped++
+        m.set(c.suite_id, g)
     }
+    // A suite with only drafts/archived cases has nothing to run — don't offer it.
+    for (const [sid, g] of m) if (!g.ids.length) m.delete(sid)
     return m
 })
 const runEvalsSuiteOptions = computed(() =>
@@ -688,6 +699,8 @@ const runEvalsSuiteOptions = computed(() =>
 const runEvalsAllSelected = computed(() => suiteGroups.value.size > 0 && runEvalsSuiteIds.value.length === suiteGroups.value.size)
 const runEvalsCount = computed(() =>
     runEvalsSuiteIds.value.reduce((n, sid) => n + (suiteGroups.value.get(sid)?.ids.length || 0), 0))
+const runEvalsSkipped = computed(() =>
+    runEvalsSuiteIds.value.reduce((n, sid) => n + (suiteGroups.value.get(sid)?.skipped || 0), 0))
 function openRunEvalsModal() {
     // Default: all suites selected.
     runEvalsSuiteIds.value = [...suiteGroups.value.keys()]

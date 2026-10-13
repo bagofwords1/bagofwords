@@ -48,6 +48,7 @@
 							:queryList="queryList"
 							:queryExecutions="summaryQueries"
 							:listSubmissions="summaryLists"
+							:subAgents="summarySubAgents"
 							:trainingInstructions="summaryInstructions"
 							:reportInstructions="reportInstructions"
 							:pendingBuildId="pendingTrainingBuild?.id || null"
@@ -320,6 +321,15 @@
 								<div class="w-full ms-0 md:ms-4 max-w-2xl">
 									<!-- System message -->
 									<div>
+										<!-- Sub-agent waves launched by this turn: one group line per wave -->
+										<SubAgentWaveStrip
+											v-for="w in wavesForMessage(m)"
+											:key="'wave-' + w.id"
+											:wave="w"
+											:wave-number="waveNumber(w)"
+											:stopping="stoppingWaveId === w.id"
+											@stopWave="stopWave"
+										/>
 										<!-- Render each completion block - unified structure -->
 										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
 											<!-- Steering messages interleave into the block stream at the
@@ -746,6 +756,9 @@
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					:queuedPrompts="queuedPrompts"
+					:backgroundWaves="subAgentWaves"
+					@stopSubAgent="stopSubAgent"
+					@stopWave="stopWave"
 					@submitCompletion="onSubmitCompletion"
 					@queueCompletion="onQueuePrompt"
 					@removeQueuedPrompt="onRemoveQueuedPrompt"
@@ -883,6 +896,7 @@
 						:queryList="queryList"
 						:queryExecutions="summaryQueries"
 						:listSubmissions="summaryLists"
+						:subAgents="summarySubAgents"
 						:trainingInstructions="summaryInstructions"
 						:reportInstructions="reportInstructions"
 						:pendingBuildId="pendingTrainingBuild?.id || null"
@@ -993,6 +1007,7 @@ import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResour
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
+import AddParameterTool from '~/components/tools/AddParameterTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -1033,6 +1048,10 @@ import BrowserVisionTool from '~/components/tools/BrowserVisionTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
+import DelegateTool from '~/components/tools/DelegateTool.vue'
+import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
+import SubAgentWaveStrip from '~/components/report/SubAgentWaveStrip.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
@@ -1614,6 +1633,63 @@ provide('reportSnapshot', report)
 // closed (ArtifactFrame only broadcasts once it mounts).
 const activeArtifactVizIds = ref<string[]>([])
 provide('artifactVizIds', activeArtifactVizIds)
+
+// ---- Sub-agents (docs/design/sub-agents.md A8/A9) ----
+// The DB is the bus (see report_activity_hub): the page polls
+// GET /reports/{id}/sub-agents every 3s while a wave is live and provides the
+// rows by id so every delegate card reads from one poll. Hydration on load
+// and on every completion.finished keeps reloads and the fan-in turn in sync.
+const subAgentWaves = ref<any[]>([])
+const subAgentById = computed<Record<string, any>>(() => {
+	const out: Record<string, any> = {}
+	for (const w of subAgentWaves.value) for (const r of (w.sub_agents || [])) out[r.sub_agent_id] = { ...r, wave_status: w.status }
+	return out
+})
+const hasLiveSubAgents = computed(() => subAgentWaves.value.some((w: any) => ['collecting', 'running', 'firing'].includes(w.status)))
+let subAgentPollTimer: ReturnType<typeof setInterval> | null = null
+async function loadSubAgents() {
+	if (!report_id) return
+	try {
+		const { data } = await useMyFetch(`/reports/${report_id}/sub-agents`)
+		const res = data.value as any
+		if (res && Array.isArray(res.waves)) subAgentWaves.value = res.waves
+	} catch { /* keep the last snapshot */ }
+	syncSubAgentPolling()
+}
+function syncSubAgentPolling() {
+	if (hasLiveSubAgents.value && !subAgentPollTimer) {
+		subAgentPollTimer = setInterval(loadSubAgents, 3000)
+	} else if (!hasLiveSubAgents.value && subAgentPollTimer) {
+		clearInterval(subAgentPollTimer); subAgentPollTimer = null
+		// A wave just ended: the fan-in turn and the summary rows are new.
+		loadReportSummary().catch(() => {})
+	}
+}
+provide('subAgents', { byId: subAgentById, refresh: loadSubAgents })
+const stoppingWaveId = ref<string | null>(null)
+function wavesForMessage(m: any): any[] {
+	const sysId = m?.system_completion_id || m?.id
+	return subAgentWaves.value.filter((w: any) => w.parent_completion_id === sysId)
+}
+function waveNumber(w: any): number {
+	return subAgentWaves.value.findIndex((x: any) => x.id === w.id) + 1
+}
+async function stopSubAgent(subAgentId: string) {
+	try {
+		await useMyFetch(`/reports/${report_id}/sub-agents/${subAgentId}/stop`, { method: 'POST' })
+	} catch (e) { console.error('Failed to stop sub-agent', e) }
+	await loadSubAgents()
+}
+async function stopWave(waveId: string) {
+	stoppingWaveId.value = waveId
+	try {
+		await useMyFetch(`/reports/${report_id}/sub-agent-waves/${waveId}/stop`, { method: 'POST' })
+	} catch (e) { console.error('Failed to stop wave', e) }
+	finally { stoppingWaveId.value = null }
+	await loadSubAgents()
+}
+onMounted(() => { loadSubAgents() })
+onBeforeUnmount(() => { if (subAgentPollTimer) clearInterval(subAgentPollTimer) })
 // Full latest-artifact object from the same single fetch; shared with
 // ArtifactFrame as a mount-time seed so it does not refetch the artifact it
 // is about to select. Version switches keep their own fetch path.
@@ -1672,6 +1748,9 @@ const summaryQueries = ref<any[]>([])
 const summaryInstructions = ref<any[]>([])
 // Agent Lists this conversation wrote to — one item per list.
 const summaryLists = ref<any[]>([])
+// Sub-agents (delegated background investigations) of this report, for the
+// Summary tab (GET /reports/{id}/summary → sub_agents).
+const summarySubAgents = ref<any[]>([])
 // Historical list of instructions created during this report's agent runs.
 // Separate from summaryInstructions (which is pending-only) so the Summary
 // tab can keep showing accepted instructions after the build is approved.
@@ -2055,6 +2134,7 @@ function webhookSourceIcon(source?: string): string {
 		case 'eval_run': return 'heroicons-beaker'
 		case 'wait': return 'heroicons-clock'
 		case 'checkin': return 'heroicons-arrow-path-rounded-square'
+		case 'sub_agent_wave': return 'heroicons-squares-2x2'
 		default: return 'heroicons-bolt'
 	}
 }
@@ -2072,6 +2152,10 @@ function machineEventLabel(m: any): string {
 	}
 	if (meta && src === 'wait') {
 		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	if (meta && src === 'sub_agent_wave') {
+		const counts = Object.entries(meta.counts || {}).map(([k, n]) => `${n} ${t(`tools.delegate.outcomes.${k}`, k)}`).join(' · ')
+		return t(meta.timed_out ? 'events.subAgentWaveDoneTimedOut' : 'events.subAgentWaveDone', { total: meta.total ?? 0, counts })
 	}
 	if (src === 'checkin') {
 		const outcome = checkinOutcome(m)
@@ -2125,6 +2209,7 @@ function machineEventIcon(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
+	if (src === 'sub_agent_wave') return 'heroicons-squares-2x2'
 	if (src === 'checkin') {
 		const outcome = checkinOutcome(m)
 		if (outcome === 'running') return 'heroicons-arrow-path'
@@ -2225,6 +2310,7 @@ async function loadReportSummary() {
         const res = data.value as any
         summaryQueries.value = res?.queries || []
         summaryLists.value = res?.lists || []
+        summarySubAgents.value = res?.sub_agents || []
         summaryInstructions.value = (res?.instructions || []).map((i: any) => ({
             instructionId: i.instruction_id,
             title: i.title,
@@ -2738,6 +2824,8 @@ function getToolComponent(toolName: string) {
 			return ReadQueryTool
 		case 'run_query':
 			return RunQueryTool
+		case 'add_parameter':
+			return AddParameterTool
 		case 'search_reports':
 			return SearchReportsTool
 		case 'read_report':
@@ -2810,6 +2898,12 @@ function getToolComponent(toolName: string) {
 			return CreateScheduledTaskTool
 		case 'wait':
 			return WaitTool
+		case 'delegate':
+			return DelegateTool
+		case 'read_sub_agent':
+			return ReadSubAgentTool
+		case 'stop_sub_agent':
+			return StopSubAgentTool
 		case 'cancel_scheduled_task':
 			return CancelScheduledTaskTool
 		case 'edit_scheduled_task':
@@ -4136,6 +4230,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
+			// A turn that launched sub-agents ends while they run: pick the wave up now.
+			loadSubAgents().catch(() => {})
 			// Measure the run here: the server's total_duration_ms isn't stamped
 			// yet at this point (see clientRunMs), so without this the footer
 			// would show nothing until the next load.

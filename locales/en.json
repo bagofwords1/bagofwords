@@ -329,7 +329,11 @@
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Run this suite",
     "runSuiteFailed": "Failed to run suite",
-    "lists": "Lists"
+    "lists": "Lists",
+    "unchangedLineOne": "{n} unchanged line",
+    "unchangedLineMany": "{n} unchanged lines",
+    "loadPendingFailed": "Couldn’t load pending changes.",
+    "allPendingResolved": "No pending changes — all resolved."
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -1173,6 +1177,16 @@
       "needsValues": "Waiting on values for:",
       "cachedHint": "Served from your cached result for these values — the source was not re-queried"
     },
+    "addParameter": {
+      "adding": "Adding filter \"{name}\"…",
+      "added": "Added filter \"{name}\" to \"{query}\"",
+      "addedNoQuery": "Added filter \"{name}\"",
+      "failed": "Failed to add filter \"{name}\"",
+      "type": "Type: {type}",
+      "default": "Default: {value}",
+      "defaultAll": "all",
+      "column": "Column: {column}"
+    },
     "webFetch": {
       "fetching": "Fetching",
       "fetched": "Fetched",
@@ -1332,7 +1346,16 @@
       "toastFailedPublish": "Failed to publish instruction",
       "toastDeletedDesc": "Instruction deleted",
       "toastFailedDelete": "Failed to delete instruction",
-      "toastSaved": "Instruction saved"
+      "toastSaved": "Instruction saved",
+      "accept": "Accept",
+      "reject": "Reject",
+      "accepted": "Accepted",
+      "rejectedLabel": "Rejected",
+      "stagedInBuild": "Staged in draft build",
+      "acceptedToast": "Change accepted",
+      "acceptFailed": "Failed to accept",
+      "rejectedToast": "Change rejected",
+      "rejectFailed": "Failed to reject"
     },
     "listAgentExecutions": {
       "title": "List agent executions",
@@ -1382,7 +1405,14 @@
       "toastFailedDelete": "Failed to delete instruction",
       "toastSaved": "Instruction saved",
       "editCount": "{n} edits",
-      "editLabel": "Edit instruction"
+      "editLabel": "Edit instruction",
+      "accepted": "Accepted",
+      "rejectedLabel": "Rejected",
+      "stagedInBuild": "Staged in draft build",
+      "acceptedToast": "Change accepted",
+      "acceptFailed": "Failed to accept",
+      "rejectedToast": "Change rejected",
+      "rejectFailed": "Failed to reject"
     },
     "sendEmail": {
       "sending": "Sending email...",
@@ -1817,6 +1847,53 @@
       "sendFeedback": "Send feedback",
       "expired": "This review expired.",
       "respondFailed": "Could not send your answer — try again."
+    },
+    "delegate": {
+      "label": "Sub-agent",
+      "refused": "Not started",
+      "stop": "Stop",
+      "stopping": "Stopping…",
+      "steps": "steps",
+      "noCallsYet": "Starting…",
+      "findings": "Findings",
+      "ruledOut": "Ruled out",
+      "caveats": "Caveats",
+      "unknown": "Unknown",
+      "exit": "Exit",
+      "openNote": "Open write-up",
+      "synthesized": "Record written by the runtime — the sub-agent did not finish on its own.",
+      "status": {
+        "pending": "queued",
+        "running": "running",
+        "finished": "finished",
+        "failed": "failed",
+        "timed_out": "timed out",
+        "interrupted": "stopped",
+        "refused": "not started"
+      },
+      "outcomes": {
+        "supported": "supported",
+        "refuted": "refuted",
+        "inconclusive": "inconclusive",
+        "done": "done",
+        "partial": "partial",
+        "blocked": "blocked",
+        "finished": "finished",
+        "failed": "failed",
+        "timed_out": "timed out",
+        "interrupted": "stopped",
+        "running": "running",
+        "pending": "queued"
+      }
+    },
+    "readSubAgent": {
+      "reading": "Checking sub-agent…",
+      "checked": "Checked '{title}'",
+      "latest": "Latest"
+    },
+    "stopSubAgent": {
+      "stopping": "Stopping sub-agent…",
+      "stopped": "Stopped sub-agent '{title}'"
     }
   },
   "entityCreate": {
@@ -2669,7 +2746,25 @@
       "copyLink": "Copy link",
       "linkCopied": "Invite link copied",
       "failedToCopyLink": "Couldn't copy invite link",
-      "linkRegenerated": "Invite link refreshed and copied"
+      "linkRegenerated": "Invite link refreshed and copied",
+      "colAttributes": "Attributes",
+      "colAttributesHint": "Admin-set values that identify the member in other systems (e.g. qlik_user_id). Members can't edit them.",
+      "editAttributes": "Edit attributes",
+      "attributeAdd": "Add attribute",
+      "attributeKey": "Attribute name",
+      "attributeValue": "Value",
+      "attributeKeyPlaceholder": "name, e.g. qlik_user_id",
+      "attributeValuePlaceholder": "value, e.g. dana",
+      "attributeRemove": "Remove attribute",
+      "attributeKeyRequired": "Name is required",
+      "attributeKeyInvalid": "Letters, digits, _ . - only; start with a letter",
+      "attributeKeyDuplicate": "Duplicate name",
+      "attributesTitle": "Member attributes",
+      "attributesHint": "Values that identify this member in other systems, e.g. their Qlik user or employee ID. Only admins can see or change them.",
+      "attributesInviteHint": "Optional. Identifies this member in other systems, e.g. their Qlik user or database role.",
+      "attributesSaved": "Attributes saved",
+      "attributesSaveFailed": "Failed to save attributes",
+      "importAttributesHint": "Add {column} columns to set member attributes, e.g. {example}. An empty cell leaves that attribute unchanged."
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",
@@ -2962,6 +3057,10 @@
         "other": {
           "title": "Other",
           "description": "Settings not yet assigned to a section"
+        },
+        "sub_agents": {
+          "title": "Sub-agents",
+          "description": "Delegated background investigations and their limits"
         }
       },
       "llmAccessWarning": "Changing this setting affects data privacy. A confirmation will be required.",
@@ -3002,7 +3101,7 @@
         },
         "enable_training_mode": {
           "name": "Training Mode",
-          "description": "Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines"
+          "description": "Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidelines"
         },
         "enable_file_upload": {
           "name": "Allow file upload",
@@ -3187,6 +3286,42 @@
         "enable_demo_data_generation": {
           "name": "Demo data generation",
           "description": "In training mode, admins who can manage connections can ask the agent to design and generate a realistic mock SQLite dataset for any domain, then create suggested agents on top. Rows are generated by the small default model."
+        },
+        "enable_sub_agents": {
+          "name": "Sub-agents",
+          "description": "Let the agent delegate independent sub-questions (for example one hypothesis each in a root-cause analysis) to bounded background sub-agents that investigate on their own and report back as typed records in one fan-in turn. When off, the delegate tool is hidden."
+        },
+        "sub_agent_posture": {
+          "name": "Sub-agent posture",
+          "description": "'proactive': the agent delegates on its own when a request splits into three or more independent sub-questions. 'explicit': the agent delegates only when the user or an instruction asks for it."
+        },
+        "sub_agent_max_steps": {
+          "name": "Sub-agent max steps",
+          "description": "Planner steps one sub-agent may take before it is forced to finish with a partial record. Clamped to 5-200."
+        },
+        "sub_agent_deadline_minutes": {
+          "name": "Sub-agent deadline (minutes)",
+          "description": "Wall-clock limit for a wave of sub-agents. When it fires, still-running sub-agents are stopped and recorded as timed out, and the fan-in turn runs with the records that exist. Clamped to 2-60."
+        },
+        "sub_agent_concurrency": {
+          "name": "Concurrent sub-agents",
+          "description": "How many sub-agents of one report may run at the same time. Sub-agents beyond the cap wait inside their wave. Clamped to 1-6."
+        },
+        "sub_agent_max_per_wave": {
+          "name": "Max sub-agents per wave",
+          "description": "How many delegate calls the agent may launch from one planning step. Extra calls are refused with a note so the agent can plan a second wave. Clamped to 1-10."
+        },
+        "sub_agent_model": {
+          "name": "Sub-agent model",
+          "description": "Model sub-agents plan on. 'auto' = the small default for the investigate profile and the regular default for validate; 'small' or 'default' force one; or a model id from the LLM page."
+        },
+        "sub_agent_allow_model_override": {
+          "name": "Allow sub-agent model override",
+          "description": "Let the agent pick a different model for one sub-agent when the user asked for it or an instruction names one. The pick is validated against the models the asking user may use."
+        },
+        "sub_agent_allow_create_data": {
+          "name": "Sub-agents may create queries",
+          "description": "Let sub-agents create tracked queries (create_data) whose ids come back as evidence the agent can chart and cite. Off = research-only sub-agents."
         }
       }
     },
@@ -3836,6 +3971,10 @@
     "mcpModeAiTip": "AI may set it; server fills if empty",
     "mcpModeLockedTip": "Admin value always wins; hidden from the AI",
     "mcpAddMetaField": "+ Add metadata field",
+    "mcpDynamicParams": "Dynamic params",
+    "mcpDynamicParamsHint": "Which values the calling app may send with each question, each with a default (null = only when sent). They go into {key}, hidden from the AI; a field above with the same name wins. The app sends them as",
+    "mcpDynamicParamsInvalid": "Not valid JSON.",
+    "mcpDynamicParamsNotObject": "Must be a JSON object (key-value pairs).",
     "verify": "Verify",
     "catPopular": "Popular",
     "catCustom": "Custom",
@@ -3879,7 +4018,26 @@
     "refreshAccess": "Refresh access",
     "yourAccount": "Your account",
     "managementOrganizationHint": "Tests and schema refreshes use the organization’s saved credentials.",
-    "managementPersonalHint": "This connector requires your sign-in. Tests and refreshes use your account."
+    "managementPersonalHint": "This connector requires your sign-in. Tests and refreshes use your account.",
+    "memberIdentity": {
+      "title": "Per-member identity",
+      "hint": "Each member acts as their own account. Choose which fields come from a member attribute that admins set in Settings → Members; the others use the value above for everyone. The values above are still used to index the shared catalog.",
+      "sourceFor": "Source for {field}",
+      "attributeFor": "Member attribute for {field}",
+      "sameForEveryone": "Same for everyone",
+      "fromAttribute": "From member attribute",
+      "attributePlaceholder": "e.g. qlik_user_id",
+      "usesValue": "Everyone uses {value}",
+      "usesValueAbove": "Everyone uses the value above (or its default)",
+      "attributeRequired": "Enter the member attribute name.",
+      "attributeInvalid": "Use letters, digits, _ . - and start with a letter.",
+      "needOne": "Map at least one field to a member attribute, or turn off user authentication.",
+      "previewTitle": "Who acts as whom",
+      "previewCounts": "{ok} ready · {blocked} blocked",
+      "blocked": "Blocked: no {attributes}",
+      "test": "Test",
+      "testOk": "Connected as this member"
+    }
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -3965,6 +4123,7 @@
     "organization.required": "Organization ID header missing",
     "api_key.invalid": "Invalid or expired API key",
     "mcp.disabled": "MCP integration is not enabled for this organization",
+    "mcp.dynamic_params_invalid": "Dynamic params must be a JSON object of at most 8 KB, with non-empty keys.",
     "feature.locked": "Feature cannot be modified",
     "license.enterprise_required": "This feature requires an enterprise license.",
     "locale.invalid": "Locale is not enabled",
@@ -4016,7 +4175,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Resource unavailable",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Request interrupted",
     "ARTIFACT_RESOURCE_ABORTED": "Request cancelled",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Unsupported SDK version"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Unsupported SDK version",
+    "member_attributes.invalid": "Invalid member attributes.",
+    "member_identity.invalid": "Invalid per-member identity mapping.",
+    "member_identity.not_configured": "An admin hasn't chosen which member attribute identifies members on this connection yet.",
+    "member_identity.unresolved": "Your account on this connection isn't set up yet. Ask an admin to set your member attributes ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -4627,6 +4790,9 @@
       "default": "default",
       "emptyShelf": "No evals filed here yet",
       "noneResolved": "No evals resolved for this agent yet"
+    },
+    "runEvals": {
+      "notRun": "{n} draft or archived case not included | {n} draft or archived cases not included"
     }
   },
   "monitoring": {
@@ -5549,7 +5715,9 @@
       "sentWithSubject": "Follow-up — notified you: {subject}",
       "quiet": "Checked back: nothing new",
       "failed": "Follow-up failed"
-    }
+    },
+    "subAgentWaveDone": "{total} sub-agents finished · {counts}",
+    "subAgentWaveDoneTimedOut": "{total} sub-agents — deadline reached · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "Run was stopped",
@@ -5599,7 +5767,8 @@
     "pending": "Pending",
     "accepted": "Accepted",
     "webhooks": "Webhooks",
-    "configureWebhook": "Configure webhook"
+    "configureWebhook": "Configure webhook",
+    "subAgents": "Sub-agents"
   },
   "scheduledCard": {
     "active": "Active",
@@ -5937,5 +6106,30 @@
     "failed": "Unable to load artifact data",
     "newest": "Newest first",
     "oldest": "Oldest first"
+  },
+  "trackedChanges": {
+    "noChanges": "No changes"
+  },
+  "subAgents": {
+    "wave": "Wave {n}",
+    "count": "{count} sub-agents",
+    "running": "{count} running",
+    "stoppedWave": "stopped",
+    "timedOut": "deadline reached",
+    "stopAll": "Stop all",
+    "stoppingAll": "Stopping…",
+    "backgroundTasks": "{count} background tasks",
+    "queued": "queued",
+    "heading": "Sub-agents",
+    "headerStrip": "{total} sub-agents · {tokens} tokens",
+    "viaSubAgent": "via sub-agent: {title}",
+    "waveStatus": {
+      "collecting": "starting",
+      "running": "running",
+      "firing": "finishing",
+      "done": "done",
+      "stopped": "stopped",
+      "timed_out": "deadline reached"
+    }
   }
 }

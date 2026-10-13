@@ -313,7 +313,11 @@
     "exportInstructions": "تصدير حزمة الوكيل — التعليمات والإعدادات والتقييمات (‎.zip)",
     "runSuiteFailed": "تعذّر تشغيل المجموعة",
     "sharedManagedElsewhere": "مشتركة مع وكلاء لا تديرهم — لا يمكن تعديلها إلا لمن يملك صلاحية عليهم جميعًا.",
-    "tipRunSuite": "تشغيل هذه المجموعة"
+    "tipRunSuite": "تشغيل هذه المجموعة",
+    "unchangedLineOne": "سطر واحد دون تغيير",
+    "unchangedLineMany": "أسطر دون تغيير: {n}",
+    "loadPendingFailed": "تعذّر تحميل التغييرات المعلّقة.",
+    "allPendingResolved": "لا توجد تغييرات معلّقة — تمت معالجة الكل."
   },
   "smoke": {
     "hello": "مرحبًا",
@@ -1131,6 +1135,16 @@
       "needsValues": "في انتظار قيم لـ:",
       "cachedHint": "تم التقديم من نتيجتك المخزّنة مؤقتًا لهذه القيم — لم يُستعلم المصدر مجددًا"
     },
+    "addParameter": {
+      "adding": "جارٍ إضافة عامل التصفية \"{name}\"…",
+      "added": "تمت إضافة عامل التصفية \"{name}\" إلى \"{query}\"",
+      "addedNoQuery": "تمت إضافة عامل التصفية \"{name}\"",
+      "failed": "تعذّرت إضافة عامل التصفية \"{name}\"",
+      "type": "النوع: {type}",
+      "default": "الافتراضي: {value}",
+      "defaultAll": "الكل",
+      "column": "العمود: {column}"
+    },
     "createArtifact": {
       "creating": "جارٍ إنشاء العنصر",
       "created": "تم إنشاء العنصر",
@@ -1238,7 +1252,16 @@
       "toastFailedPublish": "تعذّر نشر التعليمة",
       "toastDeletedDesc": "تم حذف التعليمة",
       "toastFailedDelete": "تعذّر حذف التعليمة",
-      "toastSaved": "تم حفظ التعليمة"
+      "toastSaved": "تم حفظ التعليمة",
+      "accept": "قبول",
+      "reject": "رفض",
+      "accepted": "مقبولة",
+      "rejectedLabel": "مرفوضة",
+      "stagedInBuild": "مُجهّزة في build المسوّدة",
+      "acceptedToast": "تم قبول التغيير",
+      "acceptFailed": "تعذّر القبول",
+      "rejectedToast": "تم رفض التغيير",
+      "rejectFailed": "تعذّر الرفض"
     },
     "editInstruction": {
       "rejected": "تم رفض التعديل",
@@ -1275,7 +1298,14 @@
       "toastFailedDelete": "تعذّر حذف التعليمة",
       "toastSaved": "تم حفظ التعليمة",
       "editCount": "{n} تعديلات",
-      "editLabel": "تعديل التعليمة"
+      "editLabel": "تعديل التعليمة",
+      "accepted": "مقبولة",
+      "rejectedLabel": "مرفوضة",
+      "stagedInBuild": "مُجهّزة في build المسوّدة",
+      "acceptedToast": "تم قبول التغيير",
+      "acceptFailed": "تعذّر القبول",
+      "rejectedToast": "تم رفض التغيير",
+      "rejectFailed": "تعذّر الرفض"
     },
     "inspectData": {
       "inspecting": "جارٍ الفحص",
@@ -2484,7 +2514,25 @@
       "linkCopied": "تم نسخ رابط الدعوة",
       "failedToCopyLink": "تعذّر نسخ الرابط",
       "linkRegenerated": "تم تحديث رابط الدعوة ونسخه",
-      "moreGroups": "مجموعات"
+      "moreGroups": "مجموعات",
+      "colAttributes": "السمات",
+      "colAttributesHint": "قيم يحددها المسؤول لتعريف العضو في أنظمة أخرى (مثل qlik_user_id). لا يمكن للأعضاء تعديلها.",
+      "editAttributes": "تعديل السمات",
+      "attributeAdd": "إضافة سمة",
+      "attributeKey": "اسم السمة",
+      "attributeValue": "القيمة",
+      "attributeKeyPlaceholder": "الاسم، مثل qlik_user_id",
+      "attributeValuePlaceholder": "القيمة، مثل dana",
+      "attributeRemove": "إزالة السمة",
+      "attributeKeyRequired": "الاسم مطلوب",
+      "attributeKeyInvalid": "أحرف وأرقام و_ . - فقط؛ يبدأ بحرف",
+      "attributeKeyDuplicate": "اسم مكرر",
+      "attributesTitle": "سمات العضو",
+      "attributesHint": "قيم تعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو رقم الموظف. يمكن للمسؤولين فقط رؤيتها أو تغييرها.",
+      "attributesInviteHint": "اختياري. يعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو دور قاعدة البيانات.",
+      "attributesSaved": "تم حفظ السمات",
+      "attributesSaveFailed": "تعذّر حفظ السمات",
+      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير."
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",
@@ -3585,6 +3633,10 @@
     "mcpModeAiTip": "يمكن للذكاء الاصطناعي تعيينه؛ ويملؤه الخادم إذا كان فارغًا",
     "mcpModeLockedTip": "قيمة المسؤول لها الأولوية دائمًا؛ مخفية عن الذكاء الاصطناعي",
     "mcpAddMetaField": "+ إضافة حقل بيانات وصفية",
+    "mcpDynamicParams": "معلمات ديناميكية",
+    "mcpDynamicParamsHint": "القيم التي يُسمح للتطبيق المستدعي بإرسالها مع كل سؤال، ولكل منها قيمة افتراضية (null = فقط عند الإرسال). تُضاف إلى {key} وتكون مخفية عن الذكاء الاصطناعي؛ والحقل أعلاه الذي يحمل الاسم نفسه له الأولوية. يرسلها التطبيق في",
+    "mcpDynamicParamsInvalid": "JSON غير صالح.",
+    "mcpDynamicParamsNotObject": "يجب أن يكون كائن JSON (أزواج مفتاح وقيمة).",
     "verify": "تحقق",
     "autoReindex": "إعادة فهرسة المخطط تلقائيًا",
     "autoReindexAt": "إعادة الفهرسة يوميًا عند",
@@ -3697,7 +3749,26 @@
     "refreshAccess": "تحديث الوصول",
     "yourAccount": "حسابك",
     "managementOrganizationHint": "تستخدم الاختبارات وتحديثات المخطط بيانات الاعتماد المحفوظة للمؤسسة.",
-    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك."
+    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك.",
+    "memberIdentity": {
+      "title": "هوية لكل عضو",
+      "hint": "يعمل كل عضو بحسابه الخاص. اختر الحقول التي تأتي من سمة عضو يحددها المسؤولون في الإعدادات ← الأعضاء؛ وتستخدم الحقول الأخرى القيمة أعلاه للجميع. لا تزال القيم أعلاه تُستخدم لفهرسة الكتالوج المشترك.",
+      "sourceFor": "مصدر {field}",
+      "attributeFor": "سمة العضو لـ {field}",
+      "sameForEveryone": "نفس القيمة للجميع",
+      "fromAttribute": "من سمة العضو",
+      "attributePlaceholder": "مثال: qlik_user_id",
+      "usesValue": "يستخدم الجميع {value}",
+      "usesValueAbove": "يستخدم الجميع القيمة أعلاه (أو قيمتها الافتراضية)",
+      "attributeRequired": "أدخل اسم سمة العضو.",
+      "attributeInvalid": "استخدم حروفًا وأرقامًا و _ . - وابدأ بحرف.",
+      "needOne": "اربط حقلًا واحدًا على الأقل بسمة عضو، أو أوقف مصادقة المستخدم.",
+      "previewTitle": "من يعمل بصفة من",
+      "previewCounts": "{ok} جاهز · {blocked} محظور",
+      "blocked": "محظور: لا توجد {attributes}",
+      "test": "اختبار",
+      "testOk": "متصل بصفة هذا العضو"
+    }
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -3783,6 +3854,7 @@
     "organization.required": "ترويسة معرّف المؤسسة مفقودة",
     "api_key.invalid": "مفتاح API غير صالح أو منتهي الصلاحية",
     "mcp.disabled": "تكامل MCP غير مفعّل لهذه المؤسسة",
+    "mcp.dynamic_params_invalid": "يجب أن تكون المعلمات الديناميكية كائن JSON بحجم 8 كيلوبايت كحد أقصى، دون مفاتيح فارغة.",
     "feature.locked": "لا يمكن تعديل هذه الميزة",
     "license.enterprise_required": "تتطلب هذه الميزة ترخيص enterprise.",
     "locale.invalid": "اللغة غير مفعّلة",
@@ -3836,7 +3908,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "المورد غير متاح",
     "ARTIFACT_RESOURCE_INTERRUPTED": "انقطع الطلب",
     "ARTIFACT_RESOURCE_ABORTED": "أُلغي الطلب",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم",
+    "member_attributes.invalid": "سمات العضو غير صالحة.",
+    "member_identity.invalid": "ربط هوية الأعضاء غير صالح.",
+    "member_identity.not_configured": "لم يختر المسؤول بعد سمة العضو التي تعرّف الأعضاء في هذا الاتصال.",
+    "member_identity.unresolved": "حسابك في هذا الاتصال غير مُعد بعد. اطلب من المسؤول تعيين سمات العضو الخاصة بك ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -4407,6 +4483,9 @@
       "runSuite": "تشغيل {name}",
       "runningCount": "قيد التشغيل {done}/{total}",
       "title": "تقييمات هذا التغيير"
+    },
+    "runEvals": {
+      "notRun": "غير مضمّنة (مسودة أو مؤرشفة): {n}"
     }
   },
   "monitoring": {
@@ -5734,5 +5813,8 @@
     "failed": "تعذر تحميل بيانات العنصر",
     "newest": "الأحدث أولاً",
     "oldest": "الأقدم أولاً"
+  },
+  "trackedChanges": {
+    "noChanges": "لا توجد تغييرات"
   }
 }

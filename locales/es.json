@@ -329,7 +329,11 @@
     "tipRunSuite": "Ejecutar esta suite",
     "runSuiteFailed": "No se pudo ejecutar la suite",
     "exportInstructions": "Exportar paquete del agente: instrucciones, configuración y evaluaciones (.zip)",
-    "lists": "Listas"
+    "lists": "Listas",
+    "unchangedLineOne": "{n} línea sin cambios",
+    "unchangedLineMany": "{n} líneas sin cambios",
+    "loadPendingFailed": "No se pudieron cargar los cambios pendientes.",
+    "allPendingResolved": "No hay cambios pendientes: todo está resuelto."
   },
   "smoke": {
     "hello": "Hola",
@@ -1147,6 +1151,16 @@
       "needsValues": "Esperando valores para:",
       "cachedHint": "Servido desde tu resultado en caché para estos valores; no se volvió a consultar la fuente"
     },
+    "addParameter": {
+      "adding": "Añadiendo el filtro \"{name}\"…",
+      "added": "Filtro \"{name}\" añadido a \"{query}\"",
+      "addedNoQuery": "Filtro \"{name}\" añadido",
+      "failed": "No se pudo añadir el filtro \"{name}\"",
+      "type": "Tipo: {type}",
+      "default": "Predeterminado: {value}",
+      "defaultAll": "todos",
+      "column": "Columna: {column}"
+    },
     "createArtifact": {
       "creating": "Creando artefacto",
       "created": "Artefacto creado",
@@ -1254,7 +1268,16 @@
       "toastFailedPublish": "Error al publicar instrucción",
       "toastDeletedDesc": "Instrucción eliminada",
       "toastFailedDelete": "Error al eliminar instrucción",
-      "toastSaved": "Instrucción guardada"
+      "toastSaved": "Instrucción guardada",
+      "accept": "Aceptar",
+      "reject": "Rechazar",
+      "accepted": "Aceptada",
+      "rejectedLabel": "Rechazada",
+      "stagedInBuild": "Preparada en el borrador",
+      "acceptedToast": "Cambio aceptado",
+      "acceptFailed": "No se pudo aceptar",
+      "rejectedToast": "Cambio rechazado",
+      "rejectFailed": "No se pudo rechazar"
     },
     "editInstruction": {
       "rejected": "Edición rechazada",
@@ -1291,7 +1314,14 @@
       "toastFailedDelete": "Error al eliminar instrucción",
       "toastSaved": "Instrucción guardada",
       "editCount": "{n} ediciones",
-      "editLabel": "Editar instrucción"
+      "editLabel": "Editar instrucción",
+      "accepted": "Aceptada",
+      "rejectedLabel": "Rechazada",
+      "stagedInBuild": "Preparada en el borrador",
+      "acceptedToast": "Cambio aceptado",
+      "acceptFailed": "No se pudo aceptar",
+      "rejectedToast": "Cambio rechazado",
+      "rejectFailed": "No se pudo rechazar"
     },
     "inspectData": {
       "inspecting": "Inspeccionando",
@@ -1791,6 +1821,53 @@
       "sendFeedback": "Enviar comentarios",
       "expired": "Esta revisión expiró.",
       "respondFailed": "No se pudo enviar tu respuesta; inténtalo de nuevo."
+    },
+    "delegate": {
+      "label": "Subagente",
+      "refused": "No iniciada",
+      "stop": "Detener",
+      "stopping": "Deteniendo…",
+      "steps": "pasos",
+      "noCallsYet": "Iniciando…",
+      "findings": "Hallazgos",
+      "ruledOut": "Descartado",
+      "caveats": "Salvedades",
+      "unknown": "Desconocido",
+      "exit": "Salida",
+      "openNote": "Abrir informe",
+      "synthesized": "Registro escrito por el sistema: la sub-ejecución no terminó por sí misma.",
+      "status": {
+        "pending": "en cola",
+        "running": "en ejecución",
+        "finished": "terminada",
+        "failed": "fallida",
+        "timed_out": "tiempo agotado",
+        "interrupted": "detenida",
+        "refused": "no iniciada"
+      },
+      "outcomes": {
+        "supported": "respaldada",
+        "refuted": "refutada",
+        "inconclusive": "no concluyente",
+        "done": "hecho",
+        "partial": "parcial",
+        "blocked": "bloqueada",
+        "finished": "terminada",
+        "failed": "fallida",
+        "timed_out": "tiempo agotado",
+        "interrupted": "detenida",
+        "running": "en ejecución",
+        "pending": "en cola"
+      }
+    },
+    "readSubAgent": {
+      "reading": "Consultando subagente…",
+      "checked": "Consultada '{title}'",
+      "latest": "Último"
+    },
+    "stopSubAgent": {
+      "stopping": "Deteniendo subagente…",
+      "stopped": "Subagente '{title}' detenido"
     }
   },
   "entityCreate": {
@@ -2606,7 +2683,25 @@
       "copyLink": "Copiar enlace",
       "linkCopied": "Enlace de invitación copiado",
       "failedToCopyLink": "No se pudo copiar el enlace",
-      "linkRegenerated": "Enlace de invitación renovado y copiado"
+      "linkRegenerated": "Enlace de invitación renovado y copiado",
+      "colAttributes": "Atributos",
+      "colAttributesHint": "Valores definidos por un administrador que identifican al miembro en otros sistemas (p. ej. qlik_user_id). Los miembros no pueden editarlos.",
+      "editAttributes": "Editar atributos",
+      "attributeAdd": "Añadir atributo",
+      "attributeKey": "Nombre del atributo",
+      "attributeValue": "Valor",
+      "attributeKeyPlaceholder": "nombre, p. ej. qlik_user_id",
+      "attributeValuePlaceholder": "valor, p. ej. dana",
+      "attributeRemove": "Quitar atributo",
+      "attributeKeyRequired": "El nombre es obligatorio",
+      "attributeKeyInvalid": "Solo letras, dígitos, _ . -; debe empezar por una letra",
+      "attributeKeyDuplicate": "Nombre duplicado",
+      "attributesTitle": "Atributos del miembro",
+      "attributesHint": "Valores que identifican a este miembro en otros sistemas, p. ej. su usuario de Qlik o su ID de empleado. Solo los administradores pueden verlos o cambiarlos.",
+      "attributesInviteHint": "Opcional. Identifica a este miembro en otros sistemas, p. ej. su usuario de Qlik o su rol de base de datos.",
+      "attributesSaved": "Atributos guardados",
+      "attributesSaveFailed": "No se pudieron guardar los atributos",
+      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios."
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",
@@ -2882,6 +2977,10 @@
         "other": {
           "title": "Otros",
           "description": "Ajustes aún no asignados a una sección"
+        },
+        "sub_agents": {
+          "title": "Subagentes",
+          "description": "Investigaciones delegadas en segundo plano y sus límites"
         }
       },
       "llmAccessWarning": "Cambiar este ajuste afecta la privacidad de los datos. Se requerirá confirmación.",
@@ -3107,6 +3206,42 @@
         "enable_demo_data_generation": {
           "name": "Generación de datos de demostración",
           "description": "En modo de entrenamiento, los administradores que pueden gestionar conexiones pueden pedir al agente que diseñe y genere un conjunto de datos SQLite ficticio y realista para cualquier dominio, y luego crear agentes sugeridos sobre él. Las filas las genera el modelo pequeño predeterminado."
+        },
+        "enable_sub_agents": {
+          "name": "Subagentes",
+          "description": "Permite que el agente delegue sub-preguntas independientes (por ejemplo, una hipótesis por cada causa en un análisis de causa raíz) a sub-ejecuciones acotadas en segundo plano que investigan por su cuenta y devuelven registros tipificados en un único turno de consolidación. Si está desactivado, la herramienta delegate se oculta."
+        },
+        "sub_agent_posture": {
+          "name": "Postura de sub-ejecuciones",
+          "description": "'proactive': el agente delega por iniciativa propia cuando una petición se divide en tres o más sub-preguntas independientes. 'explicit': el agente solo delega cuando el usuario o una instrucción lo pide."
+        },
+        "sub_agent_max_steps": {
+          "name": "Pasos máximos por sub-ejecución",
+          "description": "Pasos del planificador que una sub-ejecución puede dar antes de verse obligada a terminar con un registro parcial. Limitado a 5-200."
+        },
+        "sub_agent_deadline_minutes": {
+          "name": "Plazo de sub-ejecuciones (minutos)",
+          "description": "Límite de tiempo para una ola de sub-ejecuciones. Al cumplirse, las sub-ejecuciones aún activas se detienen y se registran como expiradas, y el turno de consolidación se ejecuta con los registros existentes. Limitado a 2-60."
+        },
+        "sub_agent_concurrency": {
+          "name": "Sub-ejecuciones simultáneas",
+          "description": "Cuántas sub-ejecuciones de un informe pueden ejecutarse a la vez. Las que superan el límite esperan dentro de su ola. Limitado a 1-6."
+        },
+        "sub_agent_max_per_wave": {
+          "name": "Máximo de sub-ejecuciones por ola",
+          "description": "Cuántas llamadas delegate puede lanzar el agente desde un paso de planificación. Las llamadas sobrantes se rechazan con una nota para que el agente planifique una segunda ola. Limitado a 1-10."
+        },
+        "sub_agent_model": {
+          "name": "Modelo de sub-ejecuciones",
+          "description": "Modelo con el que planifican las sub-ejecuciones. 'auto' = el modelo pequeño por defecto para el perfil investigate y el modelo por defecto para validate; 'small' o 'default' fuerzan uno; o un id de modelo de la página de LLM."
+        },
+        "sub_agent_allow_model_override": {
+          "name": "Permitir cambiar el modelo de una sub-ejecución",
+          "description": "Permite que el agente elija otro modelo para una sub-ejecución cuando el usuario lo pide o una instrucción lo indica. La elección se valida contra los modelos que el usuario puede usar."
+        },
+        "sub_agent_allow_create_data": {
+          "name": "Las sub-ejecuciones pueden crear consultas",
+          "description": "Permite que las sub-ejecuciones creen consultas rastreadas (create_data) cuyos ids vuelven como evidencia que el agente puede graficar y citar. Desactivado = sub-ejecuciones solo de investigación."
         }
       }
     },
@@ -3764,6 +3899,10 @@
     "mcpModeAiTip": "La IA puede establecerlo; el servidor lo completa si está vacío",
     "mcpModeLockedTip": "El valor del administrador siempre prevalece; oculto para la IA",
     "mcpAddMetaField": "+ Añadir campo de metadatos",
+    "mcpDynamicParams": "Parámetros dinámicos",
+    "mcpDynamicParamsHint": "Qué valores puede enviar la aplicación que llama con cada pregunta, cada uno con un valor predeterminado (null = solo si se envía). Van a {key}, ocultos para la IA; un campo de arriba con el mismo nombre tiene prioridad. La aplicación los envía en",
+    "mcpDynamicParamsInvalid": "JSON no válido.",
+    "mcpDynamicParamsNotObject": "Debe ser un objeto JSON (pares clave-valor).",
     "verify": "Verificar",
     "browserForm": {
       "allowDownloads": "Permitir descargas",
@@ -3817,7 +3956,26 @@
     "refreshAccess": "Actualizar acceso",
     "yourAccount": "Tu cuenta",
     "managementOrganizationHint": "Las pruebas y actualizaciones del esquema usan las credenciales guardadas de la organización.",
-    "managementPersonalHint": "Este conector requiere que inicies sesión. Las pruebas y actualizaciones usan tu cuenta."
+    "managementPersonalHint": "Este conector requiere que inicies sesión. Las pruebas y actualizaciones usan tu cuenta.",
+    "memberIdentity": {
+      "title": "Identidad por miembro",
+      "hint": "Cada miembro actúa con su propia cuenta. Elige qué campos vienen de un atributo de miembro que los administradores definen en Configuración → Miembros; los demás usan el valor de arriba para todos. Los valores de arriba se siguen usando para indexar el catálogo compartido.",
+      "sourceFor": "Origen de {field}",
+      "attributeFor": "Atributo de miembro para {field}",
+      "sameForEveryone": "Igual para todos",
+      "fromAttribute": "Desde atributo de miembro",
+      "attributePlaceholder": "p. ej. qlik_user_id",
+      "usesValue": "Todos usan {value}",
+      "usesValueAbove": "Todos usan el valor de arriba (o su valor predeterminado)",
+      "attributeRequired": "Introduce el nombre del atributo de miembro.",
+      "attributeInvalid": "Usa letras, dígitos, _ . - y empieza con una letra.",
+      "needOne": "Asigna al menos un campo a un atributo de miembro, o desactiva la autenticación de usuario.",
+      "previewTitle": "Quién actúa como quién",
+      "previewCounts": "{ok} listos · {blocked} bloqueados",
+      "blocked": "Bloqueado: falta {attributes}",
+      "test": "Probar",
+      "testOk": "Conectado como este miembro"
+    }
   },
   "share": {
     "shareDashboard": "Compartir panel",
@@ -3903,6 +4061,7 @@
     "organization.required": "Falta la cabecera de ID de organización",
     "api_key.invalid": "Clave de API no válida o expirada",
     "mcp.disabled": "La integración MCP no está habilitada en esta organización",
+    "mcp.dynamic_params_invalid": "Los parámetros dinámicos deben ser un objeto JSON de 8 KB como máximo, sin claves vacías.",
     "feature.locked": "Esta función no se puede modificar",
     "license.enterprise_required": "Esta función requiere una licencia empresarial.",
     "locale.invalid": "Ese idioma no está habilitado",
@@ -3956,7 +4115,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso no disponible",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitud interrumpida",
     "ARTIFACT_RESOURCE_ABORTED": "Solicitud cancelada",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versión del SDK no compatible"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versión del SDK no compatible",
+    "member_attributes.invalid": "Atributos de miembro no válidos.",
+    "member_identity.invalid": "Asignación de identidad por miembro no válida.",
+    "member_identity.not_configured": "Un administrador aún no ha elegido qué atributo de miembro identifica a los miembros en esta conexión.",
+    "member_identity.unresolved": "Tu cuenta en esta conexión aún no está configurada. Pide a un administrador que defina tus atributos de miembro ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -4536,6 +4699,9 @@
       "default": "predeterminado",
       "emptyShelf": "Aún no hay evaluaciones aquí",
       "noneResolved": "Aún no hay evaluaciones para este agente"
+    },
+    "runEvals": {
+      "notRun": "{n} caso en borrador o archivado no incluido | {n} casos en borrador o archivados no incluidos"
     }
   },
   "monitoring": {
@@ -5475,7 +5641,9 @@
       "sentWithSubject": "Seguimiento — te notificó: {subject}",
       "quiet": "Revisado de nuevo: nada nuevo",
       "failed": "El seguimiento falló"
-    }
+    },
+    "subAgentWaveDone": "{total} subagentes terminados · {counts}",
+    "subAgentWaveDoneTimedOut": "{total} subagentes — plazo alcanzado · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "Se detuvo la ejecución",
@@ -5561,7 +5729,8 @@
     "pending": "Pendiente",
     "accepted": "Aceptada",
     "webhooks": "Webhooks",
-    "configureWebhook": "Configurar webhook"
+    "configureWebhook": "Configurar webhook",
+    "subAgents": "Subagentes"
   },
   "scheduledCard": {
     "active": "Activa",
@@ -5908,5 +6077,30 @@
     "failed": "No se pudieron cargar los datos",
     "newest": "Más recientes primero",
     "oldest": "Más antiguos primero"
+  },
+  "trackedChanges": {
+    "noChanges": "Sin cambios"
+  },
+  "subAgents": {
+    "wave": "Ola {n}",
+    "count": "{count} sub-ejecuciones",
+    "running": "{count} en ejecución",
+    "stoppedWave": "detenida",
+    "timedOut": "plazo alcanzado",
+    "stopAll": "Detener todas",
+    "stoppingAll": "Deteniendo…",
+    "backgroundTasks": "{count} tareas en segundo plano",
+    "queued": "en cola",
+    "heading": "Subagentes",
+    "headerStrip": "{total} sub-ejecuciones · {tokens} tokens",
+    "viaSubAgent": "vía subagente: {title}",
+    "waveStatus": {
+      "collecting": "iniciando",
+      "running": "en ejecución",
+      "firing": "finalizando",
+      "done": "terminada",
+      "stopped": "detenida",
+      "timed_out": "plazo alcanzado"
+    }
   }
 }

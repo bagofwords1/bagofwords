@@ -31,3 +31,11 @@ assert.equal(needsConnectionSignIn(missing), true);
 assert.equal(needsConnectionSignIn({...missing,user_status:{effective_auth:'system',has_user_credentials:false}}), false);
 assert.equal(needsConnectionSignIn({...missing,user_status:{effective_auth:'user',has_user_credentials:true}}), false);
 assert.equal(needsConnectionSignIn({auth_policy:'system_only'}), false);
+
+// Admin-mapped identity (Qlik member_mapped): a member without the attribute
+// has nothing to sign in to — no Connect prompt, shown as an error instead.
+const unmapped = {auth_policy:'user_required',user_status:{auth_mode:'member_mapped',has_user_credentials:false,effective_auth:'none',connection:'not_connected'}};
+assert.equal(needsConnectionSignIn(unmapped), false);
+assert.equal(status(unmapped), 'error');
+assert.equal(needsConnectionSignIn({...unmapped,user_status:{...unmapped.user_status,has_user_credentials:true,effective_auth:'user',connection:'unknown'}}), false);
+console.log('PASS: admin-mapped identity never asks the member to sign in.');

@@ -401,6 +401,8 @@ class DataSourceCreate(DataSourceBase):
     credentials: Optional[dict] = None  # Will be validated based on the data source type
     auth_policy: str = "system_only"
     allowed_user_auth_modes: Optional[List[str]] = None
+    # member_mapped per-user auth: {credential_field: member_attribute_key}
+    member_bindings: Optional[Dict[str, str]] = None
 
     # Option 2: Link to existing connection(s)
     connection_id: Optional[str] = None  # Single connection (backward compatible)

@@ -329,7 +329,11 @@
     "tipRunSuite": "הרצת חבילה זו",
     "runSuiteFailed": "הרצת החבילה נכשלה",
     "exportInstructions": "ייצוא חבילת סוכן — הנחיות, הגדרות והערכות (zip.)",
-    "lists": "רשימות"
+    "lists": "רשימות",
+    "unchangedLineOne": "שורה אחת ללא שינוי",
+    "unchangedLineMany": "{n} שורות ללא שינוי",
+    "loadPendingFailed": "לא ניתן לטעון את השינויים הממתינים.",
+    "allPendingResolved": "אין שינויים ממתינים — הכול טופל."
   },
   "smoke": {
     "hello": "שלום",
@@ -1147,6 +1151,16 @@
       "needsValues": "ממתין לערכים עבור:",
       "cachedHint": "הוגש מהתוצאה השמורה שלך עבור ערכים אלה — המקור לא תושאל מחדש"
     },
+    "addParameter": {
+      "adding": "מוסיף את המסנן \"{name}\"…",
+      "added": "נוסף המסנן \"{name}\" ל-\"{query}\"",
+      "addedNoQuery": "נוסף המסנן \"{name}\"",
+      "failed": "הוספת המסנן \"{name}\" נכשלה",
+      "type": "סוג: {type}",
+      "default": "ברירת מחדל: {value}",
+      "defaultAll": "הכל",
+      "column": "עמודה: {column}"
+    },
     "createArtifact": {
       "creating": "יוצר פריט",
       "created": "הפריט נוצר",
@@ -1254,7 +1268,16 @@
       "toastFailedPublish": "פרסום ההנחיה נכשל",
       "toastDeletedDesc": "ההנחיה נמחקה",
       "toastFailedDelete": "מחיקת ההנחיה נכשלה",
-      "toastSaved": "ההנחיה נשמרה"
+      "toastSaved": "ההנחיה נשמרה",
+      "accept": "אשר",
+      "reject": "דחה",
+      "accepted": "התקבלה",
+      "rejectedLabel": "נדחתה",
+      "stagedInBuild": "ממתינה בגרסת טיוטה",
+      "acceptedToast": "השינוי אושר",
+      "acceptFailed": "האישור נכשל",
+      "rejectedToast": "השינוי נדחה",
+      "rejectFailed": "הדחייה נכשלה"
     },
     "editInstruction": {
       "rejected": "העריכה נדחתה",
@@ -1291,7 +1314,14 @@
       "toastFailedDelete": "מחיקת ההנחיה נכשלה",
       "toastSaved": "ההנחיה נשמרה",
       "editCount": "{n} עריכות",
-      "editLabel": "עריכת הנחיה"
+      "editLabel": "עריכת הנחיה",
+      "accepted": "התקבלה",
+      "rejectedLabel": "נדחתה",
+      "stagedInBuild": "ממתינה בגרסת טיוטה",
+      "acceptedToast": "השינוי אושר",
+      "acceptFailed": "האישור נכשל",
+      "rejectedToast": "השינוי נדחה",
+      "rejectFailed": "הדחייה נכשלה"
     },
     "inspectData": {
       "inspecting": "בוחן",
@@ -1791,6 +1821,53 @@
       "sendFeedback": "שלח משוב",
       "expired": "הסקירה פגה.",
       "respondFailed": "לא ניתן לשלוח את התשובה — נסה שוב."
+    },
+    "delegate": {
+      "label": "סוכן משנה",
+      "refused": "לא הופעלה",
+      "stop": "עצירה",
+      "stopping": "עוצר…",
+      "steps": "צעדים",
+      "noCallsYet": "מתחיל…",
+      "findings": "ממצאים",
+      "ruledOut": "נשלל",
+      "caveats": "הסתייגויות",
+      "unknown": "לא ידוע",
+      "exit": "יציאה",
+      "openNote": "פתיחת הסיכום",
+      "synthesized": "הרשומה נכתבה על ידי המערכת — תת-הריצה לא סיימה בעצמה.",
+      "status": {
+        "pending": "בתור",
+        "running": "רצה",
+        "finished": "הסתיימה",
+        "failed": "נכשלה",
+        "timed_out": "פג הזמן",
+        "interrupted": "נעצרה",
+        "refused": "לא הופעלה"
+      },
+      "outcomes": {
+        "supported": "נתמכת",
+        "refuted": "נשללה",
+        "inconclusive": "לא חד-משמעי",
+        "done": "בוצע",
+        "partial": "חלקי",
+        "blocked": "חסום",
+        "finished": "הסתיימה",
+        "failed": "נכשלה",
+        "timed_out": "פג הזמן",
+        "interrupted": "נעצרה",
+        "running": "רצה",
+        "pending": "בתור"
+      }
+    },
+    "readSubAgent": {
+      "reading": "בודק סוכן משנה…",
+      "checked": "נבדקה '{title}'",
+      "latest": "אחרון"
+    },
+    "stopSubAgent": {
+      "stopping": "עוצר סוכן משנה…",
+      "stopped": "סוכן המשנה '{title}' נעצר"
     }
   },
   "entityCreate": {
@@ -2606,7 +2683,25 @@
       "copyLink": "העתקת קישור",
       "linkCopied": "קישור ההזמנה הועתק",
       "failedToCopyLink": "לא ניתן להעתיק את הקישור",
-      "linkRegenerated": "קישור ההזמנה רוענן והועתק"
+      "linkRegenerated": "קישור ההזמנה רוענן והועתק",
+      "colAttributes": "מאפיינים",
+      "colAttributesHint": "ערכים שמנהל מגדיר ומזהים את החבר במערכות אחרות (למשל qlik_user_id). חברים לא יכולים לערוך אותם.",
+      "editAttributes": "עריכת מאפיינים",
+      "attributeAdd": "הוספת מאפיין",
+      "attributeKey": "שם המאפיין",
+      "attributeValue": "ערך",
+      "attributeKeyPlaceholder": "שם, למשל qlik_user_id",
+      "attributeValuePlaceholder": "ערך, למשל dana",
+      "attributeRemove": "הסרת מאפיין",
+      "attributeKeyRequired": "חובה להזין שם",
+      "attributeKeyInvalid": "אותיות, ספרות ו-_ . - בלבד; חייב להתחיל באות",
+      "attributeKeyDuplicate": "שם כפול",
+      "attributesTitle": "מאפייני חבר",
+      "attributesHint": "ערכים שמזהים את החבר במערכות אחרות, למשל משתמש ה-Qlik או מספר העובד שלו. רק מנהלים יכולים לראות או לשנות אותם.",
+      "attributesInviteHint": "אופציונלי. מזהה את החבר במערכות אחרות, למשל משתמש ה-Qlik או תפקיד מסד הנתונים שלו.",
+      "attributesSaved": "המאפיינים נשמרו",
+      "attributesSaveFailed": "שמירת המאפיינים נכשלה",
+      "importAttributesHint": "הוסיפו עמודות {column} כדי להגדיר מאפיינים, למשל {example}. תא ריק משאיר את המאפיין ללא שינוי."
     },
     "organizationName": "שם הארגון",
     "organizationIcon": "אייקון הארגון",
@@ -2882,6 +2977,10 @@
         "other": {
           "title": "אחר",
           "description": "הגדרות שעדיין לא שויכו לקבוצה"
+        },
+        "sub_agents": {
+          "title": "סוכני משנה",
+          "description": "חקירות מואצלות ברקע והמגבלות שלהן"
         }
       },
       "llmAccessWarning": "שינוי הגדרה זו משפיע על פרטיות הנתונים. תידרש אישור.",
@@ -3107,6 +3206,42 @@
         "enable_demo_data_generation": {
           "name": "יצירת נתוני הדגמה",
           "description": "במצב אימון, מנהלים שיכולים לנהל חיבורים יכולים לבקש מהסוכן לתכנן וליצור מסד נתוני SQLite פיקטיבי ומציאותי לכל תחום, ואז ליצור מעליו סוכנים מוצעים. השורות נוצרות על ידי מודל ברירת המחדל הקטן."
+        },
+        "enable_sub_agents": {
+          "name": "סוכני משנה",
+          "description": "מאפשר לסוכן להאציל תת-שאלות עצמאיות (למשל השערה אחת לכל סיבה בניתוח סיבת שורש) לסוכני משנה תחומים ברקע שחוקרים בעצמם ומחזירים רשומות מובנות בתור איסוף אחד. כשהאפשרות כבויה, הכלי delegate מוסתר."
+        },
+        "sub_agent_posture": {
+          "name": "מדיניות סוכני משנה",
+          "description": "'proactive': הסוכן מאציל מיוזמתו כשבקשה מתפצלת לשלוש תת-שאלות עצמאיות או יותר. 'explicit': הסוכן מאציל רק כשהמשתמש או הנחיה מבקשים זאת."
+        },
+        "sub_agent_max_steps": {
+          "name": "מקסימום צעדים לסוכן משנה",
+          "description": "מספר צעדי התכנון שסוכן משנה רשאי לבצע לפני שהוא נאלץ לסיים עם רשומה חלקית. מוגבל ל-5 עד 200."
+        },
+        "sub_agent_deadline_minutes": {
+          "name": "מועד סיום לסוכני משנה (דקות)",
+          "description": "מגבלת זמן לגל של סוכני משנה. כשהיא מגיעה, סוכני משנה שעדיין רצים נעצרים ונרשמים כפגי תוקף, ותור האיסוף רץ עם הרשומות הקיימות. מוגבל ל-2 עד 60."
+        },
+        "sub_agent_concurrency": {
+          "name": "סוכני משנה במקביל",
+          "description": "כמה סוכני משנה של דוח אחד יכולים לרוץ בו-זמנית. סוכני משנה מעבר למגבלה ממתינים בתוך הגל שלהם. מוגבל ל-1 עד 6."
+        },
+        "sub_agent_max_per_wave": {
+          "name": "מקסימום סוכני משנה לגל",
+          "description": "כמה קריאות delegate הסוכן רשאי להפעיל מצעד תכנון אחד. קריאות נוספות נדחות עם הערה כדי שהסוכן יתכנן גל שני. מוגבל ל-1 עד 10."
+        },
+        "sub_agent_model": {
+          "name": "מודל סוכני משנה",
+          "description": "המודל שסוכני משנה מתכננים איתו. 'auto' = מודל ברירת המחדל הקטן לפרופיל investigate ומודל ברירת המחדל לפרופיל validate; 'small' או 'default' כופים אחד מהם; או מזהה מודל מעמוד ה-LLM."
+        },
+        "sub_agent_allow_model_override": {
+          "name": "לאפשר שינוי מודל לסוכן משנה",
+          "description": "מאפשר לסוכן לבחור מודל אחר לסוכן משנה אחד כשהמשתמש ביקש זאת או כשהנחיה מציינת מודל. הבחירה מאומתת מול המודלים שהמשתמש רשאי להשתמש בהם."
+        },
+        "sub_agent_allow_create_data": {
+          "name": "סוכני משנה רשאים ליצור שאילתות",
+          "description": "מאפשר לסוכני משנה ליצור שאילתות מעוקבות (create_data) שהמזהים שלהן חוזרים כראיות שהסוכן יכול להציג בגרף ולצטט. כבוי = סוכני משנה למחקר בלבד."
         }
       }
     },
@@ -3764,6 +3899,10 @@
     "mcpModeAiTip": "ה-AI רשאי לקבוע; השרת ממלא אם ריק",
     "mcpModeLockedTip": "ערך המנהל תמיד גובר; מוסתר מה-AI",
     "mcpAddMetaField": "+ הוספת שדה מטא-נתונים",
+    "mcpDynamicParams": "פרמטרים דינמיים",
+    "mcpDynamicParamsHint": "אילו ערכים האפליקציה הקוראת רשאית לשלוח עם כל שאלה, ולכל אחד ערך ברירת מחדל (null = רק אם נשלח). הם נכנסים ל-{key} ומוסתרים מה-AI. שדה למעלה עם אותו שם גובר. האפליקציה שולחת אותם בשדה",
+    "mcpDynamicParamsInvalid": "JSON לא תקין.",
+    "mcpDynamicParamsNotObject": "צריך להיות אובייקט JSON (זוגות של מפתח וערך).",
     "verify": "אימות",
     "browserForm": {
       "allowDownloads": "אפשר הורדות",
@@ -3817,7 +3956,26 @@
     "refreshAccess": "רענון הגישה",
     "yourAccount": "החשבון שלך",
     "managementOrganizationHint": "בדיקות החיבור ורענון הסכמה משתמשים בפרטי ההתחברות השמורים של הארגון.",
-    "managementPersonalHint": "מחבר זה דורש התחברות אישית. הבדיקות והרענונים משתמשים בחשבון שלך."
+    "managementPersonalHint": "מחבר זה דורש התחברות אישית. הבדיקות והרענונים משתמשים בחשבון שלך.",
+    "memberIdentity": {
+      "title": "זהות לכל חבר",
+      "hint": "כל חבר פועל עם החשבון שלו. בחרו אילו שדות מגיעים ממאפיין חבר שמנהלים מגדירים בהגדרות ← חברים; שאר השדות משתמשים בערך שלמעלה עבור כולם. הערכים שלמעלה עדיין משמשים לאינדוקס הקטלוג המשותף.",
+      "sourceFor": "מקור עבור {field}",
+      "attributeFor": "מאפיין חבר עבור {field}",
+      "sameForEveryone": "זהה לכולם",
+      "fromAttribute": "ממאפיין חבר",
+      "attributePlaceholder": "לדוגמה qlik_user_id",
+      "usesValue": "כולם משתמשים ב-{value}",
+      "usesValueAbove": "כולם משתמשים בערך שלמעלה (או בברירת המחדל שלו)",
+      "attributeRequired": "הזינו את שם מאפיין החבר.",
+      "attributeInvalid": "השתמשו באותיות, ספרות, _ . - והתחילו באות.",
+      "needOne": "מפו לפחות שדה אחד למאפיין חבר, או כבו את אימות המשתמשים.",
+      "previewTitle": "מי פועל בתור מי",
+      "previewCounts": "{ok} מוכנים · {blocked} חסומים",
+      "blocked": "חסום: חסר {attributes}",
+      "test": "בדיקה",
+      "testOk": "מחובר בתור חבר זה"
+    }
   },
   "share": {
     "shareDashboard": "שיתוף דשבורד",
@@ -3903,6 +4061,7 @@
     "organization.required": "חסרה כותרת מזהה הארגון",
     "api_key.invalid": "מפתח API לא תקף או שפג תוקפו",
     "mcp.disabled": "אינטגרציית MCP אינה מופעלת בארגון זה",
+    "mcp.dynamic_params_invalid": "פרמטרים דינמיים חייבים להיות אובייקט JSON בגודל של עד 8KB, עם מפתחות לא ריקים.",
     "feature.locked": "לא ניתן לשנות תכונה זו",
     "license.enterprise_required": "התכונה דורשת רישיון ארגוני.",
     "locale.invalid": "השפה אינה מופעלת",
@@ -3956,7 +4115,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "המשאב אינו זמין",
     "ARTIFACT_RESOURCE_INTERRUPTED": "הבקשה נקטעה",
     "ARTIFACT_RESOURCE_ABORTED": "הבקשה בוטלה",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "גרסת SDK אינה נתמכת"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "גרסת SDK אינה נתמכת",
+    "member_attributes.invalid": "מאפייני חבר לא תקינים.",
+    "member_identity.invalid": "מיפוי זהות לכל חבר אינו תקין.",
+    "member_identity.not_configured": "מנהל עדיין לא בחר איזה מאפיין חבר מזהה את החברים בחיבור הזה.",
+    "member_identity.unresolved": "החשבון שלך בחיבור הזה עדיין לא הוגדר. בקשו ממנהל להגדיר את מאפייני החבר שלכם ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -4556,6 +4719,9 @@
       "default": "ברירת מחדל",
       "emptyShelf": "עדיין אין כאן בדיקות",
       "noneResolved": "עדיין אין בדיקות איכות לסוכן הזה"
+    },
+    "runEvals": {
+      "notRun": "בדיקה אחת בטיוטה או בארכיון לא נכללת | {n} בדיקות בטיוטה או בארכיון לא נכללות"
     }
   },
   "monitoring": {
@@ -5495,7 +5661,9 @@
       "sentWithSubject": "מעקב — נשלחה אליך התראה: {subject}",
       "quiet": "נבדק שוב: אין חדש",
       "failed": "המעקב נכשל"
-    }
+    },
+    "subAgentWaveDone": "{total} סוכני משנה הסתיימו · {counts}",
+    "subAgentWaveDoneTimedOut": "{total} סוכני משנה — הגיע מועד הסיום · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "ההרצה הופסקה",
@@ -5581,7 +5749,8 @@
     "pending": "ממתין",
     "accepted": "התקבלה",
     "webhooks": "Webhooks",
-    "configureWebhook": "הגדרת webhook"
+    "configureWebhook": "הגדרת webhook",
+    "subAgents": "סוכני משנה"
   },
   "scheduledCard": {
     "active": "פעיל",
@@ -5928,5 +6097,30 @@
     "failed": "לא ניתן לטעון את נתוני התוצר",
     "newest": "החדשים ביותר תחילה",
     "oldest": "הישנים ביותר תחילה"
+  },
+  "trackedChanges": {
+    "noChanges": "אין שינויים"
+  },
+  "subAgents": {
+    "wave": "גל {n}",
+    "count": "{count} סוכני משנה",
+    "running": "{count} רצות",
+    "stoppedWave": "נעצר",
+    "timedOut": "הגיע מועד הסיום",
+    "stopAll": "עצירת הכול",
+    "stoppingAll": "עוצר…",
+    "backgroundTasks": "{count} משימות רקע",
+    "queued": "בתור",
+    "heading": "סוכני משנה",
+    "headerStrip": "{total} סוכני משנה · {tokens} טוקנים",
+    "viaSubAgent": "דרך סוכן משנה: {title}",
+    "waveStatus": {
+      "collecting": "מתחיל",
+      "running": "רץ",
+      "firing": "מסיים",
+      "done": "הסתיים",
+      "stopped": "נעצר",
+      "timed_out": "הגיע מועד הסיום"
+    }
   }
 }

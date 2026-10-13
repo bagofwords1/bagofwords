@@ -313,7 +313,11 @@
     "tipRunSuite": "Diese Suite ausführen",
     "runSuiteFailed": "Suite konnte nicht ausgeführt werden",
     "exportInstructions": "Agent-Paket exportieren — Anweisungen, Konfiguration & Evals (.zip)",
-    "sharedManagedElsewhere": "Mit Agenten geteilt, die du nicht verwaltest — bearbeitbar nur für jemanden mit Rechten über alle."
+    "sharedManagedElsewhere": "Mit Agenten geteilt, die du nicht verwaltest — bearbeitbar nur für jemanden mit Rechten über alle.",
+    "unchangedLineOne": "{n} unveränderte Zeile",
+    "unchangedLineMany": "{n} unveränderte Zeilen",
+    "loadPendingFailed": "Ausstehende Änderungen konnten nicht geladen werden.",
+    "allPendingResolved": "Keine ausstehenden Änderungen – alles erledigt."
   },
   "smoke": {
     "hello": "Hallo",
@@ -1131,6 +1135,16 @@
       "needsValues": "Warten auf Werte für:",
       "cachedHint": "Aus Ihrem zwischengespeicherten Ergebnis für diese Werte geliefert – die Quelle wurde nicht erneut abgefragt"
     },
+    "addParameter": {
+      "adding": "Filter \"{name}\" wird hinzugefügt…",
+      "added": "Filter \"{name}\" zu \"{query}\" hinzugefügt",
+      "addedNoQuery": "Filter \"{name}\" hinzugefügt",
+      "failed": "Filter \"{name}\" konnte nicht hinzugefügt werden",
+      "type": "Typ: {type}",
+      "default": "Standard: {value}",
+      "defaultAll": "alle",
+      "column": "Spalte: {column}"
+    },
     "createArtifact": {
       "creating": "Artefakt wird erstellt",
       "created": "Artefakt erstellt",
@@ -1238,7 +1252,16 @@
       "toastFailedPublish": "Anweisung konnte nicht veröffentlicht werden",
       "toastDeletedDesc": "Anweisung gelöscht",
       "toastFailedDelete": "Anweisung konnte nicht gelöscht werden",
-      "toastSaved": "Anweisung gespeichert"
+      "toastSaved": "Anweisung gespeichert",
+      "accept": "Annehmen",
+      "reject": "Ablehnen",
+      "accepted": "Akzeptiert",
+      "rejectedLabel": "Abgelehnt",
+      "stagedInBuild": "Im Build-Entwurf vorgemerkt",
+      "acceptedToast": "Änderung akzeptiert",
+      "acceptFailed": "Akzeptieren fehlgeschlagen",
+      "rejectedToast": "Änderung abgelehnt",
+      "rejectFailed": "Ablehnen fehlgeschlagen"
     },
     "editInstruction": {
       "rejected": "Bearbeitung abgelehnt",
@@ -1275,7 +1298,14 @@
       "toastFailedDelete": "Anweisung konnte nicht gelöscht werden",
       "toastSaved": "Anweisung gespeichert",
       "editCount": "{n} Änderungen",
-      "editLabel": "Anweisung bearbeiten"
+      "editLabel": "Anweisung bearbeiten",
+      "accepted": "Akzeptiert",
+      "rejectedLabel": "Abgelehnt",
+      "stagedInBuild": "Im Build-Entwurf vorgemerkt",
+      "acceptedToast": "Änderung akzeptiert",
+      "acceptFailed": "Akzeptieren fehlgeschlagen",
+      "rejectedToast": "Änderung abgelehnt",
+      "rejectFailed": "Ablehnen fehlgeschlagen"
     },
     "inspectData": {
       "inspecting": "Wird untersucht",
@@ -2484,7 +2514,25 @@
       "linkCopied": "Einladungslink kopiert",
       "failedToCopyLink": "Link konnte nicht kopiert werden",
       "linkRegenerated": "Einladungslink erneuert und kopiert",
-      "moreGroups": "Gruppen"
+      "moreGroups": "Gruppen",
+      "colAttributes": "Attribute",
+      "colAttributesHint": "Von Admins gesetzte Werte, die das Mitglied in anderen Systemen identifizieren (z. B. qlik_user_id). Mitglieder können sie nicht ändern.",
+      "editAttributes": "Attribute bearbeiten",
+      "attributeAdd": "Attribut hinzufügen",
+      "attributeKey": "Attributname",
+      "attributeValue": "Wert",
+      "attributeKeyPlaceholder": "Name, z. B. qlik_user_id",
+      "attributeValuePlaceholder": "Wert, z. B. dana",
+      "attributeRemove": "Attribut entfernen",
+      "attributeKeyRequired": "Name ist erforderlich",
+      "attributeKeyInvalid": "Nur Buchstaben, Ziffern, _ . -; beginnt mit einem Buchstaben",
+      "attributeKeyDuplicate": "Doppelter Name",
+      "attributesTitle": "Mitgliedsattribute",
+      "attributesHint": "Werte, die das Mitglied in anderen Systemen identifizieren, z. B. seinen Qlik-Benutzer oder seine Personalnummer. Nur Admins können sie sehen oder ändern.",
+      "attributesInviteHint": "Optional. Identifiziert das Mitglied in anderen Systemen, z. B. seinen Qlik-Benutzer oder seine Datenbankrolle.",
+      "attributesSaved": "Attribute gespeichert",
+      "attributesSaveFailed": "Attribute konnten nicht gespeichert werden",
+      "importAttributesHint": "Fügen Sie {column}-Spalten hinzu, um Attribute zu setzen, z. B. {example}. Eine leere Zelle lässt das Attribut unverändert."
     },
     "organizationName": "Organisationsname",
     "organizationIcon": "Organisationssymbol",
@@ -3585,6 +3633,10 @@
     "mcpModeAiTip": "Die KI darf es setzen; der Server füllt es, wenn leer",
     "mcpModeLockedTip": "Der Admin-Wert gilt immer; für die KI verborgen",
     "mcpAddMetaField": "+ Metadatenfeld hinzufügen",
+    "mcpDynamicParams": "Dynamische Parameter",
+    "mcpDynamicParamsHint": "Welche Werte die aufrufende App mit jeder Frage senden darf, jeweils mit einem Standardwert (null = nur wenn gesendet). Sie gehen in {key} und sind für die KI unsichtbar; ein Feld oben mit demselben Namen hat Vorrang. Die App sendet sie als",
+    "mcpDynamicParamsInvalid": "Ungültiges JSON.",
+    "mcpDynamicParamsNotObject": "Muss ein JSON-Objekt sein (Schlüssel-Wert-Paare).",
     "verify": "Prüfen",
     "autoReindex": "Schema automatisch neu indexieren",
     "autoReindexAt": "Täglich neu indexieren um",
@@ -3697,7 +3749,26 @@
     "refreshAccess": "Zugriff aktualisieren",
     "yourAccount": "Ihr Konto",
     "managementOrganizationHint": "Tests und Schemaaktualisierungen verwenden die gespeicherten Zugangsdaten der Organisation.",
-    "managementPersonalHint": "Dieser Konnektor erfordert Ihre Anmeldung. Tests und Aktualisierungen verwenden Ihr Konto."
+    "managementPersonalHint": "Dieser Konnektor erfordert Ihre Anmeldung. Tests und Aktualisierungen verwenden Ihr Konto.",
+    "memberIdentity": {
+      "title": "Identität pro Mitglied",
+      "hint": "Jedes Mitglied handelt mit seinem eigenen Konto. Wählen Sie, welche Felder aus einem Mitgliedsattribut stammen, das Admins unter Einstellungen → Mitglieder festlegen; die übrigen verwenden den obigen Wert für alle. Die obigen Werte werden weiterhin zum Indexieren des gemeinsamen Katalogs verwendet.",
+      "sourceFor": "Quelle für {field}",
+      "attributeFor": "Mitgliedsattribut für {field}",
+      "sameForEveryone": "Für alle gleich",
+      "fromAttribute": "Aus Mitgliedsattribut",
+      "attributePlaceholder": "z. B. qlik_user_id",
+      "usesValue": "Alle verwenden {value}",
+      "usesValueAbove": "Alle verwenden den obigen Wert (oder dessen Standard)",
+      "attributeRequired": "Geben Sie den Namen des Mitgliedsattributs ein.",
+      "attributeInvalid": "Verwenden Sie Buchstaben, Ziffern, _ . - und beginnen Sie mit einem Buchstaben.",
+      "needOne": "Ordnen Sie mindestens ein Feld einem Mitgliedsattribut zu oder deaktivieren Sie die Benutzerauthentifizierung.",
+      "previewTitle": "Wer handelt als wer",
+      "previewCounts": "{ok} bereit · {blocked} blockiert",
+      "blocked": "Blockiert: {attributes} fehlt",
+      "test": "Testen",
+      "testOk": "Als dieses Mitglied verbunden"
+    }
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
@@ -3783,6 +3854,7 @@
     "organization.required": "Organisations-ID-Header fehlt",
     "api_key.invalid": "Ungültiger oder abgelaufener API-Schlüssel",
     "mcp.disabled": "MCP-Integration ist für diese Organisation nicht aktiviert",
+    "mcp.dynamic_params_invalid": "Dynamische Parameter müssen ein JSON-Objekt mit höchstens 8 KB und ohne leere Schlüssel sein.",
     "feature.locked": "Funktion kann nicht geändert werden",
     "license.enterprise_required": "Diese Funktion erfordert eine Enterprise-Lizenz.",
     "locale.invalid": "Sprache ist nicht aktiviert",
@@ -3836,7 +3908,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource nicht verfügbar",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Anfrage unterbrochen",
     "ARTIFACT_RESOURCE_ABORTED": "Anfrage abgebrochen",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Nicht unterstützte SDK-Version"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Nicht unterstützte SDK-Version",
+    "member_attributes.invalid": "Ungültige Mitgliedsattribute.",
+    "member_identity.invalid": "Ungültige Identitätszuordnung pro Mitglied.",
+    "member_identity.not_configured": "Ein Admin hat noch nicht festgelegt, welches Mitgliedsattribut Mitglieder auf dieser Verbindung identifiziert.",
+    "member_identity.unresolved": "Ihr Konto für diese Verbindung ist noch nicht eingerichtet. Bitten Sie einen Admin, Ihre Mitgliedsattribute ({attributes}) festzulegen."
   },
   "email": {
     "dashboardShare": {
@@ -4407,6 +4483,9 @@
       "runSuite": "{name} ausführen",
       "runningCount": "Läuft {done}/{total}",
       "title": "Evals für diese Änderung"
+    },
+    "runEvals": {
+      "notRun": "{n} Entwurfs- oder archivierter Fall nicht enthalten | {n} Entwurfs- oder archivierte Fälle nicht enthalten"
     }
   },
   "monitoring": {
@@ -5734,5 +5813,8 @@
     "failed": "Artefaktdaten konnten nicht geladen werden",
     "newest": "Neueste zuerst",
     "oldest": "Älteste zuerst"
+  },
+  "trackedChanges": {
+    "noChanges": "Keine Änderungen"
   }
 }

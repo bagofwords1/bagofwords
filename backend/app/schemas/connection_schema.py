@@ -17,6 +17,8 @@ class ConnectionCreate(BaseModel):
     credentials: Optional[dict] = None
     auth_policy: str = "system_only"
     allowed_user_auth_modes: Optional[list] = None
+    # member_mapped per-user auth: {credential_field: member_attribute_key}
+    member_bindings: Optional[Dict[str, str]] = None
 
 
 class ConnectionUpdate(BaseModel):
@@ -27,6 +29,8 @@ class ConnectionUpdate(BaseModel):
     is_active: Optional[bool] = None
     auth_policy: Optional[str] = None  # system_only, user_required
     allowed_user_auth_modes: Optional[list] = None
+    # Replaces the whole set; {} clears it.
+    member_bindings: Optional[Dict[str, str]] = None
     # Scheduled auto-reindex (enterprise `scheduled_reindex` feature).
     auto_reindex_enabled: Optional[bool] = None
     reindex_interval_hours: Optional[int] = None  # legacy; superseded by minutes
@@ -122,6 +126,8 @@ class ConnectionDetailSchema(BaseModel):
     auth_policy: str
     allowed_user_auth_modes: Optional[list] = None
     config: dict  # Non-sensitive connection parameters
+    # member_mapped per-user auth: {credential_field: member_attribute_key}
+    member_bindings: Optional[Dict[str, str]] = None
     last_synced_at: Optional[str] = None
     organization_id: str
     table_count: int = 0
