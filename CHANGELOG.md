@@ -3,8 +3,11 @@
 ## Version 0.0.588 (October 13, 2026)
 - Added read-only SharePoint 2010 connections using existing Windows authentication (#1368)
 - Added per-request opt-outs for follow-up questions and instruction suggestions in the completions API (#1365) — `follow_ups: false` and `suggest_instructions: false`
+- Added Elasticsearch query guardrails set by admins: block all-index searches, index allowlist, and caps on documents and aggregations (#1372)
+- Added per-connection query timeout and concurrency overrides under a new Query limits panel on the connection (#1372)
 - Added an "Open report" link to Diagnosis run rows for full admins (#1369)
 - Fixed "New report" from an agent page losing the agent and creating an Auto report (#1371)
+- Fixed chart previews blanking and replaying their animation several times while a report runs (#1373)
 - Fixed Aria Operations alert definitions failing with 403 where POST queries are blocked (#1367)
 - Fixed Mermaid syntax errors leaving stray error graphics on the page (#1364)
 - Fixed agent search freezing the server on certain queries (#1323)
