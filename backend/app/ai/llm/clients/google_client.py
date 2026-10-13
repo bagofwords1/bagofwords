@@ -1,10 +1,13 @@
 import base64
+import contextvars
 import json
 import uuid
 from typing import AsyncGenerator, AsyncIterator, Optional
 
 from google import genai
 from google.genai import types
+
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.reasoning import (
@@ -43,7 +46,8 @@ class Google(LLMClient):
     MIN_THINKING_BUDGET = 128
 
     def __init__(self, api_key: str | None = None, temperature: float | None = None,
-                 default_headers: dict | None = None, vertex: dict | None = None):
+                 default_headers: dict | None = None, vertex: dict | None = None,
+                 identity_headers: IdentityHeaders | None = None):
         super().__init__()
         # ``vertex`` routes Gemini through Vertex AI instead of the Gemini
         # Developer API: {"project", "location", "credentials"}. google-genai
@@ -59,8 +63,14 @@ class Google(LLMClient):
             }
         else:
             client_kwargs = {"api_key": api_key}
-        if default_headers:
-            client_kwargs["http_options"] = types.HttpOptions(headers=default_headers)
+        # Identity-forwarding headers resolve per request via an httpx hook on
+        # the (sync) client this wrapper uses.
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        if default_headers or sync_hooks:
+            client_kwargs["http_options"] = types.HttpOptions(
+                headers=default_headers or None,
+                client_args={"event_hooks": sync_hooks} if sync_hooks else None,
+            )
         self.client = genai.Client(**client_kwargs)
         # Admin-configured override, or the historical default.
         self.temperature = 0.3 if temperature is None else temperature
@@ -371,7 +381,9 @@ class Google(LLMClient):
                 chunks.append(chunk)
             return chunks
 
-        chunks = await loop.run_in_executor(None, _collect)
+        # The executor thread doesn't inherit contextvars; carry them so the
+        # per-request identity headers see this run's identity.
+        chunks = await loop.run_in_executor(None, contextvars.copy_context().run, _collect)
 
         # Gemini doesn't hand out tool-call ids, so we mint them. Scope them to
         # this request: a bare counter restarts at 0 every turn, and the

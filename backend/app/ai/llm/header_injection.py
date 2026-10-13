@@ -18,8 +18,11 @@ Sources use the same whitelisted grammar as MCP context forwarding
 before it has fetched any.
 
 Header values must be ASCII on the wire (httpx encodes them as ASCII and
-raises otherwise), so a value with non-ASCII characters — a Hebrew agent or
-user name — is sent percent-encoded as UTF-8 instead of failing the LLM call.
+raises otherwise), so every value is sent percent-encoded as UTF-8: a Hebrew
+agent or user name arrives decodable instead of failing the LLM call, and a
+literal "%" is escaped too, so a gateway can percent-decode every value.
+Printable ASCII other than "%" is left as is. Values are stored as typed and
+encoded only when sent.
 
 The user's identity is ambient: LLM calls happen deep in the agent/tool stack,
 so AgentV2 stamps an :class:`IdentityContext` contextvar at run start (next to
@@ -35,7 +38,7 @@ import contextlib
 import re
 import string
 from contextvars import ContextVar
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
 from app.services.mcp_context_injection import IdentityContext, resolve_source
@@ -51,8 +54,8 @@ MAX_HEADER_VALUE_LEN = 4096
 # agents per run, so there is no fixed name to send.
 AUTO_AGENT_NAME = "auto"
 
-# Printable ASCII stays readable when a value is percent-encoded; only "%"
-# itself is escaped so the encoded value decodes back unambiguously.
+# Printable ASCII stays readable when a value is percent-encoded; "%" itself
+# is always escaped so every value decodes back unambiguously.
 _ASCII_SAFE = "".join(c for c in string.printable if c not in "%\t\n\r\x0b\x0c")
 
 _current_identity: ContextVar[Optional[IdentityContext]] = ContextVar(
@@ -74,8 +77,8 @@ def reset_llm_identity(token) -> None:
         _current_identity.reset(token)
 
 
-def _clean_header_value(value: Any) -> Optional[str]:
-    """Coerce to a single-line header value, or None when unusable.
+def _normalize_header_value(value: Any) -> Optional[str]:
+    """Coerce to a single-line value as typed, or None when empty.
 
     CR/LF are stripped rather than rejected — they can only arrive through a
     resolved identity attribute, and dropping the newline beats failing the
@@ -84,30 +87,38 @@ def _clean_header_value(value: Any) -> Optional[str]:
     if value is None:
         return None
     text = str(value).replace("\r", " ").replace("\n", " ").strip()
-    if not text:
+    return text or None
+
+
+def _clean_header_value(value: Any) -> Optional[str]:
+    """The value as sent: normalized, then percent-encoded and length-capped."""
+    text = _normalize_header_value(value)
+    if text is None:
         return None
-    if not text.isascii():
-        # Encode per character so the length cap never splits a character's
-        # escapes, which would leave the value undecodable.
-        pieces, size = [], 0
-        for ch in text:
-            piece = quote(ch, safe=_ASCII_SAFE)
-            if size + len(piece) > MAX_HEADER_VALUE_LEN:
-                break
-            pieces.append(piece)
-            size += len(piece)
-        return "".join(pieces)
-    return text[:MAX_HEADER_VALUE_LEN]
+    # Encode per character so the length cap never splits a character's
+    # escapes, which would leave the value undecodable.
+    pieces, size = [], 0
+    for ch in text:
+        piece = quote(ch, safe=_ASCII_SAFE)
+        if size + len(piece) > MAX_HEADER_VALUE_LEN:
+            break
+        pieces.append(piece)
+        size += len(piece)
+    return "".join(pieces)
 
 
-def agent_name_for_report(report: Any) -> str:
+def agent_name_for_report(report: Any, agents: Any = None) -> str:
     """The ``agent.name`` value a question starts with, before any tool.
 
-    What the user chose in the chat: the report's attached agents, comma-joined
-    by name. A report with none attached is Auto (agents resolve per run) and
-    sends ``auto``. Empty — so the header is omitted — when there is no report,
-    or for an artifact chat with no agents, which is limited to the dashboard's
-    own data rather than Auto.
+    In order: the report's focused agents (``focused_data_source_ids``, set by
+    the user or by the first data tool), since those are the agents whose full
+    schema the planner is given; else the attached agents the user chose; else
+    ``auto`` for a report with none attached (Auto resolves agents per run).
+    Empty — so the header is omitted — when there is no report, or for an
+    artifact chat with no agents, which is limited to the dashboard's own data.
+
+    ``agents`` is the run's pool used to name focused ids: in Auto the focused
+    agents are not attached to the report.
     """
     if report is None:
         return ""
@@ -116,6 +127,17 @@ def agent_name_for_report(report: Any) -> str:
     except Exception:
         # Unloadable relationship: an unknown scope is not Auto.
         return ""
+    focus_ids = [str(x) for x in (getattr(report, "focused_data_source_ids", None) or [])]
+    if focus_ids:
+        by_id: Dict[str, str] = {}
+        try:
+            for ds in list(agents or []) + attached:
+                by_id.setdefault(str(getattr(ds, "id", "")), str(getattr(ds, "name", "") or ""))
+        except Exception:
+            pass
+        focused = _join_names(by_id.get(i, "") for i in focus_ids)
+        if focused:
+            return focused
     names = _join_names(str(getattr(ds, "name", "") or "") for ds in attached)
     if names:
         return names
@@ -176,16 +198,6 @@ def agent_ids_from_tool_output(tool_name: str, tool_output: Any) -> List[str]:
         if did:
             ids.append(str(did))
     return ids
-
-
-def provider_uses_agent_name(additional_config: Optional[Dict[str, Any]]) -> bool:
-    """Whether any forwarding rule reads ``agent.name`` (alone or interpolated)."""
-    rules = (additional_config or {}).get("header_injection") or []
-    return any(
-        "agent.name" in str((r or {}).get("source", ""))
-        for r in rules
-        if isinstance(r, dict)
-    )
 
 
 class QuestionAgents:
@@ -258,10 +270,10 @@ def validate_header_config(
             continue
         if len(name) > MAX_HEADER_NAME_LEN or not _HEADER_NAME_RE.match(name):
             raise ValueError(f"Invalid header name: {name!r}")
-        cleaned = _clean_header_value(value)
+        cleaned = _normalize_header_value(value)
         if cleaned is None:
             continue
-        clean_headers[name] = cleaned
+        clean_headers[name] = cleaned[:MAX_HEADER_VALUE_LEN]
 
     clean_rules: List[Dict[str, str]] = []
     for rule in header_injection or []:
@@ -283,36 +295,82 @@ def validate_header_config(
     return clean_headers, clean_rules
 
 
-def build_provider_headers(additional_config: Optional[Dict[str, Any]]) -> Dict[str, str]:
-    """Resolve a provider's header config into the headers to send.
+def static_provider_headers(additional_config: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """The provider's static ``headers``, fixed for the client's lifetime.
 
-    Static ``headers`` first, then ``header_injection`` rules against the
-    ambient identity (dynamic wins). Rules that resolve empty are omitted —
-    an empty identity header is noise, not context. Invalid names are dropped
-    defensively (storage already validates; config may predate validation).
-    """
-    config = additional_config or {}
+    Invalid names are dropped defensively (storage already validates; config
+    may predate validation)."""
     resolved: Dict[str, str] = {}
-
-    static = config.get("headers") or {}
+    static = (additional_config or {}).get("headers") or {}
     if isinstance(static, dict):
         for name, value in static.items():
             name = str(name or "").strip()
             cleaned = _clean_header_value(value)
             if name and cleaned is not None and _HEADER_NAME_RE.match(name):
                 resolved[name] = cleaned
+    return resolved
 
-    rules = config.get("header_injection") or []
-    if isinstance(rules, list):
+
+IdentityHeaders = Callable[[], Dict[str, str]]
+
+
+def identity_header_resolver(additional_config: Optional[Dict[str, Any]]) -> Optional[IdentityHeaders]:
+    """A function resolving the provider's ``header_injection`` rules against
+    the ambient identity *at the moment it is called*, or None without rules.
+
+    Clients call it on every request (see :func:`httpx_identity_hooks`), so a
+    value that changes mid-run — agent.name after a tool — reaches every call
+    without rebuilding clients. Rules that resolve empty are omitted: an empty
+    identity header is noise, not context."""
+    rules = []
+    for rule in (additional_config or {}).get("header_injection") or []:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("header") or "").strip()
+        if name and _HEADER_NAME_RE.match(name):
+            rules.append((name, rule.get("source", "")))
+    if not rules:
+        return None
+
+    def resolve() -> Dict[str, str]:
         identity = get_llm_identity() or IdentityContext()
-        for rule in rules:
-            if not isinstance(rule, dict):
-                continue
-            name = str(rule.get("header") or "").strip()
-            if not name or not _HEADER_NAME_RE.match(name):
-                continue
-            value = _clean_header_value(resolve_source(rule.get("source", ""), identity))
+        resolved: Dict[str, str] = {}
+        for name, source in rules:
+            value = _clean_header_value(resolve_source(source, identity))
             if value:
                 resolved[name] = value
+        return resolved
 
+    return resolve
+
+
+def build_provider_headers(additional_config: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """Every header a request would carry right now: static, then identity
+    rules against the ambient identity (dynamic wins)."""
+    resolved = static_provider_headers(additional_config)
+    resolver = identity_header_resolver(additional_config)
+    if resolver is not None:
+        resolved.update(resolver())
     return resolved
+
+
+def httpx_identity_hooks(identity_headers: Optional[IdentityHeaders], *, is_async: bool):
+    """httpx ``event_hooks`` setting the identity headers on each request.
+
+    The hook runs in the context of the code that sends the request, so it
+    sees that context's identity; code that hands a request to another thread
+    must carry the context along (``contextvars.copy_context().run``)."""
+    if identity_headers is None:
+        return None
+
+    def _apply(request) -> None:
+        for name, value in identity_headers().items():
+            request.headers[name] = value
+
+    if is_async:
+        async def hook(request):
+            _apply(request)
+    else:
+        def hook(request):
+            _apply(request)
+    return {"request": [hook]}

@@ -400,7 +400,6 @@ from app.ai.llm.header_injection import (
     agent_ids_from_tool_input,
     agent_name_for_report,
     get_llm_identity,
-    provider_uses_agent_name,
     reset_llm_identity,
     set_llm_identity,
 )
@@ -538,18 +537,16 @@ class AgentV2:
         self._sub_agent_finish_nudges = 0
         self._planner_steps_exhausted = False
         self._wave_pending = False
-        # Stamp the asker's identity for LLM header injection BEFORE the
-        # planner below constructs its LLM client — provider header_injection
-        # rules resolve at client construction. Membership role/attributes need
-        # a DB query, so main_execution enriches this stamp at run start; the
-        # user-level fields cover the common rules (user.email/name/id) for
-        # clients built here in __init__. agent.name comes from the report's
-        # attachments, already loaded with it, so it is complete here.
+        # Stamp the asker's identity for LLM header injection. Rules resolve per
+        # request, so this covers calls made before main_execution (which
+        # enriches the stamp with membership role/attributes at run start).
+        # agent.name's start value comes from the report's focus / attachments,
+        # already loaded with it.
         try:
             _init_user = getattr(head_completion, "user", None) if head_completion else None
         except Exception:
             _init_user = None
-        _init_agent_name = agent_name_for_report(report)
+        _init_agent_name = agent_name_for_report(report, data_sources)
         set_llm_identity(
             IdentityContext(
                 email=getattr(_init_user, "email", "") or "",
@@ -1334,8 +1331,8 @@ class AgentV2:
 
     def _note_question_agents(self, outcomes) -> None:
         """Fold the agents a finished tool batch used into the question's
-        agent.name header value. Headers are fixed when an LLM client is built,
-        so on a change the LLM clients built earlier in the run are rebuilt."""
+        agent.name header value. Identity headers resolve per request, so
+        re-stamping the ambient identity reaches every later LLM call."""
         qa = getattr(self, "_question_agents", None)
         if qa is None:
             return
@@ -1351,20 +1348,6 @@ class AgentV2:
             if not changed:
                 return
             self._stamp_agent_name(qa.value())
-            from app.ai.llm.llm import LLM
-            # Clients built before this point: the planner's, and the
-            # reporter's, which writes the follow-up suggestions after the answer.
-            for owner, model in (
-                (self.planner, self.model),
-                (getattr(self, "reporter", None), getattr(self, "small_model", None)),
-            ):
-                _prov_cfg = getattr(getattr(model, "provider", None), "additional_config", None) or {}
-                if owner is not None and model is not None and provider_uses_agent_name(_prov_cfg):
-                    owner.llm = LLM(
-                        model,
-                        usage_session_maker=async_session_maker,
-                        usage_context=self.usage_limit_context,
-                    )
             self._mlog(f"agent_name header={qa.value()!r}")
         except Exception:
             logger.warning("[headers] failed to update agent.name after tool batch", exc_info=True)
@@ -4521,7 +4504,7 @@ class AgentV2:
         # the user object.
         _identity_token = None
         _id_user = getattr(self.head_completion, "user", None) if self.head_completion else None
-        _id_agent_name = agent_name_for_report(self.report)
+        _id_agent_name = agent_name_for_report(self.report, self._question_agent_pool())
         if _id_user is None and _id_agent_name:
             _identity_token = set_llm_identity(IdentityContext(agent_name=_id_agent_name))
         if _id_user is not None:
@@ -4547,29 +4530,9 @@ class AgentV2:
                 attributes=_id_attrs,
                 agent_name=_id_agent_name,
             ))
-            # The planner's LLM was constructed in __init__ under the
-            # user-only identity stamp, so membership-based header rules
-            # (membership.role / membership.attr:*) resolved empty in its
-            # baked default_headers. Rebuild it under the enriched identity
-            # when the provider forwards membership fields — same cheap
-            # rebuild the model router uses on escalation.
-            try:
-                _prov_cfg = getattr(getattr(self.model, "provider", None), "additional_config", None) or {}
-                _needs_membership = any(
-                    str((r or {}).get("source", "")).startswith(("membership.", "static:"))
-                    for r in (_prov_cfg.get("header_injection") or [])
-                    if isinstance(r, dict)
-                )
-                logger.debug("[headers] identity stamped (role=%r attrs=%d membership_rules=%s)", _id_role, len(_id_attrs), _needs_membership)
-                if _needs_membership:
-                    from app.ai.llm.llm import LLM
-                    self.planner.llm = LLM(
-                        self.model,
-                        usage_session_maker=async_session_maker,
-                        usage_context=self.usage_limit_context,
-                    )
-            except Exception:
-                logger.warning("[headers] failed to rebuild planner LLM with membership identity", exc_info=True)
+            # Identity headers resolve per request (header_injection), so
+            # clients built in __init__ pick up the enriched identity too.
+            logger.debug("[headers] identity stamped (role=%r attrs=%d)", _id_role, len(_id_attrs))
         # agent.name for this question: starts at the chat's choice and follows
         # the agents its tools fetch data from (see QuestionAgents).
         self._question_agents = QuestionAgents(_id_agent_name)
