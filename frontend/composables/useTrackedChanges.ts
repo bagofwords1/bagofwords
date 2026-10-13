@@ -101,11 +101,14 @@ export function useTrackedChanges(
     const suggestion = (data.value.suggestions || []).find(
       (item: any) => String(item.build_id) === String(buildId),
     )
-    if (!suggestion?.hunks?.length) return null
+    // Field changes (e.g. switching the instruction off) are action units too:
+    // a suggestion with no text change is still a whole decision.
+    const units = [...(suggestion?.hunks || []), ...(suggestion?.field_changes || [])]
+    if (!units.length) return null
     return {
       against_main_build_id: data.value.main_build_id,
       against_main_version_id: data.value.main_version_id,
-      hunks: suggestion.hunks.map((h: any) => ({
+      hunks: units.map((h: any) => ({
         build_id: suggestion.build_id,
         hunk_key: h.key,
       })),

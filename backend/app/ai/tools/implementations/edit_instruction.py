@@ -30,6 +30,16 @@ MIN_CONFIDENCE_THRESHOLD = 0.7
 # Valid categories
 VALID_CATEGORIES = {"general", "code_gen", "visualization", "dashboard", "system"}
 
+# load_mode values the tool may set. 'disabled' is deliberately absent: it reads
+# as an off switch but is the weak one (the row still shows Active and is still
+# returned by search) — `status: inactive` is the real off switch.
+VALID_LOAD_MODES = {"always", "intelligent"}
+
+# Tool vocabulary -> Instruction.status. "Inactive" is how the product labels a
+# 'draft' instruction; every context loader filters on status == 'published'.
+STATUS_TO_DB = {"active": "published", "inactive": "draft"}
+DB_TO_STATUS = {v: k for k, v in STATUS_TO_DB.items()}
+
 # Minimum length for the RESULTING instruction text after an edit. The schema
 # no longer enforces min_length on `text` (an anchored replacement snippet may
 # legitimately be short), so the invariant is checked on the final text here.
@@ -51,6 +61,42 @@ def _closest_region(current: str, anchor: str, context: int = 60) -> Optional[st
         return current[start:end]
     except Exception:
         return None
+
+
+async def _base_status(db, instruction, pending_version) -> str:
+    """The status this edit starts from — what the instruction is when the
+    suggestion is reviewed, before any status change it asks for.
+
+    The pending version in this build wins (an earlier edit this session may
+    already have changed it). Otherwise it is the live row's status — but only
+    for an instruction that is actually live. A create suggestion still awaiting
+    review keeps its row at 'draft' until promotion, yet is meant to go live as
+    'published'; reading the row there would stage the edit as Inactive.
+    """
+    if pending_version is not None:
+        return pending_version.status or "published"
+    status = getattr(instruction, "status", None) or "published"
+    if status == "published":
+        return status
+    from app.services.instruction_service import InstructionService
+    svc = InstructionService()
+    if await svc._org_has_main_build(db, instruction.organization_id):
+        # Main build exists: membership is what "live" means.
+        return status if await svc._is_in_main_build(db, instruction) else "published"
+    # No main build — a legacy org, or a new one whose first suggestions are
+    # still in review. Membership proves nothing there; the current version
+    # does: a pending create is staged 'published' over its 'draft' row, while
+    # every person-made status change snapshots the row's own status.
+    if instruction.current_version_id:
+        from sqlalchemy import select
+        from app.models.instruction_version import InstructionVersion
+        v_status = (await db.execute(
+            select(InstructionVersion.status)
+            .where(InstructionVersion.id == str(instruction.current_version_id))
+        )).scalar()
+        if v_status:
+            return v_status
+    return status
 
 
 async def _load_pending_version(db, build_id: Optional[str], instruction_id: str):
@@ -152,7 +198,7 @@ class EditInstructionTool(Tool):
                 "propagate the change through the rest of the document for consistency, or add "
                 "adjacent rules and tool-usage guidance nobody requested — whether the rest "
                 "should follow suit is the reviewer's call, not yours. Leave metadata "
-                "(category, load_mode, confidence) alone unless the request is about it. When "
+                "(category, load_mode, confidence, status) alone unless the request is about it. When "
                 "reverting, remove exactly what was added — not the sentence that contained "
                 "it.\n\n"
                 "SEVERAL CHANGES = SEVERAL CALLS. One call edits one place. If a request "
@@ -177,6 +223,12 @@ class EditInstructionTool(Tool):
                 "than stacking a second suggestion; if the user asks you to undo something "
                 "that is still only pending, the answer is that it was never applied — do not "
                 "edit the live text to remove it.\n\n"
+                "TURNING AN INSTRUCTION OFF: `status: \"inactive\"` (no text needed) takes it "
+                "out of use for every agent while keeping its text; `status: \"active\"` turns it "
+                "back on. Use it when the user asks to stop using, disable or turn off an "
+                "instruction, or it is confirmed wrong as a whole. Do NOT delete its text to "
+                "achieve the same, and do not use load_mode for it. Not available in knowledge "
+                "mode.\n\n"
                 "SCOPING — table_names: Pass ONLY when you want to change the table scope. "
                 "Pass an empty list [] to make the instruction global (remove all table scoping). "
                 "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
@@ -246,6 +298,14 @@ class EditInstructionTool(Tool):
                         "load_mode": "always"
                     },
                     "description": "Change category and load mode for a critical rule."
+                },
+                {
+                    "input": {
+                        "instruction_id": "inst_abc123",
+                        "status": "inactive",
+                        "evidence": "User asked to stop applying the legacy fiscal-calendar rule."
+                    },
+                    "description": "Turn an instruction off without touching its text."
                 }
             ]
         )
@@ -301,6 +361,34 @@ class EditInstructionTool(Tool):
             )
             return
 
+        # Validate load_mode if provided. Unknown values (notably 'disabled')
+        # used to be coerced to 'intelligent' — a request to turn an
+        # instruction off silently widened when it loads.
+        if data.load_mode is not None and data.load_mode not in VALID_LOAD_MODES:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": EditInstructionOutput(
+                        success=False,
+                        instruction_id=data.instruction_id,
+                        message=(
+                            f"Invalid load_mode '{data.load_mode}'. Must be one of: "
+                            f"{', '.join(sorted(VALID_LOAD_MODES))}. To take the instruction "
+                            "out of use, set status: 'inactive' instead."
+                        ),
+                        rejected_reason="invalid_load_mode",
+                    ).model_dump(),
+                    "observation": {
+                        "summary": (
+                            f"Edit rejected: invalid load_mode '{data.load_mode}'. "
+                            "Use status: 'inactive' to turn an instruction off."
+                        ),
+                        "artifacts": [],
+                    },
+                }
+            )
+            return
+
         # Validate category if provided
         if data.category is not None and data.category not in VALID_CATEGORIES:
             yield ToolEndEvent(
@@ -341,6 +429,35 @@ class EditInstructionTool(Tool):
                 }
             except Exception:
                 allowed_data_source_ids = set()
+
+        # Turning an instruction on or off changes behaviour for every agent
+        # that loads it. The knowledge harness edits autonomously, so — like
+        # replace_entire_text — it must not be able to retire curated content
+        # (or revive what a person switched off). Training mode, where a user
+        # is curating deliberately, may.
+        if data.status is not None and mode == "knowledge":
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": EditInstructionOutput(
+                        success=False,
+                        instruction_id=data.instruction_id,
+                        message=(
+                            "Changing an instruction's status is not allowed in knowledge "
+                            "mode. If it should be turned on or off, suggest that to the user."
+                        ),
+                        rejected_reason="status_change_not_allowed",
+                    ).model_dump(),
+                    "observation": {
+                        "summary": (
+                            "Edit rejected: status changes are not allowed in knowledge "
+                            "mode. Do not retry — suggest the change to the user instead."
+                        ),
+                        "artifacts": [],
+                    },
+                }
+            )
+            return
 
         # Lazy build creation: the harness no longer pre-seeds a draft.
         # The first create/edit in a session lazily creates the build below
@@ -688,10 +805,53 @@ class EditInstructionTool(Tool):
             new_title = data.title if data.title is not None else base_title
             new_category = data.category if data.category is not None else instruction.category
             if data.load_mode is not None:
-                valid_load_modes = {"always", "intelligent"}
-                new_load_mode = data.load_mode if data.load_mode in valid_load_modes else "intelligent"
+                new_load_mode = data.load_mode  # validated above
             else:
                 new_load_mode = base_load_mode or "always"
+
+            # === Status ===
+            # Staged on the version, applied when a reviewer accepts. Without a
+            # requested change the version carries the CURRENT status, so a text
+            # edit to an Inactive instruction can never switch it back on.
+            base_status = await _base_status(db, instruction, pending_version)
+            new_status = STATUS_TO_DB[data.status] if data.status else base_status
+            if data.status is not None:
+                status_error = None
+                if base_status not in DB_TO_STATUS:
+                    status_error = (
+                        "status_change_not_allowed",
+                        f"This instruction is {base_status}; only active and inactive "
+                        "instructions can be switched on or off.",
+                    )
+                elif new_status == base_status and not any(
+                    v is not None for v in (
+                        data.text, data.title, data.category, data.confidence,
+                        data.load_mode, data.table_names,
+                    )
+                ):
+                    status_error = (
+                        "no_change",
+                        f"The instruction is already {data.status}.",
+                    )
+                if status_error:
+                    code, msg = status_error
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=str(instruction.id),
+                                title=getattr(instruction, "title", None),
+                                message=f"Edit rejected: {msg}",
+                                rejected_reason=code,
+                            ).model_dump(),
+                            "observation": {
+                                "summary": f"Edit rejected ({code}): {msg}",
+                                "artifacts": [],
+                            },
+                        }
+                    )
+                    return
 
             matched_table_names = []
             if data.table_names is not None:
@@ -769,11 +929,12 @@ class EditInstructionTool(Tool):
                     description=instruction.description,
                     structured_data=instruction.structured_data,
                     formatted_content=instruction.formatted_content,
-                    # AI-suggested edit: stage as 'published' so promote_build
-                    # flips the live row on approval. The live row's current
-                    # status ('draft' for pending suggestions) is preserved
-                    # until promotion.
-                    status="published",
+                    # AI-suggested edit: the requested status, else the
+                    # instruction's current one — 'published' for a suggestion
+                    # not yet live, so promote_build still flips that row on
+                    # approval (see _base_status). The live row is untouched
+                    # until a reviewer accepts.
+                    status=new_status,
                     load_mode=new_load_mode,
                     references_json=new_references_json,
                     data_source_ids=new_data_source_ids,
@@ -821,6 +982,9 @@ class EditInstructionTool(Tool):
                 changes.append(f"confidence={data.confidence}")
             if data.load_mode is not None:
                 changes.append(f"load_mode={data.load_mode}")
+            status_changed = data.status is not None and new_status != base_status
+            if status_changed:
+                changes.append(f"status={data.status}")
             if data.table_names is not None:
                 changes.append(f"tables={matched_table_names}")
 
@@ -841,6 +1005,8 @@ class EditInstructionTool(Tool):
                         message=f"Instruction updated successfully{version_str}",
                         previous_text=previous_text,
                         new_text=(new_text if data.text is not None else None),
+                        previous_status=(DB_TO_STATUS.get(base_status) if status_changed else None),
+                        new_status=(data.status if status_changed else None),
                     ).model_dump(),
                     "observation": {
                         "summary": f"Edited instruction{version_str}: {changes_str}",
