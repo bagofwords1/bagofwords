@@ -722,7 +722,7 @@ class SubAgentService:
                 "parent_completion_id": w.parent_completion_id, "fan_in_completion_id": w.fan_in_completion_id,
                 "created_at": w.created_at.isoformat() if w.created_at else None,
                 "deadline_at": w.deadline_at.isoformat() if w.deadline_at else None,
-                "sub_agent_runs": items,
+                "sub_agents": items,
             })
             if w.status in (WAVE_COLLECTING, WAVE_RUNNING, WAVE_FIRING):
                 for it in items:
@@ -738,7 +738,7 @@ class SubAgentService:
         lines = ["<sub_agents>"]
         for w in data["waves"]:
             lines.append(f'  <wave id="{w["id"]}" status="{w["status"]}" total="{w["total"]}">')
-            for r in w["sub_agent_runs"]:
+            for r in w["sub_agents"]:
                 bits = [f'id="{r["sub_agent_id"]}"', f'title="{_attr(r["title"])}"', f'status="{r["status"]}"']
                 if r.get("outcome"):
                     bits.append(f'outcome="{r["outcome"]}"')

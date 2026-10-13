@@ -2930,7 +2930,7 @@
           "title": "אחר",
           "description": "הגדרות שעדיין לא שויכו לקבוצה"
         },
-        "sub_agent_runs": {
+        "sub_agents": {
           "title": "סוכני משנה",
           "description": "חקירות מואצלות ברקע והמגבלות שלהן"
         }

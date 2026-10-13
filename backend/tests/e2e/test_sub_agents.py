@@ -289,7 +289,7 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     assert wave["status"] == "done", wave
     assert wave["total"] == len(HYPOTHESES) and wave["remaining"] == 0
     assert data["background_tasks"] == []  # nothing live once the wave fanned in
-    runs = {r["title"]: r for r in wave["sub_agent_runs"]}
+    runs = {r["title"]: r for r in wave["sub_agents"]}
     assert set(runs) == {t for t, _ in HYPOTHESES}
 
     # Contract: three finished through finish_subtask, one synthesized.
@@ -352,8 +352,8 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
 
     # Summary rows.
     summ = test_client.get(f"/api/reports/{rid}/summary", headers=headers).json()
-    assert len(summ["sub_agent_runs"]) == len(HYPOTHESES)
-    assert all(s["message_id"] == parent_sys["id"] for s in summ["sub_agent_runs"])
+    assert len(summ["sub_agents"]) == len(HYPOTHESES)
+    assert all(s["message_id"] == parent_sys["id"] for s in summ["sub_agents"])
 
     # DB invariants: child execution links, exactly one wave, hidden children.
     async def _db_checks():
@@ -391,9 +391,9 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
     test_client = live_client
     _post_completion(test_client, rid, "Why did paid orders drop?", headers)
 
-    data = _wait_for(lambda: (lambda d: d if d["waves"] and any(r["status"] == "running" and "Slow" in r["title"] for r in d["waves"][-1]["sub_agent_runs"]) else None)(_sub_agents(test_client, rid, headers)),
+    data = _wait_for(lambda: (lambda d: d if d["waves"] and any(r["status"] == "running" and "Slow" in r["title"] for r in d["waves"][-1]["sub_agents"]) else None)(_sub_agents(test_client, rid, headers)),
                      timeout_s=90, what="slow child to start")
-    slow = next(r for r in data["waves"][-1]["sub_agent_runs"] if "Slow" in r["title"])
+    slow = next(r for r in data["waves"][-1]["sub_agents"] if "Slow" in r["title"])
     assert data["background_tasks"], "a running child must show as a background task"
 
     r = test_client.post(f"/api/reports/{rid}/sub-agents/{slow['sub_agent_id']}/stop", headers=headers)
@@ -401,7 +401,7 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
 
     data = _wait_for(lambda: (lambda d: d if d["waves"][-1]["status"] == "done" else None)(_sub_agents(test_client, rid, headers)),
                      timeout_s=120, what="wave to fan in after a child stop")
-    runs = {x["title"]: x for x in data["waves"][-1]["sub_agent_runs"]}
+    runs = {x["title"]: x for x in data["waves"][-1]["sub_agents"]}
     assert runs["Slow pricing hypothesis"]["status"] == "interrupted"
     assert runs["Slow pricing hypothesis"]["exit_reason"] == "stopped"
     assert runs["Slow pricing hypothesis"]["outcome"] == "partial"  # synthesized, never a missing record
@@ -422,7 +422,7 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
     assert r.status_code == 200 and r.json()["status"] == "stopped", r.text
     data = _sub_agents(test_client, rid2, headers)
     assert data["waves"][-1]["status"] == "stopped"
-    assert all(x["status"] == "interrupted" for x in data["waves"][-1]["sub_agent_runs"]), data["waves"][-1]["sub_agent_runs"]
+    assert all(x["status"] == "interrupted" for x in data["waves"][-1]["sub_agents"]), data["waves"][-1]["sub_agents"]
     assert data["background_tasks"] == []
     # Give any in-flight finalize a moment, then assert no fan-in ever appears.
     time.sleep(6)

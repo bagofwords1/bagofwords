@@ -3010,7 +3010,7 @@
           "title": "Other",
           "description": "Settings not yet assigned to a section"
         },
-        "sub_agent_runs": {
+        "sub_agents": {
           "title": "Sub-agents",
           "description": "Delegated background investigations and their limits"
         }

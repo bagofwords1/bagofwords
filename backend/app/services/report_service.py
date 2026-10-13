@@ -4079,7 +4079,7 @@ class ReportService:
             from app.services.sub_agent_service import sub_agent_service
             data = await sub_agent_service.list_for_report(db, report_id, limit_waves=20)
             for w in data.get("waves") or []:
-                for r in w.get("sub_agent_runs") or []:
+                for r in w.get("sub_agents") or []:
                     sub_agents.append({
                         "sub_agent_id": r["sub_agent_id"], "wave_id": w["id"], "wave_status": w["status"],
                         "message_id": r.get("parent_completion_id"), "title": r.get("title"),
@@ -4096,6 +4096,6 @@ class ReportService:
             "queries": queries,
             "instructions": instructions,
             "lists": lists,
-            "sub_agent_runs": sub_agents,
+            "sub_agents": sub_agents,
             "pending_training_build": pending_build.model_dump() if pending_build else None,
         }

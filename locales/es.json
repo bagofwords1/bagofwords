@@ -2930,7 +2930,7 @@
           "title": "Otros",
           "description": "Ajustes aún no asignados a una sección"
         },
-        "sub_agent_runs": {
+        "sub_agents": {
           "title": "Subagentes",
           "description": "Investigaciones delegadas en segundo plano y sus límites"
         }
