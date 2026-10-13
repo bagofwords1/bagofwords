@@ -2,6 +2,7 @@
 
 ## Version 0.0.587 (October 13, 2026)
 - Added dynamic params for MCP connections (#1359) — values sent per question in `prompt.metadata`, limited to an admin allow-list
+- Added admin-set member attributes in Settings → Members (#1361) — key/value pairs set on invite, edit or members import (`attr.<key>` columns)
 - Fixed adding a filter to a chart failing when the agent passed the chart's id (#1347)
 - Added a chat card for added filters, showing the filter, query and errors (#1348)
 - Fixed Run evals including draft and archived cases and following the Tests search (#1352)
