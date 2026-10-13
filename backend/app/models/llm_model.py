@@ -346,7 +346,25 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 7.50
     },
     {
-        # Preview channel — the pro tier has no stable id right now. Selectable,
+        # Flagship, stable (GA 2026-10-13). Not the default: switching a
+        # provider's default is a product call, and this costs well above Flash.
+        "name": "Gemini 4 Argon",
+        "model_id": "gemini-4-argon",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        # Standard list price from 2026-12-01; until then Google bills an
+        # introductory $2.00 / $10.00.
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
+    },
+    {
+        # Preview channel, superseded by the stable Gemini 4 Argon. Selectable,
         # but deliberately not a default: a preview id is what got shut down.
         "name": "Gemini 3.1 Pro Preview",
         "model_id": "gemini-3.1-pro-preview",

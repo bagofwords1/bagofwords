@@ -35,6 +35,11 @@ from app.ai.llm.types import (
 
 # Largest thinking budget every Gemini 2.5 model accepts (Flash: 24,576).
 GEMINI_MAX_THINKING_BUDGET = 24576
+# Families that take a named thinking_level rather than a token budget.
+GEMINI_LEVEL_PREFIXES = ("gemini-3", "gemini-4")
+# Families documented with thinking_level only (no thinking_budget, no off):
+# the "no thinking" floor is the lowest level instead of a minimum budget.
+GEMINI_LEVEL_ONLY_PREFIXES = ("gemini-4",)
 
 
 class Google(LLMClient):
@@ -105,14 +110,19 @@ class Google(LLMClient):
             thinking = None
         requested = selected_effort(thinking) if thinking else None
         effort = (clamp_effort(requested, efforts_for_client(self, model_id)) or requested) if requested else None
-        if requested == "off":
+        family = _capability_model(self, model_id).lower().rsplit("/", 1)[-1]
+        if mode != "custom" and family.startswith(GEMINI_LEVEL_ONLY_PREFIXES) and (requested == "off" or not effort):
+            # Gemini 4 cannot turn thinking off and documents no budget, so the
+            # floor is its lowest level.
+            thinking_config = types.ThinkingConfig(thinking_level="LOW", include_thoughts=False)
+        elif requested == "off":
             # Preserve the existing minimum for models that cannot disable
             # thinking; a disabled marker must not become a 1024-token budget.
             thinking_config = types.ThinkingConfig(
                 thinking_budget=self._thinking_budget(), include_thoughts=False
             )
-        elif thinking and mode != "custom" and effort and _capability_model(self, model_id).lower().rsplit("/", 1)[-1].startswith("gemini-3"):
-            # Gemini 3 takes a named level; a budget would be converted
+        elif thinking and mode != "custom" and effort and family.startswith(GEMINI_LEVEL_PREFIXES):
+            # Gemini 3 and 4 take a named level; a budget would be converted
             # imprecisely, and sending both is a 400.
             thinking_config = types.ThinkingConfig(thinking_level=effort.upper(), include_thoughts=True)
         elif thinking:
