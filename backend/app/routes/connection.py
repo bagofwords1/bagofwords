@@ -495,6 +495,7 @@ async def get_connection(
     )
     from app.services.connection_identity import management_requires_user_auth
     personal_management = management_requires_user_auth(connection)
+    query_limits = await _query_limit_fields(db, organization, config if is_admin else {})
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -530,8 +531,38 @@ async def get_connection(
         rate_limit_per_minute=connection.rate_limit_per_minute,
         rate_limit_per_hour=connection.rate_limit_per_hour,
         rate_limit_per_day=connection.rate_limit_per_day,
+        **query_limits,
         data_shape=data_shape_for(connection.type),
     )
+
+
+async def _query_limit_fields(db: AsyncSession, organization: Organization, config: dict) -> dict:
+    """The connection's query-limit overrides plus the org defaults they replace."""
+    from app.ai.code_execution.code_execution import DEFAULT_QUERY_TIMEOUT_SECONDS
+    from app.data_sources.query_concurrency import DEFAULT_MAX_CONCURRENT_QUERIES
+
+    def _positive(value):
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
+
+    def _org_value(settings, key, fallback):
+        try:
+            cfg = settings.get_config(key) if settings is not None else None
+            return _positive(cfg.value if hasattr(cfg, "value") else cfg) or fallback
+        except Exception:
+            return fallback
+
+    try:
+        settings = await organization.get_settings(db)
+    except Exception:
+        settings = None
+    config = config if isinstance(config, dict) else {}
+    return {
+        "query_timeout_seconds": _positive(config.get("query_timeout_seconds")),
+        "max_concurrent_queries": _positive(config.get("max_concurrent_queries")),
+        "default_query_timeout_seconds": _org_value(settings, "query_timeout_seconds", DEFAULT_QUERY_TIMEOUT_SECONDS),
+        "default_max_concurrent_queries": _org_value(
+            settings, "max_concurrent_queries_per_connection", DEFAULT_MAX_CONCURRENT_QUERIES),
+    }
 
 
 @router.put("/{connection_id}", response_model=ConnectionSchema)

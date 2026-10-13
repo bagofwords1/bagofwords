@@ -1115,13 +1115,24 @@ def wrap_clients_for_capture(
         if isinstance(client, UnavailableConnectionClient):
             wrapped[key] = client
         elif client is not None and hasattr(client, 'execute_query'):
+            timeout = resolve_query_timeout(client, organization_settings)
+            # Clients that can bound the query at the source (an engine-side
+            # timeout) adopt the same budget the wrapper enforces from outside,
+            # so the source stops the work instead of running on after BOW
+            # gave up waiting.
+            apply_timeout = getattr(client, "apply_query_timeout", None)
+            if callable(apply_timeout):
+                try:
+                    apply_timeout(timeout)
+                except Exception:
+                    logger.debug("apply_query_timeout failed", exc_info=True)
             wrapped[key] = QueryCapturingClientWrapper(
                 client,
                 captured_queries,
                 captured_timings,
                 usage_context=usage_context,
                 client_key=str(key),
-                query_timeout_seconds=resolve_query_timeout(client, organization_settings),
+                query_timeout_seconds=timeout,
                 max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
             )
         else:

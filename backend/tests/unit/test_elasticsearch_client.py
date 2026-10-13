@@ -87,7 +87,7 @@ def test_date_suffixed_indices_collapse_to_pattern(monkeypatch):
         "/_data_stream": {"data_streams": []},
     }
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         return responses.get(path, {})
 
     monkeypatch.setattr(c, "_request", fake_request)
@@ -143,7 +143,7 @@ def test_stream_discovery_reuses_bulk_mapping_no_per_stream_calls(monkeypatch):
                  "/_data_stream": {"data_streams": streams}}
     calls = []
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         calls.append(path)
         return responses.get(path, {})
 
@@ -167,7 +167,7 @@ def test_stream_discovery_batched_fallback_when_backing_hidden(monkeypatch):
                for i in range(n)]
     calls = []
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         calls.append(path)
         if path == "/_mapping" or path == "/_alias":
             return {}
@@ -198,7 +198,7 @@ def test_stream_discovery_fallback_batches_respect_url_budget(monkeypatch):
                for i in range(n)]
     calls = []
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         calls.append(path)
         if path in ("/_mapping", "/_alias"):
             return {}
@@ -222,7 +222,7 @@ def test_stream_discovery_failed_fallback_batch_skips_streams(monkeypatch):
     streams = [{"name": "logs-a", "indices": [{"index_name": ".ds-logs-a-000001"}]},
                {"name": "logs-b", "indices": [{"index_name": ".ds-logs-b-000001"}]}]
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         if path == "/_data_stream":
             return {"data_streams": streams}
         if path in ("/_mapping", "/_alias"):
@@ -269,7 +269,7 @@ def test_execute_query_search_defaults_and_shape(monkeypatch):
     c = ElasticsearchClient(host="h")
     captured = {}
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         captured["path"] = path
         captured["body"] = json_body
         return {"hits": {"hits": [
@@ -301,7 +301,7 @@ def test_execute_query_requires_index():
 def test_execute_query_aggregation_flattened(monkeypatch):
     c = ElasticsearchClient(host="h")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         return {"aggregations": {"by_level": {"buckets": [
             {"key": "error", "doc_count": 5},
             {"key": "info", "doc_count": 20},
@@ -317,7 +317,7 @@ def test_aggs_default_size_zero(monkeypatch):
     c = ElasticsearchClient(host="h")
     captured = {}
     monkeypatch.setattr(c, "_request",
-                        lambda m, p, json_body=None, params=None: captured.update(body=json_body) or {"aggregations": {}})
+                        lambda m, p, json_body=None, params=None, timeout=None: captured.update(body=json_body) or {"aggregations": {}})
     c.execute_query('{"index": "x", "aggs": {"a": {"terms": {"field": "f"}}}}')
     assert captured["body"]["size"] == 0
 
@@ -325,7 +325,7 @@ def test_aggs_default_size_zero(monkeypatch):
 def test_sql_escape_hatch(monkeypatch):
     c = ElasticsearchClient(host="h")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         assert path == "/_sql" and params == {"format": "json"}
         return {"columns": [{"name": "level"}, {"name": "n"}],
                 "rows": [["error", 5], ["info", 20]]}
@@ -339,7 +339,7 @@ def test_sql_escape_hatch(monkeypatch):
 def test_esql_escape_hatch(monkeypatch):
     c = ElasticsearchClient(host="h")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         assert path == "/_query"
         return {"columns": [{"name": "level"}, {"name": "n"}],
                 "values": [["error", 5]]}
@@ -391,7 +391,7 @@ def test_test_connection_falls_back_when_cluster_monitor_is_denied(monkeypatch):
     # actually depend on.
     c = ElasticsearchClient(host="h", index_pattern="eksa*")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         if path == "/":
             raise _forbidden("/")
         if path == "/_security/_authenticate":
@@ -415,7 +415,7 @@ def test_test_connection_falls_back_to_metadata_probe(monkeypatch):
     # last rung is the metadata read the connector actually needs.
     c = ElasticsearchClient(host="h", index_pattern="eksa*")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         if path in ("/", "/_security/_authenticate"):
             raise _forbidden(path)
         if path == "/eksa*/_mapping":
@@ -435,7 +435,7 @@ def test_test_connection_http_error_is_reachable(monkeypatch):
     # hard-blocks on, so a privilege problem must never read as a bad endpoint.
     c = ElasticsearchClient(host="h", index_pattern="eksa*")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         if path == "/_security/user/_has_privileges":
             return {"has_all_requested": False,
                     "index": {"eksa*": {"read": False, "view_index_metadata": False}}}
@@ -454,7 +454,7 @@ def test_test_connection_warns_when_only_metadata_is_granted(monkeypatch):
     # 403 on every query. The test must say so while still passing.
     c = ElasticsearchClient(host="h", index_pattern="eksa*")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         if path == "/":
             raise _forbidden("/")
         if path == "/_security/_authenticate":
@@ -489,7 +489,7 @@ def test_discovery_is_per_pattern_so_one_bad_target_is_not_fatal(monkeypatch):
     c = ElasticsearchClient(host="h", index_pattern="eksa*,finance-secret")
     calls = []
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         calls.append(path)
         if path == "/eksa*/_mapping":
             return {"eksa-app-2026.08.10": _mapping({"level": {"type": "keyword"}})}
@@ -508,7 +508,7 @@ def test_discovery_raises_when_every_pattern_fails(monkeypatch):
     # message lands on the indexing row and in the connection test instead.
     c = ElasticsearchClient(host="h", index_pattern="eksa*")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         raise _forbidden(path)
 
     monkeypatch.setattr(c, "_request", fake_request)
@@ -521,7 +521,7 @@ def test_alias_failure_does_not_discard_the_mappings(monkeypatch):
     # mappings, so an alias 403 returned an empty catalog.
     c = ElasticsearchClient(host="h")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         if path == "/_mapping":
             return {"orders": _mapping({"total": {"type": "double"}})}
         if path == "/_alias":
@@ -539,7 +539,7 @@ def test_metadata_calls_are_lenient_and_expand_hidden(monkeypatch):
     c = ElasticsearchClient(host="h", index_pattern="eksa*")
     seen = {}
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         seen[path] = params or {}
         return {}
 
@@ -554,7 +554,7 @@ def test_bare_star_pattern_does_not_drag_in_system_indices(monkeypatch):
     # `index_pattern = "*"` used to disable the `.`-index filter wholesale.
     c = ElasticsearchClient(host="h", index_pattern="*")
 
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         if path == "/*/_mapping":
             return {"orders": _mapping({"a": {"type": "keyword"}}),
                     ".security-7": _mapping({"b": {"type": "keyword"}})}
@@ -722,7 +722,7 @@ def test_kibana_execute_dashboard_inventory_and_panels(monkeypatch):
 
     # Discover panel → query_string DSL with the incident window applied
     captured = {}
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         captured.update(path=path, body=json_body)
         return {"hits": {"hits": []}}
     monkeypatch.setattr(c, "_request", fake_request)
@@ -747,7 +747,7 @@ def test_kibana_execute_dashboard_inventory_and_panels(monkeypatch):
 def test_kibana_execute_saved_search_with_window(monkeypatch):
     c = _kibana_client(monkeypatch)
     captured = {}
-    def fake_request(method, path, json_body=None, params=None):
+    def fake_request(method, path, json_body=None, params=None, timeout=None):
         captured.update(path=path, body=json_body)
         return {"hits": {"hits": []}}
     monkeypatch.setattr(c, "_request", fake_request)

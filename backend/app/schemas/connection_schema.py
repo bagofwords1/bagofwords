@@ -8,6 +8,10 @@ from pydantic import BaseModel, validator
 
 from app.schemas.base import UTCDatetime
 
+# Sanity ceilings for the per-connection query limits.
+MAX_QUERY_TIMEOUT_SECONDS = 3600
+MAX_CONCURRENT_QUERIES = 100
+
 
 class ConnectionCreate(BaseModel):
     """Schema for creating a new database connection."""
@@ -40,6 +44,26 @@ class ConnectionUpdate(BaseModel):
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
     rate_limit_per_day: Optional[int] = None
+    # Per-connection query limits, overriding the org defaults. Stored in
+    # `config`; 0 (or null) clears the override so the org default applies.
+    query_timeout_seconds: Optional[int] = None
+    max_concurrent_queries: Optional[int] = None
+
+    @validator("query_timeout_seconds")
+    def _validate_query_timeout(cls, v):
+        if v is not None and not (0 <= v <= MAX_QUERY_TIMEOUT_SECONDS):
+            raise ValueError(
+                f"query_timeout_seconds must be between 1 and {MAX_QUERY_TIMEOUT_SECONDS} "
+                "(0 uses the organization default)")
+        return v
+
+    @validator("max_concurrent_queries")
+    def _validate_max_concurrent(cls, v):
+        if v is not None and not (0 <= v <= MAX_CONCURRENT_QUERIES):
+            raise ValueError(
+                f"max_concurrent_queries must be between 1 and {MAX_CONCURRENT_QUERIES} "
+                "(0 uses the organization default)")
+        return v
 
     @validator("rate_limit_per_minute", "rate_limit_per_hour", "rate_limit_per_day")
     def _validate_rate_limit(cls, v):
@@ -154,6 +178,12 @@ class ConnectionDetailSchema(BaseModel):
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
     rate_limit_per_day: Optional[int] = None
+    # Per-connection query limits (null = inherits the org default, shown
+    # alongside so the form can say what "default" currently means).
+    query_timeout_seconds: Optional[int] = None
+    max_concurrent_queries: Optional[int] = None
+    default_query_timeout_seconds: Optional[int] = None
+    default_max_concurrent_queries: Optional[int] = None
     # Registry data_shape (tables | files | objects | tools).
     data_shape: str = "tables"
 
