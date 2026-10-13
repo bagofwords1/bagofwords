@@ -1,6 +1,6 @@
 """finish_subtask — the mandatory terminal tool of a sub-agent (mode=subagent).
 
-Validates the typed record, stores it on the sub_runs row and ends the child
+Validates the typed record, stores it on the sub_agents row and ends the child
 run (analysis_complete). The runtime adds the envelope at finalize.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pydantic import BaseModel, ValidationError
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.events import ToolEndEvent, ToolErrorEvent, ToolEvent, ToolStartEvent
-from app.ai.tools.schemas.sub_runs import FinishSubtaskInput
+from app.ai.tools.schemas.sub_agents import FinishSubtaskInput
 
 logger = logging.getLogger(__name__)
 
@@ -65,31 +65,31 @@ class FinishSubtaskTool(Tool):
         yield ToolStartEvent(type="tool.start", payload={"outcome": data.outcome})
 
         head = runtime_ctx.get("head_completion")
-        sub_run_id = None
+        sub_agent_id = None
         try:
-            sub_run_id = (head.prompt or {}).get("sub_run_id") if head is not None and isinstance(head.prompt, dict) else None
+            sub_agent_id = (head.prompt or {}).get("sub_agent_id") if head is not None and isinstance(head.prompt, dict) else None
         except Exception:
-            sub_run_id = None
-        sub_run_id = sub_run_id or runtime_ctx.get("sub_run_id")
-        if not sub_run_id:
-            yield ToolErrorEvent(type="tool.error", payload={"error": "Not running as a sub-agent.", "code": "NOT_A_SUB_RUN"})
+            sub_agent_id = None
+        sub_agent_id = sub_agent_id or runtime_ctx.get("sub_agent_id")
+        if not sub_agent_id:
+            yield ToolErrorEvent(type="tool.error", payload={"error": "Not running as a sub-agent.", "code": "NOT_A_SUB_AGENT"})
             return
 
-        from app.services.sub_run_service import sub_run_service
+        from app.services.sub_agent_service import sub_agent_service
         db = runtime_ctx.get("db")
         record = data.model_dump()
         try:
-            row = await sub_run_service.record_finish(db, sub_run_id=str(sub_run_id), result=record)
+            row = await sub_agent_service.record_finish(db, sub_agent_id=str(sub_agent_id), result=record)
         except Exception as e:
             logger.exception("finish_subtask: could not store the record")
-            yield ToolErrorEvent(type="tool.error", payload={"error": f"Could not store the record: {e}", "code": "SUB_RUN_ERROR"})
+            yield ToolErrorEvent(type="tool.error", payload={"error": f"Could not store the record: {e}", "code": "SUB_AGENT_ERROR"})
             return
         if row is None:
-            yield ToolErrorEvent(type="tool.error", payload={"error": "Sub-agent row not found.", "code": "SUB_RUN_ERROR"})
+            yield ToolErrorEvent(type="tool.error", payload={"error": "Sub-agent row not found.", "code": "SUB_AGENT_ERROR"})
             return
-        runtime_ctx["sub_run_finished"] = True
+        runtime_ctx["sub_agent_finished"] = True
         yield ToolEndEvent(type="tool.end", payload={
-            "output": {"status": "recorded", "sub_run_id": str(row.id), "outcome": data.outcome},
+            "output": {"status": "recorded", "sub_agent_id": str(row.id), "outcome": data.outcome},
             "observation": {
                 "summary": f"Record stored ({data.outcome}, confidence {data.confidence}). Sub-agent finished.",
                 "success": True,

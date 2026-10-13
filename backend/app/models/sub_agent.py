@@ -3,10 +3,10 @@
 A *sub-agent* is an ``AgentV2`` run in mode ``subagent`` on a hidden pair of
 completions of the same report, launched by the parent's ``delegate`` tool.
 All ``delegate`` calls in one planner response form a *wave*; when every
-sub-agent in the wave is terminal, one machine turn (``trigger_source=sub_run``)
-wakes the parent with the wave's records. See ``docs/design/sub-runs.md``.
+sub-agent in the wave is terminal, one machine turn (``trigger_source=sub_agent``)
+wakes the parent with the wave's records. See ``docs/design/sub-agents.md``.
 
-The ``sub_runs`` row is the record: the typed ``finish_subtask`` result plus
+The ``sub_agents`` row is the record: the typed ``finish_subtask`` result plus
 the runtime envelope. It is deliberately not an Agent List row (user-authored,
 data-source-scoped schemas) and not nested under the parent's execution —
 the child is its own ``AgentExecution`` with the parent ids on it.
@@ -47,8 +47,8 @@ OUTCOMES = ("done", "partial", "blocked", "supported", "refuted", "inconclusive"
 PROFILES = ("investigate", "validate")
 
 
-class SubRunWave(BaseSchema):
-    __tablename__ = "sub_run_waves"
+class SubAgentWave(BaseSchema):
+    __tablename__ = "sub_agent_waves"
 
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     report_id = Column(String(36), ForeignKey("reports.id"), nullable=False, index=True)
@@ -74,14 +74,14 @@ class SubRunWave(BaseSchema):
     parent_prompt = Column(Text, nullable=True)
 
     __table_args__ = (
-        Index("ix_sub_run_waves_report_status", "report_id", "status"),
+        Index("ix_sub_agent_waves_report_status", "report_id", "status"),
     )
 
 
-class SubRun(BaseSchema):
-    __tablename__ = "sub_runs"
+class SubAgentRun(BaseSchema):
+    __tablename__ = "sub_agent_runs"
 
-    wave_id = Column(String(36), ForeignKey("sub_run_waves.id"), nullable=False, index=True)
+    wave_id = Column(String(36), ForeignKey("sub_agent_waves.id"), nullable=False, index=True)
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     report_id = Column(String(36), ForeignKey("reports.id"), nullable=False, index=True)
     # Position inside the wave (launch order).
@@ -123,5 +123,5 @@ class SubRun(BaseSchema):
     finished_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
-        Index("ix_sub_runs_report_status", "report_id", "status"),
+        Index("ix_sub_agent_runs_report_status", "report_id", "status"),
     )

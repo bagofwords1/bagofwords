@@ -1,6 +1,6 @@
-"""Sub-agents — delegated agent runs with wave fan-in (docs/design/sub-runs.md).
+"""Sub-agents — delegated agent runs with wave fan-in (docs/design/sub-agents.md).
 
-Loop A of docs/feedback-loops/sub-runs.md: the whole mechanism on a scripted
+Loop A of docs/feedback-loops/sub-agents.md: the whole mechanism on a scripted
 LLM, no provider. Only the LLM boundary is stubbed (``LLM.inference_stream_v2``
 for the planner, ``LLM.inference_stream`` for titles/judges); routes,
 services, the agent loop, the wave tracker and persistence run real.
@@ -12,9 +12,9 @@ The script plays four roles, keyed on what the request carries:
     a child titled "Seasonality" answers in prose only and never finishes, to
     exercise the forced-finish nudge and the synthesized partial record;
     a child titled "Slow" stalls so a test can stop it mid-run
-  * fan-in turn (<sub_run_results> in the prompt) → the synthesis text
+  * fan-in turn (<sub_agent_results> in the prompt) → the synthesis text
 
-Run: cd backend && uv run pytest tests/e2e/test_sub_runs.py -q --db=sqlite
+Run: cd backend && uv run pytest tests/e2e/test_sub_agents.py -q --db=sqlite
 """
 from __future__ import annotations
 
@@ -145,7 +145,7 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                         "report_note_id": note_id,
                     },
                 ) + _end("tool_use")
-        elif "<sub_run_results" in text:
+        elif "<sub_agent_results" in text:
             events += [TextDeltaEvent(text=(
                 "Root cause: the checkout-service 5.2.0 release on 2026-09-14 broke PayFlow payments on iOS "
                 "(failure rate 59% vs 3% elsewhere). Ruled out: the premium price change, the APAC campaign "
@@ -162,7 +162,7 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                 events += _end("tool_use")
             else:
                 events += [TextDeltaEvent(text=f"Launched {len(hypotheses)} sub-agents to test the candidate causes; I will report back when they finish.")] + _end()
-        elif "delegate" not in tool_names and "DELEGATION" not in sys_text and n_results == 0 and "Launched" not in text and "<sub_run" not in text and "Mode: Chat" in sys_text:
+        elif "delegate" not in tool_names and "DELEGATION" not in sys_text and n_results == 0 and "Launched" not in text and "<sub_agent" not in text and "Mode: Chat" in sys_text:
             # delegate hidden (setting off): answer directly
             events += [TextDeltaEvent(text="Sub-agents are off here, so I answer directly: paid orders fell 14% from 2026-09-14.")] + _end()
         else:
@@ -244,8 +244,8 @@ def _wait_for(pred, *, timeout_s: float = 120.0, step: float = 1.0, what: str = 
     raise AssertionError(f"timed out waiting for {what}; last={last!r}")
 
 
-def _sub_runs(client, report_id, headers):
-    r = client.get(f"/api/reports/{report_id}/sub-runs", headers=headers)
+def _sub_agents(client, report_id, headers):
+    r = client.get(f"/api/reports/{report_id}/sub-agents", headers=headers)
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -271,7 +271,7 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     from sqlalchemy import select
     from app.models.agent_execution import AgentExecution
     from app.models.completion import Completion
-    from app.models.sub_run import SubRun, SubRunWave
+    from app.models.sub_agent import SubAgentRun, SubAgentWave
 
     calls = scripted_llm()
     report, headers, org_id, token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch)
@@ -283,13 +283,13 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     assert parent_sys["status"] == "success", parent_sys
 
     # The parent's turn ended with the receipts; the wave runs in the background.
-    data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] in ("done", "timed_out", "stopped") else None)(_sub_runs(test_client, rid, headers)),
+    data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] in ("done", "timed_out", "stopped") else None)(_sub_agents(test_client, rid, headers)),
                      timeout_s=180, what="wave to fan in")
     wave = data["waves"][-1]
     assert wave["status"] == "done", wave
     assert wave["total"] == len(HYPOTHESES) and wave["remaining"] == 0
     assert data["background_tasks"] == []  # nothing live once the wave fanned in
-    runs = {r["title"]: r for r in wave["sub_runs"]}
+    runs = {r["title"]: r for r in wave["sub_agent_runs"]}
     assert set(runs) == {t for t, _ in HYPOTHESES}
 
     # Contract: three finished through finish_subtask, one synthesized.
@@ -306,7 +306,7 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     assert runs["App release 5.2.0 hypothesis"]["outcome"] == "supported"
 
     # Detail endpoint: record + envelope + the child's tool calls + its note.
-    detail = test_client.get(f"/api/reports/{rid}/sub-runs/{runs['Pricing change hypothesis']['sub_run_id']}", headers=headers).json()
+    detail = test_client.get(f"/api/reports/{rid}/sub-agents/{runs['Pricing change hypothesis']['sub_agent_id']}", headers=headers).json()
     assert detail["record"]["outcome"] == "refuted"
     assert detail["envelope"]["exit_reason"] == "finish_call"
     child_calls = [c for c in calls if "Mode: Sub-agent" in c["system"]]
@@ -322,11 +322,11 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     r = test_client.get(f"/api/reports/{rid}/completions", headers=headers)
     assert r.status_code == 200
     comps = r.json()["completions"]
-    assert all((c.get("trigger_source") or "") != "sub_run" for c in comps), [c.get("trigger_source") for c in comps]
-    strips = [c for c in comps if c["role"] == "external" and c.get("trigger_source") == "sub_run_wave"]
+    assert all((c.get("trigger_source") or "") != "sub_agent" for c in comps), [c.get("trigger_source") for c in comps]
+    strips = [c for c in comps if c["role"] == "external" and c.get("trigger_source") == "sub_agent_wave"]
     assert len(strips) == 1, [(c["role"], c.get("trigger_source")) for c in comps]
     assert strips[0]["prompt"]["meta"]["total"] == len(HYPOTHESES)
-    replies = [c for c in comps if c["role"] == "system" and c.get("trigger_source") == "sub_run_wave"]
+    replies = [c for c in comps if c["role"] == "system" and c.get("trigger_source") == "sub_agent_wave"]
     assert len(replies) == 1 and replies[0]["status"] == "success"
     _reply_text = " ".join(
         [((replies[0].get("completion") or {}).get("content") or "")]
@@ -340,28 +340,28 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     assert len(delegate_blocks) == len(HYPOTHESES)
     for b in delegate_blocks:
         rj = b["tool_execution"]["result_json"]
-        assert rj["sub_run_id"] in {r["sub_run_id"] for r in runs.values()}
+        assert rj["sub_agent_id"] in {r["sub_agent_id"] for r in runs.values()}
         assert isinstance(rj.get("record"), dict) and rj["record"].get("outcome"), rj
         assert rj.get("status") == "finished"
 
     # Summary rows.
     summ = test_client.get(f"/api/reports/{rid}/summary", headers=headers).json()
-    assert len(summ["sub_runs"]) == len(HYPOTHESES)
-    assert all(s["message_id"] == parent_sys["id"] for s in summ["sub_runs"])
+    assert len(summ["sub_agent_runs"]) == len(HYPOTHESES)
+    assert all(s["message_id"] == parent_sys["id"] for s in summ["sub_agent_runs"])
 
     # DB invariants: child execution links, exactly one wave, hidden children.
     async def _db_checks():
         async with async_session_maker() as db:
-            waves = (await db.execute(select(SubRunWave).where(SubRunWave.report_id == rid))).scalars().all()
+            waves = (await db.execute(select(SubAgentWave).where(SubAgentWave.report_id == rid))).scalars().all()
             assert len(waves) == 1
-            rows = (await db.execute(select(SubRun).where(SubRun.wave_id == waves[0].id))).scalars().all()
+            rows = (await db.execute(select(SubAgentRun).where(SubAgentRun.wave_id == waves[0].id))).scalars().all()
             for row in rows:
                 ae = await db.get(AgentExecution, row.child_execution_id)
                 assert ae is not None and ae.parent_agent_execution_id == waves[0].parent_execution_id
                 assert ae.parent_tool_execution_id == row.parent_tool_execution_id
                 assert ae.status in ("success", "error")
                 child = await db.get(Completion, row.child_completion_id)
-                assert child.trigger_source == "sub_run" and child.status in ("success", "error", "stopped")
+                assert child.trigger_source == "sub_agent" and child.status in ("success", "error", "stopped")
                 assert row.envelope_json and row.envelope_json["exit_reason"] == row.exit_reason
             return True
     assert _run(_db_checks())
@@ -385,23 +385,23 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
     test_client = live_client
     _post_completion(test_client, rid, "Why did paid orders drop?", headers)
 
-    data = _wait_for(lambda: (lambda d: d if d["waves"] and any(r["status"] == "running" and "Slow" in r["title"] for r in d["waves"][-1]["sub_runs"]) else None)(_sub_runs(test_client, rid, headers)),
+    data = _wait_for(lambda: (lambda d: d if d["waves"] and any(r["status"] == "running" and "Slow" in r["title"] for r in d["waves"][-1]["sub_agent_runs"]) else None)(_sub_agents(test_client, rid, headers)),
                      timeout_s=90, what="slow child to start")
-    slow = next(r for r in data["waves"][-1]["sub_runs"] if "Slow" in r["title"])
+    slow = next(r for r in data["waves"][-1]["sub_agent_runs"] if "Slow" in r["title"])
     assert data["background_tasks"], "a running child must show as a background task"
 
-    r = test_client.post(f"/api/reports/{rid}/sub-runs/{slow['sub_run_id']}/stop", headers=headers)
+    r = test_client.post(f"/api/reports/{rid}/sub-agents/{slow['sub_agent_id']}/stop", headers=headers)
     assert r.status_code == 200 and r.json()["status"] == "interrupted", r.text
 
-    data = _wait_for(lambda: (lambda d: d if d["waves"][-1]["status"] == "done" else None)(_sub_runs(test_client, rid, headers)),
+    data = _wait_for(lambda: (lambda d: d if d["waves"][-1]["status"] == "done" else None)(_sub_agents(test_client, rid, headers)),
                      timeout_s=120, what="wave to fan in after a child stop")
-    runs = {x["title"]: x for x in data["waves"][-1]["sub_runs"]}
+    runs = {x["title"]: x for x in data["waves"][-1]["sub_agent_runs"]}
     assert runs["Slow pricing hypothesis"]["status"] == "interrupted"
     assert runs["Slow pricing hypothesis"]["exit_reason"] == "stopped"
     assert runs["Slow pricing hypothesis"]["outcome"] == "partial"  # synthesized, never a missing record
     assert runs["App release 5.2.0 hypothesis"]["status"] == "finished"
     comps = test_client.get(f"/api/reports/{rid}/completions", headers=headers).json()["completions"]
-    assert sum(1 for c in comps if c["role"] == "external" and c.get("trigger_source") == "sub_run_wave") == 1
+    assert sum(1 for c in comps if c["role"] == "external" and c.get("trigger_source") == "sub_agent_wave") == 1
 
     # ── stop the whole wave on a second report ──
     hyps2 = [("Slow A hypothesis", "slow"), ("Slow B hypothesis", "slow")]
@@ -409,23 +409,23 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
     report2 = create_report(title="Stop wave", user_token=token, org_id=org_id, data_sources=[])
     rid2 = report2["id"]
     _post_completion(test_client, rid2, "Why did paid orders drop?", headers)
-    data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] == "running" else None)(_sub_runs(test_client, rid2, headers)),
+    data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] == "running" else None)(_sub_agents(test_client, rid2, headers)),
                      timeout_s=60, what="wave to start")
     wave_id = data["waves"][-1]["id"]
-    r = test_client.post(f"/api/reports/{rid2}/sub-run-waves/{wave_id}/stop", headers=headers)
+    r = test_client.post(f"/api/reports/{rid2}/sub-agent-waves/{wave_id}/stop", headers=headers)
     assert r.status_code == 200 and r.json()["status"] == "stopped", r.text
-    data = _sub_runs(test_client, rid2, headers)
+    data = _sub_agents(test_client, rid2, headers)
     assert data["waves"][-1]["status"] == "stopped"
-    assert all(x["status"] == "interrupted" for x in data["waves"][-1]["sub_runs"]), data["waves"][-1]["sub_runs"]
+    assert all(x["status"] == "interrupted" for x in data["waves"][-1]["sub_agent_runs"]), data["waves"][-1]["sub_agent_runs"]
     assert data["background_tasks"] == []
     # Give any in-flight finalize a moment, then assert no fan-in ever appears.
     time.sleep(6)
     comps = test_client.get(f"/api/reports/{rid2}/completions", headers=headers).json()["completions"]
-    assert not any(c.get("trigger_source") == "sub_run_wave" for c in comps)
+    assert not any(c.get("trigger_source") == "sub_agent_wave" for c in comps)
 
     async def _children_stopped():
         async with async_session_maker() as db:
-            rows = (await db.execute(select(Completion).where(Completion.report_id == rid2, Completion.trigger_source == "sub_run", Completion.role == "system"))).scalars().all()
+            rows = (await db.execute(select(Completion).where(Completion.report_id == rid2, Completion.trigger_source == "sub_agent", Completion.role == "system"))).scalars().all()
             # Every child that had started is sigkilled. On SQLite the wave
             # runs its children one at a time (effective_concurrency), so a
             # child the stop reached while still pending has no completion
@@ -439,11 +439,11 @@ def test_setting_off_hides_delegate_and_no_wave_is_created(
     live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
     update_organization_settings, monkeypatch, scripted_llm,
 ):
-    """enable_sub_runs=false: delegate is not in the catalog (the scripted
+    """enable_sub_agents=false: delegate is not in the catalog (the scripted
     parent sees no delegate tool and answers directly), and no wave exists."""
     calls = scripted_llm()
     report, headers, org_id, token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, "Setting off")
-    update_organization_settings({"enable_sub_runs": {"value": False}}, user_token=token, org_id=org_id)
+    update_organization_settings({"enable_sub_agents": {"value": False}}, user_token=token, org_id=org_id)
     rid = report["id"]
     test_client = live_client
     completions = _post_completion(test_client, rid, "Paid orders dropped about 15% since mid-September. Why?", headers)
@@ -451,7 +451,7 @@ def test_setting_off_hides_delegate_and_no_wave_is_created(
     assert parent_sys["status"] == "success"
     planner_calls = [c for c in calls if "Mode: Chat" in c["system"]]
     assert planner_calls and all("delegate" not in c["tools"] for c in planner_calls)
-    assert _sub_runs(test_client, rid, headers) == {"waves": [], "background_tasks": []}
+    assert _sub_agents(test_client, rid, headers) == {"waves": [], "background_tasks": []}
 
 
 @pytest.mark.e2e
@@ -459,16 +459,16 @@ def test_max_per_wave_refuses_excess_with_a_receipt(
     live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
     update_organization_settings, monkeypatch, scripted_llm,
 ):
-    """sub_run_max_per_wave caps a wave; the extra delegate call gets a refused
+    """sub_agent_max_per_wave caps a wave; the extra delegate call gets a refused
     receipt (never a silent drop) and the wave still fans in with the rest."""
     scripted_llm()
     report, headers, org_id, token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, "Cap")
-    update_organization_settings({"sub_run_max_per_wave": {"value": 2}}, user_token=token, org_id=org_id)
+    update_organization_settings({"sub_agent_max_per_wave": {"value": 2}}, user_token=token, org_id=org_id)
     rid = report["id"]
     test_client = live_client
     completions = _post_completion(test_client, rid, "Why did paid orders drop?", headers)
     parent_sys = next(c for c in completions if c["role"] == "system")
-    data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] == "done" else None)(_sub_runs(test_client, rid, headers)),
+    data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] == "done" else None)(_sub_agents(test_client, rid, headers)),
                      timeout_s=180, what="capped wave to fan in")
     assert data["waves"][-1]["total"] == 2
     comps = test_client.get(f"/api/reports/{rid}/completions", headers=headers).json()["completions"]

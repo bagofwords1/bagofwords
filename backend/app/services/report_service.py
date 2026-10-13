@@ -4074,14 +4074,14 @@ class ReportService:
                 item.agent_name = agent_names.get(item.data_source_id)
 
         # Sub-agents: one row per delegated child across the report's recent waves.
-        sub_runs: list = []
+        sub_agents: list = []
         try:
-            from app.services.sub_run_service import sub_run_service
-            data = await sub_run_service.list_for_report(db, report_id, limit_waves=20)
+            from app.services.sub_agent_service import sub_agent_service
+            data = await sub_agent_service.list_for_report(db, report_id, limit_waves=20)
             for w in data.get("waves") or []:
-                for r in w.get("sub_runs") or []:
-                    sub_runs.append({
-                        "sub_run_id": r["sub_run_id"], "wave_id": w["id"], "wave_status": w["status"],
+                for r in w.get("sub_agent_runs") or []:
+                    sub_agents.append({
+                        "sub_agent_id": r["sub_agent_id"], "wave_id": w["id"], "wave_status": w["status"],
                         "message_id": r.get("parent_completion_id"), "title": r.get("title"),
                         "status": r.get("status"), "outcome": r.get("outcome"), "confidence": r.get("confidence"),
                         "summary": r.get("summary"), "steps_used": r.get("steps_used"),
@@ -4096,6 +4096,6 @@ class ReportService:
             "queries": queries,
             "instructions": instructions,
             "lists": lists,
-            "sub_runs": sub_runs,
+            "sub_agent_runs": sub_agents,
             "pending_training_build": pending_build.model_dump() if pending_build else None,
         }

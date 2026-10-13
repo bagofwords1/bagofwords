@@ -4,7 +4,7 @@ addendum for a delegated child run (``AgentV2`` mode ``subagent``).
 A child never holds a tool the parent lacks: the profile is intersected with
 the parent's catalog at spawn time, and the ``delegate`` tool itself is never
 in any profile (depth is one). Two profiles ship hardcoded; org-authored
-profiles via the skills catalog are a later phase (docs/design/sub-runs.md A6).
+profiles via the skills catalog are a later phase (docs/design/sub-agents.md A6).
 """
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from typing import Dict, FrozenSet, Optional
 
 # Tools every child loses, whatever the profile: anything that asks the user,
 # builds a user-facing deliverable, writes outside the report, or delegates.
-BLOCKED_IN_SUB_RUNS: FrozenSet[str] = frozenset({
-    "delegate", "read_sub_run", "stop_sub_run",
+BLOCKED_IN_SUB_AGENTS: FrozenSet[str] = frozenset({
+    "delegate", "read_sub_agent", "stop_sub_agent",
     "clarify", "wait", "cancel_wait",
     "create_artifact", "edit_artifact", "read_artifact", "create_dashboard", "create_doc", "edit_doc",
     "manage_artifact_resources", "create_widget",
@@ -41,20 +41,20 @@ _RESEARCH = (
 
 
 @dataclass(frozen=True)
-class SubRunProfile:
+class SubAgentProfile:
     key: str
     title: str
     tools: FrozenSet[str]
     # "small" | "default": which org model the child plans on under
-    # sub_run_model=auto.
+    # sub_agent_model=auto.
     model_pref: str
     addendum: str
     # Tools added when the org allows sub-agents to create tracked queries.
     with_create_data: FrozenSet[str] = field(default_factory=frozenset)
 
 
-PROFILES: Dict[str, SubRunProfile] = {
-    "investigate": SubRunProfile(
+PROFILES: Dict[str, SubAgentProfile] = {
+    "investigate": SubAgentProfile(
         key="investigate",
         title="Investigate",
         tools=frozenset(_RESEARCH),
@@ -67,7 +67,7 @@ PROFILES: Dict[str, SubRunProfile] = {
         ),
         with_create_data=frozenset({"create_data", "write_csv"}),
     ),
-    "validate": SubRunProfile(
+    "validate": SubAgentProfile(
         key="validate",
         title="Validate",
         tools=frozenset(_RESEARCH) | frozenset({"create_data", "write_csv"}),
@@ -81,12 +81,12 @@ PROFILES: Dict[str, SubRunProfile] = {
 }
 
 
-def get_profile(key: Optional[str]) -> SubRunProfile:
+def get_profile(key: Optional[str]) -> SubAgentProfile:
     return PROFILES.get((key or "investigate").strip().lower(), PROFILES["investigate"])
 
 
-def allowed_tools(profile: SubRunProfile, *, allow_create_data: bool) -> FrozenSet[str]:
+def allowed_tools(profile: SubAgentProfile, *, allow_create_data: bool) -> FrozenSet[str]:
     tools = set(profile.tools)
     if allow_create_data:
         tools |= set(profile.with_create_data)
-    return frozenset(t for t in tools if t not in BLOCKED_IN_SUB_RUNS)
+    return frozenset(t for t in tools if t not in BLOCKED_IN_SUB_AGENTS)

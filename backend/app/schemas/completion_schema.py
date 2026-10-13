@@ -19,8 +19,8 @@ class PromptSchema(BaseModel):
     # None = Default. Each provider client clamps it to what the model accepts.
     reasoning_effort: Optional[str] = None  # off|minimal|low|medium|high|xhigh|max
     # Set only on the hidden head completion of a sub-agent (mode='subagent'):
-    # the sub_runs row this child run reports to. See app.models.sub_run.
-    sub_run_id: Optional[str] = None
+    # the sub_agents row this child run reports to. See app.models.sub_agent.
+    sub_agent_id: Optional[str] = None
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod

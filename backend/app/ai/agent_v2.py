@@ -511,23 +511,23 @@ class AgentV2:
         # Scalar copy (see report_id note below): machine-turn source of the
         # head completion, e.g. 'checkin' for an agent check-in run.
         self._head_trigger_source = getattr(head_completion, "trigger_source", None) if head_completion is not None else None
-        # Sub-agents (docs/design/sub-runs.md). A child run is mode="subagent" on
-        # a hidden completion whose prompt carries the sub_runs row id; the
+        # Sub-agents (docs/design/sub-agents.md). A child run is mode="subagent" on
+        # a hidden completion whose prompt carries the sub_agents row id; the
         # parent launches children through the `delegate` tool.
-        self._is_sub_run = (self.mode == "subagent")
+        self._is_sub_agent = (self.mode == "subagent")
         # Instructions and skills are scoped by run mode (applicable_modes);
         # a child sees the chat-mode set, never an empty "subagent" set.
-        self._instruction_mode = "chat" if self._is_sub_run else self.mode
-        self._sub_run_id = None
+        self._instruction_mode = "chat" if self._is_sub_agent else self.mode
+        self._sub_agent_id = None
         try:
             _hp = getattr(head_completion, "prompt", None) if head_completion is not None else None
-            self._sub_run_id = (_hp or {}).get("sub_run_id") if isinstance(_hp, dict) else None
+            self._sub_agent_id = (_hp or {}).get("sub_agent_id") if isinstance(_hp, dict) else None
         except Exception:
-            self._sub_run_id = None
-        self._sub_run = None                 # dict loaded from the sub_runs row at run start
-        self._sub_run_allowed_tools = None   # frozenset of tool names (profile ∩ catalog)
-        self._sub_run_finished = False       # finish_subtask observed this run
-        self._sub_run_finish_nudges = 0
+            self._sub_agent_id = None
+        self._sub_agent = None                 # dict loaded from the sub_agents row at run start
+        self._sub_agent_allowed_tools = None   # frozenset of tool names (profile ∩ catalog)
+        self._sub_agent_finished = False       # finish_subtask observed this run
+        self._sub_agent_finish_nudges = 0
         self._planner_steps_exhausted = False
         self._wave_pending = False
         # Stamp the asker's identity for LLM header injection BEFORE the
@@ -900,16 +900,16 @@ class AgentV2:
         # turn on the report, so a one-shot scheduled run would never see its
         # results). Children never hold them (profiles). Eval runs keep them:
         # the eval watcher waits for open waves and the fan-in reply
-        # (TestRunService._sub_run_waves_pending), so a suite can pin the
+        # (TestRunService._sub_agent_waves_pending), so a suite can pin the
         # delegation posture and the finish contract.
-        from app.services.sub_run_service import sub_runs_enabled as _sub_runs_enabled
-        self._sub_runs_enabled = bool(
-            _sub_runs_enabled(self.organization_settings)
-            and not self._is_sub_run
+        from app.services.sub_agent_service import sub_agents_enabled as _sub_agents_enabled
+        self._sub_agents_enabled = bool(
+            _sub_agents_enabled(self.organization_settings)
+            and not self._is_sub_agent
             and getattr(self.report, 'report_type', 'regular') in ('regular', 'test')
         )
-        if not self._sub_runs_enabled:
-            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_run', 'stop_sub_run')]
+        if not self._sub_agents_enabled:
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_agent', 'stop_sub_agent')]
 
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
@@ -1858,7 +1858,7 @@ class AgentV2:
         runs use the laxer eval_judge_model_allowed gate instead — this one
         guards every live chat completion.)
         """
-        if getattr(self, "_is_sub_run", False):
+        if getattr(self, "_is_sub_agent", False):
             return False
         setting = self.organization_settings.get_config("enable_llm_judgement")
         return (
@@ -2660,7 +2660,7 @@ class AgentV2:
         transient failure retries on the next turn instead of leaving the report
         untitled forever.
         """
-        if getattr(self, "_is_sub_run", False):
+        if getattr(self, "_is_sub_agent", False):
             return
         if self._title_task is not None:
             return
@@ -2890,7 +2890,7 @@ class AgentV2:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
         all carry a non-null platform and are excluded."""
-        if self.platform is not None or getattr(self, "_is_sub_run", False):
+        if self.platform is not None or getattr(self, "_is_sub_agent", False):
             return False
         if not self.organization_settings:
             return False
@@ -4516,8 +4516,8 @@ class AgentV2:
             )
             # Sub-agent child: bind the execution to its row, narrow the catalog to
             # the profile, and load the budget. Must precede the first planner call.
-            if self._is_sub_run:
-                await self._bind_sub_run()
+            if self._is_sub_agent:
+                await self._bind_sub_agent()
             # Usage records written from here on carry the run id (see
             # app.ai.llm.usage_attribution) so cost/tokens roll up per run.
             try:
@@ -4627,7 +4627,7 @@ class AgentV2:
             # commit to startup.
             try:
                 durable_transcript = (
-                    None if self._is_sub_run  # a child starts with an empty history: no parent turns, no siblings
+                    None if self._is_sub_agent  # a child starts with an empty history: no parent turns, no siblings
                     else self.context_hub.message_builder.get_durable_transcript()
                 )
                 if durable_transcript is not None and durable_transcript.turns:
@@ -4770,8 +4770,8 @@ class AgentV2:
             except (TypeError, ValueError):
                 step_limit = 100
             step_limit = max(1, min(500, step_limit))
-            if self._is_sub_run and self._sub_run:
-                step_limit = max(3, min(step_limit, int(self._sub_run.get("max_steps") or step_limit)))
+            if self._is_sub_agent and self._sub_agent:
+                step_limit = max(3, min(step_limit, int(self._sub_agent.get("max_steps") or step_limit)))
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -5077,7 +5077,7 @@ class AgentV2:
                             current_model=self._routing_prompt_state()[0],
                             routing_state=self._routing_prompt_state()[1],
                         )
-                        await self._apply_sub_run_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
+                        await self._apply_sub_agent_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
                         # Trim context if it exceeds the model's token budget. After a
                         # context_length rejection the run's shrink factor tightens the
                         # window (see _handle_context_overflow) so the retry provably
@@ -5701,7 +5701,7 @@ class AgentV2:
                                     agent_execution=self.current_execution,
                                     seq=decision_seq,
                                     loop_index=loop_index,
-                                    phase=("subagent" if self._is_sub_run else None),
+                                    phase=("subagent" if self._is_sub_agent else None),
                                     planner_decision_model=decision,
                                     persist_tool_intents=True,
                                     max_tool_intents=self._max_actions_per_decision(),
@@ -5863,8 +5863,8 @@ class AgentV2:
                                 # ends in prose without finish_subtask gets exactly one
                                 # more iteration told to call it; the finalize step
                                 # synthesises a partial record if it still does not.
-                                if self._is_sub_run and not self._sub_run_finished and self._sub_run_finish_nudges < 1:
-                                    self._sub_run_finish_nudges += 1
+                                if self._is_sub_agent and not self._sub_agent_finished and self._sub_agent_finish_nudges < 1:
+                                    self._sub_agent_finish_nudges += 1
                                     observation = {
                                         "summary": (
                                             "You ended with text, but nothing was delivered: a sub-agent reports ONLY "
@@ -6137,7 +6137,7 @@ class AgentV2:
                                             "summary": f"Tool '{tool_name}' unavailable",
                                             "error": {"code": "resolve_error", "message": "not registered"},
                                         })
-                                if self._is_sub_run and self._sub_run_allowed_tools is not None and tool_name not in self._sub_run_allowed_tools:
+                                if self._is_sub_agent and self._sub_agent_allowed_tools is not None and tool_name not in self._sub_agent_allowed_tools:
                                     return await _refuse_before_dispatch({
                                             "summary": f"Tool '{tool_name}' is not available to a sub-agent; use the tools in your catalog and finish with finish_subtask.",
                                             "error": {"code": "resolve_error", "message": "outside sub-agent profile"},
@@ -6344,7 +6344,7 @@ class AgentV2:
                                         "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                                         "small_model": self.small_model,
                                         "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
-                                        "sub_run_id": self._sub_run_id,
+                                        "sub_agent_id": self._sub_agent_id,
                                         "is_eval_run": self.is_eval_run,
                                         "platform": self.platform,
                                         "platform_context": self.platform_context,
@@ -6784,8 +6784,8 @@ class AgentV2:
                                 _tn = _o.get("tool_name")
                                 _ti_args = _o.get("tool_input")
                                 if _tn == "finish_subtask" and isinstance(_obs, dict) and _obs.get("analysis_complete"):
-                                    self._sub_run_finished = True
-                                if _tn == "delegate" and isinstance(_obs, dict) and _obs.get("sub_run_id"):
+                                    self._sub_agent_finished = True
+                                if _tn == "delegate" and isinstance(_obs, dict) and _obs.get("sub_agent_id"):
                                     self._wave_pending = True
                                 if not _observation_failed(_obs):
                                     action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
@@ -6957,7 +6957,7 @@ class AgentV2:
                             # once every sibling exists (a fast child must not fire the
                             # fan-in before its wave is complete).
                             if self._wave_pending:
-                                await self._launch_pending_sub_runs()
+                                await self._launch_pending_sub_agents()
 
                             # End of dispatch — exit the planner stream so the outer
                             # agent loop runs the next planner iteration.
@@ -7129,7 +7129,7 @@ class AgentV2:
             # Runs once after the outer loop exits, regardless of whether the
             # terminating decision had an action (e.g. create_data with
             # analysis_complete=True) or was a final_answer-only decision.
-            if self._is_sub_run:
+            if self._is_sub_agent:
                 # A child run writes a record, not knowledge: no harness, no
                 # check-ins, no instruction suggestions.
                 pass
@@ -7420,12 +7420,12 @@ class AgentV2:
                 pass
             raise
         finally:
-            # Sub-agent child: close the sub_runs row exactly once (record +
+            # Sub-agent child: close the sub_agents row exactly once (record +
             # envelope, write-back to the parent's delegate tool execution,
             # wave decrement, fan-in when last). Runs on every exit path.
-            if self._is_sub_run:
+            if self._is_sub_agent:
                 try:
-                    await self._finalize_sub_run()
+                    await self._finalize_sub_agent()
                 except Exception:
                     logger.exception("[agent] sub-agent finalize failed")
             # Let the prompt-time title task finish (and enqueue its SSE event)
@@ -7470,30 +7470,30 @@ class AgentV2:
                     pass
 
     # ------------------------------------------------------------------
-    # Sub-agents (docs/design/sub-runs.md)
+    # Sub-agents (docs/design/sub-agents.md)
     # ------------------------------------------------------------------
-    async def _bind_sub_run(self) -> None:
-        """Child run start: load the sub_runs row, link the execution to the
+    async def _bind_sub_agent(self) -> None:
+        """Child run start: load the sub_agents row, link the execution to the
         parent, narrow the catalog to the profile and remember the budget."""
-        from app.models.sub_run import SubRun
-        from app.ai.sub_run_profiles import allowed_tools, get_profile
-        from app.services.sub_run_service import sub_run_limits, sub_run_service
-        if not self._sub_run_id:
-            logger.warning("[agent] subagent mode without a sub_run_id; running with the default catalog")
+        from app.models.sub_agent import SubAgentRun
+        from app.ai.sub_agent_profiles import allowed_tools, get_profile
+        from app.services.sub_agent_service import sub_agent_limits, sub_agent_service
+        if not self._sub_agent_id:
+            logger.warning("[agent] subagent mode without a sub_agent_id; running with the default catalog")
             return
-        row = await self.db.get(SubRun, str(self._sub_run_id))
+        row = await self.db.get(SubAgentRun, str(self._sub_agent_id))
         if row is None:
-            logger.warning("[agent] sub_runs row %s not found", self._sub_run_id)
+            logger.warning("[agent] sub_agents row %s not found", self._sub_agent_id)
             return
-        limits = sub_run_limits(self.organization_settings)
+        limits = sub_agent_limits(self.organization_settings)
         profile = get_profile(row.profile)
         allowed = allowed_tools(profile, allow_create_data=limits["allow_create_data"])
-        self._sub_run = {
+        self._sub_agent = {
             "id": str(row.id), "wave_id": str(row.wave_id), "title": row.title, "profile": row.profile,
             "goal": row.goal, "context": row.context, "max_steps": row.max_steps or limits["max_steps"],
             "agent_ids": list(row.agent_ids_json or []), "addendum": profile.addendum,
         }
-        self._sub_run_allowed_tools = allowed
+        self._sub_agent_allowed_tools = allowed
         try:
             self.planner.tool_catalog = [t for t in self.planner.tool_catalog if t.name in allowed]
         except Exception:
@@ -7509,19 +7509,19 @@ class AgentV2:
         except Exception:
             pass
         try:
-            await sub_run_service.bind_child_execution(
-                self.db, sub_run_id=str(row.id),
+            await sub_agent_service.bind_child_execution(
+                self.db, sub_agent_id=str(row.id),
                 execution_id=str(self.current_execution.id) if self.current_execution else None,
             )
         except Exception:
             logger.warning("[agent] bind_child_execution failed", exc_info=True)
 
-    async def _apply_sub_run_planner_input(self, planner_input, *, loop_index: int, step_limit: int) -> None:
-        """Both roles: the parent gets the <sub_runs> block and its delegation
+    async def _apply_sub_agent_planner_input(self, planner_input, *, loop_index: int, step_limit: int) -> None:
+        """Both roles: the parent gets the <sub_agents> block and its delegation
         posture; a child loses conversation-level context and gets its goal,
         profile addendum and remaining budget."""
-        from app.services.sub_run_service import sub_run_posture, sub_run_service
-        if self._is_sub_run:
+        from app.services.sub_agent_service import sub_agent_posture, sub_agent_service
+        if self._is_sub_agent:
             planner_input.messages_context = ""
             planner_input.history_summary = None
             planner_input.steering_context = None
@@ -7530,33 +7530,33 @@ class AgentV2:
             planner_input.memory_hint = None
             planner_input.scheduled_context = None
             planner_input.scheduled_tasks_context = None
-            planner_input.sub_runs_enabled = False
-            if self._sub_run:
-                planner_input.sub_run_title = self._sub_run.get("title")
-                planner_input.sub_run_profile_addendum = self._sub_run.get("addendum")
+            planner_input.sub_agents_enabled = False
+            if self._sub_agent:
+                planner_input.sub_agent_title = self._sub_agent.get("title")
+                planner_input.sub_agent_profile_addendum = self._sub_agent.get("addendum")
                 used = int(loop_index) + 1
-                planner_input.sub_run_budget = f"sub-agent step {used} of {step_limit}" + (
+                planner_input.sub_agent_budget = f"sub-agent step {used} of {step_limit}" + (
                     " — finish NOW with finish_subtask" if used >= step_limit - 1 else ""
                 )
             return
-        planner_input.sub_runs_enabled = bool(getattr(self, "_sub_runs_enabled", False))
-        planner_input.sub_run_posture = sub_run_posture(self.organization_settings)
-        if planner_input.sub_runs_enabled and self.report is not None:
+        planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
+        planner_input.sub_agent_posture = sub_agent_posture(self.organization_settings)
+        if planner_input.sub_agents_enabled and self.report is not None:
             try:
-                planner_input.sub_runs_context = await sub_run_service.context_block(self.db, str(self.report_id))
+                planner_input.sub_agents_context = await sub_agent_service.context_block(self.db, str(self.report_id))
             except Exception:
-                logger.debug("[agent] sub_runs context block failed", exc_info=True)
+                logger.debug("[agent] sub_agents context block failed", exc_info=True)
 
-    async def _launch_pending_sub_runs(self) -> None:
+    async def _launch_pending_sub_agents(self) -> None:
         """After a batch holding delegate calls: close the wave and start its children."""
-        from app.services.sub_run_service import sub_run_service
+        from app.services.sub_agent_service import sub_agent_service
         self._wave_pending = False
         try:
             await self._drain_bg_writes(timeout_s=5.0)
         except Exception:
             pass
         try:
-            wave_id = await sub_run_service.launch_pending(
+            wave_id = await sub_agent_service.launch_pending(
                 report_id=str(self.report_id),
                 parent_completion_id=str(self.system_completion_id),
                 settings=self.organization_settings,
@@ -7567,9 +7567,9 @@ class AgentV2:
         except Exception:
             logger.exception("[agent] launching sub-agents failed")
 
-    async def _finalize_sub_run(self) -> None:
-        from app.services.sub_run_service import sub_run_service
-        if not self._sub_run_id:
+    async def _finalize_sub_agent(self) -> None:
+        from app.services.sub_agent_service import sub_agent_service
+        if not self._sub_agent_id:
             return
         if self.sigkill_event.is_set():
             agent_status = "sigkill"
@@ -7596,8 +7596,8 @@ class AgentV2:
                 err = ej.get("message")
         except Exception:
             pass
-        await sub_run_service.finalize_child(
-            sub_run_id=str(self._sub_run_id), agent_status=agent_status, last_text=last_text,
+        await sub_agent_service.finalize_child(
+            sub_agent_id=str(self._sub_agent_id), agent_status=agent_status, last_text=last_text,
             steps_used=int(getattr(self, "_iteration_count", 0) or 0), tokens=tokens,
             execution_id=str(self.current_execution.id) if self.current_execution else None,
             error=err, duration_ms=duration,

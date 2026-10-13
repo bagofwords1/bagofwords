@@ -29,7 +29,7 @@ CHINOOK_DB_PATH = (
 # suite can bind to it by name; a missing file skips the install, and the
 # suite then fails on import with "Unknown data source slugs".
 EXTRA_DEMO_DBS = {
-    # docs/feedback-loops/sub-runs.md — the planted RCA incident
+    # docs/feedback-loops/sub-agents.md — the planted RCA incident
     "checkout_ops": CHINOOK_DB_PATH.parent / "rca_incident.sqlite",
 }
 

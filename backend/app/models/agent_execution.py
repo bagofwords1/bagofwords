@@ -33,7 +33,7 @@ class AgentExecution(BaseSchema):
 
     # Sub-agents: a child execution (mode=subagent) carries the parent run and
     # the parent's `delegate` tool execution that launched it. NULL on every
-    # ordinary run. See app.models.sub_run.
+    # ordinary run. See app.models.sub_agent.
     parent_agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True, index=True)
     # Plain id, not a FOREIGN KEY: a second FK path between tool_executions and
     # agent_executions makes every implicit join between the two ambiguous.

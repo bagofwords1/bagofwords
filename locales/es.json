@@ -1830,12 +1830,12 @@
         "pending": "en cola"
       }
     },
-    "readSubRun": {
+    "readSubAgent": {
       "reading": "Consultando subagente…",
       "checked": "Consultada '{title}'",
       "latest": "Último"
     },
-    "stopSubRun": {
+    "stopSubAgent": {
       "stopping": "Deteniendo subagente…",
       "stopped": "Subagente '{title}' detenido"
     }
@@ -2930,7 +2930,7 @@
           "title": "Otros",
           "description": "Ajustes aún no asignados a una sección"
         },
-        "sub_runs": {
+        "sub_agent_runs": {
           "title": "Subagentes",
           "description": "Investigaciones delegadas en segundo plano y sus límites"
         }
@@ -3159,39 +3159,39 @@
           "name": "Generación de datos de demostración",
           "description": "En modo de entrenamiento, los administradores que pueden gestionar conexiones pueden pedir al agente que diseñe y genere un conjunto de datos SQLite ficticio y realista para cualquier dominio, y luego crear agentes sugeridos sobre él. Las filas las genera el modelo pequeño predeterminado."
         },
-        "enable_sub_runs": {
+        "enable_sub_agents": {
           "name": "Subagentes",
           "description": "Permite que el agente delegue sub-preguntas independientes (por ejemplo, una hipótesis por cada causa en un análisis de causa raíz) a sub-ejecuciones acotadas en segundo plano que investigan por su cuenta y devuelven registros tipificados en un único turno de consolidación. Si está desactivado, la herramienta delegate se oculta."
         },
-        "sub_run_posture": {
+        "sub_agent_posture": {
           "name": "Postura de sub-ejecuciones",
           "description": "'proactive': el agente delega por iniciativa propia cuando una petición se divide en tres o más sub-preguntas independientes. 'explicit': el agente solo delega cuando el usuario o una instrucción lo pide."
         },
-        "sub_run_max_steps": {
+        "sub_agent_max_steps": {
           "name": "Pasos máximos por sub-ejecución",
           "description": "Pasos del planificador que una sub-ejecución puede dar antes de verse obligada a terminar con un registro parcial. Limitado a 5-200."
         },
-        "sub_run_deadline_minutes": {
+        "sub_agent_deadline_minutes": {
           "name": "Plazo de sub-ejecuciones (minutos)",
           "description": "Límite de tiempo para una ola de sub-ejecuciones. Al cumplirse, las sub-ejecuciones aún activas se detienen y se registran como expiradas, y el turno de consolidación se ejecuta con los registros existentes. Limitado a 2-60."
         },
-        "sub_run_concurrency": {
+        "sub_agent_concurrency": {
           "name": "Sub-ejecuciones simultáneas",
           "description": "Cuántas sub-ejecuciones de un informe pueden ejecutarse a la vez. Las que superan el límite esperan dentro de su ola. Limitado a 1-6."
         },
-        "sub_run_max_per_wave": {
+        "sub_agent_max_per_wave": {
           "name": "Máximo de sub-ejecuciones por ola",
           "description": "Cuántas llamadas delegate puede lanzar el agente desde un paso de planificación. Las llamadas sobrantes se rechazan con una nota para que el agente planifique una segunda ola. Limitado a 1-10."
         },
-        "sub_run_model": {
+        "sub_agent_model": {
           "name": "Modelo de sub-ejecuciones",
           "description": "Modelo con el que planifican las sub-ejecuciones. 'auto' = el modelo pequeño por defecto para el perfil investigate y el modelo por defecto para validate; 'small' o 'default' fuerzan uno; o un id de modelo de la página de LLM."
         },
-        "sub_run_allow_model_override": {
+        "sub_agent_allow_model_override": {
           "name": "Permitir cambiar el modelo de una sub-ejecución",
           "description": "Permite que el agente elija otro modelo para una sub-ejecución cuando el usuario lo pide o una instrucción lo indica. La elección se valida contra los modelos que el usuario puede usar."
         },
-        "sub_run_allow_create_data": {
+        "sub_agent_allow_create_data": {
           "name": "Las sub-ejecuciones pueden crear consultas",
           "description": "Permite que las sub-ejecuciones creen consultas rastreadas (create_data) cuyos ids vuelven como evidencia que el agente puede graficar y citar. Desactivado = sub-ejecuciones solo de investigación."
         }
@@ -5563,8 +5563,8 @@
       "quiet": "Revisado de nuevo: nada nuevo",
       "failed": "El seguimiento falló"
     },
-    "subRunWaveDone": "{total} subagentes terminados · {counts}",
-    "subRunWaveDoneTimedOut": "{total} subagentes — plazo alcanzado · {counts}"
+    "subAgentWaveDone": "{total} subagentes terminados · {counts}",
+    "subAgentWaveDoneTimedOut": "{total} subagentes — plazo alcanzado · {counts}"
   },
   "sessionEvents": {
     "run_stopped": "Se detuvo la ejecución",
@@ -5651,7 +5651,7 @@
     "accepted": "Aceptada",
     "webhooks": "Webhooks",
     "configureWebhook": "Configurar webhook",
-    "subRuns": "Subagentes"
+    "subAgents": "Subagentes"
   },
   "scheduledCard": {
     "active": "Activa",
@@ -5999,7 +5999,7 @@
     "newest": "Más recientes primero",
     "oldest": "Más antiguos primero"
   },
-  "subRuns": {
+  "subAgents": {
     "wave": "Ola {n}",
     "count": "{count} sub-ejecuciones",
     "running": "{count} en ejecución",
@@ -6011,7 +6011,7 @@
     "queued": "en cola",
     "heading": "Subagentes",
     "headerStrip": "{total} sub-ejecuciones · {tokens} tokens",
-    "viaSubRun": "vía subagente: {title}",
+    "viaSubAgent": "vía subagente: {title}",
     "waveStatus": {
       "collecting": "iniciando",
       "running": "en ejecución",

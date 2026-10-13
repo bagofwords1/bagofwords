@@ -346,32 +346,32 @@ class PromptBuilderV3:
         )
         rca_notes_bit = ", recording verdicts in notes as they land" if _notes_on else ""
 
-        # Sub-agents (docs/design/sub-runs.md A5/A10). Only when the delegate tool
+        # Sub-agents (docs/design/sub-agents.md A5/A10). Only when the delegate tool
         # is in the catalog; the posture is an org setting because the field
         # could not agree on it (Part B8) and flipped it between versions.
-        _sub_runs_on = bool(getattr(planner_input, "sub_runs_enabled", False))
-        _posture = (getattr(planner_input, "sub_run_posture", None) or "proactive").lower()
-        if _sub_runs_on and _posture == "explicit":
+        _sub_agents_on = bool(getattr(planner_input, "sub_agents_enabled", False))
+        _posture = (getattr(planner_input, "sub_agent_posture", None) or "proactive").lower()
+        if _sub_agents_on and _posture == "explicit":
             delegation_text = (
                 "DELEGATION (sub-agents, explicit posture)\n"
-                "- `delegate` launches a bounded background sub-agent for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>. "
+                "- `delegate` launches a bounded background sub-agent for ONE self-contained goal; results arrive in a LATER turn as <sub_agent_results>. "
                 "Use it ONLY when the user or an instruction asks for parallel/background investigation. Otherwise do the work yourself.\n"
                 "- After launching: one line to the user, then END YOUR TURN. Never wait or poll; never redo a delegated goal yourself. "
-                "<sub_runs> lists waves already launched — never relaunch a goal that has a record; read_sub_run for detail.\n"
+                "<sub_agents> lists waves already launched — never relaunch a goal that has a record; read_sub_agent for detail.\n"
                 "- A sub-agent's record is its SELF-REPORT: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim. Never show sub-agent ids to the user.\n\n"
             )
             rca_delegate_bit = ""
-        elif _sub_runs_on:
+        elif _sub_agents_on:
             delegation_text = (
                 "DELEGATION (sub-agents)\n"
-                "- `delegate` launches a bounded background sub-agent for ONE self-contained goal; results arrive in a LATER turn as <sub_run_results>, one record per sub-agent (outcome, confidence, summary, findings, ruled_out, evidence ids, caveats, unknown). "
+                "- `delegate` launches a bounded background sub-agent for ONE self-contained goal; results arrive in a LATER turn as <sub_agent_results>, one record per sub-agent (outcome, confidence, summary, findings, ruled_out, evidence ids, caveats, unknown). "
                 "Delegate when a request splits into 3+ INDEPENDENT sub-questions that each need several steps — one hypothesis per candidate cause in a root-cause ask, the same deep check across many sources. "
                 "A root-cause ask ('why did X drop/spike', 'what caused') with 3+ candidate causes is ALWAYS delegated: never test the causes yourself, even when each test looks like one quick query — the point is independent, parallel, evidence-backed records, not speed. "
                 "Never for a single query, never for the final answer, never to avoid reading context already in front of you.\n"
                 "- Launch all independent goals as delegate calls in ONE response (they form a wave). Each goal must be self-contained: what to test, the window, what to report; put verified names, definitions and baseline numbers in `context` — children know nothing of this conversation.\n"
                 "- After launching: ONE line to the user (what you launched and that you will report back), then END YOUR TURN. Never wait, poll, or redo a delegated goal yourself; the user can keep chatting meanwhile. "
-                "<sub_runs> lists waves already launched with each child's status — never relaunch a goal that has a record; use read_sub_run for progress or a child's full write-up.\n"
-                "- In the fan-in turn (<sub_run_results> in your prompt): synthesize from the records, cite their evidence ids, carry every ruled_out item and caveat into the answer, and treat an inconclusive/blocked record with a named unknown as a follow-up or a second wave — never a guess.\n"
+                "<sub_agents> lists waves already launched with each child's status — never relaunch a goal that has a record; use read_sub_agent for progress or a child's full write-up.\n"
+                "- In the fan-in turn (<sub_agent_results> in your prompt): synthesize from the records, cite their evidence ids, carry every ruled_out item and caveat into the answer, and treat an inconclusive/blocked record with a named unknown as a follow-up or a second wave — never a guess.\n"
                 "- A record is the sub-agent's SELF-REPORT, not a verified fact: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim, read its note when a finding contradicts a sibling. Never show sub-agent ids to the user.\n\n"
             )
             rca_delegate_bit = ""
@@ -380,7 +380,7 @@ class PromptBuilderV3:
             rca_delegate_bit = ""
         # Root-cause step (3): with proactive sub-agents the fan-out IS the
         # delegation — the parent must not run the hypothesis tests itself.
-        if _sub_runs_on and _posture != "explicit":
+        if _sub_agents_on and _posture != "explicit":
             rca_step3 = (
                 "(3) enumerate the candidate causes and launch ONE `delegate` sub-agent per independent cause in a SINGLE response "
                 "(one hypothesis each, self-contained goal + context) — do NOT run those tests yourself with create_data/inspect_data; "
@@ -874,19 +874,19 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(planner_input.messages_context)
         if getattr(planner_input, "steering_context", None):
             parts.append(planner_input.steering_context)
-        # Sub-agents: the parent's <sub_runs> block changes as children finish
+        # Sub-agents: the parent's <sub_agents> block changes as children finish
         # (volatile → here); a child's remaining budget changes every step.
-        if getattr(planner_input, "sub_runs_context", None):
-            parts.append(planner_input.sub_runs_context)
+        if getattr(planner_input, "sub_agents_context", None):
+            parts.append(planner_input.sub_agents_context)
         # Proactive posture: the routing rule lives in the system block, but
         # a small model reading a fresh root-cause ask reaches for the quick
         # queries first; the reminder rides with the turn so it is the last
         # thing read before the decision. Dropped once a wave exists for the
-        # report (the <sub_runs> block above then carries the state).
+        # report (the <sub_agents> block above then carries the state).
         if (
-            getattr(planner_input, "sub_runs_enabled", False)
-            and (getattr(planner_input, "sub_run_posture", None) or "proactive").lower() != "explicit"
-            and not getattr(planner_input, "sub_runs_context", None)
+            getattr(planner_input, "sub_agents_enabled", False)
+            and (getattr(planner_input, "sub_agent_posture", None) or "proactive").lower() != "explicit"
+            and not getattr(planner_input, "sub_agents_context", None)
             and (getattr(planner_input, "mode", None) or "chat") != "subagent"
         ):
             parts.append(
@@ -894,8 +894,8 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 "ONE query, then launch ONE `delegate` call per independent cause in a SINGLE response and END YOUR TURN. "
                 "Do not test the causes yourself with create_data, even when the queries look quick.</delegation>"
             )
-        if getattr(planner_input, "sub_run_budget", None):
-            parts.append(f"<sub_run_budget>{planner_input.sub_run_budget}</sub_run_budget>")
+        if getattr(planner_input, "sub_agent_budget", None):
+            parts.append(f"<sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>")
         return "\n".join(parts)
 
     @staticmethod
@@ -1069,11 +1069,11 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         identity, the goal posture, verification, the finish contract, and the
         profile addendum. No dashboards, documents, memory or clarify."""
         language_text = language_directive_body(getattr(planner_input, "locale", None))
-        title = getattr(planner_input, "sub_run_title", None) or "sub-agent"
-        addendum = getattr(planner_input, "sub_run_profile_addendum", None) or ""
+        title = getattr(planner_input, "sub_agent_title", None) or "sub-agent"
+        addendum = getattr(planner_input, "sub_agent_profile_addendum", None) or ""
         return (
             f"SYSTEM\nMode: Sub-agent\n"
-            f"You are {planner_input.organization_ai_analyst_name}, a focused SUB-RUN of the AI data analyst for "
+            f"You are {planner_input.organization_ai_analyst_name}, a focused SUB-AGENT of the AI data analyst for "
             f"{planner_input.organization_name}, working on one delegated goal: \"{title}\". A parent agent launched you "
             "and will read ONLY the typed record you return through finish_subtask; your chat text is not delivered to anyone. "
             "An \"agent\" is a configured data source: its tables, tools, or files plus its instructions.\n\n"
@@ -1087,7 +1087,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             "(LIMIT-3 style); then the few targeted queries that settle the goal. Prefer small, decisive checks over one big one.\n"
             "- Keep a note (create_note, then edit_note) as your ledger when the goal needs more than ~5 steps: what you checked, "
             "what it showed (with the numbers and query/step ids), what you ruled out. Pass its id as report_note_id when you finish.\n"
-            "- STEP BUDGET: <sub_run_budget> in each turn says where you are. Finish BEFORE it runs out — a partial record beats none. "
+            "- STEP BUDGET: <sub_agent_budget> in each turn says where you are. Finish BEFORE it runs out — a partial record beats none. "
             "Never repeat a failing call unchanged; after two failures on an approach, change approach or finish with what you have.\n"
             "- FINISH: call finish_subtask exactly once with the record. outcome ∈ supported|refuted|inconclusive for a hypothesis, "
             "done|partial|blocked otherwise; confidence 0..1; summary = the answer plus the single number that carries it; "

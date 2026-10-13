@@ -360,24 +360,24 @@ def _digest_eval_tool(tool_execution) -> str:
     return ""
 
 
-SUB_RUN_TOOL_NAMES = ("delegate", "read_sub_run", "stop_sub_run")
+SUB_AGENT_TOOL_NAMES = ("delegate", "read_sub_agent", "stop_sub_agent")
 
 
-def _not_sub_run_child(stmt):
+def _not_sub_agent_child(stmt):
     """Keep sub-agent children out of the parent's history.
 
     A child runs on hidden completions of the same report
-    (trigger_source='sub_run', docs/design/sub-runs.md A3); its goal prompt
+    (trigger_source='sub_agent', docs/design/sub-agents.md A3); its goal prompt
     and in-flight tool calls are not the parent's conversation, and a live
     run showed the parent reading the children's pending calls as its own
     "outcome_unknown" results. NULL-safe: trigger_source is NULL on
     ordinary rows."""
     return stmt.filter(
-        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run")
+        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent")
     )
 
 
-def _digest_sub_run_tool(tool_execution) -> str:
+def _digest_sub_agent_tool(tool_execution) -> str:
     """One-line handle for a sub-agent tool call. `delegate` reads the record the
     wave tracker wrote back onto the row when the child finished (result_json
     = receipt + record); until then it reads as running. The full records
@@ -385,12 +385,12 @@ def _digest_sub_run_tool(tool_execution) -> str:
     rj = tool_execution.result_json if isinstance(tool_execution.result_json, dict) else {}
     name = tool_execution.tool_name
     if name == "delegate":
-        sid = rj.get("sub_run_id")
+        sid = rj.get("sub_agent_id")
         if not sid:
             return f"refused: {rj.get('refused') or 'not started'}"
         rec = rj.get("record") if isinstance(rj.get("record"), dict) else {}
         status = rj.get("status") or "running"
-        bits = [f"sub_run {sid}", f"\"{(rj.get('title') or '')[:60]}\""]
+        bits = [f"sub_agent {sid}", f"\"{(rj.get('title') or '')[:60]}\""]
         if rec.get("outcome"):
             conf = rec.get("confidence")
             bits.append(f"{rec['outcome']}" + (f" ({conf})" if conf is not None else ""))
@@ -401,16 +401,16 @@ def _digest_sub_run_tool(tool_execution) -> str:
         if rec.get("summary"):
             bits.append(str(rec["summary"])[:160])
         return " — ".join(bits)
-    if name == "read_sub_run":
-        bits = [f"sub_run {rj.get('sub_run_id')}", f"\"{(rj.get('title') or '')[:60]}\"", str(rj.get("status") or "")]
+    if name == "read_sub_agent":
+        bits = [f"sub_agent {rj.get('sub_agent_id')}", f"\"{(rj.get('title') or '')[:60]}\"", str(rj.get("status") or "")]
         rec = rj.get("record") if isinstance(rj.get("record"), dict) else {}
         if rec.get("outcome"):
             bits.append(f"{rec['outcome']} ({rec.get('confidence')})")
         elif rj.get("steps_used") is not None:
             bits.append(f"{rj['steps_used']} steps")
         return " — ".join(b for b in bits if b)
-    if name == "stop_sub_run":
-        return f"sub_run {rj.get('sub_run_id')} → {rj.get('status')}"
+    if name == "stop_sub_agent":
+        return f"sub_agent {rj.get('sub_agent_id')} → {rj.get('status')}"
     return ""
 
 
@@ -951,7 +951,7 @@ class MessageContextBuilder:
                 .filter(Completion.report_id == self.report.id)
                 .filter(Completion.deleted_at.is_(None))
                 .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
-                .filter((Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run"))
+                .filter((Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"))
                 .order_by(Completion.created_at.asc())
                 .limit(PROTECT_FIRST_N)
             )).scalars().all()
@@ -1504,7 +1504,7 @@ class MessageContextBuilder:
         # iteration). +1 covers dropping a trailing in-progress user completion.
         # Queued prompts are not part of the conversation yet — they run later.
         summary_text, watermark_created_at = await self._compaction_state()
-        completions_query = _not_sub_run_child(
+        completions_query = _not_sub_agent_child(
             select(Completion)
             .options(lazyload("*"))
             .filter(Completion.report_id == self.report.id)
@@ -1756,8 +1756,8 @@ class MessageContextBuilder:
                                     digest = _digest_eval_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
-                                elif tool_execution.tool_name in SUB_RUN_TOOL_NAMES and tool_execution.result_json:
-                                    digest = _digest_sub_run_tool(tool_execution)
+                                elif tool_execution.tool_name in SUB_AGENT_TOOL_NAMES and tool_execution.result_json:
+                                    digest = _digest_sub_agent_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
@@ -1969,7 +1969,7 @@ class MessageContextBuilder:
 
         summary_text = None
         if completion_ids is not None:
-            report_completions = (await self.db.execute(_not_sub_run_child(
+            report_completions = (await self.db.execute(_not_sub_agent_child(
                 select(Completion)
                 .options(lazyload("*"))
                 .filter(Completion.id.in_([str(cid) for cid in completion_ids]))
@@ -1981,7 +1981,7 @@ class MessageContextBuilder:
             # scoped past the compaction watermark when one exists.
             # Queued prompts are not part of the conversation yet — they run later.
             summary_text, watermark_created_at = await self._compaction_state()
-            completions_query = _not_sub_run_child(
+            completions_query = _not_sub_agent_child(
                 select(Completion)
                 .options(lazyload("*"))
                 .filter(Completion.report_id == self.report.id)
@@ -2629,7 +2629,7 @@ class MessageContextBuilder:
             return "\n".join(parts)
         
         # Get recent messages
-        report_completions = await self.db.execute(_not_sub_run_child(
+        report_completions = await self.db.execute(_not_sub_agent_child(
             select(Completion)
             .options(lazyload("*"))
             .filter(Completion.report_id == self.report.id)

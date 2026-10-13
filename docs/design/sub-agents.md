@@ -1,10 +1,13 @@
 # Sub-agents — delegated agent runs with wave fan-in
 
-**Status: implemented (see `docs/feedback-loops/sub-runs.md` for the verified
+**Status: implemented (see `docs/feedback-loops/sub-agents.md` for the verified
 runs). Naming: the user sees *sub-agents* and, in the status row, *background
-tasks*; code, tables, settings keys, routes and tool names keep `sub_run`
-(`sub_runs`, `sub_run_waves`, `enable_sub_runs`, `/reports/{id}/sub-runs`,
-`read_sub_run`, `stop_sub_run`, mode `subagent`).**
+tasks*. One row of `sub_agent_runs` is one execution of a sub-agent; the
+feature-level names drop "runs": tables `sub_agent_runs` and
+`sub_agent_waves`, settings `enable_sub_agents` and `sub_agent_*`, routes
+`/reports/{id}/sub-agents` and `/sub-agent-waves/{id}/stop`, tools `delegate`,
+`finish_subtask`, `read_sub_agent`, `stop_sub_agent`, trigger sources
+`sub_agent` and `sub_agent_wave`, planner mode `subagent`.**
 
 A *sub-agent* is a bounded agent run the main agent delegates a self-contained
 goal to. Sub-agents launched in one planner response form a *wave*. The parent
@@ -35,9 +38,9 @@ and why it was dropped.
    wave, through `run_machine_turn`, the primitive wait, webhooks, evals and
    check-ins already use. No per-child wake, no sync mode in v1.
 3. **The result is a record, not a message.** `finish_subtask` writes a typed
-   row to a `sub_runs` table. The parent receives the wave's records inline in
+   row to a `sub_agents` table. The parent receives the wave's records inline in
    the fan-in trigger and reads any record again on demand with
-   `read_sub_run`. The child's long-form write-up is a note, referenced from
+   `read_sub_agent`. The child's long-form write-up is a note, referenced from
    the record, read on demand through the same tool.
 4. **Children get a profile: an explicit tool allow-list, a prompt addendum,
    a model.** No artifacts, no clarify, no writes outside the report, no
@@ -52,23 +55,23 @@ and why it was dropped.
 ```
 turn N   parent: 5 × delegate(...) in one response   → 5 spawn receipts
          parent: "Testing five hypotheses; I'll report when they finish."  (turn ends)
-         wave W created: 5 sub_runs rows (status=running), deadline job armed
+         wave W created: 5 sub_agents rows (status=running), deadline job armed
 
          5 × AgentV2(mode=subagent) start as background tasks, own sessions,
            hidden completions on the report, events on the report SSE stream
 
 child k  ... describe / inspect / create_data / notes ...
-         finish_subtask(...)  → sub_runs[k].result + envelope, status=finished
+         finish_subtask(...)  → sub_agents[k].result + envelope, status=finished
          wave W: remaining -= 1 (conditional UPDATE); last one → fire fan-in
 
-turn N+1 machine turn (trigger_source=sub_run, message_type=sub_run_wave_done):
+turn N+1 machine turn (trigger_source=sub_agent, message_type=sub_agent_wave_done):
          visible event strip "5 sub-agents finished · 3 supported · 1 refuted · 1 inconclusive"
          hidden trigger carrying the 5 records
          parent synthesizes, reads notes on demand, may launch wave W+1 or deliver
 ```
 
 A user message that arrives while a wave runs is an ordinary turn. The parent
-sees the wave in a `<sub_runs>` block (status per child, finished records
+sees the wave in a `<sub_agents>` block (status per child, finished records
 inline) and answers with what it has. The fan-in turn goes through the
 report's prompt queue, so it never overlaps a user turn.
 
@@ -84,7 +87,7 @@ delegate(
   model:      str | null     # default: profile/org setting; override "<provider>/<model>"
   max_steps:  int | null     # only below the org ceiling
 )
-→ { sub_run_id, wave_id, status: "running", agents: [...], model: "..." }
+→ { sub_agent_id, wave_id, status: "running", agents: [...], model: "..." }
 ```
 
 **Agents.** Default is the parent's set: every agent attached to the report,
@@ -93,19 +96,19 @@ with the parent's current focus as the child's focus. `agent_ids` narrows
 agents the acting user can use; an id outside that set is refused in the
 receipt, never silently dropped. A child never gains an agent the user lacks.
 
-**Model.** Default resolves profile → `sub_run_model` org setting → the
+**Model.** Default resolves profile → `sub_agent_model` org setting → the
 parent's model. `model` overrides it with a `<provider>/<model>` pair or a
 model id, validated against `list_models_for_principal` for the acting user
 (per-model RBAC applies, see `docs/design/llm-model-access-control.md`), and
 refused in the receipt when not allowed. Gated by
-`sub_run_allow_model_override`. The tool description says: set `model` only
+`sub_agent_allow_model_override`. The tool description says: set `model` only
 when the user asked for a model, an instruction names one, or the profile
 calls for a stronger model on a hard hypothesis; otherwise leave it unset
 (B7: Codex and opencode both found models over-setting it).
 
 Pydantic `extra="forbid"`; empty strings normalised to null (B9). All
 `delegate` calls in one planner response share one wave; a lone `delegate`
-is a wave of one. Calls beyond `sub_run_max_per_wave` are refused with a
+is a wave of one. Calls beyond `sub_agent_max_per_wave` are refused with a
 receipt saying so, so the parent can plan a second wave.
 
 Tool description carries the mechanics (B8): children are stateless and know
@@ -119,7 +122,7 @@ later turn as records.
 
 `AgentV2(mode="subagent")` on a hidden pair of completions
 (`role=user` goal prompt + `role=system` reply) stamped
-`trigger_source="sub_run"` and `parent_completion_id`, so the timeline filter
+`trigger_source="sub_agent"` and `parent_completion_id`, so the timeline filter
 that already hides machine triggers hides them too. The run differs from a
 chat run only by what mode switches off:
 
@@ -163,7 +166,7 @@ finish_subtask(
 
 One schema for every sub-agent; `done/partial/blocked` serve ordinary
 delegation, `supported/refuted/inconclusive` serve hypothesis tests. The tool
-validates with Pydantic, writes the `sub_runs` row and ends the run.
+validates with Pydantic, writes the `sub_agents` row and ends the run.
 
 The runtime wraps the body in an **envelope the model does not write**
 (B4): `status` (finished | failed | timed_out | interrupted),
@@ -191,41 +194,41 @@ hold a tool the parent lacks (B3, OpenHands' scope check). Two ship
 hardcoded; phase 5 lets an org author its own as skills-catalog entries
 (markdown + frontmatter, the same loader as `app/ai/skills/catalog.py`).
 
-| Profile | Tools | Model (`sub_run_model=auto`) |
+| Profile | Tools | Model (`sub_agent_model=auto`) |
 |---|---|---|
-| `investigate` | describe_tables, inspect_data, read_query, run_query, load_step, read_resources, read_file, grep_files, search_files, read_mcp_resource, list_mcp_resources, execute_mcp, search_instructions, read_instruction, create_note, edit_note, finish_subtask; plus create_data when `sub_run_allow_create_data` | small |
+| `investigate` | describe_tables, inspect_data, read_query, run_query, load_step, read_resources, read_file, grep_files, search_files, read_mcp_resource, list_mcp_resources, execute_mcp, search_instructions, read_instruction, create_note, edit_note, finish_subtask; plus create_data when `sub_agent_allow_create_data` | small |
 | `validate` | the same, with create_data always on | default |
 
 ### A7. Storage and retrieval
 
 | What | Where | Who reads it | How |
 |---|---|---|---|
-| The typed result + envelope | `sub_runs` row | parent, UI, analytics | inline in the fan-in trigger; `read_sub_run(id)`; `<sub_runs>` block one line per child |
-| Long-form write-up | `notes` row, `source=sub_run`, tagged with the child execution | parent on demand, user in the report | `read_sub_run(id, include_report=true)` returns the note body |
+| The typed result + envelope | `sub_agents` row | parent, UI, analytics | inline in the fan-in trigger; `read_sub_agent(id)`; `<sub_agents>` block one line per child |
+| Long-form write-up | `notes` row, `source=sub_agent`, tagged with the child execution | parent on demand, user in the report | `read_sub_agent(id, include_report=true)` returns the note body |
 | Evidence objects | queries/steps/visualizations/files on the report | parent, user | `read_query`, `load_step`, `run_query`, `read_file` by the ids in `evidence` |
 | The full investigation | child completion + execution + blocks | user in the trace modal | nested under the delegate card |
 
 Tables:
 
 ```
-sub_run_waves: id, report_id, parent_completion_id, parent_execution_id,
+sub_agent_waves: id, report_id, parent_completion_id, parent_execution_id,
                status (running|firing|done|timed_out), remaining, deadline_at,
                created_at, fired_at
-sub_runs:      id, wave_id, report_id, parent_tool_execution_id,
+sub_agents:      id, wave_id, report_id, parent_tool_execution_id,
                child_completion_id, child_execution_id, title, profile, goal,
                status, exit_reason, result_json, envelope_json,
                report_note_id, steps_used, tokens_json, started_at, finished_at
 ```
 
-`sub_runs` is deliberately not an Agent List: lists are user-authored,
+`sub_agents` is deliberately not an Agent List: lists are user-authored,
 data-source-scoped schemas with flat typed columns and their own UI; a
 sub-agent record is report-scoped system plumbing with nested fields. The
 parent may still submit final conclusions into a user list when a user wants
 verdicts tracked across incidents.
 
-Context: the notes block renders a `source=sub_run` note as title + first
+Context: the notes block renders a `source=sub_agent` note as title + first
 line + id, never the body, so five children cannot pour five reports into
-every later iteration. The `<sub_runs>` block lists the report's recent waves
+every later iteration. The `<sub_agents>` block lists the report's recent waves
 one line per child (id, title, outcome, confidence, status).
 
 ### A8. Wave tracker
@@ -234,17 +237,17 @@ one line per child (id, title, outcome, confidence, status).
   `delegate` calls into one wave row and spawns each child as a background
   task (`asyncio.create_task`, own session, the same bootstrap
   `CompletionService` uses). The deadline is an APScheduler date job
-  `sub_run_wave:<id>` with the existing cross-replica claim guard.
+  `sub_agent_wave:<id>` with the existing cross-replica claim guard.
 - **Finish**: each child's post-run writes its record, then runs one
-  conditional `UPDATE sub_run_waves SET remaining = remaining - 1 WHERE
+  conditional `UPDATE sub_agent_waves SET remaining = remaining - 1 WHERE
   id = ? AND status = 'running'` and reads back `remaining`. The child that
   reads zero flips the wave to `firing` with a second conditional update; the
   one that wins schedules the fan-in. Two replicas cannot both fire.
 - **Deadline**: marks still-running children `timed_out`, sets their sigkill
   through the existing stop path, synthesises their records (A5 step 3), and
   fires the fan-in.
-- **Fan-in**: `run_machine_turn(trigger_source="sub_run",
-  message_type="sub_run_wave_done", summary="5 sub-agents finished · …",
+- **Fan-in**: `run_machine_turn(trigger_source="sub_agent",
+  message_type="sub_agent_wave_done", summary="5 sub-agents finished · …",
   instruction=<the wave's records, compact>)`. It enqueues behind any running
   user turn.
 - **Stop**: today's stop is a `sigkill` timestamp on a completion row,
@@ -259,9 +262,9 @@ one line per child (id, title, outcome, confidence, status).
     while still in progress (the dispatcher creates the wave row before
     spawning and checks sigkill before each spawn, so unlaunched children
     never start).
-  - `stop_sub_run(sub_run_id)`: sigkill one child. Reached from the delegate
+  - `stop_sub_agent(sub_agent_id)`: sigkill one child. Reached from the delegate
     card's stop button (existing sigkill route; same report and user, so
-    the owner check holds), from a parent-only `stop_sub_run` tool for
+    the owner check holds), from a parent-only `stop_sub_agent` tool for
     "stop the pricing one" said mid-wave (mirrors `stop_eval_run` and
     `cancel_wait`), and by the deadline job for each still-running child.
   - A stopped child becomes `interrupted`, its record is synthesized from
@@ -272,7 +275,7 @@ one line per child (id, title, outcome, confidence, status).
   - A child inside a long query stops when the tool returns or
     `query_timeout_seconds` fires, the same limit every run has.
 - **Report concurrency**: `_get_running_system_completion` excludes
-  `trigger_source='sub_run'` rows so children neither block user turns nor
+  `trigger_source='sub_agent'` rows so children neither block user turns nor
   the queue. The busy indicator counts them. On SQLite the single-writer lock
   still serialises their writes; the parallel win is LLM and query time.
 
@@ -289,7 +292,7 @@ one line per child (id, title, outcome, confidence, status).
   outcome counts, followed by the parent's synthesis. Same rendering path
   as wait and check-in events.
 - **Summary tab**: a "Sub-agents" section (title, outcome badge, confidence,
-  steps, tokens, scroll-to-message) from a `sub_runs` list on the summary
+  steps, tokens, scroll-to-message) from a `sub_agents` list on the summary
   response; queries created by a child carry "via sub-agent: title" in the
   Queries section; a header strip with counts and tokens.
 - **Trace modal**: expand the delegate row to the child execution.
@@ -318,8 +321,8 @@ one line per child (id, title, outcome, confidence, status).
 
 ### A10. Parent prompt (prompt_builder_v3)
 
-- DELEGATION block in the system prompt, gated on `enable_sub_runs`, with
-  the posture from `sub_run_posture`:
+- DELEGATION block in the system prompt, gated on `enable_sub_agents`, with
+  the posture from `sub_agent_posture`:
   - *proactive*: delegate when three or more independent sub-questions or
     a fan-out across many sources; never a single query, never the final
     answer, never to avoid reading context already present.
@@ -340,17 +343,17 @@ one line per child (id, title, outcome, confidence, status).
 
 | Setting | Default | Range | Lab |
 |---|---|---|---|
-| `enable_sub_runs` | on | bool | yes |
-| `sub_run_posture` | `proactive` | `proactive` / `explicit` | yes |
-| `sub_run_max_steps` | 40 | 5–200 | no |
-| `sub_run_deadline_minutes` | 15 | 2–60 | no |
-| `sub_run_concurrency` | 3 | 1–6 | yes |
-| `sub_run_max_per_wave` | 5 | 1–10 | yes |
-| `sub_run_model` | `auto` | `auto` / `small` / `default` / a model id | no |
-| `sub_run_allow_model_override` | on | bool | yes |
-| `sub_run_allow_create_data` | off | bool | yes |
+| `enable_sub_agents` | on | bool | yes |
+| `sub_agent_posture` | `proactive` | `proactive` / `explicit` | yes |
+| `sub_agent_max_steps` | 40 | 5–200 | no |
+| `sub_agent_deadline_minutes` | 15 | 2–60 | no |
+| `sub_agent_concurrency` | 3 | 1–6 | yes |
+| `sub_agent_max_per_wave` | 5 | 1–10 | yes |
+| `sub_agent_model` | `auto` | `auto` / `small` / `default` / a model id | no |
+| `sub_agent_allow_model_override` | on | bool | yes |
+| `sub_agent_allow_create_data` | off | bool | yes |
 
-`sub_run_concurrency` is a semaphore over running children per report;
+`sub_agent_concurrency` is a semaphore over running children per report;
 children beyond it queue inside the wave, so a wave of five with
 concurrency three still completes as one wave.
 
@@ -360,10 +363,10 @@ concurrency three still completes as one wave.
 **`delegate` observation** (what the parent's transcript holds as the
 tool_result): a spawn receipt.
 `{summary: "Started sub-agent 'Seasonality' (sr_…) in wave w_…; its record
-arrives in a later turn", sub_run_id, wave_id, title, profile, status:
+arrives in a later turn", sub_agent_id, wave_id, title, profile, status:
 "running"}`. Nothing else, so the parent cannot wait on it.
 
-**`read_sub_run(id, include_report=false)`** works at any time:
+**`read_sub_agent(id, include_report=false)`** works at any time:
 
 | Child state | Observation |
 |---|---|
@@ -379,13 +382,13 @@ asks how things are going, or in the fan-in turn to pull a note.
 into the parent's `delegate` `ToolExecution.result_json` next to the
 receipt. Everything downstream then reads `result_json` the way every other
 tool does: the card after a reload, the message-context digest, the
-summary tab. `digest_keys` on `delegate` = `sub_run_id, title, outcome,
+summary tab. `digest_keys` on `delegate` = `sub_agent_id, title, outcome,
 confidence`, so the in-run transcript decay keeps the handle.
 
 **Message-context digest** (`message_context_builder.py`, the per-tool
-`_digest_*` family keyed on tool name): a `_digest_sub_run_tool` for
-`delegate` and `read_sub_run` renders one line from `result_json`:
-`sub_run sr_…: "Seasonality" supported (0.8), 12 steps — <summary>`; a
+`_digest_*` family keyed on tool name): a `_digest_sub_agent_tool` for
+`delegate` and `read_sub_agent` renders one line from `result_json`:
+`sub_agent sr_…: "Seasonality" supported (0.8), 12 steps — <summary>`; a
 still-running one renders `running, 7 steps`. The full records live in the
 fan-in machine turn's hidden prompt, which later turns already see as the
 prompt the agent answered, so the digest stays a handle, not a copy.
@@ -394,18 +397,18 @@ prompt the agent answered, so the digest stays a handle, not a copy.
 completions never appear in the timeline. Live: the card folds the child's
 own `block.upsert` / `tool.started` / `tool.finished` events by
 `child_completion_id` from the receipt. Reload: the card hydrates from
-`GET /reports/{id}/sub-runs/{sub_run_id}`, which returns the row, the
+`GET /reports/{id}/sub-agents/{sub_agent_id}`, which returns the row, the
 envelope and the child's tool executions (the eval-run page pattern).
-`read_sub_run` renders as a small card: "Checked 'Seasonality': running,
+`read_sub_agent` renders as a small card: "Checked 'Seasonality': running,
 7 steps, latest: Querying orders by region".
 
 ### A12. Phasing
 
 1. `subagent` mode in `AgentV2` (what it switches off), the subagent system
-   prompt, `finish_subtask`, the `sub_runs` and `sub_run_waves` tables, the
+   prompt, `finish_subtask`, the `sub_agents` and `sub_agent_waves` tables, the
    `investigate` profile. Driven by a test harness, no `delegate` yet.
-2. `delegate`, the wave tracker, the fan-in machine turn, `read_sub_run`,
-   the `<sub_runs>` block, org gate and settings. Cards render from rows.
+2. `delegate`, the wave tracker, the fan-in machine turn, `read_sub_agent`,
+   the `<sub_agents>` block, org gate and settings. Cards render from rows.
 3. Live card folding of child events, wave strip, summary tab, trace
    nesting, cost rollup.
 4. `create_data` inside children with widget auto-placement off; evidence
@@ -552,7 +555,7 @@ Parallelism is "many tool calls in one assistant message" in every
 synchronous harness; only Codex and Claude Code run true background peers.
 
 *Confirms A9 defaults sit in the middle of the field (40 steps, 3
-concurrent). Adds `sub_run_timeout_minutes` with the confirmation-paused
+concurrent). Adds `sub_agent_timeout_minutes` with the confirmation-paused
 clock, and the rule that queued children wait rather than fail.*
 
 ### B6. Persistence, UI, cost
@@ -596,7 +599,7 @@ or config pin (Hermes `delegation.model`, "frontier planner, inexpensive
 workers"). Gemini's `codebase_investigator` picks Flash with high thinking.
 Hermes drops the prompt-cache TTL to 5 min for children.
 
-*Drives A2: no `model` on the tool input; A9 `sub_run_model`; A10 model per
+*Drives A2: no `model` on the tool input; A9 `sub_agent_model`; A10 model per
 profile.*
 
 ### B8. Prompting — where the "when to delegate" lives
@@ -635,7 +638,7 @@ profile.*
   opencode's appended list.
 
 *Drives A5: a short system-prompt block (Gemini) plus mechanics in the tool
-description (everyone), with `sub_run_posture` making the Codex v1/v2 split
+description (everyone), with `sub_agent_posture` making the Codex v1/v2 split
 a setting.*
 
 ### B9. Notable mechanisms and what we take from each

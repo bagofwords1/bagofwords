@@ -1,17 +1,17 @@
-// End-to-end UI verification of sub-agents (docs/design/sub-runs.md) as a human
+// End-to-end UI verification of sub-agents (docs/design/sub-agents.md) as a human
 // would see it: sign in, ask the planted RCA question on the Checkout Ops demo,
 // watch the delegate cards and the background-tasks indicator, ask a mid-wave
 // question, see the fan-in strip and the synthesis, check the Summary tab,
 // reload, and check the org settings page. One screenshot per stage into
-// media/pr/sub-runs/ (override with EVIDENCE_DIR).
+// media/pr/sub-agents/ (override with EVIDENCE_DIR).
 //
 // Requires: tools/agent/boot_stack.sh, seed_org.py, setup_haiku_llm.py and
 // seed_rca_incident.py --install already run. Run from frontend/:
-//   PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node ../tools/agent/verify_sub_runs.mjs
+//   PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node ../tools/agent/verify_sub_agents.mjs
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
-const OUT = process.env.EVIDENCE_DIR || '../media/pr/sub-runs';
+const OUT = process.env.EVIDENCE_DIR || '../media/pr/sub-agents';
 mkdirSync(OUT, { recursive: true });
 
 const BASE = process.env.BOW_FRONTEND_URL || 'http://localhost:3000';
@@ -68,18 +68,18 @@ const api = async (path, init = {}) => page.evaluate(async ({ t, org, path, init
 
 // --- Settings page: the Sub-agents section exists and is on ---
 await page.goto(`${BASE}/settings/ai_settings`, { waitUntil: 'domcontentloaded' });
-const section = page.locator('[data-testid="ai-section-sub_runs"]');
+const section = page.locator('[data-testid="ai-section-sub_agents"]');
 await section.waitFor({ state: 'visible', timeout: 60000 });
 await section.locator('button').first().click();
-await page.locator('[data-testid="ai-setting-enable_sub_runs"]').waitFor({ state: 'visible', timeout: 20000 });
+await page.locator('[data-testid="ai-setting-enable_sub_agents"]').waitFor({ state: 'visible', timeout: 20000 });
 await section.scrollIntoViewIfNeeded();
-await shot(page, 'settings-sub-runs-section', 'org settings: the Sub-agents section with its nine settings');
+await shot(page, 'settings-sub-agents-section', 'org settings: the Sub-agents section with its nine settings');
 
 // Make sure the posture is proactive and children may create queries for evidence.
 const settingsBefore = await api('/api/organization/settings');
 const cfg = settingsBefore.body?.config || {};
 const patch = {};
-for (const [k, v] of Object.entries({ enable_sub_runs: true, sub_run_posture: 'proactive', sub_run_allow_create_data: true, sub_run_concurrency: 3, sub_run_max_steps: 40 })) {
+for (const [k, v] of Object.entries({ enable_sub_agents: true, sub_agent_posture: 'proactive', sub_agent_allow_create_data: true, sub_agent_concurrency: 3, sub_agent_max_steps: 40 })) {
   patch[k] = { ...(cfg[k] || {}), value: v };
 }
 const upd = await api('/api/organization/settings', { method: 'PUT', body: JSON.stringify({ config: patch }) });
@@ -131,10 +131,10 @@ await page.waitForTimeout(2500);
 await shot(page, 'mid-wave-question-working-plus-tasks', 'Working counter AND background tasks side by side');
 await page.locator('.thinking-shimmer').waitFor({ state: 'detached', timeout: 300000 }).catch(() => {});
 await page.waitForTimeout(1500);
-await shot(page, 'mid-wave-answer', 'the parent answered from <sub_runs> (read_sub_run card if it read one)');
+await shot(page, 'mid-wave-answer', 'the parent answered from <sub_agents> (read_sub_agent card if it read one)');
 
 // ============ STAGE 4: fan-in ============
-const strip = page.locator('text=/sub-runs finished|sub-agents — deadline/').first();
+const strip = page.locator('text=/sub-agents finished|sub-agents — deadline/').first();
 await strip.waitFor({ state: 'visible', timeout: 1500000 });
 log('fan-in strip visible');
 await page.locator('.thinking-shimmer').waitFor({ state: 'detached', timeout: 600000 }).catch(() => {});
@@ -163,11 +163,11 @@ if (!(await summaryTab.count())) {
 }
 if (await summaryTab.count()) {
   await summaryTab.click();
-  const section = page.locator('[data-testid="summary-sub-runs"]');
+  const section = page.locator('[data-testid="summary-sub-agents"]');
   await section.waitFor({ state: 'visible', timeout: 30000 });
   await section.scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
-  await shot(page, 'summary-tab-sub-runs', 'Summary tab: Sub-agents section with outcome badges, steps, tokens');
+  await shot(page, 'summary-tab-sub-agents', 'Summary tab: Sub-agents section with outcome badges, steps, tokens');
 } else {
   log('Summary tab control not found; skipping');
 }
@@ -176,18 +176,18 @@ if (await summaryTab.count()) {
 await page.goto(`${BASE}/reports/${report.id}`, { waitUntil: 'domcontentloaded' });
 await page.locator('[data-testid^="delegate-card-"]').first().waitFor({ state: 'visible', timeout: 120000 });
 await page.waitForTimeout(2500);
-await shot(page, 'after-reload', 'same cards and strip after a reload, hydrated from the sub_runs rows');
+await shot(page, 'after-reload', 'same cards and strip after a reload, hydrated from the sub_agents rows');
 
 // ============ Final state dump ============
-const subRuns = await api(`/api/reports/${report.id}/sub-runs`);
+const subAgents = await api(`/api/reports/${report.id}/sub-agents`);
 const comps = await api(`/api/reports/${report.id}/completions?limit=50`);
 const timeline = (comps.body.completions || []).map((c) => ({ role: c.role, status: c.status, src: c.trigger_source || null, text: (c.completion?.content || c.prompt?.content || '').slice(0, 90) }));
-console.log('WAVES:', JSON.stringify(subRuns.body.waves.map((w) => ({ status: w.status, total: w.total, runs: w.sub_runs.map((r) => [r.title, r.status, r.outcome, r.confidence, r.steps_used]) })), null, 1));
+console.log('WAVES:', JSON.stringify(subAgents.body.waves.map((w) => ({ status: w.status, total: w.total, runs: w.sub_agents.map((r) => [r.title, r.status, r.outcome, r.confidence, r.steps_used]) })), null, 1));
 console.log('TIMELINE:', JSON.stringify(timeline, null, 1));
 if (consoleErrors.length) console.log('CONSOLE ERRORS:', consoleErrors.slice(0, 10));
 
-const wave = subRuns.body.waves[subRuns.body.waves.length - 1];
-const ok = wave && wave.status === 'done' && wave.sub_runs.length >= 3 && timeline.some((c) => c.role === 'system' && c.src === 'sub_run_wave' && c.status === 'success');
+const wave = subAgents.body.waves[subAgents.body.waves.length - 1];
+const ok = wave && wave.status === 'done' && wave.sub_agents.length >= 3 && timeline.some((c) => c.role === 'system' && c.src === 'sub_agent_wave' && c.status === 'success');
 console.log(ok ? 'E2E PASS: wave fanned out, children finished, fan-in reply succeeded' : 'E2E FAIL: see dumps above');
 process.exitCode = ok ? 0 : 1;
 await browser.close();

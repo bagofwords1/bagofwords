@@ -1077,10 +1077,10 @@ class CompletionService:
             ),
             # Sub-agent children (mode=subagent) are hidden completions: the
             # parent's delegate card is their only surface in the timeline.
-            # NULL-safe: a plain `trigger_source == 'sub_run'` is NULL for every
+            # NULL-safe: a plain `trigger_source == 'sub_agent'` is NULL for every
             # ordinary row, and NOT NULL filters those rows out too.
             (Completion.trigger_source.is_(None))
-            | (Completion.trigger_source != 'sub_run')
+            | (Completion.trigger_source != 'sub_agent')
             | (Completion.role != 'system'),
         )
         if before:
@@ -3247,7 +3247,7 @@ class CompletionService:
                 Completion.report_id == report_id,
                 Completion.role == 'system',
                 Completion.status == 'in_progress',
-                (Completion.trigger_source.is_(None)) | (Completion.trigger_source != 'sub_run'),
+                (Completion.trigger_source.is_(None)) | (Completion.trigger_source != 'sub_agent'),
             )
             .order_by(Completion.created_at.desc())
             .limit(1)

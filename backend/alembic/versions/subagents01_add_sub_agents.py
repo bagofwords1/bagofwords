@@ -1,6 +1,6 @@
-"""add sub_run_waves / sub_runs tables and parent links on agent_executions
+"""add sub_agent_waves / sub_agents tables and parent links on agent_executions
 
-Revision ID: subruns01
+Revision ID: subagents01
 Revises: mrgheads07
 Create Date: 2026-10-12 00:00:00.000000
 
@@ -8,14 +8,14 @@ Sub-agents are delegated agent runs (mode=subagent) launched by the parent's
 ``delegate`` tool and fanned back in once per wave. The child is its own
 ``AgentExecution`` carrying the parent execution / tool execution ids, so the
 existing per-run token and cost columns and the diagnosis rollup cover
-children with no new accounting. See docs/design/sub-runs.md.
+children with no new accounting. See docs/design/sub-agents.md.
 """
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "subruns01"
+revision: str = "subagents01"
 down_revision: Union[str, None] = "mrgheads07"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -31,7 +31,7 @@ def upgrade() -> None:
         batch_op.create_index("ix_agent_executions_parent_agent_execution_id", ["parent_agent_execution_id"])
 
     op.create_table(
-        "sub_run_waves",
+        "sub_agent_waves",
         sa.Column("id", sa.String(length=36), primary_key=True, nullable=False),
         sa.Column("organization_id", sa.String(length=36), sa.ForeignKey("organizations.id"), nullable=False),
         sa.Column("report_id", sa.String(length=36), sa.ForeignKey("reports.id"), nullable=False),
@@ -51,18 +51,18 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.Column("deleted_at", sa.DateTime(), nullable=True),
     )
-    op.create_index("ix_sub_run_waves_id", "sub_run_waves", ["id"], unique=True)
-    op.create_index("ix_sub_run_waves_organization_id", "sub_run_waves", ["organization_id"])
-    op.create_index("ix_sub_run_waves_report_id", "sub_run_waves", ["report_id"])
-    op.create_index("ix_sub_run_waves_parent_completion_id", "sub_run_waves", ["parent_completion_id"])
-    op.create_index("ix_sub_run_waves_parent_execution_id", "sub_run_waves", ["parent_execution_id"])
-    op.create_index("ix_sub_run_waves_status", "sub_run_waves", ["status"])
-    op.create_index("ix_sub_run_waves_report_status", "sub_run_waves", ["report_id", "status"])
+    op.create_index("ix_sub_agent_waves_id", "sub_agent_waves", ["id"], unique=True)
+    op.create_index("ix_sub_agent_waves_organization_id", "sub_agent_waves", ["organization_id"])
+    op.create_index("ix_sub_agent_waves_report_id", "sub_agent_waves", ["report_id"])
+    op.create_index("ix_sub_agent_waves_parent_completion_id", "sub_agent_waves", ["parent_completion_id"])
+    op.create_index("ix_sub_agent_waves_parent_execution_id", "sub_agent_waves", ["parent_execution_id"])
+    op.create_index("ix_sub_agent_waves_status", "sub_agent_waves", ["status"])
+    op.create_index("ix_sub_agent_waves_report_status", "sub_agent_waves", ["report_id", "status"])
 
     op.create_table(
-        "sub_runs",
+        "sub_agent_runs",
         sa.Column("id", sa.String(length=36), primary_key=True, nullable=False),
-        sa.Column("wave_id", sa.String(length=36), sa.ForeignKey("sub_run_waves.id"), nullable=False),
+        sa.Column("wave_id", sa.String(length=36), sa.ForeignKey("sub_agent_waves.id"), nullable=False),
         sa.Column("organization_id", sa.String(length=36), sa.ForeignKey("organizations.id"), nullable=False),
         sa.Column("report_id", sa.String(length=36), sa.ForeignKey("reports.id"), nullable=False),
         sa.Column("wave_index", sa.Integer(), nullable=False, server_default="0"),
@@ -94,32 +94,32 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.Column("deleted_at", sa.DateTime(), nullable=True),
     )
-    op.create_index("ix_sub_runs_id", "sub_runs", ["id"], unique=True)
-    op.create_index("ix_sub_runs_wave_id", "sub_runs", ["wave_id"])
-    op.create_index("ix_sub_runs_organization_id", "sub_runs", ["organization_id"])
-    op.create_index("ix_sub_runs_report_id", "sub_runs", ["report_id"])
-    op.create_index("ix_sub_runs_parent_tool_execution_id", "sub_runs", ["parent_tool_execution_id"])
-    op.create_index("ix_sub_runs_child_completion_id", "sub_runs", ["child_completion_id"])
-    op.create_index("ix_sub_runs_child_execution_id", "sub_runs", ["child_execution_id"])
-    op.create_index("ix_sub_runs_status", "sub_runs", ["status"])
-    op.create_index("ix_sub_runs_report_status", "sub_runs", ["report_id", "status"])
+    op.create_index("ix_sub_agent_runs_id", "sub_agent_runs", ["id"], unique=True)
+    op.create_index("ix_sub_agent_runs_wave_id", "sub_agent_runs", ["wave_id"])
+    op.create_index("ix_sub_agent_runs_organization_id", "sub_agent_runs", ["organization_id"])
+    op.create_index("ix_sub_agent_runs_report_id", "sub_agent_runs", ["report_id"])
+    op.create_index("ix_sub_agent_runs_parent_tool_execution_id", "sub_agent_runs", ["parent_tool_execution_id"])
+    op.create_index("ix_sub_agent_runs_child_completion_id", "sub_agent_runs", ["child_completion_id"])
+    op.create_index("ix_sub_agent_runs_child_execution_id", "sub_agent_runs", ["child_execution_id"])
+    op.create_index("ix_sub_agent_runs_status", "sub_agent_runs", ["status"])
+    op.create_index("ix_sub_agent_runs_report_status", "sub_agent_runs", ["report_id", "status"])
 
 
 def downgrade() -> None:
     for name in (
-        "ix_sub_runs_report_status", "ix_sub_runs_status", "ix_sub_runs_child_execution_id",
-        "ix_sub_runs_child_completion_id", "ix_sub_runs_parent_tool_execution_id", "ix_sub_runs_report_id",
-        "ix_sub_runs_organization_id", "ix_sub_runs_wave_id", "ix_sub_runs_id",
+        "ix_sub_agent_runs_report_status", "ix_sub_agent_runs_status", "ix_sub_agent_runs_child_execution_id",
+        "ix_sub_agent_runs_child_completion_id", "ix_sub_agent_runs_parent_tool_execution_id", "ix_sub_agent_runs_report_id",
+        "ix_sub_agent_runs_organization_id", "ix_sub_agent_runs_wave_id", "ix_sub_agent_runs_id",
     ):
-        op.drop_index(name, table_name="sub_runs")
-    op.drop_table("sub_runs")
+        op.drop_index(name, table_name="sub_agent_runs")
+    op.drop_table("sub_agent_runs")
     for name in (
-        "ix_sub_run_waves_report_status", "ix_sub_run_waves_status", "ix_sub_run_waves_parent_execution_id",
-        "ix_sub_run_waves_parent_completion_id", "ix_sub_run_waves_report_id", "ix_sub_run_waves_organization_id",
-        "ix_sub_run_waves_id",
+        "ix_sub_agent_waves_report_status", "ix_sub_agent_waves_status", "ix_sub_agent_waves_parent_execution_id",
+        "ix_sub_agent_waves_parent_completion_id", "ix_sub_agent_waves_report_id", "ix_sub_agent_waves_organization_id",
+        "ix_sub_agent_waves_id",
     ):
-        op.drop_index(name, table_name="sub_run_waves")
-    op.drop_table("sub_run_waves")
+        op.drop_index(name, table_name="sub_agent_waves")
+    op.drop_table("sub_agent_waves")
     with op.batch_alter_table("agent_executions") as batch_op:
         batch_op.drop_index("ix_agent_executions_parent_agent_execution_id")
         batch_op.drop_constraint("fk_agent_executions_parent_agent_execution", type_="foreignkey")

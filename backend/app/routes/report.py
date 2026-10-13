@@ -1022,11 +1022,11 @@ async def schedule_report(
         refresh_on_view=body.refresh_on_view,
     )
 
-# --- Sub-agents (docs/design/sub-runs.md) ---
+# --- Sub-agents (docs/design/sub-agents.md) ---
 
-@router.get("/reports/{report_id}/sub-runs")
+@router.get("/reports/{report_id}/sub-agents")
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
-async def list_report_sub_runs(
+async def list_report_sub_agents(
     report_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -1034,49 +1034,49 @@ async def list_report_sub_runs(
 ):
     """Recent sub-agent waves of this report plus the live background-task list
     (the prompt-box indicator and the delegate cards hydrate from this)."""
-    from app.services.sub_run_service import sub_run_service
-    return await sub_run_service.list_for_report(db, report_id)
+    from app.services.sub_agent_service import sub_agent_service
+    return await sub_agent_service.list_for_report(db, report_id)
 
 
-@router.get("/reports/{report_id}/sub-runs/{sub_run_id}")
+@router.get("/reports/{report_id}/sub-agents/{sub_agent_id}")
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
-async def get_report_sub_run(
+async def get_report_sub_agent(
     report_id: str,
-    sub_run_id: str,
+    sub_agent_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """One sub-agent: record + envelope + the child's tool calls (+ its note)."""
-    from app.services.sub_run_service import sub_run_service
-    snap = await sub_run_service.snapshot(db, sub_run_id, include_report=True, report_id=report_id)
+    from app.services.sub_agent_service import sub_agent_service
+    snap = await sub_agent_service.snapshot(db, sub_agent_id, include_report=True, report_id=report_id)
     if snap is None:
         raise HTTPException(status_code=404, detail="Sub-agent not found")
     return snap
 
 
-@router.post("/reports/{report_id}/sub-runs/{sub_run_id}/stop")
+@router.post("/reports/{report_id}/sub-agents/{sub_agent_id}/stop")
 @requires_permission('view_reports', model=Report, owner_only=True)
-async def stop_report_sub_run(
+async def stop_report_sub_agent(
     report_id: str,
-    sub_run_id: str,
+    sub_agent_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """Stop one sub-agent; its wave keeps running and still fans in."""
-    from app.models.sub_run import SubRun
-    from app.services.sub_run_service import sub_run_service
-    row = await db.get(SubRun, sub_run_id)
+    from app.models.sub_agent import SubAgentRun
+    from app.services.sub_agent_service import sub_agent_service
+    row = await db.get(SubAgentRun, sub_agent_id)
     if row is None or str(row.report_id) != str(report_id):
         raise HTTPException(status_code=404, detail="Sub-agent not found")
-    row = await sub_run_service.stop_sub_run(db, sub_run_id, reason=f"stopped by {getattr(current_user, 'email', 'user')}")
-    return {"sub_run_id": str(row.id), "status": row.status}
+    row = await sub_agent_service.stop_sub_agent(db, sub_agent_id, reason=f"stopped by {getattr(current_user, 'email', 'user')}")
+    return {"sub_agent_id": str(row.id), "status": row.status}
 
 
-@router.post("/reports/{report_id}/sub-run-waves/{wave_id}/stop")
+@router.post("/reports/{report_id}/sub-agent-waves/{wave_id}/stop")
 @requires_permission('view_reports', model=Report, owner_only=True)
-async def stop_report_sub_run_wave(
+async def stop_report_sub_agent_wave(
     report_id: str,
     wave_id: str,
     current_user: User = Depends(current_user),
@@ -1084,12 +1084,12 @@ async def stop_report_sub_run_wave(
     organization: Organization = Depends(get_current_organization)
 ):
     """Stop every running sub-agent of a wave; no fan-in turn is created."""
-    from app.models.sub_run import SubRunWave
-    from app.services.sub_run_service import sub_run_service
-    wave = await db.get(SubRunWave, wave_id)
+    from app.models.sub_agent import SubAgentWave
+    from app.services.sub_agent_service import sub_agent_service
+    wave = await db.get(SubAgentWave, wave_id)
     if wave is None or str(wave.report_id) != str(report_id):
         raise HTTPException(status_code=404, detail="Wave not found")
-    wave = await sub_run_service.stop_wave(db, wave_id, reason=f"wave stopped by {getattr(current_user, 'email', 'user')}")
+    wave = await sub_agent_service.stop_wave(db, wave_id, reason=f"wave stopped by {getattr(current_user, 'email', 'user')}")
     return {"wave_id": str(wave.id), "status": wave.status}
 
 

@@ -23,12 +23,12 @@
                     <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
                 </template>
                 <!-- Background sub-agents: independent of the working label — the
-                     parent can be idle while children run (docs/design/sub-runs.md A9). -->
+                     parent can be idle while children run (docs/design/sub-agents.md A9). -->
                 <BackgroundTasksIndicator
                     v-if="hasBackgroundTasks"
                     :waves="props.backgroundWaves as any[]"
                     :has-working-label="isThinking"
-                    @stopSubRun="(id) => emit('stopSubRun', id)"
+                    @stopSubAgent="(id) => emit('stopSubAgent', id)"
                     @stopWave="(id) => emit('stopWave', id)"
                     @scrollToMessage="(id) => emit('scrollToMessage', id)"
                 />
@@ -625,7 +625,7 @@ const props = defineProps({
         default: null
     },
     latestInProgressCompletion: Object,
-    // Live sub-agent waves of the report (GET /reports/{id}/sub-runs → waves);
+    // Live sub-agent waves of the report (GET /reports/{id}/sub-agents → waves);
     // drives the background-tasks indicator next to the working counter.
     backgroundWaves: { type: Array, default: () => [] },
     isStopping: Boolean,
@@ -702,7 +702,7 @@ const props = defineProps({
     persistSelection: { type: Boolean, default: true }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubRun','stopWave'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:

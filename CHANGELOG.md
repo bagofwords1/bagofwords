@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.587 (October 12, 2026)
-- Added sub-agents: the agent delegates independent sub-questions (one hypothesis each in a root-cause analysis) to bounded background runs that report back as typed records in one fan-in turn — controlled by the `enable_sub_runs` org setting and its `sub_run_*` limits
+- Added sub-agents: the agent delegates independent sub-questions (one hypothesis each in a root-cause analysis) to bounded background runs that report back as typed records in one fan-in turn — controlled by the `enable_sub_agents` org setting and its `sub_agent_*` limits
 - Added delegate cards with live progress, a wave strip, a background-tasks indicator with per-run stop, a Sub-agents section in the report Summary, and a Checkout Ops demo dataset for root-cause analysis
 
 ## Version 0.0.586 (October 10, 2026)

@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-1 mb-1" :data-testid="`delegate-card-${subRunId || 'refused'}`" dir="auto">
+  <div class="mt-1 mb-1" :data-testid="`delegate-card-${subAgentId || 'refused'}`" dir="auto">
     <!-- Header line -->
     <div
       class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
@@ -117,9 +117,9 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'openNote', noteId: string): void }>()
 
-// The report page polls GET /reports/{id}/sub-runs while any wave is live and
+// The report page polls GET /reports/{id}/sub-agents while any wave is live and
 // provides the rows by id; the card reads them so N cards cost one poll.
-const subRuns = inject<any>('subRuns', null)
+const subAgents = inject<any>('subAgents', null)
 
 const expanded = ref(false)
 const stopping = ref(false)
@@ -130,9 +130,9 @@ let detailTimer: ReturnType<typeof setInterval> | null = null
 
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 const args = computed<any>(() => props.toolExecution?.arguments_json || {})
-const subRunId = computed<string | null>(() => rj.value?.sub_run_id || null)
+const subAgentId = computed<string | null>(() => rj.value?.sub_agent_id || null)
 const refused = computed<string | null>(() => (rj.value?.status === 'refused' ? (rj.value?.refused || t('tools.delegate.refused')) : null))
-const live = computed<any>(() => (subRunId.value && subRuns?.byId?.value?.[subRunId.value]) || null)
+const live = computed<any>(() => (subAgentId.value && subAgents?.byId?.value?.[subAgentId.value]) || null)
 const title = computed(() => live.value?.title || rj.value?.title || args.value?.title || t('tools.delegate.label'))
 const goal = computed(() => live.value?.goal || detail.value?.goal || args.value?.goal || '')
 const status = computed<string>(() => {
@@ -212,19 +212,19 @@ const outcomeClass = computed(() => {
 })
 
 async function fetchDetail() {
-  if (!props.reportId || !subRunId.value || props.readonly) return
+  if (!props.reportId || !subAgentId.value || props.readonly) return
   try {
-    const { data } = await useMyFetch(`/reports/${props.reportId}/sub-runs/${subRunId.value}`)
+    const { data } = await useMyFetch(`/reports/${props.reportId}/sub-agents/${subAgentId.value}`)
     if (data.value) detail.value = data.value
   } catch { /* keep the last snapshot */ }
 }
 async function stop() {
-  if (!props.reportId || !subRunId.value) return
+  if (!props.reportId || !subAgentId.value) return
   stopping.value = true
   try {
-    await useMyFetch(`/reports/${props.reportId}/sub-runs/${subRunId.value}/stop`, { method: 'POST' })
+    await useMyFetch(`/reports/${props.reportId}/sub-agents/${subAgentId.value}/stop`, { method: 'POST' })
     await fetchDetail()
-    subRuns?.refresh?.()
+    subAgents?.refresh?.()
   } catch (e) {
     console.error('Failed to stop sub-agent', e)
   } finally {
@@ -245,7 +245,7 @@ watch(isLive, (v, prev) => { if (prev && !v) fetchDetail() })
 
 onMounted(() => {
   tick = setInterval(() => { now.value = Date.now() }, 1000)
-  if (!isLive.value && subRunId.value && !record.value && !props.readonly) fetchDetail()
+  if (!isLive.value && subAgentId.value && !record.value && !props.readonly) fetchDetail()
 })
 onBeforeUnmount(() => {
   if (tick) clearInterval(tick)

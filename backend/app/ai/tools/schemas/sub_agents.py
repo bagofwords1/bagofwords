@@ -1,4 +1,4 @@
-"""Schemas for the sub-agent tools: delegate, finish_subtask, read_sub_run, stop_sub_run."""
+"""Schemas for the sub-agent tools: delegate, finish_subtask, read_sub_agent, stop_sub_agent."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
@@ -55,7 +55,7 @@ class DelegateInput(BaseModel):
 
 
 class DelegateOutput(BaseModel):
-    sub_run_id: Optional[str] = None
+    sub_agent_id: Optional[str] = None
     wave_id: Optional[str] = None
     status: str = "running"
     title: str = ""
@@ -102,13 +102,13 @@ class FinishSubtaskInput(BaseModel):
         return _null_if_blank(v)
 
 
-class ReadSubRunInput(BaseModel):
+class ReadSubAgentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    sub_run_id: str = Field(..., min_length=4)
+    sub_agent_id: str = Field(..., min_length=4)
     include_report: bool = Field(False, description="Also return the child's full write-up note.")
 
 
-class StopSubRunInput(BaseModel):
+class StopSubAgentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    sub_run_id: str = Field(..., min_length=4)
+    sub_agent_id: str = Field(..., min_length=4)
     reason: str = Field("", max_length=300)

@@ -8,26 +8,26 @@
       <Spinner v-if="runningCount > 0 && !hasWorkingLabel" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
       <span v-if="hasWorkingLabel" class="text-gray-300 dark:text-gray-600">·</span>
       <Icon v-else name="heroicons-squares-2x2" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-      <span class="tabular-nums">{{ t('subRuns.backgroundTasks', { count: runningCount }) }}</span>
+      <span class="tabular-nums">{{ t('subAgents.backgroundTasks', { count: runningCount }) }}</span>
     </button>
     <template #panel>
       <div class="p-2 w-80 max-w-[90vw] text-xs" data-testid="background-tasks-popover" dir="auto">
         <div v-for="wave in waves" :key="wave.id" class="mb-2 last:mb-0">
           <div class="flex items-center justify-between gap-2 mb-1">
-            <span class="font-medium text-gray-700 dark:text-gray-200 truncate">{{ t('subRuns.wave', { n: wave.number }) }}<span class="text-gray-400 font-normal"> · {{ wave.label }}</span></span>
+            <span class="font-medium text-gray-700 dark:text-gray-200 truncate">{{ t('subAgents.wave', { n: wave.number }) }}<span class="text-gray-400 font-normal"> · {{ wave.label }}</span></span>
             <button
               v-if="wave.live"
               class="text-[10px] text-red-600 hover:text-red-800 flex-shrink-0"
               :data-testid="`popover-stop-wave-${wave.id}`"
               @click.stop="emit('stopWave', wave.id)"
-            >{{ t('subRuns.stopAll') }}</button>
+            >{{ t('subAgents.stopAll') }}</button>
           </div>
           <ul class="space-y-1">
             <li
               v-for="task in wave.tasks"
-              :key="task.sub_run_id"
+              :key="task.sub_agent_id"
               class="flex items-center gap-1.5 px-1 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer min-w-0"
-              :data-testid="`popover-task-${task.sub_run_id}`"
+              :data-testid="`popover-task-${task.sub_agent_id}`"
               @click="emit('scrollToMessage', task.parent_completion_id)"
             >
               <Spinner v-if="task.status === 'running'" class="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />
@@ -43,8 +43,8 @@
                 v-if="task.status === 'running' || task.status === 'pending'"
                 class="text-red-500 hover:text-red-700 flex-shrink-0"
                 :title="t('tools.delegate.stop')"
-                :data-testid="`popover-stop-${task.sub_run_id}`"
-                @click.stop="emit('stopSubRun', task.sub_run_id)"
+                :data-testid="`popover-stop-${task.sub_agent_id}`"
+                @click.stop="emit('stopSubAgent', task.sub_agent_id)"
               >
                 <Icon name="heroicons-stop" class="w-3 h-3" />
               </button>
@@ -63,12 +63,12 @@ import Spinner from '~/components/Spinner.vue'
 
 const { t } = useI18n()
 const props = defineProps<{
-  // GET /reports/{id}/sub-runs → waves (oldest first); only live waves are shown.
+  // GET /reports/{id}/sub-agents → waves (oldest first); only live waves are shown.
   waves: any[]
   hasWorkingLabel?: boolean
 }>()
 const emit = defineEmits<{
-  (e: 'stopSubRun', id: string): void
+  (e: 'stopSubAgent', id: string): void
   (e: 'stopWave', id: string): void
   (e: 'scrollToMessage', id: string): void
 }>()
@@ -80,13 +80,13 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 
 const liveStatuses = ['collecting', 'running', 'firing']
 const waves = computed(() => (props.waves || []).map((w: any, i: number) => {
-  const tasks = w.sub_runs || []
+  const tasks = w.sub_agents || []
   const running = tasks.filter((r: any) => r.status === 'running' || r.status === 'pending').length
   return {
     id: w.id,
     number: i + 1,
     live: liveStatuses.includes(w.status),
-    label: liveStatuses.includes(w.status) ? t('subRuns.running', { count: running }) : t(`subRuns.waveStatus.${w.status}`, w.status),
+    label: liveStatuses.includes(w.status) ? t('subAgents.running', { count: running }) : t(`subAgents.waveStatus.${w.status}`, w.status),
     tasks,
   }
 }).filter((w: any) => w.live))
@@ -101,7 +101,7 @@ function parseServerTimestamp(v: any): number | null {
 }
 function durationLabel(task: any): string {
   const start = parseServerTimestamp(task.started_at)
-  if (!start) return task.status === 'pending' ? t('subRuns.queued') : ''
+  if (!start) return task.status === 'pending' ? t('subAgents.queued') : ''
   const end = task.status === 'running' ? now.value : (parseServerTimestamp(task.finished_at) || now.value)
   const s = Math.max(0, Math.floor((end - start) / 1000))
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`

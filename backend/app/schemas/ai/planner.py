@@ -221,17 +221,17 @@ class PlannerInput(BaseModel):
     current_model: Optional[str] = None
     routing_state: Optional[str] = None
 
-    # Sub-agents (docs/design/sub-runs.md). Parent side: whether `delegate` is
-    # in the catalog and the org's posture, plus the rendered <sub_runs>
+    # Sub-agents (docs/design/sub-agents.md). Parent side: whether `delegate` is
+    # in the catalog and the org's posture, plus the rendered <sub_agents>
     # block (recent waves, one line per child). Child side (mode=subagent):
     # the sub-agent's title, the profile's prompt addendum and the remaining
     # step budget rendered in the per-turn head.
-    sub_runs_enabled: bool = False
-    sub_run_posture: str = "proactive"
-    sub_runs_context: Optional[str] = None
-    sub_run_title: Optional[str] = None
-    sub_run_profile_addendum: Optional[str] = None
-    sub_run_budget: Optional[str] = None
+    sub_agents_enabled: bool = False
+    sub_agent_posture: str = "proactive"
+    sub_agents_context: Optional[str] = None
+    sub_agent_title: Optional[str] = None
+    sub_agent_profile_addendum: Optional[str] = None
+    sub_agent_budget: Optional[str] = None
 
     # Native transcript path (opt-in, see planner/transcript_bridge.py). When
     # on, prior steps replay as real assistant(tool_use) / user(tool_result)

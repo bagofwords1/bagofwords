@@ -3,11 +3,11 @@
     <div class="mb-1 flex items-center text-xs text-gray-500 dark:text-gray-400 min-w-0">
       <span v-if="status === 'in_progress'" class="tool-shimmer flex items-center">
         <Spinner class="w-3 h-3 me-1 text-gray-400" />
-        {{ t('tools.stopSubRun.stopping') }}
+        {{ t('tools.stopSubAgent.stopping') }}
       </span>
       <template v-else>
         <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
-        <span class="text-gray-700 dark:text-gray-300 truncate">{{ t('tools.stopSubRun.stopped', { title: title }) }}</span>
+        <span class="text-gray-700 dark:text-gray-300 truncate">{{ t('tools.stopSubAgent.stopped', { title: title }) }}</span>
       </template>
     </div>
   </div>
@@ -21,5 +21,5 @@ import Spinner from '~/components/Spinner.vue'
 const { t } = useI18n()
 const props = defineProps<{ toolExecution: { status: string; result_json?: any; arguments_json?: any } }>()
 const status = computed(() => props.toolExecution?.status || '')
-const title = computed(() => props.toolExecution?.result_json?.title || props.toolExecution?.arguments_json?.sub_run_id || '')
+const title = computed(() => props.toolExecution?.result_json?.title || props.toolExecution?.arguments_json?.sub_agent_id || '')
 </script>

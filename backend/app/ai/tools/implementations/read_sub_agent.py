@@ -1,4 +1,4 @@
-"""read_sub_run — read a sub-agent's record (or progress snapshot while it runs)
+"""read_sub_agent — read a sub-agent's record (or progress snapshot while it runs)
 and optionally its full write-up note. Parent-side, on demand."""
 from __future__ import annotations
 
@@ -10,19 +10,19 @@ from pydantic import BaseModel, ValidationError
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.events import ToolEndEvent, ToolErrorEvent, ToolEvent, ToolStartEvent
-from app.ai.tools.schemas.sub_runs import ReadSubRunInput
+from app.ai.tools.schemas.sub_agents import ReadSubAgentInput
 
 logger = logging.getLogger(__name__)
 
 
-class ReadSubRunTool(Tool):
+class ReadSubAgentTool(Tool):
 
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="read_sub_run",
+            name="read_sub_agent",
             description=(
-                "RESEARCH: Read one sub-agent by id (from <sub_runs> or a delegate receipt). While it runs you "
+                "RESEARCH: Read one sub-agent by id (from <sub_agents> or a delegate receipt). While it runs you "
                 "get a progress snapshot (status, steps used of budget, elapsed, the latest tool calls, "
                 "evidence created so far, the note's first lines). Once finished you get its record and "
                 "envelope. Set include_report=true to also get the child's full write-up note — do that when "
@@ -31,7 +31,7 @@ class ReadSubRunTool(Tool):
             ),
             category="research",
             version="1.0.0",
-            input_schema=ReadSubRunInput.model_json_schema(),
+            input_schema=ReadSubAgentInput.model_json_schema(),
             output_schema={"type": "object"},
             max_retries=1,
             timeout_seconds=20,
@@ -39,26 +39,26 @@ class ReadSubRunTool(Tool):
             required_permissions=[],
             allowed_modes=["chat", "training"],
             observation_policy="always",
-            digest_keys=["sub_run_id", "title", "status", "outcome", "confidence", "steps_used"],
+            digest_keys=["sub_agent_id", "title", "status", "outcome", "confidence", "steps_used"],
             tags=["sub-agent", "read", "progress"],
         )
 
     @property
     def input_model(self) -> Type[BaseModel]:
-        return ReadSubRunInput
+        return ReadSubAgentInput
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         try:
-            data = ReadSubRunInput(**(tool_input or {}))
+            data = ReadSubAgentInput(**(tool_input or {}))
         except ValidationError as e:
             yield ToolErrorEvent(type="tool.error", payload={"error": f"Invalid input: {e}", "code": "INVALID_INPUT"})
             return
-        yield ToolStartEvent(type="tool.start", payload={"sub_run_id": data.sub_run_id})
-        from app.services.sub_run_service import sub_run_service
+        yield ToolStartEvent(type="tool.start", payload={"sub_agent_id": data.sub_agent_id})
+        from app.services.sub_agent_service import sub_agent_service
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
-        snap = await sub_run_service.snapshot(
-            db, data.sub_run_id, include_report=data.include_report,
+        snap = await sub_agent_service.snapshot(
+            db, data.sub_agent_id, include_report=data.include_report,
             report_id=str(report.id) if report is not None else None,
         )
         if snap is None:

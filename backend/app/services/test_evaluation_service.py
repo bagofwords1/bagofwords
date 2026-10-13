@@ -131,7 +131,7 @@ class TestEvaluationService:
                         Completion.report_id == str(report_id),
                         Completion.role == "system",
                         # Sub-agent children are hidden completions, not turns.
-                        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run"),
+                        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
                     )
                     .order_by(Completion.turn_index.asc(), Completion.created_at.asc())
                 )

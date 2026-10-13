@@ -1358,16 +1358,16 @@ class TestRunService:
                             Completion.role == "system",
                             # Sub-agent children are hidden completions: neither a
                             # turn nor "the agent still working" for this case.
-                            (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run"),
+                            (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
                         )
                     )
                 ).scalars().all()
                 terminal_n = sum(1 for s in sys_rows if s in {"success", "error", "stopped"})
                 any_in_progress = any(s == "in_progress" for s in sys_rows)
-                # Wave-aware terminal state (docs/design/sub-runs.md): a turn that
+                # Wave-aware terminal state (docs/design/sub-agents.md): a turn that
                 # launched sub-agents ends while they run; the case is finished
                 # only once every wave fanned in and its reply is terminal.
-                waves_open = await self._sub_run_waves_pending(session, str(report_id))
+                waves_open = await self._sub_agent_waves_pending(session, str(report_id))
                 if terminal_n >= max(1, int(expected_turns)) and not any_in_progress and not waves_open:
                     timed_out = False
                     break
@@ -1458,24 +1458,24 @@ class TestRunService:
         except Exception as e:
             logging.exception(f"eval watcher: run {run_id} finalize failed: {e}")
 
-    async def _sub_run_waves_pending(self, db: AsyncSession, report_id: str) -> bool:
+    async def _sub_agent_waves_pending(self, db: AsyncSession, report_id: str) -> bool:
         """True while a sub-agent wave of the report is live, or fanned in but its
-        fan-in reply (trigger_source=sub_run_wave) has not reached a terminal
+        fan-in reply (trigger_source=sub_agent_wave) has not reached a terminal
         status yet."""
         try:
-            from app.models.sub_run import SubRunWave
+            from app.models.sub_agent import SubAgentWave
             live = (await db.execute(
-                select(func.count(SubRunWave.id)).where(
-                    SubRunWave.report_id == report_id,
-                    SubRunWave.status.in_(("collecting", "running", "firing")),
+                select(func.count(SubAgentWave.id)).where(
+                    SubAgentWave.report_id == report_id,
+                    SubAgentWave.status.in_(("collecting", "running", "firing")),
                 )
             )).scalar() or 0
             if live:
                 return True
             fanned = (await db.execute(
-                select(func.count(SubRunWave.id)).where(
-                    SubRunWave.report_id == report_id,
-                    SubRunWave.status.in_(("done", "timed_out")),
+                select(func.count(SubAgentWave.id)).where(
+                    SubAgentWave.report_id == report_id,
+                    SubAgentWave.status.in_(("done", "timed_out")),
                 )
             )).scalar() or 0
             if not fanned:
@@ -1484,7 +1484,7 @@ class TestRunService:
                 select(Completion.status).where(
                     Completion.report_id == report_id,
                     Completion.role == "system",
-                    Completion.trigger_source == "sub_run_wave",
+                    Completion.trigger_source == "sub_agent_wave",
                 )
             )).scalars().all()
             terminal = sum(1 for st in replies if st in {"success", "error", "stopped"})
@@ -1917,14 +1917,14 @@ class TestRunService:
                     await turn_agent.main_execution()
                     prev_system = next_system
 
-                # Wave-aware (docs/design/sub-runs.md): a turn that launched
+                # Wave-aware (docs/design/sub-agents.md): a turn that launched
                 # sub-agents ends while they run, and the fan-in reply is a
                 # later machine turn on the report. Hold the evaluation until
                 # every wave fanned in and its reply is terminal, bounded by
                 # the same ceiling the background watcher uses.
                 import time as _time
                 _wave_deadline = _time.monotonic() + CASE_WATCH_TIMEOUT_S
-                while await self._sub_run_waves_pending(session, str(report_id)):
+                while await self._sub_agent_waves_pending(session, str(report_id)):
                     if _time.monotonic() > _wave_deadline:
                         logging.getLogger(__name__).warning("eval result %s: sub-agent wave still open at the watch ceiling; evaluating as is", result_id)
                         break

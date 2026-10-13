@@ -325,8 +325,8 @@ import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
 import DelegateTool from '~/components/tools/DelegateTool.vue'
-import ReadSubRunTool from '~/components/tools/ReadSubRunTool.vue'
-import StopSubRunTool from '~/components/tools/StopSubRunTool.vue'
+import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
 import MemoryTool from '~/components/tools/MemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
@@ -693,10 +693,10 @@ function getToolComponent(toolName: string) {
             return ClarifyTool
         case 'delegate':
             return DelegateTool
-        case 'read_sub_run':
-            return ReadSubRunTool
-        case 'stop_sub_run':
-            return StopSubRunTool
+        case 'read_sub_agent':
+            return ReadSubAgentTool
+        case 'stop_sub_agent':
+            return StopSubAgentTool
         case 'wait':
             return WaitTool
         case 'create_memory':

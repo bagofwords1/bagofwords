@@ -1,22 +1,22 @@
 """Sub-agents — delegated agent runs with wave fan-in.
 
-Lifecycle (docs/design/sub-runs.md, A8):
+Lifecycle (docs/design/sub-agents.md, A8):
 
     parent turn: delegate × N (one planner response)
-      └─ record_delegation()   → sub_runs rows (status=pending) in ONE wave
+      └─ record_delegation()   → sub_agents rows (status=pending) in ONE wave
          (status=collecting), keyed by the parent's plan decision
     after the batch: launch_pending()  → wave running, total/remaining set,
          deadline date job armed, a launcher task starts each child
          (CompletionService.create_completion, mode=subagent, background,
-         trigger_source=sub_run) bounded by sub_run_concurrency
+         trigger_source=sub_agent) bounded by sub_agent_concurrency
     child: finish_subtask → record_finish();  AgentV2 finally → finalize_child()
          marks the row terminal exactly once (conditional UPDATE), writes the
          record back into the parent's `delegate` ToolExecution, decrements
          the wave; the child that reads zero flips the wave to `firing` and
          spawns the fan-in
     fan-in: run_fan_in() waits for the report to be idle, then
-         run_machine_turn(trigger_source=sub_run) with the wave's records
-    stop: stop_wave() (no fan-in) / stop_sub_run() (wave continues);
+         run_machine_turn(trigger_source=sub_agent) with the wave's records
+    stop: stop_wave() (no fan-in) / stop_sub_agent() (wave continues);
          deadline: run_wave_deadline() stops stragglers and fires the fan-in
 
 Every cross-replica decision goes through a conditional UPDATE or the
@@ -33,17 +33,17 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select, update
 
-from app.models.sub_run import (
+from app.models.sub_agent import (
     EXIT_DEADLINE, EXIT_ERROR, EXIT_FINISH_CALL, EXIT_MAX_STEPS, EXIT_NO_FINISH_CALL, EXIT_STOPPED,
     RUN_FAILED, RUN_FINISHED, RUN_INTERRUPTED, RUN_PENDING, RUN_RUNNING, RUN_TIMED_OUT,
     TERMINAL_RUN_STATUSES,
     WAVE_COLLECTING, WAVE_DONE, WAVE_FIRING, WAVE_RUNNING, WAVE_STOPPED, WAVE_TIMED_OUT,
-    SubRun, SubRunWave,
+    SubAgentRun, SubAgentWave,
 )
 
 logger = logging.getLogger(__name__)
 
-_DEADLINE_JOB_PREFIX = "sub_run_wave:"
+_DEADLINE_JOB_PREFIX = "sub_agent_wave:"
 # How long the fan-in waits for a user turn on the report to finish before
 # giving up on serialisation and running anyway.
 _FAN_IN_WAIT_SECONDS = 30 * 60
@@ -70,24 +70,24 @@ def _clamp(v, lo, hi, default) -> int:
         return default
 
 
-def sub_runs_enabled(settings) -> bool:
-    return bool(_cfg(settings, "enable_sub_runs", True))
+def sub_agents_enabled(settings) -> bool:
+    return bool(_cfg(settings, "enable_sub_agents", True))
 
 
-def sub_run_posture(settings) -> str:
-    v = str(_cfg(settings, "sub_run_posture", "proactive") or "proactive").strip().lower()
+def sub_agent_posture(settings) -> str:
+    v = str(_cfg(settings, "sub_agent_posture", "proactive") or "proactive").strip().lower()
     return "explicit" if v == "explicit" else "proactive"
 
 
-def sub_run_limits(settings) -> Dict[str, Any]:
+def sub_agent_limits(settings) -> Dict[str, Any]:
     return {
-        "max_steps": _clamp(_cfg(settings, "sub_run_max_steps", 40), 5, 200, 40),
-        "deadline_minutes": _clamp(_cfg(settings, "sub_run_deadline_minutes", 15), 2, 60, 15),
-        "concurrency": _clamp(_cfg(settings, "sub_run_concurrency", 3), 1, 6, 3),
-        "max_per_wave": _clamp(_cfg(settings, "sub_run_max_per_wave", 5), 1, 10, 5),
-        "model": str(_cfg(settings, "sub_run_model", "auto") or "auto").strip(),
-        "allow_model_override": bool(_cfg(settings, "sub_run_allow_model_override", True)),
-        "allow_create_data": bool(_cfg(settings, "sub_run_allow_create_data", False)),
+        "max_steps": _clamp(_cfg(settings, "sub_agent_max_steps", 40), 5, 200, 40),
+        "deadline_minutes": _clamp(_cfg(settings, "sub_agent_deadline_minutes", 15), 2, 60, 15),
+        "concurrency": _clamp(_cfg(settings, "sub_agent_concurrency", 3), 1, 6, 3),
+        "max_per_wave": _clamp(_cfg(settings, "sub_agent_max_per_wave", 5), 1, 10, 5),
+        "model": str(_cfg(settings, "sub_agent_model", "auto") or "auto").strip(),
+        "allow_model_override": bool(_cfg(settings, "sub_agent_allow_model_override", True)),
+        "allow_create_data": bool(_cfg(settings, "sub_agent_allow_create_data", False)),
     }
 
 
@@ -114,7 +114,7 @@ def effective_concurrency(configured: int, dialect: str) -> int:
 # Service
 # ─────────────────────────────────────────────────────────────────────────────
 
-class SubRunService:
+class SubAgentService:
 
     # ── parent side ─────────────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ class SubRunService:
         started here — `launch_pending` runs once the whole batch is recorded,
         so a fast child can never fire the fan-in before its siblings exist.
         """
-        limits = sub_run_limits(settings)
+        limits = sub_agent_limits(settings)
         wave = await self._get_or_create_wave(
             db,
             organization_id=str(organization.id),
@@ -155,11 +155,11 @@ class SubRunService:
             parent_prompt=(parent_head_completion.prompt or {}).get("content", "") if parent_head_completion and isinstance(parent_head_completion.prompt, dict) else "",
         )
         count = (await db.execute(
-            select(func.count(SubRun.id)).where(SubRun.wave_id == wave.id)
+            select(func.count(SubAgentRun.id)).where(SubAgentRun.wave_id == wave.id)
         )).scalar() or 0
         if count >= limits["max_per_wave"]:
             return {
-                "sub_run_id": None, "wave_id": str(wave.id), "status": "refused",
+                "sub_agent_id": None, "wave_id": str(wave.id), "status": "refused",
                 "title": data.title, "profile": data.profile,
                 "refused": (
                     f"This wave already holds {count} sub-agents (org cap {limits['max_per_wave']}). "
@@ -194,7 +194,7 @@ class SubRunService:
         if data.max_steps:
             max_steps = max(3, min(max_steps, int(data.max_steps)))
 
-        row = SubRun(
+        row = SubAgentRun(
             wave_id=str(wave.id),
             organization_id=str(organization.id),
             report_id=str(report.id),
@@ -216,25 +216,25 @@ class SubRunService:
         await db.commit()
         await db.refresh(row)
         return {
-            "sub_run_id": str(row.id), "wave_id": str(wave.id), "status": "running",
+            "sub_agent_id": str(row.id), "wave_id": str(wave.id), "status": "running",
             "title": row.title, "profile": row.profile, "agents": agents,
             "model": row.model_name, "max_steps": max_steps,
             "refused": "; ".join(refused_bits) or None,
         }
 
     async def _get_or_create_wave(self, db, *, organization_id, report_id, user_id, parent_completion_id,
-                                  parent_execution_id, plan_decision_id, parent_mode, parent_prompt) -> SubRunWave:
+                                  parent_execution_id, plan_decision_id, parent_mode, parent_prompt) -> SubAgentWave:
         # The wave of THIS decision: still collecting, same parent turn. The
         # delegate tool is dispatched serially within a batch, so no two calls
         # race here; a stray second collecting wave would only split a batch.
-        q = select(SubRunWave).where(
-            SubRunWave.parent_completion_id == parent_completion_id,
-            SubRunWave.status == WAVE_COLLECTING,
-        ).order_by(SubRunWave.created_at.desc()).limit(1)
+        q = select(SubAgentWave).where(
+            SubAgentWave.parent_completion_id == parent_completion_id,
+            SubAgentWave.status == WAVE_COLLECTING,
+        ).order_by(SubAgentWave.created_at.desc()).limit(1)
         wave = (await db.execute(q)).scalars().first()
         if wave is not None:
             return wave
-        wave = SubRunWave(
+        wave = SubAgentWave(
             organization_id=organization_id, report_id=report_id, user_id=user_id,
             parent_completion_id=parent_completion_id, parent_execution_id=parent_execution_id,
             status=WAVE_COLLECTING, remaining=0, total=0,
@@ -247,7 +247,7 @@ class SubRunService:
 
     async def _resolve_model(self, db, *, organization, user, profile, limits, override, parent_model, small_model):
         """(LLMModel|None, note). Precedence: validated override > org setting > profile pref."""
-        from app.ai.sub_run_profiles import get_profile
+        from app.ai.sub_agent_profiles import get_profile
         from app.models.llm_model import LLMModel
         note = None
         if override:
@@ -301,18 +301,18 @@ class SubRunService:
         """
         from app.dependencies import async_session_maker
         from app.core.fire_and_forget import spawn
-        limits = sub_run_limits(settings)
+        limits = sub_agent_limits(settings)
         async with async_session_maker() as db:
             wave = (await db.execute(
-                select(SubRunWave).where(
-                    SubRunWave.parent_completion_id == parent_completion_id,
-                    SubRunWave.status == WAVE_COLLECTING,
-                ).order_by(SubRunWave.created_at.desc()).limit(1)
+                select(SubAgentWave).where(
+                    SubAgentWave.parent_completion_id == parent_completion_id,
+                    SubAgentWave.status == WAVE_COLLECTING,
+                ).order_by(SubAgentWave.created_at.desc()).limit(1)
             )).scalars().first()
             if wave is None:
                 return None
             children = (await db.execute(
-                select(SubRun).where(SubRun.wave_id == wave.id).order_by(SubRun.wave_index.asc())
+                select(SubAgentRun).where(SubAgentRun.wave_id == wave.id).order_by(SubAgentRun.wave_index.asc())
             )).scalars().all()
             if sigkilled or not children:
                 wave.status = WAVE_STOPPED
@@ -363,18 +363,18 @@ class SubRunService:
         try:
             while True:
                 async with async_session_maker() as db:
-                    wave = await db.get(SubRunWave, wave_id)
+                    wave = await db.get(SubAgentWave, wave_id)
                     if wave is None or wave.status != WAVE_RUNNING:
                         return
                     nxt = (await db.execute(
-                        select(SubRun).where(SubRun.wave_id == wave_id, SubRun.status == RUN_PENDING)
-                        .order_by(SubRun.wave_index.asc()).limit(1)
+                        select(SubAgentRun).where(SubAgentRun.wave_id == wave_id, SubAgentRun.status == RUN_PENDING)
+                        .order_by(SubAgentRun.wave_index.asc()).limit(1)
                     )).scalars().first()
                     if nxt is None:
                         return
                     running = (await db.execute(
-                        select(func.count(SubRun.id)).where(
-                            SubRun.report_id == wave.report_id, SubRun.status == RUN_RUNNING,
+                        select(func.count(SubAgentRun.id)).where(
+                            SubAgentRun.report_id == wave.report_id, SubAgentRun.status == RUN_RUNNING,
                         )
                     )).scalar() or 0
                     if running >= concurrency:
@@ -386,7 +386,7 @@ class SubRunService:
         except Exception:
             logger.exception("sub-agent launcher for wave %s crashed", wave_id)
 
-    async def _start_child(self, sub_run_id: str) -> None:
+    async def _start_child(self, sub_agent_id: str) -> None:
         """Create the child's hidden completions and start its run."""
         from app.dependencies import async_session_maker
         from app.models.organization import Organization
@@ -396,10 +396,10 @@ class SubRunService:
         from app.services.completion_service import CompletionService
 
         async with async_session_maker() as db:
-            row = await db.get(SubRun, sub_run_id)
+            row = await db.get(SubAgentRun, sub_agent_id)
             if row is None or row.status != RUN_PENDING:
                 return
-            wave = await db.get(SubRunWave, row.wave_id)
+            wave = await db.get(SubAgentWave, row.wave_id)
             report = await db.get(Report, row.report_id)
             organization = await db.get(Organization, row.organization_id)
             user = await db.get(User, wave.user_id) if wave and wave.user_id else None
@@ -415,18 +415,18 @@ class SubRunService:
                 content=_child_prompt(row),
                 mode="subagent",
                 model_id=str(row.model_id) if row.model_id else None,
-                sub_run_id=str(row.id),
+                sub_agent_id=str(row.id),
             )
             try:
                 res = await CompletionService().create_completion(
                     db=db, report_id=str(report.id),
                     completion_data=CompletionCreate(prompt=prompt),
                     current_user=user, organization=organization,
-                    background=True, trigger_source="sub_run",
+                    background=True, trigger_source="sub_agent",
                 )
             except Exception as e:
-                logger.exception("sub-agent %s: could not start child", sub_run_id)
-                row = await db.get(SubRun, sub_run_id)
+                logger.exception("sub-agent %s: could not start child", sub_agent_id)
+                row = await db.get(SubAgentRun, sub_agent_id)
                 await self._mark_terminal(db, row, RUN_FAILED, EXIT_ERROR, error=f"could not start: {e}")
                 await self._after_terminal(db, row)
                 return
@@ -436,17 +436,17 @@ class SubRunService:
                     head_id = str(c.id)
                 elif getattr(c, "role", None) == "system":
                     sys_id = str(c.id)
-            row = await db.get(SubRun, sub_run_id)
+            row = await db.get(SubAgentRun, sub_agent_id)
             row.child_head_completion_id = head_id
             row.child_completion_id = sys_id
             await db.commit()
 
     # ── child side ──────────────────────────────────────────────────────────
 
-    async def bind_child_execution(self, db, *, sub_run_id: str, execution_id: str, parent_links: bool = True) -> None:
+    async def bind_child_execution(self, db, *, sub_agent_id: str, execution_id: str, parent_links: bool = True) -> None:
         """Called by AgentV2 (mode=subagent) once its AgentExecution exists."""
         from app.models.agent_execution import AgentExecution
-        row = await db.get(SubRun, sub_run_id)
+        row = await db.get(SubAgentRun, sub_agent_id)
         if row is None:
             return
         row.child_execution_id = str(execution_id)
@@ -457,10 +457,10 @@ class SubRunService:
                 ae.parent_tool_execution_id = row.parent_tool_execution_id
         await db.commit()
 
-    async def record_finish(self, db, *, sub_run_id: str, result: Dict[str, Any]) -> Optional[SubRun]:
+    async def record_finish(self, db, *, sub_agent_id: str, result: Dict[str, Any]) -> Optional[SubAgentRun]:
         """`finish_subtask`: store the validated body; the envelope lands at finalize."""
         from app.models.note import Note
-        row = await db.get(SubRun, sub_run_id)
+        row = await db.get(SubAgentRun, sub_agent_id)
         if row is None:
             return None
         note_id = result.get("report_note_id")
@@ -481,7 +481,7 @@ class SubRunService:
     async def finalize_child(
         self,
         *,
-        sub_run_id: str,
+        sub_agent_id: str,
         agent_status: str,
         last_text: str,
         steps_used: int,
@@ -495,7 +495,7 @@ class SubRunService:
         """AgentV2 (mode=subagent) `finally`: close the row exactly once."""
         from app.dependencies import async_session_maker
         async with async_session_maker() as db:
-            row = await db.get(SubRun, sub_run_id)
+            row = await db.get(SubAgentRun, sub_agent_id)
             if row is None:
                 return
             transitioned = False
@@ -522,12 +522,12 @@ class SubRunService:
             if transitioned:
                 await self._after_terminal(db, row)
 
-    async def _mark_terminal(self, db, row: SubRun, status: str, exit_reason: str, *, error: Optional[str] = None,
+    async def _mark_terminal(self, db, row: SubAgentRun, status: str, exit_reason: str, *, error: Optional[str] = None,
                              last_text: str = "") -> bool:
         """Conditional transition pending/running → terminal. True if THIS call won."""
         res = await db.execute(
-            update(SubRun)
-            .where(SubRun.id == row.id, SubRun.status.in_((RUN_PENDING, RUN_RUNNING)))
+            update(SubAgentRun)
+            .where(SubAgentRun.id == row.id, SubAgentRun.status.in_((RUN_PENDING, RUN_RUNNING)))
             .values(status=status, exit_reason=exit_reason, finished_at=datetime.utcnow(),
                     error_message=(error or None))
             .execution_options(synchronize_session=False)
@@ -541,24 +541,24 @@ class SubRunService:
                 await db.commit()
         return won
 
-    async def _after_terminal(self, db, row: SubRun) -> None:
+    async def _after_terminal(self, db, row: SubAgentRun) -> None:
         """Decrement the wave; the caller that reads zero fires the fan-in."""
         from app.core.fire_and_forget import spawn
         await db.execute(
-            update(SubRunWave)
-            .where(SubRunWave.id == row.wave_id, SubRunWave.status == WAVE_RUNNING, SubRunWave.remaining > 0)
-            .values(remaining=SubRunWave.remaining - 1)
+            update(SubAgentWave)
+            .where(SubAgentWave.id == row.wave_id, SubAgentWave.status == WAVE_RUNNING, SubAgentWave.remaining > 0)
+            .values(remaining=SubAgentWave.remaining - 1)
             .execution_options(synchronize_session=False)
         )
         await db.commit()
-        wave = await db.get(SubRunWave, row.wave_id)
+        wave = await db.get(SubAgentWave, row.wave_id)
         if wave is None:
             return
         await db.refresh(wave)
         if wave.status == WAVE_RUNNING and int(wave.remaining or 0) <= 0:
             res = await db.execute(
-                update(SubRunWave)
-                .where(SubRunWave.id == wave.id, SubRunWave.status == WAVE_RUNNING)
+                update(SubAgentWave)
+                .where(SubAgentWave.id == wave.id, SubAgentWave.status == WAVE_RUNNING)
                 .values(status=WAVE_FIRING, fired_at=datetime.utcnow())
                 .execution_options(synchronize_session=False)
             )
@@ -567,7 +567,7 @@ class SubRunService:
                 self._cancel_deadline(wave.deadline_job_id)
                 spawn(run_fan_in(str(wave.id)))
 
-    async def _write_back(self, db, row: SubRun) -> None:
+    async def _write_back(self, db, row: SubAgentRun) -> None:
         """Copy the record into the parent's `delegate` ToolExecution.result_json
         so cards, digests and the summary read it like any other tool result."""
         if not row.parent_tool_execution_id:
@@ -594,8 +594,8 @@ class SubRunService:
 
     # ── control ─────────────────────────────────────────────────────────────
 
-    async def stop_sub_run(self, db, sub_run_id: str, *, reason: str = "") -> Optional[SubRun]:
-        row = await db.get(SubRun, sub_run_id)
+    async def stop_sub_agent(self, db, sub_agent_id: str, *, reason: str = "") -> Optional[SubAgentRun]:
+        row = await db.get(SubAgentRun, sub_agent_id)
         if row is None:
             return None
         if row.status in TERMINAL_RUN_STATUSES:
@@ -610,13 +610,13 @@ class SubRunService:
             await self._after_terminal(db, row)
         return row
 
-    async def stop_wave(self, db, wave_id: str, *, reason: str = "") -> Optional[SubRunWave]:
-        wave = await db.get(SubRunWave, wave_id)
+    async def stop_wave(self, db, wave_id: str, *, reason: str = "") -> Optional[SubAgentWave]:
+        wave = await db.get(SubAgentWave, wave_id)
         if wave is None:
             return None
         res = await db.execute(
-            update(SubRunWave)
-            .where(SubRunWave.id == wave.id, SubRunWave.status.in_((WAVE_COLLECTING, WAVE_RUNNING)))
+            update(SubAgentWave)
+            .where(SubAgentWave.id == wave.id, SubAgentWave.status.in_((WAVE_COLLECTING, WAVE_RUNNING)))
             .values(status=WAVE_STOPPED)
             .execution_options(synchronize_session=False)
         )
@@ -625,7 +625,7 @@ class SubRunService:
             await db.refresh(wave)
             return wave
         self._cancel_deadline(wave.deadline_job_id)
-        children = (await db.execute(select(SubRun).where(SubRun.wave_id == wave.id))).scalars().all()
+        children = (await db.execute(select(SubAgentRun).where(SubAgentRun.wave_id == wave.id))).scalars().all()
         for c in children:
             if c.status in TERMINAL_RUN_STATUSES:
                 continue
@@ -640,15 +640,15 @@ class SubRunService:
 
     # ── reads ───────────────────────────────────────────────────────────────
 
-    async def snapshot(self, db, sub_run_id: str, *, include_report: bool = False, report_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def snapshot(self, db, sub_agent_id: str, *, include_report: bool = False, report_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         from app.models.note import Note
         from app.models.plan_decision import PlanDecision
         from app.models.tool_execution import ToolExecution
-        row = await db.get(SubRun, sub_run_id)
+        row = await db.get(SubAgentRun, sub_agent_id)
         if row is None or (report_id and str(row.report_id) != str(report_id)):
             return None
         out: Dict[str, Any] = {
-            "sub_run_id": str(row.id), "wave_id": str(row.wave_id), "title": row.title, "profile": row.profile,
+            "sub_agent_id": str(row.id), "wave_id": str(row.wave_id), "title": row.title, "profile": row.profile,
             "goal": row.goal, "status": row.status, "exit_reason": row.exit_reason,
             "started_at": row.started_at.isoformat() if row.started_at else None,
             "finished_at": row.finished_at.isoformat() if row.finished_at else None,
@@ -701,16 +701,16 @@ class SubRunService:
 
     async def list_for_report(self, db, report_id: str, *, limit_waves: int = 10) -> Dict[str, Any]:
         waves = (await db.execute(
-            select(SubRunWave).where(SubRunWave.report_id == str(report_id))
-            .order_by(SubRunWave.created_at.desc()).limit(limit_waves)
+            select(SubAgentWave).where(SubAgentWave.report_id == str(report_id))
+            .order_by(SubAgentWave.created_at.desc()).limit(limit_waves)
         )).scalars().all()
         if not waves:
             return {"waves": [], "background_tasks": []}
         wave_ids = [str(w.id) for w in waves]
         runs = (await db.execute(
-            select(SubRun).where(SubRun.wave_id.in_(wave_ids)).order_by(SubRun.wave_index.asc())
+            select(SubAgentRun).where(SubAgentRun.wave_id.in_(wave_ids)).order_by(SubAgentRun.wave_index.asc())
         )).scalars().all()
-        by_wave: Dict[str, List[SubRun]] = {}
+        by_wave: Dict[str, List[SubAgentRun]] = {}
         for r in runs:
             by_wave.setdefault(str(r.wave_id), []).append(r)
         out_waves = []
@@ -722,24 +722,24 @@ class SubRunService:
                 "parent_completion_id": w.parent_completion_id, "fan_in_completion_id": w.fan_in_completion_id,
                 "created_at": w.created_at.isoformat() if w.created_at else None,
                 "deadline_at": w.deadline_at.isoformat() if w.deadline_at else None,
-                "sub_runs": items,
+                "sub_agent_runs": items,
             })
             if w.status in (WAVE_COLLECTING, WAVE_RUNNING, WAVE_FIRING):
                 for it in items:
-                    tasks.append({**it, "kind": "sub_run", "wave_id": str(w.id)})
+                    tasks.append({**it, "kind": "sub_agent", "wave_id": str(w.id)})
         out_waves.reverse()
         return {"waves": out_waves, "background_tasks": tasks}
 
     async def context_block(self, db, report_id: str) -> str:
-        """`<sub_runs>` for the parent: recent waves, one line per child."""
+        """`<sub_agents>` for the parent: recent waves, one line per child."""
         data = await self.list_for_report(db, report_id, limit_waves=3)
         if not data["waves"]:
             return ""
-        lines = ["<sub_runs>"]
+        lines = ["<sub_agents>"]
         for w in data["waves"]:
             lines.append(f'  <wave id="{w["id"]}" status="{w["status"]}" total="{w["total"]}">')
-            for r in w["sub_runs"]:
-                bits = [f'id="{r["sub_run_id"]}"', f'title="{_attr(r["title"])}"', f'status="{r["status"]}"']
+            for r in w["sub_agent_runs"]:
+                bits = [f'id="{r["sub_agent_id"]}"', f'title="{_attr(r["title"])}"', f'status="{r["status"]}"']
                 if r.get("outcome"):
                     bits.append(f'outcome="{r["outcome"]}"')
                 if r.get("confidence") is not None:
@@ -747,13 +747,13 @@ class SubRunService:
                 if r.get("steps_used") is not None:
                     bits.append(f'steps="{r["steps_used"]}"')
                 summary = (r.get("summary") or "")[:200]
-                lines.append(f'    <sub_run {" ".join(bits)}>{_attr(summary)}</sub_run>')
+                lines.append(f'    <sub_agent {" ".join(bits)}>{_attr(summary)}</sub_agent>')
             lines.append("  </wave>")
-        lines.append("</sub_runs>")
+        lines.append("</sub_agents>")
         return "\n".join(lines)
 
 
-sub_run_service = SubRunService()
+sub_agent_service = SubAgentService()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -766,21 +766,21 @@ async def run_wave_deadline(job_id: str, wave_id: str) -> None:
     from app.dependencies import async_session_maker
     if not await asyncio.to_thread(claim_scheduled_run, job_id):
         return
-    svc = sub_run_service
+    svc = sub_agent_service
     async with async_session_maker() as db:
-        wave = await db.get(SubRunWave, wave_id)
+        wave = await db.get(SubAgentWave, wave_id)
         if wave is None:
             return
         res = await db.execute(
-            update(SubRunWave)
-            .where(SubRunWave.id == wave.id, SubRunWave.status == WAVE_RUNNING)
+            update(SubAgentWave)
+            .where(SubAgentWave.id == wave.id, SubAgentWave.status == WAVE_RUNNING)
             .values(status=WAVE_TIMED_OUT, fired_at=datetime.utcnow())
             .execution_options(synchronize_session=False)
         )
         await db.commit()
         if (res.rowcount or 0) != 1:
             return
-        children = (await db.execute(select(SubRun).where(SubRun.wave_id == wave.id))).scalars().all()
+        children = (await db.execute(select(SubAgentRun).where(SubAgentRun.wave_id == wave.id))).scalars().all()
         for c in children:
             if c.status in TERMINAL_RUN_STATUSES:
                 continue
@@ -796,7 +796,7 @@ async def run_wave_deadline(job_id: str, wave_id: str) -> None:
 async def run_fan_in(wave_id: str) -> None:
     """One machine turn per wave, carrying every record, queued behind a running user turn.
 
-    trigger_source is ``sub_run_wave`` (not ``sub_run``): children are hidden
+    trigger_source is ``sub_agent_wave`` (not ``sub_agent``): children are hidden
     completions, the fan-in reply is a visible turn."""
     from app.dependencies import async_session_maker
     from app.models.organization import Organization
@@ -814,7 +814,7 @@ async def run_fan_in(wave_id: str) -> None:
         waited += _SLOT_POLL_SECONDS
 
     async with async_session_maker() as db:
-        wave = await db.get(SubRunWave, wave_id)
+        wave = await db.get(SubAgentWave, wave_id)
         if wave is None or wave.status not in (WAVE_FIRING, WAVE_TIMED_OUT):
             return
         report = await db.get(Report, wave.report_id)
@@ -824,7 +824,7 @@ async def run_fan_in(wave_id: str) -> None:
             logger.warning("fan-in for wave %s: report/org/user gone", wave_id)
             return
         children = (await db.execute(
-            select(SubRun).where(SubRun.wave_id == wave.id).order_by(SubRun.wave_index.asc())
+            select(SubAgentRun).where(SubAgentRun.wave_id == wave.id).order_by(SubAgentRun.wave_index.asc())
         )).scalars().all()
         instruction = _fan_in_prompt(wave, children)
         counts: Dict[str, int] = {}
@@ -850,14 +850,14 @@ async def run_fan_in(wave_id: str) -> None:
         try:
             await run_machine_turn(
                 db, report=report, user=user, organization=organization,
-                summary=summary[:300], trigger_source="sub_run_wave", message_type="sub_run_wave_done",
+                summary=summary[:300], trigger_source="sub_agent_wave", message_type="sub_agent_wave_done",
                 instruction=instruction, meta=meta, mode=(wave.parent_mode or None), on_event=_on_event,
             )
         except Exception:
             logger.exception("fan-in turn for wave %s failed", wave_id)
         finally:
             try:
-                w2 = await db.get(SubRunWave, wave_id)
+                w2 = await db.get(SubAgentWave, wave_id)
                 if w2 is not None:
                     w2.status = WAVE_DONE
                     if not w2.fan_in_completion_id and wave.fan_in_completion_id:
@@ -869,7 +869,7 @@ async def run_fan_in(wave_id: str) -> None:
 
 async def _report_busy(db, wave_id: str) -> bool:
     from app.models.completion import Completion
-    wave = await db.get(SubRunWave, wave_id)
+    wave = await db.get(SubAgentWave, wave_id)
     if wave is None:
         return False
     running = (await db.execute(
@@ -877,7 +877,7 @@ async def _report_busy(db, wave_id: str) -> bool:
             Completion.report_id == wave.report_id,
             Completion.role == "system",
             Completion.status == "in_progress",
-            (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_run"),
+            (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
         ).limit(1)
     )).scalar_one_or_none()
     return running is not None
@@ -920,7 +920,7 @@ def _attr(s: Any) -> str:
     return str(s or "").replace('"', "'").replace("<", "‹").replace(">", "›")
 
 
-def _child_prompt(row: SubRun) -> str:
+def _child_prompt(row: SubAgentRun) -> str:
     ctx = (row.context or "").strip() or "(none given — rely on the schema and instructions in your context)"
     return (
         f"GOAL\n{row.goal.strip()}\n\n"
@@ -929,7 +929,7 @@ def _child_prompt(row: SubRun) -> str:
     )
 
 
-def _envelope(row: SubRun, *, duration_ms: Optional[float] = None, model_name: Optional[str] = None) -> Dict[str, Any]:
+def _envelope(row: SubAgentRun, *, duration_ms: Optional[float] = None, model_name: Optional[str] = None) -> Dict[str, Any]:
     dur = duration_ms
     if dur is None and row.started_at and row.finished_at:
         dur = (row.finished_at - row.started_at).total_seconds() * 1000.0
@@ -943,7 +943,7 @@ def _envelope(row: SubRun, *, duration_ms: Optional[float] = None, model_name: O
     }
 
 
-def _synthesized_result(row: SubRun, status: str, exit_reason: str, last_text: str, error: Optional[str]) -> Dict[str, Any]:
+def _synthesized_result(row: SubAgentRun, status: str, exit_reason: str, last_text: str, error: Optional[str]) -> Dict[str, Any]:
     text = (last_text or "").strip()
     if exit_reason == EXIT_STOPPED:
         summary = "Stopped before finishing." + (f" Last notes: {text[:300]}" if text else "")
@@ -968,10 +968,10 @@ def _synthesized_result(row: SubRun, status: str, exit_reason: str, last_text: s
     }
 
 
-def _run_brief(r: SubRun) -> Dict[str, Any]:
+def _run_brief(r: SubAgentRun) -> Dict[str, Any]:
     rec = r.result_json or {}
     return {
-        "sub_run_id": str(r.id), "title": r.title, "profile": r.profile, "status": r.status,
+        "sub_agent_id": str(r.id), "title": r.title, "profile": r.profile, "status": r.status,
         "exit_reason": r.exit_reason, "outcome": rec.get("outcome"), "confidence": rec.get("confidence"),
         "summary": rec.get("summary"), "steps_used": r.steps_used, "max_steps": r.max_steps,
         "tokens": r.tokens_json, "model": r.model_name,
@@ -984,23 +984,23 @@ def _run_brief(r: SubRun) -> Dict[str, Any]:
     }
 
 
-def _fan_in_prompt(wave: SubRunWave, children: List[SubRun]) -> str:
+def _fan_in_prompt(wave: SubAgentWave, children: List[SubAgentRun]) -> str:
     lines = [
         "[Sub-agent wave finished] The sub-agents you launched earlier have all reported. Their records are below, in launch order; each answered the goal you gave it. "
         "Synthesize now: answer the original ask from these records, cite evidence ids (read_query / load_step / run_query on them when a claim is surprising or you need the numbers), "
         "carry every ruled_out item and caveat into your answer, and treat an inconclusive or blocked record with a named unknown as a follow-up (or a second wave), never a guess. "
         "A record marked synthesized was written by the runtime, not the sub-agent — weigh it accordingly. "
-        "Use read_sub_run(sub_run_id, include_report=true) for a sub-agent's full write-up when you need detail. "
+        "Use read_sub_agent(sub_agent_id, include_report=true) for a sub-agent's full write-up when you need detail. "
         "Do not relaunch sub-agents for goals that already have a record. Never show sub-agent ids to the user.",
         "",
         f"<original_ask>{_attr(wave.parent_prompt or '')}</original_ask>",
-        f'<sub_run_results wave="{wave.id}" status="{wave.status}" total="{len(children)}">',
+        f'<sub_agent_results wave="{wave.id}" status="{wave.status}" total="{len(children)}">',
     ]
     for c in children:
         rec = c.result_json or {}
         env = c.envelope_json or {}
         lines.append(
-            f'  <sub_run id="{c.id}" title="{_attr(c.title)}" profile="{c.profile}" status="{c.status}" '
+            f'  <sub_agent id="{c.id}" title="{_attr(c.title)}" profile="{c.profile}" status="{c.status}" '
             f'exit_reason="{c.exit_reason or ""}" outcome="{rec.get("outcome", "")}" confidence="{rec.get("confidence", "")}" '
             f'steps="{c.steps_used or ""}"{" synthesized=\"true\"" if rec.get("synthesized") else ""}>'
         )
@@ -1030,6 +1030,6 @@ def _fan_in_prompt(wave: SubRunWave, children: List[SubRun]) -> str:
             lines.append(f"    <report_note_id>{c.report_note_id}</report_note_id>")
         if c.error_message:
             lines.append(f"    <error>{_attr(c.error_message)}</error>")
-        lines.append("  </sub_run>")
-    lines.append("</sub_run_results>")
+        lines.append("  </sub_agent>")
+    lines.append("</sub_agent_results>")
     return "\n".join(lines)

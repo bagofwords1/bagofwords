@@ -5,9 +5,9 @@ description: >
   conclude in the fan-in turn with the planted cause (iOS 5.2.0 on PayFlow),
   cited evidence, and the decoys ruled out. A "how many" must not delegate.
   Pins the DELEGATION posture, the finish_subtask contract and the wave fan-in
-  (docs/design/sub-runs.md, docs/feedback-loops/sub-runs.md Loop B).
+  (docs/design/sub-agents.md, docs/feedback-loops/sub-agents.md Loop B).
 
-tags: [sub_runs, rca]
+tags: [sub_agents, rca]
 
 data_source_slugs:
   - Checkout Ops
