@@ -38,6 +38,7 @@ class ErrorCode(str, Enum):
     ORG_HEADER_REQUIRED = "organization.required"
     LOCALE_INVALID = "locale.invalid"
     MCP_DISABLED = "mcp.disabled"
+    MCP_DYNAMIC_PARAMS_INVALID = "mcp.dynamic_params_invalid"
 
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"

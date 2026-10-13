@@ -3794,6 +3794,10 @@
     "mcpModeAiTip": "La IA puede establecerlo; el servidor lo completa si está vacío",
     "mcpModeLockedTip": "El valor del administrador siempre prevalece; oculto para la IA",
     "mcpAddMetaField": "+ Añadir campo de metadatos",
+    "mcpDynamicParams": "Parámetros dinámicos",
+    "mcpDynamicParamsHint": "Qué valores puede enviar la aplicación que llama con cada pregunta, cada uno con un valor predeterminado (null = solo si se envía). Van a {key}, ocultos para la IA; un campo de arriba con el mismo nombre tiene prioridad. La aplicación los envía en",
+    "mcpDynamicParamsInvalid": "JSON no válido.",
+    "mcpDynamicParamsNotObject": "Debe ser un objeto JSON (pares clave-valor).",
     "verify": "Verificar",
     "browserForm": {
       "allowDownloads": "Permitir descargas",
@@ -3933,6 +3937,7 @@
     "organization.required": "Falta la cabecera de ID de organización",
     "api_key.invalid": "Clave de API no válida o expirada",
     "mcp.disabled": "La integración MCP no está habilitada en esta organización",
+    "mcp.dynamic_params_invalid": "Los parámetros dinámicos deben ser un objeto JSON de 8 KB como máximo, sin claves vacías.",
     "feature.locked": "Esta función no se puede modificar",
     "license.enterprise_required": "Esta función requiere una licencia empresarial.",
     "locale.invalid": "Ese idioma no está habilitado",

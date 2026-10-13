@@ -6,7 +6,7 @@ import importlib
 import logging
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
@@ -308,6 +308,18 @@ def _dialect_insert(db: AsyncSession):
     return insert
 
 
+def _check_mcp_forwarding(conn_type: Optional[str], config: Any) -> None:
+    """400 on a malformed MCP forwarding block (dynamic params) before saving."""
+    if conn_type != "mcp" or not isinstance(config, dict):
+        return
+    from app.errors import AppError, ErrorCode
+    from app.services.mcp_context_injection import validate_dynamic_params
+    try:
+        validate_dynamic_params(config)
+    except ValueError as e:
+        raise AppError.bad_request(ErrorCode.MCP_DYNAMIC_PARAMS_INVALID, str(e))
+
+
 class ConnectionService:
     """Service for managing database connections."""
 
@@ -349,6 +361,8 @@ class ConnectionService:
         # so null/[] would silently disable both auto-provision and the /authorize route.
         if auth_policy == "user_required" and not allowed_user_auth_modes:
             allowed_user_auth_modes = default_user_auth_modes(type, config, credentials)
+
+        _check_mcp_forwarding(type, config)
 
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
@@ -650,6 +664,7 @@ class ConnectionService:
 
         if "config" in updates:
             new_config = updates.pop("config")
+            _check_mcp_forwarding(updates.get("type", connection.type), new_config)
             connection.config = json.dumps(new_config) if isinstance(new_config, dict) else new_config
             connection_changed = True
 

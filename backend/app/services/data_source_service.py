@@ -769,6 +769,9 @@ class DataSourceService:
                 from app.services.connection_service import default_user_auth_modes
                 allowed_user_auth_modes = default_user_auth_modes(ds_type, config, credentials)
 
+            from app.services.connection_service import _check_mcp_forwarding
+            _check_mcp_forwarding(ds_type, config)
+
             # Check enterprise license for restricted data sources
             from app.ee.license import is_datasource_allowed
             if ds_type and not is_datasource_allowed(ds_type):
