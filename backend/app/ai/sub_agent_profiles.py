@@ -62,8 +62,8 @@ PROFILES: Dict[str, SubAgentProfile] = {
         addendum=(
             "PROFILE: investigate. You test one hypothesis or answer one bounded question. "
             "Verify names against the schema before querying; peek with inspect_data; prefer a few "
-            "targeted queries over one big one; record what you check and what it shows in a note as "
-            "you go. Decide, then finish."
+            "targeted queries over one big one. Keep ONE note: create it once with create_note, then "
+            "edit_note as you learn more; never create a second note with the same title. Decide, then finish."
         ),
         with_create_data=frozenset({"create_data", "write_csv"}),
     ),

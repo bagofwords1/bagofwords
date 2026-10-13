@@ -118,7 +118,11 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                 # Never calls finish_subtask: the loop must nudge once, then
                 # the runtime synthesizes a partial record.
                 events += [TextDeltaEvent(text="Weekly seasonality looks ordinary; nothing to add.")] + _end()
-            elif n_results == 0:
+            elif n_results in (0, 1):
+                # Twice with identical arguments: a live model re-saved its
+                # plan note every step. The second call must hand back the
+                # existing note (no duplicate) and the repeat guard must only
+                # nudge, so the child still reaches finish_subtask.
                 events += _tool(
                     "create_note",
                     {"title": f"Ledger — {title}", "content": f"- [x] checked {title}\n- numbers: 787 → 676 paid/day"},
@@ -261,7 +265,7 @@ def _run(coro):
 @pytest.mark.e2e
 def test_wave_fans_out_runs_children_hidden_and_fans_in(
     live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
-    monkeypatch, scripted_llm,
+    monkeypatch, scripted_llm, set_visibility,
 ):
     """One planner response with N delegate calls → one wave with N children;
     children are hidden completions with parent links; each finishes through
@@ -314,8 +318,18 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     # their tool calls) never ride in the parent's conversation history.
     parent_calls = [c for c in calls if "Mode: Sub-agent" not in c["system"]]
     assert parent_calls and not any(c["child_goal_leak"] for c in parent_calls), [c for c in parent_calls if c["child_goal_leak"]]
-    assert [c["tool"] for c in detail["calls"]] == ["create_note", "finish_subtask"], (detail["calls"], child_calls[:2])
+    assert [c["tool"] for c in detail["calls"]] == ["create_note", "create_note", "finish_subtask"], (detail["calls"], child_calls[:2])
+    assert "already exists" in str(detail["calls"][1].get("summary") or detail["calls"][1]), detail["calls"][1]
     assert detail.get("note", {}).get("content"), detail.get("note")
+    # One note per child, never a duplicate, and no record ever carries the
+    # repeat guard's own text.
+    from app.models.note import Note
+    async def _note_titles():
+        async with async_session_maker() as db:
+            return [n.title for n in (await db.execute(select(Note).where(Note.report_id == rid))).scalars().all()]
+    titles = _run(_note_titles())
+    assert len(titles) == len(set(titles)) == len(HYPOTHESES) - 1, titles  # the never-finishing child wrote no note
+    assert not any(str(r.get("summary") or "").startswith("Stopping") for r in runs.values()), runs
     assert detail["steps_used"] >= 2
 
     # Timeline: children hidden, parent + fan-in strip + synthesis visible.
@@ -329,6 +343,15 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
         return comps if replies and replies[0]["status"] != "in_progress" else None
     comps = _wait_for(_timeline_with_terminal_reply, timeout_s=60, what="fan-in reply to finish")
     assert all((c.get("trigger_source") or "") != "sub_agent" for c in comps), [c.get("trigger_source") for c in comps]
+    # The shared conversation page (GET /c/{token}) hides the children too:
+    # their system rows used to render as orphan assistant bubbles.
+    vis = set_visibility(rid, "conversation", "public", user_token=token, org_id=org_id).json()
+    pub = test_client.get(f"/api/c/{vis['conversation_share_token']}")
+    assert pub.status_code == 200, pub.text
+    pub_items = pub.json().get("completions") or pub.json().get("items") or []
+    assert pub_items, pub.json()
+    assert all((c.get("trigger_source") or "") != "sub_agent" for c in pub_items), [c.get("trigger_source") for c in pub_items]
+    assert sum(1 for c in pub_items if c.get("role") == "system") == 2, [(c.get("role"), c.get("trigger_source")) for c in pub_items]
     strips = [c for c in comps if c["role"] == "external" and c.get("trigger_source") == "sub_agent_wave"]
     assert len(strips) == 1, [(c["role"], c.get("trigger_source")) for c in comps]
     assert strips[0]["prompt"]["meta"]["total"] == len(HYPOTHESES)

@@ -3299,6 +3299,10 @@
           "name": "Sub-agent max steps",
           "description": "Planner steps one sub-agent may take before it is forced to finish with a partial record. Clamped to 5-200."
         },
+        "sub_agent_max_tokens": {
+          "name": "Sub-agent max tokens",
+          "description": "LLM tokens (prompt plus completion, summed over its steps) one sub-agent may spend before it is told to finish; one more step is allowed for the record, then it is stopped with a partial record. Steps bound time, this bounds cost. Clamped to 20,000-5,000,000."
+        },
         "sub_agent_deadline_minutes": {
           "name": "Sub-agent deadline (minutes)",
           "description": "Wall-clock limit for a wave of sub-agents. When it fires, still-running sub-agents are stopped and recorded as timed out, and the fan-in turn runs with the records that exist. Clamped to 2-60."
