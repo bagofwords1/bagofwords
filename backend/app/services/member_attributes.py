@@ -58,7 +58,7 @@ def normalize_custom_attributes(raw: Optional[Mapping[str, Any]]) -> Dict[str, s
                 ErrorCode.MEMBER_ATTRIBUTES_INVALID,
                 f"Invalid attribute name '{k}'. Use letters, digits, '_', '.', '-' "
                 "(starting with a letter, max 64 characters).",
-                params={"key": k},
+                key=k,
             )
         if value is None:
             continue
@@ -66,7 +66,7 @@ def normalize_custom_attributes(raw: Optional[Mapping[str, Any]]) -> Dict[str, s
             raise AppError.bad_request(
                 ErrorCode.MEMBER_ATTRIBUTES_INVALID,
                 f"Attribute '{k}' must be a single text value.",
-                params={"key": k},
+                key=k,
             )
         v = str(value).strip()
         if not v:
@@ -75,7 +75,7 @@ def normalize_custom_attributes(raw: Optional[Mapping[str, Any]]) -> Dict[str, s
             raise AppError.bad_request(
                 ErrorCode.MEMBER_ATTRIBUTES_INVALID,
                 f"Attribute '{k}' is longer than {MAX_VALUE_LENGTH} characters.",
-                params={"key": k},
+                key=k,
             )
         out[k] = v
     if len(out) > MAX_ATTRIBUTES:
