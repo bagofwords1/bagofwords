@@ -460,14 +460,73 @@ def test_contributing_symptoms_flatten(patch_requests):
     assert df.iloc[0][["alertId", "symptomId", "symptomDefinitionId", "severity"]].to_dict() == {"alertId": "a-1", "symptomId": "s-1", "symptomDefinitionId": "SD-1", "severity": "CRITICAL"}
 
 
+@pytest.mark.parametrize("filters", [
+    {},
+    {"adapter_kind": "AdapterA"},
+    {"resource_kind": "Pool"},
+    {"adapter_kind": ["AdapterA", "AdapterB"], "resource_kind": ["Pool", "Disk"]},
+    {"adapter_kind": ["AdapterA", "AdapterB"], "resource_kind": "Disk"},
+    {"adapter_kind": "AdapterA", "resource_kind": ["Pool", "Disk"]},
+    {"id": "rule-3"},
+    {"ids": ["rule-2", "rule-3"]},
+    {"ids": ["rule-2", "rule-3"], "adapter_kind": "AdapterA", "resource_kind": "Disk"},
+    {"adapter_kind": "missing"},
+    {"ids": ["missing"]},
+    {"search": "LATENCY"},
+    {"adapter_kind": ["AdapterA", "AdapterB"], "resource_kind": "Disk", "search": "latency"},
+])
+@pytest.mark.parametrize("limit", [1, 10])
+def test_alert_definitions_read_only_access_preserves_filters_and_pagination(patch_requests, filters, limit):
+    rows = [
+        {"id": "rule-1", "adapterKindKey": "AdapterC", "resourceKindKey": "Host", "name": "CPU"},
+        {"id": "rule-2", "adapterKindKey": "AdapterA", "resourceKindKey": "Pool", "name": "Latency"},
+        {"id": "rule-3", "adapterKindKey": "AdapterB", "resourceKindKey": "Disk", "description": "Latency"},
+        {"id": "rule-4", "adapterKindKey": "AdapterA", "resourceKindKey": "Disk", "name": "Latency"},
+    ]
+
+    def get_definitions(params, body):
+        assert body is None
+        assert set(params) <= {"adapterKind", "resourceKind", "id", "page", "pageSize"}
+        assert not (params.get("id") and (params.get("adapterKind") or params.get("resourceKind")))
+        selected = rows
+        for param, field in (("adapterKind", "adapterKindKey"), ("resourceKind", "resourceKindKey")):
+            if param in params:
+                assert isinstance(params[param], str)
+                selected = [row for row in selected if row[field] == params[param]]
+        if params.get("id"):
+            selected = [row for row in selected if row["id"] in params["id"]]
+        # The GET documentation warns that unsatisfied criteria can return all definitions.
+        selected = selected or rows
+        page = params["page"]
+        return {"alertDefinitions": selected[page:page + 1],
+                "pageInfo": {"page": page, "pageSize": 1, "totalCount": len(selected)}}
+
+    fake = patch_requests({
+        ("GET", "/alertdefinitions"): get_definitions,
+        ("POST", "/alertdefinitions/query"): _FakeResponse({"message": "Access denied"}, status_code=403),
+    })
+    expected = rows
+    for key, field in (("adapter_kind", "adapterKindKey"), ("resource_kind", "resourceKindKey"),
+                       ("id", "id"), ("ids", "id")):
+        if key in filters:
+            values = filters[key] if isinstance(filters[key], list) else [filters[key]]
+            expected = [row for row in expected if row[field] in values]
+    if filters.get("search"):
+        expected = [row for row in expected if filters["search"].lower() in
+                    f"{row.get('name', '')} {row.get('description', '')}".lower()]
+    result = _client().execute_query({"table": "alert_definitions", **filters, "limit": limit})
+    assert set(result.id) == {row["id"] for row in expected[:limit]}
+    assert all(call[0] == "GET" for call in fake.calls)
+
+
 def test_alert_definitions_severity_from_states(patch_requests):
     defs = _page("alertDefinitions", [{"id": "d1", "name": "Pool RT high", "description": "x", "adapterKindKey": "HitachiStorage",
                                        "resourceKindKey": "Pool", "waitCycles": 1, "cancelCycles": 1,
                                        "states": [{"severity": "CRITICAL"}]}])
-    fake = patch_requests({("POST", "/alertdefinitions/query"): defs})
+    fake = patch_requests({("GET", "/alertdefinitions"): defs})
     df = _client().execute_query('{"table": "alert_definitions", "adapter_kind": "HitachiStorage"}')
     assert df.iloc[0].severity == "CRITICAL"
-    assert next(c[4] for c in fake.calls)["adapterKinds"] == ["HitachiStorage"]
+    assert fake.calls[0][2]["adapterKind"] == "HitachiStorage"
 
 
 # ── validation / connection ───────────────────────────────────────────────────
@@ -517,7 +576,7 @@ def test_server_page_size_does_not_truncate_results(patch_requests):
 
 
 def test_definition_search_precedes_limit(patch_requests):
-    patch_requests({('POST', '/alertdefinitions/query'): _page('alertDefinitions',
+    patch_requests({('GET', '/alertdefinitions'): _page('alertDefinitions',
         [{'id': 'd1', 'name': 'other'}, {'id': 'd2', 'name': 'needle'}])})
     assert _client().execute_query({'table': 'alert_definitions', 'search': 'needle', 'limit': 1}).id.tolist() == ['d2']
 
@@ -589,7 +648,7 @@ def test_nested_rule_and_contributing_definition_data_is_preserved(patch_request
     states = [{'severity': 'WARNING', 'condition': {'type': 'AND'}}, {'severity': 'CRITICAL'}]
     conditions = [{'severity': 'WARNING'}, {'severity': 'CRITICAL'}]
     patch_requests({
-        ('POST', '/alertdefinitions/query'): _page('alertDefinitions', [{'id': 'd1', 'states': states}]),
+        ('GET', '/alertdefinitions'): _page('alertDefinitions', [{'id': 'd1', 'states': states}]),
         ('GET', '/alerts/contributingsymptoms'): {'contributingSymptoms': [{'alertId': 'a1',
             'contributingSymptoms': {'contributingSymptoms': [{'symptomId': 's1',
                 'symptomDefinitionsIds': ['d1', 'd2'], 'alertConditions': conditions}]}}]},
