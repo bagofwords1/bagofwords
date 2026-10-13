@@ -370,6 +370,21 @@ phase 2, claude-haiku-5-5, eval harness (tests/evals, Postgres, BOW_EVAL_CASE_TI
              their evidence came from inspect_data.
   simple_ask_does_not_delegate: pass on every attempt (create_data only).
 phase 3, second provider: not run (no second key).
+rename pass (sub_run → sub_agent identifiers, Postgres, Haiku 5.5):
+  - eval suite: both cases pass on the renamed schema (RCA case 196 s).
+  - live run 1 after the rename: every child ended blocked — create_data
+    received tables_by_source as the JSON text of the list and validation
+    refused it on every retry. Fix: the data tools' input models parse that
+    one shape (app/ai/tools/schemas/_coerce.py); eval children were
+    unaffected because they ran research-only (inspect_data).
+  - live run 2: wave of 4 → supported 0.8 / supported 0.8 / supported 0.4 /
+    refuted 0.85, 5/4/7/3 steps; the strip reads "4 sub-agents finished ·
+    3 supported · 1 refuted"; the synthesis names the 5.2.0 iOS release on
+    PayFlow from 2026-09-14 and the model's own text says sub-agent.
+  - two rename casualties caught by the run, both fixed: the wave payload
+    key and settings section id had been rewritten as the table name
+    (sub_agent_runs instead of sub_agents), and a commit captured the demo
+    SQLite file mid-regeneration (schema, no rows).
 ```
 
 ---
