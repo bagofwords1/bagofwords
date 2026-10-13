@@ -3768,6 +3768,13 @@
       "blocked": "Bloqueado: falta {attributes}",
       "test": "Testar",
       "testOk": "Conectado como este membro"
+    },
+    "sharepointApi": {
+      "title": "API do SharePoint",
+      "description": "O SharePoint 2010 usa serviços legados e pesquisa apenas nomes de arquivos. Informe uma biblioteca ou *; não deixe a biblioteca vazia.",
+      "modern": "REST moderno",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Nome da biblioteca de documentos ou * para todas as bibliotecas visíveis. O campo vazio seleciona a biblioteca padrão apenas no modo REST moderno."
     }
   },
   "share": {

@@ -3768,6 +3768,13 @@
       "blocked": "Bloccato: manca {attributes}",
       "test": "Prova",
       "testOk": "Connesso come questo membro"
+    },
+    "sharepointApi": {
+      "title": "API SharePoint",
+      "description": "SharePoint 2010 usa servizi legacy e cerca solo i nomi dei file. Inserisci una raccolta o *; non lasciare la raccolta vuota.",
+      "modern": "REST moderno",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Nome della raccolta documenti, oppure * per tutte le raccolte visibili. Il campo vuoto seleziona la raccolta predefinita solo in modalità REST moderno."
     }
   },
   "share": {

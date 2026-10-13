@@ -4037,6 +4037,13 @@
       "blocked": "Blocked: no {attributes}",
       "test": "Test",
       "testOk": "Connected as this member"
+    },
+    "sharepointApi": {
+      "title": "SharePoint API",
+      "description": "SharePoint 2010 uses legacy services and searches filenames only. Enter a library name or *; do not leave the library blank.",
+      "modern": "Modern REST",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
     }
   },
   "share": {

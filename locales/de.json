@@ -3768,6 +3768,13 @@
       "blocked": "Blockiert: {attributes} fehlt",
       "test": "Testen",
       "testOk": "Als dieses Mitglied verbunden"
+    },
+    "sharepointApi": {
+      "title": "SharePoint-API",
+      "description": "SharePoint 2010 verwendet ältere Dienste und sucht nur nach Dateinamen. Geben Sie einen Bibliotheksnamen oder * ein; lassen Sie die Bibliothek nicht leer.",
+      "modern": "Modernes REST",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Name der Dokumentbibliothek oder * für alle sichtbaren Bibliotheken. Ein leeres Feld wählt die Standardbibliothek nur im Modus „Modernes REST“."
     }
   },
   "share": {

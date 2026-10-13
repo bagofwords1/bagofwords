@@ -3768,6 +3768,13 @@
       "blocked": "Bloqué : {attributes} manquant",
       "test": "Tester",
       "testOk": "Connecté en tant que ce membre"
+    },
+    "sharepointApi": {
+      "title": "API SharePoint",
+      "description": "SharePoint 2010 utilise les services historiques et recherche uniquement les noms de fichiers. Saisissez une bibliothèque ou * ; ne laissez pas ce champ vide.",
+      "modern": "REST moderne",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Nom de la bibliothèque de documents, ou * pour toutes les bibliothèques visibles. Un champ vide sélectionne la bibliothèque par défaut uniquement en mode REST moderne."
     }
   },
   "share": {

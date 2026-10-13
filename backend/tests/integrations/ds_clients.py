@@ -344,6 +344,7 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
     if name == "sharepoint_onprem" and os.environ.get("SHAREPOINT_TEST_SITE_URL"):
         return {
             "site_url": os.environ["SHAREPOINT_TEST_SITE_URL"],
+            "api_mode": os.environ.get("SHAREPOINT_TEST_API_MODE", "modern"),
             "username": os.environ.get("SHAREPOINT_TEST_USERNAME"),
             "password": os.environ.get("SHAREPOINT_TEST_PASSWORD"),
             "allow_http": os.environ.get("SHAREPOINT_TEST_ALLOW_HTTP") == "true",

@@ -3975,6 +3975,13 @@
       "blocked": "חסום: חסר {attributes}",
       "test": "בדיקה",
       "testOk": "מחובר בתור חבר זה"
+    },
+    "sharepointApi": {
+      "title": "API של SharePoint",
+      "description": "SharePoint 2010 משתמש בשירותים ותיקים ומחפש לפי שמות קבצים בלבד. יש להזין שם ספרייה או *; אין להשאיר את הספרייה ריקה.",
+      "modern": "REST מודרני",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "שם ספריית המסמכים, או * לכל הספריות הגלויות. שדה ריק בוחר בספריית ברירת המחדל רק במצב REST מודרני."
     }
   },
   "share": {
