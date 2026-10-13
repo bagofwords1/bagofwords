@@ -1,5 +1,5 @@
-// One framing the full flow misses: the user's prompt and the launched
-// sub-agent cards in a single screenshot, with the symptom chart collapsed.
+// One framing the full flow misses: the user's prompt, the symptom query and
+// the launched sub-agent cards in a single tall frame.
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 const OUT = process.env.EVIDENCE_DIR || '../media/pr/sub-agents';
@@ -11,7 +11,7 @@ const PROMPT = 'Paid orders dropped about 15% since mid-September. Why? Test the
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium' });
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+const page = await (await browser.newContext({ viewport: { width: 1440, height: 1600 } })).newPage();
 await page.goto(`${BASE}/users/sign-in`, { waitUntil: 'domcontentloaded' });
 await page.fill('#email', EMAIL); await page.fill('#password', PASSWORD); await page.click('button[type="submit"]');
 await page.waitForURL((u) => !u.pathname.includes('sign-in'), { timeout: 60000 });
@@ -27,16 +27,6 @@ await input.waitFor({ state: 'visible', timeout: 120000 }); await page.waitForTi
 await input.fill(PROMPT); await input.press('Enter');
 await page.locator('[data-testid^="delegate-card-"]').first().waitFor({ state: 'visible', timeout: 300000 });
 await page.waitForTimeout(2500);
-// Collapse the symptom widget so the cards sit right under the prompt.
-const widgetHeader = page.locator('text=/Paid orders|Weekly paid orders|paid orders per week/i').first();
-try {
-  const header = widgetHeader.locator('xpath=ancestor::div[contains(@class,"flex")][1]');
-  const chevron = header.locator('button, svg').first();
-  await chevron.click({ timeout: 5000 });
-  await page.waitForTimeout(800);
-} catch (e) { log('widget collapse skipped:', e.message.split('\n')[0]); }
-// Also fold the "Created Data" tool row if it is open.
-try { await page.locator('text=/^Created Data/').first().click({ timeout: 3000 }); await page.waitForTimeout(600); } catch {}
 await page.locator('text=' + PROMPT.slice(0, 40)).first().scrollIntoViewIfNeeded();
 await page.waitForTimeout(800);
 const cards = await page.locator('[data-testid^="delegate-card-"]').count();
