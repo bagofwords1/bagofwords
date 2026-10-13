@@ -313,7 +313,11 @@
     "tipRunSuite": "Esegui questa suite",
     "runSuiteFailed": "Impossibile eseguire la suite",
     "exportInstructions": "Esporta il pacchetto dell'agente — istruzioni, configurazione ed eval (.zip)",
-    "sharedManagedElsewhere": "Condivisa con agenti che non gestisci — modificabile solo da chi ha autorità su tutti."
+    "sharedManagedElsewhere": "Condivisa con agenti che non gestisci — modificabile solo da chi ha autorità su tutti.",
+    "unchangedLineOne": "{n} riga invariata",
+    "unchangedLineMany": "{n} righe invariate",
+    "loadPendingFailed": "Impossibile caricare le modifiche in sospeso.",
+    "allPendingResolved": "Nessuna modifica in sospeso — tutto risolto."
   },
   "smoke": {
     "hello": "Ciao",
@@ -1248,7 +1252,16 @@
       "toastFailedPublish": "Impossibile pubblicare l'istruzione",
       "toastDeletedDesc": "Istruzione eliminata",
       "toastFailedDelete": "Impossibile eliminare l'istruzione",
-      "toastSaved": "Istruzione salvata"
+      "toastSaved": "Istruzione salvata",
+      "accept": "Accetta",
+      "reject": "Rifiuta",
+      "accepted": "Accettata",
+      "rejectedLabel": "Rifiutata",
+      "stagedInBuild": "Preparata nella build in bozza",
+      "acceptedToast": "Modifica accettata",
+      "acceptFailed": "Impossibile accettare",
+      "rejectedToast": "Modifica rifiutata",
+      "rejectFailed": "Impossibile rifiutare"
     },
     "editInstruction": {
       "rejected": "Modifica rifiutata",
@@ -1285,7 +1298,14 @@
       "toastFailedDelete": "Impossibile eliminare l'istruzione",
       "toastSaved": "Istruzione salvata",
       "editCount": "{n} modifiche",
-      "editLabel": "Modifica istruzione"
+      "editLabel": "Modifica istruzione",
+      "accepted": "Accettata",
+      "rejectedLabel": "Rifiutata",
+      "stagedInBuild": "Preparata nella build in bozza",
+      "acceptedToast": "Modifica accettata",
+      "acceptFailed": "Impossibile accettare",
+      "rejectedToast": "Modifica rifiutata",
+      "rejectFailed": "Impossibile rifiutare"
     },
     "inspectData": {
       "inspecting": "Ispezione",
@@ -5747,5 +5767,8 @@
     "failed": "Impossibile caricare i dati dell’artefatto",
     "newest": "Più recenti prima",
     "oldest": "Meno recenti prima"
+  },
+  "trackedChanges": {
+    "noChanges": "Nessuna modifica"
   }
 }

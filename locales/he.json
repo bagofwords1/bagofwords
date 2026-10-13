@@ -329,7 +329,11 @@
     "tipRunSuite": "הרצת חבילה זו",
     "runSuiteFailed": "הרצת החבילה נכשלה",
     "exportInstructions": "ייצוא חבילת סוכן — הנחיות, הגדרות והערכות (zip.)",
-    "lists": "רשימות"
+    "lists": "רשימות",
+    "unchangedLineOne": "שורה אחת ללא שינוי",
+    "unchangedLineMany": "{n} שורות ללא שינוי",
+    "loadPendingFailed": "לא ניתן לטעון את השינויים הממתינים.",
+    "allPendingResolved": "אין שינויים ממתינים — הכול טופל."
   },
   "smoke": {
     "hello": "שלום",
@@ -1264,7 +1268,16 @@
       "toastFailedPublish": "פרסום ההנחיה נכשל",
       "toastDeletedDesc": "ההנחיה נמחקה",
       "toastFailedDelete": "מחיקת ההנחיה נכשלה",
-      "toastSaved": "ההנחיה נשמרה"
+      "toastSaved": "ההנחיה נשמרה",
+      "accept": "אשר",
+      "reject": "דחה",
+      "accepted": "התקבלה",
+      "rejectedLabel": "נדחתה",
+      "stagedInBuild": "ממתינה בגרסת טיוטה",
+      "acceptedToast": "השינוי אושר",
+      "acceptFailed": "האישור נכשל",
+      "rejectedToast": "השינוי נדחה",
+      "rejectFailed": "הדחייה נכשלה"
     },
     "editInstruction": {
       "rejected": "העריכה נדחתה",
@@ -1301,7 +1314,14 @@
       "toastFailedDelete": "מחיקת ההנחיה נכשלה",
       "toastSaved": "ההנחיה נשמרה",
       "editCount": "{n} עריכות",
-      "editLabel": "עריכת הנחיה"
+      "editLabel": "עריכת הנחיה",
+      "accepted": "התקבלה",
+      "rejectedLabel": "נדחתה",
+      "stagedInBuild": "ממתינה בגרסת טיוטה",
+      "acceptedToast": "השינוי אושר",
+      "acceptFailed": "האישור נכשל",
+      "rejectedToast": "השינוי נדחה",
+      "rejectFailed": "הדחייה נכשלה"
     },
     "inspectData": {
       "inspecting": "בוחן",
@@ -5941,5 +5961,8 @@
     "failed": "לא ניתן לטעון את נתוני התוצר",
     "newest": "החדשים ביותר תחילה",
     "oldest": "הישנים ביותר תחילה"
+  },
+  "trackedChanges": {
+    "noChanges": "אין שינויים"
   }
 }

@@ -313,7 +313,11 @@
     "tipRunSuite": "Запустить этот набор",
     "runSuiteFailed": "Не удалось запустить набор",
     "exportInstructions": "Экспортировать пакет агента — инструкции, настройки и тесты (.zip)",
-    "sharedManagedElsewhere": "Общая с агентами, которыми вы не управляете, — изменить может только тот, у кого есть права на всех них."
+    "sharedManagedElsewhere": "Общая с агентами, которыми вы не управляете, — изменить может только тот, у кого есть права на всех них.",
+    "unchangedLineOne": "1 строка без изменений",
+    "unchangedLineMany": "Строк без изменений: {n}",
+    "loadPendingFailed": "Не удалось загрузить ожидающие изменения.",
+    "allPendingResolved": "Нет ожидающих изменений — всё обработано."
   },
   "smoke": {
     "hello": "Привет",
@@ -1248,7 +1252,16 @@
       "toastFailedPublish": "Не удалось опубликовать инструкцию",
       "toastDeletedDesc": "Инструкция удалена",
       "toastFailedDelete": "Не удалось удалить инструкцию",
-      "toastSaved": "Инструкция сохранена"
+      "toastSaved": "Инструкция сохранена",
+      "accept": "Принять",
+      "reject": "Отклонить",
+      "accepted": "Принята",
+      "rejectedLabel": "Отклонена",
+      "stagedInBuild": "Подготовлена в черновике сборки",
+      "acceptedToast": "Изменение принято",
+      "acceptFailed": "Не удалось принять",
+      "rejectedToast": "Изменение отклонено",
+      "rejectFailed": "Не удалось отклонить"
     },
     "editInstruction": {
       "rejected": "Изменение отклонено",
@@ -1285,7 +1298,14 @@
       "toastFailedDelete": "Не удалось удалить инструкцию",
       "toastSaved": "Инструкция сохранена",
       "editCount": "правок: {n}",
-      "editLabel": "Изменить инструкцию"
+      "editLabel": "Изменить инструкцию",
+      "accepted": "Принята",
+      "rejectedLabel": "Отклонена",
+      "stagedInBuild": "Подготовлена в черновике сборки",
+      "acceptedToast": "Изменение принято",
+      "acceptFailed": "Не удалось принять",
+      "rejectedToast": "Изменение отклонено",
+      "rejectFailed": "Не удалось отклонить"
     },
     "inspectData": {
       "inspecting": "Исследование",
@@ -5747,5 +5767,8 @@
     "failed": "Не удалось загрузить данные артефакта",
     "newest": "Сначала новые",
     "oldest": "Сначала старые"
+  },
+  "trackedChanges": {
+    "noChanges": "Нет изменений"
   }
 }

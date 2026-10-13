@@ -313,7 +313,11 @@
     "tipRunSuite": "Kör den här sviten",
     "runSuiteFailed": "Det gick inte att köra sviten",
     "exportInstructions": "Exportera agentpaket — instruktioner, konfiguration och utvärderingar (.zip)",
-    "sharedManagedElsewhere": "Delad med agenter du inte hanterar — kan bara redigeras av någon med behörighet över alla."
+    "sharedManagedElsewhere": "Delad med agenter du inte hanterar — kan bara redigeras av någon med behörighet över alla.",
+    "unchangedLineOne": "{n} oförändrad rad",
+    "unchangedLineMany": "{n} oförändrade rader",
+    "loadPendingFailed": "Kunde inte läsa in väntande ändringar.",
+    "allPendingResolved": "Inga väntande ändringar – allt är hanterat."
   },
   "smoke": {
     "hello": "Hej",
@@ -1248,7 +1252,16 @@
       "toastFailedPublish": "Det gick inte att publicera instruktionen",
       "toastDeletedDesc": "Instruktion raderad",
       "toastFailedDelete": "Det gick inte att radera instruktionen",
-      "toastSaved": "Instruktion sparad"
+      "toastSaved": "Instruktion sparad",
+      "accept": "Godkänn",
+      "reject": "Avvisa",
+      "accepted": "Godkänd",
+      "rejectedLabel": "Avvisad",
+      "stagedInBuild": "Förberedd i utkasts-build",
+      "acceptedToast": "Ändring godkänd",
+      "acceptFailed": "Kunde inte godkänna",
+      "rejectedToast": "Ändring avvisad",
+      "rejectFailed": "Kunde inte avvisa"
     },
     "editInstruction": {
       "rejected": "Redigering avvisad",
@@ -1285,7 +1298,14 @@
       "toastFailedDelete": "Det gick inte att radera instruktionen",
       "toastSaved": "Instruktion sparad",
       "editCount": "{n} ändringar",
-      "editLabel": "Redigera instruktion"
+      "editLabel": "Redigera instruktion",
+      "accepted": "Godkänd",
+      "rejectedLabel": "Avvisad",
+      "stagedInBuild": "Förberedd i utkasts-build",
+      "acceptedToast": "Ändring godkänd",
+      "acceptFailed": "Kunde inte godkänna",
+      "rejectedToast": "Ändring avvisad",
+      "rejectFailed": "Kunde inte avvisa"
     },
     "inspectData": {
       "inspecting": "Inspekterar",
@@ -5747,5 +5767,8 @@
     "failed": "Det gick inte att läsa artefaktdata",
     "newest": "Nyast först",
     "oldest": "Äldst först"
+  },
+  "trackedChanges": {
+    "noChanges": "Inga ändringar"
   }
 }
