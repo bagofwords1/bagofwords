@@ -40,7 +40,7 @@
                                         </div>
                                         <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-400 truncate">
                                             <button v-if="item.report.id" type="button" class="text-gray-500 hover:text-blue-600 hover:underline truncate" :title="$t('monitoring.diagnosis.pivotReport')" @click.stop="$emit('pivot', `report_id:${item.report.id}`)">{{ item.report.title || item.report.id }}</button>
-                                            <NuxtLink v-if="item.report.id" :to="`/reports/${item.report.id}`" target="_blank" class="flex-shrink-0 inline-flex text-gray-400 hover:text-blue-600" :title="$t('monitoring.diagnosis.openReport')" :aria-label="$t('monitoring.diagnosis.openReport')" data-testid="open-report" @click.stop>
+                                            <NuxtLink v-if="item.report.id && isFullAdmin" :to="`/reports/${item.report.id}`" target="_blank" class="flex-shrink-0 inline-flex text-gray-400 hover:text-blue-600" :title="$t('monitoring.diagnosis.openReport')" :aria-label="$t('monitoring.diagnosis.openReport')" data-testid="open-report" @click.stop>
                                                 <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3 h-3" />
                                             </NuxtLink>
                                             <template v-if="item.report.turn">
@@ -174,6 +174,9 @@ const props = defineProps<{
     sort: string
     dir: 'asc' | 'desc'
 }>()
+// Only full admins can open any report; other monitoring roles would 403 on
+// reports they don't own, so the link stays hidden for them.
+const isFullAdmin = computed(() => useCan('full_admin_access'))
 const emit = defineEmits<{
     (e: 'open', item: RunItem): void
     (e: 'openCall', item: RunItem, call: ToolCall): void
