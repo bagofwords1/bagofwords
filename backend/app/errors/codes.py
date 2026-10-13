@@ -94,6 +94,9 @@ class ErrorCode(str, Enum):
     LLM_MODEL_ID_NOT_EDITABLE = "llm.model_id_not_editable"
     LLM_MODEL_ID_DUPLICATE = "llm.model_id_duplicate"
 
+    # Member attributes
+    MEMBER_ATTRIBUTES_INVALID = "member_attributes.invalid"
+
     # Data execution
     QUERY_TIMEOUT = "query.timeout"
     QUERY_FAILED_SILENTLY = "query.failed_silently"

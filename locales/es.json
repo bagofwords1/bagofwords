@@ -2606,7 +2606,25 @@
       "copyLink": "Copiar enlace",
       "linkCopied": "Enlace de invitación copiado",
       "failedToCopyLink": "No se pudo copiar el enlace",
-      "linkRegenerated": "Enlace de invitación renovado y copiado"
+      "linkRegenerated": "Enlace de invitación renovado y copiado",
+      "colAttributes": "Atributos",
+      "colAttributesHint": "Valores definidos por un administrador que identifican al miembro en otros sistemas (p. ej. qlik_user_id). Los miembros no pueden editarlos.",
+      "editAttributes": "Editar atributos",
+      "attributeAdd": "Añadir atributo",
+      "attributeKey": "Nombre del atributo",
+      "attributeValue": "Valor",
+      "attributeKeyPlaceholder": "nombre, p. ej. qlik_user_id",
+      "attributeValuePlaceholder": "valor, p. ej. dana",
+      "attributeRemove": "Quitar atributo",
+      "attributeKeyRequired": "El nombre es obligatorio",
+      "attributeKeyInvalid": "Solo letras, dígitos, _ . -; debe empezar por una letra",
+      "attributeKeyDuplicate": "Nombre duplicado",
+      "attributesTitle": "Atributos del miembro",
+      "attributesHint": "Valores que identifican a este miembro en otros sistemas, p. ej. su usuario de Qlik o su ID de empleado. Solo los administradores pueden verlos o cambiarlos.",
+      "attributesInviteHint": "Opcional. Identifica a este miembro en otros sistemas, p. ej. su usuario de Qlik o su rol de base de datos.",
+      "attributesSaved": "Atributos guardados",
+      "attributesSaveFailed": "No se pudieron guardar los atributos",
+      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios."
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",
@@ -3956,7 +3974,8 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso no disponible",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitud interrumpida",
     "ARTIFACT_RESOURCE_ABORTED": "Solicitud cancelada",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versión del SDK no compatible"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versión del SDK no compatible",
+    "member_attributes.invalid": "Atributos de miembro no válidos."
   },
   "email": {
     "dashboardShare": {

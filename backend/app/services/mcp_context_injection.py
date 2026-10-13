@@ -12,7 +12,9 @@ access — so a misconfigured mapping can't reach a secret:
 
   * ``user.email`` / ``user.name`` / ``user.id``
   * ``membership.role``
-  * ``membership.attr:<key>``   → ``Membership.profile_attributes[<key>]``
+  * ``membership.attr:<key>``   → the member's attribute ``<key>``: admin-set
+    ``Membership.custom_attributes`` first, else IdP-synced
+    ``Membership.profile_attributes``
   * ``static:<text>``           → a literal, with ``{source}`` interpolation
     (e.g. ``static:corp_nt\\{membership.attr:employeeId}``)
 
@@ -127,7 +129,9 @@ def _identity_from(user: Optional[User], membership: Optional[Membership]) -> Id
     attrs = {}
     role = ""
     if membership is not None:
-        attrs = dict(membership.profile_attributes or {})
+        # Admin-set attributes win over IdP-synced ones with the same key.
+        from app.services.member_attributes import effective_member_attributes
+        attrs = effective_member_attributes(membership)
         role = membership.role or ""
     return IdentityContext(
         email=(getattr(user, "email", "") or "") if user else "",

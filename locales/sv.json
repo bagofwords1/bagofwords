@@ -2484,7 +2484,25 @@
       "linkCopied": "Inbjudningslänk kopierad",
       "failedToCopyLink": "Det gick inte att kopiera länken",
       "linkRegenerated": "Inbjudningslänk uppdaterad och kopierad",
-      "moreGroups": "grupper"
+      "moreGroups": "grupper",
+      "colAttributes": "Attribut",
+      "colAttributesHint": "Värden som en administratör anger och som identifierar medlemmen i andra system (t.ex. qlik_user_id). Medlemmar kan inte ändra dem.",
+      "editAttributes": "Redigera attribut",
+      "attributeAdd": "Lägg till attribut",
+      "attributeKey": "Attributnamn",
+      "attributeValue": "Värde",
+      "attributeKeyPlaceholder": "namn, t.ex. qlik_user_id",
+      "attributeValuePlaceholder": "värde, t.ex. dana",
+      "attributeRemove": "Ta bort attribut",
+      "attributeKeyRequired": "Namn krävs",
+      "attributeKeyInvalid": "Endast bokstäver, siffror, _ . -; måste börja med en bokstav",
+      "attributeKeyDuplicate": "Dubblettnamn",
+      "attributesTitle": "Medlemsattribut",
+      "attributesHint": "Värden som identifierar medlemmen i andra system, t.ex. Qlik-användare eller anställnings-ID. Endast administratörer kan se eller ändra dem.",
+      "attributesInviteHint": "Valfritt. Identifierar medlemmen i andra system, t.ex. Qlik-användare eller databasroll.",
+      "attributesSaved": "Attributen sparades",
+      "attributesSaveFailed": "Det gick inte att spara attributen",
+      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat."
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
@@ -3836,7 +3854,8 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Resursen är inte tillgänglig",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Begäran avbröts",
     "ARTIFACT_RESOURCE_ABORTED": "Begäran avbruten",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte",
+    "member_attributes.invalid": "Ogiltiga medlemsattribut."
   },
   "email": {
     "dashboardShare": {

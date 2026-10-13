@@ -33,6 +33,9 @@ async def add_member(
     db: AsyncSession = Depends(get_async_db)
 ):
     membership.organization_id = organization_id
+    if membership.custom_attributes:
+        from app.services.member_attributes import require_attribute_admin
+        await require_attribute_admin(db, current_user.id, organization_id)
     result = await organization_service.add_member(db, membership, current_user.id)
     await audit_service.log(
         db=db,
@@ -41,7 +44,11 @@ async def add_member(
         user_id=current_user.id,
         resource_type="membership",
         resource_id=result.id,
-        details={"email": membership.email, "role": membership.role},
+        details={
+            "email": membership.email,
+            "role": membership.role,
+            **({"custom_attributes": result.custom_attributes} if result.custom_attributes else {}),
+        },
         request=request,
     )
     return result
@@ -125,7 +132,34 @@ async def update_member(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    if membership.custom_attributes is not None:
+        from app.services.member_attributes import require_attribute_admin
+        await require_attribute_admin(db, current_user.id, organization_id)
+    previous = await organization_service.get_member(db, membership_id, organization_id, current_user)
+    previous_attributes = dict(getattr(previous, "custom_attributes", None) or {}) if previous else {}
     result = await organization_service.update_member(db, membership_id, organization_id, membership, current_user, organization)
+    if membership.custom_attributes is not None and (result.custom_attributes or {}) != previous_attributes:
+        # Attributes can name the account a member acts as in another system,
+        # so every change is audited with before/after values.
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=organization_id,
+                action="member.attributes_changed",
+                user_id=current_user.id,
+                resource_type="membership",
+                resource_id=membership_id,
+                details={
+                    "target_user_id": str(result.user_id) if result.user_id else None,
+                    "before": previous_attributes,
+                    "after": result.custom_attributes or {},
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+    if membership.role is None and membership.custom_attributes is not None:
+        return result
     try:
         await audit_service.log(
             db=db,

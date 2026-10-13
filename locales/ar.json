@@ -2484,7 +2484,25 @@
       "linkCopied": "تم نسخ رابط الدعوة",
       "failedToCopyLink": "تعذّر نسخ الرابط",
       "linkRegenerated": "تم تحديث رابط الدعوة ونسخه",
-      "moreGroups": "مجموعات"
+      "moreGroups": "مجموعات",
+      "colAttributes": "السمات",
+      "colAttributesHint": "قيم يحددها المسؤول لتعريف العضو في أنظمة أخرى (مثل qlik_user_id). لا يمكن للأعضاء تعديلها.",
+      "editAttributes": "تعديل السمات",
+      "attributeAdd": "إضافة سمة",
+      "attributeKey": "اسم السمة",
+      "attributeValue": "القيمة",
+      "attributeKeyPlaceholder": "الاسم، مثل qlik_user_id",
+      "attributeValuePlaceholder": "القيمة، مثل dana",
+      "attributeRemove": "إزالة السمة",
+      "attributeKeyRequired": "الاسم مطلوب",
+      "attributeKeyInvalid": "أحرف وأرقام و_ . - فقط؛ يبدأ بحرف",
+      "attributeKeyDuplicate": "اسم مكرر",
+      "attributesTitle": "سمات العضو",
+      "attributesHint": "قيم تعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو رقم الموظف. يمكن للمسؤولين فقط رؤيتها أو تغييرها.",
+      "attributesInviteHint": "اختياري. يعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو دور قاعدة البيانات.",
+      "attributesSaved": "تم حفظ السمات",
+      "attributesSaveFailed": "تعذّر حفظ السمات",
+      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير."
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",
@@ -3836,7 +3854,8 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "المورد غير متاح",
     "ARTIFACT_RESOURCE_INTERRUPTED": "انقطع الطلب",
     "ARTIFACT_RESOURCE_ABORTED": "أُلغي الطلب",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم",
+    "member_attributes.invalid": "سمات العضو غير صالحة."
   },
   "email": {
     "dashboardShare": {
