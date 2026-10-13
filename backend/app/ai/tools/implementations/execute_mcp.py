@@ -549,9 +549,14 @@ Do not use when:
             resolve_mcp_context,
             apply_metadata_injection,
         )
+        from app.utils.request_metadata import completion_request_metadata
         forward_ctx = None
         try:
-            forward_ctx = await resolve_mcp_context(db, connection, user, organization)
+            # The question's prompt.metadata feeds the connection's Dynamic params.
+            forward_ctx = await resolve_mcp_context(
+                db, connection, user, organization,
+                request_metadata=completion_request_metadata(runtime_ctx.get("head_completion")),
+            )
         except Exception as e:
             logger.warning(f"execute_mcp: context forwarding resolve failed: {e}")
         if forward_ctx is not None:

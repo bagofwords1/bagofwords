@@ -221,6 +221,31 @@
                   </div>
                 </div>
                 <button type="button" data-test="add-meta" @click="metaFields.push({ name: '', kind: 'user.email', key: '', mode: 'locked', on_missing: 'empty' })" class="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800">{{ $t('data.mcpAddMetaField') }}</button>
+
+                <!-- Dynamic params: allow-list {key: default} of the per-question
+                     values the caller sends as prompt.metadata (a row above wins). -->
+                <div class="mt-3" data-test="dyn-params">
+                  <label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-200">
+                    <UToggle v-model="dynEnabled" data-test="dyn-params-toggle" />
+                    {{ $t('data.mcpDynamicParams') }}
+                  </label>
+                  <template v-if="dynEnabled">
+                    <p class="text-[11px] text-gray-400 mt-1.5">
+                      {{ $t('data.mcpDynamicParamsHint', { key: metaArgKey }) }}
+                      <code dir="ltr" class="font-mono">prompt.metadata</code>
+                    </p>
+                    <textarea
+                      v-model="dynText"
+                      rows="5"
+                      dir="ltr"
+                      spellcheck="false"
+                      :placeholder="DYN_PLACEHOLDER"
+                      data-test="dyn-params-json"
+                      :class="['mt-1.5 w-full font-mono border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500', dynError ? 'border-red-400' : 'border-gray-300 dark:border-gray-600']"
+                    />
+                    <p v-if="dynError" class="text-[11px] text-red-600 mt-1" data-test="dyn-params-error">{{ dynError }}</p>
+                  </template>
+                </div>
               </div>
 
               <datalist id="mcp-attr-suggestions">
@@ -257,7 +282,7 @@
         <span v-else />
         <div class="flex items-center gap-2">
           <UButton color="gray" variant="ghost" size="sm" @click="emit('cancel')">{{ $t('settings.mcpModal.cancel') }}</UButton>
-          <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="selectedExistingId ? false : (!form.server_url || !form.name)">
+          <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="selectedExistingId ? false : (!form.server_url || !form.name || !!dynError)">
             {{ submitLabel }}
           </UButton>
         </div>
@@ -339,6 +364,28 @@ function keyPlaceholder(kind: string): string { return kind === 'static' ? t('da
 const headerRules = reactive<Array<{ header: string; kind: string; key: string }>>([])
 const metaArgKey = ref('custom_metadata')
 const metaFields = reactive<Array<{ name: string; kind: string; key: string; mode: string; on_missing: string }>>([])
+// Dynamic params: the allow-list {key: default} edited as JSON text. Kept when
+// the toggle is off, so switching it back on restores what the admin wrote.
+const dynEnabled = ref(false)
+const dynText = ref('')
+const DYN_PLACEHOLDER = '{\n  "chat_id": null,\n  "message_id": null,\n  "env": "prod"\n}'
+
+// The parsed object, or null when the text is not a JSON object. Blank = {}.
+function parseDynParams(): Record<string, any> | null {
+  const text = dynText.value.trim()
+  if (!text) return {}
+  try {
+    const v = JSON.parse(text)
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null
+  } catch {
+    return null
+  }
+}
+const dynError = computed<string | null>(() => {
+  if (!dynEnabled.value || parseDynParams() !== null) return null
+  try { JSON.parse(dynText.value) } catch { return t('data.mcpDynamicParamsInvalid') }
+  return t('data.mcpDynamicParamsNotObject')
+})
 const attrSuggestions = ref<string[]>([])
 
 function toSource(kind: string, key: string): string {
@@ -365,7 +412,16 @@ function buildForwarding(): Record<string, any> {
   const fields = metaFields
     .filter(f => (f.name || '').trim())
     .map(f => ({ name: f.name.trim(), source: toSource(f.kind, f.key), mode: f.mode || 'locked', on_missing: f.on_missing || 'empty' }))
-  if (fields.length) out.metadata_injection = { argument_key: (metaArgKey.value || 'custom_metadata').trim() || 'custom_metadata', fields }
+  const dyn = parseDynParams() || {}
+  const hasDyn = dynEnabled.value || Object.keys(dyn).length > 0
+  if (fields.length || hasDyn) {
+    const mi: Record<string, any> = { argument_key: (metaArgKey.value || 'custom_metadata').trim() || 'custom_metadata', fields }
+    if (hasDyn) {
+      mi.dynamic_params_enabled = dynEnabled.value
+      mi.dynamic_params = dyn
+    }
+    out.metadata_injection = mi
+  }
   return out
 }
 
@@ -378,6 +434,9 @@ function hydrateForwarding(config: any) {
   }
   const mi = config?.metadata_injection || {}
   if (mi.argument_key) metaArgKey.value = mi.argument_key
+  dynEnabled.value = !!mi.dynamic_params_enabled
+  const dp = mi.dynamic_params
+  dynText.value = dp && typeof dp === 'object' && Object.keys(dp).length ? JSON.stringify(dp, null, 2) : ''
   for (const f of (mi.fields || [])) {
     const s = fromSource(f.source || '')
     metaFields.push({ name: f.name || '', kind: s.kind, key: s.key, mode: f.mode || 'locked', on_missing: f.on_missing || 'empty' })
@@ -597,6 +656,11 @@ async function handleSubmit() {
   if (selectedExisting.value) {
     const conn = existingConnections.value.find((c: any) => c.id === selectedExisting.value.id)
     if (conn) emit('saved', conn, { existing: true })
+    return
+  }
+
+  if (dynError.value) {
+    submitError.value = dynError.value
     return
   }
 

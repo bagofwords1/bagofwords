@@ -313,7 +313,11 @@
     "tipRunSuite": "Kör den här sviten",
     "runSuiteFailed": "Det gick inte att köra sviten",
     "exportInstructions": "Exportera agentpaket — instruktioner, konfiguration och utvärderingar (.zip)",
-    "sharedManagedElsewhere": "Delad med agenter du inte hanterar — kan bara redigeras av någon med behörighet över alla."
+    "sharedManagedElsewhere": "Delad med agenter du inte hanterar — kan bara redigeras av någon med behörighet över alla.",
+    "unchangedLineOne": "{n} oförändrad rad",
+    "unchangedLineMany": "{n} oförändrade rader",
+    "loadPendingFailed": "Kunde inte läsa in väntande ändringar.",
+    "allPendingResolved": "Inga väntande ändringar – allt är hanterat."
   },
   "smoke": {
     "hello": "Hej",
@@ -1135,6 +1139,16 @@
       "needsValues": "Väntar på värden för:",
       "cachedHint": "Levererat från ditt cachade resultat för dessa värden – källan frågades inte igen"
     },
+    "addParameter": {
+      "adding": "Lägger till filtret \"{name}\"…",
+      "added": "Filtret \"{name}\" har lagts till i \"{query}\"",
+      "addedNoQuery": "Filtret \"{name}\" har lagts till",
+      "failed": "Det gick inte att lägga till filtret \"{name}\"",
+      "type": "Typ: {type}",
+      "default": "Standard: {value}",
+      "defaultAll": "alla",
+      "column": "Kolumn: {column}"
+    },
     "createArtifact": {
       "creating": "Skapar artefakt",
       "created": "Artefakt skapad",
@@ -1242,7 +1256,16 @@
       "toastFailedPublish": "Det gick inte att publicera instruktionen",
       "toastDeletedDesc": "Instruktion raderad",
       "toastFailedDelete": "Det gick inte att radera instruktionen",
-      "toastSaved": "Instruktion sparad"
+      "toastSaved": "Instruktion sparad",
+      "accept": "Godkänn",
+      "reject": "Avvisa",
+      "accepted": "Godkänd",
+      "rejectedLabel": "Avvisad",
+      "stagedInBuild": "Förberedd i utkasts-build",
+      "acceptedToast": "Ändring godkänd",
+      "acceptFailed": "Kunde inte godkänna",
+      "rejectedToast": "Ändring avvisad",
+      "rejectFailed": "Kunde inte avvisa"
     },
     "editInstruction": {
       "rejected": "Redigering avvisad",
@@ -1279,7 +1302,14 @@
       "toastFailedDelete": "Det gick inte att radera instruktionen",
       "toastSaved": "Instruktion sparad",
       "editCount": "{n} ändringar",
-      "editLabel": "Redigera instruktion"
+      "editLabel": "Redigera instruktion",
+      "accepted": "Godkänd",
+      "rejectedLabel": "Avvisad",
+      "stagedInBuild": "Förberedd i utkasts-build",
+      "acceptedToast": "Ändring godkänd",
+      "acceptFailed": "Kunde inte godkänna",
+      "rejectedToast": "Ändring avvisad",
+      "rejectFailed": "Kunde inte avvisa"
     },
     "inspectData": {
       "inspecting": "Inspekterar",
@@ -2488,7 +2518,25 @@
       "linkCopied": "Inbjudningslänk kopierad",
       "failedToCopyLink": "Det gick inte att kopiera länken",
       "linkRegenerated": "Inbjudningslänk uppdaterad och kopierad",
-      "moreGroups": "grupper"
+      "moreGroups": "grupper",
+      "colAttributes": "Attribut",
+      "colAttributesHint": "Värden som en administratör anger och som identifierar medlemmen i andra system (t.ex. qlik_user_id). Medlemmar kan inte ändra dem.",
+      "editAttributes": "Redigera attribut",
+      "attributeAdd": "Lägg till attribut",
+      "attributeKey": "Attributnamn",
+      "attributeValue": "Värde",
+      "attributeKeyPlaceholder": "namn, t.ex. qlik_user_id",
+      "attributeValuePlaceholder": "värde, t.ex. dana",
+      "attributeRemove": "Ta bort attribut",
+      "attributeKeyRequired": "Namn krävs",
+      "attributeKeyInvalid": "Endast bokstäver, siffror, _ . -; måste börja med en bokstav",
+      "attributeKeyDuplicate": "Dubblettnamn",
+      "attributesTitle": "Medlemsattribut",
+      "attributesHint": "Värden som identifierar medlemmen i andra system, t.ex. Qlik-användare eller anställnings-ID. Endast administratörer kan se eller ändra dem.",
+      "attributesInviteHint": "Valfritt. Identifierar medlemmen i andra system, t.ex. Qlik-användare eller databasroll.",
+      "attributesSaved": "Attributen sparades",
+      "attributesSaveFailed": "Det gick inte att spara attributen",
+      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat."
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
@@ -3589,6 +3637,10 @@
     "mcpModeAiTip": "AI:n kan sätta det; servern fyller i om tomt",
     "mcpModeLockedTip": "Adminvärdet gäller alltid; dolt för AI:n",
     "mcpAddMetaField": "+ Lägg till metadatafält",
+    "mcpDynamicParams": "Dynamiska parametrar",
+    "mcpDynamicParamsHint": "Vilka värden den anropande appen får skicka med varje fråga, var och en med ett standardvärde (null = bara om det skickas). De hamnar i {key} och döljs för AI:n; ett fält ovan med samma namn har företräde. Appen skickar dem som",
+    "mcpDynamicParamsInvalid": "Ogiltig JSON.",
+    "mcpDynamicParamsNotObject": "Måste vara ett JSON-objekt (nyckel-värde-par).",
     "verify": "Verifiera",
     "autoReindex": "Automatisk omindexering av schemat",
     "autoReindexAt": "Omindexera dagligen kl.",
@@ -3701,7 +3753,26 @@
     "refreshAccess": "Uppdatera åtkomst",
     "yourAccount": "Ditt konto",
     "managementOrganizationHint": "Tester och schemauppdateringar använder organisationens sparade inloggningsuppgifter.",
-    "managementPersonalHint": "Den här anslutningen kräver att du loggar in. Tester och uppdateringar använder ditt konto."
+    "managementPersonalHint": "Den här anslutningen kräver att du loggar in. Tester och uppdateringar använder ditt konto.",
+    "memberIdentity": {
+      "title": "Identitet per medlem",
+      "hint": "Varje medlem agerar med sitt eget konto. Välj vilka fält som hämtas från ett medlemsattribut som administratörer anger under Inställningar → Medlemmar; övriga använder värdet ovan för alla. Värdena ovan används fortfarande för att indexera den delade katalogen.",
+      "sourceFor": "Källa för {field}",
+      "attributeFor": "Medlemsattribut för {field}",
+      "sameForEveryone": "Samma för alla",
+      "fromAttribute": "Från medlemsattribut",
+      "attributePlaceholder": "t.ex. qlik_user_id",
+      "usesValue": "Alla använder {value}",
+      "usesValueAbove": "Alla använder värdet ovan (eller dess standardvärde)",
+      "attributeRequired": "Ange namnet på medlemsattributet.",
+      "attributeInvalid": "Använd bokstäver, siffror, _ . - och börja med en bokstav.",
+      "needOne": "Koppla minst ett fält till ett medlemsattribut, eller stäng av användarautentisering.",
+      "previewTitle": "Vem agerar som vem",
+      "previewCounts": "{ok} redo · {blocked} blockerade",
+      "blocked": "Blockerad: saknar {attributes}",
+      "test": "Testa",
+      "testOk": "Ansluten som denna medlem"
+    }
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",
@@ -3790,6 +3861,7 @@
     "organization.required": "Organisations-ID-rubrik saknas",
     "api_key.invalid": "Ogiltig eller utgången API-nyckel",
     "mcp.disabled": "MCP-integrationen är inte aktiverad för den här organisationen",
+    "mcp.dynamic_params_invalid": "Dynamiska parametrar måste vara ett JSON-objekt på högst 8 KB, utan tomma nycklar.",
     "feature.locked": "Funktionen kan inte ändras",
     "license.enterprise_required": "Den här funktionen kräver en enterprise-licens.",
     "locale.invalid": "Språket är inte aktiverat",
@@ -3843,7 +3915,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Resursen är inte tillgänglig",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Begäran avbröts",
     "ARTIFACT_RESOURCE_ABORTED": "Begäran avbruten",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "SDK-versionen stöds inte",
+    "member_attributes.invalid": "Ogiltiga medlemsattribut.",
+    "member_identity.invalid": "Ogiltig identitetskoppling per medlem.",
+    "member_identity.not_configured": "En administratör har ännu inte valt vilket medlemsattribut som identifierar medlemmar på den här anslutningen.",
+    "member_identity.unresolved": "Ditt konto på den här anslutningen är inte konfigurerat än. Be en administratör ange dina medlemsattribut ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -4414,6 +4490,9 @@
       "runSuite": "Kör {name}",
       "runningCount": "Kör {done}/{total}",
       "title": "Utvärderingar för den här ändringen"
+    },
+    "runEvals": {
+      "notRun": "{n} utkast eller arkiverat fall ingår inte | {n} utkast eller arkiverade fall ingår inte"
     }
   },
   "monitoring": {
@@ -5741,5 +5820,8 @@
     "failed": "Det gick inte att läsa artefaktdata",
     "newest": "Nyast först",
     "oldest": "Äldst först"
+  },
+  "trackedChanges": {
+    "noChanges": "Inga ändringar"
   }
 }

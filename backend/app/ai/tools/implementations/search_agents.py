@@ -15,6 +15,7 @@ import re
 from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
+from app.utils.safe_regex import compile_bounded
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.search_agents import (
     SearchAgentsInput,
@@ -36,12 +37,41 @@ _FULL_RENDER_CAP = 3
 _SPECIAL = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
 
 
+class _GlobPattern:
+    """Unanchored `*`/`?` glob, matched per line in linear time.
+
+    fnmatch.translate("*a*b*") compiles to a regex whose failed search rescans
+    from every start position — quadratic on a long haystack, and the joined
+    table list of a wide warehouse is tens of KB. Here the literal pieces
+    between `*`s are found in order with one forward scan.
+    """
+
+    def __init__(self, glob: str):
+        self._pieces = [
+            re.compile("".join("." if ch == "?" else re.escape(ch) for ch in part), re.IGNORECASE)
+            for part in glob.split("*") if part
+        ]
+
+    def _search_line(self, line: str) -> bool:
+        pos = 0
+        for piece in self._pieces:
+            m = piece.search(line, pos)
+            if not m:
+                return False
+            pos = m.end()
+        return True
+
+    def search(self, haystack: str) -> bool:
+        return any(self._search_line(line) for line in haystack.split("\n"))
+
+
 def compile_query_patterns(queries) -> list:
-    """Query terms → regex patterns, forgiving like describe_tables/get_connection.
+    """Query terms → patterns, forgiving like describe_tables/get_connection.
 
     Case-insensitive substring, `*`/`?` globs, naive singular/plural folding of
     the query term ("albums" must find table "Album"), plus raw regex for terms
-    that carry regex metacharacters.
+    that carry regex metacharacters. Every pattern exposes `.search(text)` and
+    runs in bounded time on any haystack.
     """
     patterns: list = []
     for q in queries or []:
@@ -67,18 +97,12 @@ def compile_query_patterns(queries) -> list:
             except re.error:
                 pass
         if "*" in s or "?" in s:
-            import fnmatch
-            try:
-                # fnmatch anchors the whole string; wrap so the glob may match
-                # anywhere in the haystack line.
-                patterns.append(re.compile(fnmatch.translate(f"*{s}*"), re.IGNORECASE))
-            except re.error:
-                pass
+            patterns.append(_GlobPattern(s))
         if _SPECIAL.search(s):
-            try:
-                patterns.append(re.compile(s, re.IGNORECASE))
-            except re.error:
-                pass
+            # Model-written regex: time-bounded so backtracking can't block the loop.
+            rx = compile_bounded(s, re.IGNORECASE)
+            if rx is not None:
+                patterns.append(rx)
     return patterns
 
 
@@ -228,7 +252,9 @@ class SearchAgentsTool(Tool):
                         getattr(ds, "context", "") or "",
                         sid,
                     ])
-                    weak_hay = " ".join(table_names.get(sid, []))
+                    # One name per line: a glob must match within a single table
+                    # name, not span "orders" in one and "detail" in the next.
+                    weak_hay = "\n".join(table_names.get(sid, []))
                     q, n = match_quality(patterns, strong_hay, weak_hay)
                     if q is None:
                         continue

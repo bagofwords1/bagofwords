@@ -38,6 +38,7 @@ class ErrorCode(str, Enum):
     ORG_HEADER_REQUIRED = "organization.required"
     LOCALE_INVALID = "locale.invalid"
     MCP_DISABLED = "mcp.disabled"
+    MCP_DYNAMIC_PARAMS_INVALID = "mcp.dynamic_params_invalid"
 
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"
@@ -93,6 +94,13 @@ class ErrorCode(str, Enum):
     LLM_MODEL_ID_REQUIRED = "llm.model_id_required"
     LLM_MODEL_ID_NOT_EDITABLE = "llm.model_id_not_editable"
     LLM_MODEL_ID_DUPLICATE = "llm.model_id_duplicate"
+
+    # Member attributes
+    MEMBER_ATTRIBUTES_INVALID = "member_attributes.invalid"
+    # Per-member connection identity (member_mapped auth)
+    MEMBER_IDENTITY_INVALID = "member_identity.invalid"
+    MEMBER_IDENTITY_NOT_CONFIGURED = "member_identity.not_configured"
+    MEMBER_IDENTITY_UNRESOLVED = "member_identity.unresolved"
 
     # Data execution
     QUERY_TIMEOUT = "query.timeout"

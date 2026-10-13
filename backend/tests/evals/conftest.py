@@ -24,6 +24,14 @@ from app.models.llm_model import LLM_MODEL_DETAILS
 CHINOOK_DB_PATH = (
     Path(__file__).resolve().parents[2] / "demo-datasources" / "chinook.sqlite"
 )
+# Extra demos a suite may name in ``data_source_slugs`` (the registry id and
+# its sqlite file). Installed next to chinook when the file is present so a
+# suite can bind to it by name; a missing file skips the install, and the
+# suite then fails on import with "Unknown data source slugs".
+EXTRA_DEMO_DBS = {
+    # docs/feedback-loops/sub-agents.md — the planted RCA incident
+    "checkout_ops": CHINOOK_DB_PATH.parent / "rca_incident.sqlite",
+}
 
 # ---------------------------------------------------------------------------
 # LLM matrix — derived from LLM_MODEL_DETAILS so we don't duplicate model
@@ -354,6 +362,9 @@ def eval_env(
         result = install_demo_data_source(
             demo_id="chinook", user_token=token, org_id=org_id,
         )
+        for demo_id, db_path in EXTRA_DEMO_DBS.items():
+            if db_path.exists():
+                install_demo_data_source(demo_id=demo_id, user_token=token, org_id=org_id)
         return {
             "token": token,
             "org_id": org_id,

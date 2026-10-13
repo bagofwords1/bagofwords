@@ -31,6 +31,12 @@ class Connection(BaseSchema):
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required
     allowed_user_auth_modes = Column(JSON, nullable=True, default=None)
+    # "member_mapped" per-user auth: {credential_field: member_attribute_key}.
+    # Each bound field takes the member's admin-set attribute at query time
+    # instead of the value saved on the connection (e.g. Qlik user_id ->
+    # qlik_user_id). Fields a type allows are flagged ui:memberBindable in its
+    # credentials schema. See services/member_identity.py.
+    member_bindings = Column(JSON, nullable=True, default=None)
 
     # Scheduled schema auto-reload (enterprise feature `scheduled_reindex`).
     # A background sweeper periodically re-indexes the shared catalog so tables
