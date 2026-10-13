@@ -4,6 +4,7 @@
 - Added read-only SharePoint 2010 connections using existing Windows authentication (#1368)
 - Added per-request opt-outs for follow-up questions and instruction suggestions in the completions API (#1365) — `follow_ups: false` and `suggest_instructions: false`
 - Added an "Open report" link to Diagnosis run rows for full admins (#1369)
+- Fixed "New report" from an agent page losing the agent and creating an Auto report (#1371)
 - Fixed Aria Operations alert definitions failing with 403 where POST queries are blocked (#1367)
 - Fixed Mermaid syntax errors leaving stray error graphics on the page (#1364)
 - Fixed agent search freezing the server on certain queries (#1323)
