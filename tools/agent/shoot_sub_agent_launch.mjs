@@ -32,7 +32,7 @@ await page.locator('text=/Wave 1/').first().waitFor({ state: 'visible', timeout:
 await page.waitForTimeout(2000);
 // Fold the symptom widget (its header toggles collapse) so the cards sit
 // right under the prompt; the Created Data tool row is collapsed by default.
-try { await page.locator('.widget-header').first().click({ timeout: 5000 }); await page.waitForTimeout(800); } catch (e) { log('widget collapse skipped:', e.message.split('\n')[0]); }
+try { await page.locator('.widget-header h3.widget-title').first().click({ timeout: 5000 }); await page.waitForTimeout(800); } catch (e) { log('widget collapse skipped:', e.message.split('\n')[0]); }
 await page.locator('text=' + PROMPT.slice(0, 40)).first().scrollIntoViewIfNeeded();
 await page.waitForTimeout(800);
 const cards = await page.locator('[data-testid^="delegate-card-"]').count();
