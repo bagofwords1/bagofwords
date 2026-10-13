@@ -319,9 +319,15 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     assert detail["steps_used"] >= 2
 
     # Timeline: children hidden, parent + fan-in strip + synthesis visible.
-    r = test_client.get(f"/api/reports/{rid}/completions", headers=headers)
-    assert r.status_code == 200
-    comps = r.json()["completions"]
+    # The wave is `done` the moment the fan-in turn fires; its reply is a
+    # separate agent turn that finishes a little later, so wait for it.
+    def _timeline_with_terminal_reply():
+        r = test_client.get(f"/api/reports/{rid}/completions", headers=headers)
+        assert r.status_code == 200
+        comps = r.json()["completions"]
+        replies = [c for c in comps if c["role"] == "system" and c.get("trigger_source") == "sub_agent_wave"]
+        return comps if replies and replies[0]["status"] != "in_progress" else None
+    comps = _wait_for(_timeline_with_terminal_reply, timeout_s=60, what="fan-in reply to finish")
     assert all((c.get("trigger_source") or "") != "sub_agent" for c in comps), [c.get("trigger_source") for c in comps]
     strips = [c for c in comps if c["role"] == "external" and c.get("trigger_source") == "sub_agent_wave"]
     assert len(strips) == 1, [(c["role"], c.get("trigger_source")) for c in comps]
