@@ -4556,6 +4556,7 @@
       "colFeedback": "Feedback",
       "expandRow": "Mostrar chamadas de ferramentas",
       "pivotReport": "Mostrar esta conversa",
+      "openReport": "Abrir relatório",
       "turnOf": "turno {n} de {m}",
       "nFailed": "{n} com falha",
       "feedbackPositive": "Positivo",
