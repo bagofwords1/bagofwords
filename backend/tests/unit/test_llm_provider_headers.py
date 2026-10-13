@@ -9,12 +9,19 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from urllib.parse import unquote
 
+import httpx
 import pytest
 from cryptography.fernet import Fernet
 
 from app.ai.llm.header_injection import (
+    AUTO_AGENT_NAME,
+    MAX_HEADER_VALUE_LEN,
+    QuestionAgents,
+    agent_name_for_report,
     build_provider_headers,
+    provider_uses_agent_name,
     reset_llm_identity,
     set_llm_identity,
     validate_header_config,
@@ -127,6 +134,243 @@ def test_invalid_header_names_dropped_at_build():
 def test_empty_config():
     assert build_provider_headers(None) == {}
     assert build_provider_headers({}) == {}
+
+
+# ---------------------------------------------------------------------------
+# agent.name
+# ---------------------------------------------------------------------------
+
+def _report(*names, report_type="regular"):
+    return SimpleNamespace(
+        report_type=report_type,
+        data_sources=[SimpleNamespace(name=n) for n in names],
+    )
+
+
+AGENT_CFG = {
+    "header_injection": [
+        {"header": "X-Agent", "source": "agent.name"},
+        {"header": "X-Agent-Tagged", "source": "static:bow/{agent.name}"},
+    ]
+}
+
+
+def _headers_for(agent_name: str) -> dict:
+    token = set_llm_identity(IdentityContext(email="a@b.com", agent_name=agent_name))
+    try:
+        return build_provider_headers(AGENT_CFG)
+    finally:
+        reset_llm_identity(token)
+
+
+@pytest.mark.parametrize("names", [("Sales",), ("Finance", "HR"), ("ops", "Billing", "crm")])
+def test_agent_name_lists_every_attached_agent(names):
+    value = agent_name_for_report(_report(*reversed(names)))
+    sent = value.split(", ")
+    assert sorted(sent) == sorted(names)
+    # Stable regardless of attach order, case-insensitively by name.
+    assert sent == sorted(names, key=str.casefold)
+    assert agent_name_for_report(_report(*names)) == value
+
+
+@pytest.mark.parametrize("report_type", ["regular", "scheduled"])
+def test_agent_name_is_auto_when_no_agent_is_attached(report_type):
+    assert agent_name_for_report(_report(report_type=report_type)) == AUTO_AGENT_NAME
+
+
+@pytest.mark.parametrize("report", [None, _report(report_type="artifact_chat")])
+def test_agent_name_is_empty_without_a_conversation_scope(report):
+    assert agent_name_for_report(report) == ""
+
+
+def test_agent_name_resolves_as_source_and_inside_static():
+    assert _headers_for("Finance, HR") == {
+        "X-Agent": "Finance, HR",
+        "X-Agent-Tagged": "bow/Finance, HR",
+    }
+
+
+def test_agent_header_omitted_when_no_agent_stamped():
+    headers = _headers_for("")
+    assert "X-Agent" not in headers
+
+
+def test_agent_header_reaches_the_llm_client():
+    token = set_llm_identity(IdentityContext(agent_name=agent_name_for_report(_report("Sales"))))
+    try:
+        model = make_model("custom", {"base_url": "http://localhost:9/v1", **AGENT_CFG})
+        headers = dict(LLM(model).client.client.default_headers)
+    finally:
+        reset_llm_identity(token)
+    assert headers["X-Agent"] == "Sales"
+
+
+# ---------------------------------------------------------------------------
+# agent.name within a question: follows the agents its tools fetch from
+# ---------------------------------------------------------------------------
+
+SALES = SimpleNamespace(id="ds-sales", name="מכירות")
+HR = SimpleNamespace(id="ds-hr", name="HR")
+FIN = SimpleNamespace(id="ds-fin", name="Finance")
+POOL = [SALES, HR, FIN]
+
+
+def _data_call(*agents):
+    return {
+        "tables_by_source": [
+            {"data_source_id": a.id, "tables": [{"name": "t"}]} for a in agents
+        ]
+    }
+
+
+@pytest.mark.parametrize("start", [AUTO_AGENT_NAME, "HR, מכירות", ""])
+def test_question_starts_at_the_chat_choice(start):
+    assert QuestionAgents(start).value() == start
+
+
+def test_question_value_accumulates_the_agents_its_tools_name():
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    assert q.add_tool("create_data", _data_call(SALES), POOL) is True
+    assert q.value() == "מכירות"
+    assert q.add_tool("create_data", _data_call(HR), POOL) is True
+    assert sorted(q.value().split(", ")) == sorted(["HR", "מכירות"])
+    # Using an agent again changes nothing.
+    assert q.add_tool("create_data", _data_call(SALES, HR), POOL) is False
+
+
+def test_one_call_naming_several_agents_counts_them_all():
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    q.add_tool("create_data", _data_call(FIN, HR), POOL)
+    assert sorted(q.value().split(", ")) == ["Finance", "HR"]
+
+
+def test_agents_found_while_a_tool_runs_count():
+    # File tools resolve their agent during execution (used_agent_ids).
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    assert q.add([HR.id], POOL) is True
+    assert q.value() == "HR"
+
+
+@pytest.mark.parametrize(
+    "tool, tool_input",
+    [
+        ("run_query", {"query_id": "q-1"}),  # a saved query names no agent
+        ("execute_mcp", {"connection_id": SALES.id, "tool_name": "x"}),
+        ("describe_tables", {"query": "orders", "data_source_ids": []}),  # = every agent
+        ("describe_tables", {"query": "orders"}),
+        # Same field, but attaching an eval to an agent is not using it.
+        ("create_eval", {"prompt": "p", "data_source_ids": [HR.id]}),
+        ("create_data", {"tables_by_source": [{"data_source_id": None, "tables": []}]}),
+        ("create_data", _data_call(SimpleNamespace(id="ds-unknown", name="Ghost"))),
+        ("create_data", None),
+    ],
+)
+@pytest.mark.parametrize("start", [AUTO_AGENT_NAME, "HR, מכירות"])
+def test_a_tool_that_names_no_known_agent_leaves_the_value(tool, tool_input, start):
+    q = QuestionAgents(start)
+    assert q.add_tool(tool, tool_input, POOL) is False
+    assert q.value() == start
+    q.add_tool("create_data", _data_call(FIN), POOL)
+    assert q.add_tool(tool, tool_input, POOL) is False
+    assert q.value() == "Finance"
+
+
+def _described(*agents):
+    return {"top_tables": [{"data_source_id": a.id, "name": "t"} for a in agents]}
+
+
+@pytest.mark.parametrize("tool_input", [{"query": ["orders_1", "orders_2"]}, {"query": "x", "data_source_ids": []}])
+def test_describe_tables_without_named_agents_counts_the_agents_it_found(tool_input):
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    assert q.add_tool("describe_tables", tool_input, POOL, _described(SALES, HR, SALES)) is True
+    assert sorted(q.value().split(", ")) == ["HR", "מכירות"]
+
+
+@pytest.mark.parametrize("tool_output", [None, {"top_tables": []}, {"error": "boom"}])
+def test_describe_tables_that_found_nothing_leaves_the_value(tool_output):
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    assert q.add_tool("describe_tables", {"query": ["x"]}, POOL, tool_output) is False
+    assert q.value() == AUTO_AGENT_NAME
+
+
+def test_only_describe_tables_output_is_read():
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    assert q.add_tool("search_agents", {"query": ["orders"]}, POOL, _described(SALES)) is False
+    assert q.value() == AUTO_AGENT_NAME
+
+
+def test_describe_tables_counts_the_agents_it_names():
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    assert q.add_tool("describe_tables", {"query": "orders", "data_source_ids": [SALES.id, HR.id]}, POOL) is True
+    assert sorted(q.value().split(", ")) == ["HR", "מכירות"]
+    during = q.value_during("describe_tables", {"query": "x", "data_source_ids": [FIN.id]}, POOL)
+    assert sorted(during.split(", ")) == ["Finance", "HR", "מכירות"]
+
+
+def test_value_during_a_tool_is_scoped_to_that_tool():
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    q.add_tool("create_data", _data_call(SALES), POOL)
+    # Two tools running in parallel each see the question's agents plus
+    # their own — never the sibling's.
+    during_hr = q.value_during("create_data", _data_call(HR), POOL)
+    during_fin = q.value_during("create_data", _data_call(FIN), POOL)
+    assert sorted(during_hr.split(", ")) == ["HR", "מכירות"]
+    assert sorted(during_fin.split(", ")) == ["Finance", "מכירות"]
+    assert q.value() == "מכירות"
+
+
+def test_value_during_a_tool_that_names_no_agent_is_the_question_value():
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    assert q.value_during("run_query", {"query_id": "q-1"}, POOL) == AUTO_AGENT_NAME
+
+
+def test_question_value_reaches_the_header():
+    q = QuestionAgents(AUTO_AGENT_NAME)
+    assert _headers_for(q.value())["X-Agent"] == AUTO_AGENT_NAME
+    q.add_tool("create_data", _data_call(HR), POOL)
+    assert _headers_for(q.value()) == {"X-Agent": "HR", "X-Agent-Tagged": "bow/HR"}
+
+
+@pytest.mark.parametrize(
+    "rules, expected",
+    [
+        ([{"header": "X-A", "source": "agent.name"}], True),
+        ([{"header": "X-A", "source": "static:bow/{agent.name}"}], True),
+        ([{"header": "X-U", "source": "user.email"}], False),
+        ([], False),
+        (None, False),
+    ],
+)
+def test_provider_uses_agent_name(rules, expected):
+    assert provider_uses_agent_name({"header_injection": rules}) is expected
+
+
+# ---------------------------------------------------------------------------
+# Non-ASCII values
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw", ["מכירות", "Ventas – España", "דוח %41 Q3", "財務"])
+def test_non_ascii_value_is_sendable_and_decodes_back(raw):
+    value = _headers_for(raw)["X-Agent"]
+    assert value.isascii()
+    assert unquote(value) == raw
+    # httpx (under every OpenAI-family / Anthropic client) must accept it.
+    httpx.Request("POST", "http://gateway/v1/chat/completions", headers={"X-Agent": value})
+
+
+def test_ascii_value_is_sent_unchanged():
+    assert _headers_for("Sales 50% (EU)")["X-Agent"] == "Sales 50% (EU)"
+
+
+def test_non_ascii_static_header_is_sendable():
+    value = build_provider_headers({"headers": {"X-Env": "ייצור"}})["X-Env"]
+    assert value.isascii() and unquote(value) == "ייצור"
+
+
+def test_long_non_ascii_value_is_capped_without_a_broken_escape():
+    value = _headers_for("א" * 2000)["X-Agent"]
+    assert len(value) <= MAX_HEADER_VALUE_LEN
+    assert set(unquote(value, errors="strict")) == {"א"}
 
 
 # ---------------------------------------------------------------------------

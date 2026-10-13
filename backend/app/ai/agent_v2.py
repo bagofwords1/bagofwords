@@ -395,7 +395,15 @@ from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution, get_usage_attribution
-from app.ai.llm.header_injection import set_llm_identity, reset_llm_identity
+from app.ai.llm.header_injection import (
+    QuestionAgents,
+    agent_ids_from_tool_input,
+    agent_name_for_report,
+    get_llm_identity,
+    provider_uses_agent_name,
+    reset_llm_identity,
+    set_llm_identity,
+)
 from app.services.mcp_context_injection import IdentityContext
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
@@ -535,18 +543,21 @@ class AgentV2:
         # rules resolve at client construction. Membership role/attributes need
         # a DB query, so main_execution enriches this stamp at run start; the
         # user-level fields cover the common rules (user.email/name/id) for
-        # clients built here in __init__.
+        # clients built here in __init__. agent.name comes from the report's
+        # attachments, already loaded with it, so it is complete here.
         try:
             _init_user = getattr(head_completion, "user", None) if head_completion else None
         except Exception:
             _init_user = None
+        _init_agent_name = agent_name_for_report(report)
         set_llm_identity(
             IdentityContext(
                 email=getattr(_init_user, "email", "") or "",
                 name=getattr(_init_user, "name", "") or "",
                 user_id=str(getattr(_init_user, "id", "") or ""),
+                agent_name=_init_agent_name,
             )
-            if _init_user is not None
+            if _init_user is not None or _init_agent_name
             else None
         )
         self.system_completion = system_completion
@@ -1300,6 +1311,63 @@ class AgentV2:
         "create_data", "inspect_data",
         "list_files", "search_files", "read_file", "grep_files",
     )
+
+    def _question_agent_pool(self) -> list:
+        """Agents a tool call may name: the run's working set plus the report's
+        attachments (set_report_agents can attach one mid-run)."""
+        pool = list(self.data_sources or [])
+        try:
+            if self.report is not None:
+                pool += list(getattr(self.report, "data_sources", None) or [])
+        except Exception:
+            pass
+        return pool
+
+    @staticmethod
+    def _stamp_agent_name(value: str):
+        """Set agent.name on the ambient LLM identity; returns the reset token."""
+        from dataclasses import replace as _dc_replace
+        current = get_llm_identity()
+        if current is None:
+            return set_llm_identity(IdentityContext(agent_name=value)) if value else None
+        return set_llm_identity(_dc_replace(current, agent_name=value))
+
+    def _note_question_agents(self, outcomes) -> None:
+        """Fold the agents a finished tool batch used into the question's
+        agent.name header value. Headers are fixed when an LLM client is built,
+        so on a change the LLM clients built earlier in the run are rebuilt."""
+        qa = getattr(self, "_question_agents", None)
+        if qa is None:
+            return
+        try:
+            pool = self._question_agent_pool()
+            changed = False
+            for o in outcomes or []:
+                if o.get("skipped"):
+                    continue
+                changed |= qa.add_tool(o.get("tool_name"), o.get("tool_input"), pool, o.get("tool_output"))
+            # File tools resolve their agent while running and record it here.
+            changed |= qa.add(sorted(self.used_agent_ids or ()), pool)
+            if not changed:
+                return
+            self._stamp_agent_name(qa.value())
+            from app.ai.llm.llm import LLM
+            # Clients built before this point: the planner's, and the
+            # reporter's, which writes the follow-up suggestions after the answer.
+            for owner, model in (
+                (self.planner, self.model),
+                (getattr(self, "reporter", None), getattr(self, "small_model", None)),
+            ):
+                _prov_cfg = getattr(getattr(model, "provider", None), "additional_config", None) or {}
+                if owner is not None and model is not None and provider_uses_agent_name(_prov_cfg):
+                    owner.llm = LLM(
+                        model,
+                        usage_session_maker=async_session_maker,
+                        usage_context=self.usage_limit_context,
+                    )
+            self._mlog(f"agent_name header={qa.value()!r}")
+        except Exception:
+            logger.warning("[headers] failed to update agent.name after tool batch", exc_info=True)
 
     async def _persist_focus_on_use(self, tool_name: str, tool_input, observation) -> None:
         """Commit the report's focus to the agent(s) a tool actually used —
@@ -4453,6 +4521,9 @@ class AgentV2:
         # the user object.
         _identity_token = None
         _id_user = getattr(self.head_completion, "user", None) if self.head_completion else None
+        _id_agent_name = agent_name_for_report(self.report)
+        if _id_user is None and _id_agent_name:
+            _identity_token = set_llm_identity(IdentityContext(agent_name=_id_agent_name))
         if _id_user is not None:
             _id_role, _id_attrs = "", {}
             try:
@@ -4474,6 +4545,7 @@ class AgentV2:
                 user_id=str(getattr(_id_user, "id", "") or ""),
                 role=_id_role,
                 attributes=_id_attrs,
+                agent_name=_id_agent_name,
             ))
             # The planner's LLM was constructed in __init__ under the
             # user-only identity stamp, so membership-based header rules
@@ -4498,6 +4570,12 @@ class AgentV2:
                     )
             except Exception:
                 logger.warning("[headers] failed to rebuild planner LLM with membership identity", exc_info=True)
+        # agent.name for this question: starts at the chat's choice and follows
+        # the agents its tools fetch data from (see QuestionAgents).
+        self._question_agents = QuestionAgents(_id_agent_name)
+        if _identity_token is None:
+            # Own a token so mid-run agent.name stamps unwind with the run.
+            _identity_token = set_llm_identity(get_llm_identity())
         try:
             import time as _time
             # Anchor the run clock that self._mlog() reports elapsed against.
@@ -6399,7 +6477,20 @@ class AgentV2:
                                     if tool_execution is not None:
                                         span.set_attribute("tool_execution.id", str(tool_execution.id))
                                     runtime_ctx["reasoning_callback"] = self._coder_reasoning_callback(_block_id_for_action)
-                                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                                    # A tool whose input names its agents (create_data …)
+                                    # makes its own LLM calls under them. Scoped to this
+                                    # call, so parallel siblings don't see each other's.
+                                    _qa = getattr(self, "_question_agents", None)
+                                    _agent_token = None
+                                    if _qa is not None and agent_ids_from_tool_input(tool_name, tool_input):
+                                        _agent_token = self._stamp_agent_name(
+                                            _qa.value_during(tool_name, tool_input, self._question_agent_pool())
+                                        )
+                                    try:
+                                        tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                                    finally:
+                                        if _agent_token is not None:
+                                            reset_llm_identity(_agent_token)
                                     span.set_attribute("tool.result_type", type(tool_result).__name__)
 
 
@@ -6916,6 +7007,7 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
+                            self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(
                                 observation,

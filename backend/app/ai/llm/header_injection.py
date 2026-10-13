@@ -12,7 +12,14 @@ Admins can configure two things on an LLM provider (stored in
 Sources use the same whitelisted grammar as MCP context forwarding
 (:mod:`app.services.mcp_context_injection`): ``user.email`` / ``user.name`` /
 ``user.id`` / ``membership.role`` / ``membership.attr:<key>`` /
-``static:<text>`` with ``{atom}`` interpolation.
+``static:<text>`` with ``{atom}`` interpolation. LLM headers also get
+``agent.name``: the agents the current question has fetched data from (see
+:class:`QuestionAgents`), or the conversation's chosen agents / ``auto``
+before it has fetched any.
+
+Header values must be ASCII on the wire (httpx encodes them as ASCII and
+raises otherwise), so a value with non-ASCII characters — a Hebrew agent or
+user name — is sent percent-encoded as UTF-8 instead of failing the LLM call.
 
 The user's identity is ambient: LLM calls happen deep in the agent/tool stack,
 so AgentV2 stamps an :class:`IdentityContext` contextvar at run start (next to
@@ -26,8 +33,10 @@ from __future__ import annotations
 
 import contextlib
 import re
+import string
 from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from app.services.mcp_context_injection import IdentityContext, resolve_source
 
@@ -37,6 +46,14 @@ _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
 MAX_HEADERS = 24
 MAX_HEADER_NAME_LEN = 128
 MAX_HEADER_VALUE_LEN = 4096
+
+# agent.name for a conversation with no agents pinned: Auto resolves its
+# agents per run, so there is no fixed name to send.
+AUTO_AGENT_NAME = "auto"
+
+# Printable ASCII stays readable when a value is percent-encoded; only "%"
+# itself is escaped so the encoded value decodes back unambiguously.
+_ASCII_SAFE = "".join(c for c in string.printable if c not in "%\t\n\r\x0b\x0c")
 
 _current_identity: ContextVar[Optional[IdentityContext]] = ContextVar(
     "llm_identity", default=None
@@ -69,7 +86,159 @@ def _clean_header_value(value: Any) -> Optional[str]:
     text = str(value).replace("\r", " ").replace("\n", " ").strip()
     if not text:
         return None
+    if not text.isascii():
+        # Encode per character so the length cap never splits a character's
+        # escapes, which would leave the value undecodable.
+        pieces, size = [], 0
+        for ch in text:
+            piece = quote(ch, safe=_ASCII_SAFE)
+            if size + len(piece) > MAX_HEADER_VALUE_LEN:
+                break
+            pieces.append(piece)
+            size += len(piece)
+        return "".join(pieces)
     return text[:MAX_HEADER_VALUE_LEN]
+
+
+def agent_name_for_report(report: Any) -> str:
+    """The ``agent.name`` value a question starts with, before any tool.
+
+    What the user chose in the chat: the report's attached agents, comma-joined
+    by name. A report with none attached is Auto (agents resolve per run) and
+    sends ``auto``. Empty — so the header is omitted — when there is no report,
+    or for an artifact chat with no agents, which is limited to the dashboard's
+    own data rather than Auto.
+    """
+    if report is None:
+        return ""
+    try:
+        attached = list(getattr(report, "data_sources", None) or [])
+    except Exception:
+        # Unloadable relationship: an unknown scope is not Auto.
+        return ""
+    names = _join_names(str(getattr(ds, "name", "") or "") for ds in attached)
+    if names:
+        return names
+    if attached or getattr(report, "report_type", "regular") == "artifact_chat":
+        return ""
+    return AUTO_AGENT_NAME
+
+
+def _join_names(names) -> str:
+    return ", ".join(sorted({n.strip() for n in names} - {""}, key=str.casefold))
+
+
+# Tools whose ``data_source_ids`` list names the agents they read about. The
+# same field on other tools (create_prompt, create_eval …) attaches something
+# to an agent rather than using it, so it is not read there.
+AGENT_LIST_TOOLS = frozenset({"describe_tables"})
+
+
+def agent_ids_from_tool_input(tool_name: str, tool_input: Any) -> List[str]:
+    """Agent ids a tool call's input names, so known before the tool runs.
+
+    Data tools (create_data, inspect_data, write_csv) name the agent of each
+    table in ``tables_by_source[].data_source_id``; describe_tables lists them
+    in ``data_source_ids`` (empty = every agent, so no specific one). File
+    tools resolve theirs while running and record it in the run's
+    ``used_agent_ids``. Tools that name no agent (saved queries, MCP) leave the
+    value unchanged.
+    """
+    if not isinstance(tool_input, dict):
+        return []
+    ids: List[str] = []
+    if tool_name in AGENT_LIST_TOOLS:
+        ids += [str(d) for d in tool_input.get("data_source_ids") or [] if d]
+    for entry in tool_input.get("tables_by_source") or []:
+        if isinstance(entry, dict):
+            did = entry.get("data_source_id")
+        else:
+            did = getattr(entry, "data_source_id", None)
+        if did and not str(did).startswith("builtin:"):
+            ids.append(str(did))
+    return ids
+
+
+def agent_ids_from_tool_output(tool_name: str, tool_output: Any) -> List[str]:
+    """Agent ids a finished tool reports working on.
+
+    describe_tables returns each matched table with its agent, which covers a
+    call that searched by table name without naming any agent."""
+    if tool_name not in AGENT_LIST_TOOLS:
+        return []
+    if isinstance(tool_output, dict):
+        tables = tool_output.get("top_tables")
+    else:
+        tables = getattr(tool_output, "top_tables", None)
+    ids: List[str] = []
+    for t in tables or []:
+        did = t.get("data_source_id") if isinstance(t, dict) else getattr(t, "data_source_id", None)
+        if did:
+            ids.append(str(did))
+    return ids
+
+
+def provider_uses_agent_name(additional_config: Optional[Dict[str, Any]]) -> bool:
+    """Whether any forwarding rule reads ``agent.name`` (alone or interpolated)."""
+    rules = (additional_config or {}).get("header_injection") or []
+    return any(
+        "agent.name" in str((r or {}).get("source", ""))
+        for r in rules
+        if isinstance(r, dict)
+    )
+
+
+class QuestionAgents:
+    """The ``agent.name`` value for one question (one agent run).
+
+    Starts at what the user chose in the chat (see agent_name_for_report).
+    Agents the question fetches data from accumulate: once any is known the
+    value is their names, comma-joined. A new question starts a new instance,
+    so nothing carries over from earlier questions in the conversation.
+
+    ``agents`` arguments are the agents the run can reach (id → name lookup);
+    an id outside them is ignored rather than sent as a raw id.
+    """
+
+    def __init__(self, start_value: str = "") -> None:
+        self.start_value = start_value
+        self._names: Dict[str, str] = {}
+
+    @staticmethod
+    def _named(ids, agents) -> Dict[str, str]:
+        by_id: Dict[str, str] = {}
+        try:
+            for ds in agents or []:
+                name = str(getattr(ds, "name", "") or "").strip()
+                if name:
+                    by_id[str(getattr(ds, "id", ""))] = name
+        except Exception:
+            pass
+        return {str(i): by_id[str(i)] for i in ids or [] if str(i) in by_id}
+
+    def value(self, extra: Optional[Dict[str, str]] = None) -> str:
+        names = {**self._names, **(extra or {})}
+        return _join_names(names.values()) if names else self.start_value
+
+    def value_during(self, tool_name: str, tool_input: Any, agents) -> str:
+        """The value while this tool runs: the question's agents plus its own.
+
+        Read-only, so tools running in parallel each see their own agents
+        rather than whichever sibling registered first."""
+        return self.value(self._named(agent_ids_from_tool_input(tool_name, tool_input), agents))
+
+    def add(self, ids, agents) -> bool:
+        """Record agents the question used; True when the value changed."""
+        before = self.value()
+        self._names.update(self._named(ids, agents))
+        return self.value() != before
+
+    def add_tool(self, tool_name: str, tool_input: Any, agents, tool_output: Any = None) -> bool:
+        """Record a finished tool call: the agents its input named plus those
+        its output reports (describe_tables)."""
+        ids = agent_ids_from_tool_input(tool_name, tool_input)
+        ids += agent_ids_from_tool_output(tool_name, tool_output)
+        return self.add(ids, agents)
 
 
 def validate_header_config(
