@@ -4462,6 +4462,9 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 					created_step_id: b.tool_execution.created_step_id,
 					created_widget: b.tool_execution.created_widget,
 					created_step: b.tool_execution.created_step,
+					// Real visualization rows (id, status, view): without them the card
+					// starts from a synthetic viz and refetches the query to find them.
+					created_visualizations: b.tool_execution.created_visualizations,
 					// Agents this call referenced, with their resolved icon_token —
 					// the data tools' source icon comes from here.
 					data_sources: b.tool_execution.data_sources
@@ -4721,6 +4724,9 @@ async function loadPreviousCompletions() {
                     created_step_id: b.tool_execution.created_step_id,
                     created_widget: b.tool_execution.created_widget,
                     created_step: b.tool_execution.created_step,
+                    // Real visualization rows (id, status, view): without them the card
+                    // starts from a synthetic viz and refetches the query to find them.
+                    created_visualizations: b.tool_execution.created_visualizations,
                     // Agents this call referenced, with their resolved icon_token —
                     // the data tools' source icon comes from here.
                     data_sources: b.tool_execution.data_sources

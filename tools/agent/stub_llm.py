@@ -23,6 +23,9 @@ Config env vars:
                      "table": "orders_1"}, ...]  (required)
   STUB_PHASES        comma list of "inspect","create" (default "inspect,create")
   STUB_PORT          default 9099
+  STUB_VIZ_TYPE      optional create_data visualization_type (e.g. bar_chart)
+  STUB_CODEGEN       "summary" (default: orders by region) or "rows" (one
+                     row per order — 50 rows, past the 20-row UI preview cap)
 
 Run:  uv run python ../tools/agent/stub_llm.py   (from backend/, for deps)
 """
@@ -39,6 +42,8 @@ app = FastAPI()
 
 SOURCES = json.loads(open(os.environ["STUB_SOURCES_FILE"]).read()) if os.environ.get("STUB_SOURCES_FILE") else []
 PHASES = [p.strip() for p in os.environ.get("STUB_PHASES", "inspect,create").split(",") if p.strip()]
+VIZ_TYPE = os.environ.get("STUB_VIZ_TYPE", "").strip()
+CODEGEN = os.environ.get("STUB_CODEGEN", "summary").strip()
 
 
 def _all_text(body: dict) -> str:
@@ -87,6 +92,7 @@ def _planner_tool_calls(text: str):
                         f"Aggregate {s['table']}: count of orders and total amount grouped by region."
                     ),
                     "tables_by_source": [{"data_source_id": s["id"], "tables": [s["table"]]}],
+                    **({"visualization_type": VIZ_TYPE} if VIZ_TYPE else {}),
                 },
             }
             for s in SOURCES
@@ -101,6 +107,13 @@ def _codegen_response(text: str) -> str:
     m = re.search(r"orders_(\d+)", text)
     idx = m.group(1) if m else "1"
     name = next((s["name"] for s in SOURCES if s["table"].endswith(f"_{idx}")), f"sqlite_source_{idx}")
+    if CODEGEN == "rows":
+        return (
+            "def generate_df(ds_clients, excel_files):\n"
+            f"    df = ds_clients['{name}'].execute_query('SELECT customer, amount FROM orders_{idx} ORDER BY id')\n"
+            "    print('rows:', len(df))\n"
+            "    return df\n"
+        )
     return (
         "def generate_df(ds_clients, excel_files):\n"
         f"    df = ds_clients['{name}'].execute_query('SELECT region, COUNT(*) AS orders_count, "
