@@ -2514,7 +2514,25 @@
       "linkCopied": "Ссылка-приглашение скопирована",
       "failedToCopyLink": "Не удалось скопировать ссылку",
       "linkRegenerated": "Ссылка-приглашение обновлена и скопирована",
-      "moreGroups": "групп"
+      "moreGroups": "групп",
+      "colAttributes": "Атрибуты",
+      "colAttributesHint": "Значения, заданные администратором, которые идентифицируют участника в других системах (например, qlik_user_id). Участники не могут их изменять.",
+      "editAttributes": "Изменить атрибуты",
+      "attributeAdd": "Добавить атрибут",
+      "attributeKey": "Имя атрибута",
+      "attributeValue": "Значение",
+      "attributeKeyPlaceholder": "имя, например qlik_user_id",
+      "attributeValuePlaceholder": "значение, например dana",
+      "attributeRemove": "Удалить атрибут",
+      "attributeKeyRequired": "Укажите имя",
+      "attributeKeyInvalid": "Только буквы, цифры, _ . -; начинается с буквы",
+      "attributeKeyDuplicate": "Повторяющееся имя",
+      "attributesTitle": "Атрибуты участника",
+      "attributesHint": "Значения, которые идентифицируют участника в других системах, например пользователь Qlik или табельный номер. Видеть и изменять их могут только администраторы.",
+      "attributesInviteHint": "Необязательно. Идентифицирует участника в других системах, например пользователя Qlik или роль базы данных.",
+      "attributesSaved": "Атрибуты сохранены",
+      "attributesSaveFailed": "Не удалось сохранить атрибуты",
+      "importAttributesHint": "Добавьте столбцы {column}, чтобы задать атрибуты, например {example}. Пустая ячейка оставляет атрибут без изменений."
     },
     "organizationName": "Название организации",
     "organizationIcon": "Иконка организации",
@@ -3871,7 +3889,8 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Ресурс недоступен",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Запрос прерван",
     "ARTIFACT_RESOURCE_ABORTED": "Запрос отменён",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Версия SDK не поддерживается"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Версия SDK не поддерживается",
+    "member_attributes.invalid": "Недопустимые атрибуты участника."
   },
   "email": {
     "dashboardShare": {

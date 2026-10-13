@@ -2514,7 +2514,25 @@
       "linkCopied": "Einladungslink kopiert",
       "failedToCopyLink": "Link konnte nicht kopiert werden",
       "linkRegenerated": "Einladungslink erneuert und kopiert",
-      "moreGroups": "Gruppen"
+      "moreGroups": "Gruppen",
+      "colAttributes": "Attribute",
+      "colAttributesHint": "Von Admins gesetzte Werte, die das Mitglied in anderen Systemen identifizieren (z. B. qlik_user_id). Mitglieder können sie nicht ändern.",
+      "editAttributes": "Attribute bearbeiten",
+      "attributeAdd": "Attribut hinzufügen",
+      "attributeKey": "Attributname",
+      "attributeValue": "Wert",
+      "attributeKeyPlaceholder": "Name, z. B. qlik_user_id",
+      "attributeValuePlaceholder": "Wert, z. B. dana",
+      "attributeRemove": "Attribut entfernen",
+      "attributeKeyRequired": "Name ist erforderlich",
+      "attributeKeyInvalid": "Nur Buchstaben, Ziffern, _ . -; beginnt mit einem Buchstaben",
+      "attributeKeyDuplicate": "Doppelter Name",
+      "attributesTitle": "Mitgliedsattribute",
+      "attributesHint": "Werte, die das Mitglied in anderen Systemen identifizieren, z. B. seinen Qlik-Benutzer oder seine Personalnummer. Nur Admins können sie sehen oder ändern.",
+      "attributesInviteHint": "Optional. Identifiziert das Mitglied in anderen Systemen, z. B. seinen Qlik-Benutzer oder seine Datenbankrolle.",
+      "attributesSaved": "Attribute gespeichert",
+      "attributesSaveFailed": "Attribute konnten nicht gespeichert werden",
+      "importAttributesHint": "Fügen Sie {column}-Spalten hinzu, um Attribute zu setzen, z. B. {example}. Eine leere Zelle lässt das Attribut unverändert."
     },
     "organizationName": "Organisationsname",
     "organizationIcon": "Organisationssymbol",
@@ -3871,7 +3889,8 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource nicht verfügbar",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Anfrage unterbrochen",
     "ARTIFACT_RESOURCE_ABORTED": "Anfrage abgebrochen",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Nicht unterstützte SDK-Version"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Nicht unterstützte SDK-Version",
+    "member_attributes.invalid": "Ungültige Mitgliedsattribute."
   },
   "email": {
     "dashboardShare": {

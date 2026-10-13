@@ -2514,7 +2514,25 @@
       "linkCopied": "Lien d'invitation copié",
       "failedToCopyLink": "Impossible de copier le lien",
       "linkRegenerated": "Lien d'invitation actualisé et copié",
-      "moreGroups": "groupes"
+      "moreGroups": "groupes",
+      "colAttributes": "Attributs",
+      "colAttributesHint": "Valeurs définies par un administrateur qui identifient le membre dans d'autres systèmes (ex. qlik_user_id). Les membres ne peuvent pas les modifier.",
+      "editAttributes": "Modifier les attributs",
+      "attributeAdd": "Ajouter un attribut",
+      "attributeKey": "Nom de l'attribut",
+      "attributeValue": "Valeur",
+      "attributeKeyPlaceholder": "nom, ex. qlik_user_id",
+      "attributeValuePlaceholder": "valeur, ex. dana",
+      "attributeRemove": "Supprimer l'attribut",
+      "attributeKeyRequired": "Le nom est obligatoire",
+      "attributeKeyInvalid": "Lettres, chiffres, _ . - uniquement ; commence par une lettre",
+      "attributeKeyDuplicate": "Nom en double",
+      "attributesTitle": "Attributs du membre",
+      "attributesHint": "Valeurs qui identifient ce membre dans d'autres systèmes, ex. son utilisateur Qlik ou son matricule. Seuls les administrateurs peuvent les voir ou les modifier.",
+      "attributesInviteHint": "Facultatif. Identifie ce membre dans d'autres systèmes, ex. son utilisateur Qlik ou son rôle de base de données.",
+      "attributesSaved": "Attributs enregistrés",
+      "attributesSaveFailed": "Échec de l'enregistrement des attributs",
+      "importAttributesHint": "Ajoutez des colonnes {column} pour définir des attributs, ex. {example}. Une cellule vide laisse l'attribut inchangé."
     },
     "organizationName": "Nom de l'organisation",
     "organizationIcon": "Icône de l'organisation",
@@ -3871,7 +3889,8 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource indisponible",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Requête interrompue",
     "ARTIFACT_RESOURCE_ABORTED": "Requête annulée",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge",
+    "member_attributes.invalid": "Attributs de membre non valides."
   },
   "email": {
     "dashboardShare": {

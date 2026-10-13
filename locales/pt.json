@@ -2514,7 +2514,25 @@
       "linkCopied": "Link de convite copiado",
       "failedToCopyLink": "Não foi possível copiar o link",
       "linkRegenerated": "Link de convite atualizado e copiado",
-      "moreGroups": "grupos"
+      "moreGroups": "grupos",
+      "colAttributes": "Atributos",
+      "colAttributesHint": "Valores definidos por um administrador que identificam o membro em outros sistemas (ex.: qlik_user_id). Os membros não podem editá-los.",
+      "editAttributes": "Editar atributos",
+      "attributeAdd": "Adicionar atributo",
+      "attributeKey": "Nome do atributo",
+      "attributeValue": "Valor",
+      "attributeKeyPlaceholder": "nome, ex.: qlik_user_id",
+      "attributeValuePlaceholder": "valor, ex.: dana",
+      "attributeRemove": "Remover atributo",
+      "attributeKeyRequired": "O nome é obrigatório",
+      "attributeKeyInvalid": "Apenas letras, dígitos, _ . -; começa com uma letra",
+      "attributeKeyDuplicate": "Nome duplicado",
+      "attributesTitle": "Atributos do membro",
+      "attributesHint": "Valores que identificam este membro em outros sistemas, ex.: seu usuário do Qlik ou matrícula. Apenas administradores podem vê-los ou alterá-los.",
+      "attributesInviteHint": "Opcional. Identifica este membro em outros sistemas, ex.: seu usuário do Qlik ou papel no banco de dados.",
+      "attributesSaved": "Atributos salvos",
+      "attributesSaveFailed": "Falha ao salvar os atributos",
+      "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado."
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",
@@ -3871,7 +3889,8 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso indisponível",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitação interrompida",
     "ARTIFACT_RESOURCE_ABORTED": "Solicitação cancelada",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível",
+    "member_attributes.invalid": "Atributos de membro inválidos."
   },
   "email": {
     "dashboardShare": {

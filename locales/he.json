@@ -2636,7 +2636,25 @@
       "copyLink": "העתקת קישור",
       "linkCopied": "קישור ההזמנה הועתק",
       "failedToCopyLink": "לא ניתן להעתיק את הקישור",
-      "linkRegenerated": "קישור ההזמנה רוענן והועתק"
+      "linkRegenerated": "קישור ההזמנה רוענן והועתק",
+      "colAttributes": "מאפיינים",
+      "colAttributesHint": "ערכים שמנהל מגדיר ומזהים את החבר במערכות אחרות (למשל qlik_user_id). חברים לא יכולים לערוך אותם.",
+      "editAttributes": "עריכת מאפיינים",
+      "attributeAdd": "הוספת מאפיין",
+      "attributeKey": "שם המאפיין",
+      "attributeValue": "ערך",
+      "attributeKeyPlaceholder": "שם, למשל qlik_user_id",
+      "attributeValuePlaceholder": "ערך, למשל dana",
+      "attributeRemove": "הסרת מאפיין",
+      "attributeKeyRequired": "חובה להזין שם",
+      "attributeKeyInvalid": "אותיות, ספרות ו-_ . - בלבד; חייב להתחיל באות",
+      "attributeKeyDuplicate": "שם כפול",
+      "attributesTitle": "מאפייני חבר",
+      "attributesHint": "ערכים שמזהים את החבר במערכות אחרות, למשל משתמש ה-Qlik או מספר העובד שלו. רק מנהלים יכולים לראות או לשנות אותם.",
+      "attributesInviteHint": "אופציונלי. מזהה את החבר במערכות אחרות, למשל משתמש ה-Qlik או תפקיד מסד הנתונים שלו.",
+      "attributesSaved": "המאפיינים נשמרו",
+      "attributesSaveFailed": "שמירת המאפיינים נכשלה",
+      "importAttributesHint": "הוסיפו עמודות {column} כדי להגדיר מאפיינים, למשל {example}. תא ריק משאיר את המאפיין ללא שינוי."
     },
     "organizationName": "שם הארגון",
     "organizationIcon": "אייקון הארגון",
@@ -3991,7 +4009,8 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "המשאב אינו זמין",
     "ARTIFACT_RESOURCE_INTERRUPTED": "הבקשה נקטעה",
     "ARTIFACT_RESOURCE_ABORTED": "הבקשה בוטלה",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "גרסת SDK אינה נתמכת"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "גרסת SDK אינה נתמכת",
+    "member_attributes.invalid": "מאפייני חבר לא תקינים."
   },
   "email": {
     "dashboardShare": {
