@@ -1,4 +1,4 @@
-# Enterprise features for Bag of Words
+# Enterprise features for BOW
 # Licensed under the BOW Enterprise License
 # See backend/app/ee/LICENSE for details
 

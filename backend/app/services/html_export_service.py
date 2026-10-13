@@ -63,7 +63,7 @@ _HTML_SHELL = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title}</title>
-<meta name="generator" content="Bag of Words — standalone dashboard export">
+<meta name="generator" content="BOW — standalone dashboard export">
 {vendor_scripts}
 <style>
   html, body, #root {{ height: 100%; margin: 0; padding: 0; }}

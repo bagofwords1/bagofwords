@@ -721,11 +721,11 @@ class UserManager(BaseUserManager[User, str]):
         base_url = settings.bow_config.base_url
         reset_url = f"{base_url}/users/reset-password?token={token}"
         body = (
-            f"Hello {user.name},<br /><br />You have requested to reset your password for Bag of words. "
+            f"Hello {user.name},<br /><br />You have requested to reset your password for BOW. "
             f"Click the link below to reset your password:<br /><br /> "
             f"<a href='{reset_url}'>{reset_url}</a><br /><br />"
             f"If you didn't request this, please ignore this email.<br /><br />"
-            f"Best regards,<br />Bag of words team"
+            f"Best regards,<br />BOW team"
         )
         await self._send_account_email(user, "Reset your password", body, "reset password")
 
@@ -738,7 +738,7 @@ class UserManager(BaseUserManager[User, str]):
         base_url = settings.bow_config.base_url
         verification_url = f"{base_url}/users/verify?token={token}"
         body = (
-            "Welcome to Bag of words! You are almost ready to start using our platform. "
+            "Welcome to BOW! You are almost ready to start using our platform. "
             f"Click to verify your email: <br /> {verification_url}"
         )
         await self._send_account_email(user, "Verify your email", body, "verification")

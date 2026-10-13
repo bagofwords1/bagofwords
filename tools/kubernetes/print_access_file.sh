@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints the Bag of Words cluster access file for the bagofwords-reader service account.
+# Prints the BOW cluster access file for the bagofwords-reader service account.
 set -euo pipefail
 NS="${BOW_NAMESPACE:-bagofwords}"; SECRET="${BOW_SECRET:-bagofwords-reader-token}"
 TOKEN=""

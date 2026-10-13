@@ -107,7 +107,7 @@ class EmailConfig(BaseModel):
 
     # --- Outbound / mailbox identity ---
     from_address: Optional[str] = None  # the mailbox; defaults to smtp_username
-    from_name: Optional[str] = "Bag of words Analyst"
+    from_name: Optional[str] = "BOW Analyst"
     smtp_host: Optional[str] = None  # required for password; defaulted for OAuth
     smtp_port: Optional[int] = None
     smtp_username: Optional[str] = None

@@ -62,7 +62,7 @@ class EmailAdapter(PlatformAdapter):
         )
 
     def _from_name(self) -> Optional[str]:
-        return (self.config or {}).get("from_name") or "Bag of words Analyst"
+        return (self.config or {}).get("from_name") or "BOW Analyst"
 
     def _smtp_config(self) -> SmtpConfig:
         return SmtpConfig.from_credentials(self.credentials, self.config)
@@ -350,10 +350,10 @@ class EmailAdapter(PlatformAdapter):
         verification_url = f"{base_url}/settings/integrations/verify/{token}"
         body = (
             "Account Verification Required\n\n"
-            "You emailed the Bag of words analyst. To start using it, confirm "
-            "your account by opening this link while signed in to Bag of words:\n\n"
+            "You emailed the BOW analyst. To start using it, confirm "
+            "your account by opening this link while signed in to BOW:\n\n"
             f"{verification_url}\n\n"
             "If you weren't expecting this, you can ignore this email."
         )
-        msg_id = await self._send(channel_id, body, subject="Verify your Bag of words account")
+        msg_id = await self._send(channel_id, body, subject="Verify your BOW account")
         return msg_id is not None

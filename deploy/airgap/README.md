@@ -1,6 +1,6 @@
-# Bag of Words air-gap deployment
+# BOW air-gap deployment
 
-This bundle contains the Bag of Words, PostgreSQL, and Caddy container images
+This bundle contains the BOW, PostgreSQL, and Caddy container images
 for one CPU architecture. The host needs Docker Engine with Docker Compose v2;
 it does not need registry or package-manager access.
 
@@ -51,7 +51,7 @@ accept Docker archives can inspect `images.tar` directly.
 ## Source code
 
 Each release folder also contains `bagofwords-source-<version>.tar.gz`, the
-tracked source tree of the commit the Bag of Words image was built from. It is
+tracked source tree of the commit the BOW image was built from. It is
 the same for every CPU architecture. The commit hash is in `SOURCE_COMMIT` at
 the top of the extracted folder.
 

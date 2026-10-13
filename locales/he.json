@@ -2270,7 +2270,7 @@
       "integrate": "שלב",
       "setup": "הגדרה",
       "excelAddinName": "תוסף Excel",
-      "excelAddinDescription": "טען את תוסף Bag of Words ישירות מהמופע הזה",
+      "excelAddinDescription": "טען את תוסף BOW ישירות מהמופע הזה",
       "mcpName": "שרת MCP של BOW",
       "mcpDescription": "הפעל נקודת קצה של MCP לאינטגרציה עם עוזרי בינה מלאכותית כמו Cursor, Claude ועוד",
       "channels": {
@@ -2541,9 +2541,9 @@
           "trustedConnecting": "מתחבר לאפליקציה המהימנה שלך…",
           "authorizationLoading": "בודק את בקשת האישור…",
           "authorizationError": "לא ניתן לאשר",
-          "goBack": "חזרה ל-Bag of Words",
+          "goBack": "חזרה ל-BOW",
           "authorizationTitle": "אישור גישה",
-          "wantsAccess": "האפליקציה {name} מבקשת גישה לחשבון Bag of Words שלך.",
+          "wantsAccess": "האפליקציה {name} מבקשת גישה לחשבון BOW שלך.",
           "permissionsRequested": "הרשאות מבוקשות",
           "appPermission": "יצירה וקריאה של דוחות, הרצת השלמות ושימוש בארטיפקטים בהתאם להרשאות BOW הקיימות שלך.",
           "mcpPermission": "שימוש בכלי MCP בהתאם להרשאות BOW הקיימות שלך.",
@@ -2568,7 +2568,7 @@
         },
         "excel": {
           "title": "תוסף Excel",
-          "subtitle": "טען את התוסף של Bag of Words ישירות מהמופע הזה.",
+          "subtitle": "טען את התוסף של BOW ישירות מהמופע הזה.",
           "loading": "טוען...",
           "setup": "הגדרה",
           "step1": "הורד את קובץ ה-manifest למטה",
@@ -2618,7 +2618,7 @@
           "title": "אינטגרציה עם Google Chat"
         }
       },
-      "emptyTitle": "גרום ל-Bag of Words לעבוד עם הכלים שלך",
+      "emptyTitle": "גרום ל-BOW לעבוד עם הכלים שלך",
       "emptySubtitle": "חבר את Slack, Teams, אימייל ועוד כדי שהצוות שלך יוכל להגיע לאנליסט ה-AI במקום שבו הוא כבר עובד. בחר אינטגרציה כדי להתחיל.",
       "selectHint": "בחר אינטגרציה",
       "slackDescription": "אפשר לצוות שלך לשוחח עם אנליסט ה-AI מערוצי Slack והודעות פרטיות.",
@@ -2715,7 +2715,7 @@
     "uploadIcon": "העלאת אייקון",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "שם האנליסט",
-    "showCredit": "הצגת קרדיט \"Made with Bag of words\"",
+    "showCredit": "הצגת קרדיט \"Made with BOW\"",
     "workspacePlaceholder": "שם סביבת העבודה",
     "changeIcon": "שינוי סמל",
     "uploadIconButton": "העלאת סמל",
@@ -3948,7 +3948,7 @@
         },
         {
           "title": "הדפסת קובץ הגישה",
-          "body": "שמרו כ-print_access_file.sh והריצו. הסקריפט ממתין לטוקן ומדפיס קובץ אחד עצמאי (כתובת שרת ה-API, ‏CA של האשכול, טוקן). אמתו עם: kubectl --kubeconfig access.yaml get nodes. אם כתובת השרת פרטית לרשת שלכם, ערכו אותה לכתובת שמופע Bag of Words הזה יכול להגיע אליה."
+          "body": "שמרו כ-print_access_file.sh והריצו. הסקריפט ממתין לטוקן ומדפיס קובץ אחד עצמאי (כתובת שרת ה-API, ‏CA של האשכול, טוקן). אמתו עם: kubectl --kubeconfig access.yaml get nodes. אם כתובת השרת פרטית לרשת שלכם, ערכו אותה לכתובת שמופע BOW הזה יכול להגיע אליה."
         },
         {
           "title": "הדביקו למטה ובדקו את החיבור",
@@ -4516,7 +4516,7 @@
   "onboarding": {
     "loading": "טוען...",
     "skip": "דלג על ההדרכה",
-    "welcome": "ברוכים הבאים ל־Bag of words! 🎉",
+    "welcome": "ברוכים הבאים ל־BOW! 🎉",
     "welcomeSubtitle": "שוחחו עם הנתונים, הריצו ניתוחים מעמיקים ובנו דשבורדים בשניות",
     "next": "הבא",
     "fallbackTitle": "להתחיל",
@@ -4526,7 +4526,7 @@
     "intro1": "זה פשוט: חברו את המודל ואת מקור הנתונים, ותוכלו לשאול את השאלה הראשונה.",
     "intro2": "👉 בואו נתחיל להגדיר!",
     "steps": {
-      "onboardingTitle": "ברוכים הבאים ל־Bag of words! 🎉",
+      "onboardingTitle": "ברוכים הבאים ל־BOW! 🎉",
       "onboardingDescription": "שוחחו עם הנתונים, הריצו ניתוחים מעמיקים ובנו דשבורדים בשניות",
       "onboardingButton": "ברוכים הבאים",
       "llmTitle": "הגדרת LLM",
@@ -5135,8 +5135,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "שרת MCP של Bag of words",
-    "subtitle": "חבר את Claude, Cursor או כל לקוח MCP כדי לתשאל את הנתונים שלך דרך שרת ה-MCP של Bag of words.",
+    "title": "שרת MCP של BOW",
+    "subtitle": "חבר את Claude, Cursor או כל לקוח MCP כדי לתשאל את הנתונים שלך דרך שרת ה-MCP של BOW.",
     "loading": "טוען...",
     "tabMcpClients": "לקוחות MCP",
     "tabOauth": "OAuth",

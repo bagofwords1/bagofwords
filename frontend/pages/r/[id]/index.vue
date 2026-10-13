@@ -145,13 +145,13 @@
             </div>
         </div>
 
-        <!-- Made with Bag of words badge -->
+        <!-- Made with BOW badge -->
         <a v-if="report.general?.bow_credit !== false"
            href="https://bagofwords.com"
            target="_blank"
            :style="{ bottom: `${20 + cornerLift}px` }"
            class="fixed z-[1000] end-5 block bg-black text-gray-200 font-light px-2 py-1 rounded-md text-xs hover:bg-gray-800 transition-colors">
-            Made with <span class="font-bold text-white">Bag of words</span>
+            Made with <span class="font-bold text-white">BOW</span>
         </a>
 
         <!-- Main Content Area -->

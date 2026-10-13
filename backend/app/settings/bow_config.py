@@ -267,7 +267,7 @@ class SMTPSettings(BaseModel):
     port: int = 587
     username: Optional[str] = None
     password: Optional[str] = None
-    from_name: str = "Bag of words"
+    from_name: str = "BOW"
     from_email: str = "hi@bagofwords.com"
     use_tls: bool = True
     use_ssl: bool = False

@@ -245,7 +245,7 @@ class AuditStreamService:
             "actor": {"type": "user", "id": str(user.id), "email": getattr(user, "email", None)},
             "targets": [{"type": "audit_log_stream", "id": data.stream_id}],
             "context": {"ip_address": None, "user_agent": None},
-            "metadata": {"test": True, "message": "Bag of Words audit log stream test event"},
+            "metadata": {"test": True, "message": "BOW audit log stream test event"},
         }
         dest = build_destination(data.destination, config, secrets)
         try:

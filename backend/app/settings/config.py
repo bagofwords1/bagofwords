@@ -6,7 +6,7 @@ from fastapi_mail import FastMail, ConnectionConfig
 from .bow_config import BowConfig
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Bag of words"
+    PROJECT_NAME: str = "BOW"
     PROJECT_VERSION: str = open("../VERSION").read().strip()
     API_PREFIX: str = "/api"
     DEBUG: bool = True

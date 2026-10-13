@@ -1,6 +1,6 @@
 # SQL Server: Kerberos authentication & per-user SSO (constrained delegation)
 
-Bag of Words supports two Kerberos auth shapes for on-prem Microsoft SQL Server,
+BOW supports two Kerberos auth shapes for on-prem Microsoft SQL Server,
 on top of the default SQL username/password login:
 
 For a runnable local proof with a Samba AD/KDC, SQL Server 2022, real
@@ -24,7 +24,7 @@ unregistered CNAME.
 
 ## Phase A — service-account Kerberos (keytab)
 
-All queries authenticate as one AD service account. Bag of Words still enforces
+All queries authenticate as one AD service account. BOW still enforces
 its own RBAC and read-only SQL guard; SQL Server sees a single login.
 
 ### Active Directory / DBA prerequisites
@@ -107,7 +107,7 @@ which requires only the user's UPN) and constrained delegation (S4U2Proxy —
 exchange it for a ticket to the SQL Server SPN). SQL-side permissions, row-level
 security, and auditing all apply per user.
 
-The user's UPN is taken from their Bag of Words login identity (Entra ID /
+The user's UPN is taken from their BOW login identity (Entra ID /
 OIDC `preferred_username`/`upn`, LDAP, or local email). If a user's email is not
 their AD UPN, they can save an explicit principal under the data source's
 user credentials ("Kerberos SSO" mode).

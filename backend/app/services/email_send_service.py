@@ -365,8 +365,8 @@ class EmailSendService:
             base = ""
         url = f"{base}/reports/{rid}"
         hint = (
-            "Reply to this email to continue the conversation, or open it in Bag of words:"
-            if can_reply else "Open this in Bag of words:"
+            "Reply to this email to continue the conversation, or open it in BOW:"
+            if can_reply else "Open this in BOW:"
         )
         if subtype == "html":
             return (
