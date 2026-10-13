@@ -2889,8 +2889,11 @@ class AgentV2:
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
-        all carry a non-null platform and are excluded."""
+        all carry a non-null platform and are excluded. The caller can also
+        decline them per request with prompt.follow_ups=false."""
         if self.platform is not None or getattr(self, "_is_sub_agent", False):
+            return False
+        if self._prompt_opted_out("follow_ups"):
             return False
         if not self.organization_settings:
             return False
@@ -2908,6 +2911,12 @@ class AgentV2:
         if used_tools:
             return False
         return len(self._follow_ups_user_message().split()) <= 3
+
+    def _prompt_opted_out(self, key: str) -> bool:
+        """The request set prompt.<key> to false (see PromptSchema opt-outs).
+        Only an explicit False counts: absent/None/True defer to org settings."""
+        prompt = getattr(self.head_completion, "prompt", None)
+        return isinstance(prompt, dict) and prompt.get(key) is False
 
     def _follow_ups_user_message(self) -> str:
         prompt = getattr(self.head_completion, "prompt", None)
@@ -7140,11 +7149,12 @@ class AgentV2:
                 # Normal mode: Run knowledge harness sub-loop if triggers fired.
                 # Harness creates/edits instructions and submits them as a draft AI build for review.
                 # Skipped when the turn ended in an error — a failed completion
-                # must not spawn further LLM work or extra blocks.
+                # must not spawn further LLM work or extra blocks — and when the
+                # request declined it (prompt.suggest_instructions=false).
                 try:
                     res = (
                         {"decision": False}
-                        if completion_errored
+                        if completion_errored or self._prompt_opted_out("suggest_instructions")
                         else await self._should_suggest_instructions(prev_tool_name_before_last_user)
                     )
                     if res.get("decision", False):

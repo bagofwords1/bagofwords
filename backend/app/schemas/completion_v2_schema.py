@@ -85,6 +85,11 @@ class PromptSchema(BaseModel):
     # Set only on the hidden head completion of a sub-agent (mode='subagent'):
     # the sub_agents row this child run reports to. See app.models.sub_agent.
     sub_agent_id: Optional[str] = None
+    # Per-request opt-outs for end-of-turn extras an API caller may not render.
+    # They can only turn things off: False skips it for this turn; None/True
+    # leaves the org setting in charge (never turns on what the org disabled).
+    follow_ups: Optional[bool] = None  # suggested next questions (completion.follow_ups)
+    suggest_instructions: Optional[bool] = None  # knowledge harness (draft instruction suggestions)
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod
