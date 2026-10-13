@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.588 (October 13, 2026)
+- Added read-only SharePoint 2010 connections using existing Windows authentication (#1368)
+- Added per-request opt-outs for follow-up questions and instruction suggestions in the completions API (#1365) — `follow_ups: false` and `suggest_instructions: false`
+- Added an "Open report" link to Diagnosis run rows for full admins (#1369)
+- Fixed Aria Operations alert definitions failing with 403 where POST queries are blocked (#1367)
+- Fixed Mermaid syntax errors leaving stray error graphics on the page (#1364)
+- Fixed agent search freezing the server on certain queries (#1323)
+
 ## Version 0.0.587 (October 13, 2026)
 - Added sub-agents: the agent delegates independent sub-questions (one hypothesis each in a root-cause analysis) to bounded background runs that report back in one fan-in turn (#1362) — controlled by the `enable_sub_agents` org setting and its `sub_agent_*` limits
 - Added delegate cards with live progress, a background-tasks indicator with per-run stop, a Sub-agents section in the report Summary, and a Checkout Ops demo dataset for root-cause analysis (#1362)
