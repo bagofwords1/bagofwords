@@ -37,6 +37,13 @@ def test_invalid_input_is_a_typed_400(raw):
     assert exc.value.error_code == "member_attributes.invalid"
 
 
+def test_a_bad_key_is_named_in_the_error_params():
+    """The client renders params by name; they must not arrive nested."""
+    with pytest.raises(AppError) as exc:
+        normalize_custom_attributes({"has space": "x"})
+    assert exc.value.params == {"key": "has space"}
+
+
 def test_admin_values_win_over_idp_synced_values():
     membership = SimpleNamespace(
         profile_attributes={"department": "Sales", "employeeId": "synced"},
