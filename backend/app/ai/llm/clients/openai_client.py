@@ -8,7 +8,9 @@ import uuid
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
 import httpx
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, OpenAI
+
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import (
@@ -43,6 +45,7 @@ class OpenAi(LLMClient):
         verify_ssl: bool = True,
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, str]] = None,
+        identity_headers: Optional[IdentityHeaders] = None,
         auth: Optional[httpx.Auth] = None,
         timeout: Optional[httpx.Timeout] = None,
         prompt_cache_markers: bool = False,
@@ -78,18 +81,27 @@ class OpenAi(LLMClient):
         if timeout is not None:
             http_kwargs["timeout"] = timeout
 
+        # Identity-forwarding headers resolve per request (they can change
+        # mid-run); a hook on the SDK's own default client keeps its defaults.
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+
         kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             kwargs["default_headers"] = default_headers
         if http_kwargs:
-            kwargs["http_client"] = httpx.Client(**http_kwargs)
+            kwargs["http_client"] = httpx.Client(**http_kwargs, **({"event_hooks": sync_hooks} if sync_hooks else {}))
+        elif sync_hooks:
+            kwargs["http_client"] = DefaultHttpxClient(event_hooks=sync_hooks)
         self.client = OpenAI(**kwargs)
 
         async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             async_kwargs["default_headers"] = default_headers
         if http_kwargs:
-            async_kwargs["http_client"] = httpx.AsyncClient(**http_kwargs)
+            async_kwargs["http_client"] = httpx.AsyncClient(**http_kwargs, **({"event_hooks": async_hooks} if async_hooks else {}))
+        elif async_hooks:
+            async_kwargs["http_client"] = DefaultAsyncHttpxClient(event_hooks=async_hooks)
         self.async_client = AsyncOpenAI(**async_kwargs)
 
     @staticmethod
