@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.590 (October 14, 2026)
+- Bug fixes and security hardening (#1304)
+
 ## Version 0.0.589 (October 14, 2026)
 - Fixed missing custom document libraries in on-prem SharePoint connections (#1380)
 
@@ -30,7 +33,6 @@
 - Fixed Run evals including draft and archived cases and following the Tests search (#1352)
 - Fixed untranslated Accept/Reject buttons and statuses on training-mode review cards (#1346)
 - Fixed Reload not refreshing the schema of shared connections (#1358)
-- Bug fixes and security hardening (#1304)
 
 ## Version 0.0.586 (October 10, 2026)
 - Bug fixes and UI improvements (#1291)
