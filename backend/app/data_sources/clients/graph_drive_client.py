@@ -20,14 +20,16 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 from app.data_sources.clients._document_text import (
     DOC_EXTS,
     doc_text_is_usable,
@@ -1535,12 +1537,73 @@ class GraphDriveClient(DataSourceClient):
         raise ValueError("Provide table_name or query (file_id) to read a file")
 
 
-class SharepointClient(GraphDriveClient):
+class SharepointClient(SharepointBoundedListing, GraphDriveClient):
     """SharePoint data source — alias with mode preset."""
 
     def __init__(self, **kwargs):
         kwargs["mode"] = "sharepoint"
         super().__init__(**kwargs)
+
+    def _iter_listing_files(self, folder_id, recursive, page_size):
+        """Interactive pages only; the shared Graph/OneDrive indexing walk is unchanged."""
+        drives = self._resolve_drives()
+        selected_drive, selected_item = self._split_item_id(folder_id or '')
+        if selected_drive and selected_drive not in {did for did, _ in drives}:
+            raise GlobScopeError('Folder is outside the configured SharePoint libraries.')
+        if folder_id and self._all_libraries and not selected_drive:
+            raise ValueError('Use a qualified drive|folder id for a multi-library connection.')
+        visited = set()
+        for drive_id, library in drives:
+            if selected_drive and selected_drive != drive_id:
+                continue
+            root = self._resolve_root_item_id(drive_id)
+            item = selected_item if folder_id else root
+            prefix = library if self._all_libraries else ''
+            if item != root:
+                # Folder IDs are opaque. Resolve their real path before constructing
+                # result paths or applying connection globs, never trust a caller prefix.
+                meta = self._get(f'/drives/{quote(drive_id, safe="")}/items/{quote(item, safe="")}')
+                parent = (meta.get('parentReference') or {}).get('path', '')
+                if 'folder' not in meta or 'root:' not in parent:
+                    raise GlobScopeError('SharePoint returned no scoped folder metadata.')
+                full = '/'.join(p for p in (unquote(parent.split('root:', 1)[1]).strip('/'), meta.get('name', '')) if p)
+                scope = (self.folder_path or '').strip('/')
+                if scope and not (full == scope or full.startswith(scope + '/')):
+                    raise GlobScopeError('Folder is outside the configured SharePoint folder.')
+                relative = full[len(scope):].strip('/') if scope else full
+                prefix = '/'.join(p for p in (prefix, relative) if p)
+            queue = deque([(item, prefix)])
+            while queue:
+                item, prefix = queue.popleft()
+                key = (drive_id, item)
+                if key in visited:
+                    continue
+                visited.add(key)
+                if len(visited) > self.max_catalog_objects:
+                    raise ValueError('Folder traversal limit exceeded; narrow the folder scope.')
+                endpoint = f'{GRAPH_BASE}/drives/{quote(drive_id, safe="")}/items/{quote(item, safe="")}/children'
+                url = f'{endpoint}?$top={page_size}&$select={CHILDREN_SELECT}'
+                expected = urlsplit(endpoint)
+                pages = set()
+                while url:
+                    parsed = urlsplit(url)
+                    if (parsed.scheme, parsed.netloc, unquote(parsed.path)) != (expected.scheme, expected.netloc, unquote(expected.path)) or parsed.fragment:
+                        raise GlobScopeError('SharePoint returned a paging link outside the requested folder.')
+                    if url in pages or len(pages) >= 1000:
+                        raise ValueError('SharePoint pagination limit or cycle; narrow the folder scope.')
+                    pages.add(url)
+                    data = self._get(url)
+                    for entry in data.get('value', []) or []:
+                        name = entry.get('name', '')
+                        path = f'{prefix}/{name}' if prefix else name
+                        if 'folder' in entry:
+                            if recursive:
+                                queue.append((entry['id'], path))
+                        elif 'file' in entry and 'deleted' not in entry:
+                            row = self._file_row(drive_id, entry, path)
+                            if row is not None:
+                                yield row
+                    url = data.get('@odata.nextLink')
 
 
 class OnedriveClient(GraphDriveClient):

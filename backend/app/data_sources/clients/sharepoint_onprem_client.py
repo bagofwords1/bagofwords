@@ -18,6 +18,7 @@ from requests_ntlm import HttpNtlmAuth
 
 from app.ai.prompt_formatters import Table
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 from app.data_sources.clients._document_text import (
     DOC_EXTS, doc_text_is_usable, extract_document_text_from_bytes,
 )
@@ -61,7 +62,7 @@ def _literal(value: str) -> str:
     return "'" + quote(value.replace("'", "''"), safe="/") + "'"
 
 
-class SharepointOnpremClient(DataSourceClient):
+class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
     capabilities = {Capability.LIST_FILES, Capability.READ_FILE, Capability.SEARCH_FILES}
     # Always list with the caller's identity: a shared metadata catalog must
     # not leak the service account's inventory to a user-required connection.
@@ -210,6 +211,9 @@ class SharepointOnpremClient(DataSourceClient):
                 "size": int(meta.get("Length") or 0), "modified_at": meta.get("TimeLastModified"),
                 "mime_type": mimetypes.guess_type(meta["Name"])[0], "is_folder": False,
                 "web_url": self._origin_url + quote(path, safe="/")}
+
+    def _iter_listing_files(self, folder_id, recursive, page_size):
+        return self._adapter.iter_files(folder_id, recursive, page_size=page_size)
 
     def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
         return self._adapter.list_files(folder_id, recursive, limit, progress_callback)

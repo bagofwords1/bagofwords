@@ -147,7 +147,7 @@ class Sharepoint2010API(SharepointAPI):
     def _scopes(libraries):
         return [(lib['title'], lib['scope']) for lib in libraries]
 
-    def _items(self, lib, folder, *, leaf=None):
+    def _items(self, lib, folder, *, leaf=None, page_size=None):
         token, seen = None, set()
         for _ in range(1000):
             def fill(command):
@@ -161,7 +161,7 @@ class Sharepoint2010API(SharepointAPI):
                 fields = ET.SubElement(ET.SubElement(command, f'{{{SP}}}viewFields'), 'ViewFields')
                 for field in FIELDS:
                     ET.SubElement(fields, 'FieldRef', Name=field)
-                ET.SubElement(command, f'{{{SP}}}rowLimit').text = str(1 if leaf is not None else self.page_size)
+                ET.SubElement(command, f'{{{SP}}}rowLimit').text = str(1 if leaf is not None else (page_size or self.page_size))
                 options = ET.SubElement(ET.SubElement(command, f'{{{SP}}}queryOptions'), 'QueryOptions')
                 ET.SubElement(options, 'Folder').text = folder
                 ET.SubElement(options, 'ViewAttributes', Scope='')  # immediate files and folders
@@ -210,7 +210,7 @@ class Sharepoint2010API(SharepointAPI):
             raise SharePointHTTPError(404)
         return found
 
-    def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
+    def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, *, page_size=None):
         c = self.client
         cap = min(max(0, int(limit)) if limit is not None else c.max_catalog_objects, c.max_catalog_objects)
         if not cap:
@@ -240,7 +240,7 @@ class Sharepoint2010API(SharepointAPI):
             if reporter:
                 reporter.set_total(len(seen) + len(queue))
                 reporter.item(folder, done=len(seen) - 1)
-            for meta in self._items(lib, folder):
+            for meta in self._items(lib, folder, page_size=page_size):
                 if meta['folder']:
                     if recurse and meta['Name'] != 'Forms':
                         queue.append((lib, meta['ServerRelativeUrl']))

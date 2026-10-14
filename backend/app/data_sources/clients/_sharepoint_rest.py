@@ -74,7 +74,7 @@ class SharepointRestAPI(SharepointAPI):
             result.append((lib["Title"], root + ("/" + self.client.folder_path if self.client.folder_path else "")))
         return result
 
-    def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
+    def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, *, page_size=None):
         cap = min(max(0, int(limit)) if limit is not None else self.client.max_catalog_objects, self.client.max_catalog_objects)
         if cap == 0:
             return
@@ -100,7 +100,7 @@ class SharepointRestAPI(SharepointAPI):
                 raise ValueError("Folder traversal limit exceeded; narrow the folder scope.")
             endpoint = f"web/GetFolderByServerRelativePath(decodedurl={_literal(root)})"
             try:
-                for meta in self._pages(endpoint + "/Files", {"$select": "Name,ServerRelativeUrl,Length,TimeLastModified", "$top": min(cap, 200)}):
+                for meta in self._pages(endpoint + "/Files", {"$select": "Name,ServerRelativeUrl,Length,TimeLastModified", "$top": min(cap, page_size or 200)}):
                     try:
                         entry = self.client._entry(meta, libraries)
                     except GlobScopeError:

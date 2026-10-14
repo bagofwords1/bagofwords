@@ -12,7 +12,7 @@ class SharepointAPI(ABC):
         pass
 
     @abstractmethod
-    def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
+    def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, *, page_size=None):
         pass
 
     def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):

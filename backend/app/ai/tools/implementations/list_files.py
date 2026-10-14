@@ -22,6 +22,7 @@ from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import FileEntry, ListFilesInput, ListFilesOutput
 from app.data_sources.clients.base import Capability
+from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 
 from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
@@ -49,6 +50,8 @@ class ListFilesTool(Tool):
                 "Google Drive / network directory / S3). For live connections "
                 "this reads the source directly (always current); otherwise it "
                 "reads the fast cached catalog. Returns up to 500 files. Only "
+                "SharePoint uses limit (default 50; use 1 for any one file) and honors "
+                "recursive=false; set recursive=true to include nested files. "
                 "files matching the connection's configured patterns are "
                 "visible. Filter with name_pattern (glob, matched against the filename "
                 "and the relative path: '*.xlsx', '*6044534*')."
@@ -181,6 +184,33 @@ class ListFilesTool(Tool):
         client, _client_err = await resolve_file_client(
             runtime_ctx, data.connection_id, self._required_capability
         )
+        # SharePoint opts into bounded live browsing under the resolved identity.
+        # Do not pass new keywords to other connectors or alter their cache/walk paths.
+        if isinstance(client, SharepointBoundedListing):
+            try:
+                result = await client.alist_files_bounded(
+                    folder_id=data.folder_id, recursive=data.recursive,
+                    limit=data.limit, name_pattern=data.name_pattern,
+                )
+                entries, _ = self._apply(result.files, None)
+                hint = ''
+                if result.stop_reason == 'result_limit':
+                    hint = (" Listing stopped at the requested limit; more matching files may exist. "
+                            "Narrow folder_id or name_pattern, or increase limit (up to 500).")
+                elif result.stop_reason == 'catalog_limit':
+                    hint = (" Listing stopped at the connection's Max files cap; more matching files may exist. "
+                            "Narrow folder_id or ask an administrator to review the connection scope/cap.")
+                event = self._end(data.connection_id, entries, False, "live", hint, runtime_ctx)
+                event.payload['output'].update(
+                    incomplete=bool(result.stop_reason), stop_reason=result.stop_reason,
+                )
+                yield event
+            except Exception as exc:
+                from ._file_tool_common import friendly_tool_error
+                yield self._fail(data.connection_id, friendly_tool_error(
+                    self._operation_name, getattr(getattr(client, '_bow_connection', None), 'name', ''), exc,
+                ))
+            return
         # Per-user OAuth sources (SharePoint/OneDrive/Drive) have no cheap live
         # listing, but their catalog is either not centrally indexed (per_user)
         # or ACL-shared — so serving a cache would risk showing another

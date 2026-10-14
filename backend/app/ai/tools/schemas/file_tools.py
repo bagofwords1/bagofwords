@@ -67,6 +67,13 @@ class FileEntry(BaseModel):
 
 
 class ListFilesInput(BaseModel):
+    limit: int = Field(
+        50, ge=1, le=500,
+        description=(
+            "SharePoint only: maximum matching files to return (default 50). "
+            "Use 1 when any one file is sufficient. Other connectors keep their existing limits."
+        ),
+    )
     connection_id: str = Field(
         ...,
         description=(
@@ -105,6 +112,8 @@ class ListFilesOutput(BaseModel):
     file_count: int = 0
     files: List[FileEntry] = Field(default_factory=list)
     truncated: bool = False
+    incomplete: bool = False
+    stop_reason: Optional[str] = None
     error: Optional[str] = None
 
 
