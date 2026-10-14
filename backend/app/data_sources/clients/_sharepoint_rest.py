@@ -54,7 +54,7 @@ class SharepointRestAPI(SharepointAPI):
 
     def libraries(self):
         libs = list(self._pages("web/lists", {
-            "$filter": "BaseTemplate eq 101 and Hidden eq false",
+            "$filter": "BaseType eq 1 and Hidden eq false",
             "$select": "Id,Title,RootFolder/ServerRelativeUrl", "$expand": "RootFolder", "$top": 200,
         }))
         if self.client.drive_name == "*":

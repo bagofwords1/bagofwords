@@ -98,7 +98,8 @@ class Sharepoint2010API(SharepointAPI):
             libs = [self._get_list(c.drive_name)]
         chosen = []
         for lib in libs:
-            if lib.get('ServerTemplate') != '101' or lib.get('Hidden', '').lower() != 'false':
+            # BaseType identifies the document-library family, including custom templates.
+            if lib.get('BaseType') != '1' or lib.get('Hidden', '').lower() != 'false':
                 if c.drive_name == '*':
                     continue
                 raise ValueError('The selected list is not a visible document library.')
@@ -108,7 +109,7 @@ class Sharepoint2010API(SharepointAPI):
                 lib = self._get_list(lib['ID'])
                 if not lib.get('ID') or not lib.get('Title') or not lib.get('RootFolder'):
                     raise ValueError('SharePoint returned incomplete library metadata.')
-                if lib.get('ServerTemplate') != '101' or lib.get('Hidden', '').lower() != 'false':
+                if lib.get('BaseType') != '1' or lib.get('Hidden', '').lower() != 'false':
                     raise ValueError('The selected list is not a visible document library.')
             root = _safe_path(lib['RootFolder'].rstrip('/'))
             if not root.startswith('/') or not root.casefold().startswith((c._site_path + '/').casefold()):
