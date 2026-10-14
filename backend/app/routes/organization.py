@@ -36,7 +36,7 @@ async def add_member(
     if membership.custom_attributes:
         from app.services.member_attributes import require_attribute_admin
         await require_attribute_admin(db, current_user.id, organization_id)
-    result = await organization_service.add_member(db, membership, current_user.id)
+    result = await organization_service.add_member(db, membership, current_user)
     await audit_service.log(
         db=db,
         organization_id=organization_id,
@@ -203,7 +203,7 @@ async def resend_invite(
     return result
 
 
-@router.get("/organizations/{organization_id}/members/{membership_id}/invite-link")
+@router.get("/organizations/{organization_id}/members/{membership_id}/invite-link", dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def get_invite_link(
     organization_id: str,

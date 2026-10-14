@@ -25,6 +25,7 @@ from .types import (
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.ai.llm import trace as llm_trace
+from app.core.url_safety import check_admin_url
 from app.ai.llm.pii.loader import load_redactor_for_org
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
@@ -320,6 +321,10 @@ class LLM:
         self._usage_session_maker = usage_session_maker
         self._usage_limit_context = usage_context
         additional_config = self.model.provider.additional_config or {}
+        # Admin-configured endpoints must never reach cloud metadata (SSRF).
+        for url_key in ("base_url", "endpoint_url"):
+            if additional_config.get(url_key):
+                check_admin_url(additional_config[url_key])
         enable_web_search = bool(additional_config.get("enable_web_search", False))
         # Optional explicit sampling temperature. Model-level config (set via
         # POST /llm/models/{id}/set_temperature, stored on LLMModel.config) wins
@@ -343,7 +348,8 @@ class LLM:
             base_url = additional_config.get("base_url")
             if base_url and not needs_responses_for_tools(self._capability_model_id()) and not additional_config.get("use_responses_api"):
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
-                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers, identity_headers=identity_headers)
+                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers, identity_headers=identity_headers,
+                                     pin_egress=True)
             else:
                 # Native OpenAI, GPT-6 and GPT-5.6 (including gateways) use
                 # Responses: their tool calling on Chat Completions only works
@@ -354,6 +360,9 @@ class LLM:
                     enable_web_search=enable_web_search,
                     temperature=configured_temperature,
                     default_headers=custom_headers, identity_headers=identity_headers,
+                    # Pin only an admin-supplied gateway; api.openai.com keeps
+                    # the SDK's stock client.
+                    pin_egress=bool(base_url),
                 )
         elif self.provider == "anthropic":
             self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers, identity_headers=identity_headers)
@@ -387,6 +396,7 @@ class LLM:
                     base_url=_azure_foundry_anthropic_base_url(endpoint_url),
                     temperature=configured_temperature,
                     default_headers=custom_headers, identity_headers=identity_headers,
+                    pin_egress=True,
                 )
             else:
                 # Default to Chat Completions — works in every region. Admins opt
@@ -420,6 +430,7 @@ class LLM:
                         enable_web_search=enable_web_search,
                         temperature=configured_temperature,
                         default_headers=custom_headers, identity_headers=identity_headers,
+                        pin_egress=True,
                     )
                 elif _is_azure_foundry_endpoint(endpoint_url) and azure_ad_token_provider is None:
                     # Foundry: OpenAI-compatible Chat Completions under /openai/v1,
@@ -430,6 +441,7 @@ class LLM:
                         base_url=self._azure_v1_base_url(endpoint_url),
                         temperature=configured_temperature,
                         default_headers=custom_headers, identity_headers=identity_headers,
+                        pin_egress=True,
                     )
                 else:
                     self.client = AzureClient(
@@ -450,7 +462,7 @@ class LLM:
                 self.client = OpenAIResponsesClient(
                     api_key=api_key, base_url=base_url,
                     temperature=configured_temperature, default_headers=custom_headers, identity_headers=identity_headers,
-                    verify_ssl=verify_ssl,
+                    verify_ssl=verify_ssl, pin_egress=True,
                 )
             else:
                 # Claude behind the gateway caches only what the request marks;
@@ -458,7 +470,8 @@ class LLM:
                 cache_markers = (_is_anthropic_model_id(self.model_id)
                                  and additional_config.get("prompt_cache_markers", True) is not False)
                 self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature,
-                                     default_headers=custom_headers, identity_headers=identity_headers, prompt_cache_markers=cache_markers)
+                                     default_headers=custom_headers, identity_headers=identity_headers, prompt_cache_markers=cache_markers,
+                                     pin_egress=True)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")

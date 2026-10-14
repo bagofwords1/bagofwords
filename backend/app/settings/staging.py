@@ -1,6 +1,8 @@
 from .config import Settings
 
 class Staging(Settings):
+    # Never serve Starlette's debug traceback pages outside development.
+    DEBUG: bool = False
     mock_preset_repo: bool = False
     mock_model_repo: bool = False
 

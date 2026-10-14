@@ -11,6 +11,8 @@ import ssl
 import tempfile
 from typing import List, Optional
 
+from app.core.egress import Policy, open_pinned_socket
+from app.core.url_safety import UnsafeURLError
 from app.ee.audit.streams.destinations.base import (
     INVALID,
     RETRYABLE,
@@ -117,12 +119,17 @@ class SyslogDestination(Destination):
         writer = None
         try:
             ssl_ctx = self._ssl_context() if self._tls() else None
+            # Validated and pinned at send time (admin tier): the socket goes
+            # to an address that passed the check; TLS still verifies `host`.
+            sock = await open_pinned_socket(host, port, Policy.ADMIN, timeout=10)
             _reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port, ssl=ssl_ctx, server_hostname=host if ssl_ctx else None),
+                asyncio.open_connection(sock=sock, ssl=ssl_ctx, server_hostname=host if ssl_ctx else None),
                 timeout=10,
             )
             writer.write(data)
             await asyncio.wait_for(writer.drain(), timeout=20)
+        except UnsafeURLError as e:
+            return SendResult(INVALID, short_error(f"destination refused: {e}"))
         except ssl.SSLCertVerificationError as e:
             return SendResult(INVALID, short_error(f"TLS verification failed: {e}"))
         except ssl.SSLError as e:

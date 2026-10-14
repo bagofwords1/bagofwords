@@ -153,6 +153,10 @@ def resolve_credentials(
                 "Vertex service account key JSON is missing 'private_key' — paste the "
                 "whole key file, not just part of it."
             )
+        from app.core.egress import check_google_token_uri
+
+        # token_uri is where google-auth POSTs the signed assertion.
+        check_google_token_uri(info)
         credentials = _sa.Credentials.from_service_account_info(info, scopes=list(SCOPES))
         resolved_project = project_id or info.get("project_id")
     else:

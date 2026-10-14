@@ -489,3 +489,47 @@ class TestConnectionAndRegistry:
         assert cfg.secure is False
         assert cfg.verify_certs is True
         assert cfg.index_pattern is None
+
+
+# ---------- index path injection ---------- #
+
+
+class TestIndexPathInjection:
+    """The envelope's `index` is LLM-authored, so it must never be able to
+    steer the request off `POST /{index}/_search` (e.g. to `_delete_by_query`)."""
+
+    MALICIOUS = [
+        "orders/_delete_by_query?refresh=true&x=",
+        "orders/_update_by_query#",
+        "../_cluster/settings",
+        "..",
+        "orders?pretty",
+        "orders%2F_delete_by_query",
+        "orders\\_close",
+        "orders _close",
+        "orders\n",
+        "_all/_close?",
+    ]
+
+    @pytest.mark.parametrize("index", MALICIOUS)
+    def test_execute_query_rejects_without_network(self, transport, index):
+        fake = transport({})
+        with pytest.raises(ValueError, match="index"):
+            OpenSearchClient(host="h").execute_query(json.dumps({"index": index}))
+        assert fake.calls == []
+
+    @pytest.mark.parametrize("index", MALICIOUS)
+    def test_get_schema_rejects_without_network(self, transport, index):
+        fake = transport({})
+        with pytest.raises(ValueError, match="index"):
+            OpenSearchClient(host="h").get_schema(index)
+        assert fake.calls == []
+
+    @pytest.mark.parametrize("index", [
+        "orders", "logs-*", "logs-*,metrics-*", "remote:orders",
+        "orders-2026.10.11", "-excluded,orders*", "my_index+v2",
+    ])
+    def test_legitimate_index_expressions_reach_search(self, transport, index):
+        fake = transport({("POST", f"/{index}/_search"): {"hits": {"hits": []}}})
+        OpenSearchClient(host="h").execute_query(json.dumps({"index": index}))
+        assert fake.calls[0]["path"] == f"/{index}/_search"

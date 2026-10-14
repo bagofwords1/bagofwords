@@ -17,6 +17,7 @@ from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, Dat
 from app.schemas.table_prompt_schema import TablePromptsResponse
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
 from app.schemas.data_source_schema import DataSourceMembershipSchema
+from app.errors.redact import redact_error
 from app.schemas.datasource_table_schema import (
     DataSourceTableSchema,
     PaginatedTablesResponse,
@@ -103,7 +104,21 @@ async def get_data_source(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.get_data_source(db, data_source_id, organization, current_user)
+    return await data_source_service.get_data_source(
+        db, data_source_id, organization, current_user,
+        include_config=await _can_manage_data_source(db, current_user, organization, data_source_id),
+    )
+
+
+async def _can_manage_data_source(db, current_user, organization, data_source_id) -> bool:
+    """Manage authority over the agent (or org-wide connection management).
+    View-level members may read the agent and probe it, but neither see the
+    connection config nor persist connection state."""
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    return (
+        resolved.has_resource_permission("data_source", str(data_source_id), "manage")
+        or resolved.has_org_permission("manage_connections")
+    )
 
 
 @router.get("/data_sources/{data_source_type}/fields", response_model=dict)
@@ -171,7 +186,10 @@ async def test_data_source_connection(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.test_data_source_connection(db, data_source_id, organization, current_user)
+    return await data_source_service.test_data_source_connection(
+        db, data_source_id, organization, current_user,
+        persist=await _can_manage_data_source(db, current_user, organization, data_source_id),
+    )
 
 @router.post("/data_sources/test_connection", response_model=dict)
 @requires_permission('create_data_source')
@@ -638,7 +656,7 @@ async def list_connection_files(
             }
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to list files: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to list files: {redact_error(e)}")
     files = [e for e in (entries or []) if not e.get("is_folder")]
     total = len(files)
     # Every call walks the whole scope, so paging only multiplies that walk.
@@ -740,7 +758,7 @@ async def get_connection_file_content(
     except Exception as e:
         # Malformed saved config, unknown type, a constructor rejecting its
         # settings — a 400 with the reason, as the listing endpoint returns.
-        raise HTTPException(status_code=400, detail=f"Failed to open the connection: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to open the connection: {redact_error(e)}")
     if not hasattr(client, "read_raw_bytes"):
         # Mail connectors: no original bytes, only a serialized message.
         raise HTTPException(status_code=400, detail="Preview isn't available for this connection.")
@@ -760,7 +778,7 @@ async def get_connection_file_content(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {redact_error(e)}")
 
     # Backstop for readers that report no size up front (OneNote pages,
     # Google-native exports).
@@ -784,7 +802,7 @@ async def get_connection_file_content(
             # pandas parsing is CPU-bound — a 20 MB workbook would stall this worker's event loop.
             return await asyncio.to_thread(_table_preview, content, name, sheet)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Could not read the table: {e}")
+            raise HTTPException(status_code=400, detail=f"Could not read the table: {redact_error(e)}")
 
     if format == "pdf":
         from app.data_sources.clients._office_convert import CONVERTIBLE_EXTS, office_to_pdf_bytes

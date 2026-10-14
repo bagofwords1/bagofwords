@@ -17,8 +17,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import current_user
+from app.core.auth import current_session_user, current_user
 from app.core.permissions_decorator import requires_permission
+from app.core.url_safety import is_safe_redirect_uri, request_http_origin
 from app.dependencies import get_async_db, get_current_organization
 from app.ee.audit.service import audit_service
 from app.errors import AppError
@@ -120,7 +121,7 @@ async def authorize_redirect(
 
     service = OAuthServerService()
     client = await service.validate_client(db, client_id)
-    if not client or not service.validate_redirect_uri(client, redirect_uri):
+    if not client or not service.validate_redirect_uri(client, redirect_uri, request_http_origin(request)):
         return JSONResponse(
             {"error": "invalid_request", "error_description": "Invalid client or redirect URI"},
             status_code=400,
@@ -157,7 +158,9 @@ async def authorize_redirect(
 @router.post("/authorize")
 async def authorize_approve(
     request: Request,
-    user: User = Depends(current_user),
+    # Consent must come from the user's own login session: an OAuth bearer
+    # token or API key could otherwise approve grants for other clients.
+    user: User = Depends(current_session_user),
     db: AsyncSession = Depends(get_async_db),
 ):
     """Called by frontend after user approves the consent.
@@ -187,7 +190,7 @@ async def authorize_approve(
         raise HTTPException(status_code=400, detail="Invalid client_id")
 
     # Validate redirect_uri
-    if not service.validate_redirect_uri(client, redirect_uri):
+    if not service.validate_redirect_uri(client, redirect_uri, request_http_origin(request)):
         raise HTTPException(status_code=400, detail="Invalid redirect_uri")
 
     # The token's org is the CLIENT's org — never the caller's active-org header.
@@ -380,7 +383,8 @@ async def create_client(
         raise HTTPException(status_code=400, detail="trusted must be a boolean")
 
     exchange_config = _exchange_config(body)
-    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"), allow_empty=bool(exchange_config))
+    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"), allow_empty=bool(exchange_config),
+                                           request_origin=request_http_origin(request))
 
     service = OAuthServerService()
     client = await service.create_client(
@@ -404,7 +408,7 @@ async def create_client(
     return client
 
 
-def _validate_redirect_uris(redirect_uris, allow_empty=False):
+def _validate_redirect_uris(redirect_uris, allow_empty=False, request_origin=None):
     """Validate an optional redirect_uris payload. Returns the list unchanged,
     or None when absent (caller decides the fallback)."""
     if redirect_uris is None:
@@ -412,6 +416,12 @@ def _validate_redirect_uris(redirect_uris, allow_empty=False):
     if not isinstance(redirect_uris, list) or (not redirect_uris and not allow_empty):
         raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
     for uri in redirect_uris:
+        if isinstance(uri, str) and uri and not is_safe_redirect_uri(uri, request_origin):
+            raise HTTPException(
+                status_code=400,
+                detail="redirect_uris must be https URLs (http only for localhost, 127.0.0.1, [::1] "
+                "or this app's own origin)",
+            )
         if not isinstance(uri, str) or not uri.strip():
             raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
     return redirect_uris
@@ -457,7 +467,8 @@ async def update_client(
     if not existing:
         raise HTTPException(status_code=404, detail="Client not found")
     effective_exchange = exchange_config if "entra_exchange" in body else existing.entra_exchange
-    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"), allow_empty=bool(effective_exchange))
+    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"), allow_empty=bool(effective_exchange),
+                                           request_origin=request_http_origin(request))
     if not effective_exchange and redirect_uris is None:
         import json
         if not json.loads(existing.redirect_uris):
@@ -507,6 +518,7 @@ async def update_client(
 @router.get("/clients/{client_id}/info")
 async def get_client_info(
     client_id: str,
+    request: Request,
     redirect_uri: Optional[str] = None,
     scope: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db),
@@ -517,7 +529,7 @@ async def get_client_info(
     if not info:
         raise HTTPException(status_code=404, detail="Client not found")
     client = await service.validate_client(db, client_id)
-    if redirect_uri is not None and not service.validate_redirect_uri(client, redirect_uri):
+    if redirect_uri is not None and not service.validate_redirect_uri(client, redirect_uri, request_http_origin(request)):
         raise HTTPException(status_code=400, detail="Invalid redirect_uri")
     if scope is not None:
         normalized = _validate_scopes(scope, client.scopes)

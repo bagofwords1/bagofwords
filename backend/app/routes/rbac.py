@@ -73,7 +73,7 @@ async def create_role(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    role = await rbac_service.create_role(db, organization_id, data)
+    role = await rbac_service.create_role(db, organization_id, data, actor_id=current_user.id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="role.created",
@@ -97,7 +97,7 @@ async def update_role(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    role = await rbac_service.update_role(db, organization_id, role_id, data)
+    role = await rbac_service.update_role(db, organization_id, role_id, data, actor_id=current_user.id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="role.updated",
@@ -244,6 +244,7 @@ async def add_group_member(
     await rbac_service.add_group_member(
         db, organization_id, group_id,
         user_id=data.user_id, membership_id=data.membership_id,
+        actor_id=current_user.id,
     )
     try:
         await audit_service.log(
@@ -304,7 +305,7 @@ async def create_role_assignment(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    assignment = await rbac_service.create_role_assignment(db, organization_id, data)
+    assignment = await rbac_service.create_role_assignment(db, organization_id, data, actor_id=current_user.id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="role.assigned",

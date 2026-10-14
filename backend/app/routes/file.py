@@ -282,7 +282,7 @@ async def get_file_embed_token(
     await file_access.get_viewable_file_or_404(db, current_user, organization, file_id)
 
     from app.core.file_tokens import mint_file_token, file_embed_url
-    token = mint_file_token(file_id)
+    token = mint_file_token(file_id, organization_id=str(organization.id))
     return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
 
 
@@ -303,24 +303,58 @@ async def get_file_embed(
     except (ValueError, AttributeError):
         raise HTTPException(status_code=404, detail="File not found")
 
-    from app.core.file_tokens import verify_file_token
-    if not verify_file_token(token, file_id):
+    from app.core.file_tokens import decode_file_token
+    claims = decode_file_token(token, file_id)
+    if claims is None:
         raise HTTPException(status_code=403, detail="Invalid or expired file token")
 
-    # Load by id only — the token is the capability, not the session.
+    # The token is the capability, not the session, but it is bound to the
+    # org (and, for published reports, the report) it was minted in; both are
+    # re-checked here against the file itself.
     file = (await db.execute(
         select(FileModel).filter(FileModel.id == file_id)
     )).scalar_one_or_none()
-    if not file:
+    if not file or str(file.organization_id) != str(claims["org"]):
         raise HTTPException(status_code=404, detail="File not found")
+    if claims.get("rid"):
+        from app.models.report import Report as _Report
+        bound_report = (await db.execute(
+            select(_Report.id).where(
+                _Report.id == str(claims["rid"]),
+                _Report.organization_id == str(claims["org"]),
+                _Report.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if bound_report is None:
+            raise HTTPException(status_code=404, detail="File not found")
 
     content = _read_file_bytes_or_404(file)
+    media_type = file.content_type or "application/octet-stream"
+    # This is served on the app's own origin and content_type is whatever the
+    # uploader's client claimed, so only passive types render inline (for
+    # <img>/<iframe>); HTML, SVG, scripts and unknowns download instead.
+    inline = _embed_renders_inline(media_type)
     return Response(
         content=content,
-        media_type=file.content_type or "application/octet-stream",
+        media_type=media_type,
         headers={
-            # inline so <img>/<iframe> render it rather than downloading
-            "Content-Disposition": _content_disposition("inline", file.filename or file_id),
+            "Content-Disposition": _content_disposition(
+                "inline" if inline else "attachment", file.filename or file_id
+            ),
             "Cache-Control": "private, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+            # Chrome's PDF viewer refuses a sandboxed document, so inline
+            # types get scripts switched off instead of a full sandbox.
+            "Content-Security-Policy": "script-src 'none'; object-src 'self'" if inline else "default-src 'none'; sandbox",
         },
     )
+
+
+_EMBED_INLINE_TYPES = {"application/pdf", "text/csv", "text/plain", "application/json"}
+
+
+def _embed_renders_inline(media_type: str) -> bool:
+    base = media_type.split(";", 1)[0].strip().lower()
+    if base.startswith("image/"):
+        return base != "image/svg+xml"
+    return base in _EMBED_INLINE_TYPES

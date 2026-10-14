@@ -34,7 +34,7 @@ def test_get_suite_404(create_user, login_user, whoami, get_test_suite):
 
     resp = get_test_suite("non-existent-suite-id", user_token=token, org_id=org_id)
     assert resp.status_code == 404
-    assert "Test suite not found" in resp.json()["detail"]
+    assert resp.json()["detail"] == "Not found"
 
 
 # ============================================================

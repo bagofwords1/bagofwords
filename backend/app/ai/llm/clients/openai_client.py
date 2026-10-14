@@ -33,6 +33,28 @@ from app.ai.llm.types import (
 )
 
 
+
+def pinned_openai_http_clients(http_kwargs: dict[str, Any], sync_hooks=None, async_hooks=None):
+    """(sync, async) httpx clients for the OpenAI SDK whose connections are
+    pinned (admin tier). Keeps the timeouts each path had before: the SDK's
+    own defaults when nothing was overridden, plain httpx otherwise."""
+    import openai
+    from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
+
+    kw = dict(http_kwargs)
+    transport_kw = {"verify": kw.pop("verify")} if "verify" in kw else {}
+    if http_kwargs:
+        sync_cls, async_cls = httpx.Client, httpx.AsyncClient
+    else:
+        sync_cls, async_cls = openai.DefaultHttpxClient, openai.DefaultAsyncHttpxClient
+    return (
+        sync_cls(transport=PinnedTransport(Policy.ADMIN, **transport_kw), **kw,
+                 **({"event_hooks": sync_hooks} if sync_hooks else {})),
+        async_cls(transport=AsyncPinnedTransport(Policy.ADMIN, **transport_kw), **kw,
+                  **({"event_hooks": async_hooks} if async_hooks else {})),
+    )
+
+
 class OpenAi(LLMClient):
     # Class-level default so instances created without __init__ (test doubles
     # built via __new__) still resolve the attribute.
@@ -49,6 +71,7 @@ class OpenAi(LLMClient):
         auth: Optional[httpx.Auth] = None,
         timeout: Optional[httpx.Timeout] = None,
         prompt_cache_markers: bool = False,
+        pin_egress: bool = False,
     ):
         super().__init__()
         # Claude caches only what the request marks. Behind an OpenAI-compatible
@@ -89,19 +112,23 @@ class OpenAi(LLMClient):
         kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             kwargs["default_headers"] = default_headers
-        if http_kwargs:
-            kwargs["http_client"] = httpx.Client(**http_kwargs, **({"event_hooks": sync_hooks} if sync_hooks else {}))
-        elif sync_hooks:
-            kwargs["http_client"] = DefaultHttpxClient(event_hooks=sync_hooks)
-        self.client = OpenAI(**kwargs)
-
         async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             async_kwargs["default_headers"] = default_headers
-        if http_kwargs:
+        if pin_egress:
+            # Admin-configured base_url: every request is validated and pinned
+            # to the checked address (app.core.egress) — closes DNS rebinding.
+            kwargs["http_client"], async_kwargs["http_client"] = pinned_openai_http_clients(
+                http_kwargs, sync_hooks, async_hooks)
+        elif http_kwargs:
+            kwargs["http_client"] = httpx.Client(**http_kwargs, **({"event_hooks": sync_hooks} if sync_hooks else {}))
             async_kwargs["http_client"] = httpx.AsyncClient(**http_kwargs, **({"event_hooks": async_hooks} if async_hooks else {}))
-        elif async_hooks:
-            async_kwargs["http_client"] = DefaultAsyncHttpxClient(event_hooks=async_hooks)
+        else:
+            if sync_hooks:
+                kwargs["http_client"] = DefaultHttpxClient(event_hooks=sync_hooks)
+            if async_hooks:
+                async_kwargs["http_client"] = DefaultAsyncHttpxClient(event_hooks=async_hooks)
+        self.client = OpenAI(**kwargs)
         self.async_client = AsyncOpenAI(**async_kwargs)
 
     @staticmethod

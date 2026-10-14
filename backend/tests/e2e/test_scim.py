@@ -362,6 +362,47 @@ class TestScimUserCrud:
         assert response.status_code == 200
         assert response.json()["active"] is False
 
+    def test_update_to_taken_email_is_409_uniqueness(self, scim_setup, test_client):
+        """PUT or PATCH that gives a user another account's email is a SCIM
+        409 uniqueness error — never a 500 carrying the constraint error."""
+        h = _scim_headers(scim_setup["scim_token"])
+
+        def _create(email):
+            r = test_client.post("/scim/v2/Users", json={
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+                "userName": email, "active": True,
+            }, headers=h)
+            assert r.status_code == 201, r.text
+            return r.json()["id"]
+
+        _create("taken.owner@example.com")
+        mover = _create("mover@example.com")
+
+        put = test_client.put(f"/scim/v2/Users/{mover}", json={
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "taken.owner@example.com", "active": True,
+        }, headers=h)
+        # Case differs from the stored address: still the same mailbox.
+        patch = test_client.patch(f"/scim/v2/Users/{mover}", json={
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "userName", "value": "Taken.Owner@example.com"}],
+        }, headers=h)
+        for r in (put, patch):
+            assert r.status_code == 409, r.text
+            body = r.json()
+            assert body["scimType"] == "uniqueness"
+            assert body["status"] == "409"
+
+        # The user is unchanged and still editable afterwards.
+        got = test_client.get(f"/scim/v2/Users/{mover}", headers=h)
+        assert got.json()["userName"] == "mover@example.com"
+        ok = test_client.patch(f"/scim/v2/Users/{mover}", json={
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "userName", "value": "moved@example.com"}],
+        }, headers=h)
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["userName"] == "moved@example.com"
+
     def test_delete_user(self, scim_setup, test_client):
         """Test SCIM DELETE deactivates user."""
         # Create user
