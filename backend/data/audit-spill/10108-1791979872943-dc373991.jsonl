@@ -1,1 +1,0 @@
-{"organization_id": "o1", "action": "tool.web_fetch_blocked_unsafe_host", "user_id": null, "resource_type": "report", "resource_id": "r1", "details": {"tool": "web_fetch", "hostname": "news.invalid", "via_redirect": false}, "id": "187884c2-953f-4619-94ef-bbd6f591fff3", "occurred_at": "2026-10-14T12:11:12.941828"}
