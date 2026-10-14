@@ -278,27 +278,23 @@ class GitService:
         self, repo_url: str, access_token: str, username: Optional[str] = None
     ) -> str:
         """Convert repo URL to HTTPS URL with embedded credentials."""
+        # When no explicit username is supplied, use a placeholder username
+        # so git doesn't read the bare token as a username and prompt for a
+        # password (which fails with no TTY). GitHub recommends
+        # `x-access-token`; GitLab ignores the username for a token.
+        auth = f"{username or 'x-access-token'}:{access_token}"
+
         # If already HTTPS, inject credentials
         if repo_url.startswith('https://'):
             parsed = urlparse(repo_url)
-            # When no explicit username is supplied, use a placeholder
-            # username so credential helpers don't interpret the bare
-            # token as a username and prompt for a password.
-            # GitHub recommends `x-access-token`; GitLab uses `oauth2`.
-            effective_username = username or "x-access-token"
-            auth = f"{effective_username}:{access_token}"
             return f"https://{auth}@{parsed.netloc}{parsed.path}"
-        
+
         # Convert SSH URL to HTTPS
         # git@github.com:user/repo.git -> https://github.com/user/repo.git
         ssh_match = re.match(r'git@([^:]+):(.+)', repo_url)
         if ssh_match:
             host = ssh_match.group(1)
             path = ssh_match.group(2)
-            if username:
-                auth = f"{username}:{access_token}"
-            else:
-                auth = access_token
             return f"https://{auth}@{host}/{path}"
         
         raise ValueError(f"Unsupported URL format: {repo_url}")
