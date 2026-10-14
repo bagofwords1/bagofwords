@@ -3861,12 +3861,22 @@ const canEditInstr = computed(() => canEditDetail.value)
 const metaEditable = computed(() => canEditInstr.value || creating.value)
 const savingMeta = ref(false)
 let metaTimer: any = null
+// Autosaves run one at a time, and a response only re-seeds the draft when
+// nothing changed while it was in flight. The picker stays open, so a user
+// unticks several tables in a row; letting every PUT race and re-seed the
+// draft from its own (older) body put back each table unticked meanwhile —
+// and the next save then persisted it again.
+let metaSeq = 0
+let metaQueued = false
 const saveMeta = async () => {
   if (!detail.value || creating.value || editing.value) return
+  if (savingMeta.value) { metaQueued = true; return }
   savingMeta.value = true
+  const id = detail.value.id
+  const seq = metaSeq
   try {
     const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references, applicable_modes: draft.applicable_modes, applicable_channels: draft.applicable_channels }
-    const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
+    const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${id}`, { method: 'PUT', body })
     // useMyFetch doesn't throw on HTTP errors — surface them so the change isn't silently dropped.
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Save failed')
     // The PUT response is the full row — the only post-save shape that carries
@@ -3876,16 +3886,22 @@ const saveMeta = async () => {
     // draft is what the next autosave sends back, so the clobber didn't just
     // hide the reference you had just added — the following metadata change
     // PUT it away again as `references: []` and the body as `text: ""`.
-    if (data.value) {
+    // A newer change keeps the draft as the user left it; the queued save
+    // sends it and its own response re-seeds. A different open instruction
+    // must not take this row's fields.
+    if (data.value && detail.value?.id === id) {
       detail.value = { ...detail.value, ...(data.value as any) }
-      if (!editing.value) syncDraft(detail.value)
+      if (!editing.value && seq === metaSeq) syncDraft(detail.value)
     }
     await refreshLists()
     toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastSaveFailed'), description: e?.message, color: 'red' }) } finally { savingMeta.value = false }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastSaveFailed'), description: e?.message, color: 'red' }) } finally {
+    savingMeta.value = false
+    if (metaQueued) { metaQueued = false; if (detail.value?.id === id) saveMeta() }
+  }
 }
 // Fire after a metadata control changes (user-initiated only — not on load/edit).
-const onMetaChange = () => { if (editing.value || creating.value) return; clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 400) }
+const onMetaChange = () => { if (editing.value || creating.value) return; metaSeq++; clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 400) }
 // Skills always use 'intelligent' (smart) retrieval — force it when switching to skill.
 const onKindChange = () => { if (draft.kind === 'skill') draft.load_mode = 'intelligent'; onMetaChange() }
 
