@@ -243,6 +243,20 @@ def _format_sse_event_traced(event: SSEEvent) -> str:
 logger = logging.getLogger(__name__)
 
 
+
+def _clamp_training_mode(completion_data, report) -> None:
+    """Never run a training turn on a report that isn't in training mode.
+
+    The agent takes its mode from the completion payload before the report's.
+    Training is only gated where the REPORT's mode is set
+    (``ReportService._assert_can_enter_training_mode``, on create and update).
+    So a payload asking for ``training`` on a chat report would get a training
+    turn without that check. Fall back to the report's own mode instead.
+    """
+    prompt = getattr(completion_data, "prompt", None)
+    if prompt is not None and prompt.mode == "training" and getattr(report, "mode", None) != "training":
+        prompt.mode = getattr(report, "mode", None) or "chat"
+
 class CompletionService:
 
     def __init__(self):
@@ -642,6 +656,7 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
             self._assert_can_write_to_report(report, current_user)
+            _clamp_training_mode(completion_data, report)
 
             # Validate widget if provided
             if completion_data.prompt and completion_data.prompt.widget_id:
@@ -2209,6 +2224,7 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
             self._assert_can_write_to_report(report, current_user)
+            _clamp_training_mode(completion_data, report)
             _log("report_fetched")
 
             # Validate widget if provided
@@ -3330,13 +3346,7 @@ class CompletionService:
     async def delete_queued_completion(self, db: AsyncSession, completion_id: str, current_user: User, organization: Organization):
         """Remove a prompt from the queue. Only valid for role='user' rows still
         in status='queued' (a dispatched row is a normal turn and stays)."""
-        res = await db.execute(select(Completion).where(Completion.id == completion_id))
-        completion = res.scalars().first()
-        if not completion:
-            raise HTTPException(status_code=404, detail="Completion not found")
-        report = await db.get(Report, completion.report_id)
-        if not report or str(report.organization_id) != str(organization.id):
-            raise HTTPException(status_code=404, detail="Completion not found")
+        completion = await self._get_completion_for_run_owner(db, completion_id, current_user, organization)
         if completion.role != 'user' or completion.status != 'queued':
             raise HTTPException(status_code=409, detail="Completion is not queued")
 
@@ -3365,13 +3375,9 @@ class CompletionService:
 
         If the run already finished, falls back to enqueueing and says so.
         """
-        res = await db.execute(select(Completion).where(Completion.id == completion_id))
-        target = res.scalars().first()
-        if not target:
-            raise HTTPException(status_code=404, detail="Completion not found")
-        report = await db.get(Report, target.report_id)
-        if not report or str(report.organization_id) != str(organization.id):
-            raise HTTPException(status_code=404, detail="Completion not found")
+        # Only the run's owner may steer it (same rule as sigkill); a shared
+        # viewer or another member must not inject turns into someone's run.
+        target = await self._get_completion_for_run_owner(db, completion_id, current_user, organization)
         if target.role != 'system':
             raise HTTPException(status_code=400, detail="Steer target must be the running system completion")
 

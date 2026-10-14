@@ -74,7 +74,9 @@ class GoogleChatAdapter(PlatformAdapter):
         def _mint() -> Optional[str]:
             from google.oauth2 import service_account
             import google.auth.transport.requests
+            from app.core.egress import check_google_token_uri
 
+            check_google_token_uri(self.service_account_info)
             creds = service_account.Credentials.from_service_account_info(
                 self.service_account_info, scopes=[CHAT_BOT_SCOPE]
             )

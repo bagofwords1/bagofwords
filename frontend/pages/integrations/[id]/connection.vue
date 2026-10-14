@@ -1,8 +1,14 @@
 <template>
     <div class="py-6">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-            <!-- Loading state -->
-            <div v-if="!integration" class="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
+            <!-- Loading / error / empty states -->
+            <div v-if="isLoading" class="text-sm text-gray-500 dark:text-gray-400" data-testid="connection-loading">{{ $t('common.loading') }}</div>
+            <div v-else-if="fetchError" class="text-sm text-gray-600 dark:text-gray-300" role="alert" data-testid="connection-error">
+                {{ fetchErrorMessage }}
+            </div>
+            <div v-else-if="!connection" class="text-sm text-gray-500 dark:text-gray-400" data-testid="connection-empty">
+                {{ $t('integrationConnection.noConnection') }}
+            </div>
 
             <!-- Main content - View Mode -->
             <div v-else>
@@ -39,7 +45,8 @@
                             color="gray" 
                             variant="ghost" 
                             size="xs"
-                            @click="showEditModal = true"
+                            data-testid="connection-edit"
+                            @click="openEditModal"
                         >
                             <UIcon name="heroicons-pencil" class="w-5 h-5" />
                         </UButton>
@@ -80,7 +87,7 @@
     </div>
 
     <!-- Edit Connection Modal -->
-    <UModal v-model="showEditModal" :ui="{ width: 'sm:max-w-xl' }">
+    <UModal v-if="canManageConnections" v-model="showEditModal" :ui="{ width: 'sm:max-w-xl' }">
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
@@ -92,8 +99,10 @@
                 </div>
             </template>
 
+            <div v-if="loadingConnectionDetails" class="text-sm text-gray-500 dark:text-gray-400">{{ $t('common.loading') }}</div>
+            <div v-else-if="connectionDetailsError" class="text-sm text-red-600" role="alert">{{ $t('integrationConnection.loadFailed') }}</div>
             <ConnectForm
-                v-if="showEditModal"
+                v-else-if="showEditModal && connectionDetails"
                 mode="edit"
                 :connection-id="connectionId"
                 :initial-type="connectionType"
@@ -114,7 +123,9 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'integrations' })
+// No custom layout: the `integrations` layout this page used to inject its
+// data from was renamed away in 6f352fbdb, so the page loads its own data.
+definePageMeta({ auth: true })
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import Spinner from '~/components/Spinner.vue'
@@ -128,12 +139,44 @@ const canManageConnections = computed(() => useCan('manage_connections'))
 const { data: currentUser } = useAuth()
 const { organization } = useOrganization()
 
-// Inject integration data from layout (avoid duplicate API calls)
-const injectedIntegration = inject<Ref<any>>('integration', ref(null))
-const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
+const { t } = useI18n()
 
-// Use injected data
-const integration = injectedIntegration
+// The data source (agent) this connection belongs to. GET /data_sources/{id}
+// omits connection config for view-only members, so `config` is only ever
+// read from GET /connections/{id} (manage-only) when the edit modal opens.
+const integration = ref<any>(null)
+const isLoading = ref(true)
+const fetchError = ref<number | null>(null)
+
+async function fetchIntegration() {
+  if (!dsId.value) return
+  try {
+    const { data, error } = await useMyFetch(`/data_sources/${dsId.value}`, { method: 'GET' })
+    if (error.value) {
+      const err: any = error.value
+      fetchError.value = err?.statusCode || err?.status || err?.response?.status || 500
+      return
+    }
+    integration.value = data.value || null
+    fetchError.value = null
+  } catch (e: any) {
+    fetchError.value = e?.statusCode || e?.status || 500
+  } finally {
+    isLoading.value = false
+  }
+}
+
+watch(dsId, () => {
+  isLoading.value = true
+  integration.value = null
+  fetchIntegration()
+}, { immediate: true })
+
+const fetchErrorMessage = computed(() => {
+  if (fetchError.value === 404) return t('integrationConnection.notFound')
+  if (fetchError.value === 403) return t('integrationConnection.forbidden')
+  return t('integrationConnection.loadFailed')
+})
 
 const isTesting = ref(false)
 const testConnectionStatus = ref<any>(null)
@@ -153,14 +196,36 @@ const isAdmin = computed(() => {
   return org?.role === 'admin'
 })
 
-// Connection data accessors
-const connectionId = computed(() => integration.value?.connection?.id || null)
-const connectionType = computed(() => integration.value?.connection?.type || integration.value?.type)
-const connectionName = computed(() => integration.value?.connection?.name || integration.value?.name || 'Connection')
-const connectionConfig = computed(() => integration.value?.connection?.config || integration.value?.config || {})
-const connectionAuthPolicy = computed(() => integration.value?.connection?.auth_policy || integration.value?.auth_policy || 'system_only')
-const connectionUserStatus = computed(() => integration.value?.connection?.user_status || integration.value?.user_status)
-const hasCredentials = computed(() => integration.value?.connection?.has_credentials ?? true)
+// Connection data accessors. The API returns `connections: []`; the first
+// one is the primary connection (same convention as UserDataSourceCredentialsModal).
+const connection = computed(() => integration.value?.connections?.[0] || null)
+const connectionId = computed(() => connection.value?.id || null)
+const connectionType = computed(() => connection.value?.type || integration.value?.type)
+const connectionName = computed(() => connection.value?.name || integration.value?.name || 'Connection')
+const connectionAuthPolicy = computed(() => connection.value?.auth_policy || integration.value?.auth_policy || 'system_only')
+const connectionUserStatus = computed(() => connection.value?.user_status || integration.value?.user_status)
+
+// Manager-only connection details (config + has_credentials), loaded lazily.
+const connectionDetails = ref<any>(null)
+const loadingConnectionDetails = ref(false)
+const connectionDetailsError = ref(false)
+
+async function openEditModal() {
+  if (!canManageConnections.value || !connectionId.value) return
+  showEditModal.value = true
+  loadingConnectionDetails.value = true
+  connectionDetailsError.value = false
+  connectionDetails.value = null
+  try {
+    const { data, error } = await useMyFetch(`/connections/${connectionId.value}`, { method: 'GET' })
+    if (error.value) connectionDetailsError.value = true
+    else connectionDetails.value = data.value || null
+  } catch {
+    connectionDetailsError.value = true
+  } finally {
+    loadingConnectionDetails.value = false
+  }
+}
 
 // Connection status display
 const connectionStatus = computed(() => String(connectionUserStatus.value?.connection || '').toLowerCase())
@@ -191,9 +256,9 @@ const { relativeTime: timeAgo } = useRelativeTime()
 // Form initial values for editing
 const editFormInitialValues = computed(() => ({
   name: connectionName.value,
-  config: connectionConfig.value,
-  auth_policy: connectionAuthPolicy.value,
-  has_credentials: hasCredentials.value,
+  config: connectionDetails.value?.config || {},
+  auth_policy: connectionDetails.value?.auth_policy || connectionAuthPolicy.value,
+  has_credentials: connectionDetails.value?.has_credentials ?? true,
   credentials: {}
 }))
 
@@ -204,8 +269,7 @@ async function testConnection() {
   try {
     const response = await useMyFetch(`/data_sources/${dsId.value}/test_connection`, { method: 'GET' })
     testConnectionStatus.value = (response.data as any)?.value || null
-    // Refresh integration data from layout
-    await injectedFetchIntegration()
+    await fetchIntegration()
   } finally {
     isTesting.value = false
   }
@@ -213,7 +277,7 @@ async function testConnection() {
 
 function handleEditSuccess() {
   showEditModal.value = false
-  injectedFetchIntegration()
+  fetchIntegration()
 }
 
 function openAddCredentials() {
@@ -224,7 +288,7 @@ async function disconnectUserCredentials() {
   if (!dsId.value) return
   try {
     await useMyFetch(`/data_sources/${dsId.value}/my-credentials`, { method: 'DELETE' })
-    await injectedFetchIntegration()
+    await fetchIntegration()
   } catch (e) {
     // no-op
   }
@@ -232,7 +296,7 @@ async function disconnectUserCredentials() {
 
 async function onCredsSaved() {
   showCredsModal.value = false
-  await injectedFetchIntegration()
+  await fetchIntegration()
 }
 
 async function testUserConnection() {
@@ -241,8 +305,7 @@ async function testUserConnection() {
   try {
     const response = await useMyFetch(`/data_sources/${dsId.value}/test_connection`, { method: 'GET' })
     testUserStatus.value = (response.data as any)?.value || null
-    // Refresh integration data from layout
-    await injectedFetchIntegration()
+    await fetchIntegration()
   } finally {
     isTestingUser.value = false
   }

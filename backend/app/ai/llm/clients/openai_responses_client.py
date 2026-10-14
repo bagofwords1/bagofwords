@@ -70,6 +70,7 @@ class OpenAIResponsesClient(LLMClient):
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, Any]] = None,
         verify_ssl: bool = True,
+        pin_egress: bool = False,
         identity_headers: Optional[IdentityHeaders] = None,
     ):
         super().__init__()
@@ -88,7 +89,14 @@ class OpenAIResponsesClient(LLMClient):
         # Identity-forwarding headers resolve per request via an httpx hook.
         sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
         async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
-        if not verify_ssl:
+        if pin_egress:
+            from app.ai.llm.clients.openai_client import pinned_openai_http_clients
+
+            sync_http, async_http = pinned_openai_http_clients(
+                {} if verify_ssl else {"verify": False}, sync_hooks, async_hooks)
+            self.client = OpenAI(**client_kwargs, http_client=sync_http)
+            self.async_client = AsyncOpenAI(**client_kwargs, http_client=async_http)
+        elif not verify_ssl:
             import httpx
             http_kwargs: dict[str, Any] = {"verify": False}
             self.client = OpenAI(**client_kwargs, http_client=httpx.Client(

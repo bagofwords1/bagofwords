@@ -563,3 +563,57 @@ async def test_promote_does_not_publish_user_drafts():
         assert await _status_of(db, iid) == "draft", (
             "a user draft must not be published as a side effect of promotion"
         )
+
+
+# ---------------------------------------------------------------------------
+# accept-staged must only promote a version that belongs to the instruction
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_accept_staged_refuses_a_pin_to_another_instructions_version():
+    """A shared draft that pins instruction X to instruction Y's version must
+    not promote Y's text as X's live content.
+
+    The build-content API now refuses such a pin (see
+    tests/e2e/rbac/test_build_route_authority.py), so the bad pin is planted
+    with a direct write. That stands in for a build written before the check
+    existed, or one written by any future path that skips it.
+    """
+    from app.models.build_content import BuildContent
+    from app.models.instruction_version import InstructionVersion
+
+    org_id, user_id, build_id, iids = await _seed_training_draft(2)
+    target, foreign = iids
+    service = InstructionService()
+
+    async with async_session_maker() as db:
+        foreign_vid = (await db.execute(
+            select(InstructionVersion.id).where(InstructionVersion.instruction_id == foreign)
+        )).scalars().first()
+        row = (await db.execute(
+            select(BuildContent).where(
+                BuildContent.build_id == build_id, BuildContent.instruction_id == target,
+            )
+        )).scalar_one()
+        row.instruction_version_id = foreign_vid
+        await db.commit()
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        resolved = await service.accept_staged_instruction(
+            db, target, build_id=build_id, organization=org, current_user=user,
+        )
+        assert resolved is None
+
+    async with async_session_maker() as db:
+        assert not await _is_live(db, org_id, target)
+        # The genuine sibling still accepts normally.
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        assert await service.accept_staged_instruction(
+            db, foreign, build_id=build_id, organization=org, current_user=user,
+        ) is not None
+    async with async_session_maker() as db:
+        assert await _is_live(db, org_id, foreign)

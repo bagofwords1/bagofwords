@@ -1,0 +1,15 @@
+rollback org-A build as outsider (org B agent manager)     403 'No access to agent "Payroll Secret Agent": this action needs \'manage_instructions\' on it. Remove it from the selection or ask an admin for access.'
+rollback random id as outsider (org B agent manager)       403 "Org-level 'manage_instructions' required"
+  -> agent name leaked                                     True
+rollback org-A build as admin of org B                     403 'Build does not belong to this organization'
+rollback random id as admin of org B                       404 'Build not found'
+  -> agent name leaked                                     False
+REGRESSION rollback in own org (admin A)                   200 new_main=True
+compare baseline as member (manage_evals on Sales only)    200 'HIDDEN payroll baseline'
+compare baseline as REGRESSION admin                       200 'HIDDEN payroll baseline'
+GET project data_sources as member                         200 ['Payroll Secret Agent', 'Sales Agent']
+GET project data_sources as REGRESSION admin               200 ['Payroll Secret Agent', 'Sales Agent']
+avatar: GET replaced (old) url                             200
+REGRESSION avatar: GET current url                         200
+avatar: GET url after DELETE                               200
+REGRESSION avatar: upload after delete, GET                200

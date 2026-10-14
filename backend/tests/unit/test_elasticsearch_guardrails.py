@@ -24,6 +24,15 @@ from app.data_sources.clients.elasticsearch_client import ElasticsearchClient
 from app.data_sources.clients.elasticsearch_guardrails import QueryGuardrailError
 
 
+@pytest.fixture(autouse=True)
+def _guardrail_loggers_enabled(monkeypatch):
+    # Migration-backed tests run alembic's fileConfig(), which disables every
+    # logger that already exists; re-enable the ones these tests assert on.
+    for name in ("app.data_sources.clients.elasticsearch_client",
+                 "app.data_sources.clients.elasticsearch_guardrails"):
+        monkeypatch.setattr(logging.getLogger(name), "disabled", False)
+
+
 class FakeCluster:
     """Records every request; answers like a healthy cluster."""
 

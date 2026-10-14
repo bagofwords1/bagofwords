@@ -1350,6 +1350,20 @@ class UsagePolicyService:
         policy_id: str,
         overrides: List[UsagePolicyConnectionOverrideInput],
     ) -> None:
+        # Validate before writing: a duplicate or unknown/foreign connection id
+        # used to fail at flush time (unique/FK violation) as a 500.
+        requested = [str(o.connection_id) for o in (overrides or [])]
+        if len(set(requested)) != len(requested):
+            raise HTTPException(status_code=422, detail="Each connection can only have one override")
+        if requested:
+            found = set((await db.execute(
+                select(Connection.id).where(
+                    Connection.id.in_(requested),
+                    Connection.organization_id == org_id,
+                )
+            )).scalars().all())
+            if found != set(requested):
+                raise HTTPException(status_code=422, detail="Unknown connection in connection_overrides")
         await db.execute(delete(UsagePolicyConnectionOverride).where(UsagePolicyConnectionOverride.policy_id == policy_id))
         for override in overrides or []:
             db.add(

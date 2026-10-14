@@ -487,6 +487,10 @@
       "trigger_run": {
         "title": "⚡ \"{name}\" fired — {summary}",
         "body": "The investigation completed — open the session for the findings."
+      },
+      "delivery_skipped": {
+        "title": "Some recipients did not get \"{report}\"",
+        "body": "{count} recipient(s) were not sent this report because it contains data scoped to each viewer: {recipients}"
       }
     },
     "checkin": {
@@ -1923,7 +1927,7 @@
     "publishedToast": "Query published to the catalog",
     "suggestedToast": "Suggestion submitted for review",
     "parametersHeading": "Parameters",
-    "parametersBody": "Saved with the query. Anyone loading this entity can pass their own values; identity parameters always bind to the viewer.",
+    "parametersBody": "Saved with the query. Anyone loading this entity can pass their own values; identity parameters always bind to the viewer. The identity filter check is a guardrail; for strict isolation use database row-level security or per-user credentials.",
     "paramIdentity": "scoped to viewer",
     "paramAll": "= All"
   },
@@ -4134,6 +4138,9 @@
   "errors": {
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
+    "invitation_required": "Sign-up is disabled. Ask your admin for an invite.",
+    "oauth_email_missing": "Could not get your email from the sign-in provider. Ask your admin to check the provider's email scope.",
+    "oauth_login_failed": "Sign-in failed. Try again or contact your administrator.",
     "generic": "Something went wrong. Please try again.",
     "network": "Network error. Check your connection.",
     "unauthorized": "You are not authorized to do that.",
@@ -6160,5 +6167,11 @@
       "stopped": "stopped",
       "timed_out": "deadline reached"
     }
+  },
+  "integrationConnection": {
+    "noConnection": "This agent has no connection yet.",
+    "notFound": "This connection could not be found.",
+    "forbidden": "You don't have access to this connection.",
+    "loadFailed": "Failed to load the connection. Try again later."
   }
 }

@@ -7,7 +7,9 @@
  *
  * Sister runtime: frontend/public/mcp-artifact-app.html (loaded by Claude / Cursor
  * via MCP Apps spec, gets data via postMessage instead of inlining). That file
- * keeps its own DOCTYPE shell because external hosts load it by URL, but it
+ * keeps its own DOCTYPE shell because MCP hosts receive it as a whole document
+ * (ui:// resource text from routes/mcp.py, never by URL — the app-origin copy is
+ * unframeable and inert), but it
  * loads /libs/artifact-globals.js so the runtime surface (useMemo, useState,
  * KPICard, useFilters, …) matches what this template provides.
  */

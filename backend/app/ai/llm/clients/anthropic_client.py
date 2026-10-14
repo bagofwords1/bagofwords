@@ -96,6 +96,7 @@ def _prefix_cache_control() -> dict[str, Any]:
 class Anthropic(LLMClient):
     def __init__(self, api_key: str = None, base_url: str = None, temperature: Optional[float] = None,
                  default_headers: Optional[dict] = None, vertex: Optional[dict] = None,
+                 pin_egress: bool = False,
                  identity_headers: Optional[IdentityHeaders] = None):
         super().__init__()
         # Identity-forwarding headers resolve per request via an httpx hook on
@@ -134,8 +135,18 @@ class Anthropic(LLMClient):
                 client_kwargs["base_url"] = base_url
             if default_headers:
                 client_kwargs["default_headers"] = default_headers
-            self.client = AnthropicAPI(**client_kwargs, **sync_http)
-            self.async_client = AsyncAnthropic(**client_kwargs, **async_http)
+            if pin_egress:
+                # Admin-configured base_url (Azure AI Foundry): validate and
+                # pin every request to the checked address (app.core.egress).
+                from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
+
+                self.client = AnthropicAPI(**client_kwargs, http_client=AnthropicDefaultHttpxClient(
+                    transport=PinnedTransport(Policy.ADMIN), **({"event_hooks": sync_hooks} if sync_hooks else {})))
+                self.async_client = AsyncAnthropic(**client_kwargs, http_client=AnthropicDefaultAsyncHttpxClient(
+                    transport=AsyncPinnedTransport(Policy.ADMIN), **({"event_hooks": async_hooks} if async_hooks else {})))
+            else:
+                self.client = AnthropicAPI(**client_kwargs, **sync_http)
+                self.async_client = AsyncAnthropic(**client_kwargs, **async_http)
         self.max_tokens = 32768
         # Admin-configured override, or the historical default. Either way the
         # _accepts_temperature gate stays authoritative: model families that

@@ -454,6 +454,10 @@
       "trigger_run": {
         "title": "⚡ \"{name}\" wurde ausgelöst — {summary}",
         "body": "Die Untersuchung ist abgeschlossen — öffnen Sie die Sitzung für die Ergebnisse."
+      },
+      "delivery_skipped": {
+        "title": "Einige Empfänger haben „{report}“ nicht erhalten",
+        "body": "{count} Empfänger haben diesen Bericht nicht erhalten, da er Daten enthält, die für jeden Betrachter individuell sind: {recipients}"
       }
     },
     "checkin": {
@@ -3861,6 +3865,9 @@
   "errors": {
     "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
     "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",
+    "invitation_required": "Die Registrierung ist deaktiviert. Bitten Sie Ihren Administrator um eine Einladung.",
+    "oauth_email_missing": "Ihre E-Mail-Adresse konnte nicht vom Anmeldeanbieter abgerufen werden. Bitten Sie Ihren Administrator, den E-Mail-Scope des Anbieters zu prüfen.",
+    "oauth_login_failed": "Die Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",
     "generic": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
     "network": "Netzwerkfehler. Überprüfen Sie Ihre Verbindung.",
     "unauthorized": "Sie sind nicht berechtigt, dies zu tun.",

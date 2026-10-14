@@ -6,7 +6,7 @@
 #   curl -u alice:alice123 http://localhost:8081/dctm-rest/repositories/bow_demo/cabinets
 services:
   documentum-mock:
-    image: python:3.12-slim
+    image: python:3.13-slim
     working_dir: /srv
     volumes:
       - ./mock_documentum_server.py:/srv/mock_documentum_server.py:ro

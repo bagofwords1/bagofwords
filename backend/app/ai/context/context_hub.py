@@ -970,7 +970,7 @@ class ContextHub:
         if not self.report:
             return ScheduledTasksSection(items=[])
 
-        from sqlalchemy import select
+        from sqlalchemy import select, or_
         from app.models.scheduled_prompt import ScheduledPrompt
 
         cron_labels = {
@@ -985,7 +985,12 @@ class ContextHub:
 
         result = await self.db.execute(
             select(ScheduledPrompt)
-            .filter(ScheduledPrompt.report_id == self.report.id)
+            # The report's own schedules, plus — in a report-per-run report —
+            # the schedule that spawned it, so the owner can edit/cancel it here.
+            .filter(or_(
+                ScheduledPrompt.report_id == self.report.id,
+                ScheduledPrompt.id == (getattr(self.report, "scheduled_prompt_id", None) or "__none__"),
+            ))
             .filter(ScheduledPrompt.is_active == True)  # noqa: E712
             .filter(ScheduledPrompt.deleted_at == None)  # noqa: E711
             .order_by(ScheduledPrompt.created_at.asc())

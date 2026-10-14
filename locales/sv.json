@@ -454,6 +454,10 @@
       "trigger_run": {
         "title": "⚡ \"{name}\" utlöstes — {summary}",
         "body": "Utredningen är klar — öppna sessionen för att se resultaten."
+      },
+      "delivery_skipped": {
+        "title": "Vissa mottagare fick inte \"{report}\"",
+        "body": "{count} mottagare fick inte rapporten eftersom den innehåller data som är specifik för varje användare: {recipients}"
       }
     },
     "checkin": {
@@ -3861,6 +3865,9 @@
   "errors": {
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",
+    "invitation_required": "Registrering är inaktiverad. Be din administratör om en inbjudan.",
+    "oauth_email_missing": "Det gick inte att hämta din e-post från inloggningsleverantören. Be din administratör kontrollera leverantörens e-postscope.",
+    "oauth_login_failed": "Inloggningen misslyckades. Försök igen eller kontakta administratören.",
     "generic": "Något gick fel. Försök igen.",
     "network": "Nätverksfel. Kontrollera din anslutning.",
     "unauthorized": "Du har inte behörighet att göra det.",

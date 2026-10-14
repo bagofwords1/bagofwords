@@ -101,10 +101,13 @@ class ImapMailboxReader(MailboxReader):
 
     def _connect(self, xoauth2: Optional[str] = None) -> imaplib.IMAP4:
         cfg = self.config
+        # Connect only to a validated address of the admin-configured host.
+        from app.services.email.pinned import PinnedIMAP4, PinnedIMAP4_SSL
+
         if cfg.use_ssl:
-            conn = imaplib.IMAP4_SSL(cfg.host, cfg.port)
+            conn = PinnedIMAP4_SSL(cfg.host, cfg.port)
         else:
-            conn = imaplib.IMAP4(cfg.host, cfg.port)
+            conn = PinnedIMAP4(cfg.host, cfg.port)
         if cfg.oauth is not None:
             # SASL XOAUTH2: the token string is minted in the async layer and
             # passed in; imaplib hands the server our initial response.

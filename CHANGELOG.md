@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.590 (October 14, 2026)
+- Bug fixes and security hardening (#1304)
+
 ## Version 0.0.589 (October 14, 2026)
 - Fixed missing custom document libraries in on-prem SharePoint connections (#1380)
 

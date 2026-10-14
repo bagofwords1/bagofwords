@@ -95,6 +95,22 @@ class PromptRunForRequest(BaseModel):
     # and 'email' (the target's account email). Unknown values are ignored.
     delivery_channels: Optional[List[str]] = None
 
+    @field_validator("user_ids")
+    @classmethod
+    def _user_ids_are_ids(cls, v):
+        from app.core.request_hardening import is_uuid
+        if v is not None and not all(is_uuid(x) for x in v):
+            raise ValueError("user_ids must be user ids")
+        return v
+
+    @field_validator("group_id")
+    @classmethod
+    def _group_id_is_id(cls, v):
+        from app.core.request_hardening import is_uuid
+        if v is not None and not is_uuid(v):
+            raise ValueError("group_id must be a group id")
+        return v
+
 
 class PromptRunForResponse(BaseModel):
     ran: int

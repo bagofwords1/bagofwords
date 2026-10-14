@@ -449,6 +449,10 @@ def sent(monkeypatch):
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", handle)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", handle_async)
+    # Admin-configured gateways go through the pinned egress transport, which
+    # resolves the host before sending; give the fake hosts a public address.
+    from app.core import egress
+    monkeypatch.setattr(egress, "_getaddrinfo", lambda host: [(2, 1, 6, "", ("93.184.216.34", 0))])
     return seen
 
 

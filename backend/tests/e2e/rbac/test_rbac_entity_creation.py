@@ -238,12 +238,12 @@ def test_owner_lifecycle_suggest_withdraw_update_delete(test_client, world):
     assert sg.json()["global_status"] == "suggested"
 
     # Another plain member may not touch it.
-    other = world["admin"]  # admin CAN touch; use a real stranger check below via 403 on owner-only endpoint
     stranger_wd = test_client.post(
         f"/api/entities/{entity_id}/withdraw",
         headers=_hdr(world["owner"]["token"], world["org_id"]),
     )
-    assert stranger_wd.status_code == 403, stranger_wd.text
+    # 404, not 403: a non-owner must not learn the entity exists.
+    assert stranger_wd.status_code == 404, stranger_wd.text
 
     dele = test_client.delete(f"/api/entities/{entity_id}", headers=hdr)
     assert dele.status_code == 200, dele.text
@@ -330,6 +330,15 @@ def test_detail_withholds_snapshot_from_nonowner(test_client, user_scoped_world)
     assert other.json()["data"] in ({}, None)
 
 
+async def _set_conversation_visibility(report_id, value):
+    from app.dependencies import async_session_maker
+    from app.models.report import Report
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        report.conversation_visibility = value
+        await db.commit()
+
+
 @pytest.mark.e2e
 def test_from_step_does_not_copy_foreign_slice(test_client, user_scoped_world):
     """A member saving the ADMIN's step must not mint an entity carrying the
@@ -339,7 +348,18 @@ def test_from_step_does_not_copy_foreign_slice(test_client, user_scoped_world):
         test_client, w["admin"]["token"], w["org_id"], [w["ds_public"]["id"]],
     )
     step_id = _run(_seed_step(report_id, data=OWNER_SLICE))
+    body = {"title": "member copy", "publish": False,
+            "data_source_ids": [w["ds_public"]["id"]]}
 
+    # A report the member cannot see: its step is not theirs to clone at all.
+    hidden = test_client.post(
+        f"/api/entities/from_step/{step_id}", json=body,
+        headers=_hdr(w["member"]["token"], w["org_id"]),
+    )
+    assert hidden.status_code == 404, hidden.text
+
+    # Shared org-wide, the member may clone it — but not the owner's rows.
+    _run(_set_conversation_visibility(report_id, "internal"))
     saved = test_client.post(
         f"/api/entities/from_step/{step_id}",
         json={"title": "member copy", "publish": False,

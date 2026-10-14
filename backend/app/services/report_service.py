@@ -1518,8 +1518,15 @@ class ReportService:
         report_id: str,
         current_user: User,
         artifact_id: str | None = None,
+        only_identity_scoped: bool = False,
     ) -> dict:
         """Re-execute a shared artifact's steps for a viewer.
+
+        `only_identity_scoped` limits the run to steps whose rows depend on
+        who runs them (step_identity_scope) — the per-recipient email render
+        (report_bursting) needs exactly those; every other step serves the
+        shared snapshot to this viewer anyway, so re-running it per recipient
+        would only multiply warehouse load.
 
         Unlike rerun_report_steps (owner refresh), results land in the
         viewer's own step_user_results rows — the shared Step.data snapshot
@@ -1646,6 +1653,13 @@ class ReportService:
 
         query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
         targets, unrunnable = await self._rerun_target_steps(db, query_ids)
+        if only_identity_scoped:
+            from app.services.report_bursting import identity_scoped_step_ids
+            scoped = await identity_scoped_step_ids(db, [sid for sid, _ in targets])
+            targets = [(sid, code) for sid, code in targets if sid in scoped]
+            # A query with no step renders nothing for anyone — not this
+            # viewer's failure.
+            unrunnable = 0
         for step_id, code in targets:
             steps_total += 1
             if not code or not str(code).strip():
@@ -2048,6 +2062,36 @@ class ReportService:
             'confirmation_user_ids': confirmation_user_ids,
         }
 
+    async def _visible_to_user_clause(self, db: AsyncSession, current_user: User, organization: Organization):
+        """SQL clause for reports someone OTHER than the owner may see: shared
+        with them (directly or via a group), public/internal, or in a project
+        they can view. Callers OR in ownership themselves."""
+        from app.models.report_share import ReportShare
+        from app.services.project_service import project_service
+        user_group_ids = self._user_group_ids_subquery(
+            current_user.id, organization.id
+        )
+        shared_with_user = Report.id.in_(
+            select(ReportShare.report_id).where(
+                or_(
+                    ReportShare.user_id == current_user.id,
+                    ReportShare.group_id.in_(user_group_ids),
+                ),
+                ReportShare.deleted_at.is_(None),
+            )
+        )
+        visible_project_ids = await project_service.get_visible_project_ids(
+            db, current_user, organization
+        )
+        visibility_terms = [
+            Report.artifact_visibility.in_(['public', 'internal']),
+            Report.conversation_visibility.in_(['public', 'internal']),
+            shared_with_user,
+        ]
+        if visible_project_ids:
+            visibility_terms.append(Report.project_id.in_(visible_project_ids))
+        return or_(*visibility_terms)
+
     async def get_reports_activity(
         self,
         db: AsyncSession,
@@ -2070,14 +2114,23 @@ class ReportService:
         if not ids:
             return {"activity": []}
 
-        # Authorization boundary: only reports in the caller's org survive.
-        # The ids themselves come from lists the server already filtered.
+        # Authorization boundary: ids are client-supplied, so only reports in
+        # the caller's org that they own or may see survive — otherwise any
+        # member could poll a private report's live status by id.
+        from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+        conditions = [
+            Report.id.in_(ids),
+            Report.organization_id == organization.id,
+            Report.deleted_at.is_(None),
+        ]
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if FULL_ADMIN not in resolved.org_permissions:
+            conditions.append(or_(
+                Report.user_id == current_user.id,
+                await self._visible_to_user_clause(db, current_user, organization),
+            ))
         reports_result = await db.execute(
-            select(Report.id, Report.last_activity_at, Report.created_at).filter(
-                Report.id.in_(ids),
-                Report.organization_id == organization.id,
-                Report.deleted_at.is_(None),
-            )
+            select(Report.id, Report.last_activity_at, Report.created_at).filter(*conditions)
         )
         report_rows = reports_result.all()
         if not report_rows:
@@ -2457,38 +2510,7 @@ class ReportService:
                 )
                 base_conditions.append(Report.project_id == str(target_project.id))
 
-            # Shared visibility: reports shared with the user directly or via
-            # a group they belong to.
-            from app.models.report_share import ReportShare
-            user_group_ids = self._user_group_ids_subquery(
-                current_user.id, organization.id
-            )
-            shared_with_user = Report.id.in_(
-                select(ReportShare.report_id).where(
-                    or_(
-                        ReportShare.user_id == current_user.id,
-                        ReportShare.group_id.in_(user_group_ids),
-                    ),
-                    ReportShare.deleted_at.is_(None),
-                )
-            )
-            # Reports living in a project the user can view are visible to them
-            # (a project is a sharing boundary). Resolved as a list of ids so
-            # the SQL stays a simple IN.
-            visible_project_ids = await project_service.get_visible_project_ids(
-                db, current_user, organization
-            )
-            # A report is "visible" if it has any non-none visibility and
-            # either it's public/internal or the user is in the share list,
-            # or it belongs to a project the user can view.
-            visibility_terms = [
-                Report.artifact_visibility.in_(['public', 'internal']),
-                Report.conversation_visibility.in_(['public', 'internal']),
-                shared_with_user,
-            ]
-            if visible_project_ids:
-                visibility_terms.append(Report.project_id.in_(visible_project_ids))
-            visible_to_user = or_(*visibility_terms)
+            visible_to_user = await self._visible_to_user_clause(db, current_user, organization)
 
             if filter == "my":
                 # Show only reports owned by current user
@@ -3272,6 +3294,19 @@ class ReportService:
             current_user = await db.get(User, current_user_id)
             organization = await db.get(Organization, organization_id)
 
+            # The refresh runs the report's queries AS the scheduling user and
+            # mails the results to subscribers. Re-check at fire time that the
+            # user may still act here — a SCIM-deprovisioned (inactive) or
+            # removed member must not keep querying with their credentials.
+            # Skip without unscheduling, so reactivating the user resumes it.
+            from app.core.permission_resolver import principal_can_act_in_org
+            if organization is None or not await principal_can_act_in_org(db, current_user, str(organization_id)):
+                logger.warning(
+                    f"Skipped scheduled refresh for report {report_id}: user {current_user_id} "
+                    f"is deactivated or no longer bound to org {organization_id}."
+                )
+                return
+
             # Now call rerun_report_steps with the fresh db and loaded objects
             await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True)
 
@@ -3548,7 +3583,24 @@ class ReportService:
 
         # Check conversation visibility
         await self._check_visibility(db, report, 'conversation_visibility', user)
-        
+
+        # PII display redaction: the same org redactor + helpers the owner's
+        # timeline (CompletionService.get_completions_v2 → completion_v2
+        # serializers) applies, scoped to the report's org — so a share link
+        # can never show more than the owner view does. Parity is pinned by
+        # tests/e2e/test_public_output_parity.py.
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
+        async with display_redaction(str(report.organization_id), async_session_maker):
+            return await self._build_public_conversation(db, report, limit, before)
+
+    async def _build_public_conversation(self, db: AsyncSession, report, limit: int, before: str | None) -> dict:
+        from app.ai.llm.pii.display import (
+            redact_deep_display,
+            redact_prompt_display,
+            redact_text_display,
+        )
+
         # Fetch completions for this report
         from app.models.completion import Completion
         from app.models.completion_block import CompletionBlock
@@ -3687,8 +3739,8 @@ class ReportService:
                 "id": b.id,
                 "block_index": b.block_index,
                 "status": b.status,
-                "content": b.content,
-                "reasoning": b.reasoning,
+                "content": redact_text_display(b.content),
+                "reasoning": redact_text_display(b.reasoning),
                 "started_at": b.started_at.isoformat() if b.started_at else None,
                 "completed_at": b.completed_at.isoformat() if b.completed_at else None,
                 # Which phase of the turn produced this block. 'knowledge_harness'
@@ -3702,9 +3754,10 @@ class ReportService:
 
             if pd:
                 block_data["plan_decision"] = {
-                    "reasoning": pd.reasoning,
-                    "assistant": pd.assistant,
-                    "final_answer": pd.final_answer,
+                    # The decision echoes the block text, so it gets the same mask.
+                    "reasoning": redact_text_display(pd.reasoning),
+                    "assistant": redact_text_display(pd.assistant),
+                    "final_answer": redact_text_display(pd.final_answer),
                     "analysis_complete": pd.analysis_complete,
                 }
             
@@ -3719,7 +3772,8 @@ class ReportService:
                 # painted their chrome around blank text — the share view was
                 # already serving the far more revealing result_json, so the
                 # input was withheld to no one's benefit.
-                result_json = project_tool_result_for_ui(te.result_json)
+                # Project → PII-redact, the order the owner serializer uses.
+                result_json = redact_deep_display(project_tool_result_for_ui(te.result_json))
                 block_data["tool_execution"] = sanitize_json_strings({
                     "id": te.id,
                     "tool_name": te.tool_name,
@@ -3752,7 +3806,7 @@ class ReportService:
                 "status": c.status,
                 # Request metadata (the calling app's per-question values) is
                 # for this run's MCP servers, not for public share viewers.
-                "prompt": without_request_metadata(c.prompt) if c.role == "user" else None,
+                "prompt": redact_prompt_display(without_request_metadata(c.prompt)) if c.role == "user" else None,
                 "completion_blocks": c_blocks if c.role == "system" else [],
                 "created_at": c.created_at.isoformat() if c.created_at else None,
             }

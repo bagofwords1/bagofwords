@@ -193,6 +193,26 @@ async def principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def principal_can_act_in_org(db: AsyncSession, user, org_id: str) -> bool:
+    """Whether background work may still run AS ``user`` in ``org_id``.
+
+    Use this from deferred jobs (scheduled prompts, agent wake-ups), which run
+    long after any request authenticated the user. It needs two things:
+
+    - The org binding (``principal_belongs_to_org``). Covers removal from
+      the members list and directory syncs.
+    - An active login, for humans. SCIM DELETE deprovisions by setting
+      ``is_active=False`` and keeps the membership row, so the binding alone
+      misses it. Service accounts are inactive by construction, so for them
+      the ``ServiceAccount`` binding (which honours ``disabled_at``) decides.
+    """
+    if user is None:
+        return False
+    if not getattr(user, "is_service_account", False) and not getattr(user, "is_active", False):
+        return False
+    return await principal_belongs_to_org(db, user, org_id)
+
+
 async def assert_principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> None:
     """Raise 403 unless ``user`` is bound to ``org_id`` (member or service account).
 

@@ -17,11 +17,29 @@ from app.dependencies import async_session_maker
 from datetime import datetime
 import json
 from app.core.telemetry import telemetry
+from app.core.url_safety import UnsafeURLError, check_admin_url
 from app.ee.audit.service import audit_service
 from app.errors import AppError, ErrorCode
 from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# additional_config keys that decide which host a provider's credentials are
+# sent to (and whether TLS is verified). Changing any of these in a test must
+# not reuse stored secrets. Value is the default when the key is absent.
+_DESTINATION_CONFIG_KEYS = {"base_url": None, "endpoint_url": None, "verify_ssl": True}
+
+
+def _check_provider_url(url: str) -> None:
+    try:
+        check_admin_url(url)
+    except UnsafeURLError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# Upper bound for a manual context-window override (INTEGER column is 32-bit).
+MAX_CONTEXT_WINDOW_TOKENS = 2_147_483_647
+
 
 class LLMService:
     def __init__(self):
@@ -1186,6 +1204,9 @@ class LLMService:
         """
         if tokens is not None and tokens <= 0:
             raise HTTPException(status_code=400, detail="Context window must be a positive number of tokens")
+        # Column is a 32-bit INTEGER; anything larger is a client error, not a DB crash.
+        if tokens is not None and tokens > MAX_CONTEXT_WINDOW_TOKENS:
+            raise HTTPException(status_code=400, detail="Context window is too large")
 
         model = await db.execute(
             select(LLMModel).join(LLMProvider).filter(
@@ -1832,6 +1853,7 @@ class LLMService:
         if provider.provider_type == "openai":
             base_url = credentials.get("base_url")
             if base_url:
+                _check_provider_url(base_url)
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             elif "base_url" in credentials and (credentials.get("base_url") is None or credentials.get("base_url") == ""):
                 # Explicitly clear base_url
@@ -1858,6 +1880,7 @@ class LLMService:
         if provider.provider_type == "custom":
             base_url = credentials.get("base_url")
             if base_url:
+                _check_provider_url(base_url)
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             # For custom providers, base_url is required - don't clear it
             if "verify_ssl" in credentials:
@@ -1953,6 +1976,12 @@ class LLMService:
                         detail="Vertex service account key JSON is missing 'private_key' — "
                                "paste the whole key file."
                     )
+                from app.core.egress import check_google_token_uri
+                from app.core.url_safety import UnsafeURLError
+                try:
+                    check_google_token_uri(parsed_key)
+                except UnsafeURLError as exc:
+                    raise HTTPException(status_code=400, detail=f"Vertex service account key: {exc}")
                 api_key = raw_key
                 # A key file names its own project; adopt it when the admin
                 # left the field blank so the common case needs one paste.
@@ -2796,12 +2825,32 @@ class LLMService:
         # Seed encrypted credentials + config from the saved provider; any
         # credentials supplied in the payload override these below.
         if stored_provider is not None:
+            # The stored secret is bound to the stored provider type.
+            if provider.provider_type != stored_provider.provider_type:
+                raise HTTPException(status_code=400, detail="provider_type does not match the saved provider")
             provider_obj.api_key = stored_provider.api_key
             provider_obj.api_secret = stored_provider.api_secret
             provider_obj.additional_config = dict(stored_provider.additional_config or {})
 
         # Set credentials and merge provider-specific additional_config
         self._set_provider_credentials(provider_obj, provider.credentials or {})
+
+        # Never send a stored secret somewhere other than where it was saved
+        # for: if the payload moved the destination (endpoint, base URL,
+        # TLS verification), drop the stored secrets so
+        # only credentials typed into this request are used.
+        if stored_provider is not None:
+            stored_config = stored_provider.additional_config or {}
+            new_config = provider_obj.additional_config or {}
+            if any(
+                stored_config.get(k, default) != new_config.get(k, default)
+                for k, default in _DESTINATION_CONFIG_KEYS.items()
+            ):
+                provider_obj.api_key = None
+                provider_obj.api_secret = None
+                # Re-apply the payload: config is unchanged, secrets now come
+                # from the payload alone.
+                self._set_provider_credentials(provider_obj, provider.credentials or {})
 
         # Choose a model to test from user-provided list, preferring default or custom
         selected_model = None
@@ -2864,7 +2913,10 @@ class LLMService:
 
         # Run a lightweight connection test against the LLM client
         logger.info("Testing LLM connection with model: model_id=%s, provider_type=%s", selected_model.model_id, provider.provider_type)
-        llm = LLM(selected_model, usage_session_maker=async_session_maker)
+        try:
+            llm = LLM(selected_model, usage_session_maker=async_session_maker)
+        except UnsafeURLError as e:
+            return {"success": False, "message": str(e)}
         result = await llm.test_connection()
         # A plain text reply is not enough: every agent turn sends function
         # tools, and some endpoints accept text but reject tools (e.g. GPT-6
