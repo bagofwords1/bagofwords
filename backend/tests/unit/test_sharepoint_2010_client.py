@@ -28,6 +28,8 @@ class LegacyServer:
     def __init__(self):
         self.blobs = {ROOT + '/revenue.csv': b'region,amount\nNorth,120\nSouth,80\n', ROOT + '/nested/דוח.txt': 'שלום'.encode(), ROOT + "/O'Brien & costs.txt": b'known contents', ROOT + '/empty.txt': b'', OTHER + '/rules.txt': b'Policy'}
         self.libraries = [('Documents', ROOT, 'lib1'), ('Policies', OTHER, 'lib2')]
+        self.library_attributes = {}
+        self.collection_has_roots = True
         self.calls, self.identities = [], []
         self.status, self.override, self.page_size = None, None, 2
         self.empty_folders = {ROOT + '/empty-folder'}
@@ -47,7 +49,11 @@ class LegacyServer:
         if op == 'GetListCollection':
             lists = ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListCollectionResult'), f'{{{SP}}}Lists')
             for title, path, guid in self.libraries:
-                ET.SubElement(lists, f'{{{SP}}}List', ID=guid, Title=title, RootFolder=path, ServerTemplate='101', Hidden='False')
+                attrs = dict(ID=guid, Title=title, RootFolder=path, BaseType='1', ServerTemplate='101', Hidden='False')
+                attrs.update(self.library_attributes.get(guid, {}))
+                if not self.collection_has_roots:
+                    attrs.pop('RootFolder')
+                ET.SubElement(lists, f'{{{SP}}}List', **attrs)
         elif op == 'GetList':
             name = command.findtext(f'{{{SP}}}listName')
             lib = next((x for x in self.libraries if name.casefold() in (x[0].casefold(), x[2])), None)
@@ -57,7 +63,9 @@ class LegacyServer:
                 ET.SubElement(ET.SubElement(f, 'detail'), f'{{{SP}}}errorcode').text = '0x82000006'
                 return ET.tostring(fault), 500
             title, path, guid = lib
-            node = ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListResult'), f'{{{SP}}}List', ID=guid, Title=title, RootFolder=path, ServerTemplate='101', Hidden='False')
+            attrs = dict(ID=guid, Title=title, RootFolder=path, BaseType='1', ServerTemplate='101', Hidden='False')
+            attrs.update(self.library_attributes.get(guid, {}))
+            node = ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListResult'), f'{{{SP}}}List', **attrs)
             ET.SubElement(node, f'{{{SP}}}Validation').text = 'Extra schema element'
             ET.SubElement(node, f'{{{SP}}}Fields')
         elif op == 'GetListItems':
@@ -129,6 +137,38 @@ def test_legacy_connection_lists_and_reads_documents(legacy):
         assert name == entry['name'] and entry['size'] == len(content)
     assert c.read_file('nested/דוח.txt') == 'שלום'
     assert set(legacy.identities) == {'DOMAIN\\reader'}
+
+@pytest.mark.parametrize('template', ['12042', '13057'])
+@pytest.mark.parametrize('library', ['*', 'Documents'])
+@pytest.mark.parametrize('collection_has_roots', [True, False])
+def test_custom_document_libraries_support_catalog_search_and_reads(
+    legacy, template, library, collection_has_roots,
+):
+    legacy.library_attributes['lib1'] = {'ServerTemplate': template}
+    legacy.collection_has_roots = collection_has_roots
+    c = client(drive_name=library, recursive=True)
+    expected = {p for p in legacy.blobs if library == '*' or p.startswith(ROOT + '/')}
+    files = c.list_files()
+    assert {f['id'] for f in files} == expected
+    assert {table.name for table in c.get_schemas()} == {f['path'] for f in files}
+    assert {f['id'] for f in c.search_files('revenue')} == {ROOT + '/revenue.csv'}
+    for path in expected:
+        assert c.read_raw_bytes(path)[0] == legacy.blobs[path]
+
+@pytest.mark.parametrize('attributes', [
+    {'Hidden': 'True'}, {'BaseType': '0'}, {'BaseType': ''}, {'Hidden': ''},
+])
+def test_hidden_and_non_document_libraries_are_not_accessible(legacy, attributes):
+    legacy.library_attributes['lib1'] = attributes
+    c = client(recursive=True)
+    assert {f['id'] for f in c.list_files()} == {p for p in legacy.blobs if p.startswith(OTHER + '/')}
+    with pytest.raises(ValueError):
+        c.read_raw_bytes(ROOT + '/revenue.csv')
+    selected = client(drive_name='Documents')
+    assert not selected.test_connection()['success']
+    with pytest.raises(ValueError):
+        selected.read_raw_bytes(ROOT + '/revenue.csv')
+    assert 'GetItem' not in legacy.calls
 
 @pytest.mark.parametrize('library,recursive', [('Documents', False), ('Documents', True), ('*', False), ('*', True)])
 def test_listing_scope_pagination_and_catalog_agree(legacy, library, recursive):
@@ -346,9 +386,9 @@ def test_collection_without_root_folder_resolves_list_metadata(legacy):
         if op == 'GetListCollection':
             return (f'''<s:Envelope xmlns:s="{SOAP}"><s:Body>
             <GetListCollectionResponse xmlns="{SP}"><GetListCollectionResult><Lists>
-            <List ID="lib1" Title="Documents" ServerTemplate="101" Hidden="False" />
-            <List ID="hidden" Title="Hidden" ServerTemplate="101" Hidden="True" />
-            <List ID="list" Title="Tasks" ServerTemplate="100" Hidden="False" />
+            <List ID="lib1" Title="Documents" BaseType="1" ServerTemplate="101" Hidden="False" />
+            <List ID="hidden" Title="Hidden" BaseType="1" ServerTemplate="101" Hidden="True" />
+            <List ID="list" Title="Tasks" BaseType="0" ServerTemplate="100" Hidden="False" />
             </Lists></GetListCollectionResult></GetListCollectionResponse>
             </s:Body></s:Envelope>'''.encode(), 200)
     legacy.override = override
@@ -418,7 +458,7 @@ def test_incomplete_library_metadata_is_a_domain_error(legacy, missing):
     def override(op, command):
         if op == 'GetList':
             root, out = envelope(op)
-            attrs = dict(ID='lib1', Title='Documents', ServerTemplate='101', Hidden='False')
+            attrs = dict(ID='lib1', Title='Documents', BaseType='1', ServerTemplate='101', Hidden='False')
             del attrs[missing]
             ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListResult'), f'{{{SP}}}List', **attrs)
             return ET.tostring(root), 200
