@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.589 (October 14, 2026)
+- Fixed missing custom document libraries in on-prem SharePoint connections (#1380)
+
 ## Version 0.0.588 (October 13, 2026)
 - Added read-only SharePoint 2010 connections (#1368)
 - Added Elasticsearch query guardrails and per-connection query limits (#1372)
