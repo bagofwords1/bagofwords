@@ -408,10 +408,18 @@ class SubAgentService:
                 await self._mark_terminal(db, row, RUN_FAILED, EXIT_ERROR, error="report, organization or user gone before launch")
                 return
             # Claim the row before the run can finish (finalize_child is a
-            # conditional transition from running).
-            row.status = RUN_RUNNING
-            row.started_at = datetime.utcnow()
+            # conditional transition from running). Conditional, so a stop that
+            # landed after the read above is not overwritten back to running.
+            claimed = await db.execute(
+                update(SubAgentRun)
+                .where(SubAgentRun.id == row.id, SubAgentRun.status == RUN_PENDING)
+                .values(status=RUN_RUNNING, started_at=datetime.utcnow())
+                .execution_options(synchronize_session=False)
+            )
             await db.commit()
+            if (claimed.rowcount or 0) != 1:
+                return
+            await db.refresh(row)
             prompt = PromptSchema(
                 content=_child_prompt(row),
                 mode="subagent",
@@ -441,6 +449,13 @@ class SubAgentService:
             row.child_head_completion_id = head_id
             row.child_completion_id = sys_id
             await db.commit()
+            # A stop (child, wave or deadline) that closed the row while the
+            # child was being created found no completion to signal. Read the
+            # status after publishing the id: either the stop sees the id, or
+            # this sees the stop.
+            await db.refresh(row)
+            if sys_id and row.status in TERMINAL_RUN_STATUSES:
+                await _sigkill_completion(db, sys_id)
 
     # ── child side ──────────────────────────────────────────────────────────
 
