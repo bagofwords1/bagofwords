@@ -31,6 +31,12 @@ def remote(monkeypatch):
         OTHER + "/rules.txt": b"Employees may expense travel up to 500 euros.",
     }
     state = {"blobs": blobs, "status": None, "next": None, "calls": [], "search_paths": [], "identities": []}
+    state["libraries"] = [
+        {"Id": "lib1", "Title": "Documents", "BaseType": 1, "BaseTemplate": 101, "Hidden": False,
+         "RootFolder": {"ServerRelativeUrl": ROOT}},
+        {"Id": "lib2", "Title": "Policies", "BaseType": 1, "BaseTemplate": 101, "Hidden": False,
+         "RootFolder": {"ServerRelativeUrl": OTHER}},
+    ]
 
     def meta(path):
         return {"Name": path.rsplit("/", 1)[1], "ServerRelativeUrl": path,
@@ -45,8 +51,16 @@ def remote(monkeypatch):
         endpoint = unquote(url.split("/_api/", 1)[1])
         status, body = state["status"] or 200, {}
         if endpoint == "web/lists":
-            body = {"value": [{"Id": "lib1", "Title": "Documents", "RootFolder": {"ServerRelativeUrl": ROOT}},
-                              {"Id": "lib2", "Title": "Policies", "RootFolder": {"ServerRelativeUrl": OTHER}}]}
+            # Evaluate the supported OData equality predicates at the HTTP boundary.
+            libraries = state["libraries"]
+            for predicate in kw.get("params", {}).get("$filter", "").split(" and "):
+                field, operator, value = predicate.split()
+                assert operator == "eq"
+                value = {"true": True, "false": False}.get(value, value)
+                if isinstance(value, str):
+                    value = int(value)
+                libraries = [lib for lib in libraries if lib.get(field) == value]
+            body = {"value": libraries}
         elif endpoint == "web/DefaultDocumentLibrary":
             body = {"Id": "lib1"}
         elif endpoint == "web":
@@ -101,6 +115,34 @@ def test_library_selection_and_recursion(remote, library, recursive, count):
     assert len(files) == count
     assert len({f["id"] for f in files}) == count
     assert all(f["name"] and f["web_url"].startswith(SITE) for f in files)
+
+
+@pytest.mark.parametrize("template", [12042, 13057])
+@pytest.mark.parametrize("library", ["*", "Documents", ""])
+def test_custom_document_libraries_support_catalog_search_and_reads(remote, template, library):
+    remote["libraries"][0]["BaseTemplate"] = template
+    c = client(drive_name=library, recursive=True)
+    expected = {p for p in remote["blobs"] if library == "*" or p.startswith(ROOT + "/")}
+    files = c.list_files()
+    assert {f["id"] for f in files} == expected
+    assert {table.name for table in c.get_schemas()} == {f["path"] for f in files}
+    assert {f["id"] for f in c.search_files("revenue")} == {ROOT + "/revenue.csv"}
+    for path in expected:
+        assert c.read_raw_bytes(path)[0] == remote["blobs"][path]
+
+
+@pytest.mark.parametrize("attributes", [{"Hidden": True}, {"BaseType": 0}])
+def test_hidden_and_non_document_libraries_are_not_accessible(remote, attributes):
+    remote["libraries"][0].update(attributes)
+    c = client(recursive=True)
+    assert {f["id"] for f in c.list_files()} == {p for p in remote["blobs"] if p.startswith(OTHER + "/")}
+    with pytest.raises(ValueError):
+        c.read_raw_bytes(ROOT + "/revenue.csv")
+    selected = client(drive_name="Documents")
+    assert not selected.test_connection()["success"]
+    with pytest.raises(ValueError):
+        selected.read_raw_bytes(ROOT + "/revenue.csv")
+    assert not any("$value" in url for url, _ in remote["calls"])
 
 
 def test_scoped_catalog_and_live_reads_share_paths(remote):
