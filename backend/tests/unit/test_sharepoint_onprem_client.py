@@ -2,7 +2,7 @@
 from app.schemas.data_source_registry import REGISTRY
 import io
 import json
-from urllib.parse import unquote
+from urllib.parse import unquote, parse_qs, urlsplit
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -31,6 +31,7 @@ def remote(monkeypatch):
         OTHER + "/rules.txt": b"Employees may expense travel up to 500 euros.",
     }
     state = {"blobs": blobs, "status": None, "next": None, "calls": [], "search_paths": [], "identities": []}
+    state["page_size"] = None
     state["libraries"] = [
         {"Id": "lib1", "Title": "Documents", "BaseType": 1, "BaseTemplate": 101, "Hidden": False,
          "RootFolder": {"ServerRelativeUrl": ROOT}},
@@ -48,7 +49,7 @@ def remote(monkeypatch):
         assert kw["allow_redirects"] is False
         assert session.verify is True
         assert session.trust_env is False
-        endpoint = unquote(url.split("/_api/", 1)[1])
+        endpoint = unquote(url.split("/_api/", 1)[1].split('?')[0])
         status, body = state["status"] or 200, {}
         if endpoint == "web/lists":
             # Evaluate the supported OData equality predicates at the HTTP boundary.
@@ -75,6 +76,13 @@ def remote(monkeypatch):
             path = endpoint.split("decodedurl='", 1)[1].rsplit("')", 1)[0].replace("''", "'")
             if endpoint.endswith("/Files"):
                 body = {"value": [meta(p) for p in blobs if p.rsplit("/", 1)[0] == path]}
+                if state["page_size"]:
+                    offset = int(parse_qs(urlsplit(url).query).get('offset', ['0'])[0])
+                    size = min(state['page_size'], (kw.get('params') or {}).get('$top', state['page_size']))
+                    rows = body['value']
+                    body['value'] = rows[offset:offset + size]
+                    if offset + size < len(rows):
+                        body['odata.nextLink'] = url.split('?')[0] + f'?offset={offset + size}'
                 if state["next"]:
                     body["odata.nextLink"] = state["next"]
             elif endpoint.endswith("/Folders"):
