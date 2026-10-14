@@ -8,6 +8,7 @@ from app.schemas.external_platform_schema import ExternalPlatformSchema
 from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
 from app.schemas.project_schema import ProjectMiniSchema
 from app.utils.reasoning_effort import normalize_effort
+from app.schemas.report_api_settings import validate_tools
 
 class ReportBase(BaseModel):
     title: Optional[str] = None
@@ -31,11 +32,21 @@ class ReportCreate(ReportBase):
     # Reasoning level picked with the model (low|medium|high|max). Omitted /
     # None = Default.
     reasoning_effort: Optional[str] = None
+    # Per-conversation opt-outs for API integrations (app.schemas.report_api_settings).
+    # Omitted / null = the org setting decides; false = off on every turn.
+    follow_ups: Optional[bool] = None
+    suggest_instructions: Optional[bool] = None
+    tools: Optional[dict] = None
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod
     def _validate_reasoning_effort(cls, v):
         return normalize_effort(v)
+
+    @field_validator("tools")
+    @classmethod
+    def _validate_tools(cls, v):
+        return validate_tools(v)
 
 class ReportUpdate(BaseModel):
     title: Optional[str] = None
@@ -55,6 +66,13 @@ class ReportUpdate(BaseModel):
     # omit to leave unchanged, "" or "default" to clear back to Default.
     reasoning_effort: Optional[str] = None
 
+    # Per-conversation opt-outs (see ReportCreate). Omit to leave unchanged;
+    # send null to hand the decision back to the org setting. tools merges by
+    # key: {"clarify": null} clears that one key.
+    follow_ups: Optional[bool] = None
+    suggest_instructions: Optional[bool] = None
+    tools: Optional[dict] = None
+
     @field_validator("reasoning_effort", mode="before")
     @classmethod
     def _validate_reasoning_effort(cls, v):
@@ -62,6 +80,15 @@ class ReportUpdate(BaseModel):
             return None
         # Keep the clear sentinel distinguishable from "omitted".
         return normalize_effort(v) or ""
+
+    @field_validator("tools")
+    @classmethod
+    def _validate_tools(cls, v):
+        # Keep null entries here: in an update they clear that key.
+        if v is None:
+            return None
+        validate_tools(v)
+        return v
     # Project membership. Sentinel-aware like model_id: omit to leave unchanged,
     # send a project id to move into that project, send "" to move back to the
     # personal root list.
@@ -113,6 +140,10 @@ class ReportSchema(ReportBase):
     model_id: Optional[str] = None
     # Reasoning level stored beside model_id (null = Default)
     reasoning_effort: Optional[str] = None
+    # Per-conversation API opt-outs (null = the org setting decides)
+    follow_ups: Optional[bool] = None
+    suggest_instructions: Optional[bool] = None
+    tools: Optional[dict] = None
     # Agent focus: subset of attached agents whose full schema is in context.
     # null/empty = no explicit focus (planner renders all when few / auto-seeds when many).
     focused_data_source_ids: Optional[List[str]] = None

@@ -728,6 +728,9 @@ class ReportService:
             # Report-level LLM override (null = user/org default resolves at run time)
             model_id=getattr(report, "model_id", None),
             reasoning_effort=getattr(report, "reasoning_effort", None),
+            follow_ups=getattr(report, "follow_ups", None),
+            suggest_instructions=getattr(report, "suggest_instructions", None),
+            tools=getattr(report, "tools", None),
             # Agent focus (subset of attached agents whose full schema is in context)
             focused_data_source_ids=getattr(report, "focused_data_source_ids", None) or [],
             # Conversation sharing
@@ -1135,6 +1138,19 @@ class ReportService:
         # "" = clear back to Default.
         if getattr(report_data, 'reasoning_effort', None) is not None:
             report.reasoning_effort = report_data.reasoning_effort or None
+
+        # Per-conversation API opt-outs: omitted = unchanged, null = back to
+        # the org setting. tools merges by key; a null value clears that key.
+        fields_set = getattr(report_data, "model_fields_set", set())
+        for key in ("follow_ups", "suggest_instructions"):
+            if key in fields_set:
+                setattr(report, key, getattr(report_data, key))
+        if "tools" in fields_set:
+            if report_data.tools is None:
+                report.tools = None
+            else:
+                merged = {**(report.tools or {}), **report_data.tools}
+                report.tools = {k: v for k, v in merged.items() if v is not None} or None
         # Project membership (move). Sentinel-aware like model_id:
         #   None -> untouched, "" -> back to root, <id> -> move into project
         # (requires view access on the target). The route's owner_only gate

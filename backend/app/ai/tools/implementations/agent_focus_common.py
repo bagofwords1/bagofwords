@@ -183,12 +183,11 @@ async def resolve_candidate_agents(
 
 
 def mcp_hidden_for(runtime_ctx: Dict[str, Any]) -> bool:
-    """The running request disabled execute_mcp (prompt.disable.tools), so
-    agent schemas rendered into observations leave its MCP tools out."""
-    from app.schemas.completion_v2_schema import mcp_tools_hidden
+    """The conversation switched off "mcp" (report.tools), so agent schemas
+    rendered into observations leave its MCP tools out."""
+    from app.schemas.report_api_settings import mcp_tools_hidden
 
-    head = (runtime_ctx or {}).get("head_completion")
-    return mcp_tools_hidden(getattr(head, "prompt", None))
+    return mcp_tools_hidden((runtime_ctx or {}).get("report"))
 
 
 async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any],

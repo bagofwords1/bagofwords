@@ -223,24 +223,3 @@ class ToolRegistry:
                 return False
 
         return True
-
-
-_BUILTIN_TOOL_NAMES: Optional[frozenset] = None
-
-
-def builtin_tool_names() -> frozenset:
-    """Names of the built-in agent tools a run can actually be offered
-    (auto-registered implementations, minus inactive ones and ones allowed in
-    no mode at all).
-
-    Per-connection native MCP tools (``mcp__…``) and per-list tools
-    (``submit_<list>``) are not here: they are built per report at run time.
-    Cached: the registry scans and instantiates every tool class once.
-    """
-    global _BUILTIN_TOOL_NAMES
-    if _BUILTIN_TOOL_NAMES is None:
-        _BUILTIN_TOOL_NAMES = frozenset(
-            m.name for m in ToolRegistry().list_tools()
-            if getattr(m, "is_active", True) is not False and getattr(m, "allowed_modes", None) != []
-        )
-    return _BUILTIN_TOOL_NAMES

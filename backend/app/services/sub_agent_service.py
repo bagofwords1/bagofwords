@@ -420,16 +420,13 @@ class SubAgentService:
             if (claimed.rowcount or 0) != 1:
                 return
             await db.refresh(row)
+            prompt = PromptSchema(
+                content=_child_prompt(row),
+                mode="subagent",
+                model_id=str(row.model_id) if row.model_id else None,
+                sub_agent_id=str(row.id),
+            )
             try:
-                # Inside the try: the row is already claimed RUNNING, so any
-                # failure here must mark it failed rather than strand it.
-                prompt = PromptSchema(
-                    content=_child_prompt(row),
-                    mode="subagent",
-                    model_id=str(row.model_id) if row.model_id else None,
-                    sub_agent_id=str(row.id),
-                    disable=await _request_disable(db, row.parent_completion_id),
-                )
                 res = await CompletionService().create_completion(
                     db=db, report_id=str(report.id),
                     completion_data=CompletionCreate(prompt=prompt),
@@ -873,8 +870,7 @@ async def run_fan_in(wave_id: str) -> None:
             await run_machine_turn(
                 db, report=report, user=user, organization=organization,
                 summary=summary[:300], trigger_source="sub_agent_wave", message_type="sub_agent_wave_done",
-                instruction=instruction, meta=meta, mode=(wave.parent_mode or None),
-                disable=await _request_disable(db, wave.parent_completion_id), on_event=_on_event,
+                instruction=instruction, meta=meta, mode=(wave.parent_mode or None), on_event=_on_event,
             )
         except Exception:
             logger.exception("fan-in turn for wave %s failed", wave_id)
@@ -888,20 +884,6 @@ async def run_fan_in(wave_id: str) -> None:
                     await db.commit()
             except Exception:
                 pass
-
-
-async def _request_disable(db, parent_completion_id: Optional[str]) -> Optional[dict]:
-    """prompt.disable of the request that launched the wave, so its children
-    and its fan-in turn honor the same opt-outs. ``parent_completion_id`` is
-    the parent's system completion; the request is its head (parent_id)."""
-    from app.models.completion import Completion
-    from app.schemas.completion_v2_schema import inherited_disable
-
-    if not parent_completion_id:
-        return None
-    system = await db.get(Completion, str(parent_completion_id))
-    head = await db.get(Completion, str(system.parent_id)) if system is not None and system.parent_id else None
-    return inherited_disable(getattr(head, "prompt", None))
 
 
 async def _report_busy(db, wave_id: str) -> bool:

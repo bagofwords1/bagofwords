@@ -369,7 +369,8 @@ from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
 from app.serializers.completion_v2 import serialize_block_v2
-from app.schemas.completion_v2_schema import ArtifactChangeSchema, request_disable, request_disabled_tools
+from app.schemas.completion_v2_schema import ArtifactChangeSchema
+from app.schemas.report_api_settings import report_disabled_tools
 from app.streaming.text_streamer import PlanningTextStreamer
 from app.streaming.completion_stream import CompletionEventQueue
 from app.streaming.completion_event_bus import websocket_manager
@@ -439,6 +440,10 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
+
+    # Tools the report switched off (report.tools). Assigned while the catalog
+    # is built in __init__; the default keeps any earlier reader safe.
+    _disabled_tools: frozenset = frozenset()
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
@@ -922,11 +927,12 @@ class AgentV2:
         if not self._sub_agents_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_agent', 'stop_sub_agent')]
 
-        # Tools the request disabled (prompt.disable.tools). Hidden here, which
+        # Tools the conversation switched off (report.tools). Hidden here, which
         # also keeps them out of the browser candidates below; refused at
         # dispatch if called anyway; native MCP / list tools follow their
-        # gateway (execute_mcp / submit_list) at registration.
-        self._disabled_tools = request_disabled_tools(getattr(self.head_completion, "prompt", None))
+        # gateway (execute_mcp / submit_list) at registration. Every turn on
+        # the report (sub-agents, fan-in, wakes, steers) reads the same report.
+        self._disabled_tools = report_disabled_tools(self.report)
         if self._disabled_tools:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in self._disabled_tools]
 
@@ -2957,8 +2963,9 @@ class AgentV2:
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
-        all carry a non-null platform and are excluded. The caller can also
-        decline them per request with prompt.disable.follow_ups=true."""
+        all carry a non-null platform and are excluded. An API caller can also
+        decline them for the conversation (report.follow_ups=false) or for one
+        request (prompt.follow_ups=false)."""
         if self.platform is not None or getattr(self, "_is_sub_agent", False):
             return False
         if self._request_disables("follow_ups"):
@@ -2981,9 +2988,13 @@ class AgentV2:
         return len(self._follow_ups_user_message().split()) <= 3
 
     def _request_disables(self, key: str) -> bool:
-        """The request set prompt.disable.<key> to true. It can only switch a
-        feature off; the org setting still decides whether it is on at all."""
-        return request_disable(getattr(self.head_completion, "prompt", None)).get(key) is True
+        """The conversation (report.<key>) or this request (prompt.<key>) set
+        it to false. It can only switch a feature off; the org setting still
+        decides whether it is on at all."""
+        if getattr(self.report, key, None) is False:
+            return True
+        prompt = getattr(self.head_completion, "prompt", None)
+        return isinstance(prompt, dict) and prompt.get(key) is False
 
     def _follow_ups_user_message(self) -> str:
         prompt = getattr(self.head_completion, "prompt", None)
@@ -7266,7 +7277,7 @@ class AgentV2:
                 # Harness creates/edits instructions and submits them as a draft AI build for review.
                 # Skipped when the turn ended in an error — a failed completion
                 # must not spawn further LLM work or extra blocks — and when the
-                # request declined it (prompt.disable.suggest_instructions).
+                # conversation or request declined it (suggest_instructions=false).
                 try:
                     res = (
                         {"decision": False}
@@ -8149,7 +8160,11 @@ class AgentV2:
         provider — or an OpenAI provider pinned to a Chat Completions base_url —
         cannot serve it, so we report it disabled to keep the planner directive
         honest.
+
+        The conversation can also switch it off (report.tools web_search=false).
         """
+        if "web_search" in self._disabled_tools:
+            return False
         try:
             settings = self.organization_settings
             if not settings:

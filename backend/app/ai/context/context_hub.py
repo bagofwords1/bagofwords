@@ -353,11 +353,11 @@ class ContextHub:
         self.files_builder = FilesContextBuilder(self.db, self.organization, self.report, head_completion=self.head_completion)
         
         # New builders (port from agent.py)
-        from app.schemas.completion_v2_schema import mcp_tools_hidden
+        from app.schemas.report_api_settings import mcp_tools_hidden
         self.schema_builder = SchemaContextBuilder(
             self.db, self.data_sources, self.organization, self.report, user=self.user,
             organization_settings=self.organization_settings, mode=self.mode,
-            hide_mcp_tools=mcp_tools_hidden(getattr(self.head_completion, "prompt", None)),
+            hide_mcp_tools=mcp_tools_hidden(self.report),
         )
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
