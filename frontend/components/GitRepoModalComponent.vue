@@ -424,7 +424,7 @@
                                 class="w-4 h-4 mt-0.5 flex-shrink-0"
                                 :class="connectionStatus.success ? 'text-green-500' : 'text-red-500'"
                             />
-                            <span :class="connectionStatus.success ? 'text-green-700' : 'text-red-700'">
+                            <span class="min-w-0 [overflow-wrap:anywhere]" :class="connectionStatus.success ? 'text-green-700' : 'text-red-700'">
                                 {{ connectionStatus.message }}
                             </span>
                         </div>
