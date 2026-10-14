@@ -685,23 +685,7 @@ class BuildService:
         
         if not build.can_be_edited:
             raise HTTPException(status_code=400, detail="Build is not editable (must be draft or pending_approval)")
-
-        # The pinned version must be one of THIS instruction's versions, in the
-        # build's own org. Otherwise a caller could pin another instruction's
-        # version (say, one on an agent they can't see), read its text back
-        # from the build's contents, or promote it as their own.
-        owner = (await db.execute(
-            select(InstructionVersion.instruction_id, Instruction.organization_id)
-            .join(Instruction, Instruction.id == InstructionVersion.instruction_id)
-            .where(InstructionVersion.id == str(version_id))
-        )).first()
-        if (
-            owner is None
-            or str(owner[0]) != str(instruction_id)
-            or str(owner[1]) != str(build.organization_id)
-        ):
-            raise HTTPException(status_code=404, detail="Version not found for this instruction")
-
+        
         # Check if instruction already exists in build
         existing = await db.execute(
             select(BuildContent).where(
@@ -881,88 +865,6 @@ class BuildService:
                 for ds in inst.data_sources:
                     ds_ids.add(str(ds.id))
         return list(ds_ids)
-
-    async def get_build_instruction_ids(self, db: AsyncSession, build_id: str) -> set[str]:
-        """Every instruction pinned in ``build_id`` (the whole snapshot)."""
-        rows = (await db.execute(
-            select(BuildContent.instruction_id).where(BuildContent.build_id == str(build_id))
-        )).scalars().all()
-        return {str(r) for r in rows}
-
-    async def get_build_changed_instruction_ids(self, db: AsyncSession, build_id: str) -> set[str]:
-        """Instructions whose live state changes if ``build_id`` goes live.
-
-        A build is a whole-org snapshot, so most rows are carry-overs from its
-        base. The real change set is the rows flagged ``is_change`` plus the
-        instructions the base had and this build dropped. A build with no base
-        replaces everything, so every row counts.
-        """
-        base_id = await self._base_build_id(db, build_id)
-        if base_id is None:
-            return await self.get_build_instruction_ids(db, build_id)
-        rows = (await db.execute(
-            select(BuildContent.instruction_id, BuildContent.is_change)
-            .where(BuildContent.build_id == str(build_id))
-        )).all()
-        in_build = {str(iid) for iid, _ in rows}
-        changed = {str(iid) for iid, is_change in rows if is_change}
-        removed = await self.get_build_instruction_ids(db, base_id) - in_build
-        return changed | removed
-
-    async def get_instruction_scopes(
-        self, db: AsyncSession, instruction_ids,
-    ) -> dict[str, set[str]]:
-        """{instruction_id: data_source_ids}. An empty set means a global instruction."""
-        from app.models.instruction import instruction_data_source_association as idsa
-        ids = [str(i) for i in instruction_ids]
-        scopes: dict[str, set[str]] = {i: set() for i in ids}
-        if not ids:
-            return scopes
-        rows = (await db.execute(
-            select(idsa.c.instruction_id, idsa.c.data_source_id)
-            .where(idsa.c.instruction_id.in_(ids))
-        )).all()
-        for iid, ds_id in rows:
-            scopes[str(iid)].add(str(ds_id))
-        return scopes
-
-    async def visible_instruction_ids(
-        self,
-        db: AsyncSession,
-        org_id: str,
-        user_id: str,
-        instruction_ids,
-        accessible_data_source_ids,
-    ) -> set[str]:
-        """The subset of ``instruction_ids`` the user may read.
-
-        Same rule as ``InstructionService.user_can_view_instruction``: global
-        instructions are visible to everyone. A scoped one is visible when the
-        user can access one of its agents (explicit access or a public agent),
-        or when they wrote it.
-        """
-        from app.models.data_source import DataSource
-        scopes = await self.get_instruction_scopes(db, instruction_ids)
-        public_ids = {
-            str(r) for r in (await db.execute(
-                select(DataSource.id).where(
-                    DataSource.organization_id == str(org_id),
-                    DataSource.is_public == True,  # noqa: E712
-                )
-            )).scalars().all()
-        }
-        allowed = {str(d) for d in accessible_data_source_ids} | public_ids
-        visible = {iid for iid, ds in scopes.items() if not ds or ds & allowed}
-        hidden = set(scopes) - visible
-        if hidden:
-            authored = (await db.execute(
-                select(Instruction.id).where(
-                    Instruction.id.in_(list(hidden)),
-                    Instruction.user_id == str(user_id),
-                )
-            )).scalars().all()
-            visible |= {str(i) for i in authored}
-        return visible
 
     async def _filter_build_contents(
         self,
@@ -1255,11 +1157,17 @@ class BuildService:
         *,
         expected_main_build_id: Optional[str] = None,
         enforce_expected_main: bool = False,
+        apply_staged_deactivation: Optional[bool] = None,
     ) -> InstructionBuild:
         """
         Promote an approved build to main.
         Sets is_main=True on this build and is_main=False on the previous main build.
         Also updates Instruction.current_version_id for all instructions in the build.
+
+        ``apply_staged_deactivation`` (default: the build is an AI suggestion)
+        lets a staged ``status='draft'`` version switch its live row off — see
+        the status note below. Auto-merge passes the ORIGINATING build's answer,
+        since the merged build it promotes is its own source ('merge').
         """
         build = await self.get_build(db, build_id)
         if not build:
@@ -1280,6 +1188,8 @@ class BuildService:
         )
         # Keep the in-memory object consistent for any caller that reads it.
         build.is_main = True
+        if apply_staged_deactivation is None:
+            apply_staged_deactivation = build.source == "ai"
 
         # Update Instruction.current_version_id AND sync the versioned fields
         # onto the live row. Training/knowledge tools stage edits as versions
@@ -1366,6 +1276,14 @@ class BuildService:
             # live.
             if v_status == "published":
                 values["status"] = "published"
+            # AI suggestions also carry an explicit deactivation: edit_instruction
+            # stages the requested status, or the instruction's own status when
+            # none was requested (so a text edit never toggles it). User and git
+            # builds are excluded — their versions snapshot whatever the row said
+            # when the build was forked, and mirroring that would let a stale
+            # build silently revert a later Active/Inactive change.
+            elif v_status == "draft" and apply_staged_deactivation:
+                values["status"] = "draft"
             await db.execute(
                 sql_update(Instruction)
                 .where(Instruction.id == instruction_id)
@@ -1507,7 +1425,10 @@ class BuildService:
         merged.approved_at = datetime.utcnow()
         await db.commit()
         
-        promoted = await self.promote_build(db, merged.id, user_id)
+        promoted = await self.promote_build(
+            db, merged.id, user_id,
+            apply_staged_deactivation=(build.source == "ai"),
+        )
 
         logger.info(f"Deployed build {build_id} via auto-merge: +{user_diff['added_count']} ~{user_diff['modified_count']} -{user_diff['removed_count']}")
 

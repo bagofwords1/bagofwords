@@ -47,27 +47,7 @@ def _is_api_path(path: str) -> bool:
     return False
 
 
-# Artifact/MCP shell pages that run host-supplied code. Nothing frames them by
-# URL: MCP hosts receive them as ui:// resource text (routes/mcp.py), the in-app
-# artifact iframe is a srcdoc built by frontend/utils/artifactIframe.ts, and
-# artifact-sandbox.html is only read from disk for headless previews. So no
-# page may frame the app-origin copy — that is what stops an attacker page from
-# becoming its parent and feeding it artifact code. Scoped to these files on
-# purpose; this is not the site-wide header rollout. Mirrored for the Nuxt dev
-# server in frontend/nuxt.config.ts routeRules.
-ARTIFACT_SHELL_FILES = frozenset({"mcp-artifact-app.html", "mcp-visualization-app.html", "artifact-sandbox.html"})
-ARTIFACT_SHELL_HEADERS = {
-    "Content-Security-Policy": "frame-ancestors 'none'",
-    "X-Frame-Options": "DENY",
-}
-
-
 def _cache_headers(spa_path: str, resolved: str, index_file: str) -> dict[str, str]:
-    # Match on the resolved file, not the request path, so path variants
-    # ("/mcp-artifact-app.html/", "/./mcp-artifact-app.html") get it too.
-    if os.path.basename(resolved) in ARTIFACT_SHELL_FILES:
-        return dict(ARTIFACT_SHELL_HEADERS)
-
     if resolved == index_file:
         return {"Cache-Control": SPA_INDEX_CACHE_CONTROL}
 
@@ -111,12 +91,7 @@ def mount_spa(app: FastAPI) -> None:
         # Inline path-traversal guard at the sink (Snyk python/PT). Reject
         # absolute paths, parent refs, and backslashes before joining; then
         # verify the resolved path stays under the dist dir.
-        if (
-            ".." in spa_path
-            or spa_path.startswith("/")
-            or "\\" in spa_path
-            or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in spa_path)
-        ):
+        if ".." in spa_path or spa_path.startswith("/") or "\\" in spa_path:
             raise HTTPException(status_code=404)
 
         resolved = os.path.realpath(os.path.join(dist_dir_str, spa_path))

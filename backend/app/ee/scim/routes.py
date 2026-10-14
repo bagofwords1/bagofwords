@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db, get_current_organization
-from app.core.auth import current_user, forbid_service_account_principal
+from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.ee.license import require_enterprise
 from app.ee.scim.auth import scim_auth
@@ -304,12 +304,7 @@ async def delete_group(
 
 # --- Token Management Router (JWT auth, mounted under /api/enterprise/scim) ---
 
-# Identity-provider plumbing: a service-account key must never mint SCIM
-# tokens (they provision users/groups) — same rule as the RBAC/API-key routers.
-scim_admin_router = APIRouter(
-    prefix="/enterprise/scim", tags=["enterprise", "scim"],
-    dependencies=[Depends(forbid_service_account_principal)],
-)
+scim_admin_router = APIRouter(prefix="/enterprise/scim", tags=["enterprise", "scim"])
 
 
 @scim_admin_router.post("/tokens", response_model=ScimTokenCreated, status_code=201)

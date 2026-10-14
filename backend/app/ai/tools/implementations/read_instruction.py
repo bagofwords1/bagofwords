@@ -334,6 +334,7 @@ class ReadInstructionTool(Tool):
         out = []
         for s in review.get("suggestions", []):
             hunks = s.get("hunks") or []
+            fields = s.get("field_changes") or []
             out.append({
                 "build_id": s.get("build_id"),
                 "build_number": s.get("build_number"),
@@ -341,7 +342,7 @@ class ReadInstructionTool(Tool):
                 "source": s.get("source"),
                 "proposed_at": s.get("created_at"),
                 "evidence": s.get("evidence"),
-                "change_count": len(hunks),
+                "change_count": len(hunks) + len(fields),
                 "changes": [
                     {
                         "replaces": (h.get("before") or "")[:120],
@@ -349,6 +350,11 @@ class ReadInstructionTool(Tool):
                     }
                     for h in hunks[:5]
                 ],
+                # Non-text proposals, e.g. turning the instruction off.
+                **({"field_changes": [
+                    {"field": f.get("field"), "from": f.get("from"), "to": f.get("to")}
+                    for f in fields
+                ]} if fields else {}),
             })
         return out
 

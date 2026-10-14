@@ -33,53 +33,25 @@ def _secret() -> str:
     return hashlib.sha256(b"bow-file-embed-token:" + raw).hexdigest()
 
 
-def mint_file_token(
-    file_id: str,
-    ttl_seconds: int = DEFAULT_TTL_SECONDS,
-    *,
-    organization_id: str,
-    report_id: Optional[str] = None,
-) -> str:
-    """Mint a signed capability token for a single file id.
-
-    The token is bound to the organization the access check ran in (``org``)
-    and, for published-report embeds, to that report (``rid``); /embed
-    re-verifies both against the file, so a token can never serve a file
-    from another org or outside the report it was minted for."""
+def mint_file_token(file_id: str, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> str:
+    """Mint a signed capability token for a single file id."""
     now = int(time.time())
-    payload = {
-        "fid": str(file_id),
-        "org": str(organization_id),
-        "iat": now,
-        "exp": now + int(ttl_seconds),
-        "scope": "file-embed",
-    }
-    if report_id:
-        payload["rid"] = str(report_id)
+    payload = {"fid": str(file_id), "iat": now, "exp": now + int(ttl_seconds), "scope": "file-embed"}
     return jwt.encode(payload, _secret(), algorithm=_ALGO)
-
-
-def decode_file_token(token: str, file_id: str) -> Optional[dict]:
-    """The token's claims iff it is a valid, unexpired, org-bound capability
-    for file_id; otherwise None."""
-    if not token:
-        return None
-    try:
-        payload = jwt.decode(token, _secret(), algorithms=[_ALGO])
-    except jwt.PyJWTError:
-        return None
-    if payload.get("scope") != "file-embed" or str(payload.get("fid")) != str(file_id):
-        return None
-    if not payload.get("org"):
-        return None  # unbound (pre-fix) tokens are refused; they are minted fresh per render
-    return payload
 
 
 def verify_file_token(token: str, file_id: str) -> bool:
     """Return True iff the token is a valid, unexpired capability for file_id."""
-    return decode_file_token(token, file_id) is not None
+    if not token:
+        return False
+    try:
+        payload = jwt.decode(token, _secret(), algorithms=[_ALGO])
+    except jwt.PyJWTError:
+        return False
+    return payload.get("scope") == "file-embed" and str(payload.get("fid")) == str(file_id)
 
 
-def file_embed_url(file_id: str, token: str) -> str:
-    """Build the relative embed URL for an already-minted token."""
-    return f"/api/files/{file_id}/embed?token={token}"
+def file_embed_url(file_id: str, token: Optional[str] = None, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> str:
+    """Build the relative embed URL (minting a token if one isn't supplied)."""
+    tok = token or mint_file_token(file_id, ttl_seconds)
+    return f"/api/files/{file_id}/embed?token={tok}"

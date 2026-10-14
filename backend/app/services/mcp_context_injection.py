@@ -15,6 +15,9 @@ access — so a misconfigured mapping can't reach a secret:
   * ``membership.attr:<key>``   → the member's attribute ``<key>``: admin-set
     ``Membership.custom_attributes`` first, else IdP-synced
     ``Membership.profile_attributes``
+  * ``agent.name``              → the conversation's agent(s); stamped only
+    for LLM provider headers (see app.ai.llm.header_injection), so it
+    resolves empty on MCP calls
   * ``static:<text>``           → a literal, with ``{source}`` interpolation
     (e.g. ``static:corp_nt\\{membership.attr:employeeId}``)
 
@@ -76,6 +79,7 @@ class IdentityContext:
     user_id: str = ""
     role: str = ""
     attributes: Dict[str, Any] = field(default_factory=dict)
+    agent_name: str = ""
 
 
 def _resolve_atom(expr: str, ctx: IdentityContext) -> Optional[str]:
@@ -89,6 +93,8 @@ def _resolve_atom(expr: str, ctx: IdentityContext) -> Optional[str]:
         return ctx.user_id or None
     if expr == "membership.role":
         return ctx.role or None
+    if expr == "agent.name":
+        return ctx.agent_name or None
     if expr.startswith("membership.attr:"):
         key = expr.split(":", 1)[1].strip()
         val = ctx.attributes.get(key)

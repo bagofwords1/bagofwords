@@ -33,15 +33,12 @@ from app.models.user import User
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
 from app.models.instruction import Instruction
-from app.errors.redact import redact_error
 from app.schemas.git_repository_schema import (
     GitRepositoryCreate,
     GitRepositoryUpdate,
     GitRepositorySchema,
 )
 from app.core.telemetry import telemetry
-from app.core.egress import Policy, check_host, env_proxy_for, pinned_async_client, _literal_ip
-from app.core.url_safety import UnsafeURLError, git_remote_host
 
 
 logger = logging.getLogger(__name__)
@@ -55,48 +52,6 @@ class GitService:
         self.metadata_indexing_job_service = MetadataIndexingJobService()
 
     # ==================== Repository CRUD ====================
-
-    @staticmethod
-    def _check_remote(repo_url: str) -> list:
-        """Reject remotes git must never be pointed at (local paths, remote
-        helpers, cloud metadata; private hosts only with
-        ``block_private_outbound``). Returns the validated addresses.
-        See app.core.url_safety / app.core.egress."""
-        try:
-            _, host = git_remote_host(repo_url)
-            return check_host(host, Policy.ADMIN, require_resolution=False)
-        except UnsafeURLError as e:
-            raise HTTPException(status_code=400, detail=redact_error(e))
-
-    @classmethod
-    def _git_env(cls, repo_url: str, base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-        """Environment for ONE network git command against ``repo_url``.
-
-        Runs the remote check again right before the command (a host can be
-        re-pointed after it was saved) and, for http(s) remotes, pins git's
-        libcurl to the address that was just validated
-        (``http.curloptResolve`` via ``GIT_CONFIG_*``; git >= 2.37, older
-        gits ignore it and keep the check). ssh remotes are checked only.
-        """
-        addrs = cls._check_remote(repo_url)
-        env = dict(os.environ if base_env is None else base_env)
-        parsed = urlparse(repo_url)
-        host = parsed.hostname
-        if (
-            parsed.scheme in ("http", "https") and addrs and host
-            and _literal_ip(host) is None and not env_proxy_for(repo_url)
-        ):
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            ip = addrs[0]
-            ip_txt = f"[{ip}]" if ip.version == 6 else str(ip)
-            try:
-                n = int(env.get("GIT_CONFIG_COUNT") or 0)
-            except ValueError:
-                n = 0
-            env[f"GIT_CONFIG_KEY_{n}"] = "http.curloptResolve"
-            env[f"GIT_CONFIG_VALUE_{n}"] = f"{host}:{port}:{ip_txt}"
-            env["GIT_CONFIG_COUNT"] = str(n + 1)
-        return env
 
     async def _verify_data_source(
         self, db: AsyncSession, data_source_id: str, organization: Organization
@@ -183,7 +138,6 @@ class GitService:
         organization: Organization
     ) -> Dict[str, Any]:
         """Test Git repository connection using provided credentials."""
-        self._check_remote(git_repo.repo_url)
         # If data_source_id is provided in the schema, verify it
         if git_repo.data_source_id:
             await self._verify_data_source(db, git_repo.data_source_id, organization)
@@ -203,9 +157,7 @@ class GitService:
                     )
                 else:
                     # Public repo - no auth
-                    remote_refs = git.cmd.Git().ls_remote(
-                        git_repo.repo_url, env=self._git_env(git_repo.repo_url)
-                    )
+                    remote_refs = git.cmd.Git().ls_remote(git_repo.repo_url)
 
                 # Parse ls-remote output ("<sha>\t<ref>" per line) into exact branch names
                 branches = {
@@ -229,11 +181,11 @@ class GitService:
                 return {"success": True, "message": "Connection successful"}
 
         except git.GitCommandError as e:
-            raise HTTPException(status_code=400, detail=f"Git error: {redact_error(e)}")
+            raise HTTPException(status_code=400, detail=f"Git error: {str(e)}")
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Connection failed: {redact_error(e)}")
+            raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
 
     async def _ls_remote_with_ssh(self, repo_url: str, ssh_key: str) -> str:
         """List remote refs using SSH key."""
@@ -259,9 +211,9 @@ class GitService:
             except subprocess.CalledProcessError as e:
                 raise HTTPException(status_code=400, detail=f"Invalid SSH key format: {e.stderr}")
             
-            git_env = self._git_env(repo_url)
+            git_env = os.environ.copy()
             git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
-
+            
             return git.cmd.Git().ls_remote(repo_url, env=git_env)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -272,7 +224,7 @@ class GitService:
         """List remote refs using Personal Access Token (HTTPS)."""
         # Convert SSH URL to HTTPS if needed
         https_url = self._convert_to_https_url(repo_url, access_token, username)
-        return git.cmd.Git().ls_remote(https_url, env=self._git_env(https_url))
+        return git.cmd.Git().ls_remote(https_url)
 
     def _convert_to_https_url(
         self, repo_url: str, access_token: str, username: Optional[str] = None
@@ -386,8 +338,6 @@ class GitService:
         repository = await self._verify_repository(db, repository_id, organization)
 
         update_data = git_repo.dict(exclude_unset=True)
-        if update_data.get("repo_url"):
-            self._check_remote(update_data["repo_url"])
 
         # Handle encrypted fields separately
         if git_repo.ssh_key:
@@ -711,7 +661,7 @@ class GitService:
         except Exception as e:
             repository.status = "failed"
             await db.commit()
-            raise HTTPException(status_code=500, detail=f"Failed to index repository: {redact_error(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to index repository: {str(e)}")
 
     async def clone_repository(
         self,
@@ -728,8 +678,7 @@ class GitService:
             branch: Optional branch to clone (defaults to repository.branch)
         """
         target_branch = branch or repository.branch
-        self._check_remote(repository.repo_url)
-
+        
         try:
             if repository.has_access_token:
                 # Clone via HTTPS with PAT
@@ -742,7 +691,6 @@ class GitService:
                     clone_dir,
                     branch=target_branch,
                     depth=1,
-                    env=self._git_env(https_url),
                     multi_options=["--single-branch", "--no-tags"]
                 )
             elif repository.has_ssh_key:
@@ -759,7 +707,7 @@ class GitService:
 
                     os.chmod(ssh_key_path, 0o600)
 
-                    git_env = self._git_env(repository.repo_url)
+                    git_env = os.environ.copy()
                     git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
 
                     repo = git.Repo.clone_from(
@@ -779,13 +727,12 @@ class GitService:
                     clone_dir,
                     branch=target_branch,
                     depth=1,
-                    env=self._git_env(repository.repo_url),
                     multi_options=["--single-branch", "--no-tags"]
                 )
 
             return repo
         except git.GitCommandError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to clone repository: {redact_error(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to clone repository: {str(e)}")
 
     async def get_indexing_job_status(
         self,
@@ -901,7 +848,7 @@ class GitService:
             raise
         except Exception as e:
             logger.error(f"Failed to sync branch '{branch}': {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to sync branch: {redact_error(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to sync branch: {str(e)}")
 
     # ==================== Push Build (BOW -> Git) ====================
 
@@ -1028,13 +975,12 @@ class GitService:
             raise
         except Exception as e:
             logger.error(f"Failed to push build {build_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to push build: {redact_error(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to push build: {str(e)}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     async def _clone_for_push(self, repository: GitRepository, clone_dir: str) -> git.Repo:
         """Clone repository for push operations (full clone, not shallow)."""
-        self._check_remote(repository.repo_url)
         target_branch = repository.branch or "main"
         
         if repository.has_access_token:
@@ -1042,7 +988,7 @@ class GitService:
             https_url = self._convert_to_https_url(
                 repository.repo_url, pat, repository.access_token_username
             )
-            return git.Repo.clone_from(https_url, clone_dir, branch=target_branch, env=self._git_env(https_url))
+            return git.Repo.clone_from(https_url, clone_dir, branch=target_branch)
         elif repository.has_ssh_key:
             ssh_dir = tempfile.mkdtemp()
             try:
@@ -1056,7 +1002,7 @@ class GitService:
 
                 os.chmod(ssh_key_path, 0o600)
 
-                git_env = self._git_env(repository.repo_url)
+                git_env = os.environ.copy()
                 git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
 
                 return git.Repo.clone_from(
@@ -1076,10 +1022,8 @@ class GitService:
         - These are feature branches, not protected branches
         """
         if repository.has_access_token:
-            # PAT is already embedded in the remote URL from clone; re-check
-            # (and re-pin) the host right before the network operation.
-            push_url = next(repo.remote('origin').urls)
-            repo.git.push('origin', branch_name, '--set-upstream', '--force', env=self._git_env(push_url))
+            # PAT is already embedded in the remote URL from clone
+            repo.git.push('origin', branch_name, '--set-upstream', '--force')
         elif repository.has_ssh_key:
             ssh_dir = tempfile.mkdtemp()
             try:
@@ -1093,7 +1037,7 @@ class GitService:
 
                 os.chmod(ssh_key_path, 0o600)
 
-                git_env = self._git_env(repository.repo_url)
+                git_env = os.environ.copy()
                 git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
 
                 repo.git.push('origin', branch_name, '--set-upstream', '--force', env=git_env)
@@ -1328,8 +1272,7 @@ class GitService:
             "base": target_branch,
         }
 
-        # custom_host is admin-configured: validated + pinned per request.
-        async with pinned_async_client(Policy.ADMIN) as client:
+        async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 201:
                 return response.json().get("html_url")
@@ -1370,8 +1313,7 @@ class GitService:
             "target_branch": target_branch,
         }
 
-        # custom_host is admin-configured: validated + pinned per request.
-        async with pinned_async_client(Policy.ADMIN) as client:
+        async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 201:
                 return response.json().get("web_url")
@@ -1434,8 +1376,7 @@ class GitService:
                 "destination": {"branch": {"name": target_branch}},
             }
 
-        # custom_host is admin-configured: validated + pinned per request.
-        async with pinned_async_client(Policy.ADMIN) as client:
+        async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code in (200, 201):
                 data = response.json()

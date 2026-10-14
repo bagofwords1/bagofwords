@@ -3,7 +3,6 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
 import json
-import re
 import pandas as pd
 import requests
 from typing import Any, Dict, List, Optional
@@ -28,11 +27,6 @@ class OpenSearchClient(DataSourceClient):
 
     # The engine's default max_result_window: size + from must stay under it.
     MAX_RESULT_WINDOW = 10_000
-    # One URL path segment holding an index expression: names, globs,
-    # comma lists, `-` exclusions, `cluster:` prefixes. No `/ ? # % \`
-    # or whitespace, so the value can't redirect the request to another
-    # endpoint (e.g. `orders/_delete_by_query?`).
-    _INDEX_EXPR_RE = re.compile(r"[A-Za-z0-9_.*,:+-]+")
 
     # Bucket-level keys that are not sub-aggregations.
     _BUCKET_META_KEYS = {"key", "key_as_string", "doc_count", "from", "to",
@@ -339,17 +333,8 @@ class OpenSearchClient(DataSourceClient):
     def get_schemas(self, progress_callback=None) -> List[Table]:
         return self.get_tables()
 
-    @classmethod
-    def _check_index(cls, index: Any) -> str:
-        """Reject index values that would escape their URL path segment."""
-        if (not isinstance(index, str) or not cls._INDEX_EXPR_RE.fullmatch(index)
-                or any(part in (".", "..") for part in index.split(","))):
-            raise ValueError(f"Invalid index expression: {index!r}")
-        return index
-
     def get_schema(self, index_name: str) -> Table:
         """Schema for a single index (or alias/pattern resolving to one)."""
-        index_name = self._check_index(index_name)
         body = self._request("GET", f"/{index_name}/_mapping")
         # The response is keyed by concrete index name, which for an alias
         # differs from what was asked for; take the first entry.
@@ -386,7 +371,6 @@ class OpenSearchClient(DataSourceClient):
         index = envelope.get("index")
         if not index or not isinstance(index, str):
             raise ValueError("Query must specify 'index' (or use the 'sql' key)")
-        index = self._check_index(index)
 
         body = {k: v for k, v in envelope.items() if k in self.SEARCH_KEYS}
         has_aggs = "aggs" in body or "aggregations" in body

@@ -264,6 +264,10 @@
     "optLoadAlways": "תמיד",
     "optLoadSmart": "חכם",
     "optLoadOff": "כבוי",
+    "fieldStatus": "סטטוס",
+    "fieldLoadMode": "מצב טעינה",
+    "fieldDeactivateHint": "הסוכנים יפסיקו להשתמש בהנחיה זו. הטקסט שלה נשמר, וניתן להפעיל אותה מחדש.",
+    "fieldActivateHint": "הסוכנים יחזרו להשתמש בהנחיה זו.",
     "optSourceUser": "משתמש",
     "optSourceAi": "AI",
     "optSourceGit": "Git",
@@ -1297,6 +1301,7 @@
       "changeCategory": "קטגוריה ← {value}",
       "changeConfidence": "ביטחון ← {value}%",
       "changeLoadMode": "מצב טעינה ← {value}",
+      "changeStatus": "סטטוס ← {value}",
       "changeTables": "טבלאות עודכנו",
       "changeEvidence": "ראיות עודכנו",
       "confidence": "ביטחון:",
@@ -1319,6 +1324,8 @@
       "toastSaved": "ההנחיה נשמרה",
       "editCount": "{n} עריכות",
       "editLabel": "עריכת הנחיה",
+      "turnOff": "כיבוי",
+      "turnOn": "הפעלה",
       "accepted": "התקבלה",
       "rejectedLabel": "נדחתה",
       "stagedInBuild": "ממתינה בגרסת טיוטה",
@@ -3223,6 +3230,10 @@
           "name": "מקסימום צעדים לסוכן משנה",
           "description": "מספר צעדי התכנון שסוכן משנה רשאי לבצע לפני שהוא נאלץ לסיים עם רשומה חלקית. מוגבל ל-5 עד 200."
         },
+        "sub_agent_max_tokens": {
+          "name": "מקסימום טוקנים לסוכן משנה",
+          "description": "טוקני LLM (פרומפט ותשובה, מצטבר על כל הצעדים) שסוכן משנה רשאי להוציא לפני שהוא מתבקש לסיים; מותר צעד אחד נוסף לרשומה, ואז הוא נעצר עם רשומה חלקית. צעדים מגבילים זמן; זה מגביל עלות. מוגבל ל-20,000 עד 5,000,000."
+        },
         "sub_agent_deadline_minutes": {
           "name": "מועד סיום לסוכני משנה (דקות)",
           "description": "מגבלת זמן לגל של סוכני משנה. כשהיא מגיעה, סוכני משנה שעדיין רצים נעצרים ונרשמים כפגי תוקף, ותור האיסוף רץ עם הרשומות הקיימות. מוגבל ל-2 עד 60."
@@ -3731,6 +3742,16 @@
     "rateLimitReqHour": "בקשות/שעה",
     "rateLimitReqDay": "בקשות/יום",
     "rateLimitSaveFailed": "שמירת הגדרות מגבלת הקצב נכשלה",
+    "queryLimits": "מגבלות שאילתה",
+    "queryLimitsHint": "עקיפת ברירות המחדל של הארגון עבור חיבור זה. השאירו ריק כדי להשתמש בברירת המחדל.",
+    "queryTimeout": "זמן קצוב לשאילתה",
+    "queryTimeoutUnit": "שניות",
+    "maxConcurrentQueries": "שאילתות במקביל",
+    "maxConcurrentQueriesUnit": "בו-זמנית",
+    "queryLimitDefault": "ברירת מחדל ({value})",
+    "queryLimitsInherited": "ברירות המחדל של הארגון",
+    "queryLimitsCustom": "מותאם אישית",
+    "queryLimitsSaveFailed": "שמירת מגבלות השאילתה נכשלה",
     "discardTitle": "לבטל את השינויים?",
     "discardBody": "החיבור עדיין לא נשמר. לסגור ולבטל את השינויים?",
     "discardConfirm": "ביטול השינויים",
@@ -3979,6 +4000,13 @@
       "blocked": "חסום: חסר {attributes}",
       "test": "בדיקה",
       "testOk": "מחובר בתור חבר זה"
+    },
+    "sharepointApi": {
+      "title": "API של SharePoint",
+      "description": "SharePoint 2010 משתמש בשירותים ותיקים ומחפש לפי שמות קבצים בלבד. יש להזין שם ספרייה או *; אין להשאיר את הספרייה ריקה.",
+      "modern": "REST מודרני",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "שם ספריית המסמכים, או * לכל הספריות הגלויות. שדה ריק בוחר בספריית ברירת המחדל רק במצב REST מודרני."
     }
   },
   "share": {
@@ -4792,6 +4820,7 @@
       "colFeedback": "משוב",
       "expandRow": "הצגת קריאות כלים",
       "pivotReport": "הצגת השיחה הזו",
+      "openReport": "פתיחת דוח",
       "turnOf": "תור {n} מתוך {m}",
       "nFailed": "{n} נכשלו",
       "feedbackPositive": "חיובי",

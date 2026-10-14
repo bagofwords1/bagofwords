@@ -7,7 +7,6 @@ indexes use keyed hashes; encrypted fields are never decrypted for list scans.
 import hashlib
 import hmac
 import json
-from fastapi import HTTPException
 import uuid
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet, InvalidToken
@@ -124,14 +123,7 @@ class ArtifactResources:
         ).scalar_one_or_none()
         if report is None or report.status == "archived":
             fail("NOT_FOUND", "Artifact not found", 404)
-        try:
-            await ReportService()._check_visibility(db, report, "artifact_visibility", user)
-        except (HTTPException, AppError) as exc:
-            # 401/403 here would confirm that a private artifact with this id
-            # exists (and hint at its visibility mode); answer like an unknown id.
-            if exc.status_code in (401, 403, 404):
-                fail("NOT_FOUND", "Artifact not found", 404)
-            raise
+        await ReportService()._check_visibility(db, report, "artifact_visibility", user)
         # resources=False: visibility only (view counting and analytics have no switch).
         if resources:
             from app.services.artifact_resource_policy import require_artifact_resources

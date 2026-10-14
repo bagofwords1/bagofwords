@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db, get_current_organization
-from app.core.auth import current_user, forbid_service_account_principal
+from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.ee.license import require_enterprise
 from app.ee.ldap.connection import LDAPConnectionManager
@@ -21,10 +21,7 @@ from app.settings.config import settings
 from app.models.user import User
 from app.models.organization import Organization
 
-ldap_admin_router = APIRouter(
-    prefix="/enterprise/ldap", tags=["enterprise", "ldap"],
-    dependencies=[Depends(forbid_service_account_principal)],
-)
+ldap_admin_router = APIRouter(prefix="/enterprise/ldap", tags=["enterprise", "ldap"])
 
 # In-memory sync status per org (simple; could be DB-backed later)
 _sync_status: dict[str, SyncResult] = {}

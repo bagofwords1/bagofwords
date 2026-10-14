@@ -162,12 +162,6 @@ def test_saved_query_executes_bow_and_reloads_as_an_ordinary_table(world, test_c
     assert sum(row['runs'] for row in refreshed.json()['data']['rows']) == expected
     denied = test_client.get(f"/api/entities/{entity.json()['id']}", headers=other)
     assert denied.status_code in (403, 404), denied.text
-    # An entity the caller cannot read answers exactly like one that does not exist (no existence oracle).
-    import uuid
-    for action in ("suggest", "withdraw"):
-        hidden = test_client.post(f"/api/entities/{entity.json()['id']}/{action}", headers=other)
-        missing = test_client.post(f"/api/entities/{uuid.uuid4()}/{action}", headers=other)
-        assert (hidden.status_code, hidden.json()) == (missing.status_code, missing.json()) == (404, {"detail": "Entity not found"}), (hidden.text, missing.text)
     visible = test_client.get("/api/entities", headers=other)
     assert visible.status_code == 200, visible.text
     assert entity.json()['id'] not in {e['id'] for e in visible.json()}

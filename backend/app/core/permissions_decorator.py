@@ -95,12 +95,7 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
             from app.services.bow_source_access import guard_route
-            try:
-                await guard_route(db, user, kwargs, organization)
-            except HTTPException as exc:
-                if exc.status_code == 404:
-                    await _audit_access_denied(db, user, organization, permission, func.__name__)
-                raise
+            await guard_route(db, user, kwargs)
 
             # If model is provided and object_id exists and is not None and is a valid UUID-like string, verify object belongs to organization
             obj = None
@@ -379,8 +374,6 @@ async def check_resource_permissions(
     resource_type: str,
     resource_ids: list[str],
     permission: str,
-    *,
-    name_resource: bool = True,
 ) -> None:
     """
     Imperative resource-permission check for cases where resource IDs come
@@ -397,10 +390,6 @@ async def check_resource_permissions(
 
     Raises HTTPException 403 if the user lacks the permission on ANY of
     the listed resources. Fails the whole batch on the first miss.
-
-    ``name_resource=False`` keeps the 403 generic. Use it when the caller
-    did not pick the ids (e.g. agents a build snapshot touches): naming them
-    would disclose agents the caller cannot see.
     """
     if not resource_ids:
         return
@@ -418,8 +407,6 @@ async def check_resource_permissions(
     # Tier 3: per-resource grant check (admin implications handled in resolver)
     for rid in resource_ids:
         if not resolved.has_resource_permission(resource_type, str(rid), permission):
-            if not name_resource:
-                raise HTTPException(status_code=403, detail="Access denied to this resource")
             # Name the resource: "Access denied to data_source 3f2c…" tells the
             # user nothing actionable. Best-effort — a lookup failure falls
             # back to the id rather than masking the 403.

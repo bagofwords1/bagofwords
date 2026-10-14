@@ -11,8 +11,6 @@ import json
 from datetime import datetime
 from typing import List
 
-from app.core.egress import Policy, check_url
-from app.core.url_safety import UnsafeURLError
 from app.ee.audit.streams.destinations.base import (
     FATAL,
     INVALID,
@@ -63,19 +61,10 @@ class S3Destination(Destination):
         v = self.cfg("gzip", False)
         return v is True or str(v).lower() in ("true", "1", "yes")
 
-    def _check_endpoints(self) -> None:
-        """Re-validate custom endpoints at send time (admin tier). botocore
-        resolves the name itself, so this is check-at-use, not a pin."""
-        for key in ("endpoint_url", "sts_endpoint_url"):
-            url = self.cfg(key)
-            if url:
-                check_url(str(url), Policy.ADMIN)
-
     def _client(self):
         import boto3
         from botocore.config import Config
 
-        self._check_endpoints()
         endpoint = self.cfg("endpoint_url") or self.default_endpoint
         region = self.cfg("region")
         creds = {}
@@ -123,8 +112,6 @@ class S3Destination(Destination):
                 Bucket=self.cfg("bucket"), Key=key, Body=body, ContentMD5=md5,
                 ContentType="application/x-ndjson", **extra,
             )
-        except UnsafeURLError as e:
-            return SendResult(INVALID, short_error(f"destination refused: {e}"))
         except NoCredentialsError as e:
             return SendResult(INVALID, short_error(str(e)))
         except ClientError as e:

@@ -506,6 +506,7 @@ async def get_connection(
     )
     from app.services.connection_identity import management_requires_user_auth
     personal_management = management_requires_user_auth(connection)
+    query_limits = await _query_limit_fields(db, organization, config if is_admin else {})
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -542,8 +543,38 @@ async def get_connection(
         rate_limit_per_minute=connection.rate_limit_per_minute,
         rate_limit_per_hour=connection.rate_limit_per_hour,
         rate_limit_per_day=connection.rate_limit_per_day,
+        **query_limits,
         data_shape=data_shape_for(connection.type),
     )
+
+
+async def _query_limit_fields(db: AsyncSession, organization: Organization, config: dict) -> dict:
+    """The connection's query-limit overrides plus the org defaults they replace."""
+    from app.ai.code_execution.code_execution import DEFAULT_QUERY_TIMEOUT_SECONDS
+    from app.data_sources.query_concurrency import DEFAULT_MAX_CONCURRENT_QUERIES
+
+    def _positive(value):
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
+
+    def _org_value(settings, key, fallback):
+        try:
+            cfg = settings.get_config(key) if settings is not None else None
+            return _positive(cfg.value if hasattr(cfg, "value") else cfg) or fallback
+        except Exception:
+            return fallback
+
+    try:
+        settings = await organization.get_settings(db)
+    except Exception:
+        settings = None
+    config = config if isinstance(config, dict) else {}
+    return {
+        "query_timeout_seconds": _positive(config.get("query_timeout_seconds")),
+        "max_concurrent_queries": _positive(config.get("max_concurrent_queries")),
+        "default_query_timeout_seconds": _org_value(settings, "query_timeout_seconds", DEFAULT_QUERY_TIMEOUT_SECONDS),
+        "default_max_concurrent_queries": _org_value(
+            settings, "max_concurrent_queries_per_connection", DEFAULT_MAX_CONCURRENT_QUERIES),
+    }
 
 
 @router.put("/{connection_id}", response_model=ConnectionSchema)
@@ -934,12 +965,10 @@ async def set_connection_query_identity(
         raise HTTPException(status_code=400, detail="query_identity must be 'self' or 'service_account'")
 
     connection = await connection_service.get_connection(db, connection_id, organization)
-    # Authorize before saying anything about the connection's auth mode; a
-    # caller who may not manage it gets the same 404 as an unknown id.
-    if not await is_admin_or_owner(db, connection, current_user):
-        raise HTTPException(status_code=404, detail="Connection not found")
     if (connection.auth_policy or "system_only") != "user_required" or not supports_user_token(connection):
         raise HTTPException(status_code=400, detail="This connection does not support query-identity selection")
+    if not await is_admin_or_owner(db, connection, current_user):
+        raise HTTPException(status_code=403, detail="Only admins or owners can switch query identity")
 
     from app.services.credential_coordination import lock_credential_writes
     await lock_credential_writes(db, str(current_user.id))
@@ -1147,24 +1176,7 @@ async def get_connection_indexing(
         row = await indexing_service.get_latest(db, connection_id)
     if row is None:
         raise HTTPException(status_code=404, detail="No indexing runs found for this connection")
-    progress = _indexing_to_progress(row)
-    if not await _can_manage_connection(db, organization, current_user, connection):
-        # A non-manager only learns about what they can see: the linked-agent
-        # count is the caller's visible agents, and the run's raw event log and
-        # unreadable-dataset diagnostics (catalog/agent internals) are withheld.
-        # The caller's own per-user run is theirs and is returned unredacted.
-        if progress.scope != "user":
-            stats = dict(progress.stats or {})
-            if "synced_domains" in stats:
-                stats["synced_domains"] = min(
-                    int(stats["synced_domains"] or 0),
-                    len(await visible_linked_agents(db, organization, current_user, connection)),
-                )
-            stats.pop("unreadable_datasets", None)
-            stats.pop("unreadable_dataset_count", None)
-            progress.stats = stats if progress.stats is not None else None
-            progress.events = []
-    return progress
+    return _indexing_to_progress(row)
 
 
 @router.post("/{connection_id}/indexing/cancel")
@@ -1217,50 +1229,6 @@ async def _ensure_can_read_connection(db, organization, current_user, connection
     raise HTTPException(status_code=403, detail="Access denied to this connection")
 
 
-async def _can_manage_connection(db, organization, current_user, connection) -> bool:
-    """Connection managers (full admin, org ``manage_connections``, or a
-    per-connection ``manage_connection`` grant) see the whole connection:
-    every catalog table, every linked agent, the raw indexing log."""
-    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-    return (
-        FULL_ADMIN in resolved.org_permissions
-        or resolved.has_org_permission("manage_connections")
-        or resolved.has_resource_permission("connection", str(connection.id), "manage_connection")
-    )
-
-
-async def visible_linked_agents(db, organization, current_user, connection) -> list:
-    """The agents linked to ``connection`` that this caller may see.
-
-    The one visibility rule every connection read surface shares
-    (accessible-agents, indexing, tables): connection managers see every
-    linked agent; everyone else sees an agent only when they can access it
-    (public, or a direct/group/role grant) AND its publishing lifecycle shows
-    it to them (``filter_live_data_sources``: no disabled/inactive agents,
-    drafts only to their managers, development agents only to agent admins) —
-    the same rules as the agent list.
-    """
-    linked = [
-        ds for ds in (connection.data_sources or [])
-        if getattr(ds, "deleted_at", None) is None
-    ]
-    if await _can_manage_connection(db, organization, current_user, connection):
-        return linked
-    from app.core.permission_resolver import get_accessible_data_source_ids
-    from app.services.data_source_service import DataSourceService
-    all_access, accessible_ids = await get_accessible_data_source_ids(
-        db, str(current_user.id), str(organization.id)
-    )
-    allowed = set(map(str, accessible_ids))
-    accessible = [
-        ds for ds in linked
-        if all_access or getattr(ds, "is_public", False) or str(ds.id) in allowed
-    ]
-    return await DataSourceService().filter_live_data_sources(
-        db, accessible, current_user, organization
-    )
-
-
 @router.get("/{connection_id}/accessible-agents")
 async def get_connection_accessible_agents(
     connection_id: str,
@@ -1269,11 +1237,18 @@ async def get_connection_accessible_agents(
     organization: Organization = Depends(get_current_organization),
 ):
     """Linked agents visible to this viewer, without exposing hidden agent names."""
+    from app.core.permission_resolver import get_accessible_data_source_ids
+
     connection = await connection_service.get_connection(db, connection_id, organization)
     await _ensure_can_read_connection(db, organization, current_user, connection)
+    all_access, accessible_ids = await get_accessible_data_source_ids(
+        db, str(current_user.id), str(organization.id)
+    )
+    allowed = set(map(str, accessible_ids))
     agents = [
         {"id": str(agent.id), "name": agent.name, "icon": agent.icon}
-        for agent in await visible_linked_agents(db, organization, current_user, connection)
+        for agent in (connection.data_sources or [])
+        if all_access or agent.is_public or str(agent.id) in allowed
     ]
     return sorted(agents, key=lambda agent: (agent["name"].casefold(), agent["id"]))
 
@@ -1293,40 +1268,12 @@ async def get_connection_tables(
     )
     await _ensure_can_read_connection(db, organization, current_user, connection)
 
-    # Non-managers see only the tables their visible agents have selected:
-    # a table deselected on every agent they can use is not theirs to browse.
-    selected_ids = None
-    if not await _can_manage_connection(db, organization, current_user, connection):
-        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        linked_ids = {str(ds.id) for ds in (connection.data_sources or [])}
-        manages_linked_agent = any(
-            resolved.has_resource_permission("data_source", ds_id, "manage")
-            for ds_id in linked_ids
-        )
-        if not manages_linked_agent:
-            agent_ids = [
-                str(ds.id) for ds in
-                await visible_linked_agents(db, organization, current_user, connection)
-            ]
-            selected_ids = set()
-            if agent_ids:
-                rows = await db.execute(
-                    select(DataSourceTable.connection_table_id).where(
-                        DataSourceTable.datasource_id.in_(agent_ids),
-                        DataSourceTable.is_active.is_(True),
-                        DataSourceTable.connection_table_id.isnot(None),
-                    )
-                )
-                selected_ids = {str(r) for (r,) in rows.all()}
-
     result = []
     for table in (connection.connection_tables or []):
         # BOW custom tables are served by their own endpoint; they are not
         # introspected source tables and must not appear here. Soft-deleted
         # rows must not appear either.
         if table.kind == KIND_BOW or table.deleted_at is not None:
-            continue
-        if selected_ids is not None and str(table.id) not in selected_ids:
             continue
         result.append(ConnectionTableSchema(
             id=str(table.id),

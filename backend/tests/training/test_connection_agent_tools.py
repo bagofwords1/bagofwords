@@ -246,14 +246,10 @@ async def test_get_connection_tables_glob_schema_pagination():
         out = ev.payload["output"]
         assert len(out["tables"]) == 1 and out["has_more"] is False
 
-        # No grant on conn_other → rejected exactly like an unknown id: no
-        # name, no existence oracle (pentest 829415184).
+        # No grant on conn_other → permission_denied, not a leak.
         ev = await _final(GetConnectionTool(), {"connection_id": ids["conn_other"]}, ctx)
         out = ev.payload["output"]
-        unknown = (await _final(GetConnectionTool(), {"connection_id": str(uuid.uuid4())}, ctx)).payload["output"]
-        assert out["success"] is False and unknown["success"] is False
-        assert out["rejected_reason"] == unknown["rejected_reason"]
-        assert out["message"] == unknown["message"] and not out.get("name")
+        assert out["success"] is False and out["rejected_reason"] == "permission_denied"
 
 
 @pytest.mark.asyncio

@@ -25,8 +25,7 @@ CategoryChartData, ChartData — do NOT import anything. Data variables provided
   use col['field'] as the row key, never pass the dict where a string is expected.
 - `report`: {'id', 'title', 'theme'}; `image`/`image_ids` when files are embedded.
 - `_pptx_output_path`: the script MUST end with prs.save(_pptx_output_path).
-Public python-pptx API only: any `_`-prefixed attribute (`_element`, `_spTree`,
-`fill._xPr`) is rejected by the sandbox. Guard nullish values; keep one block of statements per slide so later edits stay
+Guard nullish values; keep one block of statements per slide so later edits stay
 textually local. Validation = the script executes and saves; on failure the tool
 returns the exact exception — fix the script and call again.
 

@@ -267,21 +267,6 @@ class CompletionFeedbackService:
         except Exception:
             return
 
-    @staticmethod
-    async def _can_read_completion(
-        db: AsyncSession, completion: Completion, user: Optional[User], organization: Organization
-    ) -> bool:
-        """Report-level read check (owner, full admin, or the report's
-        conversation visibility/project) — the same rule the report routes use.
-        An org-only check let any member read feedback on private reports."""
-        if user is None or not completion.report_id:
-            return False
-        from app.services.file_access_service import user_can_view_report
-        report = await db.get(Report, completion.report_id)
-        if report is None:
-            return False
-        return await user_can_view_report(db, user, organization, report)
-
     async def create_or_update_feedback(
         self,
         db: AsyncSession,
@@ -299,7 +284,7 @@ class CompletionFeedbackService:
         )
         completion_result = await db.execute(completion_stmt)
         completion = completion_result.scalar_one_or_none()
-        if not completion or (user is not None and not await self._can_read_completion(db, completion, user, organization)):
+        if not completion:
             raise HTTPException(status_code=404, detail="Completion not found")
         
         user_id = user.id if user else None
@@ -475,7 +460,7 @@ class CompletionFeedbackService:
         completion_result = await db.execute(completion_stmt)
         completion = completion_result.scalar_one_or_none()
         
-        if not completion or not await self._can_read_completion(db, completion, user, organization):
+        if not completion:
             raise HTTPException(status_code=404, detail="Completion not found")
         
         # Get aggregated feedback stats
@@ -582,13 +567,11 @@ class CompletionFeedbackService:
         self, 
         db: AsyncSession, 
         completion_id: str, 
-        organization: Organization,
-        user: Optional[User] = None,
+        organization: Organization
     ) -> List[CompletionFeedbackSchema]:
-        """Get all feedbacks for a completion the user can read."""
+        """Get all feedbacks for a completion."""
         
-        # Verify completion exists, belongs to organization, and that the
-        # caller can read its report (feedback text is report content).
+        # Verify completion exists and belongs to organization
         completion_stmt = select(Completion).where(
             Completion.id == completion_id,
             Completion.report.has(organization_id=organization.id)
@@ -596,7 +579,7 @@ class CompletionFeedbackService:
         completion_result = await db.execute(completion_stmt)
         completion = completion_result.scalar_one_or_none()
         
-        if not completion or not await self._can_read_completion(db, completion, user, organization):
+        if not completion:
             raise HTTPException(status_code=404, detail="Completion not found")
         
         feedbacks_stmt = select(CompletionFeedback).where(
@@ -644,7 +627,7 @@ class CompletionFeedbackService:
             )
             completion_result = await db.execute(completion_stmt)
             completion = completion_result.scalar_one_or_none()
-            if not completion or not await self._can_read_completion(db, completion, user, organization):
+            if not completion:
                 return []
             
             # Get the user's most recent feedback for this completion

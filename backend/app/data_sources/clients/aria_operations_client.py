@@ -924,16 +924,32 @@ class AriaOperationsClient(DataSourceClient):
         return df
 
     def _q_alert_definitions(self, spec: dict, limit: int) -> pd.DataFrame:
-        body: Dict[str, Any] = {}
-        if spec.get("adapter_kind"):
-            body["adapterKinds"] = self._as_list(spec["adapter_kind"])
-        if spec.get("resource_kind"):
-            body["resourceKinds"] = self._as_list(spec["resource_kind"])
-        if spec.get("id") or spec.get("ids"):
-            body["ids"] = self._as_list(spec.get("id") or spec.get("ids"))
+        adapters = self._as_list(spec.get("adapter_kind"))
+        kinds = self._as_list(spec.get("resource_kind"))
+        ids = self._as_list(spec.get("id") or spec.get("ids"))
+        params: Dict[str, Any] = {}
+        # GET supports one adapter/resource kind and repeated id parameters.
+        # Its contract forbids combining id with adapterKind/resourceKind.
+        if ids:
+            params["id"] = ids
+        else:
+            if len(adapters) == 1:
+                params["adapterKind"] = adapters[0]
+            if len(kinds) == 1:
+                params["resourceKind"] = kinds[0]
         needle = str(spec.get("search") or "").lower()
-        predicate = (lambda d: needle in f"{d.get('name', '')} {d.get('description', '')}".lower()) if needle else None
-        rows = self._paged("POST", "alertdefinitions/query", "alertDefinitions", body=body, limit=limit, predicate=predicate)
+        adapter_set, kind_set, id_set = set(adapters), set(kinds), set(ids)
+
+        def matches(d):
+            # Retain list filters and guard against GET returning all definitions
+            # for unsatisfied criteria. Apply every filter before the row limit.
+            return ((not adapter_set or d.get("adapterKindKey") in adapter_set)
+                    and (not kind_set or d.get("resourceKindKey") in kind_set)
+                    and (not id_set or d.get("id") in id_set)
+                    and (not needle or needle in f"{d.get('name', '')} {d.get('description', '')}".lower()))
+
+        predicate = matches if adapters or kinds or ids or needle else None
+        rows = self._paged("GET", "alertdefinitions", "alertDefinitions", params=params, limit=limit, predicate=predicate)
         out = []
         for d in rows:
             states = d.get("states") or []

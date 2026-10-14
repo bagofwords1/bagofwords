@@ -11,7 +11,6 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from fastapi_users.password import PasswordHelper
 
@@ -19,7 +18,6 @@ from app.models.user import User
 from app.models.membership import Membership
 from app.models.organization import Organization
 from app.ee.scim.models import ScimToken
-from app.ee.scim.errors import ScimError
 from app.ee.scim.schemas import (
     ScimUser, ScimUserCreate, ScimPatchOp, ScimMeta, ScimName, ScimEmail,
     ScimListResponse, ScimTokenCreate, ScimTokenResponse, ScimTokenCreated,
@@ -393,7 +391,8 @@ class ScimUserService:
         if data.externalId is not None:
             user.scim_external_id = data.externalId
 
-        await self._commit_user_update(db, user)
+        await db.commit()
+        await db.refresh(user)
         return _user_to_scim(user, membership, base_url)
 
     async def patch_user(
@@ -427,33 +426,9 @@ class ScimUserService:
                 if op.path and op.path.lower() == "externalid":
                     user.scim_external_id = None
 
-        await self._commit_user_update(db, user)
-        return _user_to_scim(user, membership, base_url)
-
-    async def _commit_user_update(self, db: AsyncSession, user: User) -> None:
-        """Commit a PUT/PATCH, answering an email that belongs to another
-        account with 409 uniqueness (what Entra/Okta expect) instead of the
-        raw constraint error."""
-        conflict = ScimError(409, "userName is already in use by another user", "uniqueness")
-        if user.email:
-            # no_autoflush: the pending email change must not hit the unique
-            # index before we have checked it.
-            with db.no_autoflush:
-                taken = await db.scalar(
-                    select(User.id).where(
-                        func.lower(User.email) == user.email.lower(),
-                        User.id != user.id,
-                    )
-                )
-            if taken:
-                await db.rollback()
-                raise conflict
-        try:
-            await db.commit()
-        except IntegrityError:
-            await db.rollback()
-            raise conflict
+        await db.commit()
         await db.refresh(user)
+        return _user_to_scim(user, membership, base_url)
 
     def _apply_replace(self, user: User, path: Optional[str], value) -> None:
         """Apply a replace operation to user attributes."""
@@ -508,8 +483,3 @@ class ScimUserService:
         user, membership = row
         user.is_active = False
         await db.commit()
-        try:
-            from app.services.wait_service import wait_service
-            wait_service.cancel_waits_for_user(str(user_id))
-        except Exception:
-            logger.warning("SCIM delete: failed to cancel pending waits", exc_info=True)

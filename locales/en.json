@@ -265,6 +265,10 @@
     "optLoadAlways": "Always",
     "optLoadSmart": "Smart",
     "optLoadOff": "Off",
+    "fieldStatus": "Status",
+    "fieldLoadMode": "Load mode",
+    "fieldDeactivateHint": "Agents will stop using this instruction. Its text is kept, and it can be turned back on.",
+    "fieldActivateHint": "Agents will start using this instruction again.",
     "optSourceUser": "User",
     "optSourceAi": "AI",
     "optSourceGit": "Git",
@@ -1388,6 +1392,7 @@
       "changeCategory": "category → {value}",
       "changeConfidence": "confidence → {value}%",
       "changeLoadMode": "load mode → {value}",
+      "changeStatus": "status → {value}",
       "changeTables": "tables updated",
       "changeEvidence": "evidence updated",
       "confidence": "Confidence:",
@@ -1410,6 +1415,8 @@
       "toastSaved": "Instruction saved",
       "editCount": "{n} edits",
       "editLabel": "Edit instruction",
+      "turnOff": "Turn off",
+      "turnOn": "Turn on",
       "accepted": "Accepted",
       "rejectedLabel": "Rejected",
       "stagedInBuild": "Staged in draft build",
@@ -3303,6 +3310,10 @@
           "name": "Sub-agent max steps",
           "description": "Planner steps one sub-agent may take before it is forced to finish with a partial record. Clamped to 5-200."
         },
+        "sub_agent_max_tokens": {
+          "name": "Sub-agent max tokens",
+          "description": "LLM tokens (prompt plus completion, summed over its steps) one sub-agent may spend before it is told to finish; one more step is allowed for the record, then it is stopped with a partial record. Steps bound time, this bounds cost. Clamped to 20,000-5,000,000."
+        },
         "sub_agent_deadline_minutes": {
           "name": "Sub-agent deadline (minutes)",
           "description": "Wall-clock limit for a wave of sub-agents. When it fires, still-running sub-agents are stopped and recorded as timed out, and the fan-in turn runs with the records that exist. Clamped to 2-60."
@@ -3803,6 +3814,16 @@
     "rateLimitReqHour": "req/hour",
     "rateLimitReqDay": "req/day",
     "rateLimitSaveFailed": "Failed to save rate limit settings",
+    "queryLimits": "Query limits",
+    "queryLimitsHint": "Override the organization defaults for this connection. Leave blank to use the default.",
+    "queryTimeout": "Query timeout",
+    "queryTimeoutUnit": "seconds",
+    "maxConcurrentQueries": "Concurrent queries",
+    "maxConcurrentQueriesUnit": "at once",
+    "queryLimitDefault": "Default ({value})",
+    "queryLimitsInherited": "Organization defaults",
+    "queryLimitsCustom": "Custom",
+    "queryLimitsSaveFailed": "Failed to save query limits",
     "discardTitle": "Discard changes?",
     "discardBody": "This connection has not been saved yet. Close and discard your changes?",
     "discardConfirm": "Discard",
@@ -4041,6 +4062,13 @@
       "blocked": "Blocked: no {attributes}",
       "test": "Test",
       "testOk": "Connected as this member"
+    },
+    "sharepointApi": {
+      "title": "SharePoint API",
+      "description": "SharePoint 2010 uses legacy services and searches filenames only. Enter a library name or *; do not leave the library blank.",
+      "modern": "Modern REST",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
     }
   },
   "share": {
@@ -4863,6 +4891,7 @@
       "colFeedback": "Feedback",
       "expandRow": "Show tool calls",
       "pivotReport": "Show this conversation",
+      "openReport": "Open report",
       "turnOf": "turn {n} of {m}",
       "nFailed": "{n} failed",
       "feedbackPositive": "Positive",

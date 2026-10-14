@@ -337,6 +337,7 @@ class OrganizationSettingsConfig(BaseModel):
     enable_sub_agents: FeatureConfig = FeatureConfig(value=True, name="Sub-agents", description="Let the agent delegate independent sub-questions (for example one hypothesis each in a root-cause analysis) to bounded background sub-agents that investigate on their own and report back as typed records in one fan-in turn. When off, the delegate tool is hidden.", is_lab=True, editable=True)
     sub_agent_posture: FeatureConfig = FeatureConfig(value="proactive", name="Sub-agent posture", description="'proactive': the agent delegates on its own when a request splits into three or more independent sub-questions (a 'why did X drop' with several candidate causes, a fan-out across many sources). 'explicit': the agent delegates only when the user or an instruction asks for it.", is_lab=True, editable=True)
     sub_agent_max_steps: FeatureConfig = FeatureConfig(value=40, name="Sub-agent max steps", description="Planner steps one sub-agent may take before it is forced to finish with a partial record. Clamped to 5-200.", is_lab=False, editable=True)
+    sub_agent_max_tokens: FeatureConfig = FeatureConfig(value=400000, name="Sub-agent max tokens", description="LLM tokens (prompt plus completion, summed over its steps) one sub-agent may spend before it is told to finish; one more step is allowed for the record, then it is stopped with a partial record. Steps bound time, this bounds cost. Clamped to 20,000-5,000,000.", is_lab=False, editable=True)
     sub_agent_deadline_minutes: FeatureConfig = FeatureConfig(value=15, name="Sub-agent deadline (minutes)", description="Wall-clock limit for a wave of sub-agents. When it fires, still-running sub-agents are stopped and recorded as timed out, and the fan-in turn runs with the records that exist. Clamped to 2-60.", is_lab=False, editable=True)
     sub_agent_concurrency: FeatureConfig = FeatureConfig(value=3, name="Concurrent sub-agents", description="How many sub-agents of one report may run at the same time. Sub-agents beyond the cap wait inside their wave. Clamped to 1-6.", is_lab=True, editable=True)
     sub_agent_max_per_wave: FeatureConfig = FeatureConfig(value=5, name="Max sub-agents per wave", description="How many delegate calls the agent may launch from one planning step. Extra calls are refused with a note so the agent can plan a second wave. Clamped to 1-10.", is_lab=True, editable=True)
@@ -496,11 +497,3 @@ class OrgSmtpUpdate(BaseModel):
     from_address: Optional[str] = None
     from_name: Optional[str] = None
     validate_certs: bool = True
-
-    @validator("host", "username", "from_address", "from_name")
-    def _no_header_breaks(cls, v):
-        # These end up in SMTP commands / message headers; a CR or LF there is
-        # header injection (and crashed the test send with a traceback).
-        if v is not None and ("\r" in v or "\n" in v):
-            raise ValueError("must not contain line breaks")
-        return v

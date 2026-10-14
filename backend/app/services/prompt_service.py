@@ -468,23 +468,24 @@ class PromptService:
     async def _create_report_for(self, db, prompt, owner, organization, report_service, ReportCreate):
         """Create a report owned by `owner`, seeded with the prompt's data sources
         and mode. New reports are owner-private (artifact_visibility='none') by
-        default — see Step-0 privacy invariant — which we rely on for run-for.
-
-        The mode goes through ``ReportCreate``, so a training prompt passes the
-        same gate as starting a training chat by hand (org flag plus
-        manage_instructions on every agent), checked before anything is written.
-        """
-        mode = prompt.mode if getattr(prompt, 'mode', None) in ('chat', 'training') else None
-        return await report_service.create_report(
+        default — see Step-0 privacy invariant — which we rely on for run-for."""
+        report = await report_service.create_report(
             db,
             ReportCreate(
                 title=(prompt.title or (prompt.text or '')[:60] or 'Prompt run'),
                 data_sources=self._ds_ids(prompt),
-                mode=mode,
             ),
             owner,
             organization,
         )
+        # ReportCreate has no `mode`; set it from the prompt on the ORM row.
+        if getattr(prompt, 'mode', None):
+            from app.models.report import Report
+            row = (await db.execute(select(Report).filter(Report.id == report.id))).scalar_one_or_none()
+            if row is not None:
+                row.mode = prompt.mode
+                await db.commit()
+        return report
 
     async def _record_run(self, db, *, prompt_id, user_id, actor_id, report_id, parameters):
         run = PromptRun(

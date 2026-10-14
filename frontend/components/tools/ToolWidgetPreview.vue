@@ -187,7 +187,16 @@
             <!-- Chart Content -->
             <Transition name="fade" mode="out-in">
               <div ref="chartContainerRef" v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)" :class="{ 'h-full': expanded && !isMetricCardType }">
-                <div v-if="resolvedCompEl" :class="chartHeightClass" :style="chartHeightStyle">
+                <!-- A truncated preview is only the first rows: charting it
+                     draws a different chart that then jumps to the real one
+                     when the full set lands. Hold the slot (same height, no
+                     layout shift) until that fetch settles. -->
+                <div v-if="awaitingFullRows" :class="chartHeightClass" :style="chartHeightStyle" data-testid="chart-awaiting-rows">
+                  <div class="flex items-center justify-center w-full h-full">
+                    <Spinner class="w-5 h-5 text-gray-400" />
+                  </div>
+                </div>
+                <div v-else-if="resolvedCompEl" :class="chartHeightClass" :style="chartHeightStyle">
                   <Suspense>
                     <component
                       :is="resolvedCompEl"
@@ -941,6 +950,7 @@ async function fetchCardStep(): Promise<any | null> {
 }
 
 async function hydrateLatestStep() {
+  const truncatedKey = truncatedStepKey.value
   isHydratingStep.value = true
   try {
     if (viewerRun.value?.queryId || queryId.value) {
@@ -958,8 +968,30 @@ async function hydrateLatestStep() {
     }
   } catch {} finally {
     isHydratingStep.value = false
+    // Settled either way: on failure the chart falls back to the preview.
+    if (truncatedKey) settledTruncatedKeys.value.add(truncatedKey)
   }
 }
+
+// The step this card shows is a capped preview (see needsFullStep). Keyed so a
+// failed upgrade is attempted once per step, not on every re-render.
+const truncatedStepKey = computed<string | null>(() => {
+  const s: any = effectiveStep.value
+  if (!s?.data?.truncated) return null
+  return String(s.id || queryId.value || props.toolExecution?.id || 'preview')
+})
+const settledTruncatedKeys = ref(new Set<string>())
+const awaitingFullRows = computed(() =>
+  !!truncatedStepKey.value && !settledTruncatedKeys.value.has(truncatedStepKey.value))
+
+// The host can swap a full step back to its preview after mount (the report
+// page reloads the transcript when a run finishes). Upgrade it again rather
+// than leaving the card on the first rows.
+watch(truncatedStepKey, (key) => {
+  if (!key || isCollapsed.value || isHydratingStep.value) return
+  if (settledTruncatedKeys.value.has(key)) return
+  void hydrateLatestStep()
+})
 
 // Summary/fork cards start collapsed and hydrate when the user opens one.
 // Timeline cards mount already expanded, so they hydrate on mount — but only

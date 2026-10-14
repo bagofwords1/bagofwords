@@ -95,18 +95,18 @@ async def test_oauth_refresh_handles_form_encoded_and_error_200(monkeypatch):
     monkeypatch.setattr(cos, "_apply_client_auth", lambda p, d: None)
 
     # GitHub-style form-encoded success body
-    monkeypatch.setattr(cos.httpx, "AsyncClient", lambda **_: FakeClient(
+    monkeypatch.setattr(cos.httpx, "AsyncClient", lambda: FakeClient(
         "access_token=tok123&token_type=bearer&expires_in=100"))
     tokens = await cos.refresh_access_token(params, "rt")
     assert tokens["access_token"] == "tok123"
 
     # 200-with-error payload must raise, not return a bogus token
-    monkeypatch.setattr(cos.httpx, "AsyncClient", lambda **_: FakeClient(
+    monkeypatch.setattr(cos.httpx, "AsyncClient", lambda: FakeClient(
         "error=bad_refresh_token&error_description=The+refresh+token+is+invalid"))
     with pytest.raises(ValueError, match="refresh token"):
         await cos.refresh_access_token(params, "rt")
 
     # HTML garbage must raise a descriptive error, not a JSON traceback
-    monkeypatch.setattr(cos.httpx, "AsyncClient", lambda **_: FakeClient("<html>nope</html>"))
+    monkeypatch.setattr(cos.httpx, "AsyncClient", lambda: FakeClient("<html>nope</html>"))
     with pytest.raises(ValueError, match="unrecognized body"):
         await cos.refresh_access_token(params, "rt")

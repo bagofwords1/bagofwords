@@ -168,7 +168,6 @@ def test_service_account_project_falls_back_to_key_project():
         "type": "service_account",
         "project_id": "project-from-key",
         "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n",
-        "token_uri": "https://oauth2.googleapis.com/token",
         "client_email": "sa@project-from-key.iam.gserviceaccount.com",
     })
     fake = _FakeCredentials()
@@ -188,7 +187,6 @@ def test_explicit_project_wins_over_key_project():
         "type": "service_account",
         "project_id": "project-from-key",
         "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n",
-        "token_uri": "https://oauth2.googleapis.com/token",
     })
     with patch("google.oauth2.service_account.Credentials.from_service_account_info",
                return_value=_FakeCredentials()):
@@ -220,7 +218,6 @@ def test_credentials_are_cached_per_key():
         "type": "service_account",
         "project_id": "p",
         "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n",
-        "token_uri": "https://oauth2.googleapis.com/token",
     })
     with patch("google.oauth2.service_account.Credentials.from_service_account_info",
                return_value=_FakeCredentials()) as mk:
@@ -235,8 +232,7 @@ def test_credentials_are_cached_per_key():
 def test_different_keys_are_cached_separately():
     vertex_auth.reset_cache()
     base = {"type": "service_account", "project_id": "p",
-            "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n",
-            "token_uri": "https://oauth2.googleapis.com/token"}
+            "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n"}
     key_a = json.dumps({**base, "private_key_id": "aaa"})
     key_b = json.dumps({**base, "private_key_id": "bbb"})
     with patch("google.oauth2.service_account.Credentials.from_service_account_info",

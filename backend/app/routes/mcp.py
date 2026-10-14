@@ -180,18 +180,6 @@ _html_bundle_cache: dict[str, str] = {}
 
 _ALLOWED_BUNDLE_NAMES = {"mcp-artifact-app", "mcp-visualization-app", "artifact-sandbox"}
 
-# Stamped into every bundle delivered as ui:// resource text. The shells only
-# start their postMessage runtime when it is present, so the copy served by URL
-# from the app origin (which an attacker page could frame) stays inert.
-MCP_HOST_DELIVERED_MARKER = "<script>window.__BOW_MCP_HOST_DELIVERED__=true;</script>"
-
-
-def _stamp_host_delivered(content: str) -> str:
-    match = re.search(r"<head\b[^>]*>", content, flags=re.IGNORECASE)
-    if match:
-        return content[: match.end()] + MCP_HOST_DELIVERED_MARKER + content[match.end():]
-    return MCP_HOST_DELIVERED_MARKER + content
-
 
 def _load_html_bundle(name: str) -> str:
     """Load an MCP App HTML bundle from the frontend/public directory.
@@ -259,7 +247,6 @@ def _load_html_bundle(name: str) -> str:
         return f"<script>{js_content}</script>"
 
     content = re.sub(r"<script\b([^>]*\bsrc=\"/libs/[^\"]+\"[^>]*)>\s*</script>", _inline_script, content)
-    content = _stamp_host_delivered(content)
 
     _html_bundle_cache[name] = content
     return content

@@ -389,20 +389,6 @@ class DataEncryptionConfig(BaseModel):
         return True if v is None else v
 
 
-class SecurityConfig(BaseModel):
-    # When true, admin-configured outbound URLs (git remotes, LLM base_url,
-    # audit-stream endpoints) must resolve to public addresses. Off by default
-    # because self-hosted installs point these at internal hosts; cloud
-    # metadata / link-local addresses are blocked either way.
-    block_private_outbound: bool = False
-    # Directory prefixes a network_dir connection's root_path may resolve
-    # into (realpath, symlinks followed), e.g. ["/mnt", "/srv/shares"]. When
-    # set it is enforced strictly. Unset (default) keeps existing installs
-    # working and only refuses system dirs (/, /etc, /proc, /root, /usr, …)
-    # and the app's own dirs — see network_dir_client.check_network_dir_root.
-    network_dir_allowed_roots: Optional[List[str]] = None
-
-
 class BowConfig(BaseModel):
     deployment: DeploymentConfig = DeploymentConfig()
     base_url: Optional[str] = Field(default="http://0.0.0.0:3000")
@@ -432,7 +418,6 @@ class BowConfig(BaseModel):
     license: LicenseConfig = LicenseConfig()
     otel: OTELConfig = OTELConfig()
     i18n: I18nConfig = I18nConfig()
-    security: SecurityConfig = SecurityConfig()
 
     @model_validator(mode="after")
     def validate_saml_providers(self):

@@ -63,7 +63,7 @@ def test_every_catalog_level_runs_as_an_accepted_effort(detail, level):
 
 @pytest.mark.parametrize("model_id,top", [
     ("gpt-6-luna", "max"), ("gpt-6.1-sol", "max"), ("gpt-5.6-terra", "max"), ("gpt-5.5", "xhigh"), ("gpt-5.4-mini", "xhigh"),
-    ("claude-sonnet-5", "max"), ("claude-opus-4-6", "max"), ("gemini-3.6-flash", "high"),
+    ("claude-sonnet-5", "max"), ("claude-opus-4-6", "max"), ("gemini-3.6-flash", "high"), ("gemini-4-argon", "high"),
     ("eu.anthropic.claude-sonnet-5", "max"), ("us.anthropic.claude-opus-4-6-v1:0", "max"),
 ])
 def test_max_means_the_strongest_level_the_model_has(model_id, top):
@@ -325,9 +325,10 @@ def _google_config(model_id, level):
     return sent["config"].thinking_config
 
 
+@pytest.mark.parametrize("model_id", ["gemini-3.6-flash", "gemini-4-argon"])
 @pytest.mark.parametrize("level,sent", [("low", "LOW"), ("high", "HIGH"), ("max", "HIGH")])
-def test_gemini_3_gets_a_thinking_level_not_a_budget(level, sent):
-    tc = _google_config("gemini-3.6-flash", level)
+def test_gemini_3_and_4_get_a_thinking_level_not_a_budget(model_id, level, sent):
+    tc = _google_config(model_id, level)
     assert str(getattr(tc.thinking_level, "value", tc.thinking_level)) == sent
     assert tc.thinking_budget is None  # sending both is a 400
 
@@ -376,6 +377,15 @@ def test_custom_off_mapping_reaches_request():
 def test_google_off_keeps_existing_minimum_without_enabling_a_budget(model_id):
     tc = _google_config(model_id, "off")
     assert tc.thinking_budget == Google.MIN_THINKING_BUDGET
+    assert tc.include_thoughts is False
+
+
+@pytest.mark.parametrize("level", ["off", None])
+def test_gemini_4_floor_is_its_lowest_level_never_a_budget(level):
+    """Gemini 4 documents thinking_level only and cannot turn thinking off."""
+    tc = _google_config("gemini-4-argon", level)
+    assert str(getattr(tc.thinking_level, "value", tc.thinking_level)) == "LOW"
+    assert tc.thinking_budget is None
     assert tc.include_thoughts is False
 
 

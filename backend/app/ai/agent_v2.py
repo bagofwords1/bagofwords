@@ -395,7 +395,14 @@ from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution, get_usage_attribution
-from app.ai.llm.header_injection import set_llm_identity, reset_llm_identity
+from app.ai.llm.header_injection import (
+    QuestionAgents,
+    agent_ids_from_tool_input,
+    agent_name_for_report,
+    get_llm_identity,
+    reset_llm_identity,
+    set_llm_identity,
+)
 from app.services.mcp_context_injection import IdentityContext
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
@@ -528,25 +535,29 @@ class AgentV2:
         self._sub_agent_allowed_tools = None   # frozenset of tool names (profile ∩ catalog)
         self._sub_agent_finished = False       # finish_subtask observed this run
         self._sub_agent_finish_nudges = 0
+        self._sub_agent_tokens_used = 0          # LLM tokens summed over this child's planner calls
+        self._sub_agent_tokens_exhausted_at = None  # loop index at which the token cap was reached
+        self._sub_agent_tokens_exhausted = False
         self._planner_steps_exhausted = False
         self._wave_pending = False
-        # Stamp the asker's identity for LLM header injection BEFORE the
-        # planner below constructs its LLM client — provider header_injection
-        # rules resolve at client construction. Membership role/attributes need
-        # a DB query, so main_execution enriches this stamp at run start; the
-        # user-level fields cover the common rules (user.email/name/id) for
-        # clients built here in __init__.
+        # Stamp the asker's identity for LLM header injection. Rules resolve per
+        # request, so this covers calls made before main_execution (which
+        # enriches the stamp with membership role/attributes at run start).
+        # agent.name's start value comes from the report's focus / attachments,
+        # already loaded with it.
         try:
             _init_user = getattr(head_completion, "user", None) if head_completion else None
         except Exception:
             _init_user = None
+        _init_agent_name = agent_name_for_report(report, data_sources)
         set_llm_identity(
             IdentityContext(
                 email=getattr(_init_user, "email", "") or "",
                 name=getattr(_init_user, "name", "") or "",
                 user_id=str(getattr(_init_user, "id", "") or ""),
+                agent_name=_init_agent_name,
             )
-            if _init_user is not None
+            if _init_user is not None or _init_agent_name
             else None
         )
         self.system_completion = system_completion
@@ -1300,6 +1311,49 @@ class AgentV2:
         "create_data", "inspect_data",
         "list_files", "search_files", "read_file", "grep_files",
     )
+
+    def _question_agent_pool(self) -> list:
+        """Agents a tool call may name: the run's working set plus the report's
+        attachments (set_report_agents can attach one mid-run)."""
+        pool = list(self.data_sources or [])
+        try:
+            if self.report is not None:
+                pool += list(getattr(self.report, "data_sources", None) or [])
+        except Exception:
+            pass
+        return pool
+
+    @staticmethod
+    def _stamp_agent_name(value: str):
+        """Set agent.name on the ambient LLM identity; returns the reset token."""
+        from dataclasses import replace as _dc_replace
+        current = get_llm_identity()
+        if current is None:
+            return set_llm_identity(IdentityContext(agent_name=value)) if value else None
+        return set_llm_identity(_dc_replace(current, agent_name=value))
+
+    def _note_question_agents(self, outcomes) -> None:
+        """Fold the agents a finished tool batch used into the question's
+        agent.name header value. Identity headers resolve per request, so
+        re-stamping the ambient identity reaches every later LLM call."""
+        qa = getattr(self, "_question_agents", None)
+        if qa is None:
+            return
+        try:
+            pool = self._question_agent_pool()
+            changed = False
+            for o in outcomes or []:
+                if o.get("skipped"):
+                    continue
+                changed |= qa.add_tool(o.get("tool_name"), o.get("tool_input"), pool, o.get("tool_output"))
+            # File tools resolve their agent while running and record it here.
+            changed |= qa.add(sorted(self.used_agent_ids or ()), pool)
+            if not changed:
+                return
+            self._stamp_agent_name(qa.value())
+            self._mlog(f"agent_name header={qa.value()!r}")
+        except Exception:
+            logger.warning("[headers] failed to update agent.name after tool batch", exc_info=True)
 
     async def _persist_focus_on_use(self, tool_name: str, tool_input, observation) -> None:
         """Commit the report's focus to the agent(s) a tool actually used —
@@ -2889,8 +2943,11 @@ class AgentV2:
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
-        all carry a non-null platform and are excluded."""
+        all carry a non-null platform and are excluded. The caller can also
+        decline them per request with prompt.follow_ups=false."""
         if self.platform is not None or getattr(self, "_is_sub_agent", False):
+            return False
+        if self._prompt_opted_out("follow_ups"):
             return False
         if not self.organization_settings:
             return False
@@ -2908,6 +2965,12 @@ class AgentV2:
         if used_tools:
             return False
         return len(self._follow_ups_user_message().split()) <= 3
+
+    def _prompt_opted_out(self, key: str) -> bool:
+        """The request set prompt.<key> to false (see PromptSchema opt-outs).
+        Only an explicit False counts: absent/None/True defer to org settings."""
+        prompt = getattr(self.head_completion, "prompt", None)
+        return isinstance(prompt, dict) and prompt.get(key) is False
 
     def _follow_ups_user_message(self) -> str:
         prompt = getattr(self.head_completion, "prompt", None)
@@ -4453,6 +4516,9 @@ class AgentV2:
         # the user object.
         _identity_token = None
         _id_user = getattr(self.head_completion, "user", None) if self.head_completion else None
+        _id_agent_name = agent_name_for_report(self.report, self._question_agent_pool())
+        if _id_user is None and _id_agent_name:
+            _identity_token = set_llm_identity(IdentityContext(agent_name=_id_agent_name))
         if _id_user is not None:
             _id_role, _id_attrs = "", {}
             try:
@@ -4474,30 +4540,17 @@ class AgentV2:
                 user_id=str(getattr(_id_user, "id", "") or ""),
                 role=_id_role,
                 attributes=_id_attrs,
+                agent_name=_id_agent_name,
             ))
-            # The planner's LLM was constructed in __init__ under the
-            # user-only identity stamp, so membership-based header rules
-            # (membership.role / membership.attr:*) resolved empty in its
-            # baked default_headers. Rebuild it under the enriched identity
-            # when the provider forwards membership fields — same cheap
-            # rebuild the model router uses on escalation.
-            try:
-                _prov_cfg = getattr(getattr(self.model, "provider", None), "additional_config", None) or {}
-                _needs_membership = any(
-                    str((r or {}).get("source", "")).startswith(("membership.", "static:"))
-                    for r in (_prov_cfg.get("header_injection") or [])
-                    if isinstance(r, dict)
-                )
-                logger.debug("[headers] identity stamped (role=%r attrs=%d membership_rules=%s)", _id_role, len(_id_attrs), _needs_membership)
-                if _needs_membership:
-                    from app.ai.llm.llm import LLM
-                    self.planner.llm = LLM(
-                        self.model,
-                        usage_session_maker=async_session_maker,
-                        usage_context=self.usage_limit_context,
-                    )
-            except Exception:
-                logger.warning("[headers] failed to rebuild planner LLM with membership identity", exc_info=True)
+            # Identity headers resolve per request (header_injection), so
+            # clients built in __init__ pick up the enriched identity too.
+            logger.debug("[headers] identity stamped (role=%r attrs=%d)", _id_role, len(_id_attrs))
+        # agent.name for this question: starts at the chat's choice and follows
+        # the agents its tools fetch data from (see QuestionAgents).
+        self._question_agents = QuestionAgents(_id_agent_name)
+        if _identity_token is None:
+            # Own a token so mid-run agent.name stamps unwind with the run.
+            _identity_token = set_llm_identity(get_llm_identity())
         try:
             import time as _time
             # Anchor the run clock that self._mlog() reports elapsed against.
@@ -4875,6 +4928,32 @@ class AgentV2:
             _mlog(f"loop_starting step_limit={step_limit}")
 
             for loop_index in range(step_limit):
+
+                # Sub-agent token cap: the step that hit it was told to finish; a
+
+                # further step means it did not, so stop as step exhaustion does.
+
+                if (
+
+                    self._is_sub_agent and not self._sub_agent_finished
+
+                    and self._sub_agent_tokens_exhausted_at is not None
+
+                    and loop_index > self._sub_agent_tokens_exhausted_at + 1
+
+                ):
+
+                    planner_steps_exhausted = True
+
+                    self._planner_steps_exhausted = True
+
+                    self._sub_agent_tokens_exhausted = True
+
+                    completion_errored = True
+
+                    logger.warning("[agent] sub-agent token cap reached (%s tokens); stopping", self._sub_agent_tokens_used)
+
+                    break
                 self._iteration_count += 1
                 try:
                     # Test-only fault injection (inert unless BOW_AGENT_LOOP_FAULTS is set):
@@ -6399,7 +6478,20 @@ class AgentV2:
                                     if tool_execution is not None:
                                         span.set_attribute("tool_execution.id", str(tool_execution.id))
                                     runtime_ctx["reasoning_callback"] = self._coder_reasoning_callback(_block_id_for_action)
-                                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                                    # A tool whose input names its agents (create_data …)
+                                    # makes its own LLM calls under them. Scoped to this
+                                    # call, so parallel siblings don't see each other's.
+                                    _qa = getattr(self, "_question_agents", None)
+                                    _agent_token = None
+                                    if _qa is not None and agent_ids_from_tool_input(tool_name, tool_input):
+                                        _agent_token = self._stamp_agent_name(
+                                            _qa.value_during(tool_name, tool_input, self._question_agent_pool())
+                                        )
+                                    try:
+                                        tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                                    finally:
+                                        if _agent_token is not None:
+                                            reset_llm_identity(_agent_token)
                                     span.set_attribute("tool.result_type", type(tool_result).__name__)
 
 
@@ -6801,6 +6893,19 @@ class AgentV2:
                                     )
                                     if _repeat == "nudge":
                                         _obs["repeat_warning"] = repeated_call_nudge(_tn)
+                                    elif _repeat == "stop" and self._is_sub_agent and not self._sub_agent_finished and self._sub_agent_finish_nudges < 1:
+                                        # A sub-agent's deliverable is its record. Ending
+                                        # the turn here left the breaker's own text as the
+                                        # synthesized summary (seen live: three children
+                                        # re-saving the same note). Spend the one finish
+                                        # nudge instead; a further repeat still stops.
+                                        self._sub_agent_finish_nudges += 1
+                                        _obs["repeat_warning"] = (
+                                            repeated_call_nudge(_tn)
+                                            + " You are a sub-agent and you are repeating yourself: stop here and call "
+                                            "finish_subtask NOW with what you have (outcome=partial if unsure)."
+                                        )
+                                        _obs["error"] = {"code": "finish_subtask_required", "message": "repeated call; finish_subtask not called"}
                                     elif _repeat == "stop":
                                         analysis_done = True
                                         _obs.update({
@@ -6916,6 +7021,7 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
+                            self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(
                                 observation,
@@ -7140,11 +7246,12 @@ class AgentV2:
                 # Normal mode: Run knowledge harness sub-loop if triggers fired.
                 # Harness creates/edits instructions and submits them as a draft AI build for review.
                 # Skipped when the turn ended in an error — a failed completion
-                # must not spawn further LLM work or extra blocks.
+                # must not spawn further LLM work or extra blocks — and when the
+                # request declined it (prompt.suggest_instructions=false).
                 try:
                     res = (
                         {"decision": False}
-                        if completion_errored
+                        if completion_errored or self._prompt_opted_out("suggest_instructions")
                         else await self._should_suggest_instructions(prev_tool_name_before_last_user)
                     )
                     if res.get("decision", False):
@@ -7491,6 +7598,7 @@ class AgentV2:
         self._sub_agent = {
             "id": str(row.id), "wave_id": str(row.wave_id), "title": row.title, "profile": row.profile,
             "goal": row.goal, "context": row.context, "max_steps": row.max_steps or limits["max_steps"],
+            "max_tokens": int(limits.get("max_tokens") or 0),
             "agent_ids": list(row.agent_ids_json or []), "addendum": profile.addendum,
         }
         self._sub_agent_allowed_tools = allowed
@@ -7535,8 +7643,15 @@ class AgentV2:
                 planner_input.sub_agent_title = self._sub_agent.get("title")
                 planner_input.sub_agent_profile_addendum = self._sub_agent.get("addendum")
                 used = int(loop_index) + 1
+                cap = int(self._sub_agent.get("max_tokens") or 0)
+                tokens_spent = cap and self._sub_agent_tokens_used >= cap
+                if tokens_spent and self._sub_agent_tokens_exhausted_at is None:
+                    self._sub_agent_tokens_exhausted_at = int(loop_index)
                 planner_input.sub_agent_budget = f"sub-agent step {used} of {step_limit}" + (
-                    " — finish NOW with finish_subtask" if used >= step_limit - 1 else ""
+                    f"; tokens {self._sub_agent_tokens_used:,} of {cap:,}" if cap else ""
+                ) + (
+                    " — TOKEN BUDGET SPENT: call finish_subtask NOW with what you have" if tokens_spent
+                    else (" — finish NOW with finish_subtask" if used >= step_limit - 1 else "")
                 )
             return
         planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
@@ -7603,6 +7718,7 @@ class AgentV2:
             error=err, duration_ms=duration,
             model_name=getattr(self.model, "name", None) or getattr(self.model, "model_id", None),
             steps_exhausted=bool(self._planner_steps_exhausted),
+            tokens_exhausted=bool(self._sub_agent_tokens_exhausted),
         )
 
     async def _build_planner_prompt_text(self, view=None) -> str:
@@ -7717,6 +7833,12 @@ class AgentV2:
             metrics = getattr(decision, "metrics", None)
             token_usage = getattr(metrics, "token_usage", None) if metrics else None
             prompt_tokens = getattr(token_usage, "prompt_tokens", None) if token_usage else None
+            if token_usage is not None and self._is_sub_agent:
+                # Running total for the sub-agent token cap (sub_agent_max_tokens).
+                _total = getattr(token_usage, "total_tokens", None)
+                if _total is None:
+                    _total = int(prompt_tokens or 0) + int(getattr(token_usage, "completion_tokens", 0) or 0)
+                self._sub_agent_tokens_used += int(_total or 0)
             if prompt_tokens is None:
                 return
             prompt_tokens = int(prompt_tokens or 0)

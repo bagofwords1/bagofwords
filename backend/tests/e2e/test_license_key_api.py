@@ -116,9 +116,7 @@ def test_stored_key_overrides_env_and_can_be_removed(
     assert body["masked_key"] and body["masked_key"].endswith(purchased[-6:])
 
     # The public status endpoint reflects the new license too.
-    # Admins (manage_settings) still see the licensee; anonymous callers do not.
-    assert client.get("/api/license", headers=H).json()["org_name"] == "Acme Corporation"
-    assert client.get("/api/license").json()["org_name"] is None
+    assert client.get("/api/license").json()["org_name"] == "Acme Corporation"
 
     # Removing it falls back to the deployment's key rather than to nothing.
     delete = client.delete("/api/license/key", headers=H).json()

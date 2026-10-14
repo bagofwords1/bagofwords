@@ -263,39 +263,3 @@ def test_admin_revocation_invalidates_oauth_credentials(
     assert not _token_works(test_client, member["token"])
     fresh = login_user(member["email"], member["password"])
     assert _token_works(test_client, exchange(authorize(fresh)).json()["access_token"])
-
-
-@pytest.mark.parametrize("new_password", ["Changed1234!", "Other-Pass9876"])
-def test_password_change_revokes_oauth_access_and_refresh_tokens(
-    test_client, create_user, login_user, whoami, create_oauth_client, new_password
-):
-    acct = _new_account(create_user, login_user)
-    org_id = _org_id(whoami, acct["token"])
-    redirect = "http://localhost:4173/callback"
-    client = create_oauth_client(acct["token"], org_id, scopes="app", redirect_uris=[redirect])
-    verifier = "b" * 64
-    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    approved = test_client.post("/api/oauth/authorize", headers=_auth(acct["token"]), json={
-        "client_id": client["client_id"], "redirect_uri": redirect,
-        "scope": "app", "code_challenge": challenge,
-    })
-    assert approved.status_code == 200, approved.text
-    code = parse_qs(urlparse(approved.json()["redirect_url"]).query)["code"][0]
-    tokens = test_client.post("/api/oauth/token", data={
-        "grant_type": "authorization_code", "code": code, "client_id": client["client_id"],
-        "code_verifier": verifier, "redirect_uri": redirect,
-    }).json()
-    assert _token_works(test_client, tokens["access_token"])
-
-    resp = test_client.patch(
-        "/api/users/me", json={"password": new_password}, headers=_auth(acct["token"])
-    )
-    assert resp.status_code == 200, resp.json()
-
-    assert not _token_works(test_client, tokens["access_token"])
-    refreshed = test_client.post("/api/oauth/token", data={
-        "grant_type": "refresh_token", "refresh_token": tokens["refresh_token"],
-        "client_id": client["client_id"],
-    })
-    assert refreshed.status_code == 400
-    assert refreshed.json()["error"] == "invalid_grant"

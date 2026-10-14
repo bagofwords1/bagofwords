@@ -280,6 +280,29 @@ def test_wrap_clients_uses_default_when_no_settings_provided():
     assert wrapped["main"]._query_timeout_seconds == DEFAULT_QUERY_TIMEOUT_SECONDS
 
 
+def test_wrap_clients_hands_the_budget_to_sources_that_can_enforce_it():
+    """An Elasticsearch connection gets the same budget as the wrapper, sent
+    to the engine — instead of its own fixed 60s."""
+    from app.data_sources.clients.elasticsearch_client import ElasticsearchClient
+
+    sent = {}
+    es = ElasticsearchClient(host="h")
+    es._request = lambda m, p, json_body=None, params=None, timeout=None: (
+        sent.update(body=json_body, timeout=timeout) or {"hits": {"hits": []}})
+    es._bow_connection_query_timeout = 150
+    wrapped = wrap_clients_for_capture(
+        ds_clients={"logs": es},
+        captured_queries=[],
+        captured_timings=[],
+        usage_context=None,
+        organization_settings=_StubOrgSettings(30),
+    )
+    wrapped["logs"].execute_query('{"index": "logs-*"}')
+    assert wrapped["logs"]._query_timeout_seconds == 150
+    assert sent["body"]["timeout"] == "150s"
+    assert sent["timeout"][1] > 150
+
+
 # ---------------------------------------------------------------------------
 # Integration: timeout flows through generate_and_execute_stream_v2 and the
 # retry loop activates so the agent can recover with a smaller query.

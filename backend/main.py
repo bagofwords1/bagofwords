@@ -39,11 +39,6 @@ from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler, try_acquire_scheduler_leader
 from app.core.spa import mount_spa
-from app.core.request_hardening import (
-    ControlCharGuardMiddleware,
-    traceback_pages_enabled,
-    validate_id_path_params,
-)
 from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
@@ -133,10 +128,7 @@ google_client_secret = settings.bow_config.google_oauth.client_secret
 swagger_enabled = settings.bow_config.swagger.enabled
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    # Traceback pages are opt-in only (see Settings.DEBUG_TRACEBACKS); with
-    # debug off, unhandled errors go to the sanitized handler in app.errors.
-    debug=traceback_pages_enabled(settings),
-    dependencies=[Depends(validate_id_path_params)],
+    debug=settings.DEBUG,
     docs_url="/swagger" if swagger_enabled else None,
     redoc_url=None,
     openapi_url="/openapi.json" if swagger_enabled else None,
@@ -432,17 +424,6 @@ async def startup_event():
         # Warmup is an optimization. A transient database or optional-import
         # failure must not make an otherwise healthy web worker unavailable.
         logger.exception("Agent runtime warmup failed; continuing startup")
-
-    # With BOW_SANDBOX_REQUIRE_LANDLOCK (the production default) the code
-    # sandbox refuses to run on a host without the kernel confinement it
-    # needs. Say so once, at startup, instead of through every user request.
-    try:
-        from app.ai.code_execution.sandbox.runner import CONFINEMENT_REMEDY, required_confinement_problem
-        problem = required_confinement_problem()
-        if problem:
-            logger.error(f"Code execution is disabled on this host: {problem}. {CONFINEMENT_REMEDY}")
-    except Exception:
-        logger.exception("Code sandbox confinement check failed; continuing startup")
 
     await start_tool_audit_worker()
 
@@ -896,8 +877,3 @@ if __name__ == "__main__":
 # Bound new resource payloads without changing legacy upload contracts.
 from app.services.artifact_body_limit import ArtifactBodyLimit
 app.add_middleware(ArtifactBodyLimit)
-# Site-wide security headers (fills gaps; route-set headers win).
-from app.core.security_headers import SecurityHeadersMiddleware
-app.add_middleware(SecurityHeadersMiddleware)
-# Outermost: reject control characters in the URL before any routing.
-app.add_middleware(ControlCharGuardMiddleware)

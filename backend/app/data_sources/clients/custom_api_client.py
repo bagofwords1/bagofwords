@@ -3,7 +3,6 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.egress import Policy, pinned_client
 from app.data_sources.clients.tool_provider_base import ToolProviderClient
 from app.utils.tabular_payload import detect_content_type
 
@@ -427,7 +426,7 @@ class CustomApiClient(ToolProviderClient):
                 )
 
             needs_csrf = self.csrf_token_flow and method in self._WRITE_METHODS
-            with pinned_client(Policy.ADMIN, timeout=self._timeout_for(ep), follow_redirects=True) as client:
+            with httpx.Client(timeout=self._timeout_for(ep), follow_redirects=True) as client:
                 if needs_csrf:
                     token = self._fetch_csrf_token(client, headers, query_params)
                     if token:
@@ -589,7 +588,7 @@ class CustomApiClient(ToolProviderClient):
 
         try:
             headers = self._build_headers()
-            with pinned_client(Policy.ADMIN, timeout=10.0) as client:
+            with httpx.Client(timeout=10.0) as client:
                 response = client.head(self.base_url, headers=headers)
             status = response.status_code
             ok = status < 400 or status == 405

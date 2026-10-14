@@ -186,9 +186,6 @@ class SendEmailTool(Tool):
                 system_completion=runtime_ctx.get("system_completion"),
                 user=runtime_ctx.get("user"),
                 agent_execution_id=runtime_ctx.get("agent_execution_id"),
-                # The recipient is the requesting user: identity-scoped
-                # attachments render with their rows (unchanged for the owner).
-                recipient_user=runtime_ctx.get("user"),
             )
         except Exception as e:
             logger.exception("Failed to send email: %s", e)

@@ -302,15 +302,6 @@ class DreamRuntime:
         ).scalar_one_or_none()
         if m is None:
             return "target_missing"
-        # A user dream works on the user's behalf (memory writes, planned
-        # check-ins). Same fire-time rule as waits and scheduled prompts: a
-        # deactivated (e.g. SCIM-deprovisioned) or removed user is skipped.
-        from app.core.permission_resolver import principal_can_act_in_org
-        from app.models.user import User
-
-        user = await db.get(User, str(target_id))
-        if not await principal_can_act_in_org(db, user, str(organization.id)):
-            return "access_lost"
         return None
 
     async def run_unit(

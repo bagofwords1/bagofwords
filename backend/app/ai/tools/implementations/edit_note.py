@@ -81,10 +81,11 @@ class EditNoteTool(Tool):
             select(Note).where(Note.id == data.note_id, Note.deleted_at.is_(None))
         )
         note = result.scalar_one_or_none()
-        # One answer for "no such note" and "another report's note" so the id
-        # space of other reports cannot be probed through this tool.
-        if note is None or not report_id or str(note.report_id) != report_id:
-            yield self._fail(data.note_id, f"Note {data.note_id} not found in this report.")
+        if note is None:
+            yield self._fail(data.note_id, f"Note {data.note_id} not found.")
+            return
+        if report_id and str(note.report_id) != report_id:
+            yield self._fail(data.note_id, f"Note {data.note_id} does not belong to this report.")
             return
 
         diff_applied = False

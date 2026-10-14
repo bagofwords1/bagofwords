@@ -118,7 +118,11 @@ def make_scripted_stream(*, hypotheses=HYPOTHESES, slow_seconds: float = 0.0, ca
                 # Never calls finish_subtask: the loop must nudge once, then
                 # the runtime synthesizes a partial record.
                 events += [TextDeltaEvent(text="Weekly seasonality looks ordinary; nothing to add.")] + _end()
-            elif n_results == 0:
+            elif n_results in (0, 1):
+                # Twice with identical arguments: a live model re-saved its
+                # plan note every step. The second call must hand back the
+                # existing note (no duplicate) and the repeat guard must only
+                # nudge, so the child still reaches finish_subtask.
                 events += _tool(
                     "create_note",
                     {"title": f"Ledger — {title}", "content": f"- [x] checked {title}\n- numbers: 787 → 676 paid/day"},
@@ -261,7 +265,7 @@ def _run(coro):
 @pytest.mark.e2e
 def test_wave_fans_out_runs_children_hidden_and_fans_in(
     live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
-    monkeypatch, scripted_llm,
+    monkeypatch, scripted_llm, set_visibility,
 ):
     """One planner response with N delegate calls → one wave with N children;
     children are hidden completions with parent links; each finishes through
@@ -314,8 +318,18 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     # their tool calls) never ride in the parent's conversation history.
     parent_calls = [c for c in calls if "Mode: Sub-agent" not in c["system"]]
     assert parent_calls and not any(c["child_goal_leak"] for c in parent_calls), [c for c in parent_calls if c["child_goal_leak"]]
-    assert [c["tool"] for c in detail["calls"]] == ["create_note", "finish_subtask"], (detail["calls"], child_calls[:2])
+    assert [c["tool"] for c in detail["calls"]] == ["create_note", "create_note", "finish_subtask"], (detail["calls"], child_calls[:2])
+    assert "already exists" in str(detail["calls"][1].get("summary") or detail["calls"][1]), detail["calls"][1]
     assert detail.get("note", {}).get("content"), detail.get("note")
+    # One note per child, never a duplicate, and no record ever carries the
+    # repeat guard's own text.
+    from app.models.note import Note
+    async def _note_titles():
+        async with async_session_maker() as db:
+            return [n.title for n in (await db.execute(select(Note).where(Note.report_id == rid))).scalars().all()]
+    titles = _run(_note_titles())
+    assert len(titles) == len(set(titles)) == len(HYPOTHESES) - 1, titles  # the never-finishing child wrote no note
+    assert not any(str(r.get("summary") or "").startswith("Stopping") for r in runs.values()), runs
     assert detail["steps_used"] >= 2
 
     # Timeline: children hidden, parent + fan-in strip + synthesis visible.
@@ -329,6 +343,15 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
         return comps if replies and replies[0]["status"] != "in_progress" else None
     comps = _wait_for(_timeline_with_terminal_reply, timeout_s=60, what="fan-in reply to finish")
     assert all((c.get("trigger_source") or "") != "sub_agent" for c in comps), [c.get("trigger_source") for c in comps]
+    # The shared conversation page (GET /c/{token}) hides the children too:
+    # their system rows used to render as orphan assistant bubbles.
+    vis = set_visibility(rid, "conversation", "public", user_token=token, org_id=org_id).json()
+    pub = test_client.get(f"/api/c/{vis['conversation_share_token']}")
+    assert pub.status_code == 200, pub.text
+    pub_items = pub.json().get("completions") or pub.json().get("items") or []
+    assert pub_items, pub.json()
+    assert all((c.get("trigger_source") or "") != "sub_agent" for c in pub_items), [c.get("trigger_source") for c in pub_items]
+    assert sum(1 for c in pub_items if c.get("role") == "system") == 2, [(c.get("role"), c.get("trigger_source")) for c in pub_items]
     strips = [c for c in comps if c["role"] == "external" and c.get("trigger_source") == "sub_agent_wave"]
     assert len(strips) == 1, [(c["role"], c.get("trigger_source")) for c in comps]
     assert strips[0]["prompt"]["meta"]["total"] == len(HYPOTHESES)
@@ -438,6 +461,83 @@ def test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in(
             # at all — it is interrupted above without ever running.
             return bool(rows) and all(c.sigkill is not None for c in rows)
     assert _wait_for(lambda: _run(_children_stopped()), timeout_s=30, what="children sigkilled")
+
+
+@pytest.mark.e2e
+def test_stop_reaches_a_child_that_is_still_starting(
+    live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
+    monkeypatch, scripted_llm,
+):
+    """A stop that lands while a child is being started (its run claimed, its
+    completion not yet recorded on the row) still stops that child: the
+    completion is sigkilled and the run ends as stopped, not finished."""
+    from sqlalchemy import select
+
+    from app.models.agent_execution import AgentExecution
+    from app.models.completion import Completion
+    from app.models.sub_agent import SubAgentRun
+    from app.services.completion_service import CompletionService
+    from app.services.sub_agent_service import sub_agent_service
+
+    # The API cannot place a stop inside that window on demand, so stop the
+    # wave from inside the child's create_completion: the run is already
+    # claimed, its completion is about to be created and not yet recorded on
+    # the row. The real stop_wave and create_completion both run; only the
+    # timing is forced.
+    real_create = CompletionService.create_completion
+    stopped_from: list = []
+
+    async def stop_then_create(self, *args, **kwargs):
+        if kwargs.get("trigger_source") == "sub_agent":
+            async with async_session_maker() as db:
+                row = await db.get(SubAgentRun, kwargs["completion_data"].prompt.sub_agent_id)
+                await sub_agent_service.stop_wave(db, row.wave_id, reason="stopped while starting")
+                stopped_from.append(str(row.id))
+        return await real_create(self, *args, **kwargs)
+
+    monkeypatch.setattr(CompletionService, "create_completion", stop_then_create)
+    hyps = [(f"Starting {uuid.uuid4().hex[:6]} hypothesis", "slow"), (f"Starting {uuid.uuid4().hex[:6]} hypothesis", "slow")]
+    scripted_llm(hypotheses=hyps)
+    report, headers, _org_id, _token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, "Stop while starting")
+    rid = report["id"]
+    _post_completion(live_client, rid, "Why did paid orders drop?", headers)
+
+    data = _wait_for(lambda: (lambda d: d if d["waves"] and d["waves"][-1]["status"] == "stopped" else None)(_sub_agents(live_client, rid, headers)),
+                     timeout_s=60, what="wave stopped while a child was starting")
+    assert stopped_from, "the stop must have landed inside a child's start"
+    assert all(x["status"] == "interrupted" and x["exit_reason"] == "stopped" for x in data["waves"][-1]["sub_agents"]), data["waves"][-1]["sub_agents"]
+    assert data["background_tasks"] == []
+
+    async def _children_stopped():
+        async with async_session_maker() as db:
+            rows = (await db.execute(select(Completion).where(
+                Completion.report_id == rid, Completion.trigger_source == "sub_agent", Completion.role == "system",
+            ))).scalars().all()
+            # On Postgres a second child may still be finishing its start when
+            # the wave reads stopped; it is signalled as soon as it does.
+            return bool(rows) and all(c.sigkill is not None for c in rows)
+
+    assert _wait_for(lambda: _run(_children_stopped()), timeout_s=30, what="every started child sigkilled")
+
+    async def _executions_ended():
+        async with async_session_maker() as db:
+            runs = (await db.execute(select(SubAgentRun).where(SubAgentRun.report_id == rid))).scalars().all()
+            out = []
+            for r in runs:
+                if not r.child_completion_id:
+                    continue  # never started: interrupted while pending
+                ae = await db.get(AgentExecution, r.child_execution_id) if r.child_execution_id else None
+                if ae is None or ae.status not in ("success", "error", "sigkill"):
+                    return None
+                out.append(ae.status)
+            return out or None
+
+    statuses = _wait_for(lambda: _run(_executions_ended()), timeout_s=60, what="started children to end")
+    # Stopped before (or as) it began work: the run honours the stop instead
+    # of running to completion.
+    assert all(s == "sigkill" for s in statuses), statuses
+    comps = live_client.get(f"/api/reports/{rid}/completions", headers=headers).json()["completions"]
+    assert not any(c.get("trigger_source") == "sub_agent_wave" for c in comps)
 
 
 @pytest.mark.e2e

@@ -8,7 +8,9 @@ import uuid
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
 import httpx
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, OpenAI
+
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import (
@@ -31,26 +33,6 @@ from app.ai.llm.types import (
 )
 
 
-
-def pinned_openai_http_clients(http_kwargs: dict[str, Any]):
-    """(sync, async) httpx clients for the OpenAI SDK whose connections are
-    pinned (admin tier). Keeps the timeouts each path had before: the SDK's
-    own defaults when nothing was overridden, plain httpx otherwise."""
-    import openai
-    from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
-
-    kw = dict(http_kwargs)
-    transport_kw = {"verify": kw.pop("verify")} if "verify" in kw else {}
-    if http_kwargs:
-        sync_cls, async_cls = httpx.Client, httpx.AsyncClient
-    else:
-        sync_cls, async_cls = openai.DefaultHttpxClient, openai.DefaultAsyncHttpxClient
-    return (
-        sync_cls(transport=PinnedTransport(Policy.ADMIN, **transport_kw), **kw),
-        async_cls(transport=AsyncPinnedTransport(Policy.ADMIN, **transport_kw), **kw),
-    )
-
-
 class OpenAi(LLMClient):
     # Class-level default so instances created without __init__ (test doubles
     # built via __new__) still resolve the attribute.
@@ -63,10 +45,10 @@ class OpenAi(LLMClient):
         verify_ssl: bool = True,
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, str]] = None,
+        identity_headers: Optional[IdentityHeaders] = None,
         auth: Optional[httpx.Auth] = None,
         timeout: Optional[httpx.Timeout] = None,
         prompt_cache_markers: bool = False,
-        pin_egress: bool = False,
     ):
         super().__init__()
         # Claude caches only what the request marks. Behind an OpenAI-compatible
@@ -99,20 +81,27 @@ class OpenAi(LLMClient):
         if timeout is not None:
             http_kwargs["timeout"] = timeout
 
+        # Identity-forwarding headers resolve per request (they can change
+        # mid-run); a hook on the SDK's own default client keeps its defaults.
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+
         kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             kwargs["default_headers"] = default_headers
+        if http_kwargs:
+            kwargs["http_client"] = httpx.Client(**http_kwargs, **({"event_hooks": sync_hooks} if sync_hooks else {}))
+        elif sync_hooks:
+            kwargs["http_client"] = DefaultHttpxClient(event_hooks=sync_hooks)
+        self.client = OpenAI(**kwargs)
+
         async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             async_kwargs["default_headers"] = default_headers
-        if pin_egress:
-            # Admin-configured base_url: every request is validated and pinned
-            # to the checked address (app.core.egress) — closes DNS rebinding.
-            kwargs["http_client"], async_kwargs["http_client"] = pinned_openai_http_clients(http_kwargs)
-        elif http_kwargs:
-            kwargs["http_client"] = httpx.Client(**http_kwargs)
-            async_kwargs["http_client"] = httpx.AsyncClient(**http_kwargs)
-        self.client = OpenAI(**kwargs)
+        if http_kwargs:
+            async_kwargs["http_client"] = httpx.AsyncClient(**http_kwargs, **({"event_hooks": async_hooks} if async_hooks else {}))
+        elif async_hooks:
+            async_kwargs["http_client"] = DefaultAsyncHttpxClient(event_hooks=async_hooks)
         self.async_client = AsyncOpenAI(**async_kwargs)
 
     @staticmethod

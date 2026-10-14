@@ -5,11 +5,11 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
+from app.models.connection import RUNTIME_CONFIG_KEYS
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource
 from app.models.user_data_source_credentials import UserDataSourceCredentials
-from app.errors.redact import redact_error
 from app.schemas.user_data_source_credentials_schema import (
     UserDataSourceCredentialsCreate,
     UserDataSourceCredentialsUpdate,
@@ -44,23 +44,6 @@ class UserDataSourceCredentialsService:
             conn.allowed_user_auth_modes,
             conn
         )
-
-    @staticmethod
-    def _user_auth_variant(ds_type: str, allowed_user_auth_modes, auth_mode: str):
-        """Resolve the registry variant for a per-user ``auth_mode`` and enforce
-        the connection's ``allowed_user_auth_modes`` policy.
-
-        Shared by every my-credentials path (save, patch, test) so none of them
-        can accept a mode the admin did not allow. Raises 400 otherwise.
-        """
-        entry = get_entry(ds_type)
-        variant = (entry.credentials_auth.by_auth or {}).get(auth_mode)
-        if not variant or ("user" not in (variant.scopes or [])):
-            raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
-        allowed = allowed_user_auth_modes or []
-        if allowed and auth_mode not in allowed:
-            raise HTTPException(status_code=400, detail="Authentication mode not permitted by data source policy")
-        return variant
 
     async def get_primary_active_row(self, db: AsyncSession, data_source: DataSource, user: User) -> Optional[UserDataSourceCredentials]:
         stmt = (
@@ -396,16 +379,18 @@ class UserDataSourceCredentialsService:
         if not ds_type:
             raise HTTPException(status_code=400, detail="Data source has no connection")
         
-        # Validate against registry AND the connection's allowed-modes policy
-        # before anything below builds a client and connects out.
-        variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
+        # Validate against registry
+        entry = get_entry(ds_type)
+        variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
+        if not variant or ("user" not in (variant.scopes or [])):
+            raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
             if ds_type.lower() == "mssql":
                 payload.credentials = validated.model_dump()
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+            raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
 
         # Build client with provided creds without persisting. For an overlay
         # variant the user's payload is only their identity fields, so the
@@ -419,7 +404,7 @@ class UserDataSourceCredentialsService:
         ClientClass = resolve_client_class(ds_type)
         params = {**(config or {}), **creds}
         # Strip meta keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
         # Filter by signature
         try:
@@ -427,19 +412,13 @@ class UserDataSourceCredentialsService:
             params = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             pass
+        client = ClientClass(**params)
         try:
-            # Constructing the client can itself fail on bad/missing params or
-            # a missing driver; report it as a failed test, not a 500.
-            # SSRF guard: the destination is re-checked right before connect
-            # (a refusal is reported as a failed test, like any other).
-            from app.core.egress import acheck_connection_params
-            await acheck_connection_params(ds_type, {**(config or {}), **creds})
-            client = ClientClass(**params)
             res = await client.atest_connection()
             success = bool(res.get("success")) if isinstance(res, dict) else bool(res)
             return {"success": success, "message": (res.get("message") if isinstance(res, dict) else None)}
         except Exception as e:
-            return {"success": False, "message": redact_error(e)}
+            return {"success": False, "message": str(e)}
 
     async def upsert_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> UserDataSourceCredentialsSchema:
         # Get connection info
@@ -448,8 +427,16 @@ class UserDataSourceCredentialsService:
         if not ds_type:
             raise HTTPException(status_code=400, detail="Data source has no connection")
         
-        # Policy: auth_mode must be a user-scope mode the connection allows
-        variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
+        # Policy: ensure auth_mode allowed for user scope
+        entry = get_entry(ds_type)
+        variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
+        if not variant or ("user" not in (variant.scopes or [])):
+            raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
+
+        # If DS restricts allowed_user_auth_modes, enforce
+        allowed = allowed_user_auth_modes or []
+        if allowed and payload.auth_mode not in allowed:
+            raise HTTPException(status_code=400, detail="Authentication mode not permitted by data source policy")
 
         # Validate credentials against registry schema
         schema_cls = variant.schema
@@ -458,7 +445,7 @@ class UserDataSourceCredentialsService:
             if ds_type.lower() == "mssql":
                 payload.credentials = validated.model_dump()
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+            raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
 
         # Kerberos SSO rows persist an explicit UPN: fill a blank principal from
         # the login identity at save time so resolvers never see an empty one.
@@ -550,13 +537,16 @@ class UserDataSourceCredentialsService:
 
         # Apply changes
         if payload.auth_mode:
-            variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
+            entry = get_entry(ds_type)
+            variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
+            if not variant or ("user" not in (variant.scopes or [])):
+                raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
             # Validate new credentials
             schema_cls = variant.schema
             try:
                 schema_cls(**(payload.credentials or {}))
             except Exception as e:
-                raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+                raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
             row.auth_mode = payload.auth_mode
             row.encrypt_credentials(payload.credentials or {})
 
@@ -570,7 +560,7 @@ class UserDataSourceCredentialsService:
             try:
                 schema_cls(**payload.credentials)
             except Exception as e:
-                raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+                raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
             row.encrypt_credentials(payload.credentials)
 
         if payload.is_active is not None:

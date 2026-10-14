@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 
 from app.data_sources.clients.progress import IndexingCancelled
-from app.models.connection import Connection
+from app.models.connection import Connection, RUNTIME_CONFIG_KEYS
 from app.models.connection_table import ConnectionTable, KIND_TABLE, KIND_BOW
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
@@ -27,7 +27,6 @@ from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
 from app.models.domain_connection import domain_connection
-from app.errors.redact import redact_error
 from app.schemas.data_source_registry import (
     resolve_client_class,
     list_available_data_sources,
@@ -48,73 +47,6 @@ def _user_auth_needs_enterprise(conn_type: str) -> bool:
         return get_entry(conn_type).data_shape == "tables"
     except Exception:
         return True
-
-
-# Config keys that name the host a tool-provider connection talks to.
-_TOOL_PROVIDER_URL_KEYS = {"mcp": ("server_url",), "custom_api": ("base_url",)}
-
-
-def _check_tool_provider_url(conn_type: str, config) -> None:
-    """Save/test-time SSRF guard for MCP / custom API URLs (admin tier:
-    metadata + link-local always refused, private only with
-    ``block_private_outbound``). Connect time is guarded again by the pinned
-    transport in the clients, which also closes DNS rebinding."""
-    from app.core.egress import Policy, check_url
-    from app.core.url_safety import UnsafeURLError
-
-    cfg = json.loads(config) if isinstance(config, str) else (config or {})
-    for key in _TOOL_PROVIDER_URL_KEYS.get(conn_type, ()):
-        url = cfg.get(key)
-        if not url:
-            continue
-        try:
-            check_url(str(url), Policy.ADMIN)
-        except UnsafeURLError as e:
-            raise HTTPException(status_code=400, detail=f"{key}: {e}")
-
-
-def _check_network_dir_root(conn_type: str, config) -> None:
-    """Save/test-time guard: a network_dir root must pass the root policy
-    (``security.network_dir_allowed_roots``). Enforced again in the client."""
-    if conn_type != "network_dir":
-        return
-    from app.data_sources.clients.network_dir_client import check_network_dir_root
-
-    cfg = json.loads(config) if isinstance(config, str) else (config or {})
-    root = (cfg.get("root_path") or "").strip() if isinstance(cfg.get("root_path"), str) else ""
-    if not root:
-        return
-    try:
-        check_network_dir_root(root)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"root_path: {e}")
-
-
-_GOOGLE_SA_KEYS = ("credentials_json", "service_account_json")
-
-
-def _reject_unsafe_google_keys(credentials) -> None:
-    """A pasted service-account key's ``token_uri`` is where google-auth
-    POSTs a signed assertion; refuse anything but Google's endpoint at save
-    time (same check as Google Chat). Enforced again in the clients."""
-    from app.core.egress import check_google_token_uri
-    from app.core.url_safety import UnsafeURLError
-
-    if not isinstance(credentials, dict):
-        return
-    for key in _GOOGLE_SA_KEYS:
-        raw = credentials.get(key)
-        info = raw
-        if isinstance(raw, str):
-            try:
-                info = json.loads(raw)
-            except ValueError:
-                continue  # not JSON (e.g. a server file path) — checked at use
-        if isinstance(info, dict) and info.get("type") == "service_account":
-            try:
-                check_google_token_uri(info)
-            except UnsafeURLError as e:
-                raise HTTPException(status_code=400, detail=f"{key}: {e}")
 
 
 async def grant_connection_owner(
@@ -399,16 +331,6 @@ def _dialect_insert(db: AsyncSession):
     return insert
 
 
-
-def _reject_unsafe_oauth_urls(config, credentials) -> None:
-    """OAuth authorize endpoints become browser navigation targets; refuse
-    anything but absolute http(s) at save time (pentest 829383570)."""
-    from app.core.url_safety import is_safe_http_url
-    for source, key in ((config, "authorization_url"), (credentials, "authorize_url")):
-        value = source.get(key) if isinstance(source, dict) else None
-        if isinstance(value, str) and value.strip() and not is_safe_http_url(value.strip()):
-            raise HTTPException(status_code=400, detail=f"{key} must be an absolute http(s) URL")
-
 def _check_mcp_forwarding(conn_type: Optional[str], config: Any) -> None:
     """400 on a malformed MCP forwarding block (dynamic params) before saving."""
     if conn_type != "mcp" or not isinstance(config, dict):
@@ -441,9 +363,6 @@ class ConnectionService:
         member_bindings: Optional[dict] = None,
     ) -> Connection:
         """Create a new connection with validation."""
-        _reject_unsafe_oauth_urls(config, credentials)
-        _reject_unsafe_google_keys(credentials)
-        _check_network_dir_root(type, config)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -466,8 +385,6 @@ class ConnectionService:
         # so null/[] would silently disable both auto-provision and the /authorize route.
         if auth_policy == "user_required" and not allowed_user_auth_modes:
             allowed_user_auth_modes = default_user_auth_modes(type, config, credentials)
-
-        _check_tool_provider_url(type, config)
 
         _check_mcp_forwarding(type, config)
         member_bindings = check_member_bindings(
@@ -671,8 +588,6 @@ class ConnectionService:
         **updates,
     ) -> Connection:
         """Update a connection."""
-        _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
-        _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
 
         # Check enterprise license if switching to user_required auth policy
@@ -790,11 +705,36 @@ class ConnectionService:
         # Track if connection-relevant fields changed
         connection_changed = False
 
+        current_config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+        if not isinstance(current_config, dict):
+            current_config = {}
+
         if "config" in updates:
             new_config = updates.pop("config")
             _check_mcp_forwarding(updates.get("type", connection.type), new_config)
+            if isinstance(new_config, dict):
+                # The connection form edits the type's own fields only; keep
+                # the runtime query limits it does not render.
+                for key in RUNTIME_CONFIG_KEYS:
+                    if key not in new_config and key in current_config:
+                        new_config = {**new_config, key: current_config[key]}
+                current_config = new_config
             connection.config = json.dumps(new_config) if isinstance(new_config, dict) else new_config
             connection_changed = True
+
+        # Per-connection query limits live in `config` (read when the client is
+        # built) but are not connection parameters: changing one must not
+        # re-test the connection or re-index its schema. 0 / null clears the
+        # override so the org default applies.
+        limit_updates = {k: updates.pop(k) for k in RUNTIME_CONFIG_KEYS if k in updates}
+        if limit_updates and isinstance(current_config, dict):
+            merged = dict(current_config)
+            for key, value in limit_updates.items():
+                if value:
+                    merged[key] = int(value)
+                else:
+                    merged.pop(key, None)
+            connection.config = json.dumps(merged)
 
         if "credentials" in updates:
             new_credentials = updates.pop("credentials")
@@ -817,10 +757,6 @@ class ConnectionService:
         for field, value in updates.items():
             if value is not None and hasattr(connection, field):
                 setattr(connection, field, value)
-
-        if connection_changed:
-            _check_tool_provider_url(connection.type, connection.config)
-            _check_network_dir_root(connection.type, connection.config)
 
         # Revalidate if connection fields changed
         if connection_changed and connection.auth_policy == "system_only":
@@ -1144,12 +1080,6 @@ class ConnectionService:
         # challenge (401/403/WWW-Authenticate) is the *expected* healthy response.
         # Treat "reachable but requires sign-in" as a pass; the real per-user auth
         # is validated at the OAuth callback (test_user_connection).
-        try:
-            _check_tool_provider_url(data_source_type, config)
-            _check_network_dir_root(data_source_type, config)
-            _reject_unsafe_google_keys(credentials)
-        except HTTPException as e:
-            return {"success": False, "message": e.detail, "connectivity": False}
         oauth_user_mode = (
             data_source_type == "mcp"
             and (config or {}).get("auth_type") in ("oauth_app", "dcr")
@@ -1244,13 +1174,8 @@ class ConnectionService:
         current_user: User = None,
         config_overrides: dict = None,
         credential_overrides: dict = None,
-        persist: bool = True,
     ) -> dict:
         """Test an existing connection, optionally with override config/credentials.
-
-        ``persist=False`` runs the probe and returns the result without writing
-        any cached status or ``is_active`` change: read-only callers (view-level
-        agent members) may check connectivity but not flip org-wide state.
 
         The response is always augmented with a `timings.total_ms` field and a
         non-None `details` dict (may be empty). Clients that fill in richer
@@ -1270,9 +1195,6 @@ class ConnectionService:
 
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
-            if not persist:
-                return self._finish_status(connection_status, t0)
-
             # Cache the test result
             if current_user is None:
                 connection.last_connection_status = "success" if success else "not_connected"
@@ -1286,35 +1208,29 @@ class ConnectionService:
                     connection.is_active = True
 
             await db.commit()
-            return self._finish_status(connection_status, t0)
+            if isinstance(connection_status, dict):
+                timings = dict(connection_status.get("timings") or {})
+                timings.setdefault("total_ms", round((_time.perf_counter() - t0) * 1000, 1))
+                connection_status["timings"] = timings
+                if connection_status.get("details") is None:
+                    connection_status["details"] = {}
+            return connection_status
 
         except Exception as e:
-            if persist:
-                if current_user is None:
-                    connection.last_connection_status = "not_connected"
-                    connection.last_connection_checked_at = datetime.utcnow()
+            if current_user is None:
+                connection.last_connection_status = "not_connected"
+                connection.last_connection_checked_at = datetime.utcnow()
 
-                if connection.auth_policy == "system_only":
-                    connection.is_active = False
+            if connection.auth_policy == "system_only":
+                connection.is_active = False
 
-                await db.commit()
+            await db.commit()
             return {
                 "success": False,
                 "message": str(e),
                 "timings": {"total_ms": round((_time.perf_counter() - t0) * 1000, 1)},
                 "details": {},
             }
-
-    @staticmethod
-    def _finish_status(connection_status, t0):
-        import time as _time
-        if isinstance(connection_status, dict):
-            timings = dict(connection_status.get("timings") or {})
-            timings.setdefault("total_ms", round((_time.perf_counter() - t0) * 1000, 1))
-            connection_status["timings"] = timings
-            if connection_status.get("details") is None:
-                connection_status["details"] = {}
-        return connection_status
 
     async def list_kerberos_access(self, db: AsyncSession, connection: Connection) -> list[dict]:
         """Per-member Kerberos SSO verification roster for a connection.
@@ -2028,7 +1944,7 @@ class ConnectionService:
             raise
         except Exception as e:
             logger.error(f"Error refreshing schema for connection {connection.id}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to refresh schema: {redact_error(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to refresh schema: {e}")
 
     async def construct_client(
         self,
@@ -2062,7 +1978,7 @@ class ConnectionService:
         params = {**(config or {}), **(creds or {})}
 
         # Strip meta keys and oauth override keys (but keep auth_type — needed by custom_api/mcp clients)
-        meta_keys = {"auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
 
         # Narrow to constructor signature
@@ -2086,10 +2002,6 @@ class ConnectionService:
             allowed = params
 
         logger.info(f"construct_client: Final param keys={list(allowed.keys())}")
-        # Re-validate the effective destination (config + overrides) at use
-        # time — every test, index, query and tool call builds through here.
-        from app.core.egress import acheck_connection_params
-        await acheck_connection_params(connection.type, params)
         client = ClientClass(**allowed)
         await self._attach_connection_table_metadata(db, client, connection)
         return client
@@ -2388,7 +2300,7 @@ class ConnectionService:
             # it here made the pre-save "Test Connection" build the client as
             # auth_type="none", so an oauth_app API root 404 looked like a failure.
             # Clients that don't accept auth_type drop it via the signature narrowing below.
-            meta_keys = {"auth_policy", "allowed_user_auth_modes"}
+            meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
             client_params = {k: v for k, v in client_params.items()
                              if v is not None and (v != "" or (data_source_type == "sharepoint_onprem" and k == "drive_name"))
                              and k not in meta_keys and not k.startswith("oauth_")}
@@ -2412,10 +2324,6 @@ class ConnectionService:
             except Exception:
                 pass
 
-            # Pre-save test / create / update validation: check the
-            # destination before the client can connect anywhere.
-            from app.core.egress import check_connection_params
-            check_connection_params(data_source_type, {**(config or {}), **(credentials or {})})
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load client for {data_source_type}: {str(e)}")
@@ -2682,7 +2590,7 @@ class ConnectionService:
             raise
         except Exception as e:
             logger.error(f"Error refreshing tools for connection {connection.id}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to refresh tools: {redact_error(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to refresh tools: {e}")
 
     async def get_connection_tools(
         self,

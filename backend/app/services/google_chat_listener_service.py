@@ -57,11 +57,7 @@ class GoogleChatPubSubListener:
         def _mint() -> str:
             from google.oauth2 import service_account
             import google.auth.transport.requests
-            from app.core.egress import check_google_token_uri
 
-            # google-auth POSTs a signed assertion to the key's token_uri:
-            # only Google's token endpoint may receive it.
-            check_google_token_uri(self.service_account_info)
             creds = service_account.Credentials.from_service_account_info(
                 self.service_account_info, scopes=[PUBSUB_SCOPE]
             )

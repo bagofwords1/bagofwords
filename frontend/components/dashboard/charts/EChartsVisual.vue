@@ -42,7 +42,12 @@ type EChartsOption = Record<string, any>
 
 const isLoading = ref(false)
 const chartOptions = ref<EChartsOption>({})
-const chartKey = ref(0)
+// Remount VChart only when the chart TYPE changes. Any other rebuild hands the
+// new option to the live instance (vue-echarts calls setOption), so the chart
+// updates in place instead of being destroyed and replaying its entry
+// animation — which is what made previews "refresh" several times on first
+// paint as the card's inputs settled.
+const chartKey = ref('')
 
 // Card-level wrapper style - default transparent with no border
 const wrapperStyle = computed(() => {
@@ -947,11 +952,11 @@ function buildOptions() {
   const rows = normalizeRows(props.data?.rows)
   if (!dm || (!rows.length && normalizeType((props.view?.view?.type || props.view as any)?.type || dm.type) !== 'table')) {
     isLoading.value = false
-    chartKey.value++
     return
   }
   
   const t = normalizeType(props.view?.view?.type || (props.view as any)?.type || dm.type)
+  chartKey.value = t
   const base = getBaseOptions()
   let specific: EChartsOption = {}
   
@@ -977,11 +982,34 @@ function buildOptions() {
     chartOptions.value = { title: { text: 'Error Building Chart' } }
   } finally {
     isLoading.value = false
-    chartKey.value++
   }
 }
 
-watch(() => [props.step?.id, props.data?.rows, props.data_model, props.view, tokens.value], () => {
+// Everything buildOptions reads, serialized. The deep watcher below fires
+// whenever any traversed dependency is touched — including a parent handing
+// down a fresh-but-identical object (a re-wrapped view, a reloaded payload,
+// a re-applied report theme). Comparing content lets those through as no-ops
+// so only a real change rebuilds the chart.
+let lastInputSignature: string | null = null
+function inputSignature(): string | null {
+  try {
+    return JSON.stringify([
+      props.step?.id ?? null,
+      props.data?.rows ?? null,
+      props.data?.columns ?? null,
+      props.data_model ?? null,
+      props.view ?? null,
+      tokens.value ?? null,
+    ])
+  } catch {
+    return null // not serializable — always rebuild
+  }
+}
+
+watch(() => [props.step?.id, props.data?.rows, props.data?.columns, props.data_model, props.view, tokens.value], () => {
+  const signature = inputSignature()
+  if (signature !== null && signature === lastInputSignature) return
+  lastInputSignature = signature
   buildOptions()
 }, { deep: true, immediate: true })
 </script>

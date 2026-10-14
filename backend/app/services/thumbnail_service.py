@@ -47,19 +47,12 @@ class ThumbnailService:
 
         try:
             import os
-            from app.core.render_guard import RenderEgressProxy, RendererPolicy, guard_page_requests
-
-            # Model-authored page code runs here on the server: same guard as
-            # the PDF export — the page is set_content()'d with every library
-            # inlined, so nothing but RENDER_ASSET_HOSTS is reachable.
-            policy = RendererPolicy()
-            async with RenderEgressProxy(policy.decide, label="thumbnail render") as egress, async_playwright() as p:
+            async with async_playwright() as p:
                 # Optional executable override — same contract as the artifact
                 # render validation (BOW_CHROMIUM_EXECUTABLE).
                 _exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
-                browser = await p.chromium.launch(headless=True, executable_path=_exe, **egress.launch_kwargs())
+                browser = await p.chromium.launch(headless=True, executable_path=_exe)
                 page = await browser.new_page(viewport={"width": 1280, "height": 720})
-                await guard_page_requests(page, policy.allows_url, allows_image=policy.allows_image, label="thumbnail render")
 
                 await page.set_content(html_content, wait_until="networkidle")
 

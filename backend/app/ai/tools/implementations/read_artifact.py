@@ -239,8 +239,7 @@ class ReadArtifactTool(Tool):
                 )
             )
             artifact = result.scalar_one_or_none()
-        except Exception:
-            logger.exception("read_artifact lookup failed")
+        except Exception as e:
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -250,21 +249,12 @@ class ReadArtifactTool(Tool):
                         code="",
                     ).model_dump(),
                     "observation": {
-                        "summary": "Failed to read artifact",
-                        "error": {"type": "db_error", "message": "Failed to read artifact"},
+                        "summary": f"Failed to read artifact: {str(e)}",
+                        "error": {"type": "db_error", "message": str(e)},
                     },
                 },
             )
             return
-
-        # Same authorization boundary as edit_artifact/edit_doc: the agent may
-        # only read artifacts of the report it is running in. An org-wide id
-        # lookup let a completion read any other user's artifact by id. A
-        # foreign or unknown id get the identical not-found answer.
-        if artifact is not None and (
-            report is None or str(artifact.report_id) != str(report.id)
-        ):
-            artifact = None
 
         if not artifact:
             yield ToolEndEvent(

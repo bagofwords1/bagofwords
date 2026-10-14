@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 
 # --- Roles ---
@@ -132,9 +132,7 @@ class RoleAssignmentSchema(RoleAssignmentCreate):
 class ResourceGrantCreate(BaseModel):
     resource_type: str  # "data_source" | "connection"
     resource_id: str
-    # Per-resource grants target people. Role-wide grants are written only by
-    # the role editor (org admin), so "role" is not accepted here.
-    principal_type: Literal["user", "group"]
+    principal_type: str  # "user" | "group"
     principal_id: str
     permissions: List[str] = []
 

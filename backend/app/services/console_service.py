@@ -1,4 +1,3 @@
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, literal, Integer, case, or_, not_, and_
 from app.models.organization import Organization
@@ -1559,7 +1558,7 @@ class ConsoleService:
         report = report_result.scalar_one_or_none()
         
         if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
+            raise ValueError(f"Report {report_id} not found")
         
         # Get user info
         user = None
@@ -1766,7 +1765,7 @@ class ConsoleService:
         ae_result = await db.execute(ae_query)
         agent_execution = ae_result.scalar_one_or_none()
         if not agent_execution:
-            raise HTTPException(status_code=404, detail="Agent execution not found")
+            raise ValueError("Agent execution not found")
 
         # Fetch blocks associated to this AE ordered by (seq, block_index)
         blocks_query = (
@@ -2064,7 +2063,7 @@ class ConsoleService:
         ae_res = await db.execute(ae_query)
         ae = ae_res.scalar_one_or_none()
         if not ae:
-            raise HTTPException(status_code=404, detail="Agent execution not found for completion")
+            raise ValueError("Agent execution not found for completion")
         return await self.get_agent_execution_trace(db, organization, ae.id)
 
     async def _turn_memory_sections(self, db: AsyncSession, rows, ae_ids, viewer_id: Optional[str]) -> dict:
@@ -2162,7 +2161,7 @@ class ConsoleService:
         )
         report = (await db.execute(report_q)).scalar_one_or_none()
         if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
+            raise ValueError("Report not found")
 
         # Every agent execution in the report = one assistant turn. Join the
         # system completion and its parent user completion (which holds the
@@ -2356,7 +2355,12 @@ class ConsoleService:
             turn_llm_tokens = usage.get(_METRIC_LLM_TOKENS) or None
             _cost_micro = usage.get(_METRIC_LLM_COST) or 0
             turn_llm_cost_usd = round(_cost_micro / 1_000_000, 6) if _cost_micro else None
-            derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
+            # A turn is an error when the run itself failed (planner retries
+            # exhausted, step limit, crash). A tool that failed inside an
+            # otherwise completed turn is reported by total_failed_tools; it
+            # used to flip the whole turn to 'error', so a parent that launched
+            # a wave and the one child that finished both read as failures.
+            derived_status = r.ae_status or 'success'
             if derived_status == 'error':
                 failed_turns += 1
             if fb['status'] == 'negative':
@@ -2796,7 +2800,12 @@ class ConsoleService:
             report_link = f"/reports/{r.report_id}" if r.report_id else None
 
             # Derive status: if any tool failed in this AE, mark as error
-            derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
+            # A turn is an error when the run itself failed (planner retries
+            # exhausted, step limit, crash). A tool that failed inside an
+            # otherwise completed turn is reported by total_failed_tools; it
+            # used to flip the whole turn to 'error', so a parent that launched
+            # a wave and the one child that finished both read as failures.
+            derived_status = r.ae_status or 'success'
 
             items.append(AgentExecutionSummaryItem(
                 agent_execution_id=str(r.ae_id),

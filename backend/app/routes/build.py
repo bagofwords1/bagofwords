@@ -1,15 +1,12 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
-import logging
 
 from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import (
-    requires_permission, check_resource_permissions, require_org_permission,
-)
+from app.core.permissions_decorator import requires_permission, check_resource_permissions
 from app.services.build_service import BuildService
 from app.schemas.build_schema import (
     InstructionBuildCreate,
@@ -27,31 +24,6 @@ from app.schemas.build_schema import (
 
 router = APIRouter(prefix="/builds", tags=["builds"])
 build_service = BuildService()
-logger = logging.getLogger(__name__)
-
-
-async def _require_authority_over_instructions(
-    db: AsyncSession,
-    instruction_ids,
-    user_id: str,
-    org_id: str,
-) -> None:
-    """``manage_instructions`` over every listed instruction.
-
-    Scoped instructions need it on each of their agents. A global instruction
-    (no agent) reaches every agent, so it needs the org-level permission; a
-    per-agent grant is no authority over it. Same rule as
-    ``_require_instruction_authority`` in ``app/routes/instruction.py``.
-    """
-    scopes = await build_service.get_instruction_scopes(db, instruction_ids)
-    ds_ids = sorted({d for ds in scopes.values() for d in ds})
-    if ds_ids:
-        await check_resource_permissions(
-            db, user_id, org_id, "data_source", ds_ids, "manage_instructions",
-            name_resource=False,
-        )
-    if any(not ds for ds in scopes.values()):
-        await require_org_permission(db, user_id, org_id, "manage_instructions")
 
 
 async def _enforce_build_ds_access(
@@ -59,63 +31,16 @@ async def _enforce_build_ds_access(
     build_id: str,
     user_id: str,
     org_id: str,
-    *,
-    changed_instruction_ids=None,
 ) -> None:
-    """Gate for build write ops.
-
-    1. ``manage_instructions`` on every agent touched by the build's snapshot.
-       Admins pass through ORG_PERM_IMPLIES_RESOURCE in the resolver.
-    2. Authority over every instruction the build CHANGES. That includes
-       org-level authority whenever a change touches a global instruction.
-       Without this step, a build changing only global rules had no agents
-       to check, so step 1 passed for any per-agent manager.
-
-    ``changed_instruction_ids`` overrides the change set. Rollback uses it,
-    since it replaces the whole live set rather than applying a diff.
-    A build with nothing to check at all still needs org-level authority.
+    """Strict per-DS gate for build write ops: user must hold `manage_instructions`
+    on every DS touched by the build's instructions. Admin bypass (`manage_instructions`)
+    is handled inside the resolver via ORG_PERM_IMPLIES_RESOURCE.
     """
     ds_ids = await build_service.get_build_data_source_ids(db, build_id)
     if ds_ids:
         await check_resource_permissions(
             db, user_id, org_id, "data_source", ds_ids, "manage_instructions",
-            name_resource=False,
         )
-    if changed_instruction_ids is None:
-        changed_instruction_ids = await build_service.get_build_changed_instruction_ids(db, build_id)
-    if changed_instruction_ids:
-        await _require_authority_over_instructions(db, changed_instruction_ids, user_id, org_id)
-    elif not ds_ids:
-        await require_org_permission(db, user_id, org_id, "manage_instructions")
-
-
-async def _instruction_read_filter(
-    db: AsyncSession,
-    user: User,
-    organization: Organization,
-):
-    """Returns a function that narrows instruction ids to the ones ``user`` may read.
-
-    Returns None when the user may read every instruction in the org. That is
-    org admins and org-level ``manage_instructions`` holders, who review and
-    publish every build. Everyone else sees global instructions plus those on
-    agents they can access, matching ``GET /builds`` and the instruction
-    detail routes. A build snapshots the whole org, so these reads filter
-    rows; they don't hide whole builds.
-    """
-    from app.core.permission_resolver import get_accessible_data_source_ids, resolve_permissions
-    is_admin, accessible = await get_accessible_data_source_ids(db, str(user.id), str(organization.id))
-    if is_admin:
-        return None
-    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-    if "manage_instructions" in resolved.org_permissions:
-        return None
-
-    async def _visible(instruction_ids) -> set[str]:
-        return await build_service.visible_instruction_ids(
-            db, str(organization.id), str(user.id), instruction_ids, accessible,
-        )
-    return _visible
 
 
 # ==================== List and Get ====================
@@ -206,7 +131,7 @@ async def get_build(
         raise HTTPException(status_code=404, detail="Build not found")
     
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=404, detail="Build not found")
+        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
     
     return InstructionBuildSchema.model_validate(build)
 
@@ -225,14 +150,10 @@ async def get_build_contents(
         raise HTTPException(status_code=404, detail="Build not found")
     
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=404, detail="Build not found")
+        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
     
     contents = await build_service.get_build_contents(db, build_id)
-    read_filter = await _instruction_read_filter(db, current_user, organization)
-    if read_filter is not None:
-        visible = await read_filter([c.instruction_id for c in contents])
-        contents = [c for c in contents if str(c.instruction_id) in visible]
-
+    
     # Convert to schemas with version details
     items = []
     for content in contents:
@@ -299,7 +220,7 @@ async def submit_build(
         raise HTTPException(status_code=404, detail="Build not found")
 
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=404, detail="Build not found")
+        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
 
     await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
     build = await build_service.submit_build(db, build_id)
@@ -323,7 +244,7 @@ async def reject_build(
         raise HTTPException(status_code=404, detail="Build not found")
 
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=404, detail="Build not found")
+        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
 
     await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
     build = await build_service.reject_build(db, build_id, current_user.id, reject_data.reason)
@@ -350,12 +271,9 @@ async def add_or_update_build_content(
         raise HTTPException(status_code=404, detail="Build not found")
     
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=404, detail="Build not found")
+        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
 
     await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
-    await _require_authority_over_instructions(
-        db, [instruction_id], str(current_user.id), str(organization.id),
-    )
     content = await build_service.add_to_build(
         db, build_id, instruction_id, content_data.instruction_version_id
     )
@@ -384,12 +302,9 @@ async def remove_build_content(
         raise HTTPException(status_code=404, detail="Build not found")
     
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=404, detail="Build not found")
+        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
 
     await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
-    await _require_authority_over_instructions(
-        db, [instruction_id], str(current_user.id), str(organization.id),
-    )
     removed = await build_service.remove_from_build(db, build_id, instruction_id)
     
     if not removed:
@@ -413,27 +328,16 @@ async def diff_builds(
     build_a = await build_service.get_build(db, build_id)
     build_b = await build_service.get_build(db, compare_to)
     
-    # Missing and foreign builds read the same (no existence oracle).
-    if (
-        not build_a or not build_b
-        or build_a.organization_id != organization.id
-        or build_b.organization_id != organization.id
-    ):
-        raise HTTPException(status_code=404, detail="Build not found")
+    if not build_a:
+        raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
+    if not build_b:
+        raise HTTPException(status_code=404, detail=f"Build {compare_to} not found")
+    
+    if build_a.organization_id != organization.id or build_b.organization_id != organization.id:
+        raise HTTPException(status_code=403, detail="One or both builds do not belong to this organization")
     
     diff = await build_service.diff_builds(db, build_id, compare_to)
-    read_filter = await _instruction_read_filter(db, current_user, organization)
-    if read_filter is not None:
-        visible = await read_filter(
-            diff["added"] + diff["removed"] + [m["instruction_id"] for m in diff["modified"]]
-        )
-        diff["added"] = [i for i in diff["added"] if str(i) in visible]
-        diff["removed"] = [i for i in diff["removed"] if str(i) in visible]
-        diff["modified"] = [m for m in diff["modified"] if str(m["instruction_id"]) in visible]
-        diff["added_count"] = len(diff["added"])
-        diff["removed_count"] = len(diff["removed"])
-        diff["modified_count"] = len(diff["modified"])
-
+    
     return BuildDiffSchema(**diff)
 
 
@@ -453,22 +357,16 @@ async def diff_builds_detailed(
     build_a = await build_service.get_build(db, compare_to)  # parent
     build_b = await build_service.get_build(db, build_id)    # current
     
-    # Missing and foreign builds read the same (no existence oracle).
-    if (
-        not build_a or not build_b
-        or build_a.organization_id != organization.id
-        or build_b.organization_id != organization.id
-    ):
-        raise HTTPException(status_code=404, detail="Build not found")
+    if not build_a:
+        raise HTTPException(status_code=404, detail=f"Build {compare_to} not found")
+    if not build_b:
+        raise HTTPException(status_code=404, detail=f"Build {build_id} not found")
+    
+    if build_a.organization_id != organization.id or build_b.organization_id != organization.id:
+        raise HTTPException(status_code=403, detail="One or both builds do not belong to this organization")
     
     diff = await build_service.diff_builds_detailed(db, compare_to, build_id)
-    read_filter = await _instruction_read_filter(db, current_user, organization)
-    if read_filter is not None:
-        visible = await read_filter([it["instruction_id"] for it in diff["items"]])
-        diff["items"] = [it for it in diff["items"] if str(it["instruction_id"]) in visible]
-        for kind in ("added", "modified", "removed"):
-            diff[f"{kind}_count"] = sum(1 for it in diff["items"] if it["change_type"] == kind)
-
+    
     return BuildDiffDetailedSchema(**diff)
 
 
@@ -487,35 +385,7 @@ async def rollback_to_build(
     versions from the target build, then promotes it to main. This provides
     a clear audit trail of when rollbacks occurred.
     """
-    # Resolve the build inside the caller's org BEFORE any permission check.
-    # The checks below name the agents a build touches, so running them on a
-    # foreign build id told the caller it existed and what its agents were
-    # called. Missing and foreign builds now read the same.
-    target = await build_service.get_build(db, build_id)
-    if target is None or str(target.organization_id) != str(organization.id):
-        raise HTTPException(status_code=404, detail="Build not found")
-
-    # Rollback swaps the whole live set for the target's, so it changes every
-    # instruction in either snapshot.
-    replaced = await build_service.get_build_instruction_ids(db, build_id)
-    main = await build_service.get_main_build(db, organization.id)
-    if main is not None:
-        replaced |= await build_service.get_build_instruction_ids(db, main.id)
-    try:
-        await _enforce_build_ds_access(
-            db, build_id, str(current_user.id), str(organization.id),
-            changed_instruction_ids=replaced,
-        )
-    except HTTPException as exc:
-        if exc.status_code != 403:
-            raise
-        # Object-level denials must not distinguish hidden builds from missing
-        # IDs. Keep the authorization reason in server logs only.
-        logger.warning(
-            "Rollback denied: organization=%s user=%s build=%s reason=%s",
-            organization.id, current_user.id, build_id, exc.detail,
-        )
-        raise HTTPException(status_code=404, detail="Build not found") from exc
+    await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
     build = await build_service.rollback_to_build(
         db, build_id, organization.id, current_user.id
     )
@@ -560,7 +430,7 @@ async def publish_build(
         raise HTTPException(status_code=404, detail="Build not found")
 
     if build.organization_id != organization.id:
-        raise HTTPException(status_code=404, detail="Build not found")
+        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
 
     if build.status == 'rejected':
         raise HTTPException(status_code=400, detail="Cannot publish a rejected build")

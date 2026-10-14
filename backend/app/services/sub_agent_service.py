@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func, select, update
 
 from app.models.sub_agent import (
-    EXIT_DEADLINE, EXIT_ERROR, EXIT_FINISH_CALL, EXIT_MAX_STEPS, EXIT_NO_FINISH_CALL, EXIT_STOPPED,
+    EXIT_DEADLINE, EXIT_ERROR, EXIT_FINISH_CALL, EXIT_MAX_STEPS, EXIT_MAX_TOKENS, EXIT_NO_FINISH_CALL, EXIT_STOPPED,
     RUN_FAILED, RUN_FINISHED, RUN_INTERRUPTED, RUN_PENDING, RUN_RUNNING, RUN_TIMED_OUT,
     TERMINAL_RUN_STATUSES,
     WAVE_COLLECTING, WAVE_DONE, WAVE_FIRING, WAVE_RUNNING, WAVE_STOPPED, WAVE_TIMED_OUT,
@@ -82,6 +82,7 @@ def sub_agent_posture(settings) -> str:
 def sub_agent_limits(settings) -> Dict[str, Any]:
     return {
         "max_steps": _clamp(_cfg(settings, "sub_agent_max_steps", 40), 5, 200, 40),
+        "max_tokens": _clamp(_cfg(settings, "sub_agent_max_tokens", 400000), 20000, 5000000, 400000),
         "deadline_minutes": _clamp(_cfg(settings, "sub_agent_deadline_minutes", 15), 2, 60, 15),
         "concurrency": _clamp(_cfg(settings, "sub_agent_concurrency", 3), 1, 6, 3),
         "max_per_wave": _clamp(_cfg(settings, "sub_agent_max_per_wave", 5), 1, 10, 5),
@@ -407,10 +408,18 @@ class SubAgentService:
                 await self._mark_terminal(db, row, RUN_FAILED, EXIT_ERROR, error="report, organization or user gone before launch")
                 return
             # Claim the row before the run can finish (finalize_child is a
-            # conditional transition from running).
-            row.status = RUN_RUNNING
-            row.started_at = datetime.utcnow()
+            # conditional transition from running). Conditional, so a stop that
+            # landed after the read above is not overwritten back to running.
+            claimed = await db.execute(
+                update(SubAgentRun)
+                .where(SubAgentRun.id == row.id, SubAgentRun.status == RUN_PENDING)
+                .values(status=RUN_RUNNING, started_at=datetime.utcnow())
+                .execution_options(synchronize_session=False)
+            )
             await db.commit()
+            if (claimed.rowcount or 0) != 1:
+                return
+            await db.refresh(row)
             prompt = PromptSchema(
                 content=_child_prompt(row),
                 mode="subagent",
@@ -440,12 +449,12 @@ class SubAgentService:
             row.child_head_completion_id = head_id
             row.child_completion_id = sys_id
             await db.commit()
-            # A stop that landed while create_completion ran found no child id to
-            # kill. The stop paths commit the terminal status before reading the id,
-            # and this reads the status after committing the id, so one side always
-            # sees the other and the child is killed exactly when it was stopped.
-            status = await db.scalar(select(SubAgentRun.status).where(SubAgentRun.id == sub_agent_id))
-            if sys_id and status in TERMINAL_RUN_STATUSES:
+            # A stop (child, wave or deadline) that closed the row while the
+            # child was being created found no completion to signal. Read the
+            # status after publishing the id: either the stop sees the id, or
+            # this sees the stop.
+            await db.refresh(row)
+            if sys_id and row.status in TERMINAL_RUN_STATUSES:
                 await _sigkill_completion(db, sys_id)
 
     # ── child side ──────────────────────────────────────────────────────────
@@ -498,6 +507,7 @@ class SubAgentService:
         duration_ms: Optional[float] = None,
         model_name: Optional[str] = None,
         steps_exhausted: bool = False,
+        tokens_exhausted: bool = False,
     ) -> None:
         """AgentV2 (mode=subagent) `finally`: close the row exactly once."""
         from app.dependencies import async_session_maker
@@ -515,6 +525,8 @@ class SubAgentService:
                     status, exit_reason = RUN_INTERRUPTED, EXIT_STOPPED
                 elif agent_status == "error" and not steps_exhausted:
                     status, exit_reason = RUN_FAILED, EXIT_ERROR
+                elif tokens_exhausted:
+                    status, exit_reason = RUN_FINISHED, EXIT_MAX_TOKENS
                 else:
                     status, exit_reason = RUN_FINISHED, (EXIT_MAX_STEPS if steps_exhausted else EXIT_NO_FINISH_CALL)
                 transitioned = await self._mark_terminal(db, row, status, exit_reason, error=error, last_text=last_text)
@@ -608,9 +620,8 @@ class SubAgentService:
         if row.status in TERMINAL_RUN_STATUSES:
             return row
         won = await self._mark_terminal(db, row, RUN_INTERRUPTED, EXIT_STOPPED, error=(reason or None))
-        child_id = await _current_child_completion_id(db, row.id)
-        if child_id:
-            await _sigkill_completion(db, child_id)
+        if row.child_completion_id:
+            await _sigkill_completion(db, row.child_completion_id)
         row.envelope_json = _envelope(row)
         await db.commit()
         await self._write_back(db, row)
@@ -638,9 +649,8 @@ class SubAgentService:
             if c.status in TERMINAL_RUN_STATUSES:
                 continue
             await self._mark_terminal(db, c, RUN_INTERRUPTED, EXIT_STOPPED, error=(reason or "wave stopped"))
-            child_id = await _current_child_completion_id(db, c.id)
-            if child_id:
-                await _sigkill_completion(db, child_id)
+            if c.child_completion_id:
+                await _sigkill_completion(db, c.child_completion_id)
             c.envelope_json = _envelope(c)
             await db.commit()
             await self._write_back(db, c)
@@ -794,9 +804,8 @@ async def run_wave_deadline(job_id: str, wave_id: str) -> None:
             if c.status in TERMINAL_RUN_STATUSES:
                 continue
             await svc._mark_terminal(db, c, RUN_TIMED_OUT, EXIT_DEADLINE, error="wave deadline reached")
-            child_id = await _current_child_completion_id(db, c.id)
-            if child_id:
-                await _sigkill_completion(db, child_id)
+            if c.child_completion_id:
+                await _sigkill_completion(db, c.child_completion_id)
             c.envelope_json = _envelope(c)
             await db.commit()
             await svc._write_back(db, c)
@@ -893,12 +902,6 @@ async def _report_busy(db, wave_id: str) -> bool:
     return running is not None
 
 
-async def _current_child_completion_id(db, sub_agent_id: str) -> Optional[str]:
-    """The committed child completion id, not the session's cached copy: the
-    launcher may have written it after this session loaded the row."""
-    return await db.scalar(select(SubAgentRun.child_completion_id).where(SubAgentRun.id == sub_agent_id))
-
-
 async def _sigkill_completion(db, completion_id: str) -> None:
     """Stop a child run the way the stop button does, minus the user-facing
     'Run was stopped' session event (children are hidden)."""
@@ -970,8 +973,19 @@ def _synthesized_result(row: SubAgentRun, status: str, exit_reason: str, last_te
     elif exit_reason == EXIT_ERROR:
         summary = f"The sub-agent failed: {(error or 'unknown error')[:300]}"
         outcome = "blocked"
+    elif exit_reason == EXIT_MAX_TOKENS:
+        summary = "Token budget exhausted before a finish_subtask call." + (" Its note holds what it checked so far." if row.report_note_id else "")
+        outcome = "partial"
     elif exit_reason == EXIT_MAX_STEPS:
         summary = "Step budget exhausted before a finish_subtask call." + (f" Last text: {text[:300]}" if text else "")
+        outcome = "partial"
+    elif text.startswith("Stopping:") or "called" in text[:80] and "identical" in text[:160]:
+        # The repeated-call breaker ended the run; its message is for the
+        # model, not a finding. Point the parent at the child's note instead.
+        summary = (
+            "Stopped after repeating the same tool call before writing its record; nothing was concluded. "
+            + ("Its note holds what it checked so far." if row.report_note_id else "It left no note.")
+        )
         outcome = "partial"
     else:
         summary = (text[:560] + ("…" if len(text) > 560 else "")) if text else "The sub-agent ended without calling finish_subtask."

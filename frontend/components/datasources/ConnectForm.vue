@@ -446,12 +446,23 @@ const typeSupportsUserAuth = computed(() => fields.value?.supports_user_auth !==
 const showRequireUserAuth = computed(() => (props.showRequireUserAuthToggle !== false) && isLicensed.value && typeSupportsUserAuth.value)
 watch(typeSupportsUserAuth, (ok) => { if (!ok) require_user_auth.value = false })
 
+// Preserve catalog fallback to English, then use the schema's readable label
+// when the backend knows a field that this frontend catalog does not yet know.
+function schemaTranslation(key?: string): string | undefined {
+  return key && (te(key) || te(key, 'en')) ? t(key) : undefined
+}
+
 const configFields = computed(() => {
   if (!fields.value?.config?.properties) return [] as any[]
   return Object.entries(fields.value.config.properties)
-    .map(([field_name, schema]: any) => ({ field_name, ...schema }))
+    .map(([field_name, schema]: any) => ({
+      field_name, ...schema,
+      title: schemaTranslation(schema['ui:titleKey']) ?? schema.title,
+      description: schemaTranslation(schema['ui:descriptionKey']) ?? schema.description,
+    }))
     // Hide fields explicitly marked ui:hidden (e.g. deprecated/back-compat).
     .filter((f: any) => !(f['ui:hidden'] === true))
+    .sort((a: any, b: any) => (a['ui:order'] ?? 0) - (b['ui:order'] ?? 0))
 })
 
 const authOptions = computed(() => {
@@ -507,7 +518,9 @@ function fieldOptions(field: any): Array<{ value: string | number | boolean; lab
     .find(value => Array.isArray(value) && value.length) || []
   return options.map((option: any) => {
     const value = typeof option === 'object' && option !== null ? option.value : option
-    const label = field['ui:enumLabels']?.[String(value)]
+    const labelKey = field['ui:enumLabelKeys']?.[String(value)]
+    const label = schemaTranslation(labelKey)
+      ?? field['ui:enumLabels']?.[String(value)]
       ?? (typeof option === 'object' && option !== null ? option.label : undefined)
       ?? String(value)
     return { value, label }

@@ -245,23 +245,6 @@ class AgentYamlService:
 
             raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
 
-        # The manifest is the agent's full configuration (instructions,
-        # members, settings) — export is the read half of `apply`, so it takes
-        # the same bar as updating the agent: org admin or `manage` on it.
-        resolved = await resolve_permissions(
-            db, str(current_user.id), str(organization.id)
-        )
-        if not (
-            FULL_ADMIN in resolved.org_permissions
-            or resolved.has_resource_permission("data_source", str(ds.id), "manage")
-        ):
-            from fastapi import HTTPException
-
-            raise HTTPException(
-                status_code=403,
-                detail=f"You do not have permission to manage agent '{ds.name}'.",
-            )
-
         manifest = await self._build_manifest_from_db(db, ds)
         return yaml.safe_dump(
             manifest.model_dump(exclude_none=True, exclude_defaults=False, mode="json"),

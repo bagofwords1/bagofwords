@@ -2,6 +2,7 @@
 import pytest
 import uuid
 from tests.unit.test_sharepoint_onprem_client import remote, SITE
+from tests.unit.test_sharepoint_2010_client import legacy
 
 
 @pytest.mark.e2e
@@ -78,15 +79,18 @@ def test_blank_library_scope_is_identical_before_and_after_save(
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("api_mode", ["modern", "2010"])
 def test_user_required_connection_uses_member_credentials_not_system_identity(
-    remote, test_client, create_user, login_user, whoami, create_data_source,
+    request, api_mode, test_client, create_user, login_user, whoami, create_data_source,
 ):
+    server = request.getfixturevalue("legacy" if api_mode == "2010" else "remote")
+    remote = {"identities": server.identities} if api_mode == "2010" else server
     admin = create_user()
     token = login_user(admin["email"], admin["password"])
     org = whoami(token)["organizations"][0]["id"]
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org}
     ds = create_data_source(name="Windows user scoped files", type="sharepoint_onprem",
-        config={"site_url": SITE}, credentials={"username": "DOMAIN\\service", "password": "system-secret"},
+        config={"site_url": SITE, "api_mode": api_mode}, credentials={"username": "DOMAIN\\service", "password": "system-secret"},
         auth_policy="user_required", user_token=token, org_id=org)
     ds_id = ds["id"]
     r = test_client.put(f"/api/data_sources/{ds_id}", json={"is_public": True}, headers=headers)

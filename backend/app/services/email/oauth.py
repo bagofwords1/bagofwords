@@ -151,10 +151,6 @@ def _get_google_dwd_token_blocking(
 
     if not service_account_info or not subject:
         raise ValueError("google auth requires service_account_info and mailbox")
-    from app.core.egress import check_google_token_uri
-
-    # Same guard as Google Chat: the signed assertion only goes to Google.
-    check_google_token_uri(service_account_info)
     creds = service_account.Credentials.from_service_account_info(
         service_account_info, scopes=[scope], subject=subject
     )
