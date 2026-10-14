@@ -37,6 +37,7 @@ async def run_machine_turn(
     details: Optional[str] = None,
     meta: Optional[dict] = None,
     mode: Optional[str] = None,
+    disable: Optional[dict] = None,
     on_event=None,
 ):
     """Post a visible machine event on ``report`` and run the agent on
@@ -45,9 +46,11 @@ async def run_machine_turn(
 
     ``on_event(event)`` (optional) is called with the event entry as soon as
     it is committed — before the agent runs — so a caller can link to it even
-    if the run raises."""
-    from app.schemas.completion_schema import PromptSchema
-    from app.schemas.completion_v2_schema import CompletionCreate
+    if the run raises.
+
+    ``disable`` (optional) is the originating request's prompt.disable, for
+    turns that continue it (a sub-agent fan-in)."""
+    from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
     from app.services.completion_service import CompletionService
 
     last = (
@@ -96,7 +99,7 @@ async def run_machine_turn(
             db=session,
             report_id=str(report.id),
             completion_data=CompletionCreate(
-                prompt=PromptSchema(content=instruction, mode=mode)
+                prompt=PromptSchema(content=instruction, mode=mode, disable=disable)
             ),
             current_user=user,
             organization=organization,

@@ -182,7 +182,17 @@ async def resolve_candidate_agents(
     return attached, "attached", attached_ids
 
 
-async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any]) -> str:
+def mcp_hidden_for(runtime_ctx: Dict[str, Any]) -> bool:
+    """The running request disabled execute_mcp (prompt.disable.tools), so
+    agent schemas rendered into observations leave its MCP tools out."""
+    from app.schemas.completion_v2_schema import mcp_tools_hidden
+
+    head = (runtime_ctx or {}).get("head_completion")
+    return mcp_tools_hidden(getattr(head, "prompt", None))
+
+
+async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any],
+                             hide_mcp_tools: bool = False) -> str:
     """Full tables/tools schema + always-on instructions for the given agents —
     the same shape an attached agent's eager context has. Used by search_agents
     results AND set_report_agents success observations, so the planner can act
@@ -195,7 +205,7 @@ async def render_agents_full(db, organization: Any, report: Any, user: Any, data
     ds_ids = [str(ds.id) for ds in data_sources]
     try:
         from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
-        builder = SchemaContextBuilder(db, data_sources, organization, report, user=user)
+        builder = SchemaContextBuilder(db, data_sources, organization, report, user=user, hide_mcp_tools=hide_mcp_tools)
         ctx = await builder.build(with_stats=True, data_source_ids=ds_ids)
         schema_xml = ctx.render_combined(top_k_per_ds=10, index_limit=1000)
         if schema_xml:

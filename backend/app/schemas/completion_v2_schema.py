@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from app.utils.reasoning_effort import normalize_effort
 from app.utils.request_metadata import validate_request_metadata
@@ -64,6 +64,74 @@ class BlockTextDeltaSchema(BaseModel):
     token_index: Optional[int] = None
     is_final_chunk: Optional[bool] = None
 
+REPLACED_PROMPT_OPT_OUTS = ("follow_ups", "suggest_instructions")
+# Protocol tools a run cannot finish without; inherited by sub-agents, so
+# disabling one would strand every child.
+UNDISABLEABLE_TOOLS = frozenset({"finish_subtask"})
+
+
+class PromptDisable(BaseModel):
+    """What the caller turns off for this turn. It can only switch things off:
+    an org setting that is already off stays off whatever is sent here."""
+    # A misspelled key would otherwise be dropped and silently do nothing.
+    model_config = ConfigDict(extra="forbid")
+    follow_ups: bool = False  # suggested next questions (completion.follow_ups)
+    suggest_instructions: bool = False  # knowledge harness (draft instruction suggestions)
+    # Built-in agent tools by name. Hidden from the planner, refused if called
+    # anyway. execute_mcp / submit_list also cover their per-tool native forms.
+    tools: List[str] = []
+
+    @field_validator("tools")
+    @classmethod
+    def _validate_tools(cls, v):
+        from app.ai.registry import builtin_tool_names
+
+        names = list(dict.fromkeys(t.strip() for t in v if isinstance(t, str) and t.strip()))
+        protected = [t for t in names if t in UNDISABLEABLE_TOOLS]
+        if protected:
+            raise ValueError(f"cannot disable internal tool(s): {', '.join(protected)}")
+        known = builtin_tool_names()
+        unknown = [t for t in names if t not in known]
+        if unknown:
+            raise ValueError(
+                f"unknown tool(s) in disable.tools: {', '.join(unknown)}. "
+                f"Valid names: {', '.join(sorted(known - UNDISABLEABLE_TOOLS))}"
+            )
+        return names
+
+
+def request_disable(prompt) -> dict:
+    """prompt.disable of a stored completion prompt (a dict), or {}."""
+    disable = prompt.get("disable") if isinstance(prompt, dict) else None
+    return disable if isinstance(disable, dict) else {}
+
+
+def request_disabled_tools(prompt) -> frozenset:
+    tools = request_disable(prompt).get("tools")
+    return frozenset(t for t in tools if isinstance(t, str)) if isinstance(tools, list) else frozenset()
+
+
+def mcp_tools_hidden(prompt) -> bool:
+    """disable.tools includes execute_mcp: the MCP gateway and the native
+    mcp__ tools it routes are off, so schemas must not advertise MCP tools."""
+    return "execute_mcp" in request_disabled_tools(prompt)
+
+
+def inherited_disable(prompt) -> Optional[dict]:
+    """prompt.disable to carry into a turn that continues this request (a
+    sub-agent, its fan-in, a wait wake, a steer that became a new turn).
+    Tools no longer registered are dropped instead of failing validation, so a
+    deploy that renames a tool cannot break a continuation."""
+    disable = request_disable(prompt)
+    if not disable:
+        return None
+    from app.ai.registry import builtin_tool_names
+
+    known = builtin_tool_names()
+    tools = [t for t in disable.get("tools") or [] if isinstance(t, str) and t in known and t not in UNDISABLEABLE_TOOLS]
+    return {**disable, "tools": tools}
+
+
 class PromptSchema(BaseModel):
     content: str = ""
     widget_id: Optional[str] = None
@@ -85,11 +153,22 @@ class PromptSchema(BaseModel):
     # Set only on the hidden head completion of a sub-agent (mode='subagent'):
     # the sub_agents row this child run reports to. See app.models.sub_agent.
     sub_agent_id: Optional[str] = None
-    # Per-request opt-outs for end-of-turn extras an API caller may not render.
-    # They can only turn things off: False skips it for this turn; None/True
-    # leaves the org setting in charge (never turns on what the org disabled).
-    follow_ups: Optional[bool] = None  # suggested next questions (completion.follow_ups)
-    suggest_instructions: Optional[bool] = None  # knowledge harness (draft instruction suggestions)
+    # Per-request opt-outs (see PromptDisable). Stored with the completion so
+    # queued and re-run turns keep them; sub-agents and their fan-in inherit it.
+    disable: Optional[PromptDisable] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_replaced_opt_outs(cls, data):
+        # 0.0.588 shipped these at the top level of prompt; they moved under
+        # prompt.disable. Fail loudly rather than silently ignore them. A null
+        # means "not set" (clients that serialize every field send it), so only
+        # a real value is rejected.
+        if isinstance(data, dict):
+            for key in REPLACED_PROMPT_OPT_OUTS:
+                if data.get(key) is not None:
+                    raise ValueError(f"prompt.{key} was replaced by prompt.disable.{key} (set it to true)")
+        return data
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod

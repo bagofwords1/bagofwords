@@ -206,8 +206,11 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None, hide_mcp_tools: bool = False):
         self.db = db
+        # The request disabled execute_mcp (prompt.disable.tools): advertising
+        # the MCP tools would only send the planner into refused calls.
+        self.hide_mcp_tools = hide_mcp_tools
         self.organization = organization
         self.report = report
         self.mode = mode if mode is not None else getattr(report, "mode", None)
@@ -870,7 +873,7 @@ class SchemaContextBuilder:
                 tables = _cap_keeping_cached(tables, top_k)
 
             # Query MCP tools for this data source's MCP/custom_api connections
-            mcp_tools = await self._build_mcp_tools(ds)
+            mcp_tools = [] if self.hide_mcp_tools else await self._build_mcp_tools(ds)
 
             ds_sections.append(
                 TablesSchemaContext.DataSource(

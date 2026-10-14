@@ -145,12 +145,16 @@ class WaitTool(Tool):
         try:
             from app.services.wait_service import wait_service
 
+            from app.schemas.completion_v2_schema import inherited_disable
+
+            head = runtime_ctx.get("head_completion")
             armed = wait_service.schedule_wait(
                 report_id=str(report.id),
                 user_id=str(user.id),
                 organization_id=str(organization.id),
                 reason=data.reason,
                 delay_minutes=data.delay_minutes,
+                disable=inherited_disable(getattr(head, "prompt", None)),
             )
         except Exception as e:
             logger.exception("Failed to arm wait: %s", e)

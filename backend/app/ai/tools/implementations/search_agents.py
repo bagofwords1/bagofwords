@@ -310,7 +310,7 @@ class SearchAgentsTool(Tool):
                 full_ds = (strong_ds or matched[:1])[:_FULL_RENDER_CAP]
             else:
                 full_ds = matched[:_FULL_RENDER_CAP]
-            detail = await self._render_full(db, organization, report, user, full_ds)
+            detail = await self._render_full(db, organization, report, user, full_ds, runtime_ctx)
 
             # Run working set: these agents' schemas stay rendered in context
             # for the rest of the run (no persistence — see agent_v2).
@@ -385,6 +385,7 @@ class SearchAgentsTool(Tool):
             pass
         return hints
 
-    async def _render_full(self, db, organization, report, user, data_sources: List[Any]) -> str:
-        from app.ai.tools.implementations.agent_focus_common import render_agents_full
-        return await render_agents_full(db, organization, report, user, data_sources)
+    async def _render_full(self, db, organization, report, user, data_sources: List[Any], runtime_ctx=None) -> str:
+        from app.ai.tools.implementations.agent_focus_common import mcp_hidden_for, render_agents_full
+        return await render_agents_full(db, organization, report, user, data_sources,
+                                        hide_mcp_tools=mcp_hidden_for(runtime_ctx))

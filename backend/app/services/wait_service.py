@@ -26,6 +26,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from apscheduler.jobstores.base import JobLookupError
 
@@ -47,6 +48,7 @@ async def run_wait_wake(
     organization_id: str,
     reason: str,
     attempt: int = 1,
+    disable: Optional[dict] = None,
 ) -> None:
     """APScheduler callback: resume the agent on ``report_id``.
 
@@ -76,6 +78,8 @@ async def run_wait_wake(
             logger.warning("wait wake %s: user/org gone", job_id)
             return
 
+        from app.schemas.completion_v2_schema import inherited_disable
+
         wake_prompt = (
             f"[Automatic resume after a scheduled wait] The wait you requested has "
             f"elapsed. Resume the task now: {reason}\n"
@@ -96,6 +100,9 @@ async def run_wait_wake(
                 instruction=wake_prompt,
                 # Structured fields for locale-aware frontend rendering.
                 meta={"reason": reason[:200]},
+                # The resume continues the request that armed the wait. Filtered
+                # again here: a deploy can land between arming and waking.
+                disable=inherited_disable({"disable": disable}),
             )
         except Exception as e:
             logger.error("wait wake %s: resume failed: %s", job_id, e)
@@ -113,6 +120,7 @@ class WaitService:
         reason: str,
         delay_minutes: int,
         attempt: int = 1,
+        disable: Optional[dict] = None,
     ) -> dict:
         """Register a one-shot resume job. Returns {job_id, wake_at (ISO UTC)}."""
         token = uuid.uuid4().hex[:12]
@@ -131,6 +139,7 @@ class WaitService:
                 "organization_id": organization_id,
                 "reason": reason,
                 "attempt": int(attempt),
+                "disable": disable,
             },
             replace_existing=True,
             misfire_grace_time=3600,  # if the worker was down, still resume within an hour

@@ -353,7 +353,12 @@ class ContextHub:
         self.files_builder = FilesContextBuilder(self.db, self.organization, self.report, head_completion=self.head_completion)
         
         # New builders (port from agent.py)
-        self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user, organization_settings=self.organization_settings, mode=self.mode)
+        from app.schemas.completion_v2_schema import mcp_tools_hidden
+        self.schema_builder = SchemaContextBuilder(
+            self.db, self.data_sources, self.organization, self.report, user=self.user,
+            organization_settings=self.organization_settings, mode=self.mode,
+            hide_mcp_tools=mcp_tools_hidden(getattr(self.head_completion, "prompt", None)),
+        )
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)
@@ -736,6 +741,9 @@ class ContextHub:
             ds_ids,
             str(self.build_id) if self.build_id else None,
             self._schema_identity_key(),
+            # A request that disabled execute_mcp builds its sections without
+            # MCP tools; it must neither be served nor seed the shared entry.
+            self.schema_builder.hide_mcp_tools,
         )
         now = time.monotonic()
         cached = _SCHEMA_CACHE.get(cache_key)

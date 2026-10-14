@@ -3392,7 +3392,13 @@ class CompletionService:
             # Run just finished — steer degrades to queue (and the dispatcher
             # picks it up immediately since nothing is running).
             if queued_row is None:
-                fake = CompletionCreate(prompt=PromptSchemaV2(content=content), stream=False, queue=True)
+                # The new turn continues the steered request: keep its opt-outs.
+                from app.schemas.completion_v2_schema import inherited_disable
+                steered_head = await db.get(Completion, str(target.parent_id)) if target.parent_id else None
+                fake = CompletionCreate(
+                    prompt=PromptSchemaV2(content=content, disable=inherited_disable(getattr(steered_head, "prompt", None))),
+                    stream=False, queue=True,
+                )
                 await self.create_queued_completion(db, str(target.report_id), fake, current_user, organization)
             else:
                 asyncio.create_task(self.start_next_queued_if_idle(str(target.report_id)))
