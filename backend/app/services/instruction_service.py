@@ -1190,7 +1190,15 @@ class InstructionService:
             await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, current_ds_ids)
 
         await db.commit()
-        
+        # replace_for_instruction rewrites the rows with a bulk DELETE/INSERT,
+        # which bypasses the `references` collection already loaded on this
+        # object (the route's get_instruction loaded it). With
+        # expire_on_commit=False the re-fetches below return this same object,
+        # stale list included — so the version snapshot and the PUT response
+        # both carried the references from before the update.
+        if getattr(instruction_data, "references", None) is not None:
+            await db.refresh(instruction, ['references'])
+
         # === Build System Integration ===
         # Create new version if content has changed
         try:
