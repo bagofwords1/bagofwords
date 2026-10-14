@@ -817,6 +817,18 @@ class ReportPdfService:
             logger.exception(f"Failed to generate PDF for artifact {artifact_id}: {e}")
             return None
 
+    async def generate_for_release(self, db, render) -> Optional[str]:
+        """Generate a PDF of a published dashboard for one reader
+        (dashboard_data.ReleaseRender: the release's content and the rows that
+        reader may see). Returns the absolute path, or None on failure."""
+        try:
+            if not render.content:
+                return None
+            return await self._render_artifact_pdf(db, render)
+        except Exception as e:
+            logger.exception(f"Failed to generate PDF for {render.id}: {e}")
+            return None
+
     async def _render_artifact_pdf(self, db, artifact) -> Optional[str]:
         """Dispatch to the renderer that matches the artifact's mode.
 

@@ -754,6 +754,8 @@ class ProjectService:
 
         for r in reports:
             r.project_id = str(project.id) if project else None
+        from app.services.artifact_service import follow_conversation_project
+        await follow_conversation_project(db, list(found_ids), str(project.id) if project else None)
         await db.commit()
         return len(reports)
 

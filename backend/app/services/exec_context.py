@@ -3,10 +3,11 @@
 StepService._execute_step_code used to take the Report and read its data
 sources, files and organization off it. A published dashboard's copies have
 no Report (docs/design/dashboards-first-class.md), so the core reads them
-from an ExecContext instead. Today every caller builds one from its Report
-with `from_report`, which hands the core exactly the values it used to read
-itself, at the moment it used to read them: apart from the report's
-organization id, nothing is read until the core asks.
+from an ExecContext instead. A conversation's callers build one from its
+Report with `from_report`, which hands the core exactly the values it used to
+read itself, at the moment it used to read them: apart from the report's
+organization id, nothing is read until the core asks. A published
+dashboard's runs (phase 4) build one with `from_release`.
 
 `report` stays on the context for the two helpers that are still scoped to a
 conversation: load_step resolution (LoadablesResolver) and the bow monitoring
@@ -31,12 +32,16 @@ class ExecContext:
         data_sources: Sources = (),
         files: Sources = (),
         report=None,
+        loadables_user=None,
     ):
         self._organization = organization
         self._organization_id = organization_id
         self._organization_settings = organization_settings
         # Whose data-source credentials the run uses.
         self.credential_user = credential_user
+        # Whose identity load_entity resolves as; None: the credential user,
+        # as it always was for a conversation.
+        self.loadables_user = loadables_user
         self.report = report
         # A list, or a callable read only when used: callers that pass
         # prebuilt clients never touch data_sources, so a report loaded
@@ -87,6 +92,35 @@ class ExecContext:
             data_sources=lambda: report.data_sources,
             files=lambda: report.files,
             report=report,
+        )
+
+    @classmethod
+    def from_release(
+        cls,
+        release,
+        *,
+        data_sources: Sources,
+        files: Sources,
+        credential_user=None,
+        reader=None,
+        organization=None,
+        organization_settings=None,
+    ) -> "ExecContext":
+        """The context a published dashboard's runs use (phase 4): the
+        release's data sources and files, as the caller loaded them, and its
+        organization. Entities resolve as the reader even when the owner's
+        credentials run the code ("run on my behalf"). No conversation, so no
+        load_step resolution and no bow client until phase 6 gives releases
+        their own."""
+        return cls(
+            organization,
+            organization_id=getattr(release, "organization_id", None),
+            organization_settings=organization_settings,
+            credential_user=credential_user,
+            data_sources=data_sources,
+            files=files,
+            report=None,
+            loadables_user=reader,
         )
 
 

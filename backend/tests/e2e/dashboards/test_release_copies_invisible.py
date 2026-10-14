@@ -43,8 +43,11 @@ def _routes_taking_a_copy_id():
 
 
 def _fill(path: str, names: set, copy: dict, corpus) -> str:
+    # `ref`: the /d routes (phase 4) of the dashboard the copy was made for.
+    # Its copy belongs to a release that is not the published one, so they
+    # must refuse it like every other route.
     known = {**{p: copy[k] for p, k in ID_PARAMS.items()},
-             "report_id": corpus.reports["conv_one_dash"]}
+             "report_id": corpus.reports["conv_one_dash"], "ref": corpus.ids["conv_one_dash/dash"]}
     unknown = names - set(known)
     assert not unknown, f"{path}: no value for {sorted(unknown)}; teach this test what to pass"
     for name in names:
@@ -58,9 +61,16 @@ def test_copies_are_not_found_on_any_conversation_route(corpus, corpus_rows):
 
     from main import app
 
+    from tests.e2e.dashboards.dashboard_setup import publish
+
     cast = corpus.cast
     copy = _run(add_release_copy(artifact_id=corpus.ids["conv_one_dash/dash"],
                                  organization_id=cast.org_id, user_id=cast.id("owner")))
+    # The dashboard has another, live release and is open to the whole
+    # organization, so readers get past the /d door and the copy is refused
+    # for what it is: not a row of the live release.
+    publish(corpus.ids["conv_one_dash/dash"])
+    corpus_rows.update("artifacts", corpus.ids["conv_one_dash/dash"], visibility="internal")
     before = _run(copy_rows(copy))
     client = TestClient(app, raise_server_exceptions=False)
     routes = list(_routes_taking_a_copy_id())

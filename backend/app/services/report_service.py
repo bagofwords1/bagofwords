@@ -1148,6 +1148,8 @@ class ReportService:
                     db, report_data.project_id, current_user, organization
                 )
                 report.project_id = str(project.id)
+            from app.services.artifact_service import follow_conversation_project
+            await follow_conversation_project(db, [str(report.id)], report.project_id)
 
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:

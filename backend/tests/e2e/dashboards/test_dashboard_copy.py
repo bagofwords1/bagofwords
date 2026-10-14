@@ -262,6 +262,7 @@ def test_what_surrounds_the_dashboard_is_copied(corpus, corpus_rows):
     for path, data in ((deck, b"PK deck"), (preview, b"\x89PNG slide")):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+    release_id = None
     try:
         # Shaped like a real deck: the thumbnail is the first slide preview.
         # Two preview entries a hand-edited content could hold must not be copied.
@@ -286,11 +287,13 @@ def test_what_surrounds_the_dashboard_is_copied(corpus, corpus_rows):
     finally:
         for path in (deck, preview):
             path.unlink(missing_ok=True)
-        for leftover in [*uploads.glob("pptx/release-*.pptx"), *uploads.glob("pptx_previews/release-*/*"),
-                         *uploads.glob("thumbnails/release-*.png")]:
-            leftover.unlink(missing_ok=True)
-        for folder in uploads.glob("pptx_previews/release-*"):
-            folder.rmdir()
+        # Only this test's release: other tests copy files in parallel.
+        if release_id:
+            import shutil
+            for leftover in (uploads / "pptx" / f"release-{release_id}.pptx",
+                             uploads / "thumbnails" / f"release-{release_id}.png"):
+                leftover.unlink(missing_ok=True)
+            shutil.rmtree(uploads / "pptx_previews" / f"release-{release_id}", ignore_errors=True)
 
     release_id, _ = _run(_copy(ids["embedded_files/dash/v2"]))
     with corpus_rows.engine.connect() as conn:

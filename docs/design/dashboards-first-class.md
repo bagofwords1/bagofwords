@@ -1,6 +1,6 @@
 # Dashboards as first-class entities
 
-Status: in progress on `feat/dashboards` — phase 0 and phase 1 done (one release, merged to `main` once complete).
+Status: in progress on `feat/dashboards` — phases 0–3 done, phase 4 in progress (one release, merged to `main` once complete).
 
 ## Goal
 
@@ -354,3 +354,167 @@ reference to a copied row's old id is left, that the data is the same and the
 draft untouched; filters, `load_step`, chart order, deleted charts, the empty
 chart list, files, and copying twice. `test_fork_copy_fixes.py` pins the four
 fork fixes; the existing fork tests pin everything else.
+
+## Phase 4 — the dashboard holds its sharing and settings; viewers read through `/d`
+
+Decisions (with Rachel, 2026-10-12): a dashboard's link is `/d/{id}` (or
+`/d/{name}`) from the moment it exists, and shows only its published release;
+`/d/{id}/draft` shows the draft to the owner and whoever can view the
+project; an editor opening an unpublished dashboard is sent to the draft;
+sharing a conversation opens neither; a dashboard is shared only once it is
+published; the viewer response carries what the page shows, never the
+owner's settings; refresh-on-view waits for phase 6, viewer chat for phase 7,
+renaming for phase 8. Old `/r/{report}` links keep working for good (part B).
+
+### Part A — access, sharing and settings on the dashboard
+
+- **One check per door** (`app/services/dashboard_access.py`). `/d`: the
+  dashboard exists and is live; the release's monitoring access
+  (`bow_source_access`); the owner (`artifacts.owner_id`); whoever can view
+  `artifacts.project_id`; then `artifacts.visibility` — `none` (not found),
+  `shared` (`artifact_shares`, users or groups), `internal`, `public`. That is
+  the conversation check's order. Stricter, being new code: ownership, a
+  grant and `internal` need a live membership of the organization, and an
+  unknown visibility opens to no one. No ready release: editors get
+  `dashboard.not_published`, others `artifact.not_found`. `/draft`: editors
+  only, `artifact.not_found` for anyone else whatever the visibility (401 for
+  every anonymous caller alike).
+- **Routes** (`app/routes/dashboard.py`): `GET /api/d/{ref}` (title, mode,
+  release, theme, Data tab and chat switches, last refresh, org branding) and
+  `GET /api/d/{ref}/draft`; for the owner, `GET/PUT /api/dashboards/{id}/sharing`
+  and `/settings`. The path parameter is `dashboard_id`: the permission
+  decorator reads `artifact_id` as a version id.
+- **Sharing** (`dashboard_settings_service.set_sharing`): today's rules
+  (groups of the org, a monitoring dashboard is never public, a list left out
+  keeps its grants, leaving `shared` clears them, in-app notice to new readers
+  and the members of new groups, audit) plus: visibility other than `none`
+  needs a ready release (`dashboard.share_requires_publish`, 409), and every
+  user granted is a member of the org. The list read back holds only grants
+  that still count (members, live groups); a stale row opens nothing and goes
+  on the next save. The notice links to `/d/{id}`. The owner's controls also
+  require the monitoring access the dashboard is built on.
+- **Settings** (`set_settings`): run identity, Data tab, chat (enabled,
+  sources, model), with today's rules; everything is validated before
+  anything changes. "Run on my behalf" is refused when the sources viewers'
+  runs read (the release's, else the editing conversation's) include an RLS
+  relation (`dashboard.rls_requires_viewer`). Switching it deletes viewers'
+  results on the dashboard's release copies. Schedule settings come with
+  phase 6.
+- **Owner and project**: `new_artifact` sets them from the conversation;
+  moving a conversation (bulk move, `PUT /reports/{id}`) moves its dashboards.
+  Existing dashboards get them from the data migration.
+- **Groups**: deleting a group (RBAC and SCIM) deletes its `artifact_shares`
+  rows; the foreign key cascades on Postgres only.
+- **`dashfc03`**: `artifacts.legacy_report_id` (unique, no foreign key) —
+  which conversation's old `/r` link leads to this dashboard. Filled by the
+  data migration; the downgrade refuses while a value is set.
+- The conversation's own sharing, settings and `/r` routes are untouched; the
+  baseline does not change.
+
+Notes for phase 5 (from the part A review):
+
+- Publish must re-check "run on my behalf" against the new release's
+  sources: switching it on refuses RLS, but a later release can add an RLS
+  source while it stays on.
+- A release that carries monitoring access must not stay public: Publish
+  refuses, or sets the visibility back, when the dashboard is public.
+
+Tests: `test_dashboard_access.py` (readers × visibility × project, the draft
+door, unpublished and not-ready releases, conversation shares, leaving the
+org, monitoring, names, deletion, the response's fields),
+`test_dashboard_sharing.py`, `test_dashboard_settings.py`,
+`test_dashboard_ownership.py`, `test_schema_dashfc03.py`, and the SCIM case
+in `rbac/test_scim_groups.py`. Releases are made with the copy engine until
+Publish exists (`dashboard_setup.py`).
+
+### Part B — reading through `/d`
+
+- **Published side** (`app/services/dashboard_data.py`, routes under `/api/d/{ref}`):
+  `content` (the release's), `queries` (live copies with a successful
+  default step: shown ones and those filters and loaded steps need),
+  `queries/{id}/step`, `queries/{id}/export` (the Data tab's CSV/XLSX),
+  `files/{id}/embed_token` (files the release's content holds), `previews`
+  and `previews/{n}` (the release's PNGs, inside `uploads/pptx_previews`),
+  `export/{pdf|pptx|html}`. A row that is not the live release's answers
+  `artifact.not_found`, like a missing one.
+- **Data policy** (`resolve_release_step`): `resolve_step_data`, asked of the
+  dashboard — owner `artifacts.owner_id`, run identity
+  `artifacts.shared_run_identity`, the release's data sources (none: the
+  organization's the code names, as for a conversation without sources),
+  the release's monitoring access; the reader's own run of the copy, then
+  the identity taint, then RLS / personal connections. Withheld: no rows, no
+  code, identity values redacted. Code visibility follows the reader's role.
+- **Exports** (`ReleaseRender`): the release in the shape the export
+  services read, with the rows one reader may see per chart and per option
+  list (PR #1304's rule for public outputs). Refused (409,
+  `dashboard.export_withheld`) for a reader from whom the snapshot as a whole
+  is withheld; the owner exports their own view. A deck, its PDF and its
+  slide images bake every chart's stored rows in, so they are also refused
+  (previews: none) when any copied step is one identity's. "The owner" means
+  the owner while still in the organization. A PDF is rendered under a name
+  of its own per request and deleted once sent; one render per release at a
+  time, as /r renders one per report. Preview images are served from the
+  release's own folder only.
+- **Draft side** (`/api/d/{ref}/draft/...`): the newest completed version of
+  this dashboard and only the queries it needs (the phase 3 collector), with
+  the conversation's policy, for editors. Exports and previews of the draft
+  stay on the editor's existing routes.
+- **Old links**: `GET /api/r/{report_id}/dashboard` names the dashboard
+  recorded in `legacy_report_id`, or 404. The `/r` page uses it once `/d`
+  exists (phase 8); the data migration fills it (phase 9).
+- **Decided** (2026-10-14): a reader who may open a monitoring dashboard may
+  export it (on `/r` it is never exported); an anonymous reader of a public
+  dashboard may download the Data tab's CSV/XLSX (on `/r` it needs sign-in).
+  Both give exactly the rows the page shows that reader.
+- **Not in part B**: thumbnails (served for listings; phase 5 must clear a
+  release's thumbnail when its snapshot is withheld, as `set_visibility`
+  does), viewer runs and filter runs (part C), MCP (part C).
+
+Tests: `test_dashboard_data.py`, `test_dashboard_draft.py`,
+`test_dashboard_exports.py` (the browser and the vendored JS are stubbed; the
+rows are compared with the step route for the same reader),
+`test_legacy_link.py`; `test_release_copies_invisible.py` now also sweeps the
+`/d` routes with a copy that is not of the live release.
+
+### Part C — readers run a published dashboard
+
+- **Whole dashboard** (`POST /api/d/{ref}/run`, `dashboard_runs.viewer_run`):
+  the release's shown charts re-run for the reader, each into the reader's
+  own `step_user_results` row (`report_id` NULL); the copied snapshot never
+  changes. Mirrors `viewer_rerun_report_steps` + `run_step_to_user_result`
+  over `ExecContext.from_release` (the release's sources and files). The
+  owner refreshes through Publish and refresh, not as a reader (400).
+- **One chart with filter values** (`POST /api/d/{ref}/queries/{id}/run`,
+  `filter_run`): mirrors `run_query_viewer`, with its per-reader cache keyed
+  on the values. "View as" belongs to the editor and is refused.
+- **Whose credentials** (`run_identity`): the dashboard's "run on my
+  behalf"; monitoring and RLS sources always run as the reader; the owner's
+  credentials only for members or people the dashboard is shared with, and
+  only while the owner is in the organization. Identity values bind the
+  reader and cannot be supplied.
+- **"Auto" releases** resolve as their conversation would: the dashboard run
+  over the sources the credential user may use, the filter run over the
+  organization's.
+- **load_step** inside a release resolves nothing until phase 6; such a step
+  fails alone, the others run.
+- **MCP**: `get_visualization` serves a chart of a live release and
+  `get_artifact_data` takes a `dashboard_id`, both under the `/d` rules and
+  with each reader's rows. The conversation paths are unchanged.
+
+Tests: `test_dashboard_runs.py`, `test_dashboard_mcp.py`.
+
+### Notes for later phases (from phase 4)
+
+- **Phase 9 removes the conversation-keyed path phase 4 duplicated**, with a
+  table of every old function and what replaces it, and a check that none is
+  still called and that no logic is left in two copies: the `/r` reads,
+  exports, viewer run and filter run; conversation-level sharing and viewer
+  settings writes; the `/r` access check. The conversation itself (editor,
+  `/c`, draft runs) stays. The old `reports` columns go in a later release.
+- Syncing with main after PR #1304 (checked in a scratch merge, 2026-10-14):
+  `mint_file_token` takes `organization_id` (and binds published-report
+  embeds to a report) -- `/d` embeds must pass the dashboard's organization
+  and a release binding; a global guard answers a generic 404 for malformed
+  ids before the routes; #1304's viewer-scoped exports (`viewer=`) and our
+  release reader (`rows_for`) merge into one payload builder; our migrations
+  chain after theirs.

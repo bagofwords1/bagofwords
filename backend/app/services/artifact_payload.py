@@ -50,11 +50,19 @@ async def collect_visualizations(db, artifact) -> list[dict[str, Any]]:
     from app.models.query import Query
     from app.models.step import Step
 
+    # A published dashboard's release (dashboard_data.ReleaseRender) owns its
+    # copies; a version reads its conversation's charts.
+    release_id = getattr(artifact, "artifact_release_id", None)
+    owner = (Visualization.artifact_release_id == release_id if release_id
+             else Visualization.report_id == artifact.report_id)
+    # The rows one reader may see, when the caller knows the reader (a /d
+    # export); otherwise the stored snapshot.
+    rows_for = getattr(artifact, "rows_for", None)
     viz_stmt = (
         select(Visualization)
         .options(selectinload(Visualization.query))
         .where(
-            Visualization.report_id == artifact.report_id,
+            owner,
             # Soft-deleted queries take their visualizations with them —
             # exports and thumbnails must not keep serving deleted data
             Visualization.deleted_at.is_(None),
@@ -72,9 +80,13 @@ async def collect_visualizations(db, artifact) -> list[dict[str, Any]]:
             continue
 
         step = None
-        if query.default_step_id:
+        if rows_for is not None:
+            # For a reader, the step their step route serves (successful only).
+            from app.services.dashboard_data import default_step
+            step = await default_step(db, query)
+        elif query.default_step_id:
             step = await db.get(Step, query.default_step_id)
-        if not step:
+        if not step and rows_for is None:
             step_result = await db.execute(
                 select(Step)
                 .where(Step.query_id == query.id)
@@ -83,17 +95,22 @@ async def collect_visualizations(db, artifact) -> list[dict[str, Any]]:
             )
             step = step_result.scalar_one_or_none()
 
+        data = step.data if step else None
+        applied = getattr(step, "applied_params", None)
+        if rows_for is not None and step is not None:
+            seen = await rows_for(db, step, query)
+            data, applied = seen["data"], seen["applied_params"]
         viz_data.append({
             "id": str(viz.id),
             # Carried so an offline host can tell which visualizations a
             # declared query param is scoped to (declaration.query_ids).
             "query_id": str(viz.query_id),
             "parameters": query.parameters or [],
-            "applied_params": getattr(step, "applied_params", None) or {},
+            "applied_params": applied or {},
             "title": viz.title or query.title or "Untitled",
             "view": viz.view or {},
-            "rows": step.data.get("rows", []) if step and step.data else [],
-            "columns": step.data.get("columns", []) if step and step.data else [],
+            "rows": data.get("rows", []) if data else [],
+            "columns": data.get("columns", []) if data else [],
             "dataModel": step.data_model or {} if step else {},
         })
 
@@ -124,17 +141,16 @@ async def collect_artifact_payload(db, artifact) -> Optional[dict[str, Any]]:
     """
     from app.models.report import Report
 
-    report = await db.get(Report, artifact.report_id)
-    if not report:
-        return None
+    report_payload = getattr(artifact, "report_payload", None)  # a release has no conversation
+    if report_payload is None:
+        report = await db.get(Report, artifact.report_id)
+        if not report:
+            return None
+        report_payload = {"id": str(report.id), "title": report.title, "theme": report.theme_name}
 
     visualizations = await collect_visualizations(db, artifact)
     return {
-        "report": {
-            "id": str(report.id),
-            "title": report.title,
-            "theme": report.theme_name,
-        },
+        "report": report_payload,
         "visualizations": [{k: v for k, v in viz.items() if k != "applied_params"} for viz in visualizations],
         "files": await collect_files(db, artifact),
         "current_user": None,
@@ -189,7 +205,7 @@ def build_params_payload(visualizations: list[dict[str, Any]]) -> dict[str, Any]
             "options": options, "ack": 0}
 
 
-async def _options_from_source(db, source) -> list[dict[str, Any]]:
+async def _options_from_source(db, source, rows_for=None, release_id=None) -> list[dict[str, Any]]:
     """Resolve an options_source (another query's column) to stable choices.
 
     Mirrors resolveParamOptions in ArtifactFrame.vue: the choices come from
@@ -203,9 +219,15 @@ async def _options_from_source(db, source) -> list[dict[str, Any]]:
     query = await db.get(Query, source.query_id)
     if not query:
         return []
+    if release_id and str(query.artifact_release_id or "") != str(release_id):
+        return []  # a release reads its own copies only
 
-    step = await db.get(Step, query.default_step_id) if query.default_step_id else None
-    if not step:
+    if rows_for is not None:
+        from app.services.dashboard_data import default_step
+        step = await default_step(db, query)
+    else:
+        step = await db.get(Step, query.default_step_id) if query.default_step_id else None
+    if not step and rows_for is None:
         result = await db.execute(
             select(Step)
             .where(Step.query_id == query.id)
@@ -213,12 +235,16 @@ async def _options_from_source(db, source) -> list[dict[str, Any]]:
             .limit(1)
         )
         step = result.scalar_one_or_none()
-    if not step or not step.data:
+    data = step.data if step else None
+    if step is not None and rows_for is not None:
+        # The option list is rows too: a reader gets the ones they may see.
+        data = (await rows_for(db, step, query))["data"]
+    if not data:
         return []
 
     seen: set = set()
     out: list[dict[str, Any]] = []
-    for row in step.data.get("rows", []) or []:
+    for row in data.get("rows", []) or []:
         if not isinstance(row, dict) or source.value_column not in row:
             continue
         value = row[source.value_column]
@@ -244,7 +270,9 @@ async def collect_params(db, artifact, *, visualizations: Optional[list[dict[str
     for viz in visualizations:
         for spec in parse_param_specs(viz.get("parameters")):
             if spec.options_source:
-                resolved = await _options_from_source(db, spec.options_source)
+                resolved = await _options_from_source(db, spec.options_source,
+                                                      getattr(artifact, "rows_for", None),
+                                                      getattr(artifact, "artifact_release_id", None))
                 if resolved:
                     payload["options"][spec.name] = resolved
     return payload

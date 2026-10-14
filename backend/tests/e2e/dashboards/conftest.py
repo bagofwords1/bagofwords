@@ -40,3 +40,14 @@ def corpus(test_client, create_user, login_user, whoami, sqlite_data_source,  # 
         yield built
     finally:
         remove_corpus_files(built)
+
+
+@pytest.fixture(autouse=True)
+def _remove_published_files():
+    """Files the copy engine wrote for releases this test published."""
+    from tests.e2e.dashboards.dashboard_setup import PUBLISHED, remove_release_files
+
+    PUBLISHED.clear()
+    yield
+    remove_release_files(PUBLISHED)
+    PUBLISHED.clear()

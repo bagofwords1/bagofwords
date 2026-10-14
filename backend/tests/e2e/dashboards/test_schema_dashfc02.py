@@ -69,8 +69,11 @@ def test_downgrade_refuses_while_a_query_has_no_widget(corpus, corpus_rows):
                                  organization_id=corpus.cast.org_id, content={})
     corpus_rows.insert("queries", title="copy", report_id=None, widget_id=None, artifact_release_id=release,
                        organization_id=corpus.cast.org_id)
-    head = script_directory().get_current_head()
+    # Undo the later revisions first (nothing here depends on them): their own
+    # downgrades commit on SQLite before dashfc02's refusal runs.
+    with alembic_pointed_at(url) as cfg:
+        command.downgrade(cfg, "dashfc02")
     with alembic_pointed_at(url) as cfg, pytest.raises(RuntimeError, match="dashfc02 downgrade refused"):
         command.downgrade(cfg, "dashfc01")
-    assert current_revisions(url) == (head,)
+    assert current_revisions(url) == ("dashfc02",)
     assert _nullable(url, "queries", "widget_id") is True

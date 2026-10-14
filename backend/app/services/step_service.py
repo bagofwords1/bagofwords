@@ -378,7 +378,7 @@ class StepService:
         # load_step and the bow client are still scoped to a conversation
         # (ctx.report); without one they resolve nothing and install nothing.
         loadables = await resolve_loadables_for_code(
-            db, org, ctx.report, ctx.credential_user, code, enable_load_step=_ls_enabled
+            db, org, ctx.report, ctx.loadables_user or ctx.credential_user, code, enable_load_step=_ls_enabled
         )
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.data_sources.clients.bow_client import install_bow_client

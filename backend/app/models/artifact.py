@@ -23,8 +23,12 @@ class Artifact(BaseSchema):
     on old data.
     """
     __tablename__ = 'artifacts'
-    # /d/{slug} names one dashboard in the whole installation (dashfc01).
-    __table_args__ = (Index('uq_artifacts_slug', 'slug', unique=True),)
+    # /d/{slug} names one dashboard in the whole installation (dashfc01); an
+    # old /r/{report_id} link leads to at most one dashboard (dashfc03).
+    __table_args__ = (
+        Index('uq_artifacts_slug', 'slug', unique=True),
+        Index('uq_artifacts_legacy_report_id', 'legacy_report_id', unique=True),
+    )
 
     # The editing conversation. Nullable since dashfc01: a published dashboard
     # outlives the conversation it was made in (dashboards project, phase 7);
@@ -51,9 +55,11 @@ class Artifact(BaseSchema):
     title = Column(String(255), nullable=True, default="Untitled Artifact")
 
     # ── The dashboard's own settings and sharing (dashfc01) ──────────────
-    # Not read yet: they mirror the conversation-level columns on `reports`
-    # (same defaults) and take over from them in later phases of the
-    # dashboards project (docs/design/dashboards-first-class.md).
+    # They mirror the conversation-level columns on `reports` (same
+    # defaults). Since phase 4 the /d routes read them and /api/dashboards
+    # writes them; /r keeps reading the conversation's until the data
+    # migration (docs/design/dashboards-first-class.md). Schedule columns are
+    # not used before phase 6.
     owner_id = Column(String(36), ForeignKey('users.id', name='fk_artifacts_owner_id'), nullable=True, index=True)
     project_id = Column(String(36), ForeignKey('projects.id', name='fk_artifacts_project_id'),
                         nullable=True, index=True)
@@ -77,6 +83,9 @@ class Artifact(BaseSchema):
                    ondelete='SET NULL', use_alter=True),
         nullable=True, index=True,
     )
+    # The conversation whose old /r/{report_id} link leads here (dashfc03).
+    # No foreign key: the value outlives the conversation it names.
+    legacy_report_id = Column(String(36), nullable=True)
 
     # Never loaded implicitly: a version's content JSON can be ~100kB.
     versions = relationship(
