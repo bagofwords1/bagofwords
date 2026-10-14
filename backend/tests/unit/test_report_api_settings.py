@@ -18,7 +18,7 @@ def test_every_switch_maps_to_a_registered_tool():
 
 def test_only_false_switches_off():
     assert disabled_tool_names({"clarify": False, "mcp": True}) == {"clarify"}
-    assert disabled_tool_names({"delegate": False}) == {"delegate", "read_sub_agent", "stop_sub_agent"}
+    assert disabled_tool_names({"mcp": False}) == {"execute_mcp", "search_mcps", "list_mcp_resources", "read_mcp_resource"}
     assert disabled_tool_names(None) == frozenset()
 
 

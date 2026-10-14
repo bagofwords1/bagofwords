@@ -228,10 +228,9 @@ class SetReportAgentsTool(Tool):
             # very next planner turn can act on it even if the rendered context
             # lags — the exact failure behind the search/focus retry loop.
             try:
-                from app.ai.tools.implementations.agent_focus_common import mcp_hidden_for, render_agents_full
+                from app.ai.tools.implementations.agent_focus_common import render_agents_full
                 detail = await render_agents_full(
-                    db, organization, report, user, [ds for ds, _ in valid][:5],
-                    hide_mcp_tools=mcp_hidden_for(runtime_ctx),
+                    db, organization, report, user, [ds for ds, _ in valid][:5]
                 )
             except Exception:
                 logger.exception("set_report_agents: schema render for observation failed")

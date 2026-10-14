@@ -809,14 +809,14 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 
     @staticmethod
     def _format_disabled_tools(planner_input: PlannerInput) -> str:
-        """Tools the request disabled (prompt.disable.tools). They are already
+        """Tools the conversation switched off (report.tools). They are already
         out of the catalog; this tells the model why, so it neither reaches for
         them (the policy above names some, e.g. clarify) nor stalls."""
         names = list(getattr(planner_input, "disabled_tools", None) or [])
         if not names:
             return ""
         lines = [
-            f"Not available for this request: {', '.join(names)}. Do not call them; "
+            f"Switched off for this conversation: {', '.join(names)}. Do not call them; "
             "if one was needed, continue without it and say briefly what you could not do."
         ]
         if "clarify" in names:

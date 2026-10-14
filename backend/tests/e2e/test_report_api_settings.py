@@ -257,7 +257,8 @@ def test_a_report_without_settings_has_them_unset(env):
     ({"tools": {"clarify": "no"}}, "clarify"),
     ({"tools": ["clarify"]}, "tools"),
     ({"follow_ups": "sometimes"}, "follow_ups"),
-], ids=["unknown-key", "internal-name", "internal-tool", "non-boolean-value", "list-shape", "non-boolean-flag"])
+    ({"follow_ups": "no"}, "follow_ups"),  # strict: no string coercion, same rule as tools values
+], ids=["unknown-key", "internal-name", "internal-tool", "non-boolean-value", "list-shape", "non-boolean-flag", "string-bool"])
 def test_invalid_settings_are_422(test_client, env, settings, where):
     r = test_client.post("/api/reports", headers=env["headers"],
                          json={"title": "x", "files": [], "data_sources": [], **settings})
@@ -342,6 +343,43 @@ def test_disabled_tools_are_not_offered_and_are_named_in_the_prompt(test_client,
     assert control["tools"] - gone <= call["tools"], "nothing else was taken away"
     assert "<disabled_tools>" in call["text"] and "clarify" in call["text"]
     assert "<disabled_tools>" not in call["system"], "per-conversation text stays out of the cached system prompt"
+    # A switched-off tool must not keep its prompt directives either.
+    assert "DELEGATION" in control["system"] and "DELEGATION" not in call["system"]
+
+
+def test_web_fetch_off_removes_its_prompt_directives(test_client, env, llm, update_organization_settings):
+    update_organization_settings({"enable_web_fetch": {"value": True}}, user_token=env["token"], org_id=env["org_id"])
+    h = env["headers"]
+    _ask(test_client, env["new_report"]()["id"], h, QUESTION)
+    control = _main_calls(llm.calls)[0]
+    assert "web_fetch" in control["tools"] and "web_fetch is enabled" in control["system"]
+
+    since = len(llm.calls)
+    _ask(test_client, env["new_report"](tools={"web_fetch": False})["id"], h, QUESTION)
+    call = _main_calls(llm.calls, since)[0]
+    assert "web_fetch" not in call["tools"] and "web_fetch is enabled" not in call["system"]
+
+
+@pytest.mark.parametrize("off", [False, True], ids=["control", "notify-off"])
+def test_no_check_in_is_planned_when_notify_is_off(test_client, env, llm, monkeypatch, off):
+    """A check-in reaches the user only through notify; with notify off it
+    could never deliver, so the turn must not plan one. The planning entry
+    point is recorded instead of run (it is a background LLM task)."""
+    from app.services.checkin_service import checkin_service
+
+    planned = []
+
+    def record(**kwargs):
+        planned.append(kwargs)
+
+        async def noop():
+            return None
+        return noop()
+
+    monkeypatch.setattr(checkin_service, "dispatch_after_turn", record)
+    rid = env["new_report"](**({"tools": {"notify": False}} if off else {}))["id"]
+    _ask(test_client, rid, env["headers"], QUESTION)
+    assert bool(planned) is (not off)
 
 
 @pytest.mark.parametrize("off", [False, True], ids=["control", "disabled"])

@@ -206,11 +206,13 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None, hide_mcp_tools: bool = False):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
         self.db = db
-        # The request disabled execute_mcp (prompt.disable.tools): advertising
-        # the MCP tools would only send the planner into refused calls.
-        self.hide_mcp_tools = hide_mcp_tools
+        # The conversation switched off "mcp" (report.tools): advertising its
+        # MCP tools would only send the planner into refused calls. Derived
+        # from the report here so every builder of this report agrees.
+        from app.schemas.report_api_settings import mcp_tools_hidden
+        self.hide_mcp_tools = mcp_tools_hidden(report)
         self.organization = organization
         self.report = report
         self.mode = mode if mode is not None else getattr(report, "mode", None)

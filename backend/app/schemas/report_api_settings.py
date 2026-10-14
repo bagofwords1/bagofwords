@@ -18,11 +18,16 @@ TOOL_SWITCHES: Dict[str, Tuple[str, ...]] = {
     "edit_artifact": ("edit_artifact",),
     "create_doc": ("create_doc",),
     "edit_doc": ("edit_doc",),
-    "delegate": ("delegate", "read_sub_agent", "stop_sub_agent"),
+    # Also turns off the sub-agents gate, which hides read/stop and the
+    # delegation prompt rules (same as the org setting being off).
+    "delegate": ("delegate",),
     "notify": ("notify",),
     "send_email": ("send_email",),
-    "create_scheduled_task": ("create_scheduled_task", "edit_scheduled_task"),
-    "wait": ("wait", "cancel_wait"),
+    # Stops new work only: existing scheduled tasks / waits can still be
+    # edited or cancelled.
+    "create_scheduled_task": ("create_scheduled_task",),
+    "wait": ("wait",),
+    # Also removes the sandbox `http` client from generated code.
     "web_fetch": ("web_fetch",),
     # Provider-native search: not a registered tool; AgentV2._web_search_enabled
     # checks this name.

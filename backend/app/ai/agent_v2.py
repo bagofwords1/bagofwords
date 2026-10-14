@@ -444,6 +444,7 @@ class AgentV2:
     # Tools the report switched off (report.tools). Assigned while the catalog
     # is built in __init__; the default keeps any earlier reader safe.
     _disabled_tools: frozenset = frozenset()
+    _report_opt_outs: dict = {}
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
@@ -911,6 +912,15 @@ class AgentV2:
                 if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
             ]
 
+        # The conversation's API settings (report.follow_ups /
+        # suggest_instructions / tools), read once so a PUT mid-run cannot
+        # leave one turn on a mix of old and new settings. Every turn on the
+        # report (sub-agents, fan-in, wakes, steers) reads the same report.
+        self._disabled_tools = report_disabled_tools(self.report)
+        self._report_opt_outs = {
+            key: getattr(self.report, key, None) for key in ("follow_ups", "suggest_instructions")
+        }
+
         # Sub-agent tools: hidden when the org setting is off, and on machine
         # turns that cannot receive a later fan-in turn (the fan-in is a new
         # turn on the report, so a one-shot scheduled run would never see its
@@ -923,16 +933,16 @@ class AgentV2:
             _sub_agents_enabled(self.organization_settings)
             and not self._is_sub_agent
             and getattr(self.report, 'report_type', 'regular') in ('regular', 'test')
+            and "delegate" not in self._disabled_tools
         )
         if not self._sub_agents_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_agent', 'stop_sub_agent')]
 
-        # Tools the conversation switched off (report.tools). Hidden here, which
-        # also keeps them out of the browser candidates below; refused at
-        # dispatch if called anyway; native MCP / list tools follow their
-        # gateway (execute_mcp / submit_list) at registration. Every turn on
-        # the report (sub-agents, fan-in, wakes, steers) reads the same report.
-        self._disabled_tools = report_disabled_tools(self.report)
+        # Tools the conversation switched off (report.tools; resolved above,
+        # before the feature gates that also drive prompt directives). Hidden
+        # here, which also keeps them out of the browser candidates below;
+        # refused at dispatch if called anyway; native MCP / list tools follow
+        # their gateway (execute_mcp / submit_list) at registration.
         if self._disabled_tools:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in self._disabled_tools]
 
@@ -1556,7 +1566,6 @@ class AgentV2:
                         self.organization,
                         self.report,
                         user=user,
-                        hide_mcp_tools="execute_mcp" in self._disabled_tools,
                     ).build(with_stats=True, data_source_ids=list(missing))
                     sections = sections + list(fresh.data_sources)
                 except Exception:
@@ -2111,7 +2120,7 @@ class AgentV2:
             harness_notes_enabled = bool(getattr(_notes_cfg, "value", False)) if _notes_cfg is not None else False
             if not harness_notes_enabled:
                 unique = [t for t in unique if t['name'] not in ('create_note', 'edit_note')]
-            # prompt.disable.tools covers the whole request, harness included.
+            # report.tools covers every phase of the turn, harness included.
             unique = [t for t in unique if t['name'] not in self._disabled_tools]
             knowledge_tool_catalog = [ToolDescriptor(**t) for t in unique]
 
@@ -2320,7 +2329,7 @@ class AgentV2:
                     if not tool or disabled:
                         logger.warning(f"Knowledge harness: {'disabled' if disabled else 'unknown'} tool '{tool_name}'")
                         observation = {
-                            "summary": (f"Tool '{tool_name}' is disabled for this request; continue without it."
+                            "summary": (f"Tool '{tool_name}' is switched off for this conversation; continue without it."
                                         if disabled else f"Unknown tool '{tool_name}'"),
                             "error": {"code": "disabled_by_request" if disabled else "unknown_tool", "message": tool_name},
                         }
@@ -2954,6 +2963,10 @@ class AgentV2:
         disabled org never spawns the planning task or pays for an LLM call."""
         if self.mode == "training" or self.is_eval_run:
             return False
+        # A check-in reaches the user only through notify; with notify off
+        # for this conversation it could never deliver, so don't plan one.
+        if "notify" in self._disabled_tools:
+            return False
         try:
             from app.services.checkin_policy import feature_enabled
             return feature_enabled(self.organization_settings)
@@ -2991,7 +3004,7 @@ class AgentV2:
         """The conversation (report.<key>) or this request (prompt.<key>) set
         it to false. It can only switch a feature off; the org setting still
         decides whether it is on at all."""
-        if getattr(self.report, key, None) is False:
+        if self._report_opt_outs.get(key) is False:
             return True
         prompt = getattr(self.head_completion, "prompt", None)
         return isinstance(prompt, dict) and prompt.get(key) is False
@@ -5158,8 +5171,8 @@ class AgentV2:
                             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
                             can_view_code=await self._code_visible_for_run(),
                             disabled_tools=sorted(self._disabled_tools),
-                            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
-                            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+                            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
+                            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
                             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
                             notes_enabled=getattr(self, "_notes_enabled", False),
                             notes_context=(await build_notes_context(self.db, str(self.report_id)) if getattr(self, "_notes_enabled", False) and self.report else None),
@@ -6248,8 +6261,8 @@ class AgentV2:
                                         })
                                 if tool_name in self._disabled_tools:
                                     return await _refuse_before_dispatch({
-                                            "summary": f"Tool '{tool_name}' is disabled for this request; continue without it and say what you could not do.",
-                                            "error": {"code": "resolve_error", "message": "disabled by request"},
+                                            "summary": f"Tool '{tool_name}' is switched off for this conversation; continue without it and say what you could not do.",
+                                            "error": {"code": "resolve_error", "message": "switched off for this conversation"},
                                         })
 
                                 # Artifact budget is enforced BEFORE execution: an
@@ -7823,8 +7836,8 @@ class AgentV2:
             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
             can_view_code=await self._code_visible_for_run(),
             disabled_tools=sorted(self._disabled_tools),
-            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
-            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
+            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
             notes_enabled=_notes_on,
             notes_context=(await build_notes_context(self.db, str(self.report_id)) if _notes_on and self.report else None),

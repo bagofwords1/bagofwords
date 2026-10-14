@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, StrictBool, field_validator
 from typing import List, Optional, Literal
 from .widget_schema import WidgetSchema
 from app.schemas.user_schema import UserSchema
@@ -34,8 +34,8 @@ class ReportCreate(ReportBase):
     reasoning_effort: Optional[str] = None
     # Per-conversation opt-outs for API integrations (app.schemas.report_api_settings).
     # Omitted / null = the org setting decides; false = off on every turn.
-    follow_ups: Optional[bool] = None
-    suggest_instructions: Optional[bool] = None
+    follow_ups: Optional[StrictBool] = None
+    suggest_instructions: Optional[StrictBool] = None
     tools: Optional[dict] = None
 
     @field_validator("reasoning_effort", mode="before")
@@ -69,8 +69,8 @@ class ReportUpdate(BaseModel):
     # Per-conversation opt-outs (see ReportCreate). Omit to leave unchanged;
     # send null to hand the decision back to the org setting. tools merges by
     # key: {"clarify": null} clears that one key.
-    follow_ups: Optional[bool] = None
-    suggest_instructions: Optional[bool] = None
+    follow_ups: Optional[StrictBool] = None
+    suggest_instructions: Optional[StrictBool] = None
     tools: Optional[dict] = None
 
     @field_validator("reasoning_effort", mode="before")

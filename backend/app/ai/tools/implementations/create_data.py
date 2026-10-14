@@ -1576,7 +1576,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
         web_fetch_enabled = False
         try:
             _ef = organization_settings.get_config("enable_web_fetch") if organization_settings else None
-            web_fetch_enabled = bool(getattr(_ef, "value", False))
+            from app.schemas.report_api_settings import report_disabled_tools
+            web_fetch_enabled = bool(getattr(_ef, "value", False)) and (
+                "web_fetch" not in report_disabled_tools(runtime_ctx.get("report"))
+            )
         except Exception:
             web_fetch_enabled = False
 

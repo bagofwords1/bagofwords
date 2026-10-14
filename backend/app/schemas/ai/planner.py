@@ -185,7 +185,7 @@ class PlannerInput(BaseModel):
     # the same SQL into a markdown fence, which no serializer can redact.
     can_view_code: bool = True
 
-    # Tools the request disabled (prompt.disable.tools); rendered as a
+    # Tools the conversation switched off (report.tools); rendered as a
     # <disabled_tools> context line. The catalog already excludes them.
     disabled_tools: List[str] = []
 
