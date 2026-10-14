@@ -2272,7 +2272,7 @@ class SharePointConfig(BaseModel):
 class SharePointOnpremConfig(SharePointConfig):
     drive_name: Optional[str] = Field(
         "*", title="Document Library",
-        description="Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only.",
+        description="Document library title or URL name, or * for all visible libraries. Blank selects the default library in Modern REST mode only.",
         json_schema_extra={"ui:type": "string", "ui:descriptionKey": "data.sharepointApi.libraryDescription"},
     )
     # Graph-only tuning is inherited for stored-config compatibility, but unused.

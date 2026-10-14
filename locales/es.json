@@ -4002,7 +4002,7 @@
       "description": "SharePoint 2010 usa servicios antiguos y solo busca nombres de archivo. Introduce una biblioteca o *; no la dejes vacía.",
       "modern": "REST moderno",
       "legacy": "SharePoint 2010",
-      "libraryDescription": "Nombre de la biblioteca de documentos, o * para todas las bibliotecas visibles. Dejarlo vacío selecciona la biblioteca predeterminada solo en el modo REST moderno."
+      "libraryDescription": "Título o nombre en la URL de la biblioteca de documentos, o * para todas las bibliotecas visibles. Dejarlo vacío selecciona la biblioteca predeterminada solo en el modo REST moderno."
     }
   },
   "share": {

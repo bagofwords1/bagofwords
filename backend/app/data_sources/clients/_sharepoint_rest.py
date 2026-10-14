@@ -6,7 +6,9 @@ from urllib.parse import unquote, urlsplit
 
 from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
 from app.data_sources.clients._sharepoint_api import SharepointAPI
-from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _literal, _safe_path
+from app.data_sources.clients.sharepoint_onprem_client import (
+    PAGE_LIBRARY_TEMPLATES, SharePointHTTPError, _leaf, _literal, _safe_path,
+)
 from app.data_sources.clients.progress import make_reporter
 
 
@@ -53,14 +55,18 @@ class SharepointRestAPI(SharepointAPI):
         raise ValueError("SharePoint pagination limit exceeded; narrow the connection scope.")
 
     def libraries(self):
-        libs = list(self._pages("web/lists", {
-            "$filter": "BaseTemplate eq 101 and Hidden eq false",
-            "$select": "Id,Title,RootFolder/ServerRelativeUrl", "$expand": "RootFolder", "$top": 200,
-        }))
+        # BaseType 1 includes custom library templates; page libraries hold site pages.
+        libs = [lib for lib in self._pages("web/lists", {
+            "$filter": "BaseType eq 1 and Hidden eq false",
+            "$select": "Id,Title,BaseTemplate,RootFolder/ServerRelativeUrl", "$expand": "RootFolder", "$top": 200,
+        }) if str(lib.get("BaseTemplate")) not in PAGE_LIBRARY_TEMPLATES]
         if self.client.drive_name == "*":
             chosen = libs
         elif self.client.drive_name:
-            chosen = [lib for lib in libs if lib["Title"].casefold() == self.client.drive_name.casefold()]
+            name = self.client.drive_name.casefold()
+            chosen = [lib for lib in libs if lib["Title"].casefold() == name]
+            if not chosen:  # the library's URL name, as shown in the address bar
+                chosen = [lib for lib in libs if _leaf(lib["RootFolder"]["ServerRelativeUrl"]) == name]
         else:
             default = self._request("web/DefaultDocumentLibrary", params={"$select": "Id"})
             chosen = [lib for lib in libs if lib["Id"] == default["Id"]]

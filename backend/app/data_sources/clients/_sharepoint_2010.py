@@ -20,7 +20,9 @@ from defusedxml.common import DefusedXmlException
 from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
 from app.data_sources.clients._sharepoint_api import SharepointAPI
 from app.data_sources.clients.progress import make_reporter
-from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _safe_path
+from app.data_sources.clients.sharepoint_onprem_client import (
+    PAGE_LIBRARY_TEMPLATES, SharePointHTTPError, _leaf, _safe_path,
+)
 
 SOAP = 'http://schemas.xmlsoap.org/soap/envelope/'
 SP = 'http://schemas.microsoft.com/sharepoint/soap/'
@@ -35,6 +37,12 @@ def _value(row, field):
 
 def _text(node, name, value):
     ET.SubElement(node, f"{{{SP}}}{name}").text = value
+
+
+def _is_document_library(lib):
+    # Custom library templates (e.g. 101001) keep BaseType 1; only the stock one is 101.
+    return (lib.get('BaseType') == '1' and lib.get('Hidden', '').lower() == 'false'
+            and lib.get('ServerTemplate') not in PAGE_LIBRARY_TEMPLATES)
 
 
 class Sharepoint2010API(SharepointAPI):
@@ -86,19 +94,43 @@ class Sharepoint2010API(SharepointAPI):
             raise ValueError('SharePoint returned no library metadata.')
         return dict(lib.attrib)
 
+    def _list_collection(self):
+        result = self._soap('GetListCollection')
+        container = result.find(f'{{{SP}}}GetListCollectionResult/{{{SP}}}Lists')
+        if container is None:
+            raise ValueError('SharePoint returned no library collection.')
+        return [dict(node.attrib) for node in container.findall(f'{{{SP}}}List')]
+
+    def _get_list_by_url_name(self, name):
+        # GetList matches a title or ID only; the address bar shows the URL name.
+        for lib in self._list_collection():
+            if not _is_document_library(lib) or not lib.get('ID'):
+                continue
+            view = lib.get('DefaultViewUrl', '')
+            hint = lib.get('RootFolder') or (view.split('/Forms/')[0] if '/Forms/' in view else '')
+            if hint and _leaf(hint) != name.casefold():
+                continue
+            if not lib.get('RootFolder'):
+                lib = self._get_list(lib['ID'])
+            if _leaf(lib.get('RootFolder', '')) == name.casefold():
+                return lib
+        raise ValueError(f"Document library '{name}' was not found. Use the title from Library "
+                         "Settings, the library's URL name, or * for all libraries.")
+
     def _load_library_metadata(self):
         c = self.client
         if c.drive_name == '*':
-            result = self._soap('GetListCollection')
-            container = result.find(f'{{{SP}}}GetListCollectionResult/{{{SP}}}Lists')
-            if container is None:
-                raise ValueError('SharePoint returned no library collection.')
-            libs = [dict(node.attrib) for node in container.findall(f'{{{SP}}}List')]
+            libs = self._list_collection()
         else:
-            libs = [self._get_list(c.drive_name)]
+            try:
+                libs = [self._get_list(c.drive_name)]
+            except SharePointHTTPError as exc:
+                if exc.status != 404:
+                    raise
+                libs = [self._get_list_by_url_name(c.drive_name)]
         chosen = []
         for lib in libs:
-            if lib.get('ServerTemplate') != '101' or lib.get('Hidden', '').lower() != 'false':
+            if not _is_document_library(lib):
                 if c.drive_name == '*':
                     continue
                 raise ValueError('The selected list is not a visible document library.')
@@ -108,7 +140,7 @@ class Sharepoint2010API(SharepointAPI):
                 lib = self._get_list(lib['ID'])
                 if not lib.get('ID') or not lib.get('Title') or not lib.get('RootFolder'):
                     raise ValueError('SharePoint returned incomplete library metadata.')
-                if lib.get('ServerTemplate') != '101' or lib.get('Hidden', '').lower() != 'false':
+                if not _is_document_library(lib):
                     raise ValueError('The selected list is not a visible document library.')
             root = _safe_path(lib['RootFolder'].rstrip('/'))
             if not root.startswith('/') or not root.casefold().startswith((c._site_path + '/').casefold()):

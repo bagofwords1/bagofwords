@@ -57,6 +57,15 @@ def _safe_path(value: str) -> str:
     return value
 
 
+# Page libraries (wiki 119, publishing 850) are document-library typed but hold site pages.
+PAGE_LIBRARY_TEMPLATES = {"119", "850"}
+
+
+def _leaf(path: str) -> str:
+    """Case-folded last segment of a library root, i.e. its URL name."""
+    return path.rstrip("/").rsplit("/", 1)[-1].casefold()
+
+
 def _literal(value: str) -> str:
     return "'" + quote(value.replace("'", "''"), safe="/") + "'"
 

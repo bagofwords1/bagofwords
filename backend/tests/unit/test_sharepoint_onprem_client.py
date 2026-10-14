@@ -30,7 +30,7 @@ def remote(monkeypatch):
         ROOT + "/O'Brien #100%.txt": b"Literal path characters are preserved.",
         OTHER + "/rules.txt": b"Employees may expense travel up to 500 euros.",
     }
-    state = {"blobs": blobs, "status": None, "next": None, "calls": [], "search_paths": [], "identities": []}
+    state = {"blobs": blobs, "status": None, "next": None, "calls": [], "search_paths": [], "identities": [], "extra_lists": []}
 
     def meta(path):
         return {"Name": path.rsplit("/", 1)[1], "ServerRelativeUrl": path,
@@ -46,7 +46,8 @@ def remote(monkeypatch):
         status, body = state["status"] or 200, {}
         if endpoint == "web/lists":
             body = {"value": [{"Id": "lib1", "Title": "Documents", "RootFolder": {"ServerRelativeUrl": ROOT}},
-                              {"Id": "lib2", "Title": "Policies", "RootFolder": {"ServerRelativeUrl": OTHER}}]}
+                              {"Id": "lib2", "Title": "Policies", "RootFolder": {"ServerRelativeUrl": OTHER}},
+                              *state["extra_lists"]]}
         elif endpoint == "web/DefaultDocumentLibrary":
             body = {"Id": "lib1"}
         elif endpoint == "web":
@@ -101,6 +102,16 @@ def test_library_selection_and_recursion(remote, library, recursive, count):
     assert len(files) == count
     assert len({f["id"] for f in files}) == count
     assert all(f["name"] and f["web_url"].startswith(SITE) for f in files)
+
+
+def test_library_url_name_selects_library_and_page_libraries_are_skipped(remote):
+    remote["extra_lists"].append({"Id": "pages", "Title": "Site Pages", "BaseTemplate": 119,
+                                  "RootFolder": {"ServerRelativeUrl": "/sites/research/SitePages"}})
+    files = client(drive_name="shared documents", recursive=True).list_files()
+    assert {f["id"] for f in files} == {p for p in remote["blobs"] if p.startswith(ROOT + "/")}
+    filters = [kw["params"]["$filter"] for url, kw in remote["calls"] if url.endswith("/web/lists") and kw.get("params")]
+    assert filters and all(f == "BaseType eq 1 and Hidden eq false" for f in filters)
+    assert all("/SitePages/" not in f["id"] for f in client(drive_name="*", recursive=True).list_files())
 
 
 def test_scoped_catalog_and_live_reads_share_paths(remote):

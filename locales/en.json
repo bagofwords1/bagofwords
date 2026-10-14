@@ -4064,7 +4064,7 @@
       "description": "SharePoint 2010 uses legacy services and searches filenames only. Enter a library name or *; do not leave the library blank.",
       "modern": "Modern REST",
       "legacy": "SharePoint 2010",
-      "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
+      "libraryDescription": "Document library title or URL name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
     }
   },
   "share": {

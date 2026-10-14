@@ -47,7 +47,7 @@ class LegacyServer:
         if op == 'GetListCollection':
             lists = ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListCollectionResult'), f'{{{SP}}}Lists')
             for title, path, guid in self.libraries:
-                ET.SubElement(lists, f'{{{SP}}}List', ID=guid, Title=title, RootFolder=path, ServerTemplate='101', Hidden='False')
+                ET.SubElement(lists, f'{{{SP}}}List', ID=guid, Title=title, RootFolder=path, ServerTemplate='101', BaseType='1', Hidden='False')
         elif op == 'GetList':
             name = command.findtext(f'{{{SP}}}listName')
             lib = next((x for x in self.libraries if name.casefold() in (x[0].casefold(), x[2])), None)
@@ -57,7 +57,7 @@ class LegacyServer:
                 ET.SubElement(ET.SubElement(f, 'detail'), f'{{{SP}}}errorcode').text = '0x82000006'
                 return ET.tostring(fault), 500
             title, path, guid = lib
-            node = ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListResult'), f'{{{SP}}}List', ID=guid, Title=title, RootFolder=path, ServerTemplate='101', Hidden='False')
+            node = ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListResult'), f'{{{SP}}}List', ID=guid, Title=title, RootFolder=path, ServerTemplate='101', BaseType='1', Hidden='False')
             ET.SubElement(node, f'{{{SP}}}Validation').text = 'Extra schema element'
             ET.SubElement(node, f'{{{SP}}}Fields')
         elif op == 'GetListItems':
@@ -346,9 +346,9 @@ def test_collection_without_root_folder_resolves_list_metadata(legacy):
         if op == 'GetListCollection':
             return (f'''<s:Envelope xmlns:s="{SOAP}"><s:Body>
             <GetListCollectionResponse xmlns="{SP}"><GetListCollectionResult><Lists>
-            <List ID="lib1" Title="Documents" ServerTemplate="101" Hidden="False" />
-            <List ID="hidden" Title="Hidden" ServerTemplate="101" Hidden="True" />
-            <List ID="list" Title="Tasks" ServerTemplate="100" Hidden="False" />
+            <List ID="lib1" Title="Documents" ServerTemplate="101" BaseType="1" Hidden="False" />
+            <List ID="hidden" Title="Hidden" ServerTemplate="101" BaseType="1" Hidden="True" />
+            <List ID="list" Title="Tasks" ServerTemplate="100" BaseType="0" Hidden="False" />
             </Lists></GetListCollectionResult></GetListCollectionResponse>
             </s:Body></s:Envelope>'''.encode(), 200)
     legacy.override = override
@@ -418,7 +418,7 @@ def test_incomplete_library_metadata_is_a_domain_error(legacy, missing):
     def override(op, command):
         if op == 'GetList':
             root, out = envelope(op)
-            attrs = dict(ID='lib1', Title='Documents', ServerTemplate='101', Hidden='False')
+            attrs = dict(ID='lib1', Title='Documents', ServerTemplate='101', BaseType='1', Hidden='False')
             del attrs[missing]
             ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListResult'), f'{{{SP}}}List', **attrs)
             return ET.tostring(root), 200
@@ -458,3 +458,60 @@ def test_library_metadata_is_reused_but_file_access_stays_live(legacy):
     legacy.status = None
     client(drive_name='Documents').list_files(limit=1)
     assert legacy.calls.count('GetList') == 2
+
+
+def collection(*lists):
+    """A GetListCollection override with explicit List attributes, as SharePoint 2010 sends them."""
+    def override(op, command):
+        if op == 'GetListCollection':
+            root, out = envelope(op)
+            node = ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListCollectionResult'), f'{{{SP}}}Lists')
+            for attrs in lists:
+                ET.SubElement(node, f'{{{SP}}}List', **attrs)
+            return ET.tostring(root), 200
+    return override
+
+
+def test_custom_template_libraries_are_document_libraries(legacy):
+    # A site whose libraries come from a custom template (101001) next to stock ones (101).
+    legacy.override = collection(
+        {'ID': 'lib1', 'Title': 'Documents', 'RootFolder': ROOT, 'ServerTemplate': '101001', 'BaseType': '1', 'Hidden': 'False'},
+        {'ID': 'lib2', 'Title': 'Policies', 'RootFolder': OTHER, 'ServerTemplate': '101', 'BaseType': '1', 'Hidden': 'False'},
+        {'ID': 'pages', 'Title': 'Site Pages', 'RootFolder': '/sites/research/SitePages', 'ServerTemplate': '119', 'BaseType': '1', 'Hidden': 'False'},
+        {'ID': 'assets', 'Title': 'Site Assets', 'RootFolder': '/sites/research/SiteAssets', 'ServerTemplate': '101', 'BaseType': '1', 'Hidden': 'True'},
+        {'ID': 'tasks', 'Title': 'Tasks', 'RootFolder': '/sites/research/Lists/Tasks', 'ServerTemplate': '107', 'BaseType': '0', 'Hidden': 'False'},
+    )
+    files = client(recursive=True).list_files()
+    assert {f['id'] for f in files} == set(legacy.blobs)
+
+
+def test_library_is_found_by_its_url_name(legacy):
+    # "Shared Documents" is the URL name in the address bar; GetList only knows the title "Documents".
+    legacy.override = collection(
+        {'ID': 'lib2', 'Title': 'Policies', 'ServerTemplate': '101001', 'BaseType': '1', 'Hidden': 'False',
+         'DefaultViewUrl': OTHER + '/Forms/AllItems.aspx'},
+        {'ID': 'lib1', 'Title': 'Documents', 'ServerTemplate': '101001', 'BaseType': '1', 'Hidden': 'False',
+         'DefaultViewUrl': ROOT + '/Forms/AllItems.aspx'},
+    )
+    c = client(drive_name='shared documents', recursive=True)
+    assert c.test_connection()['success']
+    assert {f['id'] for f in c.list_files()} == {p for p in legacy.blobs if p.startswith(ROOT + '/')}
+    assert legacy.calls.count('GetListCollection') == 1
+
+
+def test_unknown_library_names_the_library(legacy):
+    result = client(drive_name='softwareDeals0706').test_connection()
+    assert not result['success']
+    assert "Document library 'softwareDeals0706' was not found" in result['message']
+
+
+def test_named_page_library_is_rejected(legacy):
+    def override(op, command):
+        if op == 'GetList':
+            root, out = envelope(op)
+            ET.SubElement(ET.SubElement(out, f'{{{SP}}}GetListResult'), f'{{{SP}}}List', ID='pages', Title='Site Pages',
+                          RootFolder='/sites/research/SitePages', ServerTemplate='119', BaseType='1', Hidden='False')
+            return ET.tostring(root), 200
+    legacy.override = override
+    with pytest.raises(ValueError, match='not a visible document library'):
+        client(drive_name='Site Pages').list_files()
