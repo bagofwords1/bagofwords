@@ -209,11 +209,39 @@ export default defineNuxtConfig({
   // Allow ngrok domains to access the dev server (for Slack webhooks via frontend proxy)
   vite: {
     server: {
-      allowedHosts: [
-        '.ngrok-free.app'
-      ]
+      // Vite rejects requests whose Host header is not listed here (dev only).
+      // Set BOW_ALLOWED_HOSTS (comma-separated, leading dot = any subdomain) to
+      // allow specific hosts, e.g., ".ngrok-free.app,.sndbx.bagofwords.com".
+      allowedHosts: process.env.BOW_ALLOWED_HOSTS
+        ? process.env.BOW_ALLOWED_HOSTS.split(',').map(h => h.trim()).filter(Boolean)
+        : [],
+      // Dev only. Devboxes keep node_modules outside the checkout (a symlink
+      // to a hard-linked tree on the node's dependency cache). Vite serves
+      // raw ESM from node_modules for the excluded tiptap packages below and
+      // refuses paths outside its allow list, so add that directory.
+      fs: {
+        allow: ['.', ...(process.env.BOW_NODE_MODULES_DIR ? [process.env.BOW_NODE_MODULES_DIR] : [])],
+      },
+      // Dev only. Pre-transform the app's own modules when the dev server
+      // starts instead of on the first browser visit, which otherwise has
+      // Vite compile several hundred files on demand (slow first page, and the
+      // single Node process stops answering health probes meanwhile). Runs in
+      // the background after the server is listening; HMR is unaffected.
+      warmup: {
+        clientFiles: [
+          './layouts/**/*.vue',
+          './pages/**/*.vue',
+          './components/**/*.vue',
+          './composables/**/*.ts',
+        ],
+      },
     },
     optimizeDeps: {
+      // Heavy libraries that only load behind lazy component imports. Listing
+      // them pre-bundles them at startup, so opening the first page that uses
+      // one does not trigger a "new dependencies optimized, reloading" stall.
+      // Must stay out of the exclude list below (not tiptap/prosemirror).
+      entries: ['./pages/**/*.vue'],
       // nuxt-tiptap-editor puts the tiptap packages it registers into
       // build.transpile, which excludes them from Vite's dev pre-bundling —
       // they are served as raw ESM. The app's own tiptap deps
@@ -226,7 +254,14 @@ export default defineNuxtConfig({
       // tiptap/prosemirror family so dev resolves exactly one copy of each
       // module. Production builds are unaffected (single Rollup graph).
       // CJS deps of excluded packages still need prebundling for ESM interop
-      include: ['tiptap-markdown > markdown-it-task-lists'],
+      include: [
+        'tiptap-markdown > markdown-it-task-lists',
+        'monaco-editor',
+        'mermaid',
+        'ag-grid-vue3',
+        '@vue-flow/core',
+        'dagre-d3-es',
+      ],
       exclude: [
         '@tiptap/extension-mention',
         '@tiptap/suggestion',
