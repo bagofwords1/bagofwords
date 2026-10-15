@@ -1,13 +1,20 @@
 """list_files agent tool — list a file source's files.
 
-Two paths, chosen by the connection's index tier:
-  - index_mode == "none"  → **live** listing straight from the source
-    (network_dir walk / S3 list_objects). Always fresh; no catalog needed.
-  - otherwise             → the persisted catalog (DataSourceTable +
-    per-user UserOverlayTable), refreshed on schedule/refresh. Fast, no
-    per-call source hit. Falls back to live if the cache is empty.
+Paths, in the order they are tried:
+  - **catalog** (per-connection ConnectionTable rows): the default for
+    SharePoint (both Graph and SharePoint Server) when the connection runs as a
+    service account and has been indexed. Instant, supports folder/glob/date
+    filters, sorting and cursor paging; as fresh as the last index run, which
+    the result reports as `indexed_at`. `source="catalog"` forces it (and
+    fails when there is none); `source="live"` skips it. Per-user connections
+    never list from the shared catalog.
+  - **live**: SharePoint's bounded enumeration, or the cheap walk/LIST of
+    network_dir and S3 — the default for those two so a just-written file is
+    visible immediately; pass `source="catalog"` for a large slow share.
+  - the per-data-source cache (DataSourceTable + per-user overlay) for the
+    remaining connectors, falling back to live when it is empty.
 
-Both paths respect the connection's include-globs (the client filters live;
+All paths respect the connection's include-globs (the client filters live;
 the catalog only ever held glob-matched files).
 """
 from __future__ import annotations
@@ -21,15 +28,16 @@ from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import FileEntry, ListFilesInput, ListFilesOutput
-from app.data_sources.clients.base import Capability
 from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
+from app.data_sources.clients.base import Capability
 
+from ._file_catalog import FILE_METADATA_KEYS, CursorError, entries_from_tables, page_catalog
 from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
 _MAX_RESULTS = 500
 
 # Connector-specific metadata keys on the cached Table's metadata_json.
-_FILE_METADATA_KEYS = ("graph", "sharepoint_onprem", "documentum", "google_drive", "network_dir", "s3")
+_FILE_METADATA_KEYS = FILE_METADATA_KEYS
 
 
 class ListFilesTool(Tool):
@@ -47,11 +55,13 @@ class ListFilesTool(Tool):
             name="list_files",
             description=(
                 "List files in a file connection (SharePoint / OneDrive / "
-                "Google Drive / network directory / S3). For live connections "
-                "this reads the source directly (always current); otherwise it "
-                "reads the fast cached catalog. Returns up to 500 files. Only "
-                "SharePoint uses limit (default 50; use 1 for any one file) and honors "
-                "recursive=false; set recursive=true to include nested files. "
+                "Google Drive / network directory / S3). SharePoint lists from its "
+                "indexed catalog by default (instant; the result's indexed_at says how "
+                "fresh; page with cursor, sort with sort_by) and from the source only "
+                "with source='live' or when no catalog exists. Network directories and "
+                "S3 read the source directly unless source='catalog'. Only SharePoint "
+                "uses limit (default 50; use 1 for any one file) and honors "
+                "recursive=false; set recursive=true to include nested files. Only "
                 "files matching the connection's configured patterns are "
                 "visible. Filter with name_pattern (glob, matched against the filename "
                 "and the relative path: '*.xlsx', '*6044534*'). SharePoint also honors "
@@ -139,6 +149,93 @@ class ListFilesTool(Tool):
             "observation": {"summary": err, "success": False},
         })
 
+    # ------------------------------------------------------------ catalog path
+
+    def _catalog_by_default(self, client) -> bool:
+        """SharePoint (Graph and Server) prefers the catalog; connectors whose
+        live listing is cheap (network_dir, S3) stay live unless asked, so a
+        file the agent just wrote is visible without a reindex."""
+        return isinstance(client, SharepointBoundedListing) or not getattr(client, "cheap_live_listing", False)
+
+    async def _load_catalog(self, runtime_ctx: Dict[str, Any], client) -> tuple:
+        """The per-connection catalog usable for THIS caller, or (None, reason).
+
+        Usable means: a file connection running as a service account
+        (system_only — a per-user catalog would be one identity's view),
+        indexing enabled, and at least one indexed file row. Returns
+        (catalog, reason) where catalog = {entries, indexed_at, total, key}.
+        """
+        if self._required_capability != Capability.LIST_FILES:
+            return None, "not a file connection"
+        conn = getattr(client, "_bow_connection", None) if client is not None else None
+        db = runtime_ctx.get("db")
+        if conn is None or db is None:
+            return None, "no connection context"
+        if getattr(conn, "auth_policy", None) != "system_only":
+            return None, "this connection runs as each user, so files are listed live under your identity"
+        cfg = getattr(conn, "config", None) or {}
+        if isinstance(cfg, str):
+            import json as _json
+            try:
+                cfg = _json.loads(cfg or "{}")
+            except Exception:
+                cfg = {}
+        if str((cfg or {}).get("index_mode") or "metadata") == "none":
+            return None, "indexing is disabled on this connection (index_mode=none)"
+        try:
+            from sqlalchemy import select
+
+            from app.models.connection_indexing import ConnectionIndexing, ConnectionIndexingStatus
+            from app.models.connection_table import KIND_TABLE, ConnectionTable
+            rows = (await db.execute(
+                select(ConnectionTable).where(
+                    ConnectionTable.connection_id == str(conn.id),
+                    ConnectionTable.kind == KIND_TABLE,
+                )
+            )).scalars().all()
+            entries = entries_from_tables(rows)
+            if not entries:
+                return None, "the connection has not been indexed yet (run a reindex, or use source='live')"
+            last = (await db.execute(
+                select(ConnectionIndexing.finished_at).where(
+                    ConnectionIndexing.connection_id == str(conn.id),
+                    ConnectionIndexing.user_id.is_(None),
+                    ConnectionIndexing.status == ConnectionIndexingStatus.COMPLETED.value,
+                ).order_by(ConnectionIndexing.finished_at.desc()).limit(1)
+            )).scalar_one_or_none()
+            if last is None:
+                last = max((getattr(r, "updated_at", None) for r in rows if getattr(r, "updated_at", None)), default=None)
+        except Exception as exc:  # DB unavailable in this context → live
+            return None, f"catalog unavailable: {exc}"
+        indexed_at = last.replace(microsecond=0).isoformat() + "Z" if last is not None else None
+        return {"entries": entries, "indexed_at": indexed_at, "total": len(entries),
+                "key": f"{conn.id}:{indexed_at}"}, None
+
+    def _from_catalog(self, data, catalog: dict, runtime_ctx: Dict[str, Any]) -> ToolEndEvent:
+        try:
+            page, matched, next_cursor = page_catalog(
+                catalog["entries"], scope_key=catalog["key"], folder_id=data.folder_id,
+                recursive=bool(data.recursive), name_pattern=data.name_pattern,
+                created_after=data.created_after, created_before=data.created_before,
+                modified_after=data.modified_after, modified_before=data.modified_before,
+                sort_by=data.sort_by, sort_order=data.sort_order, limit=data.limit, cursor=data.cursor,
+            )
+        except (CursorError, ValueError) as exc:
+            return self._fail(data.connection_id, str(exc))
+        entries, _ = self._apply(page, None)
+        when = f"indexed {catalog['indexed_at']}" if catalog["indexed_at"] else "index time unknown"
+        hint = f" Catalog: {catalog['total']} files, {when}; {matched} match."
+        if next_cursor:
+            hint += " More pages: pass next_cursor as cursor with the same inputs."
+        hint += " Files changed since the index run need source='live'."
+        event = self._end(data.connection_id, entries, False, "catalog", hint, runtime_ctx)
+        event.payload["output"].update(
+            source="catalog", indexed_at=catalog["indexed_at"], catalog_files=catalog["total"],
+            matched=matched, next_cursor=next_cursor, incomplete=bool(next_cursor),
+            stop_reason="result_limit" if next_cursor else None,
+        )
+        return event
+
     def _apply(self, raw: List[dict], name_pattern) -> tuple:
         files = []
         pat = (name_pattern or "").lower()
@@ -187,6 +284,20 @@ class ListFilesTool(Tool):
         client, _client_err = await resolve_file_client(
             runtime_ctx, data.connection_id, self._required_capability
         )
+        # Catalog first: instant, filterable, pageable — when this caller may use it.
+        catalog, why_not = (None, None)
+        if client is not None and data.source != "live":
+            catalog, why_not = await self._load_catalog(runtime_ctx, client)
+        if data.source == "catalog" and catalog is None:
+            yield self._fail(data.connection_id, f"No catalog listing for this connection: {why_not}.")
+            return
+        if catalog is not None and (data.source == "catalog" or self._catalog_by_default(client)):
+            yield self._from_catalog(data, catalog, runtime_ctx)
+            return
+        if data.cursor:
+            yield self._fail(data.connection_id, "cursor paging is only available for catalog listings; "
+                             "this listing reads the source live (narrow with folder_id or name_pattern instead).")
+            return
         # SharePoint opts into bounded live browsing under the resolved identity.
         # Do not pass new keywords to other connectors or alter their cache/walk paths.
         if isinstance(client, SharepointBoundedListing):
@@ -207,7 +318,7 @@ class ListFilesTool(Tool):
                             "Narrow folder_id or ask an administrator to review the connection scope/cap.")
                 event = self._end(data.connection_id, entries, False, "live", hint, runtime_ctx)
                 event.payload['output'].update(
-                    incomplete=bool(result.stop_reason), stop_reason=result.stop_reason,
+                    source="live", incomplete=bool(result.stop_reason), stop_reason=result.stop_reason,
                 )
                 yield event
             except Exception as exc:

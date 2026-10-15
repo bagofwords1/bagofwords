@@ -80,6 +80,21 @@ def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:
     return out
 
 
+async def _last_indexed_at(db, connection_id) -> str | None:
+    """When the connection's shared catalog last finished indexing (UTC ISO), or None."""
+    from sqlalchemy import select
+
+    from app.models.connection_indexing import ConnectionIndexing, ConnectionIndexingStatus
+    last = (await db.execute(
+        select(ConnectionIndexing.finished_at).where(
+            ConnectionIndexing.connection_id == str(connection_id),
+            ConnectionIndexing.user_id.is_(None),
+            ConnectionIndexing.status == ConnectionIndexingStatus.COMPLETED.value,
+        ).order_by(ConnectionIndexing.finished_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    return last.replace(microsecond=0).isoformat() + "Z" if last is not None else None
+
+
 class SearchFilesTool(Tool):
     # Capability the resolved connection must expose. Overridden by
     # SearchEmailsTool so the same search path backs a mailbox (SEARCH_EMAILS).
@@ -147,6 +162,7 @@ class SearchFilesTool(Tool):
         org = runtime_ctx.get("organization")
         if db is not None and org is not None:
             from sqlalchemy import select
+
             from app.models.connection import Connection
             c = (await db.execute(
                 select(Connection).where(
@@ -181,13 +197,15 @@ class SearchFilesTool(Tool):
         #    connection's files into another's search results.
         entries: List[Dict[str, Any]] = []
         used_index = False
+        indexed_at = None
         if not data.deep:
             conn_id = await self._resolve_connection_id(runtime_ctx, data.connection_id)
             if conn_id is not None:
                 try:
                     from sqlalchemy import select
-                    from app.models.connection_table import ConnectionTable
+
                     from app.models.connection import Connection
+                    from app.models.connection_table import ConnectionTable
                     policy = (await runtime_ctx["db"].execute(
                         select(Connection.type, Connection.auth_policy).where(Connection.id == str(conn_id))
                     )).first()
@@ -208,6 +226,8 @@ class SearchFilesTool(Tool):
                         (getattr(t, "metadata_json", None) or {}).get(k, {}).get("keywords") is not None
                         for t in (tables or []) for k in _FILE_METADATA_KEYS
                     )
+                    if used_index:
+                        indexed_at = await _last_indexed_at(runtime_ctx["db"], conn_id)
                 except Exception:
                     used_index = False
 
@@ -245,7 +265,7 @@ class SearchFilesTool(Tool):
             ).model_dump() for f in files]
             used_index = False
 
-        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
+        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at)
 
     #: Max hit rows rendered into the model-facing observation (the planner
     #: never sees the output — names/ids must live here or the model re-searches).
@@ -259,8 +279,10 @@ class SearchFilesTool(Tool):
             bits.append(str(e["path"]))
         return " — ".join(bits) + f" [id={e.get('id')}]"
 
-    def _done(self, data, entries, used_index, runtime_ctx=None) -> ToolEndEvent:
+    def _done(self, data, entries, used_index, runtime_ctx=None, indexed_at=None) -> ToolEndEvent:
         how = "keyword index" if used_index else "live scan"
+        if used_index and indexed_at:
+            how += f", indexed {indexed_at}"
         # Repeat-enumeration guard — see list_files._end.
         enum_hint = ""
         if runtime_ctx is not None:

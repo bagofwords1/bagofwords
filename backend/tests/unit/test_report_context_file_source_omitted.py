@@ -99,3 +99,16 @@ def test_agent_with_no_content_and_no_dead_connection_is_still_dropped():
         top_k_per_ds=10, index_limit=200
     )
     assert 'name="Empty Agent"' not in out
+
+
+def test_file_scope_renders_last_index_time_when_known():
+    def ds(**extra):
+        return TablesSchemaContext.DataSource(
+            info=DataSourceSummarySchema(id="docs", name="Docs", type="sharepoint_onprem"),
+            tables=[],
+            file_scopes=[FileScopeItem(connection_id="c1", name="Library", type="sharepoint_onprem",
+                                       index_mode="content", file_count=3, **extra)],
+        )
+    stamped = TablesSchemaContext(data_sources=[ds(indexed_at="2026-10-14T03:00:00Z")]).render("full")
+    assert 'indexed_at="2026-10-14T03:00:00Z"' in stamped
+    assert "indexed_at=" not in TablesSchemaContext(data_sources=[ds()]).render("full")

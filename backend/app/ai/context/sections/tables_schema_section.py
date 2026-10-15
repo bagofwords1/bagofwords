@@ -59,7 +59,8 @@ class FileScopeItem(BaseModel):
     globs: List[str] = []
     index_mode: str = "content"      # none | metadata | content
     file_count: int = 0
-    capped: bool = False
+    capped: bool = False             # catalog hit the connection's Max Files cap
+    indexed_at: Optional[str] = None # last completed shared index run (UTC ISO)
     sample: List[str] = []           # a few representative file ids
     topics: List[str] = []           # aggregate keywords (content mode)
     supports_search: bool = True     # native search API OR index_mode==content
@@ -656,7 +657,9 @@ class TablesSchemaContext(ContextSection):
             # Index/state (self-closing).
             inner.append(
                 f'<index mode="{xml_escape(fs.index_mode)}" files="{fs.file_count}" '
-                f'capped="{"true" if fs.capped else "false"}"/>'
+                f'capped="{"true" if fs.capped else "false"}"'
+                + (f' indexed_at="{xml_escape(fs.indexed_at)}"' if fs.indexed_at else "")
+                + "/>"
             )
             if fs.topics:
                 inner.append(xml_tag("topics", xml_escape(", ".join(fs.topics[:12]))))

@@ -74,6 +74,7 @@ async def _ctx(db, org_id, user_id, report_id):
 
 
 async def _flow(server):
+    from app.ai.tools.implementations.list_files import ListFilesTool
     from app.ai.tools.implementations.search_files import SearchFilesTool
     from app.services.data_source_service import DataSourceService
 
@@ -98,18 +99,62 @@ async def _flow(server):
         assert "keyword index" in payload["observation"]["summary"]
         assert len(server.calls) == calls_before
 
+        # list_files answers from the catalog by default: filters, sort and
+        # cursor paging all work without a source call; the result says how
+        # fresh the catalog is.
+        async def listing(**inputs):
+            return await _last(ListFilesTool().run_stream({"connection_id": str(conn_id), **inputs}, ctx))
+
+        calls_before = len(server.calls)
+        payload = await listing(recursive=True, limit=2, sort_by="size", sort_order="desc")
+        out = payload["output"]
+        assert out["success"] and out["source"] == "catalog" and out["indexed_at"]
+        assert out["catalog_files"] == len(catalog) == out["matched"]
+        assert len(out["files"]) == 2 and out["next_cursor"] and out["incomplete"]
+        assert out["files"][0]["size"] >= out["files"][1]["size"]
+        assert all(f["created_at"] and f["modified_at"] for f in out["files"])
+        assert out["indexed_at"] in payload["observation"]["summary"]
+        seen = [f["path"] for f in out["files"]]
+        cursor = out["next_cursor"]
+        while cursor:
+            out = (await listing(recursive=True, limit=2, sort_by="size", sort_order="desc", cursor=cursor))["output"]
+            assert out["success"], out
+            seen += [f["path"] for f in out["files"]]
+            cursor = out["next_cursor"]
+        assert sorted(seen) == sorted(catalog) and len(seen) == len(set(seen))
+        out = (await listing(name_pattern="*.csv", recursive=True))["output"]
+        assert [f["path"] for f in out["files"]] == ["revenue.csv"] and out["matched"] == 1
+        out = (await listing(folder_id="nested"))["output"]
+        assert [f["path"] for f in out["files"]] == ["nested/דוח.txt"]
+        out = (await listing(folder_id=ROOT + "/nested"))["output"]
+        assert [f["path"] for f in out["files"]] == ["nested/דוח.txt"]
+        out = (await listing(recursive=True, modified_after="2999-01-01"))["output"]
+        assert out["success"] and out["files"] == [] and out["matched"] == 0
+        assert len(server.calls) == calls_before
+        out = (await listing(recursive=True, cursor="stale"))["output"]
+        assert not out["success"]
+        # Explicit live listing still reaches the source.
+        out = (await listing(source="live", recursive=True, limit=50))["output"]
+        assert out["success"] and out["source"] == "live" and len(out["files"]) == len(catalog)
+        assert len(server.calls) > calls_before
+
         # The same catalog must never answer for a per-user connection.
         conn = (await db.execute(select(Connection).where(Connection.id == conn_id))).scalar_one()
         conn.auth_policy = "user_required"
         conn.allowed_user_auth_modes = ["ntlm"]
         await db.commit()
         ctx = await _ctx(db, org_id, user_id, report_id)
+        calls_before = len(server.calls)
         payload = await _last(SearchFilesTool().run_stream(
             {"connection_id": str(conn_id), "query": "south region", "max_results": 20}, ctx))
         assert "keyword index" not in payload["observation"]["summary"]
         if payload["output"]["success"]:
             # Any answer came from a live crawl under the caller's identity.
             assert len(server.calls) > calls_before
+        out = (await listing(source="catalog"))["output"]
+        assert not out["success"] and not out.get("files")
+        out = (await listing(recursive=True, limit=50))["output"]
+        assert out.get("source") != "catalog"
 
 
 @pytest.mark.e2e

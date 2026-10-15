@@ -3,6 +3,8 @@
 ## Version 0.0.591 (October 15, 2026)
 - Added content indexing for SharePoint Server connections, so search_files finds documents by keyword without crawling the library — `index_mode: content`
 - Added creation time, and created/modified date filters, to SharePoint file listings
+- SharePoint file listings now read from the indexed catalog by default, with cursor paging and sorting — `source: live` reads the server
+- Agents now see when each file connection's catalog was last indexed
 
 ## Version 0.0.590 (October 14, 2026)
 - Bug fixes and security hardening (#1304)
