@@ -559,7 +559,7 @@ class SchemaContextBuilder:
                                 for k in ("role", "kind", "hidden", "is_partition",
                                           "relationship_key", "returns", "format_string",
                                           "data_category", "display_folder", "sort_by_column",
-                                          "summarize_by", "contents")
+                                          "summarize_by", "contents", "from_form")
                                 if k in canon_meta
                             } or None
                         columns.append({

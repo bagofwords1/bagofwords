@@ -50,6 +50,24 @@ from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as _run_san
 # to the fallback, not the capture — client internals don't print, and the
 # old behavior for those threads was "whichever buffer happened to be
 # globally active", which was strictly worse.)
+# A client may attach a short note for the run output to the frame it returns:
+# `df.attrs[QUERY_NOTICE_ATTR] = "..."` (e.g. Priority naming the request it
+# actually sent when it rewrote the agent's query). The frame reaches the
+# generated code's side intact — pickled into the sandbox, or as-is in
+# process — and the note is printed there, so it lands in the same captured
+# output as the code's own prints. Clients print nothing themselves: their
+# calls run on a timeout thread (and, sandboxed, in another process) whose
+# stdout is never captured.
+QUERY_NOTICE_ATTR = "bow_notice"
+
+
+def query_notice(result) -> Optional[str]:
+    """The client's note on a query result, if it attached one."""
+    attrs = getattr(result, "attrs", None)
+    note = attrs.get(QUERY_NOTICE_ATTR) if isinstance(attrs, dict) else None
+    return note if isinstance(note, str) and note.strip() else None
+
+
 class _ThreadLocalStdoutRouter:
     """sys.stdout replacement routing writes to a per-thread buffer."""
 
@@ -62,6 +80,9 @@ class _ThreadLocalStdoutRouter:
 
     def unbind(self) -> None:
         self._local.buffer = None
+
+    def is_bound(self) -> bool:
+        return getattr(self._local, "buffer", None) is not None
 
     def _target(self):
         buf = getattr(self._local, "buffer", None)
@@ -859,6 +880,12 @@ class QueryCapturingClientWrapper:
                     "result_bytes": result_bytes,
                     "sql": capture[:500] if isinstance(capture, str) else None,
                 })
+                # In process, this thread is the code-exec worker and its
+                # stdout is the run output. Sandboxed, it is a parent-side
+                # handler with nothing bound, and the child prints the note.
+                note = query_notice(result)
+                if note and isinstance(sys.stdout, _ThreadLocalStdoutRouter) and sys.stdout.is_bound():
+                    print(note)
                 return result
             except QueryTimeoutError as e:
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0

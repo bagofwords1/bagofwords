@@ -103,7 +103,12 @@ client, so a green test is real evidence rather than a tautology:
 - PAT auth accepts only `Basic base64("<PAT>:PAT")`; other shapes 401
 - `$apply` returns **501** rather than silently succeeding
 - `GetMetadataFor(entity=…)` serves single-form metadata (v25.0+)
-- subforms are navigation properties reachable via `$expand`
+- subforms (`ORDERITEMS`, two-level `ORDERITEMSTEXT`, shared `EXTFILES`) have
+  an `EntityType` but **no `EntitySet`**: `GET {root}/ORDERITEMS` is a 404, as
+  on a real tenant; rows come only through the parent (`$expand` with
+  `;`-separated nested options, or `ORDERS('…')/ORDERITEMS_SUBFORM`)
+- `$filter` is a real evaluator (and/or/not, parentheses, `contains`, `''`
+  escapes); unknown properties are 400s naming the property
 - 429 past 100 calls/minute, like Priority Cloud
 - `PART` carries Hebrew titles; `ACME_PROJECTS` is a customer-specific form
   visible only with `discover_all`
@@ -161,17 +166,52 @@ business titles, composite keys intact, and the subform join path visible:
 | Hebrew titles (`PART`) | `פריטים` / `מק"ט` intact |
 | `discover_all` | surfaces `ACME_PROJECTS` |
 | `$filter`+`$select`+`$orderby` | correct rows and column projection |
-| `$expand` subform | nested list collapsed to a count |
+| Subform queried by name (`ORDERITEMS?$filter=…`) | answered through the parent `$expand`, one row per line with the order's columns |
+| Filter mixing order + line columns | each `and` clause routed to its form; a clause mixing forms is refused |
+| `$orderby`/`$top` on a subform | applied across all lines, not per order |
+| Explicit `$expand` | flattened to line rows (sibling expands refused) |
 | `$apply` | actionable "not supported, aggregate in code" error |
 | `GetMetadataFor` fallback | resolves a non-curated form |
 | OAuth derivation | `https://priority.acme.local` and IIS sub-path both correct |
 | `construct_client` simulation | `oauth_*` stripped; every real param accepted |
+
+### Subforms
+
+Priority serves a subform only nested in its parent, so the connector presents
+it as a table and does the `$expand` itself. The catalog marks it and lists the
+order's columns on the line table:
+
+```xml
+<table name="ORDERITEMS" cols="13" description="Order Items">
+<column name="PRICE" dtype="Edm.Decimal" description="Unit Price"/>
+<column name="CURDATE" dtype="Edm.DateTimeOffset" description="Order Date" from_form="ORDERS"/>
+<column name="ORDERS_STATDES" dtype="Edm.String" description="Order Stage" from_form="ORDERS"/>
+<priority_erp subform_of="ORDERS" navigation="ORDERITEMS_SUBFORM"/>
+</table>
+```
+
+`ORDERITEMS?$filter=CURDATE ge 2026-02-01T00:00:00Z and PRICE gt 1000` is sent
+as `ORDERS?$filter=CURDATE ge …&$select=ORDNAME,…&$expand=ORDERITEMS_SUBFORM($filter=PRICE gt 1000)`
+(`backend/app/data_sources/clients/priority_odata_query.py`). Tests:
+`tests/unit/test_priority_erp_client.py` (subforms section),
+`tests/unit/test_priority_odata_query.py`, and `tests/e2e/test_priority_subforms.py`
+(indexing → DB → planner context → platform-built client).
+
+The agent's code keeps saying `ORDERITEMS?…`, which no Priority endpoint
+serves, so every subform query also puts the request actually sent in the run
+output (`Priority request (ORDERITEMS is a subform of ORDERS): ORDERS?…`). The
+client attaches it to the result as `df.attrs["bow_notice"]`; the sandbox
+child (or, in process, the query wrapper) prints it, because the client itself
+runs where stdout is never captured.
 
 ## Not covered
 
 - **No live tenant.** Everything above is against the mock. The real `$metadata`
   size and shape, actual `$apply` behaviour, and annotation coverage across a
   full tenant remain unverified — a tenant URL + PAT would close that.
+- **Paging.** Priority caps a response at `MAXAPILINES` (2,000 by default
+  since 25.1) without a next link; the connector sends one request per query,
+  so a larger result is silently partial. Planned as the follow-up to subforms.
 - **Read-only.** Writes need Priority "transaction packages" licensing and the
   `confirm: true` policy path; out of scope here.
 - **No UI pass.** The connect form renders from the config/credential schemas
