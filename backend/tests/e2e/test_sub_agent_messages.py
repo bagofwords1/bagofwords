@@ -666,6 +666,129 @@ def test_child_question_creates_one_queued_parent_wake_and_terminal_child_cannot
 
 
 @pytest.mark.e2e
+def test_question_wakes_coalesce_per_principal_not_across_report_members(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+    create_report,
+    create_llm_provider_and_models,
+    monkeypatch,
+):
+    """A report-wide queue can hold one question wake per actual requester.
+
+    Questions from two users sharing a report must not coalesce onto the first
+    user's wake: if that user later loses access, the other member still has a
+    durable wake eligible to run under their own identity.
+    """
+    from app.ai.tools.schemas.sub_agents import DelegateInput
+    from app.models.completion import Completion
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+    from app.services.sub_agent_message_service import sub_agent_message_service
+    from app.services.sub_agent_service import sub_agent_service
+
+    report, headers, org_id, _token = _env(
+        create_user,
+        login_user,
+        whoami,
+        create_report,
+        create_llm_provider_and_models,
+        monkeypatch,
+        title="Sub-agent wake principals",
+    )
+    peer_email = f"message-peer-{uuid.uuid4().hex}@example.com"
+    invite = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": peer_email, "role": "member"},
+        headers=headers,
+    )
+    assert invite.status_code == 200, invite.text
+    peer_credentials = create_user(email=peer_email, password="test123")
+    peer_token = login_user(peer_credentials["email"], peer_credentials["password"])
+    user_b_id = whoami(peer_token)["id"]
+    children_a = _run(_pending_children(report["id"], org_id, count=2))
+
+    async def _prepare_peer_wave():
+        async with async_session_maker() as db:
+            peer = await db.get(User, user_b_id)
+            organization = await db.get(Organization, org_id)
+            report_row = await db.get(Report, report["id"])
+            # Identity and membership come through the invite/register APIs.
+            # Seed only a completed parent turn: the public delegation service
+            # needs a distinct turn id to model this prior wave, while running
+            # a whole parent LLM turn is outside this queue-coalescing test.
+            parent_completion = Completion(
+                report_id=report["id"], user_id=user_b_id, role="system", status="success",
+                model="test-model", prompt={}, completion={}, turn_index=100,
+            )
+            db.add(parent_completion)
+            await db.commit()
+            await db.refresh(parent_completion)
+            children = []
+            for index in range(2):
+                child = await sub_agent_service.record_delegation(
+                    db,
+                    organization=organization,
+                    user=peer,
+                    report=report_row,
+                    parent_head_completion=None,
+                    parent_system_completion=parent_completion,
+                    parent_execution_id=None,
+                    tool_execution_id=None,
+                    plan_decision_id=None,
+                    data=DelegateInput(
+                        goal=f"Check peer fact {index} and report evidence.",
+                        title=f"Peer message target {index}",
+                    ),
+                    settings=None,
+                    parent_mode="chat",
+                    parent_model=None,
+                    small_model=None,
+                )
+                children.append(child)
+            return children, user_b_id
+
+    children_b, user_b_id = _run(_prepare_peer_wave())
+
+    async def _send_and_assert():
+        async with async_session_maker() as db:
+            for child, body, key in (
+                (children_a[0], "Which baseline should I use?", "question-a-one"),
+                (children_a[1], "Should I exclude refunds?", "question-a-two"),
+                (children_b[0], "Which region should I compare?", "question-b-one"),
+            ):
+                await sub_agent_message_service.send(
+                    db,
+                    organization_id=org_id,
+                    report_id=report["id"],
+                    sender_sub_agent_id=child["sub_agent_id"],
+                    recipient="parent",
+                    kind="question",
+                    body=body,
+                    reply_to=None,
+                    idempotency_key=key,
+                )
+
+            wakes = (await db.execute(select(Completion).where(
+                Completion.report_id == report["id"],
+                Completion.role == "user",
+                Completion.trigger_source == "sub_agent_message",
+            ))).scalars().all()
+            assert {wake.user_id for wake in wakes} == {parent_user_id, user_b_id}
+            assert len(wakes) == 2
+
+    async def _report_owner_id():
+        async with async_session_maker() as db:
+            row = await db.get(Report, report["id"])
+            return str(row.user_id)
+
+    parent_user_id = _run(_report_owner_id())
+    _run(_send_and_assert())
+
+
+@pytest.mark.e2e
 def test_open_question_reserves_final_message_slot_for_answer(
     create_user,
     login_user,
@@ -1526,6 +1649,14 @@ def test_finish_preserves_records_and_reports_unread_messages(
                     result={**result, "summary": "A different, unrecorded finding."})
             persisted = await db.get(SubAgentRun, child["sub_agent_id"], populate_existing=True)
             assert persisted.result_json == saved
+            await db.rollback()
+            from app.ai.tools.implementations.finish_subtask import FinishSubtaskTool
+            events = [event async for event in FinishSubtaskTool().run_stream(
+                {**result, "summary": "A conflicting retry must not claim acceptance."},
+                {"sub_agent_id": child["sub_agent_id"]},
+            )]
+            errors = [event.payload for event in events if event.type == "tool.error"]
+            assert errors and errors[-1]["code"] == "FINISH_CONFLICT"
     _run(check())
 
 
@@ -1554,4 +1685,108 @@ def test_mailbox_locking_does_not_change_report_or_wave_activity(
             for row in (owner, wave, run):
                 await db.refresh(row)
             assert (owner.updated_at, owner.last_activity_at, wave.updated_at, run.updated_at) == before
+    _run(check())
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("ending", ["sigkill", "error", "budget"])
+def test_prepared_findings_survive_interrupted_message_review(
+    create_user, login_user, whoami, create_report, create_llm_provider_and_models,
+    monkeypatch, ending,
+):
+    from app.ai.tools.schemas.sub_agents import FinishSubtaskInput
+    from app.models.sub_agent import SubAgentRun
+    from app.services.sub_agent_message_service import sub_agent_message_service
+    from app.services.sub_agent_service import PendingSubAgentMessages, sub_agent_service
+
+    report, _, org_id, _ = _env(create_user, login_user, whoami, create_report,
+        create_llm_provider_and_models, monkeypatch, title="Interrupted message review")
+    child, = _run(_pending_children(report["id"], org_id, count=1))
+    result = FinishSubtaskInput(outcome="partial", confidence=0.6,
+        summary="Returning customers account for the measured change.",
+        findings=[{"claim": "The returning-customer cohort explains the difference."}]).model_dump()
+
+    async def check():
+        async with async_session_maker() as db:
+            await sub_agent_message_service.send(db, organization_id=org_id,
+                report_id=report["id"], sender_sub_agent_id=None,
+                recipient=child["sub_agent_id"], kind="direction",
+                body="Include the latest complete quarter.", idempotency_key="late-quarter")
+            with pytest.raises(PendingSubAgentMessages):
+                await sub_agent_service.record_finish(db, sub_agent_id=child["sub_agent_id"], result=result)
+        await sub_agent_service.finalize_child(sub_agent_id=child["sub_agent_id"],
+            agent_status=ending, last_text="", steps_used=3, tokens=None,
+            execution_id=None, steps_exhausted=ending == "budget")
+        async with async_session_maker() as db:
+            row = await db.get(SubAgentRun, child["sub_agent_id"])
+            assert row.result_json["summary"] == result["summary"]
+            assert row.result_json["findings"] == result["findings"]
+            assert row.result_json["caveats"]
+            assert row.envelope_json
+    _run(check())
+
+
+@pytest.mark.e2e
+def test_failed_parent_authorization_closes_only_its_blocked_children(
+    create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch,
+):
+    from app.models.sub_agent import SubAgentRun, SubAgentWave
+    from app.services.sub_agent_message_service import sub_agent_message_service
+    from app.services.sub_agent_service import sub_agent_service
+    report, _, org_id, _ = _env(create_user, login_user, whoami, create_report,
+        create_llm_provider_and_models, monkeypatch, title="Parent access lost")
+    independent, blocked = _run(_pending_children(report["id"], org_id, count=2))
+
+    async def check():
+        async with async_session_maker() as db:
+            await sub_agent_message_service.send(db, organization_id=org_id,
+                report_id=report["id"], sender_sub_agent_id=blocked["sub_agent_id"],
+                recipient="parent", kind="question", body="Which source is authoritative?",
+                idempotency_key="needs-parent")
+            child = await db.get(SubAgentRun, blocked["sub_agent_id"])
+            wave = await db.get(SubAgentWave, child.wave_id)
+            await sub_agent_service.fail_waiting_children_for_parent(db, report_id=report["id"],
+                user_id="unrelated-principal", reason="Access revoked")
+            await db.refresh(child)
+            assert child.status == "pending"
+            await sub_agent_service.fail_waiting_children_for_parent(db, report_id=report["id"],
+                user_id=wave.user_id, reason="Access revoked")
+            await db.refresh(child)
+            assert child.status == "failed"
+            assert child.error_message and child.result_json and child.envelope_json
+            other = await db.get(SubAgentRun, independent["sub_agent_id"])
+            assert other.status == "pending"
+            assert not await sub_agent_message_service.has_open_questions(db, report["id"])
+    _run(check())
+
+
+@pytest.mark.e2e
+def test_parent_mailbox_bounds_history_without_losing_live_questions(
+    create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch,
+):
+    from app.ai.tools.schemas.sub_agents import FinishSubtaskInput
+    from app.services.sub_agent_message_service import sub_agent_message_service
+    from app.services.sub_agent_service import sub_agent_service
+    report, _, org_id, _ = _env(create_user, login_user, whoami, create_report,
+        create_llm_provider_and_models, monkeypatch, title="Bounded historical context")
+    ended, live = _run(_pending_children(report["id"], org_id, count=2))
+
+    async def check():
+        async with async_session_maker() as db:
+            question = await sub_agent_message_service.send(db, organization_id=org_id,
+                report_id=report["id"], sender_sub_agent_id=live["sub_agent_id"], recipient="parent",
+                kind="question", body="Which attribution definition should I apply?", idempotency_key="older-live-question")
+            for index in range(20):
+                await sub_agent_message_service.send(db, organization_id=org_id,
+                    report_id=report["id"], sender_sub_agent_id=ended["sub_agent_id"], recipient="parent",
+                    kind="finding", body=f"Checked partition {index}.", idempotency_key=f"historical-{index}")
+            await sub_agent_service.record_finish(db, sub_agent_id=ended["sub_agent_id"],
+                result=FinishSubtaskInput(outcome="done", confidence=0.8, summary="Partition checks complete.").model_dump())
+            context = await sub_agent_message_service.receive(db, organization_id=org_id,
+                report_id=report["id"], recipient="parent")
+            history = await sub_agent_message_service.list_for_child(db, organization_id=org_id,
+                report_id=report["id"], sub_agent_id=ended["sub_agent_id"])
+            assert len(history) == 20
+            assert len([m for m in context if m["sub_agent_id"] == ended["sub_agent_id"]]) <= 8
+            assert any(m["message_id"] == question["message_id"] and m["question_state"] == "open" for m in context)
     _run(check())

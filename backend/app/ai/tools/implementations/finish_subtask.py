@@ -77,16 +77,19 @@ class FinishSubtaskTool(Tool):
             return
 
         from app.dependencies import async_session_maker
-        from app.services.sub_agent_service import PendingSubAgentMessages, sub_agent_service
+        from app.services.sub_agent_service import FinishConflict, PendingSubAgentMessages, sub_agent_service
         record = data.model_dump()
         try:
-            # A rejected finish rolls back its mailbox locks. Keep that
-            # transaction separate from the runner's pending tool/block writes.
+            # Finish may commit a prepared candidate or roll back a conflict.
+            # Isolate both from the runner's pending tool/block writes.
             async with (runtime_ctx.get("session_maker") or async_session_maker)() as db:
                 row = await sub_agent_service.record_finish(db, sub_agent_id=str(sub_agent_id), result=record,
                     can_review_messages=runtime_ctx.get("sub_agent_can_review_messages", True))
         except PendingSubAgentMessages as e:
             yield ToolErrorEvent(type="tool.error", payload={"message": str(e), "code": "PENDING_AGENT_MESSAGES"})
+            return
+        except FinishConflict as e:
+            yield ToolErrorEvent(type="tool.error", payload={"message": str(e), "code": "FINISH_CONFLICT"})
             return
         except ValueError as e:
             yield ToolErrorEvent(type="tool.error", payload={"message": str(e), "code": "SUB_AGENT_ENDED"})

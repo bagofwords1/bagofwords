@@ -11,11 +11,12 @@ from sqlalchemy import case, func, or_, select, update
 
 from app.models.sub_agent import SubAgentRun, SubAgentWave
 from app.models.sub_agent_message import SubAgentMessage
-from app.services.sub_agent_locks import lock_report
+from app.services.sub_agent_locks import lock_report, lock_wave
 
 LIVE = ('pending', 'running', 'waiting')
 MAX_MESSAGES = 32
 MAX_QUESTIONS = 3
+MAX_HISTORICAL_CONTEXT_MESSAGES = 8
 
 
 class SubAgentMessageService:
@@ -50,7 +51,7 @@ class SubAgentMessageService:
         # Serialize send retries/caps and wake coalescing across workers, on
         # SQLite as well as Postgres. Lock order: report → wave → child.
         await lock_report(db, report_id)
-        await db.execute(update(SubAgentWave).where(SubAgentWave.id == child.wave_id).values(total=SubAgentWave.total, updated_at=SubAgentWave.updated_at))
+        await lock_wave(db, child.wave_id)
         existing = (await db.execute(select(SubAgentMessage).where(
             SubAgentMessage.report_id == report_id, SubAgentMessage.idempotency_key == idempotency_key,
         ))).scalar_one_or_none()
@@ -120,11 +121,11 @@ class SubAgentMessageService:
         return self.receipt(message, child.title)
 
     async def _queue_parent(self, db, wave):
-        """Commit the wake in the SAME transaction as its message, once/report.
+        """Commit the wake in the SAME transaction as its message, once/report/principal.
         The caller kicks the dispatcher after the transaction commits."""
         from app.models.completion import Completion
         queued = (await db.execute(select(Completion.id).where(
-            Completion.report_id == wave.report_id, Completion.role == 'user',
+            Completion.report_id == wave.report_id, Completion.user_id == wave.user_id, Completion.role == 'user',
             Completion.status == 'queued', Completion.trigger_source == 'sub_agent_message',
         ).limit(1))).scalar_one_or_none()
         if queued:
@@ -171,13 +172,19 @@ class SubAgentMessageService:
               SubAgentMessage.id.not_in(answered_ids)), 0),
             (SubAgentRun.status.in_(LIVE), 1), else_=2,
         )
-        rows = (await db.execute(query.order_by(
-            priority,
-            SubAgentMessage.created_at.desc(), SubAgentMessage.id.desc(),
-        ).limit(160))).all()
-        answered = set((await db.execute(self._answered_ids(report_id=report_id))).scalars().all()) if recipient == 'parent' else set()
+        order = (priority, SubAgentMessage.created_at.desc(), SubAgentMessage.id.desc())
+        if recipient == 'parent':
+            rows = (await db.execute(query.where(SubAgentRun.status.in_(LIVE)).order_by(*order).limit(160))).all()
+            rows += (await db.execute(query.where(SubAgentRun.status.not_in(LIVE)).order_by(
+                SubAgentMessage.created_at.desc(), SubAgentMessage.id.desc(),
+            ).limit(MAX_HISTORICAL_CONTEXT_MESSAGES))).all()
+        else:
+            rows = (await db.execute(query.order_by(*order).limit(MAX_MESSAGES))).all()
+        answered = set((await db.execute(self._answered_ids(report_id=report_id).where(
+            SubAgentMessage.reply_to.in_([m.id for m, _ in rows if m.kind == "question"]),
+        ))).scalars().all()) if recipient == 'parent' else set()
         child_statuses = dict((await db.execute(select(SubAgentRun.id, SubAgentRun.status).where(
-            SubAgentRun.report_id == report_id,
+            SubAgentRun.report_id == report_id, SubAgentRun.id.in_([m.sub_agent_id for m, _ in rows]),
         ))).all()) if recipient == 'parent' else {}
         for message, _ in rows:
             if message.recipient == recipient and message.status == 'sent':
@@ -199,8 +206,9 @@ class SubAgentMessageService:
         ).order_by(SubAgentMessage.created_at, SubAgentMessage.id))).all()
         return [self.receipt(m, title) for m, title in rows]
 
-    async def close_child(self, db, sub_agent_id):
+    async def close_child(self, db, sub_agent_id, *, report_id):
         await db.execute(update(SubAgentMessage).where(
+            SubAgentMessage.report_id == report_id,
             SubAgentMessage.recipient == sub_agent_id, SubAgentMessage.status == 'sent',
         ).values(status='undelivered', reason='recipient_ended'))
 

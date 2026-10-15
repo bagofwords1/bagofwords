@@ -342,3 +342,62 @@ and PostgreSQL. The broader suite previously passed **38/38** on each database;
 unchanged delegation/prompt paths were not rerun for the request-flag refinement.
 Existing artifact-chat compatibility tests: **3/3** on SQLite. PostgreSQL runs
 use disposable databases, never a development or production database.
+
+## Second PR review revision
+
+The next ten comments were validated against the current code and addressed:
+
+- Parent executions renew a durable lease every 30 seconds. Submission/dispatch
+  retires rows missing heartbeats for 300 seconds while holding report and
+  completion locks; process-local active runs remain protected. A newer stale
+  legacy row cannot hide an older live run. Heartbeats cover slot waits and are
+  cancelled and awaited at task exit. This is recovery on submit/dispatch, not
+  a periodic reaper or durable execution resumption.
+- A finish rejected for unread messages now commits its prepared typed record
+  with an unread-mail caveat before retrying. Stop, deadline, failed next call,
+  and budget termination preserve it through the common terminal transition.
+  A subsequent accepted finish replaces the candidate. Conflicting terminal
+  retries emit `FINISH_CONFLICT`, distinct from `SUB_AGENT_ENDED`.
+- Authorization failure of a question wake closes only that principal's blocked
+  children, with an explicit failed record. Wakes coalesce per report/principal
+  so another user's question is not swallowed. No owner impersonation.
+- Parent context retains at most eight ended-child messages, separately from
+  the bounded live mailbox (up to 160 messages, prioritized open questions).
+  Full persisted history remains accessible. Auxiliary lookups target only
+  included messages/children; terminal inbox updates include report_id.
+- Question polling backs off from 0.5 to five seconds, does not repeatedly write
+  an already-waiting row, and checks slot availability before locking, then
+  rechecks under shared report/wave locks. Stop interrupts the wait immediately.
+- JSON queue receipts include `busy_completion_id`; the browser retains the
+  queued prompt, installs/reuses the active turn and attaches its watcher before
+  refreshing history. Failed/slow history no longer removes Stop or reports idle.
+
+Red proofs against 55c8b8d: three interrupted-review cases lose the prepared
+findings; historical context exceeds the new bound; both slow/failed-refresh
+frontend cases lose the active turn. Luna separately restored the previous
+stale-row lookup and report-wide coalescing to prove the new regressions fail.
+
+Final combined suite: **46 passed SQLite**, **46 passed PostgreSQL**. Subsequent
+heartbeat cleanup: **10 queue tests passed SQLite**, **4 targeted queue tests
+passed PostgreSQL**. Subsequent authorization-loop fix: **1 passed each DB**.
+Frontend stream/refresh suite: **11 passed**. Targeted Ruff and `git diff --check`
+passed. SQLite queue tests still emit aiosqlite event-loop-closed teardown
+warnings; awaiting heartbeat cleanup did not remove them. No claim of warning-
+free execution or full multi-worker load verification.
+
+Live browser reproduction used an API-created disposable report, a seeded
+in-progress system row representing a parent wake winning a submit race, and a
+local middleware fixture returning 503 for history GETs only. The same natural
+prompt was entered before and after: “Please tell the reviewer that launch is
+now Monday and include returning customers in the comparison.” Old UI became
+empty/idle; fixed UI kept the queued chip and Stop. Clicking Stop produced
+“Generation stopped.” The queued fixture was removed and normal server behavior
+restored. This deterministic UI fault-injection run did not invoke a real model.
+Screenshots: `media/pr/sub-agent-messaging/queue-recovery-{before,after}.png`;
+flow: `queue-recovery-flow.gif` (three captured browser states).
+
+Previous-head CI (55c8b8d, run 38792509261): SQLite and PostgreSQL e2e,
+Playwright, and data-source integrations passed. Unit job has eight failures
+(artifact prompt NameError; five OpenAI prompt_cache_markers failures; sandbox
+retry; query-timeout retry). LLM integration has seven Azure authentication 401
+failures. These are not attributed away from this PR without baseline proof.

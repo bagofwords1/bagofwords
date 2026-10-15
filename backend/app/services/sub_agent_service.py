@@ -41,11 +41,11 @@ from app.models.sub_agent import (
     SubAgentRun, SubAgentWave,
 )
 
-from app.services.sub_agent_locks import lock_report
+from app.services.sub_agent_locks import lock_report, lock_wave
 
 logger = logging.getLogger(__name__)
 
-_UNREAD_FINISH_CAVEAT = "Parent messages arrived at the execution budget limit and were not incorporated; inspect undelivered messages."
+_UNREAD_FINISH_CAVEAT = "Parent messages arrived after this record was prepared and were not incorporated; inspect message delivery history."
 
 _DEADLINE_JOB_PREFIX = "sub_agent_wave:"
 # How long the fan-in waits for a user turn on the report to finish before
@@ -121,6 +121,19 @@ def effective_concurrency(configured: int, dialect: str) -> int:
 
 class PendingSubAgentMessages(ValueError):
     """A child must plan with newly accepted directions before finishing."""
+
+
+class FinishConflict(ValueError):
+    """A terminal finish record already exists with different content."""
+
+
+async def has_free_child_slot(db, report_id, *, settings=None, concurrency=None):
+    configured = concurrency if concurrency is not None else sub_agent_limits(settings)["concurrency"]
+    limit = effective_concurrency(configured, _dialect_name(db))
+    running = (await db.execute(select(func.count(SubAgentRun.id)).where(
+        SubAgentRun.report_id == report_id, SubAgentRun.status == RUN_RUNNING,
+    ))).scalar_one()
+    return running < limit
 
 
 class SubAgentService:
@@ -381,12 +394,7 @@ class SubAgentService:
                     )).scalars().first()
                     if nxt is None:
                         return
-                    running = (await db.execute(
-                        select(func.count(SubAgentRun.id)).where(
-                            SubAgentRun.report_id == wave.report_id, SubAgentRun.status == RUN_RUNNING,
-                        )
-                    )).scalar() or 0
-                    if running >= concurrency:
+                    if not await has_free_child_slot(db, wave.report_id, concurrency=concurrency):
                         nxt = None
                 if nxt is None:
                     await asyncio.sleep(_SLOT_POLL_SECONDS)
@@ -417,12 +425,13 @@ class SubAgentService:
                 return
             # Share the report slot lock with children resuming after questions.
             await lock_report(db, row.report_id)
+            await lock_wave(db, row.wave_id)
+            await db.refresh(wave)
+            if wave.status != WAVE_RUNNING:
+                await db.rollback()
+                return
             org_settings = await organization.get_settings(db)
-            cap = effective_concurrency(sub_agent_limits(org_settings)['concurrency'], _dialect_name(db))
-            running = (await db.execute(select(func.count(SubAgentRun.id)).where(
-                SubAgentRun.report_id == row.report_id, SubAgentRun.status == RUN_RUNNING,
-            ))).scalar() or 0
-            if running >= cap:
+            if not await has_free_child_slot(db, row.report_id, settings=org_settings):
                 await db.rollback()
                 return
             # Claim the row before the run can finish (finalize_child is a
@@ -491,6 +500,28 @@ class SubAgentService:
                 ae.parent_tool_execution_id = row.parent_tool_execution_id
         await db.commit()
 
+    async def fail_waiting_children_for_parent(self, db, *, report_id, user_id, reason):
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        children = (await db.execute(select(SubAgentRun).join(
+            SubAgentWave, SubAgentWave.id == SubAgentRun.wave_id,
+        ).where(SubAgentRun.report_id == report_id,
+                SubAgentWave.user_id == user_id,
+                SubAgentRun.status.in_((RUN_PENDING, RUN_RUNNING, RUN_WAITING))))).scalars().all()
+        for child in children:
+            await lock_report(db, report_id)
+            await lock_wave(db, child.wave_id)
+            if not await sub_agent_message_service.waiting_question(db, str(child.id)):
+                # Release the no-op locks without expiring other loaded children.
+                await db.commit()
+                continue
+            if await self._mark_terminal(db, child, RUN_FAILED, EXIT_ERROR, error=reason):
+                if child.child_completion_id:
+                    await _sigkill_completion(db, child.child_completion_id)
+                child.envelope_json = _envelope(child)
+                await db.commit()
+                await self._write_back(db, child)
+                await self._after_terminal(db, child)
+
     async def record_finish(self, db, *, sub_agent_id: str, result: Dict[str, Any], can_review_messages: bool = True) -> Optional[SubAgentRun]:
         """`finish_subtask`: store the validated body; the envelope lands at finalize."""
         from app.models.note import Note
@@ -502,7 +533,7 @@ class SubAgentService:
         # silently become undelivered on a successful finish.
         from app.models.sub_agent_message import SubAgentMessage
         await lock_report(db, row.report_id)
-        await db.execute(update(SubAgentWave).where(SubAgentWave.id == row.wave_id).values(total=SubAgentWave.total, updated_at=SubAgentWave.updated_at))
+        await lock_wave(db, row.wave_id)
         await db.execute(update(SubAgentRun).where(SubAgentRun.id == sub_agent_id).values(status=SubAgentRun.status, updated_at=SubAgentRun.updated_at))
         await db.refresh(row)
         note_id = result.get("report_note_id")
@@ -519,21 +550,16 @@ class SubAgentService:
             ]}
             if stored != result and original != result:
                 await db.rollback()
-                raise ValueError("This sub-agent already stored a different finish record.")
+                raise FinishConflict("This sub-agent already stored a different finish record.")
             await db.commit()
             return row
         if row.status not in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
             await db.rollback()
             raise ValueError("This sub-agent has already ended; its result cannot be replaced.")
         unread = (await db.execute(select(SubAgentMessage.id).where(
+            SubAgentMessage.report_id == row.report_id,
             SubAgentMessage.recipient == sub_agent_id, SubAgentMessage.status == "sent",
         ).limit(1))).scalar_one_or_none()
-        if unread and can_review_messages:
-            await db.rollback()
-            raise PendingSubAgentMessages(
-                "New parent messages arrived while you were working. Review agent_messages in your next "
-                "planning step, apply the updated direction to your work and notes, then finish."
-            )
         if unread:
             caveats = list(result.get("caveats", []))
             if len(caveats) >= 8:
@@ -541,12 +567,22 @@ class SubAgentService:
             else:
                 caveats.append(_UNREAD_FINISH_CAVEAT)
             result = {**result, "caveats": caveats}
-        if row.status in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
-            row.status = RUN_FINISHED
-            row.exit_reason = EXIT_FINISH_CALL
-            row.finished_at = datetime.utcnow()
+        if unread and can_review_messages:
+            # Preserve a candidate before asking the model to revise. A deadline,
+            # stop or failed next call must not replace complete evidence with a
+            # synthesized empty result. A later accepted finish replaces it.
+            row.result_json = result
+            row.report_note_id = str(note_id) if note_id else row.report_note_id
+            await db.commit()
+            raise PendingSubAgentMessages(
+                "New parent messages arrived while you were working. Review agent_messages in your next "
+                "planning step, apply the updated direction to your work and notes, then finish."
+            )
+        row.status = RUN_FINISHED
+        row.exit_reason = EXIT_FINISH_CALL
+        row.finished_at = datetime.utcnow()
         from app.services.sub_agent_message_service import sub_agent_message_service
-        await sub_agent_message_service.close_child(db, str(row.id))
+        await sub_agent_message_service.close_child(db, str(row.id), report_id=str(row.report_id))
         row.result_json = result
         row.report_note_id = str(note_id) if note_id else row.report_note_id
         await db.commit()
@@ -610,7 +646,7 @@ class SubAgentService:
             .execution_options(synchronize_session=False)
         )
         from app.services.sub_agent_message_service import sub_agent_message_service
-        await sub_agent_message_service.close_child(db, str(row.id))
+        await sub_agent_message_service.close_child(db, str(row.id), report_id=str(row.report_id))
         await db.commit()
         won = (res.rowcount or 0) == 1
         if won:

@@ -19,6 +19,7 @@ dispatcher) runs real.
 """
 import time
 import uuid
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -331,6 +332,141 @@ def test_busy_run_is_queued_only_when_completion_opts_in(
         completions = _get_completions(live_client, report["id"], token, org_id)
         assert sum(c["role"] == "system" for c in completions) == 2
         assert not any(c["role"] == "user" and c["status"] == "queued" for c in completions)
+    finally:
+        release.set()
+
+
+@pytest.mark.e2e
+def test_expired_execution_heartbeat_does_not_strand_busy_opt_in_prompt(
+    monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models,
+):
+    """A dead worker's old in-progress row cannot absorb every later prompt."""
+    from app.models.completion import Completion
+    from app.services import completion_service as completion_service_module
+    from app.settings.database import create_async_session_factory
+
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    monkeypatch.setattr(completion_service_module, "_COMPLETION_STALE_AFTER_SECONDS", 30.0)
+    first_call, _, release, _ = _hold_first_provider_call(monkeypatch)
+    report = create_report(title=f"stale-run-{uuid.uuid4().hex[:8]}", user_token=token, org_id=org_id, data_sources=[])
+    user_id = whoami(token)["id"]
+    stale_id = str(uuid.uuid4())
+    stale_at = datetime.utcnow() - timedelta(seconds=60)
+
+    async def _seed_stale_execution():
+        session_factory = create_async_session_factory()
+        async with session_factory() as db:
+            db.add(Completion(
+                id=stale_id, report_id=report["id"], user_id=user_id,
+                role="system", status="in_progress", model="stale-test-model",
+                prompt={}, completion={"content": ""}, turn_index=0,
+                created_at=stale_at, updated_at=stale_at,
+            ))
+            await db.commit()
+
+    try:
+        live_client.portal.call(_seed_stale_execution)
+        response = live_client.post(
+            f"/api/reports/{report['id']}/completions?background=true",
+            json={
+                "queue_if_busy": True,
+                "prompt": {"content": "recover from a crashed run", "mentions": [{}]},
+            },
+            headers=_headers(token, org_id),
+        )
+        assert response.status_code == 200, response.text
+        created = response.json()["completions"]
+        assert any(c["role"] == "system" and c["status"] == "in_progress" and c["id"] != stale_id
+                   for c in created), "a stale row must be retired so this request starts normally"
+        assert first_call.wait(timeout=20), "the recovered turn never reached the provider boundary"
+
+        async def _read_stale_row():
+            session_factory = create_async_session_factory()
+            async with session_factory() as db:
+                return await db.get(Completion, stale_id)
+
+        stale = live_client.portal.call(_read_stale_row)
+        assert stale.status == "error"
+        assert (stale.completion or {}).get("error_type") == "stale_execution"
+    finally:
+        release.set()
+
+
+@pytest.mark.e2e
+def test_old_timestamp_does_not_expire_a_locally_active_long_run(
+    monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models,
+):
+    """A live provider/tool await remains busy even if its row timestamp ages."""
+    from app.models.completion import Completion
+    from app.services import completion_service as completion_service_module
+    from app.settings.database import create_async_session_factory
+
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    monkeypatch.setattr(completion_service_module, "_COMPLETION_STALE_AFTER_SECONDS", 0.01)
+    monkeypatch.setattr(completion_service_module, "_COMPLETION_HEARTBEAT_SECONDS", 60.0)
+    first_call, _, release, _ = _hold_first_provider_call(monkeypatch)
+    report = create_report(title=f"live-run-{uuid.uuid4().hex[:8]}", user_token=token, org_id=org_id, data_sources=[])
+    ghost_id = str(uuid.uuid4())
+
+    try:
+        first = live_client.post(
+            f"/api/reports/{report['id']}/completions?background=true",
+            json={"queue_if_busy": True, "prompt": {"content": "a long valid run", "mentions": [{}]}},
+            headers=_headers(token, org_id),
+        )
+        assert first.status_code == 200, first.text
+        running = next(c for c in first.json()["completions"] if c["role"] == "system")
+        assert first_call.wait(timeout=20), "the active run never reached the provider boundary"
+
+        async def _age_live_row():
+            session_factory = create_async_session_factory()
+            async with session_factory() as db:
+                system = await db.get(Completion, running["id"])
+                system.updated_at = datetime.utcnow() - timedelta(seconds=1)
+                # Legacy duplicate rows may be newer than the actual live run.
+                # A stale newest row must not mask an older live execution.
+                db.add(Completion(
+                    id=ghost_id, report_id=report["id"], user_id=system.user_id,
+                    role="system", status="in_progress", model="stale-test-model",
+                    prompt={}, completion={"content": ""}, turn_index=system.turn_index + 1,
+                    created_at=datetime.utcnow(), updated_at=datetime.utcnow() - timedelta(seconds=1),
+                ))
+                await db.commit()
+
+        live_client.portal.call(_age_live_row)
+        queued = live_client.post(
+            f"/api/reports/{report['id']}/completions",
+            json={"queue_if_busy": True, "prompt": {"content": "wait behind the active run", "mentions": [{}]}},
+            headers=_headers(token, org_id),
+        )
+        assert queued.status_code == 200, queued.text
+        user_row = queued.json()["completions"][0]
+        assert user_row["role"] == "user" and user_row["status"] == "queued"
+        assert queued.json().get("busy_completion_id") == running["id"]
+
+        async def _read_live_row():
+            session_factory = create_async_session_factory()
+            async with session_factory() as db:
+                return await db.get(Completion, running["id"])
+
+        still_live = live_client.portal.call(_read_live_row)
+        assert still_live.status == "in_progress"
+        async def _read_ghost_row():
+            session_factory = create_async_session_factory()
+            async with session_factory() as db:
+                return await db.get(Completion, ghost_id)
+
+        ghost = live_client.portal.call(_read_ghost_row)
+        assert ghost.status == "error"
+        assert (ghost.completion or {}).get("error_type") == "stale_execution"
+        release.set()
+        _wait_for_automatic_queue_drain(live_client.portal, user_row["id"])
     finally:
         release.set()
 

@@ -113,3 +113,24 @@ test('main chat opts into busy queue receipts and reconciles the queued turn', a
   assert.equal(ctx.isStreaming.value,false);
   assert.equal(ctx.currentController,null);
 });
+
+for (const refreshFails of [false, true]) test(`queued receipt keeps the active turn stoppable while history ${refreshFails ? 'fails' : 'waits'}`, async () => {
+  const {ctx}=setup();
+  let refreshResolve;
+  let watched;
+  Object.assign(ctx,{
+    queuedFromHere:new Set(),
+    useMyFetch:async()=>({data:{value:Response.json({busy_completion_id:'active-turn',completions:[{id:'queued-followup',role:'user',status:'queued',prompt:{content:'Also compare returning customers.'}}]})}}),
+    loadCompletions:()=>new Promise((resolve,reject)=>{refreshResolve=()=>refreshFails ? reject(new Error('offline')) : resolve();}),
+    startWatchStream:(id)=>{watched=id;},
+  });
+  const run=ctx.startStreaming({},'temporary');
+  await tick();
+  assert.equal(watched,'active-turn');
+  assert.equal(ctx.isCompletionInProgress.value,true);
+  assert.ok(ctx.messages.value.some(m=>m.role==='system' && m.status==='in_progress' && m.system_completion_id==='active-turn'));
+  assert.ok(ctx.messages.value.some(m=>m.id==='queued-followup' && m.status==='queued'));
+  refreshResolve();await run;
+  assert.equal(ctx.isCompletionInProgress.value,true);
+  assert.equal(ctx.currentController,null);
+});
