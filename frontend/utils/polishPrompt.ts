@@ -15,3 +15,15 @@ export function polishPromptPosition(rect: Rect, box: Size, container: Size, gap
   const left = Math.max(gap, Math.min(rect.left, container.width - box.width - gap))
   return { top, left }
 }
+
+export type PolishElement = { htmlSnippet: string; info?: boolean }
+
+// The chat prompt a Polish pick sends. A pick on the ⓘ icon carries its
+// owner's snippet: the icon is runtime chrome, styled through the owner's
+// props/attributes, so that is the code the model has to change.
+export function buildPolishPrompt(title: string, artifactId: string, el: PolishElement, instruction: string): string {
+  const target = el.info
+    ? 'Target: the ⓘ info icon of this element. Style it with infoClassName (color) / infoSize ("sm" | "md" | "lg") on its component, or data-bow-info-class / data-bow-info-size on custom data-bow-viz markup. The ⓘ cannot be removed.'
+    : 'Target element:'
+  return `Polish the dashboard "${title}" (artifact_id: ${artifactId}).\n${target}\n\`\`\`html\n${el.htmlSnippet}\n\`\`\`\nInstruction: ${instruction}`
+}

@@ -207,22 +207,27 @@ function polishScript(): string {
         return el;
       }
 
-      // The ⓘ provenance button is runtime chrome, not artifact code, so a
-      // pick on it resolves to the element it describes.
-      function infoOwner(el) {
+      // The ⓘ provenance button is runtime chrome, not artifact code: a pick
+      // on it selects the button, but the code to change is its owner's.
+      function infoButton(el) {
         if (!el.closest) return null;
         var marker = el.closest('[data-bow-ibtn]');
-        if (marker) {
+        if (marker) return marker;
+        var inline = el.closest('[data-bow-info]');
+        return inline ? inline.querySelector('button') : null;
+      }
+      function infoOwner(btn) {
+        if (btn.hasAttribute('data-bow-ibtn')) {
           // The data-bow-viz overlay draws markers outside their owners.
           var owners = document.querySelectorAll('[data-bow-viz]');
-          return owners[parseInt(marker.getAttribute('data-bow-info-for'), 10)] || null;
+          return owners[parseInt(btn.getAttribute('data-bow-info-for'), 10)] || null;
         }
-        var inline = el.closest('[data-bow-info]');
-        return inline && inline.parentElement ? inline.parentElement.parentElement : null;
+        var inline = btn.closest('[data-bow-info]');
+        return inline.parentElement ? inline.parentElement.parentElement : null;
       }
 
       function pickTarget(el) {
-        return infoOwner(el) || snapToMeaningful(el);
+        return infoButton(el) || snapToMeaningful(el);
       }
 
       // Without the ⓘ markup, which would otherwise fill the snippet budget
@@ -256,13 +261,16 @@ function polishScript(): string {
         var element;
         try {
           var target = pickTarget(e.target);
+          var btn = infoButton(e.target);
+          var owner = btn ? infoOwner(btn) : null;
           var rect = target.getBoundingClientRect();
           element = {
             tag: target.tagName,
             // getAttribute, not className: on SVG elements that is an SVGAnimatedString.
             classes: (target.getAttribute('class') || '').replace(/__polish-highlight/g, '').trim(),
-            text: (target.textContent || '').slice(0, 100).trim(),
-            htmlSnippet: snippetOf(target),
+            text: owner ? 'ⓘ' : (target.textContent || '').slice(0, 100).trim(),
+            htmlSnippet: snippetOf(owner || target),
+            info: !!owner,
             rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
           };
         } catch (err) {

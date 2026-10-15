@@ -51,22 +51,31 @@ try{
   assert.deepEqual(errors,[],`picking ${selector} must not surface as a dashboard render error`);
   return page.evaluate(()=>window.msgs.find(m=>m.type==='POLISH_ELEMENT_SELECTED').element);
  };
- // ⓘ inside a SectionCard: the pick is the card, never the glyph.
+ // ⓘ inside a SectionCard: the pick is the icon itself (highlighted), and the
+ // snippet the model edits is its card's code.
  for(const s of ['#card-host button svg','#card-host button svg circle','#card-host button']){
   const el=await pick(s);
+  assert.equal(el.tag,'BUTTON',s);
+  assert.equal(el.info,true,s);
+  assert.equal(el.text,'ⓘ',s);
   const card=await frame.evaluate(()=>document.querySelector('#card-host').firstElementChild.outerHTML.slice(0,40));
   assert.equal(el.htmlSnippet.slice(0,40),card,s);
   assert.match(el.htmlSnippet,/Albums card/,s);
   assert.doesNotMatch(el.classes+el.htmlSnippet,/__polish|data-bow-info|aria-label="Details"/,s);
  }
- // ⓘ drawn by the data-bow-viz overlay (outside the element in the DOM): the pick is its owner.
+ // ⓘ drawn by the data-bow-viz overlay (outside the element in the DOM): the
+ // snippet is its owner's.
  for(const s of ['[data-bow-ibtn] svg path','[data-bow-ibtn]']){
   const el=await pick(s);
-  assert.equal(el.tag,'UL',s);
+  assert.equal(el.tag,'BUTTON',s);
+  assert.equal(el.info,true,s);
   assert.match(el.htmlSnippet,/^<ul id="tree"/,s);
  }
+ // Anything else is a regular pick.
+ const body=await pick('#card-body');
+ assert.notEqual(body.info,true);
  // Any other SVG still picks cleanly (className is an SVGAnimatedString there).
  const spark=await pick('#spark path');
  assert.equal(typeof spark.classes,'string');
- console.log('PASS: ⓘ picks its card or data-bow-viz owner; SVG picks never raise a render error');
+ console.log('PASS: ⓘ picks the icon with its owner\'s snippet (inline + overlay); SVG picks never raise a render error');
 }finally{await browser.close()}

@@ -921,6 +921,15 @@
     btnOn: 'text-ink-2 bg-surface-2', btnOff: 'text-ink-3/70 hover:text-ink-2 hover:bg-surface-2'
   };
 
+  // ⓘ styling — infoSize scales the button and its fixed-size glyph together;
+  // infoClassName (a color) replaces the default text color, hover included.
+  // The ⓘ itself is not removable: provenance stays on every source-backed tile.
+  var INFO_SIZES = { sm: { box: 'w-4 h-4', px: 16, glyph: 12 }, md: { box: 'w-5 h-5', px: 20, glyph: 15 }, lg: { box: 'w-7 h-7', px: 28, glyph: 21 } };
+  function _infoSize(size) { return INFO_SIZES[size] || INFO_SIZES.md; }
+  function _infoProps(props) {
+    return { viz: props.viz, rows: props.rows, calc: props.calc, className: props.infoClassName, size: props.infoSize };
+  }
+
   function _dataTabBody(viz, opts) {
     opts = opts || {};
     var meta = _infoMeta(viz);
@@ -1048,6 +1057,7 @@
     }, [open]);
 
     if (!viz) return null;
+    var sz = _infoSize(props.size);
     var body = tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { rows: props.rows, calc: props.calc });
     var panel = (open && pos) ? ReactDOM.createPortal(
       _popoverPanel(viz, tab, setTab, function() { setOpen(false); }, body, {
@@ -1062,8 +1072,10 @@
       h('button', {
         key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
-        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors ' + (open ? POP.btnOn : POP.btnOff)
-      }, _infoGlyph(15)),
+        className: props.className
+          ? _mergeClasses('inline-flex items-center justify-center ' + sz.box + ' rounded-full transition-colors ' + (open ? 'bg-surface-2' : 'hover:bg-surface-2'), props.className)
+          : 'inline-flex items-center justify-center ' + sz.box + ' rounded-full transition-colors ' + (open ? POP.btnOn : POP.btnOff)
+      }, _infoGlyph(sz.glyph)),
       panel
     ]);
   };
@@ -1255,7 +1267,7 @@
       var lsub = 'text-sm mt-1 text-slate-500 dark:text-slate-400' + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
       return h('div', { className: lcls, style: props.style }, [
         h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
-        props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
+        props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
         h('p', { key: 't', className: ltitle }, props.title),
         h('p', { key: 'v', className: 'text-2xl font-semibold' }, props.value),
         props.subtitle ? h('p', { key: 's', className: lsub }, props.subtitle) : null
@@ -1273,7 +1285,7 @@
     var hasDelta = typeof props.delta === 'number';
     var sparkColor = onAccent ? 'currentColor' : (props.sparkColor || 'var(--bow-accent)');
     return h('div', { className: cls, style: props.style, 'data-bow-kpi': '1' }, [
-      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 end-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
+      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 end-2.5 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
       h('div', { key: 'head', className: 'flex items-center gap-2 pe-6' }, [
         props.icon ? h('span', { key: 'ic', className: _join('inline-flex items-center justify-center w-6 h-6 rounded-chip', onAccent ? 'bg-white/15' : 'bg-accent/10 text-accent') }, h(window.Icon, { name: props.icon, size: 13 })) : null,
         h('p', { key: 't', className: titleCls }, props.title || props.label)
@@ -1296,7 +1308,7 @@
       var lt = 'text-lg font-semibold text-slate-800 dark:text-slate-100' + (props.titleClassName ? ' ' + props.titleClassName : '');
       var ls = 'text-sm mt-1 text-slate-500 dark:text-slate-400' + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
       return h('div', { className: lcls, style: props.style }, [
-        props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
+        props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
         props.title ? h('div', { key: 'hdr', className: 'mb-4 pr-6' }, [h('h2', { key: 't', className: lt }, props.title), props.subtitle ? h('p', { key: 's', className: ls }, props.subtitle) : null]) : null,
         h('div', { key: 'body' }, props.children)
       ]);
@@ -1309,7 +1321,7 @@
     var subCls = _mergeClasses(_join('text-xs mt-0.5', onAccent ? 'opacity-75' : 'text-ink-3'), props.subtitleClassName);
     var hasHeader = props.title || props.eyebrow || props.actions;
     return h('section', { className: cls, style: props.style }, [
-      props.viz ? h('div', { key: 'info', className: 'absolute top-3 end-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
+      props.viz ? h('div', { key: 'info', className: 'absolute top-3 end-3 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
       hasHeader ? h('div', { key: 'hdr', className: _join('flex items-start justify-between gap-3', props.viz ? 'pe-6' : '', props.headerClassName || 'mb-4') }, [
         h('div', { key: 'l', className: 'min-w-0' }, [
           props.eyebrow ? h(window.Eyebrow, { key: 'e', className: 'text-[11px] font-medium uppercase tracking-eyebrow text-accent mb-1' }, props.eyebrow) : null,
@@ -1526,7 +1538,7 @@
     } else if (footBits.length) {
       footer = h('div', { key: 'f', className: 'bow-dt-chrome pt-2 text-xs text-ink-3', 'data-testid': 'bow-dt-range' }, footBits.join('  ·  '));
     }
-    var infoBtn = (props.info && props.viz) ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null;
+    var infoBtn = (props.info && props.viz) ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') }, h(window.InfoPopover, _infoProps(props))) : null;
     var empty = !cols.length || !baseRows.length;
     return h('div', { dir: dir, 'data-testid': 'bow-datatable', className: 'relative' + (props.className ? ' ' + props.className : ''), style: props.style },
       empty ? [infoBtn, h('div', { key: 'e', className: DT.empty }, props.emptyText || 'No data available')]
@@ -1869,7 +1881,7 @@
     var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' });
     if (!props.viz) return chart;
     return h('div', { className: 'relative', style: { width: '100%' } }, [
-      h('div', { key: 'info', className: 'absolute top-2 end-2 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })),
+      h('div', { key: 'info', className: 'absolute top-2 end-2 z-10' }, h(window.InfoPopover, _infoProps(props))),
       chart
     ]);
   };
@@ -1928,12 +1940,12 @@
       var raw = el.getAttribute('data-bow-viz');
       var byId = null;
       if (raw && !/^\d+$/.test(raw)) byId = window.vizById(raw);
-      targets.push({ ownerIndex: i, rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
+      targets.push({ ownerIndex: i, infoClass: el.getAttribute('data-bow-info-class') || null, infoSize: _infoSize(el.getAttribute('data-bow-info-size')), rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
     }
     var markerPositions = [];
     var markers = targets.map(function(t, i) {
       var top = Math.max(2, t.rect.top + 6);
-      var left = rtl ? t.rect.left + 4 : t.rect.right - 24;
+      var left = rtl ? t.rect.left + 4 : t.rect.right - t.infoSize.px - 4;
       if (!LEGACY) {
         // Nested source-backed elements can share a corner. Keep each detail
         // control reachable instead of placing one button over another.
@@ -1950,7 +1962,9 @@
       return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'data-bow-info-for': String(t.ownerIndex), 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
         style: { position: 'fixed', top: top, left: left, zIndex: 99998 },
-        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface/80 backdrop-blur text-ink-3 hover:text-ink border border-line shadow-card transition-colors' }, _infoGlyph(14));
+        className: t.infoClass
+          ? _mergeClasses('inline-flex items-center justify-center ' + t.infoSize.box + ' rounded-full bg-surface/80 backdrop-blur border border-line shadow-card transition-colors', t.infoClass)
+          : 'inline-flex items-center justify-center ' + t.infoSize.box + ' rounded-full bg-surface/80 backdrop-blur text-ink-3 hover:text-ink border border-line shadow-card transition-colors' }, _infoGlyph(t.infoSize.glyph - 1));
     });
     var panel = null;
     if (openT) {
