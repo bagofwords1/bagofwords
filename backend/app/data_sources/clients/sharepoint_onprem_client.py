@@ -217,11 +217,27 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
                 "mime_type": mimetypes.guess_type(meta["Name"])[0], "is_folder": False,
                 "web_url": self._origin_url + quote(path, safe="/")}
 
+    def _folder_server_path(self, folder_id):
+        """Accept a catalog-relative folder ("Finance/2026", or "Library/Finance"
+        when every library is in scope) as well as a server-relative URL, so the
+        same folder id works for catalog and live listings."""
+        if not folder_id or str(folder_id).startswith("/"):
+            return folder_id
+        rel = "/".join(part for part in _safe_path(str(folder_id)).split("/") if part)
+        scopes = self._adapter.library_scopes()
+        if self.drive_name == "*":
+            head, _, rest = rel.partition("/")
+            for title, scope in scopes:
+                if title.casefold() == head.casefold():
+                    return scope + ("/" + rest if rest else "")
+            raise GlobScopeError("Folder must start with a document library name (or pass the server-relative URL).")
+        return scopes[0][1] + ("/" + rel if rel else "")
+
     def _iter_listing_files(self, folder_id, recursive, page_size):
-        return self._adapter.iter_files(folder_id, recursive, page_size=page_size)
+        return self._adapter.iter_files(self._folder_server_path(folder_id), recursive, page_size=page_size)
 
     def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
-        return self._adapter.list_files(folder_id, recursive, limit, progress_callback)
+        return self._adapter.list_files(self._folder_server_path(folder_id), recursive, limit, progress_callback)
 
 
     def read_raw_bytes(self, file_id, *, max_bytes=None):

@@ -99,6 +99,15 @@ async def _flow(server):
         assert "keyword index" in payload["observation"]["summary"]
         assert len(server.calls) == calls_before
 
+        # deep=true merges the live scan with the index instead of replacing
+        # it: SharePoint 2010's live search matches filenames only, so a term
+        # that lives in a document body is still found.
+        payload = await _last(SearchFilesTool().run_stream(
+            {"connection_id": str(conn_id), "query": "known contents", "deep": True, "max_results": 20}, ctx))
+        out = payload["output"]
+        assert out["success"] and [f["path"] for f in out["files"]] == ["O'Brien & costs.txt"]
+        assert "keyword index" in payload["observation"]["summary"] and "live scan" in payload["observation"]["summary"]
+
         # list_files answers from the catalog by default: filters, sort and
         # cursor paging all work without a source call; the result says how
         # fresh the catalog is.

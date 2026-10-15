@@ -12,6 +12,10 @@ class SharepointAPI(ABC):
         pass
 
     @abstractmethod
+    def library_scopes(self):
+        """[(library title, server-relative scope folder)] for the configured libraries."""
+
+    @abstractmethod
     def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, *, page_size=None):
         pass
 

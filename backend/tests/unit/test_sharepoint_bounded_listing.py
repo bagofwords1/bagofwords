@@ -328,3 +328,37 @@ async def test_reversed_or_invalid_time_bounds_are_rejected(server_provider):
     assert not out['success'] and not out.get('files')
     out = (await run(server_provider, inputs={'created_after': 'yesterday'}))['output']
     assert not out['success'] and not out.get('files')
+
+
+@pytest.mark.asyncio
+async def test_model_facing_rows_carry_timestamps(server_provider):
+    payload = await run(server_provider, inputs={'limit': 2})
+    f = payload['output']['files'][0]
+    details = payload['observation']['details']
+    assert f['modified_at'] in details and f['created_at'] in details
+
+
+@pytest.mark.asyncio
+async def test_live_listing_accepts_library_relative_folder(provider):
+    kind, _ = provider
+    if kind == 'graph':
+        pytest.skip('Graph folder ids are item ids, not paths')
+    out = (await run(kind, inputs={'folder_id': 'nested', 'source': 'live'}))['output']
+    assert out['success'], out
+    assert [f['path'] for f in out['files']] == ['nested/deep.csv']
+    out = (await run(kind, inputs={'folder_id': '/sites/research/Shared Documents/nested', 'source': 'live'}))['output']
+    assert out['success'] and [f['path'] for f in out['files']] == ['nested/deep.csv']
+    out = (await run(kind, inputs={'folder_id': 'does/not/exist', 'source': 'live'}))['output']
+    assert not out.get('files')
+
+
+@pytest.mark.asyncio
+async def test_live_listing_sorts_only_a_complete_scan(server_provider):
+    kind = server_provider
+    payload = await run(kind, inputs={'limit': 10, 'source': 'live', 'sort_by': 'name', 'sort_order': 'desc'})
+    out = payload['output']
+    names = [f['name'] for f in out['files']]
+    assert out['success'] and names == sorted(names, reverse=True) and not out['incomplete']
+    payload = await run(kind, inputs={'limit': 2, 'source': 'live', 'sort_by': 'name', 'sort_order': 'desc'})
+    out = payload['output']
+    assert out['success'] and out['incomplete'] and 'NOT applied' in payload['observation']['summary']

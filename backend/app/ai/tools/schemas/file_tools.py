@@ -91,7 +91,8 @@ class ListFilesInput(BaseModel):
     folder_id: Optional[str] = Field(
         None,
         description=(
-            "Optional folder ID returned by a previous list_files call. "
+            "Optional folder: an id returned by a previous list_files call, or for "
+            "SharePoint a folder path relative to the library ('Finance/2026'). "
             "Leave blank to use the connection's configured root."
         ),
     )
@@ -403,9 +404,10 @@ class SearchFilesInput(BaseModel):
     deep: bool = Field(
         default=False,
         description=(
-            "Force an exhaustive live scan of every file's full contents instead "
-            "of the fast keyword index. Slower — use only when the fast search "
-            "misses a term you're sure is inside a file."
+            "Also run an exhaustive live scan and merge it with the keyword-index "
+            "hits. Slower — use only when the fast search misses a term you're "
+            "sure is inside a file. On SharePoint Server the live scan matches "
+            "filenames only; the keyword index is the content search there."
         ),
     )
     title: Optional[str] = _title_field()
