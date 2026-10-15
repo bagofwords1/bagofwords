@@ -921,6 +921,31 @@
     btnOn: 'text-ink-2 bg-surface-2', btnOff: 'text-ink-3/70 hover:text-ink-2 hover:bg-surface-2'
   };
 
+  // ⓘ styling — infoSize scales the button and its fixed-size glyph together;
+  // infoClassName (a color) replaces the default text color, hover included.
+  // info={false} (data-bow-info="off" on custom markup) hides it; `viz` stays
+  // bound either way.
+  // pad: header room for the ⓘ (Tailwind spacing suffix).
+  var INFO_SIZES = {
+    sm: { box: 'w-4 h-4', px: 16, glyph: 12, pad: '-6' },
+    md: { box: 'w-5 h-5', px: 20, glyph: 15, pad: '-6' },
+    lg: { box: 'w-7 h-7', px: 28, glyph: 21, pad: '-8' }
+  };
+  Object.keys(INFO_SIZES).forEach(function(k) {
+    var sz = INFO_SIZES[k];
+    sz.btnBase = 'inline-flex items-center justify-center ' + sz.box + ' rounded-full transition-colors ';
+    sz.markerBase = 'inline-flex items-center justify-center ' + sz.box + ' rounded-full bg-surface/80 backdrop-blur border border-line shadow-card transition-colors';
+  });
+  function _infoSize(size) { return Object.prototype.hasOwnProperty.call(INFO_SIZES, size) ? INFO_SIZES[size] : INFO_SIZES.md; }
+  // Header room for a shown ⓘ (`side`: 'pe', or 'pr' on the legacy runtime); '' when none is shown.
+  function _infoPad(props, side, shown) {
+    return (shown === undefined ? _showInfo(props) : shown) ? side + _infoSize(props.infoSize).pad : '';
+  }
+  function _showInfo(props) { return !!props.viz && props.info !== false; }
+  function _infoProps(props) {
+    return { viz: props.viz, rows: props.rows, calc: props.calc, className: props.infoClassName, size: props.infoSize };
+  }
+
   function _dataTabBody(viz, opts) {
     opts = opts || {};
     var meta = _infoMeta(viz);
@@ -1048,6 +1073,7 @@
     }, [open]);
 
     if (!viz) return null;
+    var sz = _infoSize(props.size);
     var body = tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { rows: props.rows, calc: props.calc });
     var panel = (open && pos) ? ReactDOM.createPortal(
       _popoverPanel(viz, tab, setTab, function() { setOpen(false); }, body, {
@@ -1056,14 +1082,18 @@
       }, { ref: panelRef }),
       document.body) : null;
 
-    // data-bow-info: the polish picker resolves a pick on this button to the
-    // card that hosts it (card > positioning div > this span).
-    return h('span', { className: 'inline-flex align-middle', 'data-bow-info': '1' }, [
+    // data-bow-info-btn: the polish picker resolves a pick on this button to
+    // the card that hosts it (card > positioning div > this span).
+    return h('span', { className: 'inline-flex align-middle', 'data-bow-info-btn': '1' }, [
       h('button', {
         key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
-        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors ' + (open ? POP.btnOn : POP.btnOff)
-      }, _infoGlyph(15)),
+        // Not one _mergeClasses call: it keeps variant classes, so the default
+        // hover:text-* would override a custom color on hover.
+        className: props.className
+          ? _mergeClasses(sz.btnBase + (open ? 'bg-surface-2' : 'hover:bg-surface-2'), props.className)
+          : sz.btnBase + (open ? POP.btnOn : POP.btnOff)
+      }, _infoGlyph(sz.glyph)),
       panel
     ]);
   };
@@ -1251,11 +1281,11 @@
     if (LEGACY) {
       var color = props.color || '#3B82F6';
       var lcls = LEGACY_KPI + (props.className ? ' ' + props.className : '');
-      var ltitle = 'text-xs font-medium uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400' + (props.titleClassName ? ' ' + props.titleClassName : '');
+      var ltitle = _join('text-xs font-medium uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400', _infoPad(props, 'pr')) + (props.titleClassName ? ' ' + props.titleClassName : '');
       var lsub = 'text-sm mt-1 text-slate-500 dark:text-slate-400' + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
       return h('div', { className: lcls, style: props.style }, [
         h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
-        props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
+        _showInfo(props) ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
         h('p', { key: 't', className: ltitle }, props.title),
         h('p', { key: 'v', className: 'text-2xl font-semibold' }, props.value),
         props.subtitle ? h('p', { key: 's', className: lsub }, props.subtitle) : null
@@ -1273,8 +1303,8 @@
     var hasDelta = typeof props.delta === 'number';
     var sparkColor = onAccent ? 'currentColor' : (props.sparkColor || 'var(--bow-accent)');
     return h('div', { className: cls, style: props.style, 'data-bow-kpi': '1' }, [
-      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 end-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
-      h('div', { key: 'head', className: 'flex items-center gap-2 pe-6' }, [
+      _showInfo(props) ? h('div', { key: 'info', className: 'absolute top-2.5 end-2.5 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
+      h('div', { key: 'head', className: 'flex items-center gap-2 ' + _infoPad(props, 'pe') }, [
         props.icon ? h('span', { key: 'ic', className: _join('inline-flex items-center justify-center w-6 h-6 rounded-chip', onAccent ? 'bg-white/15' : 'bg-accent/10 text-accent') }, h(window.Icon, { name: props.icon, size: 13 })) : null,
         h('p', { key: 't', className: titleCls }, props.title || props.label)
       ]),
@@ -1296,8 +1326,8 @@
       var lt = 'text-lg font-semibold text-slate-800 dark:text-slate-100' + (props.titleClassName ? ' ' + props.titleClassName : '');
       var ls = 'text-sm mt-1 text-slate-500 dark:text-slate-400' + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
       return h('div', { className: lcls, style: props.style }, [
-        props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
-        props.title ? h('div', { key: 'hdr', className: 'mb-4 pr-6' }, [h('h2', { key: 't', className: lt }, props.title), props.subtitle ? h('p', { key: 's', className: ls }, props.subtitle) : null]) : null,
+        _showInfo(props) ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
+        props.title ? h('div', { key: 'hdr', className: 'mb-4 ' + _infoPad(props, 'pr') }, [h('h2', { key: 't', className: lt }, props.title), props.subtitle ? h('p', { key: 's', className: ls }, props.subtitle) : null]) : null,
         h('div', { key: 'body' }, props.children)
       ]);
     }
@@ -1309,8 +1339,8 @@
     var subCls = _mergeClasses(_join('text-xs mt-0.5', onAccent ? 'opacity-75' : 'text-ink-3'), props.subtitleClassName);
     var hasHeader = props.title || props.eyebrow || props.actions;
     return h('section', { className: cls, style: props.style }, [
-      props.viz ? h('div', { key: 'info', className: 'absolute top-3 end-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
-      hasHeader ? h('div', { key: 'hdr', className: _join('flex items-start justify-between gap-3', props.viz ? 'pe-6' : '', props.headerClassName || 'mb-4') }, [
+      _showInfo(props) ? h('div', { key: 'info', className: 'absolute top-3 end-3 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
+      hasHeader ? h('div', { key: 'hdr', className: _join('flex items-start justify-between gap-3', _infoPad(props, 'pe'), props.headerClassName || 'mb-4') }, [
         h('div', { key: 'l', className: 'min-w-0' }, [
           props.eyebrow ? h(window.Eyebrow, { key: 'e', className: 'text-[11px] font-medium uppercase tracking-eyebrow text-accent mb-1' }, props.eyebrow) : null,
           props.title ? h('h3', { key: 't', className: titleCls }, props.title) : null,
@@ -1477,7 +1507,8 @@
     var render = props.renderCell || null;
     var toolbar = null;
     if (searchable || exportable) {
-      toolbar = h('div', { key: 'tb', className: 'bow-dt-chrome flex items-center justify-between gap-2 mb-2' }, [
+      // Room for the opt-in ⓘ, drawn in the corner over the toolbar's end.
+      toolbar = h('div', { key: 'tb', className: _join('bow-dt-chrome flex items-center justify-between gap-2 mb-2', _infoPad(props, 'pe', !!(props.info && props.viz))) }, [
         searchable ? h('input', { key: 's', type: 'text', value: query, 'data-testid': 'bow-dt-search', placeholder: props.searchPlaceholder || 'Search...',
           onChange: function(e) { setQuery(e.target.value); setPage(0); }, className: DT.input }) : h('span', { key: 's' }),
         exportable ? h('button', { key: 'x', type: 'button', 'data-testid': 'bow-dt-export', title: 'Download CSV',
@@ -1526,7 +1557,7 @@
     } else if (footBits.length) {
       footer = h('div', { key: 'f', className: 'bow-dt-chrome pt-2 text-xs text-ink-3', 'data-testid': 'bow-dt-range' }, footBits.join('  ·  '));
     }
-    var infoBtn = (props.info && props.viz) ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null;
+    var infoBtn = (props.info && props.viz) ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') }, h(window.InfoPopover, _infoProps(props))) : null;
     var empty = !cols.length || !baseRows.length;
     return h('div', { dir: dir, 'data-testid': 'bow-datatable', className: 'relative' + (props.className ? ' ' + props.className : ''), style: props.style },
       empty ? [infoBtn, h('div', { key: 'e', className: DT.empty }, props.emptyText || 'No data available')]
@@ -1867,9 +1898,9 @@
       if (chartRef.current && props.option) chartRef.current.setOption(safeOption(withPalette(props.option)), true);
     }, [props.option]);
     var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' });
-    if (!props.viz) return chart;
+    if (!_showInfo(props)) return chart;
     return h('div', { className: 'relative', style: { width: '100%' } }, [
-      h('div', { key: 'info', className: 'absolute top-2 end-2 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })),
+      h('div', { key: 'info', className: 'absolute top-2 end-2 z-10' }, h(window.InfoPopover, _infoProps(props))),
       chart
     ]);
   };
@@ -1896,6 +1927,11 @@
     var _open = React.useState(null), openT = _open[0], setOpenT = _open[1];
     var _tab = React.useState('data'), tab = _tab[0], setTab = _tab[1];
     var panelRef = React.useRef(null);
+    // The owner elements this render drew markers for, indexed by each
+    // marker's data-bow-info-for; published after commit so the polish picker
+    // resolves a marker to the exact element it was drawn for.
+    var ownersRef = React.useRef([]);
+    React.useLayoutEffect(function() { window.__bowInfoOwners = ownersRef.current; });
     React.useEffect(function() {
       var raf = null;
       function ping() { if (raf) return; raf = requestAnimationFrame(function() { raf = null; setTick(function(c) { return c + 1; }); }); }
@@ -1921,48 +1957,60 @@
     var rtl = (document.documentElement.getAttribute('dir') || '').toLowerCase() === 'rtl';
     var targets = [];
     var els = document.querySelectorAll('[data-bow-viz]');
+    ownersRef.current = els;
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
+      if (el.getAttribute('data-bow-info') === 'off') continue;
       var r = el.getBoundingClientRect();
       if ((r.width === 0 && r.height === 0) || r.bottom < 0 || r.top > window.innerHeight) continue;
       var raw = el.getAttribute('data-bow-viz');
       var byId = null;
       if (raw && !/^\d+$/.test(raw)) byId = window.vizById(raw);
-      targets.push({ ownerIndex: i, rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
+      targets.push({ ownerIndex: i, infoClass: el.getAttribute('data-bow-info-class') || null, infoSize: _infoSize(el.getAttribute('data-bow-info-size')), rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
     }
     var markerPositions = [];
     var markers = targets.map(function(t, i) {
+      var px = t.infoSize.px, step = px + 4;
       var top = Math.max(2, t.rect.top + 6);
-      var left = rtl ? t.rect.left + 4 : t.rect.right - 24;
+      var left = rtl ? t.rect.left + 4 : t.rect.right - px - 4;
       if (!LEGACY) {
         // Nested source-backed elements can share a corner. Keep each detail
         // control reachable instead of placing one button over another.
-        left = Math.max(4, Math.min(left, window.innerWidth - 24));
-        while (markerPositions.some(function(p) { return Math.abs(p.left - left) < 24 && Math.abs(p.top - top) < 24; })) {
-          var nextLeft = left + (rtl ? 24 : -24);
-          if (nextLeft < 4 || nextLeft > window.innerWidth - 24) top += 24;
-          else left = nextLeft;
+        left = Math.max(4, Math.min(left, window.innerWidth - step));
+        var maxTop = Math.max(2, window.innerHeight - step);
+        top = Math.min(top, maxTop);
+        while (markerPositions.some(function(p) { var gap = Math.max(p.px, px) + 4; return Math.abs(p.left - left) < gap && Math.abs(p.top - top) < gap; })) {
+          var nextLeft = left + (rtl ? step : -step);
+          if (nextLeft >= 4 && nextLeft <= window.innerWidth - step) left = nextLeft;
+          else if (top + step <= maxTop) top += step;
+          else break; // no free on-screen slot: overlap rather than push it out of reach
         }
-        markerPositions.push({ left: left, top: top });
+        markerPositions.push({ left: left, top: top, px: px });
       }
+      t.markerTop = top;
+      t.markerLeft = left;
       // data-bow-info-for: index of the marked element in document order, so
       // the polish picker can resolve this detached marker to its owner.
       return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'data-bow-info-for': String(t.ownerIndex), 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
         style: { position: 'fixed', top: top, left: left, zIndex: 99998 },
-        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface/80 backdrop-blur text-ink-3 hover:text-ink border border-line shadow-card transition-colors' }, _infoGlyph(14));
+        className: t.infoClass ? _mergeClasses(t.infoSize.markerBase, t.infoClass) : t.infoSize.markerBase + ' text-ink-3 hover:text-ink' }, _infoGlyph(t.infoSize.glyph - 1));
     });
     var panel = null;
     if (openT) {
       var viz = openT.viz || vizs[openT.vizIndex] || {};
       var W = Math.min(400, window.innerWidth - 16);
-      var left = Math.min(openT.rect.right - W, window.innerWidth - W - 8); if (left < 8) left = 8;
-      var spaceBelow = window.innerHeight - openT.rect.top;
+      // Anchor on the marker, not the owner: it sits at the owner's start
+      // corner in RTL and can be stepped away by collisions.
+      var mTop = openT.markerTop, mPx = openT.infoSize.px;
+      var left = rtl ? openT.markerLeft : openT.markerLeft + mPx - W;
+      left = Math.max(8, Math.min(left, window.innerWidth - W - 8));
+      var spaceBelow = window.innerHeight - (mTop + mPx);
       var below = spaceBelow > 260;
       var vizForPanel = Object.assign({}, viz, { title: openT.title || viz.title });
       panel = _popoverPanel(vizForPanel, tab, setTab, function() { setOpenT(null); },
         tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { calc: openT.calc }),
-        { position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh', top: below ? (openT.rect.top + 28) : undefined, bottom: below ? undefined : (window.innerHeight - openT.rect.top + 6), display: 'flex', flexDirection: 'column' },
+        { position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh', top: below ? (mTop + mPx + 2) : undefined, bottom: below ? undefined : (window.innerHeight - mTop + 6), display: 'flex', flexDirection: 'column' },
         { ref: panelRef, 'data-bow-panel': '1' });
     }
     if (!markers.length && !panel) return null;

@@ -207,29 +207,44 @@ function polishScript(): string {
         return el;
       }
 
-      // The ⓘ provenance button is runtime chrome, not artifact code, so a
-      // pick on it resolves to the element it describes.
-      function infoOwner(el) {
+      // The ⓘ provenance button is runtime chrome, not artifact code: a pick
+      // on it selects the button, but the code to change is its owner's.
+      function infoButton(el) {
         if (!el.closest) return null;
         var marker = el.closest('[data-bow-ibtn]');
-        if (marker) {
-          // The data-bow-viz overlay draws markers outside their owners.
-          var owners = document.querySelectorAll('[data-bow-viz]');
-          return owners[parseInt(marker.getAttribute('data-bow-info-for'), 10)] || null;
+        if (marker) return marker;
+        var inline = el.closest('[data-bow-info-btn]');
+        return inline ? inline.querySelector('button') : null;
+      }
+      function infoOwner(btn) {
+        if (btn.hasAttribute('data-bow-ibtn')) {
+          // The data-bow-viz overlay draws markers outside their owners and
+          // publishes the elements it drew them for, so a marker resolves to
+          // its exact owner even when cards were added or removed since — a
+          // detached one means there is nothing left to edit.
+          var owners = window.__bowInfoOwners || document.querySelectorAll('[data-bow-viz]');
+          var owner = owners[parseInt(btn.getAttribute('data-bow-info-for'), 10)];
+          return owner && owner.isConnected ? owner : null;
         }
-        var inline = el.closest('[data-bow-info]');
-        return inline && inline.parentElement ? inline.parentElement.parentElement : null;
+        var inline = btn.closest('[data-bow-info-btn]');
+        return inline.parentElement ? inline.parentElement.parentElement : null;
       }
 
-      function pickTarget(el) {
-        return infoOwner(el) || snapToMeaningful(el);
+      // What a pick selects: { target, owner } (owner set for an ⓘ, whose code
+      // lives on that owner), or null when nothing can be picked — an ⓘ whose
+      // owner is gone, where snapping would only land on runtime markup.
+      function resolvePick(el) {
+        var btn = infoButton(el);
+        if (!btn) return { target: snapToMeaningful(el), owner: null };
+        var owner = infoOwner(btn);
+        return owner ? { target: btn, owner: owner } : null;
       }
 
       // Without the ⓘ markup, which would otherwise fill the snippet budget
       // before the card's own content.
       function snippetOf(target) {
         var clone = target.cloneNode(true);
-        clone.querySelectorAll('[data-bow-info]').forEach(function(n) {
+        clone.querySelectorAll('[data-bow-info-btn]').forEach(function(n) {
           var wrap = n.parentElement;
           (wrap && wrap !== clone && wrap.children.length === 1 ? wrap : n).remove();
         });
@@ -239,9 +254,10 @@ function polishScript(): string {
       function onHover(e) {
         if (!polishActive) return;
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
-        var target = pickTarget(e.target);
-        target.classList.add('__polish-highlight');
-        currentHighlight = target;
+        var pick = resolvePick(e.target);
+        if (!pick) { currentHighlight = null; return; }
+        pick.target.classList.add('__polish-highlight');
+        currentHighlight = pick.target;
       }
       function onOut(e) {
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
@@ -255,14 +271,17 @@ function polishScript(): string {
         // render failure; a pick that cannot be described stays in pick mode.
         var element;
         try {
-          var target = pickTarget(e.target);
+          var pick = resolvePick(e.target);
+          if (!pick) return;
+          var target = pick.target, owner = pick.owner;
           var rect = target.getBoundingClientRect();
           element = {
             tag: target.tagName,
             // getAttribute, not className: on SVG elements that is an SVGAnimatedString.
             classes: (target.getAttribute('class') || '').replace(/__polish-highlight/g, '').trim(),
-            text: (target.textContent || '').slice(0, 100).trim(),
-            htmlSnippet: snippetOf(target),
+            text: owner ? 'ⓘ' : (target.textContent || '').slice(0, 100).trim(),
+            htmlSnippet: snippetOf(owner || target),
+            info: !!owner,
             rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
           };
         } catch (err) {

@@ -50,3 +50,15 @@ assert.deepEqual(
   { top: 8, left: 8 },
   'pane smaller than the box: pin to the top-left corner',
 )
+
+// The chat prompt for a Polish pick.
+{
+  const { buildPolishPrompt } = await import('../../utils/polishPrompt.ts')
+  const plain = buildPolishPrompt('Sales', 'a1', { htmlSnippet: '<td>x</td>' }, 'make it red')
+  assert.equal(plain, 'Polish the dashboard "Sales" (artifact_id: a1).\nTarget element:\n```html\n<td>x</td>\n```\nInstruction: make it red', 'regular pick: unchanged wording')
+  const info = buildPolishPrompt('Sales', 'a1', { htmlSnippet: '<div>card</div>', info: true }, 'make it red')
+  assert.match(info, /Target: the ⓘ info icon of this element\./, 'ⓘ pick names the icon')
+  assert.match(info, /infoClassName .* infoSize .* data-bow-info-class .* data-bow-info-size/, 'ⓘ pick names the styling knobs')
+  assert.match(info, /hide it with info=\{false\} \/ data-bow-info="off" \(keep viz\)/, 'ⓘ pick names the hide knob')
+  assert.match(info, /```html\n<div>card<\/div>\n```\nInstruction: make it red$/, 'ⓘ pick carries the owner snippet')
+}
