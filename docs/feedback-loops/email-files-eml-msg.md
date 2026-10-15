@@ -15,10 +15,12 @@ Feature branch: `ai/email-files-eml-msg`. Core module:
 
 - `.eml` (stdlib `email`, `policy.default`) and `.msg` (extract-msg → MIME
   tree built from the parsed MAPI object) render to one flat text: header
-  block → body (text/plain preferred, HTML stripped) → `Attachments (N)` list
-  with a sub-file id per attachment → each attachment's own text (documents
-  via the shared extractor, tabular/text decoded, nested messages rendered
-  inline, depth cap 3).
+  block → `Attachments (N)` list with a sub-file id per attachment (before
+  the body, so the capped observation the planner reads always carries the
+  ids) → body (text/plain preferred, HTML stripped) → each attachment's own
+  text (documents via the shared extractor, tabular/text decoded, nested
+  messages rendered inline — transfer-encoded `message/rfc822` parts are
+  decoded first — depth cap 3).
 - `eml`/`msg` joined `DOC_EXTS`, so every connector's "rich document"
   branch (network_dir, S3, Graph/OneDrive/SharePoint Online, SharePoint
   Server, Google Drive, Documentum) reads, indexes and searches them with no
