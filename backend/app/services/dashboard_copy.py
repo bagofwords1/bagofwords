@@ -514,3 +514,25 @@ def _copy_previews(paths: list, release_id: str) -> tuple[list, dict]:
         except (UnsafePathError, OSError):
             out.append(p)
     return out, copied
+
+
+def remove_release_files(release_id: str, pptx_path: str | None = None) -> None:
+    """The files copy_dashboard made for a release, removed: its thumbnail,
+    deck and slide previews. Only the release's own names inside uploads/;
+    anything else is left alone. Missing files are fine."""
+    stem = f"release-{release_id}"
+    candidates = [_UPLOADS / "thumbnails" / f"{stem}.png"]
+    if pptx_path:
+        try:
+            deck = Path(pptx_path) if Path(pptx_path).is_absolute() else _UPLOADS / str(pptx_path)
+            deck = safe_join(_UPLOADS, str(deck.resolve().relative_to(_UPLOADS.resolve())))
+            if deck.name == f"{stem}.pptx":
+                candidates.append(deck)
+        except (ValueError, OSError):  # UnsafePathError is a ValueError
+            pass
+    for path in candidates:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning("release file not removed %s: %s", path, e)
+    shutil.rmtree(_UPLOADS / "pptx_previews" / stem, ignore_errors=True)

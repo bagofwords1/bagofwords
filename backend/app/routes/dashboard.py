@@ -21,6 +21,8 @@ from app.models.artifact import ArtifactVersion
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.dashboard_schema import (
+    DashboardPublishRequest,
+    DashboardPublishStatusSchema,
     DashboardSettingsSchema,
     DashboardSettingsUpdate,
     DashboardSharingSchema,
@@ -118,6 +120,40 @@ async def set_dashboard_sharing(
         db, artifact, visibility=payload.visibility, user_ids=payload.user_ids, group_ids=payload.group_ids,
         current_user=current_user, organization=organization,
     )
+
+
+@router.post("/dashboards/{dashboard_id}/publish", response_model=DashboardPublishStatusSchema, status_code=202)
+@requires_permission("publish_reports")
+async def publish_dashboard(
+    dashboard_id: str,
+    payload: DashboardPublishRequest | None = None,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Starts publishing (202); the run continues in the background. Poll GET."""
+    from app.core import fire_and_forget
+    from app.services import dashboard_publish
+
+    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    release = await dashboard_publish.start_publish(db, artifact, current_user, organization,
+                                                    version_id=payload.version_id if payload else None)
+    fire_and_forget.spawn(dashboard_publish.run_publish(str(release.id)))
+    return await dashboard_publish.publish_status(db, artifact)
+
+
+@router.get("/dashboards/{dashboard_id}/publish", response_model=DashboardPublishStatusSchema)
+@requires_permission("publish_reports")
+async def get_dashboard_publish_status(
+    dashboard_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    from app.services import dashboard_publish
+
+    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    return await dashboard_publish.publish_status(db, artifact)
 
 
 @router.get("/dashboards/{dashboard_id}/settings", response_model=DashboardSettingsSchema)

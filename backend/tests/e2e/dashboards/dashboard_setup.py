@@ -1,12 +1,13 @@
 """Put corpus dashboards into the state phase 4 serves (phase 4).
 
-Two states have no API yet, so these helpers write them directly:
+Two states these helpers write directly:
 
 - An existing dashboard's owner and project. New dashboards get them when
   they are created; dashboards that predate the column get them from the
   data migration (phase 9).
-- A published release. Publish is phase 5; until then a test publishes with
-  the copy engine (phase 3), which is exactly what Publish will run.
+- A published release, at once: the copy engine (phase 3) as Publish runs it,
+  without Publish's run of every copy (phase 5, test_dashboard_publish.py),
+  so the copies keep the corpus's rows.
 
 Sharing goes through the API, so it is not here.
 """
@@ -63,11 +64,16 @@ def publish(artifact_id: str, *, status: str = "ready") -> str:
     return release_id
 
 
-def remove_release_files(release_ids) -> None:
-    import shutil
+def uploads_dir():
     from pathlib import Path
 
-    uploads = Path(__file__).resolve().parents[3] / "uploads"
+    return Path(__file__).resolve().parents[3] / "uploads"
+
+
+def remove_release_files(release_ids) -> None:
+    import shutil
+
+    uploads = uploads_dir()
     for rid in release_ids:
         for path in (uploads / "thumbnails" / f"release-{rid}.png", uploads / "pptx" / f"release-{rid}.pptx"):
             path.unlink(missing_ok=True)

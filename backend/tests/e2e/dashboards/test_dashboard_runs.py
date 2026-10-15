@@ -112,13 +112,6 @@ def test_rls_and_monitoring_sources_always_run_as_the_reader(corpus, corpus_rows
 
 
 @pytest.mark.e2e
-def test_a_step_that_loads_another_fails_alone_until_releases_resolve_load_step(corpus, corpus_rows, test_client):
-    aid, _, copies = _published(corpus, corpus_rows, test_client, "load_step/dash")
-    body = test_client.post(f"/api/d/{aid}/run", headers=as_(corpus, "member")).json()
-    assert body["steps_total"] == 2 and body["steps_succeeded"] == 1 and body["steps_failed"] == 1
-
-
-@pytest.mark.e2e
 def test_a_filter_run_is_cached_per_reader_and_values(corpus, corpus_rows, test_client):
     aid, release, copies = _published(corpus, corpus_rows, test_client, "options_sources/dash")
     by_id = next(c for c in copies if c["title"] == "שירים לפי ז'אנר")

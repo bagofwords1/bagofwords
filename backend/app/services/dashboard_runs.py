@@ -137,6 +137,35 @@ async def _shown_query_ids(db, release: ArtifactRelease) -> list[str]:
     return list(dict.fromkeys(str(q) for (q,) in (await db.execute(stmt)).all() if q))
 
 
+async def in_dependency_order(db, release: ArtifactRelease, targets: list) -> list:
+    """`targets` ((step_id, code) pairs) reordered so a step runs after the
+    steps of the release it loads (load_step, resolved as the release
+    resolves it); otherwise in the given order. A cycle runs in the given
+    order -- its load_step fails at run time, as it would anyway."""
+    from app.ai.code_execution.loadables import extract_loadable_refs
+    from app.services.identity_taint import release_step_lookup
+
+    codes = {str(sid): code for sid, code in targets}
+    lookup = await release_step_lookup(db, str(release.id))
+    ordered, done, visiting = [], set(), set()
+
+    def visit(sid: str) -> None:
+        if sid in done or sid in visiting:
+            return
+        visiting.add(sid)
+        for ref in extract_loadable_refs(codes.get(sid) or "")[0]:
+            dep = lookup(ref)
+            if dep is not None and str(dep.id) in codes:
+                visit(str(dep.id))
+        visiting.discard(sid)
+        done.add(sid)
+        ordered.append(sid)
+
+    for sid in codes:
+        visit(sid)
+    return [(sid, codes[sid]) for sid in ordered]
+
+
 async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential_user, executed_as,
                     ctx, db_clients) -> str:
     """StepService.run_step_to_user_result for one copy: the reader's own row."""
@@ -222,6 +251,8 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     ctx = ExecContext.from_release(release, data_sources=sources, files=files, credential_user=credential_user,
                                    reader=caller, organization=organization, organization_settings=org_settings)
     targets, unrunnable = await ReportService()._rerun_target_steps(db, await _shown_query_ids(db, release))
+    # What a chart loads runs first, so it loads the reader's fresh rows.
+    targets = await in_dependency_order(db, release, targets)
     total, succeeded, failed = 0, 0, 0
     for step_id, code in targets:
         total += 1
@@ -332,11 +363,13 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
                                    source_ref_id=str(query.id))
     from app.ai.code_execution.loadables import load_step_settings, resolve_loadables_for_code
 
+    from app.data_sources.clients.bow_client import install_bow_client
+
     enable_load_step, _ = load_step_settings(org_settings)
-    # Entities resolve as the reader. With no conversation, load_step
-    # resolves nothing until releases get their own resolver (phase 6).
+    # Entities resolve as the reader; load_step finds the release's copies.
     loadables = await resolve_loadables_for_code(db, organization, None, caller, step.code,
-                                                 enable_load_step=enable_load_step)
+                                                 enable_load_step=enable_load_step, release=release)
+    await install_bow_client(db, organization, credential_user, None, clients, release=release)
     executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage)
     captured: list = []
     try:

@@ -75,3 +75,27 @@ class DashboardSettingsUpdate(BaseModel):
     chat_enabled: bool | None = None
     chat_data_source_ids: list[str] | None = None
     chat_model_id: str | None = None
+
+
+class DashboardReleaseSchema(BaseModel):
+    id: str
+    status: Literal["publishing", "ready", "failed"]
+    error: str | None = None
+    source_version_id: str | None = None
+    published_by: str | None = None
+    started_at: datetime | None = None
+    published_at: datetime | None = None
+
+
+class DashboardPublishStatusSchema(BaseModel):
+    """The live release, the latest attempt (the live one, or a publish
+    running or failed since), and whether the draft's newest completed
+    version is not the one that is live."""
+    published: DashboardReleaseSchema | None = None
+    latest: DashboardReleaseSchema | None = None
+    has_unpublished_changes: bool
+
+
+class DashboardPublishRequest(BaseModel):
+    """None publishes the newest completed version."""
+    version_id: str | None = None

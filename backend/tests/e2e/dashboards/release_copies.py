@@ -2,8 +2,8 @@
 
 A release copy is a query, its step and its visualization that belong to a
 published dashboard (`artifact_release_id`) instead of a conversation: no
-report and no widget. Nothing creates them yet (Publish is phase 5); the
-tests seed them directly to prove that no conversation path reaches them.
+report and no widget. Publish creates them (phase 5); these tests seed them
+directly, to prove that no conversation path reaches them.
 """
 import uuid
 

@@ -75,9 +75,12 @@ def test_step_data_is_withheld_for_a_copy_and_for_a_step_with_no_owner(world):
 
 
 @pytest.mark.e2e
-def test_a_copy_that_loads_a_step_counts_as_identity_scoped(world):
-    """Its load_step references cannot be resolved against a conversation,
-    so the snapshot is treated as one identity's slice."""
+def test_a_copys_load_step_resolves_in_its_release_not_a_conversation(world):
+    """Phase 2 treated every copy that loads a step as one identity's slice
+    (nothing to resolve it against); since phase 5 its references resolve
+    among its release's copies -- here, none -- and a reference that resolves
+    to nothing taints nothing, as in a conversation
+    (test_release_load_step.py covers one that does)."""
     from app.services.identity_taint import step_identity_scope
 
     async def check():
@@ -85,7 +88,7 @@ def test_a_copy_that_loads_a_step_counts_as_identity_scoped(world):
             step = await db.get(Step, world.copy["step"])
             step.code = "def generate_df(ds_clients, excel_files, load_step):\n    return load_step('base')\n"
             tainted, _ = await step_identity_scope(db, step)
-            assert tainted
+            assert not tainted
 
     _run(check())
 

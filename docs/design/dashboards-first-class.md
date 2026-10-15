@@ -518,3 +518,88 @@ Tests: `test_dashboard_runs.py`, `test_dashboard_mcp.py`.
   ids before the routes; #1304's viewer-scoped exports (`viewer=`) and our
   release reader (`rows_for`) merge into one payload builder; our migrations
   chain after theirs.
+
+## Phase 5 — Publish
+
+Decisions (with Rachel, 2026-10-14): the owner publishes the version open in
+the editor (by default the newest that completed; a failed or pending one
+cannot be); a slide deck publishes frozen (copied, nothing runs); publishing
+runs in the background (`publishing` → `ready` / `failed`), one at a time per
+dashboard, a stopped one fails after a while; all or nothing, with the
+publisher's connections checked before anything is created; the previous
+release is deleted once the new one is live, a failed attempt keeps its row
+(the reason) but not its copies; "run on my behalf" over RLS is not blocked
+(runs already force the reader); a public dashboard may not publish
+monitoring data; the thumbnail is drawn again from the release, none when its
+rows are withheld from readers.
+
+### Part A — a release runs whole
+
+Brought forward from phase 6, since Publish runs every copy:
+
+- **`load_step` in a release** finds that release's copies only
+  (`LoadablesResolver(release=...)`, `ExecContext.release`), by id, slug, then
+  title, as in a conversation, and never the draft's steps or another
+  release's. What a copy loads resolves per reader (`resolve_release_step`).
+- **The bow monitoring client** runs against a release
+  (`install_bow_client(release=...)`): it checks the release's monitoring
+  access; Agent Lists follow the release's sources (`release_has_lists`).
+  `protect_release` records monitoring access on a release while it is being
+  published (flushed, never committed mid-run) and refuses a public
+  dashboard. A live release is frozen: a reader's run never changes it.
+- **Identity taint** resolves a copy's `load_step` among its release's copies
+  (`release_step_lookup`), so a copy that loads another is withheld only when
+  what it loads is one identity's slice (phase 2 withheld them all).
+- Readers' runs execute what a chart loads first
+  (`dashboard_runs.in_dependency_order`).
+
+Tests: `test_release_load_step.py`, `test_agent_lists.py`.
+
+### Part B — Publish
+
+- **Routes**: `POST /api/dashboards/{id}/publish` (`{version_id?}`, 202) and
+  `GET` (the live release, the latest attempt, `has_unpublished_changes`).
+  Owner only (`publish_reports`).
+- **Before anything is created**: the version completed; the publisher still
+  reads the conversation's monitoring data, and a public dashboard refuses it
+  (`dashboard.publish_public_monitoring`); no other publish runs
+  (`dashboard.publish_in_progress`; a stale one is failed first); the
+  publisher's clients build for the sources the dashboard's code uses
+  (`needed_sources`: named in the code, else all), no query runs
+  (`dashboard.publish_connection` with the connection names).
+- **dashfc04**: a partial unique index holds at most one `publishing` release
+  per dashboard, so two servers cannot both start one; and the four columns
+  that referenced `steps.id` without an index get one (deleting a release's
+  steps checks each on Postgres).
+- **The run** (`dashboard_publish.run_publish`, spawned): every copied default
+  step runs with the publisher's credentials, what it loads first, each
+  committed (nothing reads a release before it is live). It beats
+  (`updated_at`) every minute on a session of its own, also while one step
+  runs; one that has not beaten for five minutes is failed by the next
+  publish or status read.
+- **Go live** is one transaction under the dashboard's row lock:
+  compare-and-set to `ready`, `published_release_id` and `last_run_at`, and the
+  dashboard's other releases deleted (`delete_release_rows`, in foreign-key
+  order, then their files). A dashboard made public meanwhile fails a
+  monitoring release instead. **Failure**: `failed` with the reason, copies
+  and files deleted, readers keep the live release.
+
+Tests: `test_dashboard_publish.py`, `test_schema_dashfc04.py`.
+
+### Part C — after publish
+
+- The thumbnail is drawn from the live release in the background
+  (`ThumbnailService.regenerate_for_release`); none (and the copied one
+  removed) when readers may not get its rows or they are monitoring data; a
+  deck keeps the one it was published with.
+- Readers' own results on the previous release go with it; they run again on
+  first open.
+
+### Notes for later phases (from phase 5)
+
+- Phase 6 (refresh, schedule) reuses `run_publish`'s run without the copy.
+- Phase 8: the Publish button, the "unpublished changes" label
+  (`has_unpublished_changes`) and the failed-publish screen.
+- `start_publish`'s in-progress check and the dashfc04 index give the same
+  answer; the check saves the connection check, the index holds between two
+  servers.

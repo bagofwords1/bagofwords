@@ -9,11 +9,11 @@ read itself, at the moment it used to read them: apart from the report's
 organization id, nothing is read until the core asks. A published
 dashboard's runs (phase 4) build one with `from_release`.
 
-`report` stays on the context for the two helpers that are still scoped to a
-conversation: load_step resolution (LoadablesResolver) and the bow monitoring
-client. Making those release-aware belongs with refreshing published
-dashboards (phase 6); until then a context without a report resolves no
-load_step reference and installs no bow client.
+`report` and `release` scope the two helpers that look beyond the step:
+load_step resolution (LoadablesResolver) and the bow monitoring client. A
+conversation's context carries its report; a published dashboard's, its
+release (phase 5), whose copies load_step finds and whose monitoring access
+the bow client checks and extends.
 """
 from collections.abc import Callable, Iterable
 from typing import Any
@@ -32,6 +32,7 @@ class ExecContext:
         data_sources: Sources = (),
         files: Sources = (),
         report=None,
+        release=None,
         loadables_user=None,
     ):
         self._organization = organization
@@ -43,6 +44,7 @@ class ExecContext:
         # as it always was for a conversation.
         self.loadables_user = loadables_user
         self.report = report
+        self.release = release
         # A list, or a callable read only when used: callers that pass
         # prebuilt clients never touch data_sources, so a report loaded
         # without them keeps working exactly as before.
@@ -109,9 +111,9 @@ class ExecContext:
         """The context a published dashboard's runs use (phase 4): the
         release's data sources and files, as the caller loaded them, and its
         organization. Entities resolve as the reader even when the owner's
-        credentials run the code ("run on my behalf"). No conversation, so no
-        load_step resolution and no bow client until phase 6 gives releases
-        their own."""
+        credentials run the code ("run on my behalf"). load_step finds the
+        release's copies and the bow client works against the release
+        (phase 5)."""
         return cls(
             organization,
             organization_id=getattr(release, "organization_id", None),
@@ -120,6 +122,7 @@ class ExecContext:
             data_sources=data_sources,
             files=files,
             report=None,
+            release=release,
             loadables_user=reader,
         )
 

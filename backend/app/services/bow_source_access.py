@@ -67,6 +67,29 @@ async def protect_report(db, report_id, access):
     await db.commit()
 
 
+async def protect_release(db, release, access):
+    """protect_report for a published dashboard's release. A public dashboard
+    may not hold monitoring data, as a public conversation may not. While it
+    is being published, the access joins the release's and its copies are
+    marked as monitoring sourced; flushed, not committed: the publish commits
+    with the rest of its run. A live release is frozen: a reader's run never
+    changes who may read it (their rows go to their own result only)."""
+    from app.models.artifact import Artifact
+    from app.models.query import Query
+    from sqlalchemy import update
+    if release is None or str(release.organization_id) != access["organization_id"]:
+        raise AppError.forbidden(ErrorCode.ACCESS_DENIED)
+    artifact = await db.get(Artifact, str(release.artifact_id))
+    if artifact is None or artifact.visibility == "public":
+        raise AppError.forbidden(ErrorCode.ACCESS_DENIED)
+    if release.status != "publishing":
+        return
+    release.bow_source_access = merge_access(release.bow_source_access, access)
+    await db.execute(update(Query).where(Query.artifact_release_id == str(release.id))
+                     .values(source_refs=[{"id": "builtin:bow", "version": 1}]))
+    await db.flush()
+
+
 async def report_access(db, report_id):
     return await db.scalar(select(Report.bow_source_access).where(Report.id == str(report_id))) if report_id else None
 

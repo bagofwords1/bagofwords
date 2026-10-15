@@ -4,11 +4,13 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     PrimaryKeyConstraint,
     String,
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 
 from app.models.base import BaseSchema, metadata
@@ -20,11 +22,16 @@ class ArtifactRelease(BaseSchema):
     A release holds its own copy of the dashboard content, with ids remapped
     to the queries and visualizations copied for it (those rows carry
     `artifact_release_id`). Viewers read the release; the owner keeps editing
-    the draft versions. Nothing reads or writes releases yet -- the schema
-    lands first (docs/design/dashboards-first-class.md, phase 1).
+    the draft versions. Publish (phase 5) writes them: one release per
+    dashboard is live (artifacts.published_release_id), at most one is
+    'publishing' (dashfc04), and a failed one stays as the record of why.
     """
     __tablename__ = "artifact_releases"
-    __table_args__ = (PrimaryKeyConstraint("id", name="pk_artifact_releases"),)
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_artifact_releases"),
+        Index("uq_artifact_releases_one_publishing", "artifact_id", unique=True,
+              sqlite_where=text("status = 'publishing'"), postgresql_where=text("status = 'publishing'")),
+    )
 
     artifact_id = Column(String(36), ForeignKey("artifacts.id", name="fk_artifact_releases_artifact_id",
                                                 ondelete="CASCADE"), nullable=False, index=True)

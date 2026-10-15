@@ -129,7 +129,7 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
 
 async def any_copy_tainted(db, release: ArtifactRelease) -> bool:
     """Whether some copied step holds one identity's slice (identity params,
-    or a load_step until phase 6). Files that bake every chart's rows in --
+    its own or through what it loads). Files that bake every chart's rows in --
     a deck, its PDF, its slide images -- then picture the owner's slice."""
     from app.services.identity_taint import step_identity_scope
 

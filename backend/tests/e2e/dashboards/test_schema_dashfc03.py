@@ -64,9 +64,13 @@ def test_round_trip_and_refusal(corpus, corpus_rows):
 
     aid = corpus.ids["conv_one_dash/dash"]
     corpus_rows.update("artifacts", aid, legacy_report_id=corpus.reports["conv_one_dash"])
+    # Undo the later revisions first (nothing here depends on them): their own
+    # downgrades commit on SQLite before dashfc03's refusal runs.
+    with alembic_pointed_at(url) as cfg:
+        command.downgrade(cfg, "dashfc03")
     with alembic_pointed_at(url) as cfg, pytest.raises(RuntimeError, match="dashfc03 downgrade refused"):
         command.downgrade(cfg, "dashfc02")
-    assert current_revisions(url) == (head,)
+    assert current_revisions(url) == ("dashfc03",)
     engine = create_engine(url)
     try:
         with engine.connect() as conn:
@@ -74,3 +78,6 @@ def test_round_trip_and_refusal(corpus, corpus_rows):
     finally:
         engine.dispose()
     assert kept == corpus.reports["conv_one_dash"]
+    with alembic_pointed_at(url) as cfg:
+        command.upgrade(cfg, "head")
+    assert current_revisions(url) == (head,)

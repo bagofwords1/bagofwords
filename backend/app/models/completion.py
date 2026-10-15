@@ -49,7 +49,7 @@ class Completion(BaseSchema):
     widget = relationship("Widget", back_populates="completions", lazy='selectin')
 
     # step - optional
-    step_id = Column(String(36), ForeignKey('steps.id'), nullable=True)
+    step_id = Column(String(36), ForeignKey('steps.id'), nullable=True, index=True)  # dashfc04: deleting a release's steps checks it
     step = relationship("Step", back_populates="completions", lazy='select')
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True)

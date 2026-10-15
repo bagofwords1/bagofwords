@@ -20,7 +20,7 @@ from typing import Optional, Set, Tuple
 
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import defer, lazyload
 
 _MAX_DEPTH = 5
 
@@ -72,6 +72,7 @@ async def analyze_code_taint(
     *,
     organization_id: Optional[str],
     report_id: Optional[str],
+    release_id: Optional[str] = None,
     _visited: Optional[Set[str]] = None,
     _depth: int = 0,
 ) -> TaintResult:
@@ -81,6 +82,10 @@ async def analyze_code_taint(
     either); an analysis error on a resolved node treats it as NOT tainting
     only if its declarations are unreadable — declared identity is read
     directly from the row, so that path has no exception surface in practice.
+
+    `release_id`: the code is a published dashboard's copy; its load_step
+    refs resolve among that release's copies, as LoadablesResolver resolves
+    them there.
     """
     from app.ai.code_execution.loadables import extract_loadable_refs
 
@@ -91,25 +96,31 @@ async def analyze_code_taint(
 
     step_refs, entity_refs = extract_loadable_refs(code)
 
-    if step_refs and report_id:
+    if step_refs and (report_id or release_id):
         from app.models.step import Step
         from app.models.query import Query
         from app.models.widget import Widget
-        steps = (await db.execute(
-            select(Step)
-            .options(lazyload("*"))
-            .join(Widget, Step.widget_id == Widget.id)
-            .where(Widget.report_id == str(report_id), Step.status == "success")
-        )).scalars().all()
-        by_key = {}
-        for s in steps:
-            by_key[str(s.id)] = s
-            if s.slug:
-                by_key.setdefault(s.slug.lower(), s)
-            if s.title:
-                by_key.setdefault(s.title.lower(), s)
+        if release_id:
+            lookup = await release_step_lookup(db, str(release_id))
+        else:
+            steps = (await db.execute(
+                select(Step)
+                .options(lazyload("*"))
+                .join(Widget, Step.widget_id == Widget.id)
+                .where(Widget.report_id == str(report_id), Step.status == "success")
+            )).scalars().all()
+            by_key = {}
+            for s in steps:
+                by_key[str(s.id)] = s
+                if s.slug:
+                    by_key.setdefault(s.slug.lower(), s)
+                if s.title:
+                    by_key.setdefault(s.title.lower(), s)
+
+            def lookup(ref):
+                return by_key.get(str(ref)) or by_key.get(str(ref).lower())
         for ref in step_refs:
-            s = by_key.get(str(ref)) or by_key.get(str(ref).lower())
+            s = lookup(ref)
             if s is None:
                 continue
             vkey = f"step:{s.id}"
@@ -125,7 +136,7 @@ async def analyze_code_taint(
                     sub.identity = True
             deeper = await analyze_code_taint(
                 db, s.code or "", organization_id=organization_id,
-                report_id=report_id, _visited=visited, _depth=_depth + 1,
+                report_id=report_id, release_id=release_id, _visited=visited, _depth=_depth + 1,
             )
             sub.fold(deeper)
             result.fold(sub)
@@ -170,12 +181,40 @@ async def analyze_code_taint(
     return result
 
 
+async def release_step_lookup(db: AsyncSession, release_id: str):
+    """ref -> step among a release's copies, exactly as LoadablesResolver
+    resolves load_step in a release: successful default steps, by id, then
+    slug, then title (the newest of a shared title)."""
+    from app.models.step import Step
+    from app.models.query import Query
+    steps = (await db.execute(
+        select(Step).options(lazyload("*"), defer(Step.data))  # the rows are not needed
+        .join(Query, Step.query_id == Query.id)
+        .where(Query.artifact_release_id == release_id, Step.id == Query.default_step_id,
+               Step.status == "success")
+        .order_by(Step.created_at.desc())
+    )).scalars().all()
+    by_id, by_slug, by_title = {}, {}, {}
+    for s in steps:
+        by_id[str(s.id)] = s
+        if s.slug:
+            by_slug[s.slug.lower()] = s
+        if s.title:
+            by_title.setdefault(s.title.lower(), s)
+
+    def lookup(ref):
+        key = str(ref)
+        return by_id.get(key) or by_slug.get(key.lower()) or by_title.get(key.lower())
+    return lookup
+
+
 async def step_identity_scope(db: AsyncSession, step) -> Tuple[bool, Optional[datetime]]:
     """(identity_differentiated, latest_upstream_refresh) for a step:
     its query's own identity params OR anything its code consumes."""
     own = False
     org_id = None
     report_id = None
+    release_id = None
     if getattr(step, "query_id", None):
         from app.models.query import Query
         from app.services.row_owner import query_report_id
@@ -187,18 +226,16 @@ async def step_identity_scope(db: AsyncSession, step) -> Tuple[bool, Optional[da
             own = _has_identity_param(row[0])
             org_id, report_id = row[1], row[2]
             if row[3]:
-                # A published dashboard's copy: its load_step references cannot
-                # be resolved against a conversation, so assume they are
-                # identity-scoped rather than serve one identity's rows to another.
-                from app.ai.code_execution.loadables import extract_loadable_refs
-                if extract_loadable_refs(getattr(step, "code", "") or "")[0]:
-                    return True, None
+                # A published dashboard's copy: its load_step references
+                # resolve among its release's copies.
+                release_id = row[3]
             elif not report_id:
                 report_id = await query_report_id(db, str(step.query_id))
     taint = await analyze_code_taint(
         db, getattr(step, "code", "") or "",
         organization_id=str(org_id) if org_id else None,
         report_id=str(report_id) if report_id else None,
+        release_id=str(release_id) if release_id else None,
     )
     return own or taint.identity, taint.latest_upstream_refresh
 

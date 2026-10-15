@@ -33,7 +33,7 @@ async def _copy(version_id: str):
     async with async_session_maker() as db:
         version = await db.get(ArtifactVersion, version_id)
         release = ArtifactRelease(artifact_id=version.artifact_id, organization_id=version.organization_id,
-                                  content={}, status="publishing")
+                                  content={}, status="ready")
         db.add(release)
         await db.flush()
         result = await copy_dashboard(db, version, release)

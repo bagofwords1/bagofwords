@@ -656,6 +656,46 @@ def test_bow_client_refuses_run_history_outside_training(world):
     assert run_async(_fn) == 0
 
 
+def test_a_published_dashboard_gets_the_list_client_over_its_own_sources(world):
+    """A published dashboard's run (phase 5) installs the bow client for
+    Agent Lists when its release's own sources hold a list the runner may
+    view -- as a conversation's run does over the conversation's sources --
+    without run history."""
+    from app.data_sources.clients.bow_client import install_bow_client
+    from app.models.artifact import Artifact
+    from app.models.artifact_release import ArtifactRelease, artifact_release_data_source_association as assoc
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    async def _fn(db, maker):
+        org = await db.get(Organization, world["org_id"])
+        found = {}
+        for agent in ("agent", "other_agent"):
+            artifact = Artifact(organization_id=world["org_id"], report_id=world["report"]["id"],
+                                created_by=world["admin"]["user_id"], title="Contracts")
+            db.add(artifact)
+            await db.flush()
+            release = ArtifactRelease(artifact_id=artifact.id, organization_id=world["org_id"], status="ready")
+            db.add(release)
+            await db.flush()
+            await db.execute(assoc.insert().values(artifact_release_id=release.id,
+                                                   data_source_id=world[agent]["id"]))
+            for actor in ("viewer", "outsider"):
+                clients = {}
+                await install_bow_client(db, org, await db.get(User, world[actor]["user_id"]), None, clients,
+                                         release=release)
+                client = clients.get("bow")
+                found[(agent, actor)] = client is not None and (client._release_id, client._report_id,
+                                                                client._allow_history)
+            await db.rollback()
+        return found
+
+    found = run_async(_fn)
+    assert found[("agent", "viewer")][1:] == (world["report"]["id"], False) and found[("agent", "viewer")][0]
+    assert found[("agent", "outsider")] is False  # cannot view the agent's list
+    assert found[("other_agent", "viewer")] is False  # no list on the release's sources
+
+
 # ── S5: evals ──────────────────────────────────────────────────────────────
 
 def test_eval_rules_can_assert_on_submitted_list_records(world, seed_agent_executions):

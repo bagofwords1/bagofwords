@@ -375,14 +375,15 @@ class StepService:
         # 1000-row cap regardless of the configured limit.
         org_settings = await ctx.settings(db)
         _ls_enabled, _ = load_step_settings(org_settings)
-        # load_step and the bow client are still scoped to a conversation
-        # (ctx.report); without one they resolve nothing and install nothing.
+        # load_step and the bow client are scoped to the context's
+        # conversation (ctx.report) or published release (ctx.release).
         loadables = await resolve_loadables_for_code(
-            db, org, ctx.report, ctx.loadables_user or ctx.credential_user, code, enable_load_step=_ls_enabled
+            db, org, ctx.report, ctx.loadables_user or ctx.credential_user, code, enable_load_step=_ls_enabled,
+            release=ctx.release,
         )
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.data_sources.clients.bow_client import install_bow_client
-        await install_bow_client(db, org, ctx.credential_user, ctx.report, db_clients)
+        await install_bow_client(db, org, ctx.credential_user, ctx.report, db_clients, release=ctx.release)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
 
         # Execution is fully synchronous (DB drivers + pandas):
