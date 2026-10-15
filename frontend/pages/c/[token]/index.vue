@@ -270,6 +270,7 @@ import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
+import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -735,6 +736,11 @@ function getToolComponent(toolName: string) {
         // mode drops the review controls and the links into the workspace.
         case 'create_demo_dataset':
             return CreateDemoDatasetTool
+        // Same contract: the proposed/saved schema from the run's own record,
+        // review controls and the workspace link dropped in readonly mode.
+        case 'create_list':
+        case 'edit_list':
+            return ListSchemaTool
         // Deliberately NOT mapped here — these two stay owner-view-only, and
         // not merely for effort. suggest_instructions is a review queue over
         // UNREVIEWED draft instructions, and create_agent builds its body by
