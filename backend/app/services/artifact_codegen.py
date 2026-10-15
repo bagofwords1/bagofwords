@@ -8,6 +8,7 @@ that the LLM would produce, but instantly.
 import re
 from typing import List, Optional
 
+from app.ai.tools.implementations._artifact_refs import viz_by_id_ref
 from app.ai.tools.schemas.create_data_model import normalize_group_by
 
 
@@ -18,12 +19,6 @@ from app.ai.tools.schemas.create_data_model import normalize_group_by
 def _js_str(s: str) -> str:
     """Escape a string for safe embedding in JS single-quoted literals."""
     return s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-
-
-def _viz_ref(visualization_id: str) -> str:
-    """Id-keyed binding for generated code — never positional ``viz[N]``,
-    which silently repoints when the viz set changes."""
-    return f'vizById("{visualization_id}")'
 
 
 # Runtime JS helper: compute axis-label rotation from category count.
@@ -58,7 +53,7 @@ def _build_cartesian(data_model: dict, visualization_id: str) -> str:
     is_area = dm_type == "area_chart"
     smooth = "true" if dm_type in ("line_chart", "area_chart") else "false"
 
-    rows_ref = f"{_viz_ref(visualization_id)}.rows"
+    rows_ref = f"{viz_by_id_ref(visualization_id)}.rows"
 
     # --- preamble (shared for group_by and traditional) ---
     code = (
@@ -145,7 +140,7 @@ def _build_pie(data_model: dict, visualization_id: str) -> str:
     if not key or not value:
         return "{}"
 
-    rows_ref = f"{_viz_ref(visualization_id)}.rows"
+    rows_ref = f"{viz_by_id_ref(visualization_id)}.rows"
     return (
         f"{{ tooltip: {{ trigger: 'item', formatter: '{{b}}: {{c}} ({{d}}%)' }},\n"
         f"    series: [{{ type: 'pie', radius: ['40%', '70%'],\n"
@@ -166,7 +161,7 @@ def _build_scatter(data_model: dict, visualization_id: str) -> str:
     if not x_key or not y_key:
         return "{}"
 
-    rows_ref = f"{_viz_ref(visualization_id)}.rows"
+    rows_ref = f"{viz_by_id_ref(visualization_id)}.rows"
     return (
         f"{{ tooltip: {{ trigger: 'item' }},\n"
         f"    xAxis: {{ type: 'value', name: '{_js_str(x_key)}' }},\n"
@@ -190,7 +185,7 @@ def _build_heatmap(data_model: dict, visualization_id: str) -> str:
     if not x_key or not y_key or not v_key:
         return "{}"
 
-    rows_ref = f"{_viz_ref(visualization_id)}.rows"
+    rows_ref = f"{viz_by_id_ref(visualization_id)}.rows"
     return (
         f"(() => {{\n"
         f"  const rows = {rows_ref};\n"
@@ -221,7 +216,7 @@ def _build_metric_card(data_model: dict, visualization_id: str) -> str:
     if series_list:
         value_key = series_list[0].get("value") or ""
 
-    v = _viz_ref(visualization_id)
+    v = viz_by_id_ref(visualization_id)
 
     if value_key:
         safe_key = _js_str(value_key)
@@ -252,7 +247,7 @@ def _build_metric_card(data_model: dict, visualization_id: str) -> str:
 def _build_table(data_model: dict, visualization_id: str) -> str:
     """Table JSX — renders the viz via the global <DataTable> component
     (sorting, pagination, hover/selection highlight, RTL, CSV export)."""
-    return f"<DataTable viz={{{_viz_ref(visualization_id)}}} />"
+    return f"<DataTable viz={{{viz_by_id_ref(visualization_id)}}} />"
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +304,7 @@ def generate_jsx_section(title: str, data_model: dict, visualization_id: str) ->
 
     safe_title = _js_str(title)
     return (
-        f'<SectionCard title="{safe_title}" viz={{{_viz_ref(visualization_id)}}}>\n'
+        f'<SectionCard title="{safe_title}" viz={{{viz_by_id_ref(visualization_id)}}}>\n'
         f"        {{{jsx_expr}}}\n"
         f"      </SectionCard>"
     )
@@ -327,7 +322,7 @@ def generate_section_jsx(title: str, option_code: str, visualization_id: str, he
     """Wrap an ECharts option expression in a <SectionCard><EChart /> block."""
     safe_title = _js_str(title)
     return (
-        f'<SectionCard title="{safe_title}" viz={{{_viz_ref(visualization_id)}}}>\n'
+        f'<SectionCard title="{safe_title}" viz={{{viz_by_id_ref(visualization_id)}}}>\n'
         f"        <EChart height={{{height}}} option={{{option_code}}} />\n"
         f"      </SectionCard>"
     )
@@ -341,6 +336,9 @@ def generate_scaffold(sections: List[str]) -> str:
         "function App() {\n"
         "  const data = useArtifactData();\n"
         '  if (!data) return <div className="flex items-center justify-center h-screen"><LoadingSpinner /></div>;\n'
+        # Generated sections bind by id; `viz` stays declared so later
+        # agent-authored code that reads the list (viz.map, …) still runs.
+        "  const viz = data.visualizations;\n"
         "  return (\n"
         '    <div className="min-h-full bg-gradient-to-br from-slate-50 to-slate-100 p-8 space-y-6">\n'
         f"{joined}\n"
@@ -388,7 +386,7 @@ def inject_section_into_code(
         body = (
             f"    var _opt = {option_code};\n"
             f"    return <div className=\"space-y-6\">\n"
-            f'      <SectionCard title="{safe_title}" viz={{{_viz_ref(visualization_id)}}}>\n'
+            f'      <SectionCard title="{safe_title}" viz={{{viz_by_id_ref(visualization_id)}}}>\n'
             f"        <EChart height={{350}} option={{_opt}} />\n"
             f"      </SectionCard>\n"
             f"    </div>;\n"
@@ -400,6 +398,7 @@ def inject_section_into_code(
         "  function AddedViz() {\n"
         "    var data = useArtifactData();\n"
         "    if (!data) return null;\n"
+        "    var viz = data.visualizations;\n"
         f"{body}"
         "  }\n"
         "  var _obs = new MutationObserver(function() {\n"
@@ -454,7 +453,7 @@ def restore_removed_viz_references(code: str, visualization_id: str):
     no tagged stub for this id (i.e. there is nothing to restore and the
     caller should fall back to injecting a fresh section)."""
     pattern = re.compile(re.escape(_removed_stub(visualization_id)))
-    new_code, count = pattern.subn(f'vizById("{visualization_id}")', code)
+    new_code, count = pattern.subn(viz_by_id_ref(visualization_id), code)
     return new_code if count else None
 
 

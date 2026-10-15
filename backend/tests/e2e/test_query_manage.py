@@ -449,61 +449,147 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>"""
 
 
-@pytest.mark.e2e
-def test_edit_artifact_applies_finds_quoted_from_positional_code(
-    create_report, create_user, login_user, whoami, monkeypatch,
-):
-    """An agent edit whose `find` is quoted verbatim from read_artifact must
-    apply even when the stored code still binds positionally (`viz[N]`) —
-    edit_artifact upgrades the working code to vizById() before matching,
-    and used to reject every such find, so the agent retried the identical
-    edit in a loop."""
+def _skip_render(monkeypatch):
+    """Headless-browser boundary: the render pass is not under test here."""
     from app.ai.tools.implementations.create_artifact import CreateArtifactTool
-    from app.ai.tools.implementations.edit_artifact import EditArtifactTool
-    from app.ai.tools.implementations.read_artifact import ReadArtifactTool
 
-    # Headless-browser boundary: the render pass is not under test here
     async def _no_render(self, html):
         return None, []
     monkeypatch.setattr(CreateArtifactTool, "_take_preview_screenshot", _no_render)
 
+
+def _report_with_vizs(create_report, create_user, login_user, whoami, n=2):
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
     report = create_report(title="Positional edit", user_token=token, org_id=org_id)
-    v1 = _run(_seed_query(report["id"], failing_rerun=False))[1]
-    v2 = _run(_seed_query(report["id"], failing_rerun=False))[1]
+    viz_ids = [_run(_seed_query(report["id"], failing_rerun=False))[1] for _ in range(n)]
+    return report["id"], viz_ids
 
-    # Seeded directly: add-visualization no longer writes positional code,
-    # but dashboards stored before it did still exist.
-    async def _seed_positional():
+
+def _seed_page(report_id, code, viz_ids):
+    """Seeded directly: add-visualization no longer writes positional code,
+    but dashboards stored before it did still exist."""
+    async def _seed():
         async with async_session_maker() as db:
-            r = await db.get(Report, report["id"])
+            r = await db.get(Report, report_id)
             a = await seed_artifact(
                 db,
-                report_id=report["id"], user_id=r.user_id, organization_id=r.organization_id,
-                content={"code": _POSITIONAL_DASHBOARD, "visualization_ids": [v1, v2]},
+                report_id=report_id, user_id=r.user_id, organization_id=r.organization_id,
+                content={"code": code, "visualization_ids": viz_ids},
             )
             await db.commit()
             return str(a.id)
+    return _run(_seed())
 
-    artifact_id = _run(_seed_positional())
 
-    read = _end_output(_run(_run_tool(ReadArtifactTool(), {"artifact_id": artifact_id}, report["id"])))
-    find = next(line.strip() for line in read["code"].splitlines() if "<DataTable viz={viz[1]}" in line)
+def _edit(artifact_id, report_id, edits, **extra):
+    from app.ai.tools.implementations.edit_artifact import EditArtifactTool
 
-    edited = _end_output(_run(_run_tool(
-        EditArtifactTool(),
-        {
-            "artifact_id": artifact_id,
-            "edits": [{"find": find, "replace": "{<DataTable viz={viz[1]} pageSize={5} />}"}],
-        },
-        report["id"],
+    return _end_output(_run(_run_tool(
+        EditArtifactTool(), {"artifact_id": artifact_id, "edits": edits, **extra}, report_id,
     )))
+
+
+@pytest.mark.e2e
+def test_agent_sees_positional_dashboards_id_keyed(
+    create_report, create_user, login_user, whoami,
+):
+    """Both places the agent reads page code from — read_artifact and the
+    active-artifact planner context — show it the way edit_artifact matches
+    it: positional refs rewritten to vizById(), line for line."""
+    from app.ai.agent_v2 import AgentV2
+    from app.ai.tools.implementations.read_artifact import ReadArtifactTool
+
+    report_id, (v1, v2) = _report_with_vizs(create_report, create_user, login_user, whoami)
+    artifact_id = _seed_page(report_id, _POSITIONAL_DASHBOARD, [v1, v2])
+
+    read = _end_output(_run(_run_tool(ReadArtifactTool(), {"artifact_id": artifact_id}, report_id)))
+
+    async def _active_code():
+        async with async_session_maker() as db:
+            agent = object.__new__(AgentV2)
+            agent.db = db
+            agent.report = await db.get(Report, report_id)
+            return (await agent._get_active_artifact())["code"]
+
+    for shown in (read["code"], _run(_active_code())):
+        assert not _POSITIONAL_RE.search(shown), shown
+        assert f'<DataTable viz={{vizById("{v1}")}} />' in shown
+        assert f'<DataTable viz={{vizById("{v2}")}} />' in shown
+        assert shown.count("\n") == _POSITIONAL_DASHBOARD.count("\n")
+
+
+@pytest.mark.e2e
+def test_edit_artifact_applies_finds_from_either_view_of_positional_code(
+    create_report, create_user, login_user, whoami, monkeypatch,
+):
+    """A `find` applies whether the agent quoted the id-keyed view it reads
+    today or older context still showing the stored `viz[N]` code —
+    edit_artifact used to reject the latter on every retry (a loop)."""
+    from app.ai.tools.implementations.read_artifact import ReadArtifactTool
+
+    _skip_render(monkeypatch)
+    report_id, (v1, v2) = _report_with_vizs(create_report, create_user, login_user, whoami)
+    artifact_id = _seed_page(report_id, _POSITIONAL_DASHBOARD, [v1, v2])
+    read = _end_output(_run(_run_tool(ReadArtifactTool(), {"artifact_id": artifact_id}, report_id)))
+    id_keyed_find = next(line.strip() for line in read["code"].splitlines() if f'<DataTable viz={{vizById("{v1}")}}' in line)
+
+    edited = _edit(artifact_id, report_id, [
+        {"find": id_keyed_find, "replace": f'{{<DataTable viz={{vizById("{v1}")}} pageSize={{10}} />}}'},
+        {"find": "{<DataTable viz={viz[1]} />}", "replace": "{<DataTable viz={viz[1]} pageSize={5} />}"},
+    ])
 
     assert edited["success"] is True, edited.get("error")
     code = edited["code"]
-    # The edit landed on the SECOND viz's section, bound by its id
+    assert f'<DataTable viz={{vizById("{v1}")}} pageSize={{10}} />' in code
+    # The stale positional op landed on the SECOND viz's section, by its id
     assert f'<DataTable viz={{vizById("{v2}")}} pageSize={{5}} />' in code
-    assert f'<DataTable viz={{vizById("{v1}")}} />' in code
     assert not _POSITIONAL_RE.search(code)
+
+
+@pytest.mark.e2e
+def test_edit_artifact_matches_lines_the_codemod_left_positional(
+    create_report, create_user, login_user, whoami, monkeypatch,
+):
+    """The codemod judges strings per whole line, so a stored line with an
+    earlier apostrophe keeps its `viz[0]` while the same snippet quoted on
+    its own would be migrated — the verbatim find must still apply."""
+    _skip_render(monkeypatch)
+    report_id, (v1, v2) = _report_with_vizs(create_report, create_user, login_user, whoami)
+    code = _POSITIONAL_DASHBOARD.replace(
+        "{<DataTable viz={viz[0]} />}", "<p>Don't miss</p> <DataTable viz={viz[0]} />"
+    )
+    artifact_id = _seed_page(report_id, code, [v1, v2])
+
+    edited = _edit(artifact_id, report_id, [
+        {"find": "<DataTable viz={viz[0]} />", "replace": "<DataTable viz={viz[0]} pageSize={5} />"},
+    ])
+
+    assert edited["success"] is True, edited.get("error")
+    assert f'<DataTable viz={{vizById("{v1}")}} pageSize={{5}} />' in edited["code"]
+
+
+@pytest.mark.e2e
+def test_edit_artifact_binds_new_positional_refs_to_the_saved_order(
+    create_report, create_user, login_user, whoami, monkeypatch,
+):
+    """`viz[N]` in a replacement runs against the viz list as SAVED by this
+    edit (removals and additions applied), not the list before it."""
+    _skip_render(monkeypatch)
+    report_id, (v1, v2) = _report_with_vizs(create_report, create_user, login_user, whoami)
+    artifact_id = _seed_page(report_id, _POSITIONAL_DASHBOARD, [v1, v2])
+
+    # Remove the first viz; the second becomes index 0 of the saved list
+    edited = _edit(artifact_id, report_id, [
+        {
+            "find": '<SectionCard title="First" viz={viz[0]}>\n        {<DataTable viz={viz[0]} />}\n      </SectionCard>\n',
+            "replace": "",
+        },
+        {"find": "{<DataTable viz={viz[1]} />}", "replace": "{<DataTable viz={viz[0]} pageSize={5} />}"},
+    ], remove_visualization_ids=[v1])
+
+    assert edited["success"] is True, edited.get("error")
+    code = edited["code"]
+    assert f'<DataTable viz={{vizById("{v2}")}} pageSize={{5}} />' in code
+    assert v1 not in code
