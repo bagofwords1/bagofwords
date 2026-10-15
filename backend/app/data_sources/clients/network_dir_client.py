@@ -39,6 +39,7 @@ from app.data_sources.clients._document_text import (
     extract_document_text,
     extract_pdf_pages_text,
 )
+from app.data_sources.clients._email_text import EMAIL_EXTS
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_METADATA,
@@ -160,11 +161,21 @@ class NetworkDirClient(DataSourceClient):
         index_mode: Optional[str] = None,
         max_catalog_objects: int = 10000,
         max_keywords: int = 50,
+        trusted_root: bool = False,
         **_ignored,
     ):
         super().__init__()
         self.root_path = (root_path or "").strip()
-        if self.root_path:
+        # The root policy (no system / app directories) guards ADMIN-configured
+        # connections. The tool layer also instantiates this client over paths
+        # the app itself owns — a conversation upload under uploads/files, an
+        # email attachment in a scratch directory — purely to reuse the typed
+        # read pipeline. Those roots are chosen by the app, not by a form, and
+        # the upload directory is INSIDE the app directory by default, so the
+        # policy would reject every read of a chat attachment. `trusted_root`
+        # skips the policy and keeps every per-file confinement check.
+        self.trusted_root = bool(trusted_root)
+        if self.root_path and not self.trusted_root:
             check_network_dir_root(self.root_path)
         self.allowed_extensions = self._parse_exts(allowed_extensions)
         # Include-globs scope the connection to matching files AND act as an
@@ -211,7 +222,10 @@ class NetworkDirClient(DataSourceClient):
     def _root(self) -> Path:
         if not self.root_path:
             raise ValueError("root_path is required for a network directory connection")
-        root = check_network_dir_root(self.root_path)
+        root = (
+            Path(self.root_path).expanduser().resolve() if self.trusted_root
+            else check_network_dir_root(self.root_path)
+        )
         if not root.exists():
             raise ValueError(f"Directory does not exist: {self.root_path}")
         if not root.is_dir():
@@ -743,7 +757,14 @@ class NetworkDirClient(DataSourceClient):
                 candidates.append({"id": rel, "path": rel, "size": size})
 
         def _read(entry: Dict[str, Any]) -> bytes:
-            return self._resolve(entry["id"], must_exist=True).read_bytes()
+            path = self._resolve(entry["id"], must_exist=True)
+            # Email files grep over their RENDERED text (headers, body,
+            # attachment text): the raw MIME is quoted-printable/base64 for
+            # anything non-ASCII and .msg is binary, so a raw-bytes grep would
+            # miss nearly every real term and sniff the Outlook file as binary.
+            if _ext(path.name) in EMAIL_EXTS:
+                return (self._file_text(path, max_chars=byte_cap) or "").encode("utf-8")
+            return path.read_bytes()
 
         scope_key = "|".join([
             "network_dir", self.root_path, str(folder_id or ""), str(name_pattern or ""),

@@ -1367,7 +1367,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description=(
             "Browse, search and read files from a directory — a local folder or "
             "a mounted network share (SMB/NFS). Searches inside PDF, Word, "
-            "PowerPoint, Excel and CSV, and can attach files to a report."
+            "PowerPoint, Excel, CSV and email files (.eml/.msg, including their "
+            "attachments), and can attach files to a report."
         ),
         config_schema=NetworkDirConfig,
         credentials_auth=AuthOptions(
@@ -1394,7 +1395,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Amazon S3",
         description=(
             "Browse and read files from an Amazon S3 bucket. Reads inside PDF, "
-            "Word, PowerPoint, Excel and CSV, and can attach objects to a report. "
+            "Word, PowerPoint, Excel, CSV and email files (.eml/.msg with their "
+            "attachments), and can attach objects to a report. "
             "Large objects can be read in byte-range windows."
         ),
         config_schema=S3Config,

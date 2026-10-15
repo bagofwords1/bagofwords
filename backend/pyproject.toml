@@ -120,6 +120,7 @@ dependencies = [
     "kubernetes>=36.0.3",
     "python3-saml>=1.16.0,<2",
     "sqlglot>=27,<28",
+    "extract-msg>=0.56.1",
 ]
 
 [project.optional-dependencies]

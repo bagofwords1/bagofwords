@@ -37,7 +37,7 @@ _READERS = {
 # Extensions codegen has no reader for at all. Naming them keeps the model from
 # reaching for pd.read_csv on a PDF and getting an error — or worse, on prose
 # and getting a plausible-looking frame of nonsense.
-_NOT_LOADABLE = {"pdf", "docx", "pptx", "png", "jpg", "jpeg", "gif", "webp"}
+_NOT_LOADABLE = {"pdf", "docx", "pptx", "eml", "msg", "png", "jpg", "jpeg", "gif", "webp"}
 
 
 def _json_reader(index: int, tabular_path: str, shape_known: bool = True) -> str:

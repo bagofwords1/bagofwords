@@ -44,6 +44,7 @@ from app.data_sources.clients._document_text import (
     doc_text_looks_garbled,
     extract_document_text_from_bytes,
 )
+from app.data_sources.clients._email_text import EMAIL_EXTS
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_NONE,
@@ -568,7 +569,14 @@ class S3Client(DataSourceClient):
 
         def _read(entry: Dict[str, Any]) -> bytes:
             key = self._resolve_key(entry["id"])
-            return s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+            data = s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+            # Email files grep over their RENDERED text (headers, body,
+            # attachment text): the raw MIME is quoted-printable/base64 for
+            # anything non-ASCII and .msg is binary, so a raw-bytes grep would
+            # miss nearly every real term and sniff the Outlook file as binary.
+            if _ext(key) in EMAIL_EXTS:
+                return (extract_document_text_from_bytes(data, key, max_chars=byte_cap) or "").encode("utf-8")
+            return data
 
         scope_key = "|".join([
             "s3", self.bucket, self.prefix, str(folder_id or ""), str(name_pattern or ""),
