@@ -10,11 +10,11 @@ model-facing shape:
     Date: …
     Subject: …
 
-    <body — text/plain preferred, HTML stripped to text otherwise>
-
     Attachments (2):
       [0] report.pdf (12.3 KB) — file_id: <this-email>#att:0:report.pdf
       [1] data.csv (120 B) — file_id: <this-email>#att:1:data.csv
+
+    <body — text/plain preferred, HTML stripped to text otherwise>
 
     --- Attachment [0] report.pdf ---
     <extracted text of the attachment, so search_files finds terms inside it>
@@ -341,6 +341,29 @@ def _nested_message_bytes(part: Message) -> tuple[bytes, str | None]:
     except Exception:
         inner = None
     target = inner if inner is not None else part
+    # A message/rfc822 part may itself be transfer-encoded (base64 /
+    # quoted-printable — the stdlib does this when a message is attached as
+    # bytes, and real mailers do too). The parser does NOT decode before
+    # parsing the inner message, so `inner` is then a headerless shell whose
+    # body is the encoded text. Decode the container's encoding and re-parse,
+    # so the forwarded message's headers and body are real.
+    try:
+        cte = str(part.get("Content-Transfer-Encoding") or "").strip().lower()
+    except Exception:
+        cte = ""
+    if inner is not None and cte in ("base64", "quoted-printable"):
+        try:
+            encoded = inner.get_payload()
+            if isinstance(encoded, str):
+                import base64
+                import quopri
+
+                raw = encoded.encode("ascii", "ignore")
+                decoded = base64.b64decode(raw, validate=False) if cte == "base64" else quopri.decodestring(raw)
+                if decoded.strip():
+                    target = email.message_from_bytes(decoded, policy=policy.default)
+        except Exception:
+            pass
     try:
         data = target.as_bytes(policy=policy.default)
     except Exception:
@@ -537,12 +560,18 @@ def render_email_text(data: bytes, name: str, max_chars: int, *, depth: int = 0,
     if len(body) > body_cap:
         body = body[:body_cap] + "\n[body truncated]"
 
-    out = [header_block, "", body] if body else [header_block]
+    # The attachment list sits BEFORE the body: the planner reads a capped
+    # observation of this text, and a long body would otherwise push the
+    # attachment ids — the only way to reach the attachments — out of what
+    # the model sees. Attachment TEXT still follows the body.
+    out = [header_block]
     if atts:
         out.append("")
         out.append(f"Attachments ({len(atts)}):")
         for a in atts:
             out.append(f"  [{a.index}] {a.name} ({_fmt_size(a.size)}) — file_id: {attachment_id(prefix, a.index, a.name)}")
+    if body:
+        out.extend(["", body])
     text = "\n".join(out)
     if atts:
         for a in atts:

@@ -113,6 +113,29 @@ def _nested_eml() -> EmailMessage:
     return inner
 
 
+# One token (the keyword tokenizer splits on `_`), present nowhere else.
+FORWARD_SECRET = "quokkasecret"
+
+
+def _encoded_forward_eml() -> bytes:
+    """A forwarded message attached as BYTES: the stdlib then emits the
+    message/rfc822 part base64-encoded (Content-Transfer-Encoding: base64),
+    which real mailers do too. The inner message must still be reachable."""
+    inner = EmailMessage(policy=policy.default)
+    inner["Subject"] = "inner"
+    inner["From"] = "Dana <dana@example.com>"
+    inner.set_content(f"{FORWARD_SECRET} is here")
+    outer = EmailMessage(policy=policy.default)
+    outer["From"] = "Alice <alice@example.com>"
+    outer["To"] = "Bob <bob@example.com>"
+    outer["Subject"] = "FW: inner"
+    outer.set_content("see forwarded message")
+    outer.add_attachment(inner.as_bytes(), maintype="message", subtype="rfc822", filename="forward.eml")
+    raw = outer.as_bytes()
+    assert b"Content-Transfer-Encoding: base64" in raw
+    return raw
+
+
 def _msg(**kw) -> bytes:
     spec = {
         "subject": "Quarterly numbers", "sender_name": "Alice", "sender_email": "alice@example.com",
@@ -141,8 +164,9 @@ class TestRendering:
         # Every attachment is listed with a sub-file id the model can read.
         assert "#att:0:report.pdf" in text
         assert "#att:1:data.csv" in text
-        # Header block precedes body precedes the attachment list.
-        assert text.index("Subject:") < text.index(BODY_WORD) < text.index("#att:0:")
+        # Header block, then the attachment list (so a capped observation
+        # always carries the ids), then the body, then attachment text.
+        assert text.index("Subject:") < text.index("#att:0:") < text.index(BODY_WORD) < text.index(PDF_WORD)
 
     def test_html_only_body_is_stripped_to_text(self):
         raw = _eml(body=None, html=f"<html><body><p>Hello <b>Bob</b>,</p><p>see the {BODY_WORD} chart.</p></body></html>")
@@ -376,6 +400,34 @@ class TestReadFileTool:
         assert out["success"] and out["windowed"] and out["text"].startswith("item")
         out = (await _read(client, "inbox/mail.eml#att:0:report.pdf", page_range="1"))["output"]
         assert out["success"] and PDF_WORD in out["text"] and out["pages_total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_attachment_ids_survive_the_observation_cap(self, tmp_path):
+        """The planner reads the OBSERVATION, which is capped well below the
+        extractor's text. A long body must not push the attachment ids out
+        of what the model sees — every id has to be in observation.details."""
+        body = ("Quarterly narrative paragraph with plenty of detail. " * 120)  # > 4,000 chars
+        assert len(body) > 4_000
+        (tmp_path / "long.eml").write_bytes(_eml(body=body, attachments=STANDARD_ATTACHMENTS, nested=_nested_eml()))
+        payload = await _read(NetworkDirClient(root_path=str(tmp_path)), "long.eml")
+        assert payload["output"]["success"]
+        details = payload["observation"].get("details", "")
+        for att_id in ("long.eml#att:0:report.pdf", "long.eml#att:1:data.csv", "long.eml#att:2:fwd.eml"):
+            assert att_id in details
+
+    @pytest.mark.asyncio
+    async def test_transfer_encoded_forwarded_message_is_decoded(self, tmp_path):
+        raw = _encoded_forward_eml()
+        (tmp_path / "fw.eml").write_bytes(raw)
+        text = render_email_text(raw, "fw.eml", 200_000)
+        assert "Subject: inner" in text and FORWARD_SECRET in text
+        assert FORWARD_SECRET.lower() in extract_keywords(text, "fw.eml")
+        client = NetworkDirClient(root_path=str(tmp_path))
+        assert [f["id"] for f in client.search_files(FORWARD_SECRET)] == ["fw.eml"]
+        out = (await _read(client, "fw.eml#att:0:forward.eml"))["output"]
+        assert out["success"], out
+        assert out["content_type"] == "text" and FORWARD_SECRET in out["text"]
+        assert "dana@example.com" in out["text"]
 
     @pytest.mark.asyncio
     async def test_read_source_bytes_serves_attachments_for_attach_file(self, tmp_path):
