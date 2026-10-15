@@ -3,7 +3,8 @@ and optionally its full write-up note. Parent-side, on demand."""
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, Dict, Type
+from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
@@ -44,14 +45,14 @@ class ReadSubAgentTool(Tool):
         )
 
     @property
-    def input_model(self) -> Type[BaseModel]:
+    def input_model(self) -> type[BaseModel]:
         return ReadSubAgentInput
 
-    async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
+    async def run_stream(self, tool_input: dict[str, Any], runtime_ctx: dict[str, Any]) -> AsyncIterator[ToolEvent]:
         try:
             data = ReadSubAgentInput(**(tool_input or {}))
         except ValidationError as e:
-            yield ToolErrorEvent(type="tool.error", payload={"error": f"Invalid input: {e}", "code": "INVALID_INPUT"})
+            yield ToolErrorEvent(type="tool.error", payload={"message": f"Invalid input: {e}", "code": "INVALID_INPUT"})
             return
         yield ToolStartEvent(type="tool.start", payload={"sub_agent_id": data.sub_agent_id})
         from app.services.sub_agent_service import sub_agent_service
@@ -62,7 +63,7 @@ class ReadSubAgentTool(Tool):
             report_id=str(report.id) if report is not None else None,
         )
         if snap is None:
-            yield ToolErrorEvent(type="tool.error", payload={"error": "No such sub-agent in this conversation.", "code": "NOT_FOUND"})
+            yield ToolErrorEvent(type="tool.error", payload={"message": "No such sub-agent in this conversation.", "code": "NOT_FOUND"})
             return
         rec = snap.get("record") or {}
         if snap["status"] == "running":
@@ -73,11 +74,15 @@ class ReadSubAgentTool(Tool):
             )
         elif snap["status"] == "pending":
             summary = f"Sub-agent '{snap['title']}' is queued, waiting for a slot."
+        elif snap["status"] == "waiting":
+            summary = f"Sub-agent '{snap['title']}' is waiting for an answer. Read its question in messages and answer it."
         else:
             summary = (
                 f"Sub-agent '{snap['title']}' {snap['status']} ({snap.get('exit_reason')}): "
                 f"{rec.get('outcome', '?')} (confidence {rec.get('confidence', '?')}) — {rec.get('summary', '')}"
             )
+        if snap["status"] in ("running", "pending"):
+            summary += " The wave will report back automatically; do not poll or schedule a wait."
         obs = {"summary": summary, "success": True, **{k: v for k, v in snap.items() if k != "calls"}}
         obs["outcome"] = rec.get("outcome")
         obs["confidence"] = rec.get("confidence")

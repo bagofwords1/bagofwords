@@ -69,3 +69,26 @@ test('a refresh response cannot overwrite an active stream',async()=>{
   await refresh;
   assert.equal(ctx.messages.value,before);
 });
+
+for (const overlap of ['steering', 'fan-in']) test(`canonical refresh replaces placeholders before ${overlap}`, async () => {
+  const {ctx}=setup();
+  const begin=source.indexOf('async function loadCompletions(');
+  const finish=source.indexOf('// === Lazy step-data hydration',begin);
+  const loadCode=ts.transpileModule('let completionLoadGeneration = 0;\n'+source.slice(begin,finish),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  const canonical=[{id:'user-real',role:'user'},{id:'system-real',role:'system'},{id:overlap,role:'user'}];
+  Object.assign(ctx,{currentController:null,pageLimit:20,completionsLoaded:{value:false},hasMore:{value:true},
+    messages:{value:[{id:'older-history',role:'user'},{id:'user-client',role:'user'},
+      {id:'system-client',role:'system',system_completion_id:'system-real'},{id:overlap,role:'user'}]},
+    cursorBefore:{value:'older-cursor'},compactionWatermarkId:{value:null},expandedScheduledIds:{value:new Set()},
+    manuallyToggledReasoning:{value:new Set()},collapsedReasoning:{value:new Set()},
+    nextTick:async()=>{},observeStepContainers(){},scrollContainer:{value:null},
+    followScrollToBottom(){},enrichForkedQueries:async()=>{},pinDispatchedQueuedPrompts(){},
+    useMyFetch:async()=>({data:{value:{completions:canonical}}}),
+  });
+  vm.runInContext(loadCode,ctx);
+  await ctx.loadCompletions({skipEstimate:true});
+  assert.deepEqual(Array.from(ctx.messages.value,m=>m.id),['older-history',...canonical.map(m=>m.id)]);
+  assert.equal(ctx.messages.value[1]._render_key,'user-client');
+  assert.equal(ctx.messages.value[2]._render_key,'system-client');
+  assert.equal(ctx.cursorBefore.value,'older-cursor');
+});

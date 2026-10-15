@@ -26,6 +26,7 @@ WAVE_TIMED_OUT = "timed_out"  # deadline fired; fan-in created with partial reco
 
 # ── Sub-agent status ───────────────────────────────────────────────────────────
 RUN_PENDING = "pending"         # recorded, not yet launched (waits for the batch / a slot)
+RUN_WAITING = "waiting"  # waiting for a parent answer; releases the child execution slot
 RUN_RUNNING = "running"
 RUN_FINISHED = "finished"       # finish_subtask was called
 RUN_FAILED = "failed"           # the child run errored

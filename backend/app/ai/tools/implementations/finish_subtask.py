@@ -6,7 +6,8 @@ run (analysis_complete). The runtime adds the envelope at finalize.
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, Dict, Type
+from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
@@ -49,16 +50,16 @@ class FinishSubtaskTool(Tool):
         )
 
     @property
-    def input_model(self) -> Type[BaseModel]:
+    def input_model(self) -> type[BaseModel]:
         return FinishSubtaskInput
 
-    async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
+    async def run_stream(self, tool_input: dict[str, Any], runtime_ctx: dict[str, Any]) -> AsyncIterator[ToolEvent]:
         try:
             data = FinishSubtaskInput(**(tool_input or {}))
         except ValidationError as e:
             # The error IS the next observation: the child corrects and calls again.
             yield ToolErrorEvent(type="tool.error", payload={
-                "error": f"finish_subtask rejected — fix these fields and call it again: {e}",
+                "message": f"finish_subtask rejected — fix these fields and call it again: {e}",
                 "code": "INVALID_INPUT",
             })
             return
@@ -72,20 +73,29 @@ class FinishSubtaskTool(Tool):
             sub_agent_id = None
         sub_agent_id = sub_agent_id or runtime_ctx.get("sub_agent_id")
         if not sub_agent_id:
-            yield ToolErrorEvent(type="tool.error", payload={"error": "Not running as a sub-agent.", "code": "NOT_A_SUB_AGENT"})
+            yield ToolErrorEvent(type="tool.error", payload={"message": "Not running as a sub-agent.", "code": "NOT_A_SUB_AGENT"})
             return
 
-        from app.services.sub_agent_service import sub_agent_service
-        db = runtime_ctx.get("db")
+        from app.dependencies import async_session_maker
+        from app.services.sub_agent_service import PendingSubAgentMessages, sub_agent_service
         record = data.model_dump()
         try:
-            row = await sub_agent_service.record_finish(db, sub_agent_id=str(sub_agent_id), result=record)
+            # A rejected finish rolls back its mailbox locks. Keep that
+            # transaction separate from the runner's pending tool/block writes.
+            async with (runtime_ctx.get("session_maker") or async_session_maker)() as db:
+                row = await sub_agent_service.record_finish(db, sub_agent_id=str(sub_agent_id), result=record)
+        except PendingSubAgentMessages as e:
+            yield ToolErrorEvent(type="tool.error", payload={"message": str(e), "code": "PENDING_AGENT_MESSAGES"})
+            return
+        except ValueError as e:
+            yield ToolErrorEvent(type="tool.error", payload={"message": str(e), "code": "SUB_AGENT_ENDED"})
+            return
         except Exception as e:
             logger.exception("finish_subtask: could not store the record")
-            yield ToolErrorEvent(type="tool.error", payload={"error": f"Could not store the record: {e}", "code": "SUB_AGENT_ERROR"})
+            yield ToolErrorEvent(type="tool.error", payload={"message": f"Could not store the record: {e}", "code": "SUB_AGENT_ERROR"})
             return
         if row is None:
-            yield ToolErrorEvent(type="tool.error", payload={"error": "Sub-agent row not found.", "code": "SUB_AGENT_ERROR"})
+            yield ToolErrorEvent(type="tool.error", payload={"message": "Sub-agent row not found.", "code": "SUB_AGENT_ERROR"})
             return
         runtime_ctx["sub_agent_finished"] = True
         yield ToolEndEvent(type="tool.end", payload={

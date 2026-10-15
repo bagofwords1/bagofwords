@@ -1785,6 +1785,26 @@
       "sendFeedback": "Skicka feedback",
       "expired": "Granskningen har gått ut.",
       "respondFailed": "Det gick inte att skicka svaret — försök igen."
+    },
+    "messageSubAgent": {
+      "sending": "Skickar meddelande…",
+      "sent": "Meddelande skickat till {title}",
+      "failed": "Kunde inte skicka meddelande till {title}",
+      "parent": "Huvudagent",
+      "agent": "Underagent",
+      "sentHint": "Sparat för leverans före nästa planeringssteg. Det bekräftar inte att instruktionen har följts.",
+      "failedHint": "Meddelandet skickades inte.",
+      "messages": "Meddelanden",
+      "states": {
+        "sent": "Skickat",
+        "delivered": "Levererat till agentens kontext",
+        "undelivered": "Inte levererat"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "Väntar på huvudagent"
+      }
     }
   },
   "entityCreate": {

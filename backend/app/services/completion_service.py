@@ -692,6 +692,14 @@ class CompletionService:
 
             span.set_attribute("llm.model_id", model.model_id)
 
+            # The same lock as question wakes: claiming the parent turn and
+            # inserting its system row must be atomic. Children run separately.
+            if trigger_source != 'sub_agent':
+                await db.execute(update(Report).where(Report.id == report_id)
+                                 .values(last_activity_at=Report.last_activity_at))
+                if trigger_source is None and external_platform is None and await self._get_running_system_completion(db, report_id):
+                    return await self.create_queued_completion(db, report_id, completion_data, current_user, organization)
+
             # Create user completion (head)
             prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
@@ -725,37 +733,13 @@ class CompletionService:
                 # piggybacks this commit. The agent turn bumps it again on finish.
                 report.last_activity_at = datetime.utcnow()
                 db.add(report)
-                await db.commit()
-                await db.refresh(head_completion)
+                await db.flush()
             except Exception as e:
                 await db.rollback()
                 raise HTTPException(status_code=500, detail=f"Failed to save user completion: {str(e)}")
 
             span.set_attribute("completion.head_id", str(head_completion.id))
             span.add_event("head_completion_saved")
-
-            # Mark image files with this completion_id (so they show attached to this message)
-            await self._mark_images_with_completion(db, report.id, str(head_completion.id))
-
-            # Store mentions associated with the user head completion (best-effort)
-            try:
-                await self.mention_service.create_completion_mentions(db, head_completion)
-            except Exception as e:
-                logging.error(f"Failed to create mentions for completion {head_completion.id}: {e}")
-
-            # Audit log
-            try:
-                await audit_service.log(
-                    db=db,
-                    organization_id=str(organization.id),
-                    action="completion.created",
-                    user_id=str(current_user.id),
-                    resource_type="completion",
-                    resource_id=str(head_completion.id),
-                    details={"report_id": str(report.id)},
-                )
-            except Exception:
-                pass
 
             # Create system completion to populate with results
             system_completion = Completion(
@@ -790,6 +774,29 @@ class CompletionService:
 
             span.set_attribute("completion.system_id", str(system_completion.id))
             span.add_event("system_completion_saved")
+
+            # Mark image files with this completion_id (so they show attached to this message)
+            await self._mark_images_with_completion(db, report.id, str(head_completion.id))
+
+            # Store mentions associated with the user head completion (best-effort)
+            try:
+                await self.mention_service.create_completion_mentions(db, head_completion)
+            except Exception as e:
+                logging.error(f"Failed to create mentions for completion {head_completion.id}: {e}")
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="completion.created",
+                    user_id=str(current_user.id),
+                    resource_type="completion",
+                    resource_id=str(head_completion.id),
+                    details={"report_id": str(report.id)},
+                )
+            except Exception:
+                pass
 
             org_settings = await organization.get_settings(db)
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
@@ -2271,6 +2278,13 @@ class CompletionService:
 
             span.set_attribute("llm.model_id", model.model_id)
 
+            await db.execute(update(Report).where(Report.id == report_id)
+                             .values(last_activity_at=Report.last_activity_at))
+            if external_platform is None and await self._get_running_system_completion(db, report_id):
+                # JSON fallback: the browser reconciles the durable queued row
+                # when an automatic parent wake won the race to start.
+                return await self.create_queued_completion(db, report_id, completion_data, current_user, organization)
+
             # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
@@ -3472,9 +3486,21 @@ class CompletionService:
                     )).scalar_one_or_none()
                     if prev_status != 'success':
                         return
+                # Serialize queue claims and system-row creation on the report.
+                # A child question can arrive from another worker at any time.
+                await db.execute(update(Report).where(Report.id == report_id)
+                                 .values(last_activity_at=Report.last_activity_at))
                 running = await self._get_running_system_completion(db, report_id)
                 if running is not None:
                     return
+                # Discard question wakes already answered by an intervening user
+                # turn. They are durable queue entries, never additional tasks.
+                from app.services.sub_agent_message_service import sub_agent_message_service
+                if not await sub_agent_message_service.has_open_questions(db, report_id):
+                    await db.execute(update(Completion).where(
+                        Completion.report_id == report_id, Completion.role == 'user',
+                        Completion.status == 'queued', Completion.trigger_source == 'sub_agent_message',
+                    ).values(status='cancelled'))
                 next_id = (await db.execute(
                     select(Completion.id)
                     .where(
@@ -3486,6 +3512,7 @@ class CompletionService:
                     .limit(1)
                 )).scalar_one_or_none()
                 if not next_id:
+                    await db.commit()
                     return
                 claim = await db.execute(
                     update(Completion)
@@ -3493,7 +3520,6 @@ class CompletionService:
                     .values(status='success')
                     .execution_options(synchronize_session=False)
                 )
-                await db.commit()
                 if getattr(claim, "rowcount", 0) != 1:
                     return
 
@@ -3502,6 +3528,8 @@ class CompletionService:
                     prompt=None,
                     completion={"content": ""},
                     model=head.model,
+                    user_id=head.user_id,
+                    trigger_source=head.trigger_source,
                     widget_id=(head.prompt or {}).get('widget_id'),
                     report_id=head.report_id,
                     parent_id=head.id,
@@ -3547,6 +3575,9 @@ class CompletionService:
                         raise RuntimeError("Dispatched agent init failed: missing objects")
                     organization = await session.get(Organization, report.organization_id)
                     user = await session.get(User, head.user_id) if head.user_id else None
+                    from app.core.permission_resolver import assert_principal_belongs_to_org
+                    await assert_principal_belongs_to_org(session, user, organization.id)
+                    self._assert_can_write_to_report(report, user)
                     org_settings = await organization.get_settings(session)
 
                     prompt = head.prompt or {}

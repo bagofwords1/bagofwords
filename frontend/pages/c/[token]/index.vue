@@ -328,6 +328,7 @@ import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
 import DelegateTool from '~/components/tools/DelegateTool.vue'
 import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import MessageSubAgentTool from '~/components/tools/MessageSubAgentTool.vue'
 import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
 import MemoryTool from '~/components/tools/MemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
@@ -697,6 +698,7 @@ function getToolComponent(toolName: string) {
             return ClarifyTool
         case 'delegate':
             return DelegateTool
+        case 'message_sub_agent': return MessageSubAgentTool
         case 'read_sub_agent':
             return ReadSubAgentTool
         case 'stop_sub_agent':
