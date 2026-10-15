@@ -46,6 +46,28 @@ class SharePointHTTPError(ValueError):
         super().__init__(f"SharePoint Server HTTP {status}: {hint}")
 
 
+def unresolved_path_error(value: str, matches: list) -> ValueError:
+    """Error for a read-by-path that did not resolve to exactly one file.
+
+    A relative path is tried in every visible library. Saying "missing or
+    ambiguous" for both outcomes left the agent guessing which one it hit;
+    name the outcome, and for several matches list them by id (the full
+    server path), which is directly readable.
+    """
+    if not matches:
+        return ValueError(
+            f"File not found: {value!r} does not exist in the connected document libraries. "
+            "Use the id returned by list_files/search_files (the full path starting with '/')."
+        )
+    shown = sorted(matches)[:10]
+    more = f" (and {len(matches) - len(shown)} more)" if len(matches) > len(shown) else ""
+    return ValueError(
+        f"Ambiguous path: {value!r} matches {len(matches)} files in different document libraries: "
+        + "; ".join(shown) + more
+        + ". Read one of them by that full path; it is the file id."
+    )
+
+
 def _safe_path(value: str) -> str:
     """Reject traversal, including encoded variants; preserve literal %/# names."""
     probe = value
