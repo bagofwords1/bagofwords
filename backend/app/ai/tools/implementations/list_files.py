@@ -102,6 +102,12 @@ class ListFilesTool(Tool):
             bits.append(str(e["path"]))
         if e.get("size") is not None:
             bits.append(f"{e['size']} B")
+        # Timestamps belong in the row: the planner reads this observation,
+        # not the output, and without them it re-lists live "to get dates".
+        if e.get("modified_at"):
+            bits.append(f"modified {e['modified_at']}")
+        if e.get("created_at"):
+            bits.append(f"created {e['created_at']}")
         return " — ".join(bits) + f" [id={e.get('id')}]"
 
     def _end(self, connection_id: str, entries: List[dict], truncated: bool, source: str, hint: str = "", runtime_ctx: Dict[str, Any] = None) -> ToolEndEvent:
@@ -224,7 +230,8 @@ class ListFilesTool(Tool):
             return self._fail(data.connection_id, str(exc))
         entries, _ = self._apply(page, None)
         when = f"indexed {catalog['indexed_at']}" if catalog["indexed_at"] else "index time unknown"
-        hint = f" Catalog: {catalog['total']} files, {when}; {matched} match."
+        hint = (f" Catalog: {catalog['total']} files, {when}; {matched} match; "
+                f"sorted by {data.sort_by} {data.sort_order}; rows carry modified/created times.")
         if next_cursor:
             hint += " More pages: pass next_cursor as cursor with the same inputs."
         hint += " Files changed since the index run need source='live'."
@@ -308,13 +315,21 @@ class ListFilesTool(Tool):
                     created_after=data.created_after, created_before=data.created_before,
                     modified_after=data.modified_after, modified_before=data.modified_before,
                 )
-                entries, _ = self._apply(result.files, None)
-                hint = ''
+                rows, hint = result.files, ''
+                if (data.sort_by, data.sort_order) != ("name", "asc"):
+                    if result.stop_reason:
+                        hint += (f" sort_by={data.sort_by} was NOT applied: the live scan stopped early, so a sorted "
+                                 "partial scan would mislead; use the catalog (source='auto') or narrow the scope.")
+                    else:
+                        rows, _, _ = page_catalog(rows, scope_key='live', recursive=True, sort_by=data.sort_by,
+                                                  sort_order=data.sort_order, limit=max(len(rows), 1))
+                        hint += f" Sorted by {data.sort_by} {data.sort_order}."
+                entries, _ = self._apply(rows, None)
                 if result.stop_reason == 'result_limit':
-                    hint = (" Listing stopped at the requested limit; more matching files may exist. "
-                            "Narrow folder_id or name_pattern, or increase limit (up to 500).")
+                    hint += (" Listing stopped at the requested limit; more matching files may exist. "
+                             "Narrow folder_id or name_pattern, or increase limit (up to 500).")
                 elif result.stop_reason == 'catalog_limit':
-                    hint = (" Listing stopped at the connection's Max files cap; more matching files may exist. "
+                    hint += (" Listing stopped at the connection's Max files cap; more matching files may exist. "
                             "Narrow folder_id or ask an administrator to review the connection scope/cap.")
                 event = self._end(data.connection_id, entries, False, "live", hint, runtime_ctx)
                 event.payload['output'].update(

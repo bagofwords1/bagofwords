@@ -191,14 +191,17 @@ class SearchFilesTool(Tool):
                 "observation": {"summary": msg, "success": False},
             })
 
-        # 1. Fast path: keyword index on the cached catalog (unless deep).
+        # 1. Fast path: keyword index on the cached catalog.
         #    Scoped to THIS connection's ConnectionTable rows — the per-data-
         #    source schema unions every connection, which would leak one
         #    connection's files into another's search results.
         entries: List[Dict[str, Any]] = []
         used_index = False
         indexed_at = None
-        if not data.deep:
+        # The keyword index runs even for deep=true: for connectors whose live
+        # search matches filenames only (SharePoint Server) the index IS the
+        # content search, so a deep scan is unioned with it, never a downgrade.
+        if True:
             conn_id = await self._resolve_connection_id(runtime_ctx, data.connection_id)
             if conn_id is not None:
                 try:
@@ -231,8 +234,10 @@ class SearchFilesTool(Tool):
                 except Exception:
                     used_index = False
 
-        # 2. Fall back to a live scan when not indexed, or deep requested, or the
-        #    index returned nothing (the term may be deep in a file's body).
+        # 2. Live scan when not indexed, or deep requested, or the index
+        #    returned nothing (the term may be deep in a file's body). With
+        #    deep=true the live hits are merged after the index hits.
+        live_too = False
         if data.deep or not used_index or not entries:
             client, err = await resolve_file_client(
                 runtime_ctx, data.connection_id, self._required_capability
@@ -240,7 +245,7 @@ class SearchFilesTool(Tool):
             if err:
                 # If the index gave us something, return that rather than erroring.
                 if entries:
-                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
+                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at)
                     return
                 yield _fail(err)
                 return
@@ -248,24 +253,29 @@ class SearchFilesTool(Tool):
                 files = await client.asearch_files(data.query)
             except Exception as e:
                 if entries:
-                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
+                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at)
                     return
                 from app.ai.tools.implementations._file_tool_common import friendly_tool_error
                 _cname = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
                 yield _fail(friendly_tool_error(self._operation_name, _cname, e))
                 return
-            files = files[: data.max_results]
-            entries = [FileEntry(
+            live = [FileEntry(
                 id=f.get("id"), name=f.get("name"),
                 path=f.get("path") if isinstance(f.get("path"), str) else None,
                 mime_type=f.get("mime_type"), size=f.get("size"),
-                modified_at=f.get("modified_at"),
+                modified_at=f.get("modified_at"), created_at=f.get("created_at"),
                 sender=f.get("sender") or f.get("from"),
                 web_url=f.get("web_url"),
             ).model_dump() for f in files]
-            used_index = False
+            if entries:
+                seen = {e["id"] for e in entries}
+                entries = entries + [e for e in live if e["id"] not in seen]
+                live_too = True
+            else:
+                entries, used_index = live, False
+            entries = entries[: data.max_results]
 
-        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at)
+        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at, live_too=live_too)
 
     #: Max hit rows rendered into the model-facing observation (the planner
     #: never sees the output — names/ids must live here or the model re-searches).
@@ -279,10 +289,12 @@ class SearchFilesTool(Tool):
             bits.append(str(e["path"]))
         return " — ".join(bits) + f" [id={e.get('id')}]"
 
-    def _done(self, data, entries, used_index, runtime_ctx=None, indexed_at=None) -> ToolEndEvent:
+    def _done(self, data, entries, used_index, runtime_ctx=None, indexed_at=None, live_too=False) -> ToolEndEvent:
         how = "keyword index" if used_index else "live scan"
         if used_index and indexed_at:
             how += f", indexed {indexed_at}"
+        if used_index and live_too:
+            how += " + live scan"
         # Repeat-enumeration guard — see list_files._end.
         enum_hint = ""
         if runtime_ctx is not None:

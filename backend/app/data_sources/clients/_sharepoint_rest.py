@@ -74,6 +74,9 @@ class SharepointRestAPI(SharepointAPI):
             result.append((lib["Title"], root + ("/" + self.client.folder_path if self.client.folder_path else "")))
         return result
 
+    def library_scopes(self):
+        return list(self.libraries())
+
     def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, *, page_size=None):
         cap = min(max(0, int(limit)) if limit is not None else self.client.max_catalog_objects, self.client.max_catalog_objects)
         if cap == 0:

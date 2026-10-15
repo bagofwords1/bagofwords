@@ -147,6 +147,9 @@ class Sharepoint2010API(SharepointAPI):
     def _scopes(libraries):
         return [(lib['title'], lib['scope']) for lib in libraries]
 
+    def library_scopes(self):
+        return self._scopes(self._libraries())
+
     def _items(self, lib, folder, *, leaf=None, page_size=None):
         token, seen = None, set()
         for _ in range(1000):
