@@ -73,7 +73,7 @@
                 {{ task.title || task.prompt?.content || $t('scheduled.untitledTask') }}
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(task.cron_schedule) }}</span>
+                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(task.cron_schedule, task.run_once_at) }}</span>
                 <!-- A schedule whose last run died reads as healthy here unless
                      the row says otherwise — the same blind spot the failure
                      alert closes for the inbox. -->
@@ -103,10 +103,10 @@
               </div>
             </div>
             <div class="shrink-0 flex items-center gap-2">
-              <UTooltip :text="task.is_active ? $t('scheduled.pause') : $t('scheduled.resume')">
+              <UTooltip :text="isSpentOnce(task) ? $t('scheduled.onceSpent') : (task.is_active ? $t('scheduled.pause') : $t('scheduled.resume'))">
                 <button
                   @click.stop="toggleActive(task)"
-                  :disabled="togglingId === task.id"
+                  :disabled="togglingId === task.id || isSpentOnce(task)"
                   class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50"
                   :class="task.is_active ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
                   :aria-pressed="task.is_active"
@@ -189,6 +189,12 @@ const editingTask = ref<any | null>(null)
 const creatingTask = ref(false)
 const deletingId = ref<string | null>(null)
 const togglingId = ref<string | null>(null)
+
+const { toDate } = useFormatDate()
+// A one-time task that already ran (or whose time passed) cannot be resumed —
+// the server refuses it; a new time is picked in the edit form instead.
+const isSpentOnce = (task: any) =>
+  !task.is_active && !!task.run_once_at && toDate(task.run_once_at).getTime() < Date.now()
 
 // Pause/resume in place. Optimistic: flip locally, revert on failure. A task
 // that no longer matches the current status tab drops out of the list.

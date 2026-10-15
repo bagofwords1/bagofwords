@@ -39,7 +39,7 @@
                 <dl class="mt-4 space-y-2.5">
                     <div class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.schedule') }}</dt>
-                        <dd class="text-xs text-gray-700 dark:text-gray-300">{{ getCronLabel(props.scheduledPrompt?.cron_schedule) }}</dd>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300">{{ getCronLabel(props.scheduledPrompt?.cron_schedule, props.scheduledPrompt?.run_once_at) }}</dd>
                     </div>
                     <div class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.agents') }}</dt>
@@ -76,7 +76,8 @@
                         <dd>
                             <button
                                 @click="toggleActiveInPlace"
-                                :disabled="isSaving"
+                                :disabled="isSaving || onceExpired"
+                                :title="onceExpired ? $t('scheduled.onceSpent') : undefined"
                                 data-testid="view-active"
                                 class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50"
                                 :class="isActive ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
@@ -133,16 +134,24 @@
                         :key="t.value"
                         class="px-2 py-0.5 text-[11px] rounded transition-colors"
                         :class="scheduleType === t.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
-                        @click="scheduleType = t.value"
+                        @click="scheduleType = t.value; scheduleDirty = true"
                     >
                         {{ t.label }}
                     </button>
                 </div>
 
-                <div v-if="scheduleType === 'once'" class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                <!-- A saved one-time task keeps its instant; the delay input only
+                     appears once the user chooses to change it. -->
+                <div v-if="scheduleType === 'once' && savedRunOnceAt && !scheduleDirty" class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400" data-testid="once-saved-at">
+                    <span>{{ getCronLabel(undefined, savedRunOnceAt) }}</span>
+                    <button type="button" class="text-blue-500 hover:text-blue-600" data-testid="once-change" @click="scheduleDirty = true">
+                        {{ $t('scheduledPrompt.changeTime') }}
+                    </button>
+                </div>
+                <div v-else-if="scheduleType === 'once'" class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
                     <span>{{ $t('scheduledPrompt.runIn') }}</span>
-                    <input v-model.number="delayAmount" type="number" min="1" class="w-14 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs text-center" />
-                    <select v-model="delayUnit" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs">
+                    <input v-model.number="delayAmount" type="number" min="1" class="w-14 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs text-center" @input="scheduleDirty = true" />
+                    <select v-model="delayUnit" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs" @change="scheduleDirty = true">
                         <option value="minutes">{{ $t('scheduledPrompt.unitMinutes') }}</option>
                         <option value="hours">{{ $t('scheduledPrompt.unitHours') }}</option>
                         <option value="days">{{ $t('scheduledPrompt.unitDays') }}</option>
@@ -153,9 +162,9 @@
                     <span>{{ $t('scheduledPrompt.every') }}</span>
                     <template v-if="recurInterval === 'minutes' || recurInterval === 'hours'">
                         <input v-model.number="recurEveryN" type="number" min="1" :max="recurInterval === 'minutes' ? 59 : 23"
-                            class="w-12 rounded border border-gray-200 dark:border-gray-700 px-1 py-1 text-xs text-center" />
+                            class="w-12 rounded border border-gray-200 dark:border-gray-700 px-1 py-1 text-xs text-center" @input="scheduleDirty = true" />
                     </template>
-                    <select v-model="recurInterval" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs">
+                    <select v-model="recurInterval" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs" @change="scheduleDirty = true">
                         <option value="minutes">{{ $t('scheduledPrompt.intervalMinutes') }}</option>
                         <option value="hours">{{ $t('scheduledPrompt.intervalHours') }}</option>
                         <option value="day">{{ $t('scheduledPrompt.intervalDay') }}</option>
@@ -165,7 +174,7 @@
                     </select>
                     <template v-if="recurInterval === 'day' || recurInterval === 'weekdays' || recurInterval === 'week' || recurInterval === 'month'">
                         <span>{{ $t('scheduledPrompt.at') }}</span>
-                        <select v-model="recurHour" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs">
+                        <select v-model="recurHour" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs" @change="scheduleDirty = true">
                             <option v-for="h in 24" :key="h - 1" :value="h - 1">{{ String(h - 1).padStart(2, '0') }}:00</option>
                         </select>
                     </template>
@@ -190,7 +199,7 @@
                     </template>
                     <template v-if="recurInterval === 'month'">
                         <span>{{ $t('scheduledPrompt.onDay') }}</span>
-                        <select v-model="recurDayOfMonth" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs">
+                        <select v-model="recurDayOfMonth" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs" @change="scheduleDirty = true">
                             <option v-for="d in 28" :key="d" :value="d">{{ d }}</option>
                         </select>
                     </template>
@@ -232,7 +241,9 @@
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('scheduledPrompt.active') }}</span>
                 <button
                     @click="isActive = !isActive"
-                    class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors"
+                    :disabled="onceExpired"
+                    :title="onceExpired ? $t('scheduled.onceSpent') : undefined"
+                    class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50"
                     :class="isActive ? 'bg-blue-500' : 'bg-gray-300'"
                 >
                     <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="isActive ? 'translate-x-3.5' : 'translate-x-0.5'" />
@@ -438,7 +449,7 @@ const viewMode = ref(!!props.scheduledPrompt)
 const modalWidth = ref(viewMode.value ? 'sm:max-w-4xl' : 'sm:max-w-2xl')
 const { getCronLabel } = useCronLabel()
 // Handles naive-UTC strings and renders in the org's timezone.
-const { formatDateTime } = useFormatDate()
+const { formatDateTime, toDate } = useFormatDate()
 
 // ── Previous runs: the reports this schedule produced ──────────────────────
 const { fetchActivity } = useReportActivity()
@@ -572,9 +583,21 @@ const scheduleTypes = computed(() => [
     { value: 'once' as const, label: t('scheduledPrompt.typeOnce') },
     { value: 'recurring' as const, label: t('scheduledPrompt.typeRecurring') },
 ])
-const scheduleType = ref<'once' | 'recurring'>('recurring')
+const scheduleType = ref<'once' | 'recurring'>(props.scheduledPrompt?.run_once_at ? 'once' : 'recurring')
 const delayAmount = ref(1)
 const delayUnit = ref<'minutes' | 'hours' | 'days'>('hours')
+// Set only by the user touching a schedule control. An untouched schedule is
+// left out of the update, so saving a task never rewrites when it runs — the
+// form cannot represent every saved cron, nor a one-time instant as a delay.
+const scheduleDirty = ref(false)
+const savedRunOnceAt = computed<string | null>(() => props.scheduledPrompt?.run_once_at || null)
+const savedOncePassed = computed(() => !!savedRunOnceAt.value && toDate(savedRunOnceAt.value).getTime() < Date.now())
+// A one-time task whose instant has passed cannot be resumed; pick a new time.
+const onceExpired = computed(() => savedOncePassed.value && !scheduleDirty.value && !isActive.value)
+// Picking a new schedule for a spent one-time task means "run it again".
+watch(scheduleDirty, (dirty) => {
+    if (dirty && savedOncePassed.value && !isActive.value) isActive.value = true
+})
 
 // Recurring structured inputs
 const recurInterval = ref<RecurInterval>('day')
@@ -593,6 +616,7 @@ const weekdays = computed(() => [
 ])
 
 function toggleRecurDay(value: number) {
+    scheduleDirty.value = true
     const idx = recurDays.value.indexOf(value)
     if (idx === -1) {
         recurDays.value = [...recurDays.value, value].sort((a, b) => a - b)
@@ -646,7 +670,8 @@ watch(() => props.scheduledPrompt, (sp) => {
         userTouchedEmailToggle.value = false
         sendSummaryEmail.value = !EMAIL_INTENT_RE.test(promptText.value)
     }
-    scheduleType.value = 'recurring'
+    scheduleType.value = sp?.run_once_at ? 'once' : 'recurring'
+    scheduleDirty.value = false
     if (sp?.cron_schedule) {
         parseCronToStructured(sp.cron_schedule)
     } else {
@@ -701,7 +726,11 @@ async function runNow() {
     }
     isRunning.value = true
     try {
-        const response = await persistScheduledPrompt(prompt)
+        // One-time + Run now = this run only: record it as run now and leave
+        // nothing scheduled behind it.
+        const response = await persistScheduledPrompt(prompt, scheduleType.value === 'once'
+            ? { run_once_at: new Date().toISOString(), is_active: false }
+            : {})
         const saved = response.data.value as any
         if (!saved?.id) {
             toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.toastSaveFailed') })
@@ -722,20 +751,24 @@ async function runNow() {
     }
 }
 
-function computeCronSchedule(): string {
+// The schedule part of the save body. One-time sends the absolute instant
+// (UTC ISO), so the server needs no timezone to know when to run it.
+function computeScheduleFields(): { cron_schedule?: string; run_once_at?: string } {
+    if (isEditing.value && !scheduleDirty.value) return {}
     if (scheduleType.value === 'once') {
-        const now = new Date()
         const multiplier = delayUnit.value === 'minutes' ? 1 : delayUnit.value === 'hours' ? 60 : 1440
-        const target = new Date(now.getTime() + delayAmount.value * multiplier * 60_000)
-        return `${target.getMinutes()} ${target.getHours()} ${target.getDate()} ${target.getMonth() + 1} *`
+        const target = new Date(Date.now() + delayAmount.value * multiplier * 60_000)
+        return { run_once_at: target.toISOString() }
     }
-    return buildRecurringCron({
-        interval: recurInterval.value,
-        everyN: recurEveryN.value,
-        hour: recurHour.value,
-        days: recurDays.value,
-        dayOfMonth: recurDayOfMonth.value,
-    })
+    return {
+        cron_schedule: buildRecurringCron({
+            interval: recurInterval.value,
+            everyN: recurEveryN.value,
+            hour: recurHour.value,
+            days: recurDays.value,
+            dayOfMonth: recurDayOfMonth.value,
+        }),
+    }
 }
 
 function buildNotificationSubscribers(): Subscriber[] | null {
@@ -770,7 +803,10 @@ async function syncReportDataSources() {
 
 // Persist the current form state (create or update) and return the raw fetch
 // response. Side-effect free so both the Save button and Run now can reuse it.
-async function persistScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
+async function persistScheduledPrompt(
+    prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null },
+    overrides: { run_once_at?: string; is_active?: boolean } = {},
+) {
     // Apply data-source selection to the report first so an immediate "Run now"
     // (which reads report.data_sources at trigger time) uses the chosen agents.
     await syncReportDataSources()
@@ -779,10 +815,13 @@ async function persistScheduledPrompt(prompt: { content: string; mentions?: any[
         prompt,
         // Always a string: empty clears the title (falls back to report title).
         title: taskTitle.value.trim(),
-        cron_schedule: computeCronSchedule(),
-        is_active: isActive.value,
+        ...computeScheduleFields(),
+        // Only a change the user made: a modal left open while the task ran
+        // would otherwise resend the stale "active" and re-arm it.
+        ...(!isEditing.value || isActive.value !== props.scheduledPrompt?.is_active ? { is_active: isActive.value } : {}),
         spawn_new_report: spawnNewReport.value,
         notification_subscribers: buildNotificationSubscribers(),
+        ...overrides,
     }
 
     if (isEditing.value) {

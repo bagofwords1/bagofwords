@@ -1,14 +1,24 @@
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, field_validator
 from app.utils.reasoning_effort import normalize_prompt_json_effort
 from app.schemas.notification_schema import NotificationSubscriber
 
 
+def _naive_utc(v: Optional[datetime]) -> Optional[datetime]:
+    """Store instants as naive UTC, like every other DateTime column here."""
+    if v is not None and v.tzinfo is not None:
+        return v.astimezone(timezone.utc).replace(tzinfo=None)
+    return v
+
+
 class ScheduledPromptCreate(BaseModel):
     prompt: dict  # PromptSchema-compatible JSON: {"content": "...", ...}
     title: Optional[str] = None
-    cron_schedule: str
+    # Exactly one of the two: a cron for a recurring task, or the instant a
+    # one-time task runs at.
+    cron_schedule: Optional[str] = None
+    run_once_at: Optional[datetime] = None
     is_active: Optional[bool] = True
     # Routing: False = run in the host report (default), True = spawn a
     # fresh report per run.
@@ -20,11 +30,19 @@ class ScheduledPromptCreate(BaseModel):
     def _validate_prompt_effort(cls, v):
         return normalize_prompt_json_effort(v)
 
+    @field_validator("run_once_at", mode="after")
+    @classmethod
+    def _normalize_run_once_at(cls, v):
+        return _naive_utc(v)
+
 
 class ScheduledPromptUpdate(BaseModel):
     prompt: Optional[dict] = None
     title: Optional[str] = None
+    # Setting one switches the task to that kind: a cron makes it recurring,
+    # run_once_at makes it one-time.
     cron_schedule: Optional[str] = None
+    run_once_at: Optional[datetime] = None
     is_active: Optional[bool] = None
     spawn_new_report: Optional[bool] = None
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
@@ -34,6 +52,11 @@ class ScheduledPromptUpdate(BaseModel):
     def _validate_prompt_effort(cls, v):
         return normalize_prompt_json_effort(v)
 
+    @field_validator("run_once_at", mode="after")
+    @classmethod
+    def _normalize_run_once_at(cls, v):
+        return _naive_utc(v)
+
 
 class ScheduledPromptSchema(BaseModel):
     id: str
@@ -41,6 +64,7 @@ class ScheduledPromptSchema(BaseModel):
     title: Optional[str] = None
     prompt: dict
     cron_schedule: str
+    run_once_at: Optional[datetime] = None
     is_active: bool
     spawn_new_report: bool = False
     last_run_at: Optional[datetime] = None

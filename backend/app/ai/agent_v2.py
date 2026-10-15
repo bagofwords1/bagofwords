@@ -1724,7 +1724,7 @@ class AgentV2:
         if not sp_id:
             return None
         try:
-            from app.models.scheduled_prompt import ScheduledPrompt
+            from app.models.scheduled_prompt import ScheduledPrompt, describe_schedule
             from sqlalchemy import func as sa_func
 
             sp = await self.db.get(ScheduledPrompt, sp_id)
@@ -1748,7 +1748,10 @@ class AgentV2:
 
             return {
                 "cron_schedule": sp.cron_schedule,
-                "cron_label": cron_labels.get(sp.cron_schedule, sp.cron_schedule),
+                "cron_label": (
+                    describe_schedule(sp.cron_schedule, sp.run_once_at) if sp.run_once_at
+                    else cron_labels.get(sp.cron_schedule, sp.cron_schedule)
+                ),
                 "total_past_runs": past_run_count or 0,
                 "last_run_at": sp.last_run_at.isoformat() if sp.last_run_at else None,
                 "created_at": sp.created_at.isoformat() if sp.created_at else None,

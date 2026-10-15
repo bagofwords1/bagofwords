@@ -974,7 +974,7 @@ class ContextHub:
             return ScheduledTasksSection(items=[])
 
         from sqlalchemy import select, or_
-        from app.models.scheduled_prompt import ScheduledPrompt
+        from app.models.scheduled_prompt import ScheduledPrompt, describe_schedule
 
         cron_labels = {
             "0 * * * *": "Hourly",
@@ -1014,7 +1014,10 @@ class ContextHub:
                 id=str(sp.id),
                 title=sp.title,
                 cron_schedule=sp.cron_schedule,
-                cron_label=cron_labels.get(sp.cron_schedule),
+                cron_label=(
+                    describe_schedule(sp.cron_schedule, sp.run_once_at) if sp.run_once_at
+                    else cron_labels.get(sp.cron_schedule)
+                ),
                 prompt_snippet=snippet or None,
                 last_run_at=sp.last_run_at.isoformat() if sp.last_run_at else None,
             ))
