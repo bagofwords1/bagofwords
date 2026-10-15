@@ -83,7 +83,7 @@ Guard null data/current_user and distinguish missing values from zero.
 Keep provenance on custom metrics/charts/tables via data-bow-viz and data-bow-calc
 or the kit's viz/calc props. UUIDs stay in code, not user-facing labels.
 Restyle the ⓘ via infoClassName/infoSize (data-bow-info-class/-size on custom
-markup); never remove it.
+markup); hide it only on explicit user request: info={false} / data-bow-info="off".
 Percentage units must be explicit; use fmt(n, {pct:true, exact:true}) for values
 already expressed in percent, and share(part, whole) for proportions.
 

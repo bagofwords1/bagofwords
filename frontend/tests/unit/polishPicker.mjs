@@ -14,6 +14,7 @@ function App() {
     <div className="p-8 space-y-6">
       <div id="card-host"><SectionCard title="Albums card" viz={viz}><p id="card-body">Body</p></SectionCard></div>
       <div className="flex">
+        <ul id="hidden" className="h-8 w-16" data-bow-viz="${VIZ}" data-bow-info="off"><li>Hidden</li></ul>
         <ul id="tree" className="h-24 w-64" data-bow-viz="${VIZ}"><li>Tree</li></ul>
         <svg id="spark" width="80" height="20"><path d="M0 10 L80 10" stroke="black" /></svg>
       </div>
@@ -61,7 +62,7 @@ try{
   const card=await frame.evaluate(()=>document.querySelector('#card-host').firstElementChild.outerHTML.slice(0,40));
   assert.equal(el.htmlSnippet.slice(0,40),card,s);
   assert.match(el.htmlSnippet,/Albums card/,s);
-  assert.doesNotMatch(el.classes+el.htmlSnippet,/__polish|data-bow-info|aria-label="Details"/,s);
+  assert.doesNotMatch(el.classes+el.htmlSnippet,/__polish|data-bow-info-btn|aria-label="Details"/,s);
  }
  // ⓘ drawn by the data-bow-viz overlay (outside the element in the DOM): the
  // snippet is its owner's.

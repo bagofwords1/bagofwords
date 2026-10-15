@@ -213,7 +213,7 @@ function polishScript(): string {
         if (!el.closest) return null;
         var marker = el.closest('[data-bow-ibtn]');
         if (marker) return marker;
-        var inline = el.closest('[data-bow-info]');
+        var inline = el.closest('[data-bow-info-btn]');
         return inline ? inline.querySelector('button') : null;
       }
       function infoOwner(btn) {
@@ -222,7 +222,7 @@ function polishScript(): string {
           var owners = document.querySelectorAll('[data-bow-viz]');
           return owners[parseInt(btn.getAttribute('data-bow-info-for'), 10)] || null;
         }
-        var inline = btn.closest('[data-bow-info]');
+        var inline = btn.closest('[data-bow-info-btn]');
         return inline.parentElement ? inline.parentElement.parentElement : null;
       }
 
@@ -234,7 +234,7 @@ function polishScript(): string {
       // before the card's own content.
       function snippetOf(target) {
         var clone = target.cloneNode(true);
-        clone.querySelectorAll('[data-bow-info]').forEach(function(n) {
+        clone.querySelectorAll('[data-bow-info-btn]').forEach(function(n) {
           var wrap = n.parentElement;
           (wrap && wrap !== clone && wrap.children.length === 1 ? wrap : n).remove();
         });

@@ -106,7 +106,8 @@ the wiring, which is where this goes wrong:
 - **Every tile stays traceable**: `viz={vizById("<uuid>")}` on the built-in
   components, `data-bow-viz` / `data-bow-calc` on custom markup. The ⓘ can be
   restyled (`infoClassName` color, `infoSize` sm|md|lg; `data-bow-info-class` /
-  `data-bow-info-size` on custom markup) but never removed.
+  `data-bow-info-size` on custom markup) and hidden only on the user's explicit
+  request (`info={false}` / `data-bow-info="off"`, keeping `viz`).
 
 ## 4. Editing an existing dashboard
 

@@ -1,6 +1,7 @@
-// Real Chromium: ⓘ color (infoClassName / data-bow-info-class) and size
-// (infoSize / data-bow-info-size) on every source-backed component, legacy and
-// themed runtimes; omitting them keeps today's ⓘ.
+// Real Chromium: ⓘ color (infoClassName / data-bow-info-class), size
+// (infoSize / data-bow-info-size) and hiding (info={false} / data-bow-info="off")
+// on every source-backed component, legacy and themed runtimes; omitting them
+// keeps today's ⓘ.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
@@ -14,7 +15,11 @@ function App() {
   const viz = vizById("${VIZ}");
   return (
     <div className="p-8 space-y-6">
+      <ul id="custom-hidden" className="h-12 w-64" data-bow-viz="${VIZ}" data-bow-info="off"><li>Hidden</li></ul>
       <ul id="custom" className="h-24 w-64" data-bow-viz="${VIZ}" data-bow-info-class="text-red-500" data-bow-info-size="lg"><li>Tree</li></ul>
+      <div id="hidden-section"><SectionCard title="Hidden" viz={viz} info={false}>x</SectionCard></div>
+      <div id="hidden-kpi"><KPICard title="Hidden KPI" value="1" viz={viz} info={false} /></div>
+      <div id="hidden-chart"><EChart viz={viz} info={false} option={{xAxis:{type:'category',data:['a']},yAxis:{type:'value'},series:[{type:'bar',data:[1]}]}} /></div>
       <div id="plain"><SectionCard title="Plain" viz={viz}>x</SectionCard></div>
       <div id="section"><SectionCard title="Section" viz={viz} infoClassName="text-red-500" infoSize="lg">x</SectionCard></div>
       <div id="kpi"><KPICard title="KPI" value="1" viz={viz} infoClassName="text-red-500" infoSize="sm" /></div>
@@ -70,9 +75,14 @@ try{
   assert.equal(custom.w,28,`runtime ${runtime}: data-bow-info-size`);
   assert.equal(custom.color,red,`runtime ${runtime}: data-bow-info-class`);
   // Marker stays inside its owner's corner at the larger size.
+  // info={false} / data-bow-info="off" hide it; the overlay keeps owner indexes in document order.
+  for(const id of ['hidden-section','hidden-kpi','hidden-chart'])
+   assert.equal(await frame.evaluate(id=>document.querySelectorAll('#'+id+' button[aria-label="Details"]').length,id),0,`runtime ${runtime}: ${id} hidden`);
+  assert.equal(await frame.evaluate(()=>document.querySelectorAll('[data-bow-ibtn]').length),1,`runtime ${runtime}: only the visible custom owner gets a marker`);
+  assert.equal(await frame.evaluate(()=>document.querySelector('[data-bow-ibtn]').getAttribute('data-bow-info-for')),'1',`runtime ${runtime}: marker points at #custom (index 1)`);
   const fits=await frame.evaluate(()=>{const o=document.querySelector('#custom').getBoundingClientRect(),m=document.querySelector('[data-bow-ibtn]').getBoundingClientRect();return m.right<=o.right&&m.left>=o.left});
   assert.ok(fits,`runtime ${runtime}: lg marker within owner`);
   await page.close();
  }
- console.log('PASS: ⓘ infoClassName/infoSize and data-bow-info-class/-size on SectionCard, KPICard, EChart, DataTable and custom markup; defaults unchanged (legacy + themed)');
+ console.log('PASS: ⓘ infoClassName/infoSize/info={false} and data-bow-info-class/-size/off on SectionCard, KPICard, EChart, DataTable and custom markup; defaults unchanged (legacy + themed)');
 }finally{await browser.close()}

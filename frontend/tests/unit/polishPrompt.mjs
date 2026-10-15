@@ -59,6 +59,6 @@ assert.deepEqual(
   const info = buildPolishPrompt('Sales', 'a1', { htmlSnippet: '<div>card</div>', info: true }, 'make it red')
   assert.match(info, /Target: the ⓘ info icon of this element\./, 'ⓘ pick names the icon')
   assert.match(info, /infoClassName .* infoSize .* data-bow-info-class .* data-bow-info-size/, 'ⓘ pick names the styling knobs')
-  assert.match(info, /cannot be removed/, 'ⓘ pick says it is not removable')
+  assert.match(info, /hide it with info=\{false\} \/ data-bow-info="off" \(keep viz\)/, 'ⓘ pick names the hide knob')
   assert.match(info, /```html\n<div>card<\/div>\n```\nInstruction: make it red$/, 'ⓘ pick carries the owner snippet')
 }

@@ -116,8 +116,9 @@ PROVENANCE (required — the ⓘ popover lets readers inspect the data behind ev
   Pass viz={vizById("…")} (plus rows={…} when filtered and calc="…" when derived) to every KPICard, SectionCard and bare EChart.
   For custom markup, put data-bow-viz="<uuid>" (and data-bow-calc="…") on the item's outer element.
   EVERY metric, chart and table must be reachable one of these two ways. UUIDs live in code only — never in visible text.
-  The ⓘ can be restyled, never removed: infoClassName="text-…" (color) and infoSize="sm|md|lg" on KPICard/SectionCard/EChart/DataTable;
-  data-bow-info-class / data-bow-info-size on custom markup. Asked to remove it, say it stays and offer color/size instead.
+  Restyle the ⓘ with infoClassName="text-…" (color) and infoSize="sm|md|lg" on KPICard/SectionCard/EChart/DataTable;
+  data-bow-info-class / data-bow-info-size on custom markup. Hide it ONLY when the user explicitly asks: info={false}
+  (data-bow-info="off" on custom markup) — keep viz bound. Never re-show a hidden ⓘ unless the user asks.
 
 CHARTS: <EChart option={{ xAxis:{type:'category',data:[…]}, yAxis:{type:'value'}, series:[{type:'bar',data:[…]}] }} /> — the 'bow' theme sets palette, fonts, axes,
   grid and tooltip; write only the data mapping unless the design needs more. All ECharts types work (line, bar, pie, scatter, heatmap, treemap, sankey, radar, gauge, calendar…).
