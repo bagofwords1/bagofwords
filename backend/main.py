@@ -724,6 +724,12 @@ async def startup_event():
         # the jobstore; non-leaders would duplicate the set).
         from app.services.scheduled_prompt_service import scheduled_prompt_service
         await scheduled_prompt_service.register_all_jobs()
+        # Published dashboards' schedules (phase 6), rebuilt from the table.
+        try:
+            from app.services.dashboard_refresh import register_all_jobs as register_dashboard_jobs
+            await register_dashboard_jobs()
+        except Exception:
+            logger.warning("Dashboard schedules were not registered", exc_info=True)
 
     # Inbound email polling. Email has no native webhook, so the leader worker
     # polls each org's analyst mailbox (IMAP) and routes authentic messages to

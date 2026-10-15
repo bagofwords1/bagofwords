@@ -3781,6 +3781,7 @@
     "dashboard.version_not_publishable": "Bara en version som slutförts utan fel kan publiceras.",
     "dashboard.publish_public_monitoring": "Den här instrumentpanelen är offentlig och använder övervakningsdata. Ändra delningen innan du publicerar.",
     "dashboard.publish_connection": "En anslutning som den här instrumentpanelen använder fungerar inte: {names}. Anslut den igen och publicera på nytt.",
+    "dashboard.schedule_requires_publish": "Publicera instrumentpanelen innan du schemalägger den.",
     "access.denied": "Åtkomst nekad",
     "account.disabled": "Ditt konto har inaktiverats. Kontakta din administratör.",
     "connection.not_found": "Anslutningen hittades inte",

@@ -123,7 +123,7 @@ def grid_to_df(data) -> pd.DataFrame:
 
 async def resolve_loadables_for_code(
     db: AsyncSession, organization, report, current_user, code: str,
-    *, enable_load_step: bool = True, release=None,
+    *, enable_load_step: bool = True, release=None, fresh_rows: Optional[Dict] = None,
 ) -> Optional[Dict]:
     """One-shot helper for non-streaming paths (step rerun / query run).
 
@@ -134,13 +134,15 @@ async def resolve_loadables_for_code(
 
     `enable_load_step` gates the step half only; when off, `load_step` refs in
     saved code are not resolved (they surface as the sandbox closure's error).
-    `release` scopes resolution to a published dashboard's release.
+    `release` scopes resolution to a published dashboard's release;
+    `fresh_rows` (step id -> rows) are a refresh's not-yet-written results.
     """
     step_refs, entity_refs = extract_loadable_refs(code or "")
     if not step_refs and not entity_refs:
         return None
     resolver = LoadablesResolver(
-        db, organization, report, current_user, enable_load_step=enable_load_step, release=release
+        db, organization, report, current_user, enable_load_step=enable_load_step, release=release,
+        fresh_rows=fresh_rows,
     )
     resolved = await resolver.resolve(step_refs, entity_refs)
     return {"steps": resolved.get("steps", {}), "entities": resolved.get("entities", {})}
@@ -162,7 +164,7 @@ class LoadablesResolver:
     def __init__(
         self, db: AsyncSession, organization, report=None, current_user=None,
         *, enable_load_step: bool = True, step_max_age_seconds: Optional[int] = None,
-        release=None,
+        release=None, fresh_rows: Optional[Dict] = None,
     ):
         self.db = db
         self.organization = organization
@@ -170,6 +172,9 @@ class LoadablesResolver:
         # A published dashboard's release: load_step finds its copies, not a
         # conversation's steps, and monitoring access joins the release's.
         self.release = release
+        # A refresh's new rows, not written until every copy ran: what a copy
+        # loads reads these, so it builds on the same refresh.
+        self.fresh_rows = fresh_rows or {}
         self.current_user = current_user
         # When False, load_step is disabled: no steps are advertised for
         # discovery and none are resolved. load_entity is unaffected.
@@ -318,7 +323,10 @@ class LoadablesResolver:
                         f"directly (with the same parameters) instead."
                     )
                     continue
-                result["steps"][key] = grid_to_df(resolution.data)
+                data = resolution.data
+                if self.release is not None and str(step.id) in self.fresh_rows:
+                    data = self.fresh_rows[str(step.id)]
+                result["steps"][key] = grid_to_df(data)
                 if self.release is not None:
                     # A copy's monitoring access is its release's, which
                     # resolve_release_step has already checked.

@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.notification_schema import NotificationSubscriber
+
 Visibility = Literal["none", "shared", "internal", "public"]
 
 
@@ -65,6 +67,9 @@ class DashboardSettingsSchema(BaseModel):
     chat_enabled: bool
     chat_data_source_ids: list[str] | None = None
     chat_model_id: str | None = None
+    cron_schedule: str | None = None
+    refresh_on_view: bool = True
+    notification_subscribers: list[dict] | None = None
 
 
 class DashboardSettingsUpdate(BaseModel):
@@ -75,6 +80,11 @@ class DashboardSettingsUpdate(BaseModel):
     chat_enabled: bool | None = None
     chat_data_source_ids: list[str] | None = None
     chat_model_id: str | None = None
+    # The schedule (phase 6). cron_schedule "" unschedules (and clears the
+    # subscribers); refresh_on_view is separate and stays.
+    cron_schedule: str | None = None
+    refresh_on_view: bool | None = None
+    notification_subscribers: list[NotificationSubscriber] | None = None
 
 
 class DashboardReleaseSchema(BaseModel):
@@ -94,8 +104,20 @@ class DashboardPublishStatusSchema(BaseModel):
     published: DashboardReleaseSchema | None = None
     latest: DashboardReleaseSchema | None = None
     has_unpublished_changes: bool
+    last_run: "DashboardRunSchema | None" = None
+
+
+class DashboardRunSchema(BaseModel):
+    """How the last refresh of the live release went (phase 6): `at` is the
+    last success; status and error describe the last attempt."""
+    at: datetime | None = None
+    status: Literal["success", "failed"] | None = None
+    error: str | None = None
 
 
 class DashboardPublishRequest(BaseModel):
     """None publishes the newest completed version."""
     version_id: str | None = None
+
+
+DashboardPublishStatusSchema.model_rebuild()

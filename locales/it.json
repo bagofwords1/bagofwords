@@ -3781,6 +3781,7 @@
     "dashboard.version_not_publishable": "Si può pubblicare solo una versione completata correttamente.",
     "dashboard.publish_public_monitoring": "Questa dashboard è pubblica e usa dati di monitoraggio. Modifica la condivisione prima di pubblicarla.",
     "dashboard.publish_connection": "Una connessione usata da questa dashboard non funziona: {names}. Ricollegala e pubblica di nuovo.",
+    "dashboard.schedule_requires_publish": "Pubblica la dashboard prima di pianificarla.",
     "access.denied": "Accesso negato",
     "account.disabled": "Il tuo account è stato disattivato. Contatta il tuo amministratore.",
     "connection.not_found": "Connessione non trovata",

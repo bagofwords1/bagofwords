@@ -556,6 +556,7 @@ class NotificationService:
         subscribers: list,
         report_url: str,
         locale: Optional[str] = None,
+        organization_id: Optional[str] = None,
     ):
         """Send post-rerun notification to all subscribers with optional PDF attachment.
 
@@ -569,6 +570,7 @@ class NotificationService:
             report_url=report_url,
             exec_summary=None,
             locale=locale,
+            organization_id=organization_id,
         )
 
     async def send_automation_failure(
@@ -619,8 +621,13 @@ class NotificationService:
         report_url: str,
         exec_summary: Optional[dict] = None,
         locale: Optional[str] = None,
+        organization_id: Optional[str] = None,
     ):
         """Send notification after a scheduled prompt execution completes.
+
+        `organization_id` routes the mail through that organization's relay
+        when `report_id` is not a conversation (a published dashboard's
+        schedule, phase 6); otherwise the conversation's organization.
 
         exec_summary: {"iterations": N, "queries": N, "artifacts": N, "last_content": "..."}
         """
@@ -629,7 +636,6 @@ class NotificationService:
 
         # Resolve subscriber emails + the report's org (for Org SMTP routing).
         recipient_emails = []
-        organization_id = None
         try:
             from app.dependencies import async_session_maker
             from app.models.user import User
@@ -637,7 +643,7 @@ class NotificationService:
 
             async with async_session_maker() as db:
                 rep = await db.get(Report, report_id)
-                organization_id = rep.organization_id if rep else None
+                organization_id = (rep.organization_id if rep else None) or organization_id
                 for sub in subscribers:
                     if sub.get("type") == "email" and sub.get("address"):
                         recipient_emails.append(sub["address"])

@@ -603,3 +603,45 @@ Tests: `test_dashboard_publish.py`, `test_schema_dashfc04.py`.
 - `start_publish`'s in-progress check and the dashfc04 index give the same
   answer; the check saves the connection check, the index holds between two
   servers.
+
+## Phase 6 — refresh and schedule of the published dashboard
+
+Decisions (with Rachel, 2026-10-15): a refresh runs every copy of the live
+release and writes all of the new rows at once, or none (the copies keep
+their ids; a new release per refresh would change them); the schedule runs as
+the dashboard's owner as they are at run time, while still in the
+organization; refresh on view keeps the conversation's rule (the owner's
+credentials, at most once per five minutes, one at a time; not during a
+publish); a dashboard is scheduled only once published; the schedule fires in
+the organization's timezone when it has one, else on the server's clock (the
+scheduled prompts' rule); subscribers are told on success as today (a link,
+now to `/d`), and the owner is told on failure; a connection each person
+signs in to refreshes exactly as today (the owner's sign-in; readers' own
+results go); the conversations' schedules stay as they are until the data
+migration.
+
+- **Settings**: `cron_schedule`, `refresh_on_view` and
+  `notification_subscribers` on `/api/dashboards/{id}/settings`, with the
+  conversation's validation; `""` unschedules and clears the subscribers;
+  scheduling an unpublished dashboard is refused
+  (`dashboard.schedule_requires_publish`). Saving registers the job.
+- **Jobs** (`dashboard_refresh`): `dashboard_{id}`, holding only the id; the
+  leader re-registers every published, scheduled dashboard's job at startup
+  and removes any other `dashboard_` job. A fire claims the run
+  (`claim_scheduled_run`); a dashboard gone, unpublished or unscheduled
+  drops its job; an owner no longer in the organization fails the run.
+- **The run** is Publish's (`dashboard_publish.run_release_copies`), handed a
+  keep-it-for-later callback: what a copy loads reads the refresh's own new
+  rows (`ExecContext.fresh_rows`); at the end, under the dashboard's row lock
+  and only while the release is still live, every row is written, readers'
+  own results on them go, and `last_run_at` / `last_run_status` /
+  `last_run_error` (dashfc05) are set. A failure writes no row and records
+  the reason. A published deck is frozen and does not refresh.
+- **Routes**: `POST /api/dashboards/{id}/refresh` (the owner's Refresh) and
+  `POST /api/d/{id}/refresh` (on view, under the `/d` access check); the
+  publish status reports `last_run`.
+- **Notifications**: the conversation schedule's inbox row and email with a
+  `/d` link; failures go to the owner through
+  `automation_alerts.notify_owner_of_failure` (which now takes a `link`).
+
+Tests: `test_dashboard_refresh.py`.

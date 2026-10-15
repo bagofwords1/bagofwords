@@ -63,6 +63,7 @@ class ErrorCode(str, Enum):
     DASHBOARD_VERSION_NOT_PUBLISHABLE = "dashboard.version_not_publishable"
     DASHBOARD_PUBLISH_PUBLIC_MONITORING = "dashboard.publish_public_monitoring"
     DASHBOARD_PUBLISH_CONNECTION = "dashboard.publish_connection"
+    DASHBOARD_SCHEDULE_REQUIRES_PUBLISH = "dashboard.schedule_requires_publish"
     FILE_NOT_FOUND = "file.not_found"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"

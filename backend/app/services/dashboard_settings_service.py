@@ -8,7 +8,11 @@ granted must be a member of the organization. The conversation's own
 sharing and settings are never touched: /r keeps reading them until the
 data migration.
 
-Schedule settings join in phase 6, with the refresh that uses them.
+The schedule (phase 6): a cron, refreshing on view, and who is told after a
+scheduled refresh -- the conversation's schedule rules, on the dashboard.
+A schedule needs a published release (there is nothing to refresh before);
+unscheduling clears the subscribers and leaves refreshing on view as it is.
+Saving registers the dashboard's job (dashboard_refresh).
 """
 import logging
 
@@ -197,7 +201,10 @@ def get_settings(artifact) -> dict:
             "include_data_tab": bool(artifact.include_data_tab),
             "chat_enabled": bool(artifact.chat_enabled),
             "chat_data_source_ids": artifact.chat_data_source_ids,
-            "chat_model_id": artifact.chat_model_id}
+            "chat_model_id": artifact.chat_model_id,
+            "cron_schedule": artifact.cron_schedule,
+            "refresh_on_view": bool(artifact.refresh_on_view),
+            "notification_subscribers": artifact.notification_subscribers}
 
 
 async def _data_source_ids(db, artifact) -> list[str]:
@@ -259,6 +266,21 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
 
         await LLMService().validate_model_for_user(db, organization, current_user, model)
 
+    cron = changes.get("cron_schedule")
+    unschedule = cron is not None and (not cron.strip() or cron.strip().lower() in {"none", "null", "false"})
+    if cron is not None and not unschedule:
+        from app.services.dashboard_refresh import parse_cron
+
+        try:
+            parse_cron(cron)
+        except Exception:
+            raise AppError.bad_request(ErrorCode.VALIDATION, "Invalid schedule")
+        if await published_release(db, artifact) is None:
+            raise AppError.conflict(ErrorCode.DASHBOARD_SCHEDULE_REQUIRES_PUBLISH,
+                                    "Publish the dashboard before scheduling it")
+        if artifact.mode == "slides":
+            raise AppError.bad_request(ErrorCode.VALIDATION, "A published deck is frozen and does not refresh")
+
     if switch_identity:
         await _drop_viewer_results(db, artifact)
         artifact.shared_run_identity = identity
@@ -271,9 +293,21 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
         artifact.chat_data_source_ids = None if sources == ["*"] else sources
     if model is not None:
         artifact.chat_model_id = model or None
+    if cron is not None:
+        artifact.cron_schedule = None if unschedule else cron.strip()
+    if unschedule:
+        artifact.notification_subscribers = None
+    elif changes.get("notification_subscribers") is not None:
+        artifact.notification_subscribers = list(changes["notification_subscribers"])
+    if changes.get("refresh_on_view") is not None:
+        artifact.refresh_on_view = bool(changes["refresh_on_view"])
 
     await db.commit()
     await db.refresh(artifact)
+    if cron is not None:
+        from app.services.dashboard_refresh import org_timezone, register_job
+
+        register_job(str(artifact.id), artifact.cron_schedule, await org_timezone(db, artifact.organization_id))
     await _audit(db, organization, current_user, artifact, "dashboard.settings_changed",
                  {k: v for k, v in changes.items() if v is not None})
     return get_settings(artifact)

@@ -3963,6 +3963,7 @@
     "dashboard.version_not_publishable": "Only a version that finished successfully can be published.",
     "dashboard.publish_public_monitoring": "This dashboard is public and uses monitoring data. Change its sharing before publishing.",
     "dashboard.publish_connection": "A connection this dashboard uses isn't working: {names}. Reconnect it and publish again.",
+    "dashboard.schedule_requires_publish": "Publish the dashboard before scheduling it.",
     "access.denied": "Access denied",
     "account.disabled": "Your account has been disabled. Contact your administrator.",
     "connection.not_found": "Connection not found",

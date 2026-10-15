@@ -3781,6 +3781,7 @@
     "dashboard.version_not_publishable": "يمكن نشر الإصدار الذي اكتمل بنجاح فقط.",
     "dashboard.publish_public_monitoring": "لوحة المعلومات هذه عامة وتستخدم بيانات المراقبة. غيّر إعدادات المشاركة قبل النشر.",
     "dashboard.publish_connection": "أحد الاتصالات التي تستخدمها لوحة المعلومات هذه لا يعمل: {names}. أعد الاتصال به ثم انشر مرة أخرى.",
+    "dashboard.schedule_requires_publish": "انشر لوحة المعلومات قبل جدولتها.",
     "access.denied": "تم رفض الوصول",
     "account.disabled": "تم تعطيل حسابك. يرجى التواصل مع المسؤول.",
     "connection.not_found": "الاتصال غير موجود",

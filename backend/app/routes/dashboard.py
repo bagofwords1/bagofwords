@@ -156,6 +156,22 @@ async def get_dashboard_publish_status(
     return await dashboard_publish.publish_status(db, artifact)
 
 
+@router.post("/dashboards/{dashboard_id}/refresh")
+@requires_permission("publish_reports")
+async def refresh_dashboard(
+    dashboard_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The owner's Refresh of the published dashboard: every copy runs again
+    with their credentials; all of the new rows are written, or none."""
+    from app.services import dashboard_refresh
+
+    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    return await dashboard_refresh.owner_refresh(db, artifact, current_user, organization)
+
+
 @router.get("/dashboards/{dashboard_id}/settings", response_model=DashboardSettingsSchema)
 @requires_permission("publish_reports")
 async def get_dashboard_settings(
@@ -475,6 +491,20 @@ async def export_published_dashboard(
 
 
 # ── Running a published dashboard (part C) ───────────────────────────────
+
+@router.post("/d/{ref}/refresh")
+async def refresh_published_dashboard_on_view(
+    ref: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """A reader opened the dashboard: refresh it as the owner, unless it is
+    off, fresh, being published or already refreshing (phase 6)."""
+    from app.services import dashboard_refresh
+
+    artifact, _ = await dashboard_access.open_published(db, ref, user)
+    return await dashboard_refresh.refresh_on_view(db, artifact)
+
 
 @router.post("/d/{ref}/run")
 async def run_published_dashboard(

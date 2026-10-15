@@ -3781,6 +3781,7 @@
     "dashboard.version_not_publishable": "Só é possível publicar uma versão concluída com sucesso.",
     "dashboard.publish_public_monitoring": "Este painel é público e usa dados de monitoramento. Altere o compartilhamento antes de publicar.",
     "dashboard.publish_connection": "Uma conexão usada por este painel não está funcionando: {names}. Reconecte-a e publique novamente.",
+    "dashboard.schedule_requires_publish": "Publique o painel antes de agendá-lo.",
     "access.denied": "Acesso negado",
     "account.disabled": "Sua conta foi desativada. Entre em contato com seu administrador.",
     "connection.not_found": "Conexão não encontrada",

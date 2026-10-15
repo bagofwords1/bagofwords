@@ -13,7 +13,9 @@ from sqlalchemy import text
 from tests.e2e.dashboards.dashboard_setup import as_, own, publish
 
 DEFAULTS = {"shared_run_identity": "viewer", "include_data_tab": True, "chat_enabled": False,
-            "chat_data_source_ids": None, "chat_model_id": None}
+            "chat_data_source_ids": None, "chat_model_id": None,
+            # The schedule (phase 6, test_dashboard_refresh.py).
+            "cron_schedule": None, "refresh_on_view": True, "notification_subscribers": None}
 
 
 def _get(test_client, corpus, aid, by="owner"):

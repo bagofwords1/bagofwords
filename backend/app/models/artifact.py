@@ -58,8 +58,8 @@ class Artifact(BaseSchema):
     # They mirror the conversation-level columns on `reports` (same
     # defaults). Since phase 4 the /d routes read them and /api/dashboards
     # writes them; /r keeps reading the conversation's until the data
-    # migration (docs/design/dashboards-first-class.md). Schedule columns are
-    # not used before phase 6.
+    # migration (docs/design/dashboards-first-class.md). The schedule ones
+    # refresh the published release (phase 6).
     owner_id = Column(String(36), ForeignKey('users.id', name='fk_artifacts_owner_id'), nullable=True, index=True)
     project_id = Column(String(36), ForeignKey('projects.id', name='fk_artifacts_project_id'),
                         nullable=True, index=True)
@@ -73,6 +73,10 @@ class Artifact(BaseSchema):
     cron_schedule = Column(String, nullable=True)
     refresh_on_view = Column(Boolean, nullable=False, default=True, server_default='1')
     last_run_at = Column(DateTime, nullable=True)
+    # How the last refresh of the published release went (dashfc05):
+    # 'success' | 'failed', and why it failed. last_run_at: the last success.
+    last_run_status = Column(String(20), nullable=True)
+    last_run_error = Column(Text, nullable=True)
     notification_subscribers = Column(JSON, nullable=True)
     # The live release. artifact_releases.artifact_id points back here, so the
     # key is created after both tables (use_alter) and cleared, not blocked,

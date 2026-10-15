@@ -34,6 +34,7 @@ class ExecContext:
         report=None,
         release=None,
         loadables_user=None,
+        fresh_rows=None,
     ):
         self._organization = organization
         self._organization_id = organization_id
@@ -45,6 +46,9 @@ class ExecContext:
         self.loadables_user = loadables_user
         self.report = report
         self.release = release
+        # A refresh keeps each copy's new rows until every copy ran (phase 6):
+        # step id -> rows, which load_step reads instead of the stored ones.
+        self.fresh_rows = fresh_rows
         # A list, or a callable read only when used: callers that pass
         # prebuilt clients never touch data_sources, so a report loaded
         # without them keeps working exactly as before.

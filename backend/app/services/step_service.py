@@ -379,7 +379,7 @@ class StepService:
         # conversation (ctx.report) or published release (ctx.release).
         loadables = await resolve_loadables_for_code(
             db, org, ctx.report, ctx.loadables_user or ctx.credential_user, code, enable_load_step=_ls_enabled,
-            release=ctx.release,
+            release=ctx.release, fresh_rows=getattr(ctx, "fresh_rows", None),
         )
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.data_sources.clients.bow_client import install_bow_client

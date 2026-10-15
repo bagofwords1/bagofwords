@@ -99,6 +99,8 @@ async def publish_status(db, artifact: Artifact) -> dict:
         "published": _release_view(live if live is not None and live.status == "ready" else None),
         "latest": _release_view(latest),
         "has_unpublished_changes": newest is not None and str(newest.id) != published_version,
+        "last_run": {"at": artifact.last_run_at, "status": artifact.last_run_status,
+                     "error": artifact.last_run_error},
     }
 
 
@@ -322,12 +324,7 @@ async def _run_copies(db, release_id: str):
     """None when every copy ran, else the reason (or _ABANDONED). Each step
     commits as it goes: nothing reads a release before it goes live, and a
     failure deletes every copy anyway."""
-    from app.ai.tools.implementations.agent_focus_common import accessible_agents
     from app.models.organization import Organization
-    from app.services.dashboard_runs import in_dependency_order, release_data_sources, release_files
-    from app.services.data_source_service import DataSourceService
-    from app.services.exec_context import ExecContext
-    from app.services.step_service import StepService
 
     release = await db.get(ArtifactRelease, release_id)
     if release is None or release.status != "publishing":
@@ -341,6 +338,35 @@ async def _run_copies(db, release_id: str):
     organization = await db.get(Organization, str(release.organization_id))
     if publisher is None or organization is None:
         return "The publisher is no longer available"
+
+    async def beat() -> bool:
+        return await _beat(db, release_id)
+
+    async def write(step, data, params) -> None:
+        step.data = data
+        step.applied_params = dict(params) if params else None
+        step.status = "success"
+        await db.commit()
+
+    return await run_release_copies(db, release, publisher, organization, before_step=beat, after_step=write)
+
+
+async def run_release_copies(db, release: ArtifactRelease, run_user: User, organization, *,
+                             after_step, before_step=None):
+    """Run every copied default step of `release` with `run_user`'s
+    credentials, what a step loads first: Publish's run, and a refresh's
+    (phase 6). `after_step(step, data, params)` is handed each result --
+    Publish writes it at once, a refresh keeps it until every step ran.
+    `before_step()` returning False stops the run (_ABANDONED). None when
+    every step ran, else the reason; a step that fails rolls the session
+    back."""
+    from app.ai.tools.implementations.agent_focus_common import accessible_agents
+    from app.services.dashboard_runs import in_dependency_order, release_data_sources, release_files
+    from app.services.data_source_service import DataSourceService
+    from app.services.exec_context import ExecContext
+    from app.services.step_service import StepService
+
+    release_id = str(release.id)
     org_settings = await organization.get_settings(db)
 
     steps = {str(s.id): s for s in (await db.execute(
@@ -352,7 +378,7 @@ async def _run_copies(db, release_id: str):
     sources = await release_data_sources(db, release)
     own_sources = bool(sources)
     if not own_sources:
-        sources = await accessible_agents(db, organization, publisher)
+        sources = await accessible_agents(db, organization, run_user)
     sources = [ds for ds in sources if DataSourceService.is_execution_live(ds)]
     # A broken source the code does not use fails nothing (as the check
     # before the copy); it gets no client either.
@@ -362,7 +388,7 @@ async def _run_copies(db, release_id: str):
     for ds in sources:
         errors: list = []
         try:
-            clients.update(await ds_service.construct_clients(db, ds, current_user=publisher,
+            clients.update(await ds_service.construct_clients(db, ds, current_user=run_user,
                                                               connection_errors=errors))
         except Exception as e:
             if own_sources and str(ds.id) in needed:
@@ -373,12 +399,14 @@ async def _run_copies(db, release_id: str):
             return f"{first.get('connection_name') or ds.name}: {first.get('error')}"[:_ERROR_LIMIT]
 
     ctx = ExecContext.from_release(release, data_sources=sources, files=await release_files(db, release),
-                                   credential_user=publisher, reader=publisher, organization=organization,
+                                   credential_user=run_user, reader=run_user, organization=organization,
                                    organization_settings=org_settings)
+    ctx.fresh_rows = {}  # the new rows of each step another one loads
+    loaded = await _loaded_step_ids(db, release, [s.code for s in steps.values()])
     order = await in_dependency_order(db, release, [(sid, s.code) for sid, s in steps.items()])
     service = StepService()
     for step_id, code in order:
-        if not await _beat(db, release_id):
+        if before_step is not None and not await before_step():
             return _ABANDONED
         if not (code or "").strip():
             continue  # nothing to run: the copied rows stay
@@ -387,18 +415,33 @@ async def _run_copies(db, release_id: str):
         try:
             specs = service._step_param_specs(step)
             params = await service._resolve_step_params(
-                db, step, stored=step.applied_params, run_user=publisher,
+                db, step, stored=step.applied_params, run_user=run_user,
                 organization_id=str(release.organization_id), specs=specs)
             data = await service._execute_step_code(db, step, ctx, db_clients=clients, params=params,
                                                     param_specs=specs)
         except Exception as e:
             await db.rollback()
             return f"{label}: {_reason(e)}"[:_ERROR_LIMIT]
-        step.data = data
-        step.applied_params = dict(params) if params else None
-        step.status = "success"
-        await db.commit()
+        if step_id in loaded:
+            ctx.fresh_rows[step_id] = data
+        await after_step(step, data, params)
     return None
+
+
+async def _loaded_step_ids(db, release: ArtifactRelease, codes: list) -> set:
+    """The release's steps some copy loads (load_step, resolved as the
+    release resolves it)."""
+    from app.ai.code_execution.loadables import extract_loadable_refs
+    from app.services.identity_taint import release_step_lookup
+
+    lookup = await release_step_lookup(db, str(release.id))
+    loaded = set()
+    for code in codes:
+        for ref in extract_loadable_refs(code or "")[0]:
+            step = lookup(ref)
+            if step is not None:
+                loaded.add(str(step.id))
+    return loaded
 
 
 async def _go_live(db, release_id: str) -> bool:
@@ -435,7 +478,8 @@ async def _go_live(db, release_id: str) -> bool:
         if switched.rowcount != 1:
             return False
         await db.execute(update(Artifact).where(Artifact.id == artifact_id)
-                         .values(published_release_id=release_id, last_run_at=datetime.utcnow()))
+                         .values(published_release_id=release_id, last_run_at=datetime.utcnow(),
+                                 last_run_status="success", last_run_error=None))
         return True
 
     if not await switch():

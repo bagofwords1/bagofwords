@@ -3781,6 +3781,7 @@
     "dashboard.version_not_publishable": "Nur eine erfolgreich abgeschlossene Version kann veröffentlicht werden.",
     "dashboard.publish_public_monitoring": "Dieses Dashboard ist öffentlich und nutzt Monitoring-Daten. Ändere die Freigabe vor dem Veröffentlichen.",
     "dashboard.publish_connection": "Eine Verbindung, die dieses Dashboard nutzt, funktioniert nicht: {names}. Verbinde sie neu und veröffentliche erneut.",
+    "dashboard.schedule_requires_publish": "Veröffentliche das Dashboard, bevor du es planst.",
     "access.denied": "Zugriff verweigert",
     "account.disabled": "Ihr Konto wurde deaktiviert. Wenden Sie sich an Ihren Administrator.",
     "connection.not_found": "Verbindung nicht gefunden",

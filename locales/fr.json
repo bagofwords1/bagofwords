@@ -3781,6 +3781,7 @@
     "dashboard.version_not_publishable": "Seule une version terminée avec succès peut être publiée.",
     "dashboard.publish_public_monitoring": "Ce tableau de bord est public et utilise des données de supervision. Modifiez son partage avant de le publier.",
     "dashboard.publish_connection": "Une connexion utilisée par ce tableau de bord ne fonctionne pas : {names}. Reconnectez-la et publiez à nouveau.",
+    "dashboard.schedule_requires_publish": "Publiez le tableau de bord avant de le planifier.",
     "access.denied": "Accès refusé",
     "account.disabled": "Votre compte a été désactivé. Contactez votre administrateur.",
     "connection.not_found": "Connexion introuvable",
