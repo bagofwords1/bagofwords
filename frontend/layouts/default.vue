@@ -44,7 +44,7 @@
       <UIcon name="i-heroicons-bars-3" class="w-6 h-6" />
     </button>
     <button @click="router.push('/')" class="flex items-center gap-2 min-w-0">
-      <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-6 max-w-[84px] object-contain" />
+      <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="BOW" class="max-h-6 max-w-[84px] object-contain" />
     </button>
     <button @click="createNewReport" class="flex items-center justify-center w-9 h-9 -me-1 rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" aria-label="New report">
       <UIcon name="heroicons-plus-circle" class="w-6 h-6" />
@@ -91,13 +91,13 @@
                 <UIcon v-if="item.isCurrent" name="i-heroicons-check" class="w-4 h-4 shrink-0 ms-auto text-gray-400 dark:text-gray-500" />
               </template>
               <button :class="workspaceButtonClass" :aria-label="$t('nav.switchOrganization')">
-                <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
+                <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="BOW" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
                 <span v-if="showText && organization?.name" class="text-[13px] font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
                 <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
               </button>
             </UDropdown>
             <button v-else @click="router.push('/')" :class="workspaceButtonClass">
-              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
+              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="BOW" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
               <span v-if="showText && organization?.name" class="text-[13px] font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
             </button>
             <div class="flex items-center gap-0.5" :class="isCollapsed ? 'flex-col' : ''">

@@ -16,7 +16,7 @@ Reviewed baseline: `3e32c09db2e88815bd2b9910db84ddd71d145d7f`.
 
 ## Outcome
 
-Generate a purpose-built data app whose visual quality, interaction design, and composition fit the user's task. It should feel intentionally designed, use real Bag of Words data, and support working query parameters, filters, and detail exploration when the request calls for them. A dashboard is one possible view of such an app.
+Generate a purpose-built data app whose visual quality, interaction design, and composition fit the user's task. It should feel intentionally designed, use real BOW data, and support working query parameters, filters, and detail exploration when the request calls for them. A dashboard is one possible view of such an app.
 
 For example, a music catalog request can open on a searchable catalog with a selected album's details. A sales exploration request can center on a chart, a period selector, and regional drill-down. Neither needs a giant revenue statement or a row of invented KPIs above the working interface.
 

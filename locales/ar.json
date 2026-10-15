@@ -2106,7 +2106,7 @@
       "integrate": "ربط",
       "setup": "إعداد",
       "excelAddinName": "إضافة Excel",
-      "excelAddinDescription": "حمّل إضافة Bag of Words مباشرة من هذا الإصدار",
+      "excelAddinDescription": "حمّل إضافة BOW مباشرة من هذا الإصدار",
       "mcpName": "خادم BOW MCP",
       "mcpDescription": "تفعيل نقطة نهاية MCP للتكامل مع مساعدي الذكاء الاصطناعي مثل Cursor وClaude وغيرها",
       "channels": {
@@ -2377,9 +2377,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2404,7 +2404,7 @@
         },
         "excel": {
           "title": "وظيفة Excel الإضافية",
-          "subtitle": "حمّل وظيفة Bag of Words الإضافية مباشرةً من هذا المثيل.",
+          "subtitle": "حمّل وظيفة BOW الإضافية مباشرةً من هذا المثيل.",
           "loading": "جارٍ التحميل...",
           "setup": "الإعداد",
           "step1": "نزّل ملف manifest أدناه",
@@ -2454,7 +2454,7 @@
           "title": "التكامل مع Google Chat"
         }
       },
-      "emptyTitle": "اجعل Bag of Words يعمل مع أدواتك",
+      "emptyTitle": "اجعل BOW يعمل مع أدواتك",
       "emptySubtitle": "اربط Slack وTeams والبريد الإلكتروني والمزيد ليتمكن فريقك من الوصول إلى محلل الذكاء الاصطناعي حيث يعملون بالفعل. اختر تكاملاً للبدء.",
       "selectHint": "اختر تكاملاً",
       "slackDescription": "دع فريقك يتحدث مع محلل الذكاء الاصطناعي من قنوات Slack والرسائل المباشرة.",
@@ -2551,7 +2551,7 @@
     "uploadIcon": "رفع أيقونة",
     "iconConstraints": "PNG/JPEG، ≤ 512 ك.ب.",
     "aiAnalystName": "اسم محلل الذكاء الاصطناعي",
-    "showCredit": "عرض ملاحظة \"Made with Bag of words\"",
+    "showCredit": "عرض ملاحظة \"Made with BOW\"",
     "language": {
       "title": "اللغة",
       "description": "تحدد اللغة الافتراضية للمؤسسة بأكملها. سيرى المستخدمون الواجهة بهذه اللغة وسيرد الذكاء الاصطناعي بها.",
@@ -3742,7 +3742,7 @@
         },
         {
           "title": "طباعة ملف الوصول",
-          "body": "احفظه باسم print_access_file.sh وشغّله. ينتظر الرمز ثم يطبع ملفًا واحدًا مستقلًا (عنوان خادم API، وCA العنقود، والرمز). تحقق منه عبر: kubectl --kubeconfig access.yaml get nodes. إذا كان عنوان الخادم خاصًا بشبكتك، فعدّله إلى العنوان الذي يمكن لهذه النسخة من Bag of Words الوصول إليه."
+          "body": "احفظه باسم print_access_file.sh وشغّله. ينتظر الرمز ثم يطبع ملفًا واحدًا مستقلًا (عنوان خادم API، وCA العنقود، والرمز). تحقق منه عبر: kubectl --kubeconfig access.yaml get nodes. إذا كان عنوان الخادم خاصًا بشبكتك، فعدّله إلى العنوان الذي يمكن لهذه النسخة من BOW الوصول إليه."
         },
         {
           "title": "الصقه أدناه واختبر الاتصال",
@@ -4286,7 +4286,7 @@
   "onboarding": {
     "loading": "جارٍ التحميل...",
     "skip": "تخطي الإعداد",
-    "welcome": "مرحبًا بك في Bag of words! 🎉",
+    "welcome": "مرحبًا بك في BOW! 🎉",
     "welcomeSubtitle": "تحدّث مع بياناتك، وشغّل تحليلات متعمقة، وأنشئ لوحات تحكم في ثوانٍ",
     "next": "التالي",
     "fallbackTitle": "ابدأ",
@@ -4296,7 +4296,7 @@
     "intro1": "البدء سريع: فقط اربط نموذجك ومصدر بياناتك، وستكون جاهزًا لطرح أول سؤال.",
     "intro2": "👉 لنبدأ الإعداد!",
     "steps": {
-      "onboardingTitle": "مرحبًا بك في Bag of words! 🎉",
+      "onboardingTitle": "مرحبًا بك في BOW! 🎉",
       "onboardingDescription": "تحدّث مع بياناتك، وشغّل تحليلات متعمقة، وأنشئ لوحات تحكم في ثوانٍ",
       "onboardingButton": "أهلًا بك",
       "llmTitle": "إعداد نموذج اللغة",
@@ -4905,8 +4905,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "خادم Bag of words MCP",
-    "subtitle": "اربط Claude أو Cursor أو أي عميل MCP للاستعلام عن بياناتك عبر خادم Bag of words MCP.",
+    "title": "خادم BOW MCP",
+    "subtitle": "اربط Claude أو Cursor أو أي عميل MCP للاستعلام عن بياناتك عبر خادم BOW MCP.",
     "loading": "جارٍ التحميل...",
     "tabMcpClients": "عملاء MCP",
     "tabOauth": "OAuth",

@@ -1,6 +1,6 @@
 # Feedback Loop — "SCIM Groups endpoint. Only Users exists today."
 
-An Entra ID or Okta admin who assigns **groups** to the Bag of Words enterprise
+An Entra ID or Okta admin who assigns **groups** to the BOW enterprise
 app gets nothing in BOW: `/scim/v2` serves only `/Users`, so the IdP's first
 group request (`GET /Groups?excludedAttributes=members&filter=displayName eq
 "…"`) is a 404 and every group fails to provision. Admins have to rebuild their

@@ -7,7 +7,7 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
 - **k8s/**
   - `README.md`: Install/upgrade instructions with `helm` examples, secrets usage, SA annotations, node selectors.
   - `AGENTS.md`: This guide.
-  - `chart/`: Helm chart for Bag of Words
+  - `chart/`: Helm chart for BOW
     - `Chart.yaml`, `Chart.lock`: Chart metadata and lockfile.
     - `values.yaml`: Default configuration values.
     - `templates/`: Rendered into K8s manifests

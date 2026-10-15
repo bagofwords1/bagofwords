@@ -1,6 +1,6 @@
 ---
 name: readme-showcase
-description: Build or refresh a product README showcase using a seeded Bag of Words workspace, polished in-product screenshots, and repository-ready visual assets. Use when positioning has changed, README screenshots are stale, a launch/demo workspace is needed, or the user asks to populate agents, reports, dashboards, evals, automations, connectors, or monitoring for product storytelling.
+description: Build or refresh a product README showcase using a seeded BOW workspace, polished in-product screenshots, and repository-ready visual assets. Use when positioning has changed, README screenshots are stale, a launch/demo workspace is needed, or the user asks to populate agents, reports, dashboards, evals, automations, connectors, or monitoring for product storytelling.
 ---
 
 # README Showcase

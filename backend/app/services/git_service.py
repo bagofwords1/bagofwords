@@ -997,7 +997,7 @@ class GitService:
                         source_branch=branch_name,
                         target_branch=repository.branch or "main",
                         title=pr_title,
-                        description=f"Automated PR from Bag of Words build #{build.build_number}",
+                        description=f"Automated PR from BOW build #{build.build_number}",
                     )
                     build.git_pr_url = pr_url
                 

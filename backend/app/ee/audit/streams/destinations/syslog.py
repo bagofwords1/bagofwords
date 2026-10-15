@@ -62,7 +62,7 @@ def format_cef(e: dict, version: str = "1") -> str:
     }
     exts = " ".join(f"{k}={_cef_ext(v)}" for k, v in ext.items() if v not in (None, ""))
     action = e.get("action", "")
-    return f"CEF:0|Bag of Words|Bag of Words|{_cef_header(version)}|{_cef_header(action)}|{_cef_header(action)}|3|{exts}"
+    return f"CEF:0|BOW|BOW|{_cef_header(version)}|{_cef_header(action)}|{_cef_header(action)}|3|{exts}"
 
 
 def format_rfc5424(e: dict, *, app_name: str, fmt: str, hostname: Optional[str] = None) -> bytes:

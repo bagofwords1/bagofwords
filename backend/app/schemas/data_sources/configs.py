@@ -3086,7 +3086,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
     """Client-certificate (mutual TLS) auth for QRS and the Engine API.
 
     Export the certificate from the QMC: Certificates > enter the machine name
-    running Bag of Words > format "Platform independent PEM-format" > Export.
+    running BOW > format "Platform independent PEM-format" > Export.
     The bundle contains client.pem, client_key.pem and root.pem.
 
     A Qlik client certificate is admin-equivalent — it can act as any user on

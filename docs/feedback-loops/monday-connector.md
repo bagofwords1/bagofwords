@@ -80,7 +80,7 @@ monday.com trial account (EU region) with Claude 4.5 Haiku as the only model.
 The connector pinned monday API version `2024-10` and its paginated `boards`
 query did not specify `hierarchy_types`. monday excludes multi-level boards
 from that legacy query for backwards compatibility, so an API token could see
-the board in monday's UI while Bag of Words silently indexed only classic
+the board in monday's UI while BOW silently indexed only classic
 boards. The omission was at
 `backend/app/data_sources/clients/monday_client.py:29` and
 `backend/app/data_sources/clients/monday_client.py:202` before the fix.

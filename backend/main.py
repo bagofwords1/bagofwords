@@ -342,7 +342,7 @@ def custom_openapi():
     openapi_schema = get_openapi(
         title=settings.PROJECT_NAME,
         version=settings.PROJECT_VERSION,
-        description="Bag of Words API",
+        description="BOW API",
         routes=app.routes,
     )
 

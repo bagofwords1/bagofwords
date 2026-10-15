@@ -1,13 +1,13 @@
 ---
 title: 'Deployment Options'
 icon: 'server'
-description: 'Install Bag of Words on your own server using Docker or Kubernetes'
+description: 'Install BOW on your own server using Docker or Kubernetes'
 ---
 
 ## Install with Docker
 ---
 
-You can install Bag of Words with a single docker command. By default, it will use SQLite as the database.
+You can install BOW with a single docker command. By default, it will use SQLite as the database.
 You can also configure it to use PostgreSQL by passing `BOW_DATABASE_URL` environment variable.
 
 ```bash
@@ -33,7 +33,7 @@ For example: `BOW_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/bag
 ## Install with Docker Compose
 ---
 
-Run Bag of Words with Docker Compose and Caddy (built-in TLS on port 443). We recommend using the canonical files from the repo to avoid drift:
+Run BOW with Docker Compose and Caddy (built-in TLS on port 443). We recommend using the canonical files from the repo to avoid drift:
 
 - `docker-compose.yaml`: https://github.com/bagofwords1/bagofwords/blob/main/docker-compose.yaml
 - `Caddyfile`: https://github.com/bagofwords1/bagofwords/blob/main/Caddyfile
@@ -132,7 +132,7 @@ docker run --pull always -d -p 3000:3000 -v $(pwd)/bow-config.yaml:/app/bow-conf
 ## Install with Kubernetes
 ---
 
-You can install Bag of Words on a Kubernetes cluster. The Helm chart can deploy the app with a bundled PostgreSQL instance **or** connect to an external managed database such as AWS Aurora with IAM authentication.
+You can install BOW on a Kubernetes cluster. The Helm chart can deploy the app with a bundled PostgreSQL instance **or** connect to an external managed database such as AWS Aurora with IAM authentication.
 
 ### 1. Add the Helm Repository
 
@@ -143,7 +143,7 @@ helm repo update
 
 ### 2. Install or Upgrade the Chart
 
-Here are a few examples of how to install or upgrade the Bag of Words Helm chart:
+Here are a few examples of how to install or upgrade the BOW Helm chart:
 
 **Deploy with a bundled PostgreSQL instance:**
 
@@ -245,7 +245,7 @@ When `database.auth.provider` is set to `aws_iam`, the bundled PostgreSQL subcha
 ### Update
 
 ```bash
-# Restart the Bag of Words deployment(s) to pick up the latest image
+# Restart the BOW deployment(s) to pick up the latest image
 # Adjust namespace (-n) and selector if you used different names
 kubectl rollout restart deployment -n bowapp-1 -l app.kubernetes.io/instance=bowapp
 kubectl rollout status deployment -n bowapp-1 -l app.kubernetes.io/instance=bowapp
@@ -254,7 +254,7 @@ kubectl rollout status deployment -n bowapp-1 -l app.kubernetes.io/instance=bowa
 ## AWS Aurora Configuration
 ---
 
-Bag of Words supports connecting to **AWS Aurora PostgreSQL** using IAM database authentication. This eliminates static database passwords entirely — the application generates short-lived tokens (valid for 15 minutes) at connection time using AWS IAM.
+BOW supports connecting to **AWS Aurora PostgreSQL** using IAM database authentication. This eliminates static database passwords entirely — the application generates short-lived tokens (valid for 15 minutes) at connection time using AWS IAM.
 
 ### How it works
 
@@ -316,7 +316,7 @@ Then set the IRSA annotation in the Helm chart:
 
 ### bow-config.yaml for Aurora (non-Kubernetes)
 
-If you are running Bag of Words on EC2 or ECS (not Kubernetes), you can configure Aurora IAM auth directly in `bow-config.yaml`:
+If you are running BOW on EC2 or ECS (not Kubernetes), you can configure Aurora IAM auth directly in `bow-config.yaml`:
 
 ```yaml
 database:

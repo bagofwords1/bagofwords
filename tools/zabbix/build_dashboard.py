@@ -121,7 +121,7 @@ html = f"""<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-
     <div style="width:26px;height:26px;background:#d30000;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-family:sans-serif">Z</div>
     <h1 style="font-size:22px;margin:0">Zabbix — Infrastructure Health</h1>
   </div>
-  <p style="color:#6b7280;font-size:13px;margin:0 0 20px 36px">Live monitoring analysis · queried through the Bag of Words Zabbix connector</p>
+  <p style="color:#6b7280;font-size:13px;margin:0 0 20px 36px">Live monitoring analysis · queried through the BOW Zabbix connector</p>
 
   <div style="display:flex;gap:12px;margin-bottom:24px">
     {"".join(f'<div style="flex:1;background:#f9fafb;border:1px solid #eee;border-radius:10px;padding:14px"><div style="font-size:26px;font-weight:700">{v}</div><div style="font-size:12px;color:#6b7280">{k}</div></div>' for k,v in [("Hosts monitored",n_hosts),("Metrics tracked",n_items),("Active problems",n_active),("Disaster-level",sev_counts.get(5,0))])}

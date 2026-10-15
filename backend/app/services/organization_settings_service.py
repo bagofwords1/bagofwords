@@ -1156,9 +1156,9 @@ class OrganizationSettingsService:
             "org_smtp": "this organization's own SMTP server",
             "global": "the globally configured SMTP server",
         }.get(resolved.source, resolved.source)
-        subject = "Bag of words — SMTP test"
+        subject = "BOW — SMTP test"
         body = (
-            f"This is a test message from Bag of words, sent to confirm that "
+            f"This is a test message from BOW, sent to confirm that "
             f"{organization.name or 'your organization'}'s system email is working.\n\n"
             f"Sent via: {transport}\n"
             f"From: {resolved.from_address}\n\n"

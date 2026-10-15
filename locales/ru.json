@@ -2106,7 +2106,7 @@
       "integrate": "Интегрировать",
       "setup": "Настроить",
       "excelAddinName": "Надстройка Excel",
-      "excelAddinDescription": "Установите надстройку Bag of Words напрямую из этого экземпляра",
+      "excelAddinDescription": "Установите надстройку BOW напрямую из этого экземпляра",
       "mcpName": "Сервер BOW MCP",
       "mcpDescription": "Включите конечную точку MCP для интеграции с ИИ-ассистентами, такими как Cursor, Claude и другими",
       "channels": {
@@ -2377,9 +2377,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2404,7 +2404,7 @@
         },
         "excel": {
           "title": "Надстройка Excel",
-          "subtitle": "Загрузите надстройку Bag of Words напрямую из этого экземпляра.",
+          "subtitle": "Загрузите надстройку BOW напрямую из этого экземпляра.",
           "loading": "Загрузка...",
           "setup": "Настройка",
           "step1": "Скачайте файл манифеста ниже",
@@ -2454,7 +2454,7 @@
           "title": "Интеграция с Google Chat"
         }
       },
-      "emptyTitle": "Настройте работу Bag of Words с вашими инструментами",
+      "emptyTitle": "Настройте работу BOW с вашими инструментами",
       "emptySubtitle": "Подключите Slack, Teams, почту и другое, чтобы ваша команда могла обращаться к ИИ-аналитику там, где она уже работает. Выберите интеграцию, чтобы начать.",
       "selectHint": "Выберите интеграцию",
       "slackDescription": "Позвольте вашей команде общаться с ИИ-аналитиком в каналах и личных сообщениях Slack.",
@@ -2551,7 +2551,7 @@
     "uploadIcon": "Загрузить иконку",
     "iconConstraints": "PNG/JPEG, ≤ 512 КБ.",
     "aiAnalystName": "Имя ИИ-аналитика",
-    "showCredit": "Показать ссылку «Made with Bag of words»",
+    "showCredit": "Показать ссылку «Made with BOW»",
     "language": {
       "title": "Язык",
       "description": "Устанавливает язык по умолчанию для всей организации. Пользователи увидят интерфейс на этом языке, и ИИ будет отвечать на нём.",
@@ -3742,7 +3742,7 @@
         },
         {
           "title": "Выведите файл доступа",
-          "body": "Сохраните как print_access_file.sh и запустите. Скрипт дождётся токена и выведет один самодостаточный файл (URL API-сервера, CA кластера, токен). Проверьте: kubectl --kubeconfig access.yaml get nodes. Если URL сервера доступен только из вашей сети, замените его на адрес, до которого может достучаться этот экземпляр Bag of Words."
+          "body": "Сохраните как print_access_file.sh и запустите. Скрипт дождётся токена и выведет один самодостаточный файл (URL API-сервера, CA кластера, токен). Проверьте: kubectl --kubeconfig access.yaml get nodes. Если URL сервера доступен только из вашей сети, замените его на адрес, до которого может достучаться этот экземпляр BOW."
         },
         {
           "title": "Вставьте ниже и проверьте подключение",
@@ -4286,7 +4286,7 @@
   "onboarding": {
     "loading": "Загрузка...",
     "skip": "Пропустить онбординг",
-    "welcome": "Добро пожаловать в Bag of words! 🎉",
+    "welcome": "Добро пожаловать в BOW! 🎉",
     "welcomeSubtitle": "Общайтесь с данными, проводите глубокий анализ и создавайте дашборды за секунды",
     "next": "Далее",
     "fallbackTitle": "Начать",
@@ -4296,7 +4296,7 @@
     "intro1": "Начать просто: подключите модель и источник данных, и вы будете готовы задать первый вопрос.",
     "intro2": "👉 Давайте всё настроим!",
     "steps": {
-      "onboardingTitle": "Добро пожаловать в Bag of words! 🎉",
+      "onboardingTitle": "Добро пожаловать в BOW! 🎉",
       "onboardingDescription": "Общайтесь с данными, проводите глубокий анализ и создавайте дашборды за секунды",
       "onboardingButton": "Добро пожаловать",
       "llmTitle": "Настроить LLM",
@@ -4905,8 +4905,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "MCP-сервер Bag of words",
-    "subtitle": "Подключите Claude, Cursor или любой MCP-клиент для запросов к вашим данным через MCP-сервер Bag of words.",
+    "title": "MCP-сервер BOW",
+    "subtitle": "Подключите Claude, Cursor или любой MCP-клиент для запросов к вашим данным через MCP-сервер BOW.",
     "loading": "Загрузка...",
     "tabMcpClients": "MCP-клиенты",
     "tabOauth": "OAuth",

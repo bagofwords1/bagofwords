@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       version:
-        description: Customer-facing Bag of Words version
+        description: Customer-facing BOW version
         required: true
         type: string
       image_tag:
-        description: Existing Bag of Words image tag to package
+        description: Existing BOW image tag to package
         required: true
         type: string
       source_ref:
@@ -19,11 +19,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Customer-facing Bag of Words version
+        description: Customer-facing BOW version
         required: true
         type: string
       image_tag:
-        description: Existing Bag of Words image tag to package
+        description: Existing BOW image tag to package
         required: true
         type: string
       source_ref:

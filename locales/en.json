@@ -2380,10 +2380,10 @@
       "integrate": "Integrate",
       "setup": "Setup",
       "excelAddinName": "Excel Add-in",
-      "excelAddinDescription": "Sideload the Bag of Words add-in directly from this instance",
+      "excelAddinDescription": "Sideload the BOW add-in directly from this instance",
       "mcpName": "BOW MCP Server",
       "mcpDescription": "Enable MCP endpoint for integration with AI assistants like Cursor, Claude, or others",
-      "emptyTitle": "Make Bag of Words work with your tools",
+      "emptyTitle": "Make BOW work with your tools",
       "emptySubtitle": "Connect Slack, Teams, email and more so your team can reach the AI analyst where they already work. Pick an integration to get started.",
       "selectHint": "Select an integration",
       "slackDescription": "Let your team chat with the AI analyst from Slack channels and DMs.",
@@ -2694,9 +2694,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2721,7 +2721,7 @@
         },
         "excel": {
           "title": "Excel Add-in",
-          "subtitle": "Sideload the Bag of Words add-in directly from this instance.",
+          "subtitle": "Sideload the BOW add-in directly from this instance.",
           "loading": "Loading...",
           "setup": "Setup",
           "step1": "Download the manifest file below",
@@ -2825,7 +2825,7 @@
     "uploadIcon": "Upload Icon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI analyst name",
-    "showCredit": "Show \"Made with Bag of words\" credit",
+    "showCredit": "Show \"Made with BOW\" credit",
     "language": {
       "title": "Language",
       "description": "Sets the default language for the entire organization. Users will see the interface in this language and the AI will respond in it.",
@@ -4057,7 +4057,7 @@
         },
         {
           "title": "Print the access file",
-          "body": "Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this Bag of Words instance can reach."
+          "body": "Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this BOW instance can reach."
         },
         {
           "title": "Paste it below and test the connection",
@@ -4628,7 +4628,7 @@
   "onboarding": {
     "loading": "Loading...",
     "skip": "Skip onboarding",
-    "welcome": "Welcome to Bag of words! 🎉",
+    "welcome": "Welcome to BOW! 🎉",
     "welcomeSubtitle": "Chat with your data, run deep analysis and create dashboards in seconds",
     "next": "Next",
     "fallbackTitle": "Get Started",
@@ -4638,7 +4638,7 @@
     "intro1": "Getting started is quick: just connect your model and your data source, and you'll be ready to ask your first question.",
     "intro2": "👉 Let's set things up!",
     "steps": {
-      "onboardingTitle": "Welcome to Bag of words! 🎉",
+      "onboardingTitle": "Welcome to BOW! 🎉",
       "onboardingDescription": "Chat with your data, run deep analysis and create dashboards in seconds",
       "onboardingButton": "Welcome",
       "llmTitle": "Configure LLM",
@@ -5258,8 +5258,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Bag of words MCP Server",
-    "subtitle": "Connect Claude, Cursor, or any MCP client to query your data via the Bag of words MCP Server.",
+    "title": "BOW MCP Server",
+    "subtitle": "Connect Claude, Cursor, or any MCP client to query your data via the BOW MCP Server.",
     "loading": "Loading...",
     "tabMcpClients": "MCP Clients",
     "tabOauth": "OAuth",

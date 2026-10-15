@@ -199,7 +199,7 @@ class ExternalPlatformManager:
                             )
                     else:
                         block_message = (
-                            f"Your email {email} isn't linked to a Bag of words "
+                            f"Your email {email} isn't linked to a BOW "
                             f"account in this workspace. Ask your admin to invite "
                             f"you, then email again."
                         )

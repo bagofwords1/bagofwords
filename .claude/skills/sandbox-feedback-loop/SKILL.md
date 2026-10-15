@@ -1,6 +1,6 @@
 ---
 name: sandbox-feedback-loop
-description: Boot a full local Bag of Words sandbox (backend + frontend + real LLM), drive it end-to-end through the UI with Playwright, and verify behavior at the DB / backend-log / HTTP layers. Use when a change needs real e2e validation (agent context, chat flows, file uploads, LLM behavior) rather than just unit tests.
+description: Boot a full local BOW sandbox (backend + frontend + real LLM), drive it end-to-end through the UI with Playwright, and verify behavior at the DB / backend-log / HTTP layers. Use when a change needs real e2e validation (agent context, chat flows, file uploads, LLM behavior) rather than just unit tests.
 ---
 
 # Sandbox feedback loop

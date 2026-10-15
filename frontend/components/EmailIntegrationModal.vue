@@ -296,7 +296,7 @@ const authType = ref<AuthType>('password')
 const activeOption = computed(() => authOptions.value.find((o) => o.value === authType.value) || authOptions.value[2])
 
 // Mailbox identity
-const fromName = ref('Bag of words Analyst')
+const fromName = ref('BOW Analyst')
 const fromAddress = ref('')
 
 // Password
