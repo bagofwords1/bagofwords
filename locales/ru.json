@@ -1446,6 +1446,7 @@
       "tabCode": "Код",
       "toggleQueries": "Запросы",
       "toggleFullCode": "Полный код",
+      "sentRequest": "Отправлено в источник данных",
       "attempts": "Попытки ({count})",
       "addToSpreadsheet": "Добавить в таблицу",
       "addToSpreadsheetTitle": "Добавить данные в таблицу Excel",

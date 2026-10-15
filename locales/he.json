@@ -1503,6 +1503,7 @@
       "tabCode": "קוד",
       "toggleQueries": "שאילתות",
       "toggleFullCode": "קוד מלא",
+      "sentRequest": "נשלח בפועל למקור הנתונים",
       "attempts": "ניסיונות ({count})",
       "addToSpreadsheet": "הוסף לגיליון",
       "addToSpreadsheetTitle": "הוסף נתונים לגיליון Excel",

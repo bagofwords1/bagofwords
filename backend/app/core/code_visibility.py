@@ -127,6 +127,12 @@ def redact_step_schema(step, allowed: bool):
     return step
 
 
+# Statement text on a per-query timing record: the query as written (`sql`) and,
+# when the client rewrote it, the request actually sent to the source
+# (`sent_request`, e.g. Priority's parent $expand for a subform table).
+_TIMING_CODE_KEYS = ("sql", "sent_request")
+
+
 def _redact_query_timings(entries):
     """Null the statement text in a list of per-query timing records.
 
@@ -136,7 +142,7 @@ def _redact_query_timings(entries):
     if not isinstance(entries, list):
         return entries
     return [
-        {**e, "sql": None} if isinstance(e, dict) and "sql" in e else e
+        {**e, **{k: None for k in _TIMING_CODE_KEYS if k in e}} if isinstance(e, dict) else e
         for e in entries
     ]
 

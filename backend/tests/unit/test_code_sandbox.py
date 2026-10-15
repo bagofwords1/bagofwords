@@ -929,3 +929,85 @@ def generate_df(ds_clients, excel_files):
     assert got["etc"] == "denied"
     if ll["abi"] >= 4:
         assert got["tcp"] == "denied", got
+
+
+# ---------------------------------------------------------------------------
+# Client notices in the run output
+# ---------------------------------------------------------------------------
+
+class _NoticeClient(_StubClient):
+    """A client that annotates its result for the run output, as Priority
+    does when it rewrites a subform query into the parent request."""
+
+    def __init__(self, note):
+        super().__init__()
+        self._note = note
+
+    def execute_query(self, query=None, *args, **kwargs):
+        df = super().execute_query(query, *args, **kwargs)
+        if self._note is not None:
+            df.attrs["bow_notice"] = self._note
+        return df
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_client_notice_lands_in_the_run_output(monkeypatch, mode):
+    """The client runs outside the code's captured stdout (a timeout thread,
+    and sandboxed another process); a note it attaches to its result must
+    still reach the output, in order with the code's own prints."""
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    code = """
+def generate_df(ds_clients, excel_files):
+    print("before")
+    df = ds_clients["db"].execute_query("ORDERITEMS?$top=1")
+    print("after")
+    return df
+"""
+    _, log, _ = _run(code, {"db": _NoticeClient("sent: ORDERS?$expand=ORDERITEMS_SUBFORM")})
+    assert log.splitlines() == ["before", "sent: ORDERS?$expand=ORDERITEMS_SUBFORM", "after"]
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+@pytest.mark.parametrize("note", [None, "", "   "])
+def test_no_notice_adds_nothing_to_the_output(monkeypatch, mode, note):
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    code = """
+def generate_df(ds_clients, excel_files):
+    return ds_clients["db"].execute_query("SELECT 1")
+"""
+    _, log, _ = _run(code, {"db": _NoticeClient(note)})
+    assert log == ""
+
+
+class _RewritingClient(_StubClient):
+    """A client that answers by sending the source a different request, and
+    says which (Priority: subform table -> parent $expand)."""
+
+    def __init__(self, sent):
+        super().__init__()
+        self._sent = sent
+
+    def execute_query(self, query=None, *args, **kwargs):
+        df = super().execute_query(query, *args, **kwargs)
+        if self._sent is not None:
+            df.attrs["bow_sent_request"] = self._sent
+        return df
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_sent_request_is_recorded_next_to_the_query_it_answered(monkeypatch, mode):
+    """The Queries tab pairs each query with the request actually sent; the
+    query list itself (read by the identity-bind check) stays as written."""
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    code = """
+def generate_df(ds_clients, excel_files):
+    ds_clients["db"].execute_query("ORDERITEMS?$top=1")
+    return ds_clients["plain"].execute_query("SELECT 1")
+"""
+    timings = []
+    _, _, queries = _run(code, {"db": _RewritingClient("ORDERS?$expand=ORDERITEMS_SUBFORM"),
+                                "plain": _RewritingClient(None)}, captured_timings=timings)
+    assert list(queries) == ["ORDERITEMS?$top=1", "SELECT 1"]
+    by_sql = {t["sql"]: t for t in timings}
+    assert by_sql["ORDERITEMS?$top=1"]["sent_request"] == "ORDERS?$expand=ORDERITEMS_SUBFORM"
+    assert "sent_request" not in by_sql["SELECT 1"]

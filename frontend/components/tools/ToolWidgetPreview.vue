@@ -434,6 +434,7 @@ import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmoun
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { cardHydrationRequest, deriveViewerRun } from '~/utils/viewerRunHydration'
+import { withSentRequests, withSentRequestsAppended } from '~/utils/sentRequests'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
@@ -1160,13 +1161,32 @@ const executedQueries = computed(() => {
 // Check if we have executed queries to show
 const hasExecutedQueries = computed(() => executedQueries.value.length > 0)
 
+// Per-query timing records; a connector that rewrote a query records the
+// request it actually sent there (`sent_request`). Redacted with the code.
+const queryTimings = computed(() => {
+  if (!canViewCode.value) return []
+  const timings = (props.toolExecution?.result_json as any)?.query_timings
+  return Array.isArray(timings) ? timings : []
+})
+
 // Code to display based on toggle state
 const displayedCode = computed(() => {
   if (showFullCode.value || !hasExecutedQueries.value) {
-    return effectiveStep.value?.code || ''
+    // The request actually sent, when the connector rewrote the query, follows
+    // the code as a comment (the editor is read-only; Edit uses step.code).
+    return withSentRequestsAppended(
+      effectiveStep.value?.code || '',
+      queryTimings.value,
+      t('tools.widgetPreview.sentRequest'),
+    )
   }
-  // Join all executed queries with newlines
-  return executedQueries.value.join('\n\n')
+  // Each executed query, followed by the request actually sent when the
+  // connector rewrote it, separated by blank lines.
+  return withSentRequests(
+    executedQueries.value,
+    queryTimings.value,
+    t('tools.widgetPreview.sentRequest'),
+  ).join('\n\n')
 })
 
 // Language for Monaco editor based on toggle state

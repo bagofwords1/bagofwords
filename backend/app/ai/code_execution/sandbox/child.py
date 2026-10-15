@@ -117,12 +117,20 @@ class _RemoteClient:
         self._key = key
 
     def execute_query(self, *args, **kwargs):
-        return self._rpc.call(
+        result = self._rpc.call(
             "execute_query",
             client=self._key,
             args=json_safe(list(args)),
             kwargs=json_safe(dict(kwargs)),
         )
+        # A note the client attached for the run output (see
+        # code_execution.QUERY_NOTICE_ATTR); printed here, where stdout is
+        # the captured log.
+        attrs = getattr(result, "attrs", None)
+        note = attrs.get("bow_notice") if isinstance(attrs, dict) else None
+        if isinstance(note, str) and note.strip():
+            print(note)
+        return result
 
     def query(self, *args, **kwargs):
         return self.execute_query(*args, **kwargs)

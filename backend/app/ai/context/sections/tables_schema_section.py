@@ -139,6 +139,12 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
         "modelType", "supportsDax", "preferredDialect",
         "entity_contents", "data_category",
     ),
+    # PriorityErpClient: a subform table (ORDERITEMS) has no address of its
+    # own in Priority; the client answers it through the parent's $expand. The
+    # agent queries it by name like any form, and these say where its rows
+    # come from. `shared_by` marks a subform under several parents, which has
+    # no single path and must be read via the parent the question means.
+    "priority_erp": ("subform_of", "navigation", "shared_by"),
 }
 
 # Flat (non-namespaced) table metadata worth surfacing, keyed by connector.
@@ -170,12 +176,16 @@ _FLAT_META_KEYS: tuple[str, ...] = (
 # `relationship_key` marks a column recovered from a relationship rather than
 # from the column listing, so the agent knows it is a join key.
 #
+# `from_form` marks a Priority subform table's column that belongs to a parent
+# form (ORDERITEMS.CURDATE is the order's date), so the agent can tell a line's
+# own fields from its order's.
+#
 # This allowlist is the LAST gate before the prompt: a key absent here never
 # reaches the model no matter what discovery captured or persistence stored.
 _COLUMN_META_KEYS: tuple[str, ...] = (
     "unique_name", "returns", "hidden", "relationship_key",
     "format_string", "data_category", "display_folder", "sort_by_column",
-    "summarize_by", "contents",
+    "summarize_by", "contents", "from_form",
 )
 
 
