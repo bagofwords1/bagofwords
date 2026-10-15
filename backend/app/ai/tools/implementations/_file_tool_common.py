@@ -441,7 +441,12 @@ class SessionFileClient:
 
     def _inner(self):
         from app.data_sources.clients.network_dir_client import NetworkDirClient
-        return NetworkDirClient(root_path=self._dir)
+        # Uploads live in the app's own uploads/files; the connection-root
+        # policy refuses that directory by design (a user must not point a
+        # network_dir connection at the app). This shim serves one report-owned
+        # upload row, not user-configured input, so it takes the internal
+        # app-owned constructor. Root confinement (`_resolve`) still applies.
+        return NetworkDirClient.for_app_owned_dir(root_path=self._dir)
 
     async def aread_file(self, _file_id: str, **kwargs) -> Any:
         import asyncio as _asyncio
