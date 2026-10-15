@@ -107,7 +107,8 @@ the wiring, which is where this goes wrong:
   components, `data-bow-viz` / `data-bow-calc` on custom markup. The ⓘ can be
   restyled (`infoClassName` color, `infoSize` sm|md|lg; `data-bow-info-class` /
   `data-bow-info-size` on custom markup) and hidden only on the user's explicit
-  request (`info={false}` / `data-bow-info="off"`, keeping `viz`).
+  request (`info={false}` / `data-bow-info="off"`, keeping `viz`). `DataTable`'s
+  ⓘ is the exception: opt-in via `info`, so styling it needs `info` too.
 
 ## 4. Editing an existing dashboard
 

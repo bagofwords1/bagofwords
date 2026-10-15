@@ -72,6 +72,16 @@ try{
   assert.equal(el.info,true,s);
   assert.match(el.htmlSnippet,/^<ul id="tree"/,s);
  }
+ // An overlay marker whose owner can't be resolved is not pickable: no
+ // highlight, no selection (nothing in the artifact to edit), pick mode stays.
+ await frame.evaluate(()=>document.querySelector('[data-bow-ibtn]').removeAttribute('data-bow-info-for'));
+ await page.evaluate(()=>{window.msgs=[];document.querySelector('iframe').contentWindow.postMessage({type:'POLISH_ENTER'},'*')});
+ await frame.waitForFunction(()=>document.body.classList.contains('__polish-active'));
+ const orphan=await frame.evaluate(()=>{const el=document.querySelector('[data-bow-ibtn] svg path');el.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));const lit=!!document.querySelector('.__polish-highlight');el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));return {lit,active:document.body.classList.contains('__polish-active')}});
+ await page.waitForTimeout(300);
+ assert.deepEqual(orphan,{lit:false,active:true},'unresolved owner: no highlight, pick mode stays');
+ assert.deepEqual(await page.evaluate(()=>window.msgs.filter(m=>m.type==='POLISH_ELEMENT_SELECTED'||m.type==='ARTIFACT_ERROR')),[],'unresolved owner: nothing sent');
+ await page.evaluate(()=>document.querySelector('iframe').contentWindow.postMessage({type:'POLISH_EXIT'},'*'));
  // Anything else is a regular pick.
  const body=await pick('#card-body');
  assert.notEqual(body.info,true);

@@ -226,8 +226,22 @@ function polishScript(): string {
         return inline.parentElement ? inline.parentElement.parentElement : null;
       }
 
-      function pickTarget(el) {
-        return infoButton(el) || snapToMeaningful(el);
+      // { btn, owner } for an ⓘ, false for an ⓘ whose owner can't be resolved
+      // (the overlay may not have re-rendered since its owner mounted or
+      // unmounted) — nothing in the artifact to edit, and snapping from it
+      // only lands on runtime markup — or null for anything else.
+      function pickInfo(el) {
+        var btn = infoButton(el);
+        if (!btn) return null;
+        var owner = infoOwner(btn);
+        return owner ? { btn: btn, owner: owner } : false;
+      }
+
+      // The element a pick selects, or null when it can't be picked.
+      function pickTarget(el, info) {
+        if (info === undefined) info = pickInfo(el);
+        if (info === false) return null;
+        return info ? info.btn : snapToMeaningful(el);
       }
 
       // Without the ⓘ markup, which would otherwise fill the snippet budget
@@ -245,6 +259,7 @@ function polishScript(): string {
         if (!polishActive) return;
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
         var target = pickTarget(e.target);
+        if (!target) { currentHighlight = null; return; }
         target.classList.add('__polish-highlight');
         currentHighlight = target;
       }
@@ -260,9 +275,10 @@ function polishScript(): string {
         // render failure; a pick that cannot be described stays in pick mode.
         var element;
         try {
-          var target = pickTarget(e.target);
-          var btn = infoButton(e.target);
-          var owner = btn ? infoOwner(btn) : null;
+          var info = pickInfo(e.target);
+          var target = pickTarget(e.target, info);
+          if (!target) return;
+          var owner = info && info.owner;
           var rect = target.getBoundingClientRect();
           element = {
             tag: target.tagName,

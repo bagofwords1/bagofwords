@@ -926,7 +926,9 @@
   // info={false} (data-bow-info="off" on custom markup) hides it; `viz` stays
   // bound either way.
   var INFO_SIZES = { sm: { box: 'w-4 h-4', px: 16, glyph: 12 }, md: { box: 'w-5 h-5', px: 20, glyph: 15 }, lg: { box: 'w-7 h-7', px: 28, glyph: 21 } };
-  function _infoSize(size) { return INFO_SIZES[size] || INFO_SIZES.md; }
+  function _infoSize(size) { return Object.prototype.hasOwnProperty.call(INFO_SIZES, size) ? INFO_SIZES[size] : INFO_SIZES.md; }
+  // Header room reserved for the ⓘ (`side`: 'pe' or legacy 'pr').
+  function _infoPad(props, side) { return side + (props.infoSize === 'lg' ? '-8' : '-6'); }
   function _showInfo(props) { return !!props.viz && props.info !== false; }
   function _infoProps(props) {
     return { viz: props.viz, rows: props.rows, calc: props.calc, className: props.infoClassName, size: props.infoSize };
@@ -1060,6 +1062,7 @@
 
     if (!viz) return null;
     var sz = _infoSize(props.size);
+    var btnBase = 'inline-flex items-center justify-center ' + sz.box + ' rounded-full transition-colors ';
     var body = tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { rows: props.rows, calc: props.calc });
     var panel = (open && pos) ? ReactDOM.createPortal(
       _popoverPanel(viz, tab, setTab, function() { setOpen(false); }, body, {
@@ -1074,9 +1077,11 @@
       h('button', {
         key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
+        // Not one _mergeClasses call: it keeps variant classes, so the default
+        // hover:text-* would override a custom color on hover.
         className: props.className
-          ? _mergeClasses('inline-flex items-center justify-center ' + sz.box + ' rounded-full transition-colors ' + (open ? 'bg-surface-2' : 'hover:bg-surface-2'), props.className)
-          : 'inline-flex items-center justify-center ' + sz.box + ' rounded-full transition-colors ' + (open ? POP.btnOn : POP.btnOff)
+          ? _mergeClasses(btnBase + (open ? 'bg-surface-2' : 'hover:bg-surface-2'), props.className)
+          : btnBase + (open ? POP.btnOn : POP.btnOff)
       }, _infoGlyph(sz.glyph)),
       panel
     ]);
@@ -1288,7 +1293,7 @@
     var sparkColor = onAccent ? 'currentColor' : (props.sparkColor || 'var(--bow-accent)');
     return h('div', { className: cls, style: props.style, 'data-bow-kpi': '1' }, [
       _showInfo(props) ? h('div', { key: 'info', className: 'absolute top-2.5 end-2.5 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
-      h('div', { key: 'head', className: 'flex items-center gap-2 pe-6' }, [
+      h('div', { key: 'head', className: 'flex items-center gap-2 ' + _infoPad(props, 'pe') }, [
         props.icon ? h('span', { key: 'ic', className: _join('inline-flex items-center justify-center w-6 h-6 rounded-chip', onAccent ? 'bg-white/15' : 'bg-accent/10 text-accent') }, h(window.Icon, { name: props.icon, size: 13 })) : null,
         h('p', { key: 't', className: titleCls }, props.title || props.label)
       ]),
@@ -1311,7 +1316,7 @@
       var ls = 'text-sm mt-1 text-slate-500 dark:text-slate-400' + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
       return h('div', { className: lcls, style: props.style }, [
         _showInfo(props) ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
-        props.title ? h('div', { key: 'hdr', className: 'mb-4 pr-6' }, [h('h2', { key: 't', className: lt }, props.title), props.subtitle ? h('p', { key: 's', className: ls }, props.subtitle) : null]) : null,
+        props.title ? h('div', { key: 'hdr', className: 'mb-4 ' + _infoPad(props, 'pr') }, [h('h2', { key: 't', className: lt }, props.title), props.subtitle ? h('p', { key: 's', className: ls }, props.subtitle) : null]) : null,
         h('div', { key: 'body' }, props.children)
       ]);
     }
@@ -1324,7 +1329,7 @@
     var hasHeader = props.title || props.eyebrow || props.actions;
     return h('section', { className: cls, style: props.style }, [
       _showInfo(props) ? h('div', { key: 'info', className: 'absolute top-3 end-3 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
-      hasHeader ? h('div', { key: 'hdr', className: _join('flex items-start justify-between gap-3', _showInfo(props) ? 'pe-6' : '', props.headerClassName || 'mb-4') }, [
+      hasHeader ? h('div', { key: 'hdr', className: _join('flex items-start justify-between gap-3', _showInfo(props) ? _infoPad(props, 'pe') : '', props.headerClassName || 'mb-4') }, [
         h('div', { key: 'l', className: 'min-w-0' }, [
           props.eyebrow ? h(window.Eyebrow, { key: 'e', className: 'text-[11px] font-medium uppercase tracking-eyebrow text-accent mb-1' }, props.eyebrow) : null,
           props.title ? h('h3', { key: 't', className: titleCls }, props.title) : null,
@@ -1947,27 +1952,28 @@
     }
     var markerPositions = [];
     var markers = targets.map(function(t, i) {
+      var px = t.infoSize.px, step = px + 4;
       var top = Math.max(2, t.rect.top + 6);
-      var left = rtl ? t.rect.left + 4 : t.rect.right - t.infoSize.px - 4;
+      var left = rtl ? t.rect.left + 4 : t.rect.right - px - 4;
       if (!LEGACY) {
         // Nested source-backed elements can share a corner. Keep each detail
         // control reachable instead of placing one button over another.
-        left = Math.max(4, Math.min(left, window.innerWidth - 24));
-        while (markerPositions.some(function(p) { return Math.abs(p.left - left) < 24 && Math.abs(p.top - top) < 24; })) {
-          var nextLeft = left + (rtl ? 24 : -24);
-          if (nextLeft < 4 || nextLeft > window.innerWidth - 24) top += 24;
+        left = Math.max(4, Math.min(left, window.innerWidth - step));
+        while (markerPositions.some(function(p) { var gap = Math.max(p.px, px) + 4; return Math.abs(p.left - left) < gap && Math.abs(p.top - top) < gap; })) {
+          var nextLeft = left + (rtl ? step : -step);
+          if (nextLeft < 4 || nextLeft > window.innerWidth - step) top += step;
           else left = nextLeft;
         }
-        markerPositions.push({ left: left, top: top });
+        markerPositions.push({ left: left, top: top, px: px });
       }
+      t.markerTop = top;
+      var markerBase = 'inline-flex items-center justify-center ' + t.infoSize.box + ' rounded-full bg-surface/80 backdrop-blur border border-line shadow-card transition-colors';
       // data-bow-info-for: index of the marked element in document order, so
       // the polish picker can resolve this detached marker to its owner.
       return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'data-bow-info-for': String(t.ownerIndex), 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
         style: { position: 'fixed', top: top, left: left, zIndex: 99998 },
-        className: t.infoClass
-          ? _mergeClasses('inline-flex items-center justify-center ' + t.infoSize.box + ' rounded-full bg-surface/80 backdrop-blur border border-line shadow-card transition-colors', t.infoClass)
-          : 'inline-flex items-center justify-center ' + t.infoSize.box + ' rounded-full bg-surface/80 backdrop-blur text-ink-3 hover:text-ink border border-line shadow-card transition-colors' }, _infoGlyph(t.infoSize.glyph - 1));
+        className: t.infoClass ? _mergeClasses(markerBase, t.infoClass) : markerBase + ' text-ink-3 hover:text-ink' }, _infoGlyph(t.infoSize.glyph - 1));
     });
     var panel = null;
     if (openT) {
@@ -1979,7 +1985,7 @@
       var vizForPanel = Object.assign({}, viz, { title: openT.title || viz.title });
       panel = _popoverPanel(vizForPanel, tab, setTab, function() { setOpenT(null); },
         tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { calc: openT.calc }),
-        { position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh', top: below ? (openT.rect.top + 28) : undefined, bottom: below ? undefined : (window.innerHeight - openT.rect.top + 6), display: 'flex', flexDirection: 'column' },
+        { position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh', top: below ? (openT.markerTop + openT.infoSize.px + 2) : undefined, bottom: below ? undefined : (window.innerHeight - openT.rect.top + 6), display: 'flex', flexDirection: 'column' },
         { ref: panelRef, 'data-bow-panel': '1' });
     }
     if (!markers.length && !panel) return null;
