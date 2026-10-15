@@ -11,8 +11,40 @@
   both keep the list itself (fields, save tool, table) so it can be refilled.
 -->
 <template>
-  <div class="flex flex-col h-full min-h-0 relative" data-testid="list-rows-view">
-    <div class="shrink-0 px-6 pt-3 pb-3 border-b border-gray-100 dark:border-gray-800">
+  <div ref="rootEl" class="flex flex-col h-full min-h-0 relative" :class="embedded ? 'bg-white dark:bg-gray-900' : ''" data-testid="list-rows-view">
+    <!-- Side-pane header: title, a quiet meta line, icon actions. -->
+    <div v-if="embedded" class="shrink-0 px-5 pt-5 pb-4" data-testid="list-pane-header">
+      <div class="flex items-start gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 dir="auto" class="text-[15px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 truncate" data-testid="list-title">{{ list.name }}</h2>
+          <div class="mt-1 flex items-center gap-2 text-[12px] text-gray-500 dark:text-gray-400">
+            <span class="tabular-nums" data-testid="list-row-total">{{ $t('lists.rowsCount', { n: total }, total) }}</span>
+            <Transition name="fade">
+              <span v-if="writing" class="inline-flex items-center gap-1.5 text-gray-700 dark:text-gray-300" data-testid="list-writing">
+                <span class="relative flex w-1.5 h-1.5"><span class="absolute inset-0 rounded-full bg-gray-900 dark:bg-gray-100 opacity-60 animate-ping" /><span class="relative w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-gray-100" /></span>
+                <span class="tool-shimmer">{{ $t('tools.submitList.writing', { n: writing }, writing) }}</span>
+              </span>
+            </Transition>
+          </div>
+          <p v-if="list.description" dir="auto" class="mt-2 text-[13px] leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-2">{{ list.description }}</p>
+        </div>
+        <div class="shrink-0 flex items-center gap-0.5 -me-1.5">
+          <button type="button" data-testid="list-export-csv" :disabled="exporting" :title="$t('lists.exportCsv')" :aria-label="$t('lists.exportCsv')" class="h-8 w-8 rounded-full inline-flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50" @click="exportCsv(false)">
+            <Spinner v-if="exporting" class="w-3.5 h-3.5" />
+            <UIcon v-else name="i-heroicons-arrow-down-tray" class="w-4 h-4" />
+          </button>
+          <a v-if="fullHref" :href="fullHref" data-testid="list-panel-open-full" :title="$t('tools.submitList.openFull')" :aria-label="$t('tools.submitList.openFull')" class="h-8 w-8 rounded-full inline-flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors">
+            <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-4 h-4" />
+          </a>
+          <UDropdown :items="menu" :popper="{ placement: 'bottom-end' }" :ui="{ width: 'w-52', item: { size: 'text-xs', padding: 'px-3 py-2' } }">
+            <button type="button" data-testid="list-more" :aria-label="$t('lists.more')" class="h-8 w-8 rounded-full inline-flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors">
+              <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
+            </button>
+          </UDropdown>
+        </div>
+      </div>
+    </div>
+    <div v-else class="shrink-0 px-6 pt-3 pb-3 border-b border-gray-100 dark:border-gray-800">
       <div class="flex items-center gap-2">
         <button type="button" data-testid="list-back" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="$emit('back')">
           <UIcon name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0 rtl:rotate-180" />
@@ -70,6 +102,43 @@
         </div>
       </div>
 
+      <!-- Side-pane grid: readable column labels, no selection or timestamp
+           columns, hairline separators. Row actions stay in the row panel. -->
+      <div v-else-if="embedded" class="px-3 pb-4">
+        <table class="w-full text-[13px]" data-testid="list-rows-table">
+          <thead class="sticky top-0 z-10 bg-white dark:bg-gray-900">
+            <tr>
+              <th v-for="f in list.fields" :key="f.id" class="px-2 pt-1 pb-2 text-[12px] font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-b border-gray-200/70 dark:border-gray-800" :class="numeric(f) ? 'text-end' : 'text-start'">{{ label(f) }}</th>
+            </tr>
+          </thead>
+          <TransitionGroup tag="tbody" name="list-row">
+            <tr
+              v-for="r in rows"
+              :key="r.id"
+              data-testid="list-row"
+              :data-row-id="r.id"
+              :data-flash="flash[r.id] || undefined"
+              class="group cursor-pointer"
+              :class="flash[r.id] ? 'row-flash-' + flash[r.id] : ''"
+              @click="openRow(r)"
+            >
+              <td
+                v-for="(f, i) in list.fields"
+                :key="f.id"
+                class="px-2 py-2.5 max-w-[240px] border-b border-gray-100 dark:border-gray-800/70 transition-colors group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50"
+                :class="[selected?.id === r.id ? 'bg-gray-50 dark:bg-gray-800/50' : '', numeric(f) ? 'text-end tabular-nums' : 'text-start', i === 0 ? 'rounded-s-lg' : '', i === list.fields.length - 1 ? 'rounded-e-lg' : '']"
+              >
+                <span v-if="cell(r, f).empty" class="text-gray-300 dark:text-gray-600">—</span>
+                <span v-else class="inline-flex items-center gap-1 max-w-full">
+                  <bdi class="truncate" :class="i === 0 ? 'font-medium text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-300'">{{ cell(r, f).text }}</bdi>
+                  <UIcon v-if="r.locked_fields.includes(f.id!)" name="i-heroicons-lock-closed" class="w-3 h-3 shrink-0 text-gray-400" :title="$t('lists.row.edited')" />
+                </span>
+              </td>
+            </tr>
+          </TransitionGroup>
+        </table>
+      </div>
+
       <table v-else class="min-w-full text-xs" data-testid="list-rows-table">
         <thead class="sticky top-0 z-10 bg-gray-50/95 dark:bg-gray-900/95 backdrop-blur">
           <tr class="text-start text-[11px] text-gray-500 dark:text-gray-400">
@@ -83,13 +152,15 @@
             <th class="px-3 py-2 font-medium text-end whitespace-nowrap border-b border-gray-100 dark:border-gray-800">{{ $t('lists.updated') }}</th>
           </tr>
         </thead>
-        <tbody>
+        <TransitionGroup tag="tbody" name="list-row">
           <tr
             v-for="r in rows"
             :key="r.id"
             data-testid="list-row"
+            :data-row-id="r.id"
+            :data-flash="flash[r.id] || undefined"
             class="cursor-pointer border-b border-gray-50 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/40"
-            :class="selected?.id === r.id || checked.includes(r.id) ? 'bg-blue-50/60 dark:bg-blue-500/10' : ''"
+            :class="[selected?.id === r.id || checked.includes(r.id) ? 'bg-blue-50/60 dark:bg-blue-500/10' : '', flash[r.id] ? 'row-flash-' + flash[r.id] : '']"
             @click="openRow(r)"
           >
             <td v-if="list.can_manage" class="w-8 ps-3 pe-0 py-2 align-top" @click.stop>
@@ -107,7 +178,7 @@
               {{ timeAgo(r.updated_at) }}
             </td>
           </tr>
-        </tbody>
+        </TransitionGroup>
       </table>
       <div v-if="rows.length < total" class="py-3 text-center">
         <button type="button" class="h-7 px-3 rounded-md text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="loadMore">{{ $t('lists.loadMore') }}</button>
@@ -160,13 +231,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ListRowPanel from '~/components/lists/ListRowPanel.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { formatValue, type AgentList, type ListField, type ListRow } from '~/components/lists/types'
 
-const props = defineProps<{ dsId: string; list: AgentList; rowId?: string | null }>()
+const props = defineProps<{
+  dsId: string
+  list: AgentList
+  rowId?: string | null
+  // Rendered inside the report's side pane: compact header, no back link.
+  embedded?: boolean
+  // Records the agent is writing into this list right now (streamed count).
+  writing?: number
+  // Link to the full list page, shown as an icon in the side-pane header.
+  fullHref?: string
+}>()
 const emit = defineEmits<{
   (e: 'row', rowId: string | null): void
   (e: 'back'): void
@@ -191,6 +272,8 @@ const allChecked = computed(() => rows.value.length > 0 && rows.value.every(r =>
 function toggleAll() { checked.value = allChecked.value ? [] : rows.value.map(r => r.id) }
 
 const base = computed(() => `/api/data_sources/${props.dsId}/lists/${props.list.id}`)
+// snake_case field name as a sentence-case column label (side pane only).
+const label = (f: ListField) => { const s = (f.name || '').replace(/_/g, ' '); return s.charAt(0).toUpperCase() + s.slice(1) }
 const numeric = (f: ListField) => f.type === 'number' || f.type === 'integer'
 const cell = (r: ListRow, f: ListField) => {
   const env = r.values[f.id!]
@@ -322,10 +405,52 @@ function timeAgo(iso?: string) {
 
 onMounted(async () => { await load(); await openRowById(props.rowId) })
 watch(() => props.rowId, (id) => openRowById(id))
-defineExpose({ reload: () => load() })
+// A submit_<list> call finished while this list is open: pull the fresh
+// rows and flash the ones it touched (added / updated). Unchanged rows are
+// left alone so the grid only lights up where something actually moved.
+const rootEl = ref<HTMLElement | null>(null)
+const flash = ref<Record<string, 'inserted' | 'updated'>>({})
+const FLASH_MS = 1800
+async function applySubmit(records: Array<{ row_id?: string; action?: string }> = []) {
+  await load()
+  const touched: Record<string, 'inserted' | 'updated'> = {}
+  for (const r of records) {
+    if (r?.row_id && (r.action === 'inserted' || r.action === 'updated')) touched[r.row_id] = r.action
+  }
+  if (selected.value && touched[selected.value.id]) {
+    const fresh = rows.value.find(x => x.id === selected.value!.id)
+    if (fresh) selected.value = fresh
+  }
+  flash.value = { ...flash.value, ...touched }
+  // Rows are oldest-first, so new ones land at the bottom: bring the first
+  // touched row into view so the user sees the change happen.
+  await nextTick()
+  const first = Object.keys(touched).find(id => touched[id] === 'inserted') || Object.keys(touched)[0]
+  if (first) rootEl.value?.querySelector(`[data-row-id="${first}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  setTimeout(() => {
+    const next = { ...flash.value }
+    for (const id of Object.keys(touched)) if (next[id] === touched[id]) delete next[id]
+    flash.value = next
+  }, FLASH_MS)
+  emit('changed')
+}
+defineExpose({ reload: () => load(), applySubmit })
 </script>
 
 <style scoped>
+.list-row-enter-active { transition: opacity .35s ease, transform .35s ease; }
+.list-row-enter-from { opacity: 0; transform: translateY(-6px); }
+.list-row-move { transition: transform .3s ease; }
+.row-flash-inserted > td { animation: row-flash-inserted 1.8s ease-out; }
+.row-flash-updated > td { animation: row-flash-updated 1.8s ease-out; }
+@keyframes row-flash-inserted { 0%, 30% { background-color: rgb(16 185 129 / .08); } 100% { background-color: transparent; } }
+@keyframes row-flash-updated { 0%, 30% { background-color: rgb(59 130 246 / .08); } 100% { background-color: transparent; } }
+.fade-enter-active, .fade-leave-active { transition: opacity .2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .list-row-enter-active, .list-row-move { transition: none; }
+  .row-flash-inserted > td, .row-flash-updated > td { animation: none; }
+}
 .slide-over-enter-active, .slide-over-leave-active { transition: transform .18s ease, opacity .18s ease; }
 .slide-over-enter-from, .slide-over-leave-to { transform: translateX(16px); opacity: 0; }
 [dir="rtl"] .slide-over-enter-from, [dir="rtl"] .slide-over-leave-to { transform: translateX(-16px); }

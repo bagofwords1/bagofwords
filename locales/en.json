@@ -1813,7 +1813,10 @@
         "inserted": "added",
         "updated": "updated",
         "unchanged": "unchanged"
-      }
+      },
+      "openInPane": "Show list beside the chat",
+      "closePane": "Close list",
+      "openFull": "Open full list"
     },
     "resource": {
       "failed": "Resource change failed",

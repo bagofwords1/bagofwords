@@ -434,6 +434,7 @@
 													:can-expand="!isMobile"
 													@openFilePreview="openFilePreview"
 													@openDataPanel="openDataPanel"
+													@openListPanel="openListPanel"
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
@@ -858,6 +859,27 @@
 						@click.stop="closeDataPanel"
 					/>
 				</button>
+				<!-- Only while a list is open from a submit card. -->
+				<button
+					v-if="panelList"
+					@click="rightPanelView = 'list'"
+					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
+					:class="rightPanelView === 'list'
+						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
+						: 'text-gray-400 hover:text-gray-600'"
+					data-testid="list-panel-tab"
+				>
+					<Icon name="heroicons:list-bullet" class="w-3.5 h-3.5 shrink-0" />
+					<bdi class="truncate">{{ panelList.name || panelList.list?.name }}</bdi>
+					<span v-if="listPaneWriting" class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+					<Icon
+						name="heroicons:x-mark"
+						class="w-3 h-3 shrink-0 hover:text-gray-700 dark:hover:text-gray-200"
+						:aria-label="$t('tools.submitList.closePane')"
+						data-testid="list-panel-close"
+						@click.stop="closeListPanel"
+					/>
+				</button>
 				<!-- Only while a file is open. Carries its own dismiss so there is
 				     an obvious way back to the dashboard. -->
 				<button
@@ -954,6 +976,26 @@
 					:expanded="true"
 					@open="(fid: string) => openImagePreview({ id: fid, filename: panelFile?.name || '' })"
 				/>
+			</div>
+
+			<!-- A list opened from a submit_<list> card. The same grid as the
+			     agent's Lists page, embedded; rows the agent writes while it is
+			     open are merged in and flashed (see the watcher on listPaneSubmits). -->
+			<div v-else-if="rightPanelView === 'list' && panelList" class="h-full min-h-0 flex flex-col" data-testid="list-panel">
+				<div v-if="!panelList.list" class="flex-1 flex items-center justify-center text-xs text-gray-400"><Spinner class="w-3.5 h-3.5" /></div>
+				<template v-else>
+					<ListRowsView
+						ref="listPaneRef"
+						:key="panelList.listId"
+						:ds-id="panelList.dsId"
+						:list="panelList.list"
+						:embedded="true"
+						:writing="listPaneWriting"
+						:full-href="`/agents/${panelList.dsId}/lists/${panelList.listId}`"
+						class="flex-1 min-h-0"
+						@deleted="closeListPanel"
+					/>
+				</template>
 			</div>
 
 			<!-- A query result opened from a tool card. Reuses the same preview
@@ -1075,6 +1117,7 @@ import InstructionModalComponent from '~/components/InstructionModalComponent.vu
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import ListRowsView from '~/components/lists/ListRowsView.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
@@ -2580,7 +2623,7 @@ const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
-const rightPanelView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
+const rightPanelView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data' | 'list'>('artifact')
 
 // A document/image opened from a read_file card into the side panel. Transient
 // by nature — it exists only while a file is selected, which is why it gets a
@@ -2686,6 +2729,83 @@ function closeDataPanel() {
 	rightPanelView.value = back === 'file' && !panelFile.value ? 'artifact' : back
 	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
+
+// A list opened from a submit_<list> card, the way a file or a result opens.
+// While open, every submit to that list in this chat is merged into the grid
+// as it finishes, and the count streams while the agent is still writing.
+const panelList = ref<{ listId: string; dsId: string; name: string; list: any | null } | null>(null)
+const listPanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
+const listPanelOpenedSplit = ref(false)
+const listPaneRef = ref<any>(null)
+
+async function openListPanel(payload: { listId: string; dsId: string; name?: string }) {
+	if (!payload?.listId || !payload?.dsId) return
+	if (panelList.value?.listId !== payload.listId) {
+		panelList.value = { listId: payload.listId, dsId: payload.dsId, name: payload.name || '', list: null }
+		const { data } = await useMyFetch<any>(`/api/data_sources/${payload.dsId}/lists/${payload.listId}`, { method: 'GET' })
+		if (panelList.value?.listId !== payload.listId) return
+		if (!data.value) { closeListPanel(); return }
+		panelList.value.list = data.value
+	}
+	if (isMobile.value) return
+	if (rightPanelView.value !== 'list') listPanelReturnView.value = rightPanelView.value as any
+	if (!isSplitScreen.value) {
+		listPanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
+	rightPanelView.value = 'list'
+}
+
+function closeListPanel() {
+	panelList.value = null
+	const openedSplit = listPanelOpenedSplit.value
+	listPanelOpenedSplit.value = false
+	if (rightPanelView.value !== 'list') return
+	const back = listPanelReturnView.value
+	rightPanelView.value = (back === 'data' && !panelData.value) || (back === 'file' && !panelFile.value) ? 'artifact' : back
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
+}
+
+// Submit calls in this chat that target the open list.
+const listPaneSubmits = computed(() => {
+	const id = panelList.value?.listId
+	const out: any[] = []
+	if (!id) return out
+	for (const m of messages.value) {
+		for (const b of ((m as any).completion_blocks || [])) {
+			const te = b?.tool_execution
+			if (!te || typeof te.tool_name !== 'string' || !te.tool_name.startsWith('submit_')) continue
+			const target = te.result_json?.list_id || te.arguments_json?.list_id || te.arguments_json?._progress?.list_id
+			if (target === id) out.push(te)
+		}
+	}
+	return out
+})
+const listPaneWriting = computed(() => listPaneSubmits.value.reduce((n, te) => {
+	if (te.status !== 'running' && te.status !== 'in_progress') return n
+	const p = te.arguments_json?._progress?.records ?? (Array.isArray(te.arguments_json?.records) ? te.arguments_json.records.length : 0)
+	return n + (p || 0)
+}, 0))
+// Calls already reflected in the grid. Seeded when the pane opens so history
+// does not replay; anything that succeeds afterwards is merged and flashed.
+const listPaneSeen = new Set<string>()
+// Keyed by what the call wrote, not the tool execution id: the id changes
+// when the chat reloads messages from the server after a turn, which would
+// otherwise replay old saves as new ones.
+const finishedKey = (te: any) => (te.result_json?.records || []).map((r: any) => `${r.row_id}:${r.action}`).sort().join(',') || `${te.id}`
+watch(() => panelList.value?.listId, () => {
+	listPaneSeen.clear()
+	for (const te of listPaneSubmits.value) if (te.status === 'success') listPaneSeen.add(finishedKey(te))
+}, { immediate: true })
+watch(() => listPaneSubmits.value.filter(te => te.status === 'success' && te.result_json?.success !== false).map(finishedKey).join('|'), () => {
+	for (const te of listPaneSubmits.value) {
+		if (te.status !== 'success' || te.result_json?.success === false) continue
+		const k = finishedKey(te)
+		if (listPaneSeen.has(k)) continue
+		listPaneSeen.add(k)
+		listPaneRef.value?.applySubmit?.(te.result_json?.records || [])
+	}
+})
 
 // Mobile view mode (full-screen single section on narrow screens)
 const mobileView = ref<'chat' | 'summary' | 'dashboard' | 'agent'>('chat')
