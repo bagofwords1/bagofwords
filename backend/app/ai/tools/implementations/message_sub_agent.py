@@ -71,7 +71,7 @@ class MessageSubAgentTool(Tool):
             'output': receipt,
             'observation': {'summary': f'Message sent to {receipt["title"] if data.recipient != "parent" else "parent"}. '
                            'Stored for delivery before the next planning step; this does not prove it was acted on. '
-                           'Confirm the send once, then end your turn if no independent work remains. '
+                           'Continue messaging other intended recipients or doing independent work if needed. Otherwise confirm once and end your turn. '
                            'Do not resend, poll or schedule a wait: the wave will report back automatically.',
                            'success': True, **receipt},
         })

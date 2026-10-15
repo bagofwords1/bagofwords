@@ -256,17 +256,14 @@ messages, polling, or scheduling a redundant wait. `read_sub_agent` includes
 stored delivery history so the parent can distinguish sent/delivered/undelivered.
 
 
-Prompt guidance alone did not reliably prevent Luna from resending or polling
-in the next natural repeat. The runtime now makes a successful parent direction
-a handoff boundary: its next planner call has no tools and writes a short normal
-confirmation; remaining work continues when the automatic wave result arrives.
-A new user steering message restores tool use immediately. Answer messages do
-not impose this boundary, so a parent can answer several waiting children.
-This intended behavior prevents polling after a correction without prematurely
-terminating the child's run or synthesizing an English-only receipt as the answer.
+The original implementation added a tool-free confirmation boundary after a
+successful parent direction to prevent repeats observed with Luna. PR review
+caught a regression: this blocked a second child message and independent work.
+The review revision removes that boundary and the global retained-steer warning.
+Tools remain available; outgoing mailbox receipts and focused messaging guidance
+still distinguish already-sent directions from fresh requests.
 
-
-### Final natural repeat — passed
+### Pre-review natural repeat — passed
 
 Report `419a2ef9-9bef-4b36-933f-e401d6e37f46`, same initial request and same
 Monday/third-rep update above, submitted through the browser and Send now.
@@ -281,7 +278,7 @@ receipt wording in the user's prompts. This final pass does not erase the prior
 failed attempts documented above.
 
 
-## Final verification totals
+## Pre-review verification totals
 
 - Combined SQLite messaging/delegation/queue/prompt suite: **27 passed** (41.35s).
 - Messaging suite on a fresh disposable PostgreSQL database: **9 passed** (32.98s); database dropped.
@@ -289,9 +286,59 @@ failed attempts documented above.
 - Production frontend build: **passed**; deprecation/dependency and duplicate-key warnings logged.
 - New backend files and finish/read tools plus messaging tests: **Ruff passed**.
 - `git diff --check`: **passed**.
-- Parent handoff regression: disabling the guard offered 43 tools and failed the
-  empty-catalog assertion; restoring it passed. A fresh user steer restores tools.
+- The original handoff test asserted an empty catalog, which encoded the policy
+  defect. Review replaced it with a regression requiring continued messaging and
+  reading capability after a direction, plus fresh steering priority.
 - No credentials were committed; live verification proxy credential was cleared.
 
 The backend suite logs dependency deprecations and aiosqlite teardown warnings;
 none caused a test failure. These warnings were not exhaustively triaged here.
+
+
+## PR review revision
+
+Ten review threads identified valid improvements. Explicit `queue_if_busy`
+opt-in now preserves synchronous and artifact-stream callers; an unauthorized queue head fails without
+borrowing the report owner's identity and permits later valid queued work.
+Empty mailbox context no longer hides the proactive delegation reminder.
+Report locks share a helper and explicitly preserve timestamps; child/wave
+no-op locks also preserve `updated_at`. Answer-id queries share a scoped helper.
+
+Finishing with unread messages still retries while another planning step is
+available. At the last step/token grace step it preserves the typed result and
+adds a caveat, while leaving unread receipts `undelivered`. A repeated identical
+finish is idempotent; a different finish fails instead of reporting unpersisted
+values. Late finishes after stop remain errors, preserving the stopped record.
+
+Reproduction against the published pre-review code: continued-tool regression
+failed (empty catalog), timestamp regression failed (lock changed activity), and
+both whitespace-context variants suppressed delegation. A real final-step race with the old unconditional guard reproduced loss of
+the typed finding: the stored summary became "Step budget exhausted before a
+finish_subtask call." The corrected runtime preserves summary, findings and a
+caveat, with an undelivered receipt. Queue regressions were
+independently reproduced by Luna at the direct and streaming public boundaries.
+
+The natural Luna screenshots above document the pre-review implementation.
+This revision changes backend scheduling/control behavior and has deterministic
+provider-boundary verification; it has not repeated the live natural-model run.
+
+Review verification: combined SQLite suite **38 passed** (49.84s); frontend
+stream/refresh tests **9 passed** (including busy-receipt opt-in). Targeted Ruff and whitespace checks passed.
+
+The existing `queue=True` route means immediate enqueue and bypasses normal
+completion services, so it cannot serve as the normal chat race opt-in.
+`queue_if_busy` defaults false; only the main report stream opts in. Artifact
+chat clears both flags. Busy opt-in is covered through the actual direct and
+streaming service paths; the frontend test verifies outgoing opt-in and JSON
+receipt reconciliation. This request-flag refactor has no visual effect.
+
+The new authorization tests use real AgentV2 with only the LLM provider stubbed.
+They fail on the pre-review completion methods because the unique later-owner
+prompt never reaches the provider; current code continues that prompt. The test
+must not manually redispatch after the invalid head, which would hide the bug.
+
+Final opt-in integration: queue + messaging suites passed **21/21** on SQLite
+and PostgreSQL. The broader suite previously passed **38/38** on each database;
+unchanged delegation/prompt paths were not rerun for the request-flag refinement.
+Existing artifact-chat compatibility tests: **3/3** on SQLite. PostgreSQL runs
+use disposable databases, never a development or production database.

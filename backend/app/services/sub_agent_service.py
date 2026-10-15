@@ -41,7 +41,11 @@ from app.models.sub_agent import (
     SubAgentRun, SubAgentWave,
 )
 
+from app.services.sub_agent_locks import lock_report
+
 logger = logging.getLogger(__name__)
+
+_UNREAD_FINISH_CAVEAT = "Parent messages arrived at the execution budget limit and were not incorporated; inspect undelivered messages."
 
 _DEADLINE_JOB_PREFIX = "sub_agent_wave:"
 # How long the fan-in waits for a user turn on the report to finish before
@@ -412,8 +416,7 @@ class SubAgentService:
                 await self._mark_terminal(db, row, RUN_FAILED, EXIT_ERROR, error="report, organization or user gone before launch")
                 return
             # Share the report slot lock with children resuming after questions.
-            await db.execute(update(Report).where(Report.id == row.report_id)
-                             .values(last_activity_at=Report.last_activity_at))
+            await lock_report(db, row.report_id)
             org_settings = await organization.get_settings(db)
             cap = effective_concurrency(sub_agent_limits(org_settings)['concurrency'], _dialect_name(db))
             running = (await db.execute(select(func.count(SubAgentRun.id)).where(
@@ -488,7 +491,7 @@ class SubAgentService:
                 ae.parent_tool_execution_id = row.parent_tool_execution_id
         await db.commit()
 
-    async def record_finish(self, db, *, sub_agent_id: str, result: Dict[str, Any]) -> Optional[SubAgentRun]:
+    async def record_finish(self, db, *, sub_agent_id: str, result: Dict[str, Any], can_review_messages: bool = True) -> Optional[SubAgentRun]:
         """`finish_subtask`: store the validated body; the envelope lands at finalize."""
         from app.models.note import Note
         row = await db.get(SubAgentRun, sub_agent_id)
@@ -497,13 +500,26 @@ class SubAgentService:
         # Serialize completion with sends. A message accepted while the final
         # model response was in flight must reach another planning step, not
         # silently become undelivered on a successful finish.
-        from app.models.report import Report
         from app.models.sub_agent_message import SubAgentMessage
-        await db.execute(update(Report).where(Report.id == row.report_id).values(last_activity_at=Report.last_activity_at))
-        await db.execute(update(SubAgentWave).where(SubAgentWave.id == row.wave_id).values(total=SubAgentWave.total))
-        await db.execute(update(SubAgentRun).where(SubAgentRun.id == sub_agent_id).values(status=SubAgentRun.status))
+        await lock_report(db, row.report_id)
+        await db.execute(update(SubAgentWave).where(SubAgentWave.id == row.wave_id).values(total=SubAgentWave.total, updated_at=SubAgentWave.updated_at))
+        await db.execute(update(SubAgentRun).where(SubAgentRun.id == sub_agent_id).values(status=SubAgentRun.status, updated_at=SubAgentRun.updated_at))
         await db.refresh(row)
+        note_id = result.get("report_note_id")
+        if note_id:
+            note = await db.get(Note, str(note_id))
+            if note is None or str(note.report_id) != str(row.report_id):
+                result = {**result, "report_note_id": None}
+                note_id = None
         if row.status == RUN_FINISHED and row.exit_reason == EXIT_FINISH_CALL:
+            stored = row.result_json or {}
+            original = {**stored, "caveats": [
+                cleaned for caveat in stored.get("caveats", [])
+                if (cleaned := caveat.removesuffix(_UNREAD_FINISH_CAVEAT).rstrip())
+            ]}
+            if stored != result and original != result:
+                await db.rollback()
+                raise ValueError("This sub-agent already stored a different finish record.")
             await db.commit()
             return row
         if row.status not in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
@@ -512,18 +528,19 @@ class SubAgentService:
         unread = (await db.execute(select(SubAgentMessage.id).where(
             SubAgentMessage.recipient == sub_agent_id, SubAgentMessage.status == "sent",
         ).limit(1))).scalar_one_or_none()
-        if unread:
+        if unread and can_review_messages:
             await db.rollback()
             raise PendingSubAgentMessages(
                 "New parent messages arrived while you were working. Review agent_messages in your next "
                 "planning step, apply the updated direction to your work and notes, then finish."
             )
-        note_id = result.get("report_note_id")
-        if note_id:
-            note = await db.get(Note, str(note_id))
-            if note is None or str(note.report_id) != str(row.report_id):
-                result = {**result, "report_note_id": None}
-                note_id = None
+        if unread:
+            caveats = list(result.get("caveats", []))
+            if len(caveats) >= 8:
+                caveats[-1] += " " + _UNREAD_FINISH_CAVEAT
+            else:
+                caveats.append(_UNREAD_FINISH_CAVEAT)
+            result = {**result, "caveats": caveats}
         if row.status in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
             row.status = RUN_FINISHED
             row.exit_reason = EXIT_FINISH_CALL

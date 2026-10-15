@@ -11,6 +11,7 @@ from sqlalchemy import case, func, or_, select, update
 
 from app.models.sub_agent import SubAgentRun, SubAgentWave
 from app.models.sub_agent_message import SubAgentMessage
+from app.services.sub_agent_locks import lock_report
 
 LIVE = ('pending', 'running', 'waiting')
 MAX_MESSAGES = 32
@@ -18,6 +19,15 @@ MAX_QUESTIONS = 3
 
 
 class SubAgentMessageService:
+    @staticmethod
+    def _answered_ids(*, report_id=None, sub_agent_id=None):
+        query = select(SubAgentMessage.reply_to).where(
+            SubAgentMessage.kind == 'answer', SubAgentMessage.reply_to.is_not(None),
+        )
+        if sub_agent_id is not None:
+            return query.where(SubAgentMessage.sub_agent_id == sub_agent_id)
+        return query.where(SubAgentMessage.report_id == report_id)
+
     async def send(self, db, *, organization_id, report_id, sender_sub_agent_id,
                    recipient, kind, body, reply_to=None, idempotency_key):
         body = body.strip()
@@ -39,9 +49,8 @@ class SubAgentMessageService:
             raise ValueError('No such sub-agent in this conversation.')
         # Serialize send retries/caps and wake coalescing across workers, on
         # SQLite as well as Postgres. Lock order: report → wave → child.
-        from app.models.report import Report
-        await db.execute(update(Report).where(Report.id == report_id).values(last_activity_at=Report.last_activity_at))
-        await db.execute(update(SubAgentWave).where(SubAgentWave.id == child.wave_id).values(total=SubAgentWave.total))
+        await lock_report(db, report_id)
+        await db.execute(update(SubAgentWave).where(SubAgentWave.id == child.wave_id).values(total=SubAgentWave.total, updated_at=SubAgentWave.updated_at))
         existing = (await db.execute(select(SubAgentMessage).where(
             SubAgentMessage.report_id == report_id, SubAgentMessage.idempotency_key == idempotency_key,
         ))).scalar_one_or_none()
@@ -54,7 +63,7 @@ class SubAgentMessageService:
             return self.receipt(existing, child.title)
         claimed = await db.execute(update(SubAgentRun).where(
             SubAgentRun.id == child_id, SubAgentRun.status.in_(LIVE),
-        ).values(status=SubAgentRun.status))
+        ).values(status=SubAgentRun.status, updated_at=SubAgentRun.updated_at))
         if claimed.rowcount != 1:
             await db.rollback()
             raise ValueError('This sub-agent has ended. Delegate a new task with its previous result and notes.')
@@ -77,9 +86,7 @@ class SubAgentMessageService:
             questions = (await db.execute(select(SubAgentMessage).where(
                 SubAgentMessage.sub_agent_id == child_id, SubAgentMessage.kind == 'question',
             ))).scalars().all()
-            answers = set((await db.execute(select(SubAgentMessage.reply_to).where(
-                SubAgentMessage.sub_agent_id == child_id, SubAgentMessage.kind == 'answer',
-            ))).scalars().all())
+            answers = set((await db.execute(self._answered_ids(sub_agent_id=child_id))).scalars().all())
             if len(questions) >= MAX_QUESTIONS or any(q.id not in answers for q in questions):
                 await db.rollback()
                 raise ValueError('One unanswered question at a time; at most three questions per sub-agent.')
@@ -152,16 +159,13 @@ class SubAgentMessageService:
             claimed = await db.execute(update(SubAgentRun).where(
                 SubAgentRun.id == recipient, SubAgentRun.report_id == report_id,
                 SubAgentRun.organization_id == organization_id, SubAgentRun.status.in_(LIVE),
-            ).values(status=SubAgentRun.status))
+            ).values(status=SubAgentRun.status, updated_at=SubAgentRun.updated_at))
             if claimed.rowcount != 1:
                 await db.rollback()
                 return []
         # Blocking questions precede other active mail and historical runs.
         # Long-lived children must not lose an older open question to the cap.
-        answered_ids = select(SubAgentMessage.reply_to).where(
-            SubAgentMessage.report_id == report_id, SubAgentMessage.kind == 'answer',
-            SubAgentMessage.reply_to.is_not(None),
-        )
+        answered_ids = self._answered_ids(report_id=report_id)
         priority = case(
             ((SubAgentRun.status.in_(LIVE) & (SubAgentMessage.kind == 'question') &
               SubAgentMessage.id.not_in(answered_ids)), 0),
@@ -171,10 +175,7 @@ class SubAgentMessageService:
             priority,
             SubAgentMessage.created_at.desc(), SubAgentMessage.id.desc(),
         ).limit(160))).all()
-        answered = set((await db.execute(select(SubAgentMessage.reply_to).where(
-            SubAgentMessage.report_id == report_id, SubAgentMessage.kind == 'answer',
-            SubAgentMessage.reply_to.is_not(None),
-        ))).scalars().all()) if recipient == 'parent' else set()
+        answered = set((await db.execute(self._answered_ids(report_id=report_id))).scalars().all()) if recipient == 'parent' else set()
         child_statuses = dict((await db.execute(select(SubAgentRun.id, SubAgentRun.status).where(
             SubAgentRun.report_id == report_id,
         ))).all()) if recipient == 'parent' else {}
@@ -204,20 +205,14 @@ class SubAgentMessageService:
         ).values(status='undelivered', reason='recipient_ended'))
 
     async def has_open_questions(self, db, report_id):
-        answered = select(SubAgentMessage.reply_to).where(
-            SubAgentMessage.report_id == report_id, SubAgentMessage.kind == 'answer',
-            SubAgentMessage.reply_to.is_not(None),
-        )
+        answered = self._answered_ids(report_id=report_id)
         return (await db.execute(select(SubAgentMessage.id).join(
             SubAgentRun, SubAgentRun.id == SubAgentMessage.sub_agent_id,
         ).where(SubAgentMessage.report_id == report_id, SubAgentMessage.kind == 'question',
                 SubAgentRun.status.in_(LIVE), SubAgentMessage.id.not_in(answered)).limit(1))).scalar_one_or_none() is not None
 
     async def waiting_question(self, db, sub_agent_id):
-        answered = select(SubAgentMessage.reply_to).where(
-            SubAgentMessage.sub_agent_id == sub_agent_id, SubAgentMessage.kind == 'answer',
-            SubAgentMessage.reply_to.is_not(None),
-        )
+        answered = self._answered_ids(sub_agent_id=sub_agent_id)
         return (await db.execute(select(SubAgentMessage.id).where(
             SubAgentMessage.sub_agent_id == sub_agent_id, SubAgentMessage.kind == 'question',
             SubAgentMessage.id.not_in(answered),

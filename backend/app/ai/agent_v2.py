@@ -428,6 +428,8 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
+from app.services.sub_agent_locks import lock_report
+
 from sqlalchemy import select, func, update as sa_update, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
@@ -777,7 +779,6 @@ class AgentV2:
         # for the current decision to finish. (Cross-worker steers land at the
         # next loop-top DB poll — they can't interrupt mid-stream.)
         self._steering_interrupt = asyncio.Event()
-        self._message_handoff_steers: int | None = None
 
         # SSE event queue for streaming
         self.event_queue = event_queue
@@ -3381,8 +3382,6 @@ class AgentV2:
         items = "\n".join(f"    - {t}" for t in self._steering_texts)
         return (
             "<steering_updates>\n"
-            "    These are retained updates, not new requests on each planning step. "
-            "Do not repeat sends or edits already completed for an update. "
             "PRIORITY — the user interrupted with these instructions WHILE you were "
             "working. They override <original_user_prompt> and your current plan/notes "
             "where they conflict. Re-evaluate your plan against them in THIS decision — "
@@ -3404,7 +3403,6 @@ class AgentV2:
         additions = "\n".join(f"- {t}" for t in self._steering_texts)
         return (
             f"{base}\n\n<steering_updates>\n"
-            "These retained updates are shown again for context; do not repeat actions already completed for them. "
             "URGENT — the user sent these instructions WHILE you were working. "
             "Do not simply continue your previous plan: re-evaluate it against "
             "these updates in your VERY NEXT decision and adjust course now. "
@@ -5252,19 +5250,6 @@ class AgentV2:
                         await self._apply_sub_agent_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
                         if self.sigkill_event.is_set():
                             break
-                        # A correction hands work back to the child. Generate a
-                        # normal localized confirmation, without another tool
-                        # round that can resend, poll, or redo the child's work.
-                        # A NEW user steer reopens tool use immediately.
-                        if (self._message_handoff_steers is not None
-                                and self._message_handoff_steers == len(self._steering_seen_ids)):
-                            planner_input.tool_catalog = []
-                            planner_input.steering_context = (
-                                (planner_input.steering_context or "")
-                                + "\nThe correction was sent successfully. Give a short confirmation and end this turn. "
-                                "Do not claim the child acted on it. Its result will arrive automatically; "
-                                "continue the overall task then."
-                            )
                         # Trim context if it exceeds the model's token budget. After a
                         # context_length rejection the run's shrink factor tightens the
                         # window (see _handle_context_overflow) so the retry provably
@@ -6545,6 +6530,11 @@ class AgentV2:
                                         "verification_group_id": tool_input.get("_verification_group_id"),
                                         "planner_phase": "main",
                                         "planner_round_index": loop_index,
+                                        "sub_agent_can_review_messages": (
+                                            loop_index + 1 < step_limit and
+                                            (self._sub_agent_tokens_exhausted_at is None or
+                                             loop_index < self._sub_agent_tokens_exhausted_at + 1)
+                                        ),
                                         "pending_officejs_registry": pending_officejs_registry,
                                     }
 
@@ -6999,10 +6989,6 @@ class AgentV2:
                                 _ti_args = _o.get("tool_input")
                                 if _tn == "finish_subtask" and isinstance(_obs, dict) and _obs.get("analysis_complete"):
                                     self._sub_agent_finished = True
-                                if (_tn == "message_sub_agent" and not self._is_sub_agent
-                                        and isinstance(_obs, dict) and _obs.get("success")
-                                        and _obs.get("kind") == "direction"):
-                                    self._message_handoff_steers = len(self._steering_seen_ids)
                                 if _tn == "delegate" and isinstance(_obs, dict) and _obs.get("sub_agent_id"):
                                     self._wave_pending = True
                                 if _tn == "submit_list" and isinstance(_obs, dict):
@@ -7820,7 +7806,7 @@ class AgentV2:
         if planner_input.sub_agents_enabled and self.report is not None:
             planner_input.sub_agents_context = mailbox_context
             try:
-                planner_input.sub_agents_context = (await sub_agent_service.context_block(self.db, str(self.report_id))) + "\n" + mailbox_context
+                planner_input.sub_agents_context = "\n".join(part for part in (await sub_agent_service.context_block(self.db, str(self.report_id)), mailbox_context) if part)
             except Exception:
                 logger.debug("[agent] sub_agents context block failed", exc_info=True)
 
@@ -7834,7 +7820,6 @@ class AgentV2:
         if not self._sub_agent_id:
             return
         from app.dependencies import async_session_maker
-        from app.models.report import Report
         while not self.sigkill_event.is_set():
             async with (self._session_maker or async_session_maker)() as db:
                 row = await db.get(SubAgentRun, str(self._sub_agent_id))
@@ -7851,10 +7836,9 @@ class AgentV2:
                     return
                 else:
                     # Same report-scoped lock as the launcher, including across waves.
-                    await db.execute(update(Report).where(Report.id == row.report_id)
-                                     .values(last_activity_at=Report.last_activity_at))
+                    await lock_report(db, row.report_id)
                     await db.execute(update(SubAgentWave).where(SubAgentWave.id == row.wave_id)
-                                     .values(total=SubAgentWave.total))
+                                     .values(total=SubAgentWave.total, updated_at=SubAgentWave.updated_at))
                     running = (await db.execute(select(func.count()).select_from(SubAgentRun).where(
                         SubAgentRun.report_id == row.report_id, SubAgentRun.status == 'running',
                     ))).scalar_one()

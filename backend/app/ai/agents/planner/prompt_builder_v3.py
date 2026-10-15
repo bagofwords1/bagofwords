@@ -392,8 +392,8 @@ class PromptBuilderV3:
         if _sub_agents_on:
             delegation_text += (
                 "LIVE SUB-AGENT MESSAGES\n"
-                "- When the user changes a delegated task, send the correction once to the active child. "
-                "Confirm that it was sent, then end your turn unless you have independent work. "
+                "- When the user changes a delegated task, send the correction once to each affected active child. "
+                "After all intended recipients have been messaged, confirm the sends and end your turn unless you have independent work. "
                 "Do not resend to seek acknowledgement, poll read_sub_agent, or schedule a wait: "
                 "the existing wave automatically returns the result.\n"
                 "- Sent means stored; delivered means included in the child's planning context, not acted on. "
@@ -930,7 +930,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         if (
             getattr(planner_input, "sub_agents_enabled", False)
             and (getattr(planner_input, "sub_agent_posture", None) or "proactive").lower() != "explicit"
-            and not getattr(planner_input, "sub_agents_context", None)
+            and not (getattr(planner_input, "sub_agents_context", None) or "").strip()
             and (getattr(planner_input, "mode", None) or "chat") != "subagent"
         ):
             parts.append(
