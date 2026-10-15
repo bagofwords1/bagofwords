@@ -3902,6 +3902,7 @@
     "dashboard.publish_public_monitoring": "הדשבורד הזה ציבורי ומשתמש בנתוני ניטור. יש לשנות את השיתוף לפני הפרסום.",
     "dashboard.publish_connection": "חיבור שהדשבורד משתמש בו לא עובד: {names}. יש לחבר אותו מחדש ולפרסם שוב.",
     "dashboard.schedule_requires_publish": "יש לפרסם את הדשבורד לפני שמתזמנים אותו.",
+    "dashboard.edit_first": "אין לדשבורד הזה טיוטה לפרסום. יש לערוך אותו קודם.",
     "access.denied": "הגישה נדחתה",
     "account.disabled": "החשבון שלך הושבת. פנה למנהל המערכת.",
     "connection.not_found": "החיבור לא נמצא",

@@ -155,5 +155,11 @@ async def open_draft(db, ref: str, user) -> Artifact:
     artifact = await resolve(db, ref)
     if not await can_edit(db, artifact, user):
         raise _not_found()
+    # The draft lives in the editing conversation: none once it was deleted
+    # (phase 7; "Edit" starts a new one from the published release).
+    from app.models.report import Report
+    editing = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
+    if editing is None or editing.status == "archived" or editing.deleted_at is not None:
+        raise _not_found()
     await assert_read(db, await report_access(db, artifact.report_id), user)
     return artifact

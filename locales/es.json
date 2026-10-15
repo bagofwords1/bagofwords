@@ -3902,6 +3902,7 @@
     "dashboard.publish_public_monitoring": "Este panel es público y usa datos de monitoreo. Cambia cómo se comparte antes de publicarlo.",
     "dashboard.publish_connection": "Una conexión que usa este panel no funciona: {names}. Vuelve a conectarla y publica de nuevo.",
     "dashboard.schedule_requires_publish": "Publica el panel antes de programarlo.",
+    "dashboard.edit_first": "Este panel no tiene un borrador para publicar. Edítalo primero.",
     "access.denied": "Acceso denegado",
     "account.disabled": "Tu cuenta ha sido deshabilitada. Ponte en contacto con tu administrador.",
     "connection.not_found": "Conexión no encontrada",

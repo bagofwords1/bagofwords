@@ -21,6 +21,7 @@ from app.models.artifact import ArtifactVersion
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.dashboard_schema import (
+    DashboardForkRequest,
     DashboardPublishRequest,
     DashboardPublishStatusSchema,
     DashboardSettingsSchema,
@@ -31,6 +32,7 @@ from app.schemas.dashboard_schema import (
     PublicGeneralSettings,
     PublishedDashboardSchema,
 )
+from app.schemas.completion_v2_schema import CompletionCreate
 from app.schemas.query_schema import QueryRunRequest
 from app.services import dashboard_access, dashboard_settings_service
 
@@ -154,6 +156,22 @@ async def get_dashboard_publish_status(
 
     artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
     return await dashboard_publish.publish_status(db, artifact)
+
+
+@router.post("/dashboards/{dashboard_id}/edit")
+@requires_permission("publish_reports")
+async def edit_dashboard(
+    dashboard_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The owner's Edit: the conversation the draft is edited in -- a new
+    one from the published release when it was deleted (phase 7)."""
+    from app.services import dashboard_lifecycle
+
+    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    return await dashboard_lifecycle.edit_dashboard(db, artifact, current_user, organization)
 
 
 @router.post("/dashboards/{dashboard_id}/refresh")
@@ -491,6 +509,147 @@ async def export_published_dashboard(
 
 
 # ── Running a published dashboard (part C) ───────────────────────────────
+
+# ── readers' chat (phase 7) ──────────────────────────────────────────────
+
+@router.get("/d/{ref}/chat")
+async def get_dashboard_chat_status(
+    ref: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Availability and scope for the chat bubble, as /r/{id}/chat answers
+    it. Never creates anything."""
+    from fastapi import HTTPException
+
+    from app.models.data_source import DataSource
+    from app.models.organization import Organization
+    from app.services import dashboard_chat
+
+    try:
+        artifact, release = await dashboard_chat.open_chat(db, ref, user)
+    except (HTTPException, AppError) as e:
+        if user is None and e.status_code == 401:
+            return {"enabled": True, "available": False, "reason": "auth_required"}
+        detail = str(getattr(e, "detail", "") or e)
+        if e.status_code == 403 and user is not None and ("not enabled" in detail or "members of" in detail):
+            reason = "disabled" if "not enabled" in detail else "not_member"
+            return {"enabled": reason != "disabled", "available": False, "reason": reason}
+        raise
+    organization = await db.get(Organization, str(artifact.organization_id))
+    agent_ids = await dashboard_chat.effective_agent_ids(db, artifact, release, organization, user)
+    agents = []
+    for aid in agent_ids:
+        ds = await db.get(DataSource, aid)
+        if ds is not None:
+            agents.append({"id": aid, "name": ds.name})
+    thread = await dashboard_chat.find_thread(db, artifact, user)
+    return {"enabled": True, "available": True, "reason": None,
+            "scope": "agents" if agent_ids else "data_only", "agents": agents,
+            "chat_report_id": str(thread.id) if thread else None}
+
+
+@router.post("/d/{ref}/chat/completions")
+async def create_dashboard_chat_completion(
+    ref: str,
+    completion: CompletionCreate,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """A message into the reader's own thread on this dashboard. Streams SSE.
+    Access, roster, model and context are re-resolved on every message."""
+    from fastapi import HTTPException
+
+    from app.models.organization import Organization
+    from app.services import dashboard_chat
+    from app.services.completion_service import CompletionService
+
+    artifact, release = await dashboard_chat.open_chat(db, ref, user)
+    organization = await db.get(Organization, str(artifact.organization_id))
+    agent_ids = await dashboard_chat.effective_agent_ids(db, artifact, release, organization, user)
+    thread = await dashboard_chat.resolve_thread(db, artifact, user, agent_ids)
+    if completion.prompt is None or not (completion.prompt.content or "").strip():
+        raise HTTPException(status_code=400, detail="Message content is required")
+    completion.prompt.widget_id = None
+    completion.prompt.step_id = None
+    completion.prompt.mode = "chat"
+    completion.prompt.platform = "artifact_chat"
+    completion.prompt.platform_context = await dashboard_chat.build_context(db, artifact, release, agent_ids, user)
+    try:
+        completion.queue = False
+    except Exception:
+        pass
+    return await CompletionService().create_completion_stream(db, str(thread.id), completion, user, organization)
+
+
+@router.get("/d/{ref}/chat/completions")
+async def get_dashboard_chat_completions(
+    ref: str,
+    limit: int = 20,
+    before: str | None = None,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """The reader's own thread on this dashboard. Empty before the first message."""
+    from app.models.organization import Organization
+    from app.services import dashboard_chat
+    from app.services.completion_service import CompletionService
+
+    artifact, _ = await dashboard_chat.open_chat(db, ref, user)
+    thread = await dashboard_chat.find_thread(db, artifact, user)
+    if thread is None:
+        return {"report_id": None, "completions": [], "total_completions": 0}
+    organization = await db.get(Organization, str(artifact.organization_id))
+    return await CompletionService().get_completions_v2(db, str(thread.id), organization, user, limit=limit,
+                                                        before=before)
+
+
+@router.get("/d/{ref}/chat/completions/{completion_id}/stream")
+async def watch_dashboard_chat_completion(
+    ref: str,
+    completion_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Re-attachable SSE watch for a completion in the reader's own thread."""
+    from fastapi import HTTPException
+
+    from app.models.organization import Organization
+    from app.services import dashboard_chat
+    from app.services.completion_service import CompletionService
+
+    artifact, _ = await dashboard_chat.open_chat(db, ref, user)
+    thread = await dashboard_chat.find_thread(db, artifact, user)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="No chat thread")
+    organization = await db.get(Organization, str(artifact.organization_id))
+    return await CompletionService().watch_completion_stream(db, str(thread.id), completion_id, user, organization)
+
+
+@router.post("/d/{ref}/fork")
+async def fork_published_dashboard(
+    ref: str,
+    payload: DashboardForkRequest | None = None,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Fork of the published dashboard into the reader's own (phase 7)."""
+    from app.core import fire_and_forget
+    from app.services import dashboard_lifecycle
+    from app.services.fork_service import fork_service
+
+    if user is None:
+        raise AppError.unauthorized()
+    artifact, release = await dashboard_access.open_published(db, ref, user)
+    title = payload.title if payload else None
+    forked = await dashboard_lifecycle.fork_release(db, artifact, release, user, title=title)
+    if forked["pending_code"]:
+        # Over a personal connection the code runs again as the forker, as
+        # a conversation's Fork does.
+        fire_and_forget.spawn(fork_service.hydrate_fork(forked["report_id"], str(user.id),
+                                                       str(artifact.organization_id), forked["pending_code"]))
+    return {"report_id": forked["report_id"], "artifact_id": forked["artifact_id"]}
+
 
 @router.post("/d/{ref}/refresh")
 async def refresh_published_dashboard_on_view(

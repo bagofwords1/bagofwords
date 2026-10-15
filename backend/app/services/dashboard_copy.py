@@ -493,7 +493,7 @@ def _copy_deck(path: str | None, new_stem: str) -> str | None:
         return None
 
 
-def _copy_previews(paths: list, release_id: str) -> tuple[list, dict]:
+def _copy_previews(paths: list, release_id: str, stem: str | None = None) -> tuple[list, dict]:
     """Slide previews copied to the release's own folder under
     uploads/pptx_previews, resolved like the preview route does (only PNGs
     inside that folder). A preview that is not one, or not on disk, keeps its
@@ -505,10 +505,11 @@ def _copy_previews(paths: list, release_id: str) -> tuple[list, dict]:
             source = safe_join(base, str(p).removeprefix("pptx_previews/"))
             if source.suffix.lower() != ".png" or not source.is_file():
                 raise FileNotFoundError(str(p))
-            target = base / f"release-{release_id}" / source.name
+            folder = stem or f"release-{release_id}"
+            target = base / folder / source.name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
-            new = f"pptx_previews/release-{release_id}/{source.name}"
+            new = f"pptx_previews/{folder}/{source.name}"
             copied[p] = new
             out.append(new)
         except (UnsafePathError, OSError):

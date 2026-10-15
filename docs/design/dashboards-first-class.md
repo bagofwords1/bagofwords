@@ -645,3 +645,71 @@ migration.
   `automation_alerts.notify_owner_of_failure` (which now takes a `link`).
 
 Tests: `test_dashboard_refresh.py`.
+
+## Phase 7 — a published dashboard outlives its conversation
+
+Decisions (with Rachel, 2026-10-15): deleting a conversation still archives
+it; its published dashboards leave it and stay live, its never-published ones
+are deleted with it, and unpublished changes stay behind; a preview says which
+of the three each dashboard is ("publish and delete" is a phase-8 flow:
+publish, wait for success, then delete); "Edit" on a dashboard without a live
+conversation starts a new one from the release and moves the same dashboard
+into it (owner only); Fork works from a published dashboard with Fork's rules;
+readers' chat is per dashboard and per reader, with only the rows they may
+see; project delete follows the conversation rule. Also: a conversation is
+not deleted while one of its dashboards publishes; a dashboard without a live
+conversation does not publish (edit first); a Fork is a new dashboard of the
+forker; chat with nothing chosen uses the release's sources and the
+organization's model.
+
+### Part A — deleting a conversation (`dashboard_lifecycle`)
+
+- `delete_outcomes` / `GET /api/reports/{id}/delete_preview`: survives,
+  loses_changes (published from a version that is not the newest completed),
+  or deleted (no live release).
+- `settle_dashboards`, in the same transaction as `archive_report`,
+  `bulk_archive_reports` and `delete_project`, each dashboard locked as
+  `start_publish` locks it: one that is publishing refuses the delete (409,
+  a stopped publish failed first); published dashboards get
+  `report_id = NULL`; others get `deleted_at`. `leave_project` takes a
+  deleted project's remaining dashboards out of it (published) or deletes
+  them (never published, conversation gone).
+- A Fork from `/d` links no files, carries slides, deck and thumbnail only
+  when its reader may see them, needs `create_reports`, and names no
+  conversation of the owner's (`forked_from_id` empty; refresh-on-view
+  waits for any hydrating fork). Edit makes the live release point at its
+  new version (no false "unpublished changes"); two Edits at once give one
+  conversation; a version of a conversation the dashboard has left does not
+  publish; a dashboard deleted while publishing does not go live.
+- The draft door (`open_draft`) and `start_publish` need a live editing
+  conversation (`dashboard.edit_first`).
+
+### Part B — "Edit" and Fork from the release
+
+- `release_to_conversation`: a new conversation of the user with the
+  release's sources, files, theme and monitoring access, and its queries,
+  default steps and charts copied by `copy_query_rows` (the release's copies
+  get widgets in the conversation); content remapped, slide previews and
+  deck copied to files of its own.
+- `POST /api/dashboards/{id}/edit`: the live conversation, else a new one
+  with a new draft version of the same artifact
+  (`artifact_service.new_version(report_id=...)`) and `artifacts.report_id`
+  moved to it; rows copied as they are (the owner's). The agent's tools match
+  versions by conversation, so they edit it there.
+- `POST /api/d/{id}/fork`: Fork's eligibility against the release's sources
+  and Fork's data policy (`fork_service.make_step_overrides`, now shared),
+  a new artifact of the forker's; over a personal connection the code is held
+  back and `hydrate_fork` runs it as the forker.
+
+### Part C — readers' chat (`dashboard_chat`)
+
+- `/api/d/{id}/chat` (status), `.../chat/completions` (send, list) and
+  `.../chat/completions/{id}/stream`: the /d access check, signed in, a live
+  member, `artifacts.chat_enabled`.
+- Threads: `report_type='artifact_chat'`, `source_artifact_id` = the
+  dashboard, `forked_from_id` empty so the /r chat never finds them; roster
+  synced every message (`ArtifactChatService.sync_roster`, now shared).
+- Context: the live release; in data-only scope its charts with the reader's
+  rows (`ReleaseRender`).
+
+Tests: `test_dashboard_lifecycle.py`, `test_dashboard_chat.py`.

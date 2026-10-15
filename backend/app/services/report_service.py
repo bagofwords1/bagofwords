@@ -1761,7 +1761,10 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
 
+        # Its published dashboards stay live, the others go with it (phase 7).
+        from app.services.dashboard_lifecycle import settle_dashboards
         report.status = 'archived'
+        await settle_dashboards(db, [str(report.id)])
         await self._delete_scheduled_prompts_for_reports(db, [str(report.id)])
         await db.commit()
         await self._cancel_checkins_for_reports(db, [str(report.id)])
@@ -2978,6 +2981,7 @@ class ReportService:
         )
         result = await db.execute(stmt)
         reports = result.scalars().all()
+        from app.services.dashboard_lifecycle import settle_dashboards
 
         count = 0
         archived_ids = []
@@ -2987,6 +2991,7 @@ class ReportService:
             count += 1
 
         if count:
+            await settle_dashboards(db, archived_ids)
             await self._delete_scheduled_prompts_for_reports(db, archived_ids)
             await db.commit()
             await self._cancel_checkins_for_reports(db, archived_ids)
@@ -3335,10 +3340,11 @@ class ReportService:
         # a second time and write the same steps concurrently with it. Skip;
         # once hydration settles, its last_run_at keeps the staleness gate
         # below closed for the usual interval.
-        if report.forked_from_id:
-            from app.services.fork_service import fork_service
-            if await fork_service.is_hydrating(db, str(report_id)):
-                return _skip("fork hydrating")
+        # Checked for every report, not only those with forked_from_id: a Fork
+        # of a published dashboard (phase 7) names no source conversation.
+        from app.services.fork_service import fork_service
+        if await fork_service.is_hydrating(db, str(report_id)):
+            return _skip("fork hydrating")
 
         # An agent run in flight on this report owns its step graph: an owner
         # rerun underneath it races the agent's step writes (both sides fail)

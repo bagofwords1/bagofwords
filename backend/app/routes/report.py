@@ -191,6 +191,22 @@ async def delete_report(
     return result
 
 
+@router.get("/reports/{report_id}/delete_preview")
+@requires_permission('delete_reports', model=Report, owner_only=True)
+async def delete_report_preview(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """What deleting this conversation does to each of its dashboards:
+    survives, loses_changes (published, with unpublished edits) or deleted
+    (never published). Changes nothing."""
+    from app.services.dashboard_lifecycle import delete_outcomes
+
+    return {"dashboards": await delete_outcomes(db, [report_id])}
+
+
 @router.post("/reports/bulk/archive")
 @requires_permission('delete_reports')
 async def bulk_archive_reports(

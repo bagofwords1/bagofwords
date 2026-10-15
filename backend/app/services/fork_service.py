@@ -99,6 +99,80 @@ class DuplicatedAssets(NamedTuple):
     needs_thumbnail: bool = False
 
 
+def make_step_overrides(user_scoped: bool, strict_source: bool):
+    """Fork's data policy for each copied step (a conversation's Fork, and a
+    published dashboard's, phase 7): what of the creator's step the forker
+    may receive. See ForkService._duplicate_assets for the two flags."""
+    from app.services.viewer_data_policy import redact_applied_params
+
+    def step_overrides(old_step, old_query) -> dict:
+        # Only a step hydration will actually run may be marked
+        # pending. A user-scoped step with no code to re-run is never
+        # entered into pending_code, so hydrate_fork would never settle
+        # it: 'pending' would stick until the staleness cutoff, holding
+        # the page on its spinner and refresh-on-view off the report
+        # for five minutes (and if EVERY step were blank, hydration is
+        # not even spawned, so nothing would settle it at all). Such a
+        # step has nothing to withhold either — there is no code and no
+        # rows to copy — so it goes straight to its terminal status.
+        will_hydrate = user_scoped and bool((old_step.code or "").strip())
+        return dict(  # noqa: C408  (keyword form keeps the per-field comments readable)
+            # A delegated-source step arrives empty and is filled in by
+            # hydrate_fork. 'pending' (never used by steps otherwise) is
+            # what marks it as not yet run for this forker: the report
+            # page waits on it instead of rendering an empty dashboard,
+            # and refresh-on-view stays off it so the queries do not run
+            # twice. Hydration moves it to 'success' or 'error'.
+            status=FORK_PENDING_STATUS if will_hydrate else old_step.status,
+            status_reason=None if user_scoped else old_step.status_reason,
+            # prompt rides with `code`: same authorship, and the share
+            # never exposes it at all. (Empty on every row today.)
+            prompt="" if user_scoped else old_step.prompt,
+            code="" if user_scoped else old_step.code,
+            # Strict-mode (user-scoped) data is credential-differentiated
+            # to the source owner — never copy it into the fork; the
+            # forker runs it under their own credentials. System-only
+            # data is shared by definition, so copy it as-is.
+            data={} if strict_source else old_step.data,
+            # applied_params is the filter state the dashboard was
+            # built with — the year, the branch, the agent the creator
+            # had selected. It is carried for EVERY source, snapshot or
+            # not, because the forker's first run replays it:
+            # hydrate_fork → rerun_step resolves the step's params from
+            # `stored=step.applied_params`, and with nothing stored the
+            # copied code ran under the declared defaults instead.
+            # For a dashboard whose filters carry no default that is a
+            # run the creator never made — an empty year, an empty
+            # period — and code that had only ever executed with a
+            # value set takes a path that was never exercised. In the
+            # field that path built DAX against a table the semantic
+            # model does not have, so every query of a delegated fork
+            # failed and the forker landed on an empty dashboard,
+            # labelled as a credentials problem, although the same user
+            # ran the same queries on the source report fine.
+            #
+            # Deliberately NOT gated on whether the read path would
+            # serve this forker a snapshot (a successful viewer run of
+            # their own). Forking is usually the first thing a reader
+            # does on a shared page, before any run of theirs exists;
+            # gating on it left exactly those forks on the defaults.
+            #
+            # Identity-sourced values are stripped on the way (the same
+            # boundary redact_applied_params draws for a reader): those
+            # name the creator, not the data, and rerun_step re-derives
+            # them for the forker anyway. What remains is the filter
+            # selection — the dashboard's own state, which the shared
+            # page already shows a reader — never rows.
+            applied_params=redact_applied_params(
+                old_step.applied_params, old_query.parameters,
+                withheld=False,
+            ),
+            context_summary_json=None,
+        )
+
+    return step_overrides
+
+
 class ForkService:
     """Handles forking a published/shared report into a user's workspace."""
 
@@ -754,70 +828,7 @@ class ForkService:
                 widget_id_map[old_widget_id] = new_widget_id
             return new_widget_id
 
-        def step_overrides(old_step, old_query) -> dict:
-            # Only a step hydration will actually run may be marked
-            # pending. A user-scoped step with no code to re-run is never
-            # entered into pending_code, so hydrate_fork would never settle
-            # it: 'pending' would stick until the staleness cutoff, holding
-            # the page on its spinner and refresh-on-view off the report
-            # for five minutes (and if EVERY step were blank, hydration is
-            # not even spawned, so nothing would settle it at all). Such a
-            # step has nothing to withhold either — there is no code and no
-            # rows to copy — so it goes straight to its terminal status.
-            will_hydrate = user_scoped and bool((old_step.code or "").strip())
-            return dict(  # noqa: C408  (keyword form keeps the per-field comments readable)
-                # A delegated-source step arrives empty and is filled in by
-                # hydrate_fork. 'pending' (never used by steps otherwise) is
-                # what marks it as not yet run for this forker: the report
-                # page waits on it instead of rendering an empty dashboard,
-                # and refresh-on-view stays off it so the queries do not run
-                # twice. Hydration moves it to 'success' or 'error'.
-                status=FORK_PENDING_STATUS if will_hydrate else old_step.status,
-                status_reason=None if user_scoped else old_step.status_reason,
-                # prompt rides with `code`: same authorship, and the share
-                # never exposes it at all. (Empty on every row today.)
-                prompt="" if user_scoped else old_step.prompt,
-                code="" if user_scoped else old_step.code,
-                # Strict-mode (user-scoped) data is credential-differentiated
-                # to the source owner — never copy it into the fork; the
-                # forker runs it under their own credentials. System-only
-                # data is shared by definition, so copy it as-is.
-                data={} if strict_source else old_step.data,
-                # applied_params is the filter state the dashboard was
-                # built with — the year, the branch, the agent the creator
-                # had selected. It is carried for EVERY source, snapshot or
-                # not, because the forker's first run replays it:
-                # hydrate_fork → rerun_step resolves the step's params from
-                # `stored=step.applied_params`, and with nothing stored the
-                # copied code ran under the declared defaults instead.
-                # For a dashboard whose filters carry no default that is a
-                # run the creator never made — an empty year, an empty
-                # period — and code that had only ever executed with a
-                # value set takes a path that was never exercised. In the
-                # field that path built DAX against a table the semantic
-                # model does not have, so every query of a delegated fork
-                # failed and the forker landed on an empty dashboard,
-                # labelled as a credentials problem, although the same user
-                # ran the same queries on the source report fine.
-                #
-                # Deliberately NOT gated on whether the read path would
-                # serve this forker a snapshot (a successful viewer run of
-                # their own). Forking is usually the first thing a reader
-                # does on a shared page, before any run of theirs exists;
-                # gating on it left exactly those forks on the defaults.
-                #
-                # Identity-sourced values are stripped on the way (the same
-                # boundary redact_applied_params draws for a reader): those
-                # name the creator, not the data, and rerun_step re-derives
-                # them for the forker anyway. What remains is the filter
-                # selection — the dashboard's own state, which the shared
-                # page already shows a reader — never rows.
-                applied_params=redact_applied_params(
-                    old_step.applied_params, old_query.parameters,
-                    withheld=False,
-                ),
-                context_summary_json=None,
-            )
+        step_overrides = make_step_overrides(user_scoped, strict_source)
 
         # Deleted queries stay behind — nothing shows them — unless a step
         # still loads one (load_step reaches deleted queries' steps); that one

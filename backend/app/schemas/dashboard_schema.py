@@ -115,6 +115,10 @@ class DashboardRunSchema(BaseModel):
     error: str | None = None
 
 
+class DashboardForkRequest(BaseModel):
+    title: str | None = None
+
+
 class DashboardPublishRequest(BaseModel):
     """None publishes the newest completed version."""
     version_id: str | None = None

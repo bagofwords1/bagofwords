@@ -190,7 +190,21 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
     from app.services.bow_source_access import assert_read
     from app.services.dashboard_copy import copy_dashboard
 
+    # A dashboard whose conversation was deleted has no draft: publishing an
+    # old version from it would roll the dashboard back. Edit it first.
+    # Locked so a conversation delete (dashboard_lifecycle.settle_dashboards
+    # locks it too) cannot settle the dashboard while this starts.
+    artifact = (await db.execute(
+        select(Artifact).where(Artifact.id == str(artifact.id)).with_for_update()
+        .execution_options(populate_existing=True))).scalar_one()
+    editing = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
+    if editing is None or editing.status == "archived" or editing.deleted_at is not None:
+        raise AppError.conflict(ErrorCode.DASHBOARD_EDIT_FIRST, "This dashboard has no draft to publish; edit it first")
     version = await _version_to_publish(db, artifact, version_id)
+    if str(version.report_id) != str(artifact.report_id):
+        # A version from a conversation the dashboard has left (Edit moved it).
+        raise AppError.conflict(ErrorCode.DASHBOARD_VERSION_NOT_PUBLISHABLE,
+                                "This version belongs to a deleted conversation")
     report = (await db.execute(
         select(Report).options(lazyload("*")).where(Report.id == str(version.report_id))
     )).scalar_one()
@@ -461,8 +475,10 @@ async def _go_live(db, release_id: str) -> bool:
     artifact = (await db.execute(
         select(Artifact).options(lazyload("*")).where(Artifact.id == artifact_id).with_for_update()
     )).scalar_one_or_none()
-    if artifact is None:
-        return False
+    if artifact is None or artifact.deleted_at is not None:
+        await db.rollback()
+        await _fail(db, release_id, "The dashboard was deleted while it was being published.")
+        return True
     if release.bow_source_access and artifact.visibility == "public":
         # Made public while this publish ran: monitoring data may not go live there.
         await db.rollback()

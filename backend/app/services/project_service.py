@@ -271,13 +271,18 @@ class ProjectService:
                 Report.deleted_at.is_(None),
             )
         )).scalars().all()
+        from app.services.dashboard_lifecycle import settle_dashboards
         archived_ids = []
         for r in contained:
             r.status = "archived"
             archived_ids.append(str(r.id))
         if archived_ids:
             from app.services.report_service import ReportService
+            # Published dashboards stay live and leave the deleted project (phase 7).
+            await settle_dashboards(db, archived_ids)
             await ReportService()._delete_scheduled_prompts_for_reports(db, archived_ids)
+        from app.services.dashboard_lifecycle import leave_project
+        await leave_project(db, str(project.id))
         # Revoke grants so re-used ids can never resurrect access.
         await db.execute(
             sa_update(ResourceGrant)

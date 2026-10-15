@@ -145,13 +145,16 @@ async def new_version(
     completion_id: Optional[str] = None,
     status: str = "completed",
     title: Optional[str] = None,
+    report_id: Optional[str] = None,
     **version_fields: Any,
 ) -> ArtifactVersion:
     """Append the next version to the artifact ``source`` belongs to.
 
     The new row joins ``source``'s parent artifact — a version can never
     move between artifacts, and mode is fixed there. ``user_id`` (the author
-    of this version) defaults to the source's. Passing ``title`` RENAMES the
+    of this version) defaults to the source's; ``report_id`` (the
+    conversation it is edited in) too -- a dashboard whose conversation was
+    deleted is edited in a new one (dashboards project, phase 7). Passing ``title`` RENAMES the
     parent, i.e. every version of this artifact at once.
 
     Two writers can read the same max(version) at once; the loser's INSERT
@@ -161,7 +164,7 @@ async def new_version(
     """
     fields = dict(
         artifact_id=str(source.artifact_id),
-        report_id=_id(source.report_id),
+        report_id=_id(report_id) or _id(source.report_id),
         user_id=_id(user_id) or _id(source.user_id),
         organization_id=_id(source.organization_id),
         content=content,
