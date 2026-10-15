@@ -185,7 +185,14 @@ class ReadFileInput(BaseModel):
             "(conversation attachments — leave connection_id empty), or the "
             "`id` returned by list_files/search_files for a file source (with "
             "connection_id set). A filename like 'Book 7.xlsx' is resolved as "
-            "a fallback on file sources, but the id is unambiguous."
+            "a fallback on file sources, but the id is unambiguous. "
+            "EMAIL ATTACHMENTS: an attachment of an .eml/.msg file is addressed "
+            "as `<email file id>#att:<index>:<filename>` (0-based index; the "
+            "email's read lists these ids) — pass it here with the email's "
+            "connection_id to read the attachment as a file of its own type. "
+            "A nested forwarded message chains another `#att:` segment. These "
+            "ids are for read_file only — inspect_data / create_data take the "
+            "`session_file_id` that reading the attachment returns."
         ),
     )
     sheet: Optional[str] = Field(
