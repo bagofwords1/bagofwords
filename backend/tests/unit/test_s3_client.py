@@ -2,7 +2,7 @@
 
 Exercises the S3 file primitives — list (with CommonPrefixes → folders + junk
 filtering), structured read (csv → DataFrame), and the windowed byte-range read
-(cursor: next_cursor / total_size / eof, with newline snapping) — plus the
+(cursor: next_cursor / total_size / eof; exact byte ranges, UTF-8 safe boundaries) — plus the
 security invariant (prefix confinement / traversal rejection) and the registry
 wiring. The AWS boundary is stubbed with botocore's Stubber — no network, no
 credentials, no moto dependency.
@@ -210,21 +210,25 @@ class TestStructuredRead:
 class TestWindowedRead:
     def test_window_returns_cursor_fields(self):
         client, stub = _make_client()
-        # 30 bytes total; read first 10.
-        chunk = b"line1\nline"
+        # 30 bytes total; read first 10. The GET asks for 3 extra bytes so a
+        # multi-byte character on the boundary can be completed; here the
+        # boundary is ASCII so exactly 10 come back.
+        chunk = b"line1\nline\n2\n"
         stub.add_response(
             "get_object",
-            {"Body": _body(chunk), "ContentRange": "bytes 0-9/30", "ContentLength": 10},
-            {"Bucket": "test-bucket", "Key": "docs/log.log", "Range": "bytes=0-9"},
+            {"Body": _body(chunk), "ContentRange": "bytes 0-12/30", "ContentLength": 13},
+            {"Bucket": "test-bucket", "Key": "docs/log.log", "Range": "bytes=0-12"},
         )
         with stub:
             out = client.read_file("log.log", offset=0, length=10)
         assert out["encoding"] == "text"
         assert out["total_size"] == 30
         assert out["eof"] is False
-        # snapped to the last newline: content is "line1\n", cursor at byte 6
-        assert out["content"] == "line1\n"
-        assert out["next_cursor"] == 6
+        # Exactly the requested bytes — NOT snapped back to the newline — so a
+        # fixed-stride read at offset 10 picks up right where this one ended.
+        assert out["content"] == "line1\nline"
+        assert out["length"] == 10
+        assert out["next_cursor"] == 10
 
     def test_window_eof(self):
         client, stub = _make_client()
@@ -232,12 +236,12 @@ class TestWindowedRead:
         stub.add_response(
             "get_object",
             {"Body": _body(chunk), "ContentRange": "bytes 20-29/30", "ContentLength": 10},
-            {"Bucket": "test-bucket", "Key": "docs/log.log", "Range": "bytes=20-29"},
+            {"Bucket": "test-bucket", "Key": "docs/log.log", "Range": "bytes=20-32"},
         )
         with stub:
             out = client.read_file("log.log", offset=20, length=10)
         assert out["eof"] is True
-        assert out["content"] == "tail-bytes"   # no snapping at eof
+        assert out["content"] == "tail-bytes"
         assert out["next_cursor"] == 30
 
     def test_binary_window_base64(self):
@@ -246,7 +250,7 @@ class TestWindowedRead:
         stub.add_response(
             "get_object",
             {"Body": _body(raw), "ContentRange": f"bytes 0-9/100", "ContentLength": len(raw)},
-            {"Bucket": "test-bucket", "Key": "docs/img.png", "Range": "bytes=0-9"},
+            {"Bucket": "test-bucket", "Key": "docs/img.png", "Range": "bytes=0-12"},
         )
         with stub:
             out = client.read_file("img.png", offset=0, length=10)
@@ -254,6 +258,109 @@ class TestWindowedRead:
         assert out["encoding"] == "base64"
         assert base64.b64decode(out["content"]) == raw
         assert out["total_size"] == 100
+
+
+
+# Mixed 1/2/3/4-byte characters so most window boundaries fall inside a
+# multi-byte sequence.
+_UNICODE_RAW = (
+    "café — naïve résumé, 日本語のテキスト, emoji 😀🎉🚀, שלום עולם\n"
+    "second line: Ωmega ∑um ∫ntegral 🧪 data ∆ with ünïcödé and 中文字符\n"
+).encode() * 3
+
+
+def _stub_range(stub, key: str, raw: bytes, offset: int, length: int) -> None:
+    """Queue the S3 response for the ranged GET a `length`-byte window issues
+    (the client asks for 3 extra bytes to complete a straddling character)."""
+    from app.data_sources.clients._file_source_common import UTF8_SLACK
+
+    want = length + UTF8_SLACK
+    chunk = raw[offset: offset + want]
+    end = offset + len(chunk) - 1
+    stub.add_response(
+        "get_object",
+        {"Body": _body(chunk), "ContentRange": f"bytes {offset}-{end}/{len(raw)}",
+         "ContentLength": len(chunk)},
+        {"Bucket": "test-bucket", "Key": f"docs/{key}", "Range": f"bytes={offset}-{offset + want - 1}"},
+    )
+
+
+def _char_boundary_at_or_after(raw: bytes, pos: int) -> int:
+    """Independent oracle for where a window ending at `pos` must stop: the
+    first byte at/after `pos` that does not continue a character."""
+    while pos < len(raw) and (raw[pos] & 0xC0) == 0x80:
+        pos += 1
+    return pos
+
+
+class TestWindowedReadUnicode:
+    @pytest.mark.parametrize("length", [7, 13, 50, 128])
+    def test_fixed_stride_windows_concatenate_to_whole_object(self, length):
+        client, stub = _make_client()
+        offsets = list(range(0, len(_UNICODE_RAW), length))
+        for off in offsets:
+            _stub_range(stub, "u.txt", _UNICODE_RAW, off, length)
+        with stub:
+            windows = [client.read_file("u.txt", offset=off, length=length) for off in offsets]
+        assert all(w["encoding"] == "text" for w in windows)
+        assert all("\ufffd" not in w["content"] for w in windows)
+        assert "".join(w["content"] for w in windows).encode() == _UNICODE_RAW
+        for w in windows:
+            assert len(w["content"].encode()) == w["length"]
+            assert w["next_cursor"] == w["offset"] + w["length"]
+        for prev, nxt in zip(windows, windows[1:], strict=False):
+            assert nxt["offset"] == prev["next_cursor"], "windows must be contiguous"
+        assert windows[-1]["eof"] is True
+        assert all(w["eof"] is False for w in windows[:-1])
+
+    @pytest.mark.parametrize("length", [7, 50, 128])
+    def test_chained_cursor_paging_is_lossless_text(self, length):
+        client, stub = _make_client()
+        # The Stubber needs every Range request queued up front, so walk the
+        # chain the client must follow: each window ends at the first
+        # character boundary at/after offset+length.
+        offsets, off = [], 0
+        while off < len(_UNICODE_RAW):
+            offsets.append(off)
+            off = _char_boundary_at_or_after(_UNICODE_RAW, off + length)
+        for o in offsets:
+            _stub_range(stub, "u.txt", _UNICODE_RAW, o, length)
+
+        parts, off = [], 0
+        with stub:
+            while True:
+                w = client.read_file("u.txt", offset=off, length=length)
+                assert w["encoding"] == "text"
+                assert "\ufffd" not in w["content"]
+                assert w["offset"] == off
+                assert w["next_cursor"] == off + w["length"]
+                parts.append(w["content"])
+                if w["eof"]:
+                    break
+                assert w["next_cursor"] > off
+                off = w["next_cursor"]
+        assert "".join(parts).encode() == _UNICODE_RAW
+
+    def test_boundary_inside_multibyte_char_never_splits_it(self):
+        client, stub = _make_client()
+        emoji_at = _UNICODE_RAW.index("😀".encode())
+        length = emoji_at + 2  # cuts 2 bytes into the 4-byte emoji
+        _stub_range(stub, "u.txt", _UNICODE_RAW, 0, length)
+        _stub_range(stub, "u.txt", _UNICODE_RAW, length, length)
+        with stub:
+            out = client.read_file("u.txt", offset=0, length=length)
+            nxt = client.read_file("u.txt", offset=length, length=length)
+        assert out["encoding"] == "text"
+        assert "\ufffd" not in out["content"]
+        assert out["content"].endswith("😀")
+        assert out["length"] == emoji_at + 4
+        assert out["next_cursor"] == emoji_at + 4
+        # The fixed-stride neighbour that lands inside the emoji yields the
+        # bytes the previous window already returned and starts clean.
+        assert nxt["encoding"] == "text"
+        assert nxt["offset"] == out["next_cursor"]
+        assert nxt["content"].startswith("🎉")
+        assert "\ufffd" not in nxt["content"]
 
 
 # ------------------------------------------------------------ test_connection

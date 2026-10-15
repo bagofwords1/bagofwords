@@ -26,7 +26,6 @@ helpers, so this client only owns S3 I/O + confinement.
 from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 
-import base64
 import hashlib
 import io
 import json
@@ -51,7 +50,9 @@ from app.data_sources.clients._file_source_common import (
     GlobScopeError,
     ScopeEscapeError,
     DocumentText,
+    UTF8_SLACK,
     byte_limit,
+    byte_window,
     NamedBytes,
     globs_from_str,
     normalize_index_mode,
@@ -431,15 +432,18 @@ class S3Client(DataSourceClient):
     def _read_window(self, key: str, offset: int, length: Optional[int]) -> Dict[str, Any]:
         """Ranged byte read → a window plus a cursor to page forward.
 
-        Text windows are snapped back to the last complete newline so the agent
-        never sees a half-line (unless the window has no newline at all, or we're
-        at EOF). Binary windows are returned base64-encoded.
+        Same contract as NetworkDirClient._read_window (byte_window): the
+        requested byte range, adjusted by at most 3 bytes at an edge so a
+        multi-byte character is never split, with `next_cursor` at the first
+        byte not returned. Binary windows are base64-encoded. The GET asks for
+        UTF8_SLACK bytes past the window so the straddling character can be
+        completed without a second round trip.
         """
         if offset < 0:
             raise ValueError("offset must be >= 0")
         window = int(length) if length else DEFAULT_WINDOW_BYTES
         s3 = self._client()
-        end = offset + window - 1
+        end = offset + window + UTF8_SLACK - 1
         obj = s3.get_object(Bucket=self.bucket, Key=key, Range=f"bytes={offset}-{end}")
         data = obj["Body"].read()
 
@@ -451,43 +455,7 @@ class S3Client(DataSourceClient):
                 total = int(cr.rsplit("/", 1)[-1])
             except ValueError:
                 pass
-
-        raw_end = offset + len(data)
-        eof = raw_end >= total
-
-        # Try text; snap to the last newline when not at EOF so paging is clean.
-        try:
-            text = data.decode("utf-8")
-            is_text = True
-        except UnicodeDecodeError:
-            is_text = False
-
-        if is_text:
-            content = text
-            next_cursor = raw_end
-            if not eof:
-                nl = text.rfind("\n")
-                if nl != -1 and nl + 1 < len(text):
-                    content = text[: nl + 1]
-                    next_cursor = offset + len(content.encode("utf-8"))
-            return {
-                "content": content,
-                "encoding": "text",
-                "offset": offset,
-                "length": len(content.encode("utf-8")),
-                "next_cursor": next_cursor,
-                "total_size": total,
-                "eof": eof,
-            }
-        return {
-            "content": base64.b64encode(data).decode("ascii"),
-            "encoding": "base64",
-            "offset": offset,
-            "length": len(data),
-            "next_cursor": raw_end,
-            "total_size": total,
-            "eof": eof,
-        }
+        return byte_window(data, offset, total, window)
 
     def grep_files(
         self,
