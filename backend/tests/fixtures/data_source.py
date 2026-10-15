@@ -370,6 +370,7 @@ def update_tables_status_delta(test_client):
         activate: list = None,
         deactivate: list = None,
         excluded_columns: dict = None,
+        excluded_fks: dict = None,
         user_token: str = None,
         org_id: str = None,
     ):
@@ -386,7 +387,8 @@ def update_tables_status_delta(test_client):
         response = test_client.put(
             f"/api/data_sources/{data_source_id}/update_tables_status",
             json={"activate": activate or [], "deactivate": deactivate or [],
-                  "excluded_columns": excluded_columns or {}},
+                  "excluded_columns": excluded_columns or {},
+                  "excluded_fks": excluded_fks or {}},
             headers=headers,
         )
 

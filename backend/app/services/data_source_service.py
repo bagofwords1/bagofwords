@@ -4457,15 +4457,18 @@ class DataSourceService:
             # Column hiding is a manager's curation; readers get the same
             # stripped view the non-paginated path (to_prompt_table) serves.
             # Managers keep every column so the selector can toggle them.
-            if restrict_to_active and table.excluded_columns:
+            # Hidden relationships follow the same split.
+            if restrict_to_active and (table.excluded_columns or table.excluded_fks):
                 from app.ai.prompt_formatters import filter_columns, filter_fks
                 _cols = filter_columns(table.columns, table.excluded_columns)
                 _pks = filter_columns(table.pks, table.excluded_columns)
-                _fks = filter_fks(table.fks, table.excluded_columns)
+                _fks = filter_fks(table.fks, table.excluded_columns, table.excluded_fks)
                 _excluded = None
+                _excluded_fks = None
             else:
                 _cols, _pks, _fks = table.columns or [], table.pks or [], table.fks or []
                 _excluded = table.excluded_columns or None
+                _excluded_fks = table.excluded_fks or None
             table_schema = DataSourceTableSchema(
                 id=str(table.id),
                 name=table.name,
@@ -4477,6 +4480,7 @@ class DataSourceService:
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
                 excluded_columns=_excluded,
+                excluded_fks=_excluded_fks,
                 # Connection info
                 connection_id=conn_id,
                 connection_name=conn_name,
@@ -4670,13 +4674,15 @@ class DataSourceService:
         deactivate: List[str] = None,
         current_user: User = None,
         excluded_columns: Optional[Dict[str, List[str]]] = None,
+        excluded_fks: Optional[Dict[str, List[Dict[str, str]]]] = None,
     ):
         """
         Update table is_active status using delta (lists of table names to activate/deactivate).
         More efficient than sending all tables.
 
         `excluded_columns` maps a table id to the complete list of column
-        names hidden from the agent's context for that table.
+        names hidden from the agent's context for that table; `excluded_fks`
+        likewise maps it to the complete list of hidden relationships.
         """
         from sqlalchemy import update, func
         from app.schemas.datasource_table_schema import DeltaUpdateTablesResponse
@@ -4774,6 +4780,51 @@ class DataSourceService:
                         row.excluded_columns = new_value
                         columns_updated_count += 1
 
+        relationships_updated_count = 0
+        if excluded_fks:
+            from app.core.sql_chunk import chunked as _chunked
+            from app.ai.prompt_formatters import fk_key
+            ids = [str(k) for k in excluded_fks.keys()]
+            for chunk in _chunked(ids):
+                rows = (await db.execute(
+                    select(DataSourceTable).where(
+                        DataSourceTable.datasource_id == data_source_id,
+                        DataSourceTable.id.in_(chunk),
+                    )
+                )).scalars().all()
+                for row in rows:
+                    # Same rules as columns: keep only edges the table
+                    # actually has, stored with the catalog's spelling; a
+                    # table with no canonical fks keeps the edges as sent.
+                    known = {}
+                    for fk in row.fks or []:
+                        key = fk_key(fk) if isinstance(fk, dict) else None
+                        if key and key not in known:
+                            known[key] = {
+                                "column": str(fk["column"]["name"]),
+                                "references_name": str(fk["references_name"]),
+                                "references_column": str(fk["references_column"]["name"]),
+                            }
+                    cleaned_fks: dict = {}
+                    for entry in excluded_fks.get(str(row.id)) or []:
+                        key = fk_key(entry) if isinstance(entry, dict) else None
+                        if not key or key in cleaned_fks:
+                            continue
+                        if known:
+                            if key not in known:
+                                continue
+                            cleaned_fks[key] = known[key]
+                        else:
+                            cleaned_fks[key] = {
+                                "column": str(entry["column"]),
+                                "references_name": str(entry["references_name"]),
+                                "references_column": str(entry["references_column"]),
+                            }
+                    new_fks = [cleaned_fks[k] for k in sorted(cleaned_fks)] or None
+                    if (row.excluded_fks or None) != new_fks:
+                        row.excluded_fks = new_fks
+                        relationships_updated_count += 1
+
         await db.commit()
         _invalidate_agent_schema_cache(organization)
         
@@ -4814,6 +4865,7 @@ class DataSourceService:
             deactivated_count=deactivated_count,
             total_selected=total_selected,
             columns_updated_count=columns_updated_count,
+            relationships_updated_count=relationships_updated_count,
         )
 
     async def read_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User, active_only: bool = False):
