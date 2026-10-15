@@ -6542,6 +6542,15 @@ class AgentV2:
                                 if runtime_ctx.get("training_build_id") and not self.training_build_id:
                                     self.training_build_id = runtime_ctx["training_build_id"]
 
+                                # create_list / edit_list changed this report's lists: swap the
+                                # submit_<slug> tools so the model can fill the new schema in
+                                # THIS run. Deliberate exception to the register-once rule
+                                # (docs/design/structured-extraction.md §7.2): the prefix cache
+                                # is re-primed once, on the user's explicit approval.
+                                if runtime_ctx.pop("lists_changed", None):
+                                    async with self._tool_db_lock:
+                                        await self._register_list_tools(refresh=True)
+
                                 # Extract observation, output, and sub_timings from tool result
                                 if isinstance(tool_result, dict) and "observation" in tool_result:
                                     observation = tool_result["observation"]
@@ -8316,10 +8325,18 @@ class AgentV2:
         logger.info("[agent] list tool %s -> submit_list(%s)", tool_name, route["list_id"])
         return "submit_list", rewritten
 
-    async def _register_list_tools(self) -> None:
-        """Append one planner tool per Agent List on the report's agents."""
+    async def _register_list_tools(self, *, refresh: bool = False) -> None:
+        """Append one planner tool per Agent List on the report's agents.
+
+        ``refresh=True`` (after create_list / edit_list) drops the list tools
+        registered earlier in this run and rebuilds them from the database, so
+        a list created or re-shaped mid-run is callable with its new schema.
+        """
         from app.ai.tools.list_tool_registry import build_list_tools
 
+        stale = set((getattr(self, "_list_tool_routing", None) or {}).keys()) if refresh else set()
+        if stale:
+            self.planner.tool_catalog = [t for t in (self.planner.tool_catalog or []) if t.name not in stale]
         self._list_tool_routing = {}
         if not self.report or "submit_list" in self._disabled_tools:
             return
@@ -8327,12 +8344,21 @@ class AgentV2:
             user = getattr(self, "user", None) or (getattr(self.head_completion, "user", None) if self.head_completion else None)
             descriptors, routing = await build_list_tools(self.db, self.report, user, self.organization)
             if not descriptors:
+                if stale:
+                    logger.info("[agent] list tools refreshed: none remain")
                 return
             existing = {t.name for t in (self.planner.tool_catalog or [])}
             added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
             self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
             self._list_tool_routing = {k: v for k, v in routing.items() if k not in existing}
-            logger.info("[agent] registered %d list tool(s): %s", len(added), ", ".join(d.name for d in added))
+            # plan_type derivation reads a name -> category map built at planner
+            # construction; teach it the dynamic tools too.
+            cats = getattr(self.planner, "_tool_category", None)
+            if isinstance(cats, dict):
+                for d in added:
+                    cats.setdefault(d.name, d.category)
+            logger.info("[agent] %s %d list tool(s): %s", "refreshed" if refresh else "registered",
+                        len(added), ", ".join(d.name for d in added))
         except Exception as e:
             logger.warning("[agent] list tool registration skipped: %s", e)
             self._list_tool_routing = {}

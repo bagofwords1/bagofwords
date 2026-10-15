@@ -1103,6 +1103,7 @@ import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
+import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
 import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
 import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
@@ -3046,6 +3047,9 @@ function getToolComponent(toolName: string) {
 			return CreateAgentTool
 		case 'create_demo_dataset':
 			return CreateDemoDatasetTool
+		case 'create_list':
+		case 'edit_list':
+			return ListSchemaTool
 		case 'search_agents':
 			return SearchAgentsTool
 		case 'set_report_agents':
