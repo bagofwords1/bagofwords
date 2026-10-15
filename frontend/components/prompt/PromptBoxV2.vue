@@ -135,7 +135,7 @@
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <div class="text-xs text-gray-700 dark:text-gray-300 truncate" :class="{ 'text-gray-400 dark:text-gray-500': !sp.is_active }">{{ sp.prompt?.content || $t('prompt.untitled') }}</div>
-                                    <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ getCronLabel(sp.cron_schedule) }}</div>
+                                    <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ sp.run_once_at ? sharedCronLabel(sp.cron_schedule, sp.run_once_at) : getCronLabel(sp.cron_schedule) }}</div>
                                 </div>
                             </div>
                         </div>
@@ -654,7 +654,7 @@ const props = defineProps({
     },
     // Scheduled prompts for the pill above input
     scheduledPrompts: {
-        type: Array as () => { id: string; prompt: any; cron_schedule: string; is_active: boolean }[],
+        type: Array as () => { id: string; prompt: any; cron_schedule: string; run_once_at?: string | null; is_active: boolean }[],
         default: () => []
     },
     // Training instructions for the pill above input
@@ -794,8 +794,11 @@ const openScheduleModal = () => {
 }
 
 const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+// One-time tasks carry their instant; the shared label formats it.
+const { getCronLabel: sharedCronLabel } = useCronLabel()
 function getCronLabel(cron: string): string {
     if (!cron) return ''
+    if (cron === '@once') return t('scheduledPrompt.typeOnce')
     const p = cron.split(' ')
     if (p.length < 5) return cron
     const [min, hour, dom, , dow] = p

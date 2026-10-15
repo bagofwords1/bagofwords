@@ -78,7 +78,7 @@ async def gather(db, organization_id: str, user_id: str, *, since: datetime, now
     from app.models.completion import Completion
     from app.models.report import Report
     from app.models.report_context_state import ReportContextState
-    from app.models.scheduled_prompt import ScheduledPrompt
+    from app.models.scheduled_prompt import ScheduledPrompt, describe_schedule
     from app.services.context_compaction_service import render_summary_for_prompt
     from app.services.memory_service import MemoryService
 
@@ -181,7 +181,8 @@ async def gather(db, organization_id: str, user_id: str, *, since: datetime, now
             )
         )
     ).scalars().all()
-    g.scheduled = [{"title": sp.title or _text(sp.prompt, 120), "cron": sp.cron_schedule} for sp in sps]
+    g.scheduled = [{"title": sp.title or _text(sp.prompt, 120),
+                    "cron": describe_schedule(sp.cron_schedule, sp.run_once_at)} for sp in sps]
 
     return g
 

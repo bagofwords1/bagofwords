@@ -3,6 +3,14 @@ from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
 
+def describe_schedule(cron_schedule, run_once_at) -> str:
+    """The schedule as plain text for LLM context. A one-time task's cron is
+    only a placeholder, so it is described by its instant instead."""
+    if run_once_at is not None:
+        return f"One-time at {run_once_at.isoformat(timespec='minutes')} UTC"
+    return cron_schedule
+
+
 class ScheduledPrompt(BaseSchema):
     __tablename__ = 'scheduled_prompts'
 
@@ -13,6 +21,10 @@ class ScheduledPrompt(BaseSchema):
     title = Column(String, nullable=True)
     prompt = Column(JSON, nullable=False)  # PromptSchema-compatible JSON: {"content": "...", ...}
     cron_schedule = Column(String, nullable=False)
+    # One-time task: the UTC instant it runs at. When set, the task fires once
+    # (an APScheduler date job) and deactivates itself, and cron_schedule holds
+    # the ONE_TIME_CRON placeholder. Null = recurring on cron_schedule.
+    run_once_at = Column(DateTime, nullable=True, default=None)
     # Routing: False (default) = run in the host report, keeping cross-run
     # memory (trend commentary via past_observations). True = spawn a fresh
     # report per run — clean dated snapshots, no context growth. Mirrors the
