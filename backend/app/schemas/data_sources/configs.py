@@ -2295,7 +2295,7 @@ class SharePointOnpremConfig(SharePointConfig):
     walk_concurrency: int = Field(4, ge=1, le=16, json_schema_extra={"ui:hidden": True})
     api_mode: Literal["modern", "2010"] = Field(
         "modern", title="SharePoint API",
-        description="SharePoint 2010 uses legacy services and searches filenames only. Enter a library name or *; do not leave the library blank.",
+        description="SharePoint 2010 uses legacy services; live search matches filenames only. Enter a library name or *; do not leave the library blank.",
         json_schema_extra={"ui:type": "select", "ui:order": -1, "ui:titleKey": "data.sharepointApi.title",
                            "ui:descriptionKey": "data.sharepointApi.description",
                            "ui:enumLabels": {"modern": "Modern REST", "2010": "SharePoint 2010"},
@@ -2314,6 +2314,29 @@ class SharePointOnpremConfig(SharePointConfig):
     allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
     max_file_size_mb: int = Field(50, ge=1, le=250, title="Max file size (MB)", description="Reject oversized downloads before parsing; files are never silently truncated.", json_schema_extra={"ui:type": "number"})
     max_catalog_objects: int = Field(5000, ge=1, le=50000, title="Max Files", json_schema_extra={"ui:type": "number"})
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much to cache from the library. 'none' → nothing cached; the "
+            "agent lists and reads live every time. 'metadata' → cache the file "
+            "list on a schedule. 'content' → also extract keywords from "
+            "PDF/Word/PowerPoint/Excel/CSV/text files so search_files can find "
+            "files by topic without crawling the library; unchanged files are "
+            "not downloaded again on later runs. The keyword catalog is only "
+            "used for service-account (system) connections; per-user "
+            "connections always search live. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata", "content"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+                "content": "Contents (searchable)",
+            },
+        },
+    )
 
 
 class SharePointOnpremNtlmCredentials(BaseModel):

@@ -1787,7 +1787,10 @@
         "inserted": "נוספה",
         "updated": "עודכנה",
         "unchanged": "ללא שינוי"
-      }
+      },
+      "openInPane": "הצגת הרשימה לצד הצ׳אט",
+      "closePane": "סגירת הרשימה",
+      "openFull": "פתיחת הרשימה המלאה"
     },
     "resource": {
       "failed": "שינוי המשאב נכשל",
@@ -1832,6 +1835,45 @@
       "sendFeedback": "שלח משוב",
       "expired": "הסקירה פגה.",
       "respondFailed": "לא ניתן לשלוח את התשובה — נסה שוב."
+    },
+    "listSchema": {
+      "proposing": "מציע את הרשימה {name}…",
+      "proposingEdit": "מציע שינויים ב{name}…",
+      "review": "סקירת הרשימה החדשה",
+      "reviewEdit": "סקירת השינוי ברשימה",
+      "waitingReview": "ממתין לסקירה",
+      "saving": "שומר את הרשימה…",
+      "created": "הרשימה נוצרה",
+      "updated": "הרשימה עודכנה",
+      "declined": "ההצעה נדחתה — לא נשמר דבר",
+      "timedOut": "ההצעה לא נסקרה בזמן — לא נשמר דבר",
+      "failed": "הרשימה לא נשמרה",
+      "noChange": "לא נדרש שינוי",
+      "badgeCreate": "רשימה חדשה",
+      "badgeEdit": "שינוי",
+      "badgeBreaking": "שינוי שובר",
+      "breakingHint": "יישמר כגרסה {v}. אין עדיין שורות לחלץ מחדש. | יישמר כגרסה {v}. שורה קיימת {n} תסומן כלא מעודכנת עד לחילוץ מחדש. | יישמר כגרסה {v}. {n} שורות קיימות יסומנו כלא מעודכנות עד לחילוץ מחדש.",
+      "fields": "שדות ({count})",
+      "required": "חובה",
+      "status": {
+        "added": "חדש",
+        "changed": "שונה",
+        "removed": "הוסר"
+      },
+      "requireEvidence": "נדרש ציטוט מהמקור לערכים שחולצו",
+      "keepHumanEdits": "שומר על עריכות של אנשים",
+      "feedbackPlaceholder": "מה לשנות? למשל: להוסיף תאריך חתימה, להפוך את המטבע לאופציונלי",
+      "requestChanges": "בקש שינויים",
+      "approveCreate": "צור רשימה",
+      "approveEdit": "שמור שינויים",
+      "cancel": "ביטול",
+      "sendFeedback": "שלח משוב",
+      "expired": "הסקירה פגה.",
+      "respondFailed": "לא ניתן לשלוח את התשובה — נסה שוב.",
+      "toolHint": "סוכנים שומרים שורות באמצעות",
+      "queryHint": "שאילתה בשם",
+      "versionBumped": "כעת גרסה {v} — שורות ישנות מסומנות כלא מעודכנות",
+      "open": "פתח רשימה"
     },
     "delegate": {
       "label": "סוכן משנה",
@@ -4003,7 +4045,7 @@
     },
     "sharepointApi": {
       "title": "API של SharePoint",
-      "description": "SharePoint 2010 משתמש בשירותים ותיקים ומחפש לפי שמות קבצים בלבד. יש להזין שם ספרייה או *; אין להשאיר את הספרייה ריקה.",
+      "description": "SharePoint 2010 משתמש בשירותים ותיקים; חיפוש חי מתאים לפי שמות קבצים בלבד. יש להזין שם ספרייה או *; אין להשאיר את הספרייה ריקה.",
       "modern": "REST מודרני",
       "legacy": "SharePoint 2010",
       "libraryDescription": "שם ספריית המסמכים, או * לכל הספריות הגלויות. שדה ריק בוחר בספריית ברירת המחדל רק במצב REST מודרני."
@@ -4292,6 +4334,8 @@
     "dailyAt": "כל יום בשעה {time}",
     "daysAt": "{days} בשעה {time}",
     "monthlyOn": "חודשי ביום {day} בשעה {time}",
+    "onceAt": "פעם אחת · {date}",
+    "onceSpent": "כבר רצה — יש לערוך כדי לבחור זמן חדש",
     "daySun": "א׳",
     "dayMon": "ב׳",
     "dayTue": "ג׳",
@@ -5199,6 +5243,7 @@
     "scheduleOff": "כבוי",
     "scheduleOn": "פעיל",
     "runIn": "הרץ בעוד",
+    "changeTime": "שינוי",
     "unitMinutes": "דק׳",
     "unitHours": "שע׳",
     "unitDays": "ימים",

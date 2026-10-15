@@ -163,6 +163,8 @@ class ProjectAutomationItem(BaseModel):
     report_title: Optional[str] = None
     label: str
     cron_schedule: str = ""
+    # Set for a one-time task; its cron_schedule is then a placeholder.
+    run_once_at: Optional[datetime] = None
     is_active: bool = True
 
 

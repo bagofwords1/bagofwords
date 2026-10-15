@@ -736,6 +736,9 @@ class ContextHub:
             ds_ids,
             str(self.build_id) if self.build_id else None,
             self._schema_identity_key(),
+            # A request that disabled execute_mcp builds its sections without
+            # MCP tools; it must neither be served nor seed the shared entry.
+            self.schema_builder.hide_mcp_tools,
         )
         now = time.monotonic()
         cached = _SCHEMA_CACHE.get(cache_key)
@@ -971,7 +974,7 @@ class ContextHub:
             return ScheduledTasksSection(items=[])
 
         from sqlalchemy import select, or_
-        from app.models.scheduled_prompt import ScheduledPrompt
+        from app.models.scheduled_prompt import ScheduledPrompt, describe_schedule
 
         cron_labels = {
             "0 * * * *": "Hourly",
@@ -1011,7 +1014,10 @@ class ContextHub:
                 id=str(sp.id),
                 title=sp.title,
                 cron_schedule=sp.cron_schedule,
-                cron_label=cron_labels.get(sp.cron_schedule),
+                cron_label=(
+                    describe_schedule(sp.cron_schedule, sp.run_once_at) if sp.run_once_at
+                    else cron_labels.get(sp.cron_schedule)
+                ),
                 prompt_snippet=snippet or None,
                 last_run_at=sp.last_run_at.isoformat() if sp.last_run_at else None,
             ))

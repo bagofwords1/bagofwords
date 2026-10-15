@@ -281,3 +281,50 @@ async def test_interactive_listing_does_not_change_indexing(provider):
     assert len(result.files) == 1
     assert len(client.list_files(recursive=True)) == 13
     assert len(client.get_schemas()) == 12  # configured non-recursive indexing
+
+
+@pytest.fixture(params=['2010', 'modern'])
+def server_provider(request):
+    """Providers whose fake servers report creation and modification times."""
+    kind = request.param
+    server = request.getfixturevalue({'2010': 'legacy', 'modern': 'remote'}[kind])
+    blobs = {ROOT + f'/{i:03}.csv': b'x\n1\n' for i in range(4)}
+    if kind == '2010':
+        server.blobs = blobs
+        server.empty_folders.clear()
+    else:
+        server['blobs'].clear()
+        server['blobs'].update(blobs)
+    return kind
+
+
+@pytest.mark.asyncio
+async def test_listing_reports_created_and_modified_times(server_provider):
+    out = (await run(server_provider, inputs={'limit': 10}))['output']
+    assert out['success'] and len(out['files']) == 4
+    for f in out['files']:
+        assert f['created_at'] and f['modified_at']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('field', ['created', 'modified'])
+async def test_time_bounds_are_inclusive_below_and_exclusive_above(server_provider, field):
+    stamp = (await run(server_provider, inputs={'limit': 1}))['output']['files'][0][f'{field}_at']
+    kept = (await run(server_provider, inputs={'limit': 10, f'{field}_after': stamp}))['output']
+    assert kept['success'] and len(kept['files']) == 4
+    dropped = (await run(server_provider, inputs={'limit': 10, f'{field}_before': stamp}))['output']
+    assert dropped['success'] and dropped['files'] == []
+    # Date-only bounds are accepted and mean UTC midnight.
+    day = stamp[:10]
+    same_day = (await run(server_provider, inputs={'limit': 10, f'{field}_after': day, 'name_pattern': '*.csv'}))['output']
+    assert same_day['success'] and len(same_day['files']) == 4
+    far_future = (await run(server_provider, inputs={'limit': 10, f'{field}_after': '2999-01-01'}))['output']
+    assert far_future['success'] and far_future['files'] == [] and not far_future['incomplete']
+
+
+@pytest.mark.asyncio
+async def test_reversed_or_invalid_time_bounds_are_rejected(server_provider):
+    out = (await run(server_provider, inputs={'modified_after': '2026-02-01', 'modified_before': '2026-01-01'}))['output']
+    assert not out['success'] and not out.get('files')
+    out = (await run(server_provider, inputs={'created_after': 'yesterday'}))['output']
+    assert not out['success'] and not out.get('files')

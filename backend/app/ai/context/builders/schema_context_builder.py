@@ -208,6 +208,11 @@ class SchemaContextBuilder:
     
     def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
         self.db = db
+        # The conversation switched off "mcp" (report.tools): advertising its
+        # MCP tools would only send the planner into refused calls. Derived
+        # from the report here so every builder of this report agrees.
+        from app.schemas.report_api_settings import mcp_tools_hidden
+        self.hide_mcp_tools = mcp_tools_hidden(report)
         self.organization = organization
         self.report = report
         self.mode = mode if mode is not None else getattr(report, "mode", None)
@@ -860,6 +865,7 @@ class SchemaContextBuilder:
             # never consume the top_k budget or bloat the prompt.
             if split_file_scopes:
                 file_scopes, tables = self._build_file_scopes(ds, tables)
+                await self._stamp_index_times(file_scopes)
             else:
                 file_scopes = []
 
@@ -870,7 +876,7 @@ class SchemaContextBuilder:
                 tables = _cap_keeping_cached(tables, top_k)
 
             # Query MCP tools for this data source's MCP/custom_api connections
-            mcp_tools = await self._build_mcp_tools(ds)
+            mcp_tools = [] if self.hide_mcp_tools else await self._build_mcp_tools(ds)
 
             ds_sections.append(
                 TablesSchemaContext.DataSource(
@@ -1027,6 +1033,31 @@ class SchemaContextBuilder:
     # account IS the scope. Everything else enforces a path/glob scope.
     _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail"}
 
+    async def _stamp_index_times(self, file_scopes) -> None:
+        """Attach each file scope's last completed shared index time, so the
+        model knows how fresh the catalog behind list_files/search_files is."""
+        ids = [fs.connection_id for fs in file_scopes if fs.connection_id]
+        if not ids:
+            return
+        try:
+            from sqlalchemy import func, select
+
+            from app.models.connection_indexing import ConnectionIndexing, ConnectionIndexingStatus
+            rows = (await self.db.execute(
+                select(ConnectionIndexing.connection_id, func.max(ConnectionIndexing.finished_at)).where(
+                    ConnectionIndexing.connection_id.in_(ids),
+                    ConnectionIndexing.user_id.is_(None),
+                    ConnectionIndexing.status == ConnectionIndexingStatus.COMPLETED.value,
+                ).group_by(ConnectionIndexing.connection_id)
+            )).all()
+        except Exception:
+            return
+        latest = {str(cid): ts for cid, ts in rows if ts is not None}
+        for fs in file_scopes:
+            ts = latest.get(str(fs.connection_id))
+            if ts is not None:
+                fs.indexed_at = ts.replace(microsecond=0).isoformat() + "Z"
+
     def _build_file_scopes(self, ds, tables):
         """Turn the data source's file-source connections into compact scope
         descriptors and remove their per-file rows from `tables`.
@@ -1089,10 +1120,14 @@ class SchemaContextBuilder:
             per_user = (getattr(c, "auth_policy", None) == "user_required"
                         and "oauth" in (getattr(c, "allowed_user_auth_modes", None) or []))
             enforces_scope = c.type not in self._TOKEN_SCOPED_TYPES
+            try:
+                cap = int(cfg.get("max_catalog_objects") or 0)
+            except (TypeError, ValueError):
+                cap = 0
             scopes.append(FileScopeItem(
                 connection_id=cid, name=c.name, type=c.type, base=base,
                 globs=globs, index_mode=index_mode, file_count=len(ftabs),
-                capped=False, sample=sample, topics=topics,
+                capped=bool(cap and len(ftabs) >= cap), sample=sample, topics=topics,
                 supports_search=supports_search, writable=bool(cfg.get("writable")),
                 per_user=bool(per_user), enforces_scope=enforces_scope,
             ))

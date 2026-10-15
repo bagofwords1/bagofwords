@@ -1787,7 +1787,10 @@
         "inserted": "añadida",
         "updated": "actualizada",
         "unchanged": "sin cambios"
-      }
+      },
+      "openInPane": "Mostrar la lista junto al chat",
+      "closePane": "Cerrar lista",
+      "openFull": "Abrir la lista completa"
     },
     "resource": {
       "failed": "Error al cambiar el recurso",
@@ -1832,6 +1835,45 @@
       "sendFeedback": "Enviar comentarios",
       "expired": "Esta revisión expiró.",
       "respondFailed": "No se pudo enviar tu respuesta; inténtalo de nuevo."
+    },
+    "listSchema": {
+      "proposing": "Proponiendo la lista {name}…",
+      "proposingEdit": "Proponiendo cambios en {name}…",
+      "review": "Revisa la nueva lista",
+      "reviewEdit": "Revisa el cambio de la lista",
+      "waitingReview": "Esperando revisión",
+      "saving": "Guardando la lista…",
+      "created": "Lista creada",
+      "updated": "Lista actualizada",
+      "declined": "Propuesta rechazada: no se guardó nada",
+      "timedOut": "La propuesta no se revisó a tiempo: no se guardó nada",
+      "failed": "La lista no se guardó",
+      "noChange": "No hace falta ningún cambio",
+      "badgeCreate": "Lista nueva",
+      "badgeEdit": "Cambio",
+      "badgeBreaking": "Cambio incompatible",
+      "breakingHint": "Se guarda como versión {v}. Aún no hay filas que volver a extraer. | Se guarda como versión {v}. {n} fila existente se marca como obsoleta hasta volver a extraerla. | Se guarda como versión {v}. {n} filas existentes se marcan como obsoletas hasta volver a extraerlas.",
+      "fields": "Campos ({count})",
+      "required": "Obligatorio",
+      "status": {
+        "added": "nuevo",
+        "changed": "modificado",
+        "removed": "eliminado"
+      },
+      "requireEvidence": "Se exige una cita de la fuente para los valores extraídos",
+      "keepHumanEdits": "Conserva las ediciones de las personas",
+      "feedbackPlaceholder": "¿Qué debería cambiar? p. ej., añadir la fecha de firma, hacer opcional la moneda",
+      "requestChanges": "Pedir cambios",
+      "approveCreate": "Crear lista",
+      "approveEdit": "Guardar cambios",
+      "cancel": "Cancelar",
+      "sendFeedback": "Enviar comentarios",
+      "expired": "Esta revisión expiró.",
+      "respondFailed": "No se pudo enviar tu respuesta; inténtalo de nuevo.",
+      "toolHint": "Los agentes guardan filas con",
+      "queryHint": "Consultar como",
+      "versionBumped": "Ahora es la versión {v}: las filas anteriores se marcan como obsoletas",
+      "open": "Abrir lista"
     },
     "delegate": {
       "label": "Subagente",
@@ -4003,7 +4045,7 @@
     },
     "sharepointApi": {
       "title": "API de SharePoint",
-      "description": "SharePoint 2010 usa servicios antiguos y solo busca nombres de archivo. Introduce una biblioteca o *; no la dejes vacía.",
+      "description": "SharePoint 2010 usa servicios antiguos; la búsqueda en vivo solo compara nombres de archivo. Introduce una biblioteca o *; no la dejes vacía.",
       "modern": "REST moderno",
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nombre de la biblioteca de documentos, o * para todas las bibliotecas visibles. Dejarlo vacío selecciona la biblioteca predeterminada solo en el modo REST moderno."
@@ -4272,6 +4314,8 @@
     "dailyAt": "Diariamente a las {time}",
     "daysAt": "{days} a las {time}",
     "monthlyOn": "Mensualmente el día {day} a las {time}",
+    "onceAt": "Una vez · {date}",
+    "onceSpent": "Ya se ejecutó — edítala para elegir otra hora",
     "daySun": "Dom",
     "dayMon": "Lun",
     "dayTue": "Mar",
@@ -5179,6 +5223,7 @@
     "scheduleOff": "Desactivado",
     "scheduleOn": "Activado",
     "runIn": "Ejecutar en",
+    "changeTime": "Cambiar",
     "unitMinutes": "min",
     "unitHours": "h",
     "unitDays": "días",

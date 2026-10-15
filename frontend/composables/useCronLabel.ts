@@ -10,8 +10,13 @@
  */
 export function useCronLabel() {
   const { t } = useI18n()
+  const { formatDateTime } = useFormatDate()
 
-  function getCronLabel(cron?: string): string {
+  // A one-time task stores its instant in `run_once_at` and the "@once"
+  // placeholder as its cron; callers that have the instant pass it along.
+  function getCronLabel(cron?: string, runOnceAt?: string | null): string {
+    if (runOnceAt) return t('scheduled.onceAt', { date: formatDateTime(runOnceAt) })
+    if (cron === '@once') return t('scheduledPrompt.typeOnce')
     if (!cron) return ''
     const parts = cron.split(' ')
     if (parts.length < 5) return cron

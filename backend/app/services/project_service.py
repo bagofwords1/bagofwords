@@ -695,6 +695,7 @@ class ProjectService:
                 "report_title": report_title or "untitled",
                 "label": sp.title or (prompt.get("content") or "")[:120] or (report_title or "untitled"),
                 "cron_schedule": sp.cron_schedule,
+                "run_once_at": sp.run_once_at,
                 "is_active": bool(sp.is_active),
             })
         rf_rows = await db.execute(

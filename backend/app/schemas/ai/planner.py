@@ -185,6 +185,10 @@ class PlannerInput(BaseModel):
     # the same SQL into a markdown fence, which no serializer can redact.
     can_view_code: bool = True
 
+    # Tools the conversation switched off (report.tools); rendered as a
+    # <disabled_tools> context line. The catalog already excludes them.
+    disabled_tools: List[str] = []
+
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False

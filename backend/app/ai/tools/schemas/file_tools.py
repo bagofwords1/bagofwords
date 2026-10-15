@@ -41,6 +41,10 @@ class FileEntry(BaseModel):
             "directly instead of reading each message just to get its date."
         ),
     )
+    created_at: Optional[str] = Field(
+        None,
+        description="ISO-8601 creation time when the source reports one (SharePoint Server); otherwise null.",
+    )
     sender: Optional[str] = Field(
         None,
         description=(
@@ -103,6 +107,43 @@ class ListFilesInput(BaseModel):
             "roundtrip vs listing everything and filtering client-side."
         ),
     )
+    created_after: Optional[str] = Field(
+        None,
+        description=(
+            "SharePoint only: keep files created at or after this ISO-8601 date/datetime "
+            "(UTC when no offset is given). Files whose source reports no creation time never match."
+        ),
+    )
+    created_before: Optional[str] = Field(
+        None, description="SharePoint only: keep files created strictly before this ISO-8601 date/datetime.",
+    )
+    modified_after: Optional[str] = Field(
+        None, description="SharePoint only: keep files last modified at or after this ISO-8601 date/datetime.",
+    )
+    modified_before: Optional[str] = Field(
+        None, description="SharePoint only: keep files last modified strictly before this ISO-8601 date/datetime.",
+    )
+    source: Literal["auto", "catalog", "live"] = Field(
+        "auto",
+        description=(
+            "Where to list from. 'auto' (default) uses the indexed catalog when the connection has one "
+            "(SharePoint; instant, supports cursor paging and sorting; as fresh as the last index run, "
+            "see indexed_at in the result) and otherwise reads the source live. 'catalog' requires the "
+            "catalog and fails if there is none. 'live' always reads the source (bounded, slower; use it "
+            "when a file was added since the last index run)."
+        ),
+    )
+    cursor: Optional[str] = Field(
+        None,
+        description=(
+            "Continuation token (next_cursor from the previous list_files call) to fetch the next page of the "
+            "SAME listing — keep every other input identical. Catalog listings only."
+        ),
+    )
+    sort_by: Literal["name", "modified_at", "created_at", "size"] = Field(
+        "name", description="Catalog listings only: sort key. Files lacking the field sort last.",
+    )
+    sort_order: Literal["asc", "desc"] = Field("asc", description="Catalog listings only: sort direction.")
     title: Optional[str] = _title_field()
 
 
@@ -114,6 +155,11 @@ class ListFilesOutput(BaseModel):
     truncated: bool = False
     incomplete: bool = False
     stop_reason: Optional[str] = None
+    source: Optional[str] = Field(None, description="'catalog' or 'live' — where this listing came from.")
+    indexed_at: Optional[str] = Field(None, description="Catalog listings: when the catalog was last indexed (UTC).")
+    catalog_files: Optional[int] = Field(None, description="Catalog listings: files in the whole catalog.")
+    matched: Optional[int] = Field(None, description="Catalog listings: files matching the filters before paging.")
+    next_cursor: Optional[str] = Field(None, description="Pass back as `cursor` for the next page. Null when complete.")
     error: Optional[str] = None
 
 

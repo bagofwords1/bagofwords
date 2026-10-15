@@ -218,7 +218,18 @@ class PromptBuilderV3:
                 "count; search_instructions / search_prompts when they might exist unseen.\n"
                 "- When a new learning CONFLICTS with an existing instruction, resolve it by "
                 "editing that instruction — never leave two contradicting rules standing, and "
-                "never create a duplicate.\n\n"
+                "never create a duplicate.\n"
+                "Lists (typed tables an agent fills through its submit_<list> tools):\n"
+                "- When the user asks to create a list, collection or table of records to keep "
+                "(contracts, invoices, tickets, top customers…), that is an Agent List: the tool is "
+                "create_list, which is in your tool set — never look for it in MCP connections or "
+                "artifact resources. Look at the real documents or query results first, then "
+                "propose the schema with create_list — one row per what, snake_case "
+                "fields with a description each, a key field, require_evidence for documents. The "
+                "user approves it on a card; if they decline, revise per their feedback. Once "
+                "approved, its submit_<slug> tool is available immediately — go on and fill it.\n"
+                "- A list that already exists (you can see its submit_* tool) is changed with "
+                "edit_list, never re-created; keep edits additive unless the user asks otherwise.\n\n"
                 + NO_OVERFIT_BLOCK + "\n\n"
                 "AGENT BUILDING IS A CONVERSATION (friendly, step-by-step):\n"
                 "- Coverage already stated ('…with just the sales schema') → get_connection, "
@@ -774,6 +785,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
+        disabled = PromptBuilderV3._format_disabled_tools(planner_input)
+        if disabled:
+            parts.append(f"  {disabled}")
         parts.append("</context>")
         return "\n".join(parts)
 
@@ -803,6 +817,25 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             "params — call describe_entity(should_create=True, params={...}) with those exact "
             "param names instead of create_data.</saved_queries_hint>"
         )
+
+    @staticmethod
+    def _format_disabled_tools(planner_input: PlannerInput) -> str:
+        """Tools the conversation switched off (report.tools). They are already
+        out of the catalog; this tells the model why, so it neither reaches for
+        them (the policy above names some, e.g. clarify) nor stalls."""
+        names = list(getattr(planner_input, "disabled_tools", None) or [])
+        if not names:
+            return ""
+        lines = [
+            f"Switched off for this conversation: {', '.join(names)}. Do not call them; "
+            "if one was needed, continue without it and say briefly what you could not do."
+        ]
+        if "clarify" in names:
+            lines.append(
+                "There is no clarify tool here: do not stop to ask. Resolve ambiguity yourself, "
+                "state the interpretation in one line, and proceed."
+            )
+        return "<disabled_tools>" + " ".join(lines) + "</disabled_tools>"
 
     @staticmethod
     def _reuse_blocks(planner_input: PlannerInput) -> List[str]:
@@ -991,6 +1024,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
+        disabled = PromptBuilderV3._format_disabled_tools(planner_input)
+        if disabled:
+            parts.append(f"  {disabled}")
         parts.append(
             f"  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}"
         )
@@ -1221,6 +1257,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
         last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"
         parts.append(f"  <last_observation>{last_obs}</last_observation>")
+        disabled = PromptBuilderV3._format_disabled_tools(planner_input)
+        if disabled:
+            parts.append(f"  {disabled}")
         parts.append("</context>")
         parts.append(
             "Reflect on the session above and capture its reusable learnings now."
