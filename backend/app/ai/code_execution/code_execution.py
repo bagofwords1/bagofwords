@@ -1425,9 +1425,13 @@ class StreamingCodeExecutor:
         raise SwallowedQueryError(errors)
 
     def _build_http_client(self) -> Optional[SafeHttpClient]:
-        """Return a SafeHttpClient when `enable_web_fetch` is on, else None."""
+        """Return a SafeHttpClient when `enable_web_fetch` is on, else None.
+        A conversation that switched off web_fetch (report.tools) gets none."""
         settings = self.organization_settings
         if settings is None:
+            return None
+        from app.schemas.report_api_settings import report_disabled_tools
+        if "web_fetch" in report_disabled_tools(getattr(self.context_hub, "report", None)):
             return None
         try:
             cfg = settings.get_config("enable_web_fetch")

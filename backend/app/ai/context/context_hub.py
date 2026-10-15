@@ -736,6 +736,9 @@ class ContextHub:
             ds_ids,
             str(self.build_id) if self.build_id else None,
             self._schema_identity_key(),
+            # A request that disabled execute_mcp builds its sections without
+            # MCP tools; it must neither be served nor seed the shared entry.
+            self.schema_builder.hide_mcp_tools,
         )
         now = time.monotonic()
         cached = _SCHEMA_CACHE.get(cache_key)

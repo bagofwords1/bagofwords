@@ -208,6 +208,11 @@ class SchemaContextBuilder:
     
     def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
         self.db = db
+        # The conversation switched off "mcp" (report.tools): advertising its
+        # MCP tools would only send the planner into refused calls. Derived
+        # from the report here so every builder of this report agrees.
+        from app.schemas.report_api_settings import mcp_tools_hidden
+        self.hide_mcp_tools = mcp_tools_hidden(report)
         self.organization = organization
         self.report = report
         self.mode = mode if mode is not None else getattr(report, "mode", None)
@@ -871,7 +876,7 @@ class SchemaContextBuilder:
                 tables = _cap_keeping_cached(tables, top_k)
 
             # Query MCP tools for this data source's MCP/custom_api connections
-            mcp_tools = await self._build_mcp_tools(ds)
+            mcp_tools = [] if self.hide_mcp_tools else await self._build_mcp_tools(ds)
 
             ds_sections.append(
                 TablesSchemaContext.DataSource(
