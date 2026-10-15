@@ -230,3 +230,113 @@ async def test_prompt_table_drops_hidden_relationship(db):
         .where(DataSourceTable.id == orders.id)
     )).scalar_one()
     assert _edges(row.to_prompt_table()) == ALL - {("store_id", "stores", "id")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("odd", [
+    {"column": "store_id", "references_name": "stores", "references_column": "id"},  # flat
+    {"column": None, "references_name": "stores", "references_column": {"name": "id"}},
+    {"column": {"name": "store_id"}, "references_name": "stores"},  # no target column
+])
+async def test_save_tolerates_any_stored_fk_shape(db, odd):
+    """An unexpected shape in a table's stored fks must not fail the save —
+    which would also drop the table activations sent in the same request."""
+    from app.services.data_source_service import DataSourceService
+
+    org, ds, conn = await _seed(db, "system_only")
+    orders = await _star(db, ds, conn, None)
+    orders.fks = [*orders.fks, odd]
+    orders.is_active = False
+    await db.commit()
+
+    res = await DataSourceService().update_tables_status_delta(
+        db=db, data_source_id=str(ds.id), organization=org, activate=[str(orders.id)],
+        excluded_fks={str(orders.id): [_hide("customer_id", "customers", "id")]},
+    )
+    assert res.activated_count == 1
+    assert res.relationships_updated_count == 1
+    await db.refresh(orders)
+    assert orders.is_active is True
+    assert orders.excluded_fks == [_hide("customer_id", "customers", "id")]
+
+
+async def _rename(db, conn, old, new):
+    """Rename a table at the source while it keeps its identity: the same
+    ConnectionTable row comes back with a new name, and edges into it are
+    re-written with the new name (what a Power BI re-crawl does)."""
+    from sqlalchemy import select
+    cts = (await db.execute(select(ConnectionTable).where(ConnectionTable.connection_id == str(conn.id)))).scalars().all()
+    for ct in cts:
+        if ct.name == old:
+            ct.name = new
+        ct.fks = [{**fk, "references_name": new} if fk.get("references_name") == old else fk for fk in (ct.fks or [])]
+    await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("renames", [
+    [("customers", "clients")],
+    [("customers", "Customers (v2)")],  # new spelling, different case
+    [("customers", "tmp"), ("stores", "customers"), ("tmp", "stores")],  # swap
+])
+async def test_hidden_relationship_stays_hidden_after_target_rename(db, renames):
+    from app.services.data_source_service import DataSourceService
+
+    org, ds, conn = await _seed(db, "system_only")
+    await _star(db, ds, conn, [_hide("customer_id", "customers", "id")])
+    await db.commit()
+    for old, new in renames:
+        await _rename(db, conn, old, new)
+    # Where each original target ends up after the renames.
+    now = {"customers": "customers", "stores": "stores"}
+    for old, new in renames:
+        now = {k: (new if v == old else v) for k, v in now.items()}
+
+    await DataSourceService().sync_domain_tables_from_connection(db, ds, conn)
+
+    tables, rendered = await _render(db, org, ds)
+    edges = _edges(tables["orders"])
+    assert ("customer_id", now["customers"].lower(), "id") not in {(c, r.lower(), rc) for c, r, rc in edges}
+    assert ("store_id", now["stores"], "id") in edges  # the edge that wasn't hidden stays
+    assert not _mentions_edge(rendered, "customer_id", now["customers"].lower(), "id")
+
+
+@pytest.mark.asyncio
+async def test_rename_on_another_connection_leaves_namesake_alone(db):
+    """Two connections on one agent can each have a `customers` table. A
+    rename on one must not remap edges hidden on the other."""
+    from app.services.data_source_service import DataSourceService
+
+    org, ds, conn_a = await _seed(db, "system_only")
+    conn_b = Connection(name="wh2", type="postgresql", config={}, is_active=True,
+                        auth_policy="system_only", organization_id=str(org.id))
+    conn_b.data_sources.append(ds)
+    db.add(conn_b)
+    await db.flush()
+    await _star(db, ds, conn_a, None)
+    b_cust = await _table(db, ds, conn_b, "customers", [_col("id")])
+    b_orders = await _table(db, ds, conn_b, "b_orders", [_col("id"), _col("customer_id")],
+                            fks=[_fk("customer_id", "customers", "id")],
+                            excluded_fks=[_hide("customer_id", "customers", "id")])
+    await db.commit()
+
+    await _rename(db, conn_a, "customers", "clients")
+    await DataSourceService().sync_domain_tables_from_connection(db, ds, conn_a)
+    await db.refresh(b_orders)
+    assert b_orders.excluded_fks == [_hide("customer_id", "customers", "id")]
+    assert b_cust.name == "customers"
+
+
+@pytest.mark.asyncio
+async def test_rename_remaps_entry_stored_in_other_case(db):
+    """An entry saved as sent (no canonical fks to take the spelling from)
+    can differ in case from the table name; the remap matches it anyway."""
+    from app.services.data_source_service import DataSourceService
+
+    org, ds, conn = await _seed(db, "system_only")
+    orders = await _star(db, ds, conn, [_hide("customer_id", "CUSTOMERS", "id")])
+    await db.commit()
+    await _rename(db, conn, "customers", "clients")
+    await DataSourceService().sync_domain_tables_from_connection(db, ds, conn)
+    await db.refresh(orders)
+    assert orders.excluded_fks == [_hide("customer_id", "clients", "id")]

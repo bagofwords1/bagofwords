@@ -279,12 +279,14 @@ def filter_columns(columns, excluded) -> list:
     return [c for c in (columns or []) if _col_name(c).lower() not in ex]
 
 
-def fk_key(fk) -> tuple[str, str, str] | None:
-    """Identity of one foreign-key edge: (local column, target table, target
-    column), lowercased like column names. Accepts a stored ``fks`` entry, a
-    ForeignKey model, or a DataSourceTable.excluded_fks entry (flat names). A
-    composite key arrives as one entry per column pair, so each pair is its
-    own edge."""
+def fk_flat(fk) -> dict | None:
+    """One foreign-key edge as flat names: {column, references_name,
+    references_column}, the shape DataSourceTable.excluded_fks stores.
+
+    Reads every shape an edge comes in — a stored ``fks`` entry (nested
+    ``{"name": ...}`` columns), a ForeignKey model, or an already-flat
+    excluded_fks entry — and returns None for anything incomplete, so callers
+    never index into a shape they didn't expect."""
     if isinstance(fk, dict):
         col, ref, ref_col = fk.get("column"), fk.get("references_name"), fk.get("references_column")
     else:
@@ -295,7 +297,18 @@ def fk_key(fk) -> tuple[str, str, str] | None:
     ref_col_name = ref_col if isinstance(ref_col, str) else _col_name(ref_col)
     if not (col_name and ref and ref_col_name):
         return None
-    return (col_name.lower(), str(ref).lower(), ref_col_name.lower())
+    return {"column": col_name, "references_name": str(ref), "references_column": ref_col_name}
+
+
+def fk_key(fk) -> tuple[str, str, str] | None:
+    """Identity of one foreign-key edge: (local column, target table, target
+    column), lowercased like column names. Accepts any shape fk_flat reads. A
+    composite key arrives as one entry per column pair, so each pair is its
+    own edge."""
+    flat = fk_flat(fk)
+    if flat is None:
+        return None
+    return (flat["column"].lower(), flat["references_name"].lower(), flat["references_column"].lower())
 
 
 def excluded_fk_set(excluded_fks) -> frozenset:

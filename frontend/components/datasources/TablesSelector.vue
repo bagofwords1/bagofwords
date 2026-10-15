@@ -517,22 +517,22 @@
                     </span>
                   </div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <label v-for="(fk, idx) in table.fks" :key="idx" class="flex items-center gap-2 text-xs px-2 py-1 text-gray-600 dark:text-gray-400"
+                    <label v-for="({ fk, visible, reason }, idx) in fkRows(table)" :key="idx" class="flex items-center gap-2 text-xs px-2 py-1 text-gray-600 dark:text-gray-400"
                       :class="canUpdate ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : ''"
                       :data-testid="`rel-row-${table.name}-${fk.column?.name}-${fk.references_name}`">
-                      <UCheckbox v-if="canUpdate" color="blue" :model-value="isFkVisible(table, fk)" :disabled="saving"
+                      <UCheckbox v-if="canUpdate" color="blue" :model-value="visible" :disabled="saving"
                         :aria-label="t('tableErd.includeRelationship', { name: `${fk.column?.name} → ${fk.references_name}.${fk.references_column?.name}` })"
                         @update:model-value="(val: boolean) => onFkToggle(table, fk, val)" />
-                      <span class="min-w-0 truncate" dir="ltr" :class="isFkVisible(table, fk) ? '' : 'line-through opacity-60'">
+                      <span class="min-w-0 truncate" dir="ltr" :class="visible ? '' : 'line-through opacity-60'">
                         <span class="text-gray-700 dark:text-gray-300">{{ fk.column?.name }}</span>
                         <span class="text-gray-400 dark:text-gray-500 mx-1">→</span>
                         <span class="text-blue-600">{{ fk.references_name }}</span>
                         <span class="text-gray-400 dark:text-gray-500">.</span>
                         <span class="text-gray-700 dark:text-gray-300">{{ fk.references_column?.name }}</span>
                       </span>
-                      <span v-if="!isFkVisible(table, fk)" class="shrink-0 text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.relationshipHidden') }}</span>
-                      <span v-else-if="canUpdate && fkOutOfContextReason(table, fk)" class="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 truncate"
-                        :data-testid="`rel-reason-${table.name}-${fk.column?.name}`">{{ fkOutOfContextReason(table, fk) }}</span>
+                      <span v-if="!visible" class="shrink-0 text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.relationshipHidden') }}</span>
+                      <span v-else-if="reason" class="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 truncate"
+                        :data-testid="`rel-reason-${table.name}-${fk.column?.name}`">{{ reason }}</span>
                     </label>
                   </div>
                 </div>
@@ -1164,6 +1164,9 @@ const draftSelectedCount = computed(() => catalogLoaded.value ? canvasActiveIds.
 const originalExcluded = ref(new Map<string, string[]>())
 const currentExcluded = ref(new Map<string, string[]>())
 const tableByKey = new Map<string, Table>()
+// Same rows indexed by name, for resolving a relationship's target without
+// scanning the whole catalog per edge. Kept in step with tableByKey.
+const tablesByName = new Map<string, Table[]>()
 
 // Relationship visibility draft, same shape: sorted lists of fkEdgeKey()s.
 const originalExcludedFks = ref(new Map<string, string[]>())
@@ -1183,6 +1186,11 @@ function sameList(a: string[] = [], b: string[] = []): boolean {
 function registerTables(rows: Table[]) {
   for (const table of rows) {
     const key = tableKey(table)
+    const previous = tableByKey.get(key)
+    if (previous !== table) {
+      if (previous) tablesByName.set(previous.name, (tablesByName.get(previous.name) || []).filter(t => t !== previous))
+      tablesByName.set(table.name, [...(tablesByName.get(table.name) || []), table])
+    }
     tableByKey.set(key, table)
     if (!currentExcluded.value.has(key) || sameList(currentExcluded.value.get(key), originalExcluded.value.get(key))) {
       originalExcluded.value.set(key, normalizeExcluded(table.excluded_columns))
@@ -1454,8 +1462,17 @@ function setAllFksVisible(table: Table, visible: boolean) {
 // either end is hidden. Say so, rather than let the checkbox imply otherwise.
 // Only tables loaded into this view can be checked; others report nothing.
 function fkTarget(table: Table, fk: ForeignKey): Table | undefined {
-  const named = [...tableByKey.values()].filter(t => t.name === fk.references_name)
+  const named = tablesByName.get(fk.references_name) || []
   return named.find(t => t.connection_id === table.connection_id) || (named.length === 1 ? named[0] : undefined)
+}
+
+// One pass per expanded table: each row's checkbox state and, for a checked
+// edge, why it is still out of context (managers only).
+function fkRows(table: Table) {
+  return (table.fks || []).map(fk => {
+    const visible = isFkVisible(table, fk)
+    return { fk, visible, reason: visible && props.canUpdate ? fkOutOfContextReason(table, fk) : null }
+  })
 }
 
 function fkOutOfContextReason(table: Table, fk: ForeignKey): string | null {
@@ -1856,6 +1873,7 @@ watch(() => [props.dsId, props.schema, props.connectionFilter, props.canUpdate],
     originalExcludedFks.value.clear()
     currentExcludedFks.value.clear()
     tableByKey.clear()
+    tablesByName.clear()
     fetchTables()
     loadAuthConnections()
   }
