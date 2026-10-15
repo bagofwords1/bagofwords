@@ -876,15 +876,13 @@ async def add_visualization_to_dashboard(
         if body.visualization_id in existing_viz_ids:
             raise HTTPException(status_code=409, detail="Visualization already added to dashboard")
 
-        viz_index = len(existing_viz_ids)
-
         existing_code = (latest.content or {}).get("code", "")
         # A previous remove may have left this viz's original section in
         # place, stubbed and tagged. Restoring the binding relights that
         # card where it was — instead of appending a duplicate at the bottom.
         new_code = restore_removed_viz_references(existing_code, body.visualization_id)
         if new_code is None:
-            new_code = inject_section_into_code(existing_code, viz_title, data_model, viz_index)
+            new_code = inject_section_into_code(existing_code, viz_title, data_model, body.visualization_id)
         if new_code is None:
             raise HTTPException(
                 status_code=400,
@@ -907,12 +905,11 @@ async def add_visualization_to_dashboard(
         await db.commit()
     else:
         # No artifact yet — generate scaffold from scratch
-        viz_index = 0
         if is_table_type(data_model):
-            section_jsx = generate_table_jsx(viz_title, data_model, viz_index)
+            section_jsx = generate_table_jsx(viz_title, data_model, body.visualization_id)
         else:
-            option_code = generate_echart_option_code(data_model, viz_index)
-            section_jsx = generate_section_jsx(viz_title, option_code)
+            option_code = generate_echart_option_code(data_model, body.visualization_id)
+            section_jsx = generate_section_jsx(viz_title, option_code, body.visualization_id)
         code = generate_scaffold([section_jsx])
 
         new_artifact = await new_artifact_row(

@@ -30,6 +30,7 @@ from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
+from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs
 from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_OBSERVATION,
     ANON_PREVIEW_NOTE,
@@ -299,6 +300,13 @@ class ReadArtifactTool(Tool):
                 f"// Slide {i+1}: {s.get('title', 'Untitled')}\n{s.get('code', '')}"
                 for i, s in enumerate(slides)
             )
+
+        # Show page code exactly as edit_artifact matches it: legacy
+        # positional viz[N] refs read as vizById("<id>"), so a `find` quoted
+        # from here is the text the edit is applied to. Line-preserving — the
+        # outline, slice and grep line numbers stay valid.
+        if artifact.mode == "page":
+            code, _ = migrate_positional_viz_refs(code, [str(v) for v in content.get("visualization_ids") or []])
 
         total_chars = len(code)
         total_lines = code.count("\n") + 1 if code else 0
