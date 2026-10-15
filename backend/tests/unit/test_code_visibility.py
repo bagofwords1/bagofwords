@@ -188,7 +188,8 @@ def test_no_code_string_survives_anywhere_in_a_redacted_result():
         "code": "SELECT secret FROM t",
         "errors": [["SELECT secret FROM t", "boom"]],
         "executed_queries": ["SELECT secret FROM t"],
-        "query_timings": [{"query_ms": 1, "sql": "SELECT secret FROM t"}],
+        "query_timings": [{"query_ms": 1, "sql": "SELECT secret FROM t",
+                           "sent_request": "PARENT?$expand=secret_SUBFORM"}],
         "error": {"failed_sql": "SELECT secret FROM t", "message": "bad"},
         "data": {"rows": [{"a": 1}]},
     }
@@ -199,6 +200,28 @@ def test_no_code_string_survives_anywhere_in_a_redacted_result():
 def test_executed_statement_in_timings_is_withheld():
     out = redact_tool_timings(_timings(), False, "create_data")
     assert out["queries"][0]["sql"] is None
+
+
+def _rewritten_timing():
+    # A connector that rewrote the query (Priority subform table -> parent
+    # $expand) records the request it actually sent next to the query.
+    return {"index": 0, "query_ms": 41.0, "rows": 2, "sql": "ORDERITEMS?$filter=PRICE gt 1",
+            "sent_request": "ORDERS?$expand=ORDERITEMS_SUBFORM($filter=PRICE gt 1)"}
+
+
+def test_sent_request_is_withheld_in_both_timing_containers():
+    """The request actually sent is the same statement in another dialect —
+    code, on both surfaces that carry timing records."""
+    result = redact_tool_result({"query_timings": [_rewritten_timing()]}, False, "create_data")
+    timings = redact_tool_timings({"queries": [_rewritten_timing()]}, False, "create_data")
+    for record in (result["query_timings"][0], timings["queries"][0]):
+        assert record["sent_request"] is None and record["sql"] is None
+        assert record["query_ms"] == 41.0 and record["rows"] == 2
+
+
+def test_sent_request_is_served_with_permission():
+    out = redact_tool_result({"query_timings": [_rewritten_timing()]}, True, "create_data")
+    assert out["query_timings"][0]["sent_request"].startswith("ORDERS?$expand=")
 
 
 def test_timing_measurements_survive_redaction():

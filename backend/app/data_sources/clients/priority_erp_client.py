@@ -629,10 +629,12 @@ class PriorityErpClient(DataSourceClient):
         # endpoint serves; put the request actually sent in the run output so
         # whoever reads it — a Priority consultant included — sees real OData
         # they can recognise and replay.
+        sent = unquote(request_path)
         df.attrs["bow_notice"] = (
-            f"Priority request ({route.name} is a subform of {route.levels[-2].form}): "
-            f"{unquote(request_path)}"
+            f"Priority request ({route.name} is a subform of {route.levels[-2].form}): {sent}"
         )
+        # The bare request, for the Queries tab (see code_execution.SENT_REQUEST_ATTR).
+        df.attrs["bow_sent_request"] = sent
         return df
 
     def execute_query(

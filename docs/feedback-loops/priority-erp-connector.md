@@ -204,6 +204,13 @@ client attaches it to the result as `df.attrs["bow_notice"]`; the sandbox
 child (or, in process, the query wrapper) prints it, because the client itself
 runs where stdout is never captured.
 
+The same request is shown under the code in the step's **Code** tab, as a
+`# Sent to the data source:` comment. The client also sets
+`df.attrs["bow_sent_request"]`; the query wrapper copies it onto that query's
+timing record (`query_timings[].sent_request`, capped at 1,000 chars), which
+survives in the persisted step summary — so it shows after a refresh — and is
+redacted with the code for users without `view_code`.
+
 ## Not covered
 
 - **No live tenant.** Everything above is against the mock. The real `$metadata`

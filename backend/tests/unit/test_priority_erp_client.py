@@ -750,3 +750,13 @@ def test_subform_result_names_the_request_actually_sent(client):
 
 def test_plain_form_result_carries_no_notice(client):
     assert "bow_notice" not in client.execute_query("ORDERS?$top=1").attrs
+
+
+def test_subform_result_carries_the_bare_sent_request(client):
+    """The Queries tab shows exactly what Priority received: the parent request,
+    with nothing around it, matching the run-output notice."""
+    df = client.execute_query("ORDERITEMS?$filter=PRICE gt 1000&$select=ORDNAME,PRICE")
+    sent = df.attrs.get("bow_sent_request")
+    assert sent and sent.startswith("ORDERS?") and "$expand=ORDERITEMS_SUBFORM(" in sent
+    assert sent in df.attrs["bow_notice"]
+    assert "bow_sent_request" not in client.execute_query("ORDERS?$top=1").attrs

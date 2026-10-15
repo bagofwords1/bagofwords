@@ -60,6 +60,15 @@ from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as _run_san
 # stdout is never captured.
 QUERY_NOTICE_ATTR = "bow_notice"
 
+# A client that sends the source something other than the query it was given
+# (Priority answering a subform table through its parent's $expand) records the
+# request it actually sent here. The query wrapper copies it onto the query's
+# timing record as `sent_request`, which the Queries tab shows under the query
+# the agent wrote. The agent's own query stays in `executed_queries` untouched:
+# the identity-bind check reads that list.
+SENT_REQUEST_ATTR = "bow_sent_request"
+SENT_REQUEST_MAX_CHARS = 1000
+
 
 def query_notice(result) -> Optional[str]:
     """The client's note on a query result, if it attached one."""
@@ -873,13 +882,18 @@ class QueryCapturingClientWrapper:
                 if rows is not None:
                     span.set_attribute("datasource.result_rows", rows)
                 span.set_attribute("datasource.result_bytes", result_bytes)
-                self._captured_timings.append({
+                timing = {
                     "index": idx,
                     "query_ms": round(_q_ms, 1),
                     "rows": rows,
                     "result_bytes": result_bytes,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                })
+                }
+                _attrs = getattr(result, "attrs", None)
+                sent = _attrs.get(SENT_REQUEST_ATTR) if isinstance(_attrs, dict) else None
+                if isinstance(sent, str) and sent.strip():
+                    timing["sent_request"] = sent[:SENT_REQUEST_MAX_CHARS]
+                self._captured_timings.append(timing)
                 # In process, this thread is the code-exec worker and its
                 # stdout is the run output. Sandboxed, it is a parent-side
                 # handler with nothing bound, and the child prints the note.

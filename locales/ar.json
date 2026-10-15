@@ -1446,6 +1446,7 @@
       "tabCode": "كود",
       "toggleQueries": "الاستعلامات",
       "toggleFullCode": "الكود الكامل",
+      "sentRequest": "أُرسل إلى مصدر البيانات",
       "attempts": "المحاولات ({count})",
       "addToSpreadsheet": "إضافة إلى جدول البيانات",
       "addToSpreadsheetTitle": "إضافة البيانات إلى جدول Excel",

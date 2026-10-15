@@ -1446,6 +1446,7 @@
       "tabCode": "Código",
       "toggleQueries": "Consultas",
       "toggleFullCode": "Código completo",
+      "sentRequest": "Enviado à fonte de dados",
       "attempts": "Tentativas ({count})",
       "addToSpreadsheet": "Adicionar à planilha",
       "addToSpreadsheetTitle": "Adicionar dados à planilha do Excel",

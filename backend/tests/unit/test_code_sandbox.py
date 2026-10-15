@@ -977,3 +977,37 @@ def generate_df(ds_clients, excel_files):
 """
     _, log, _ = _run(code, {"db": _NoticeClient(note)})
     assert log == ""
+
+
+class _RewritingClient(_StubClient):
+    """A client that answers by sending the source a different request, and
+    says which (Priority: subform table -> parent $expand)."""
+
+    def __init__(self, sent):
+        super().__init__()
+        self._sent = sent
+
+    def execute_query(self, query=None, *args, **kwargs):
+        df = super().execute_query(query, *args, **kwargs)
+        if self._sent is not None:
+            df.attrs["bow_sent_request"] = self._sent
+        return df
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_sent_request_is_recorded_next_to_the_query_it_answered(monkeypatch, mode):
+    """The Queries tab pairs each query with the request actually sent; the
+    query list itself (read by the identity-bind check) stays as written."""
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    code = """
+def generate_df(ds_clients, excel_files):
+    ds_clients["db"].execute_query("ORDERITEMS?$top=1")
+    return ds_clients["plain"].execute_query("SELECT 1")
+"""
+    timings = []
+    _, _, queries = _run(code, {"db": _RewritingClient("ORDERS?$expand=ORDERITEMS_SUBFORM"),
+                                "plain": _RewritingClient(None)}, captured_timings=timings)
+    assert list(queries) == ["ORDERITEMS?$top=1", "SELECT 1"]
+    by_sql = {t["sql"]: t for t in timings}
+    assert by_sql["ORDERITEMS?$top=1"]["sent_request"] == "ORDERS?$expand=ORDERITEMS_SUBFORM"
+    assert "sent_request" not in by_sql["SELECT 1"]
