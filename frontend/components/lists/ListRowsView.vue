@@ -11,13 +11,14 @@
   both keep the list itself (fields, save tool, table) so it can be refilled.
 -->
 <template>
-  <div class="flex flex-col h-full min-h-0 relative" data-testid="list-rows-view">
-    <div class="shrink-0 px-6 pt-3 pb-3 border-b border-gray-100 dark:border-gray-800">
+  <div ref="rootEl" class="flex flex-col h-full min-h-0 relative" data-testid="list-rows-view">
+    <div class="shrink-0 pt-3 pb-3 border-b border-gray-100 dark:border-gray-800" :class="embedded ? 'px-3' : 'px-6'">
       <div class="flex items-center gap-2">
-        <button type="button" data-testid="list-back" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="$emit('back')">
+        <button v-if="!embedded" type="button" data-testid="list-back" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="$emit('back')">
           <UIcon name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0 rtl:rotate-180" />
           <span class="text-[13px] text-gray-500 dark:text-gray-400">{{ $t('lists.back') }}</span>
         </button>
+        <h2 v-else dir="auto" class="text-sm font-semibold text-gray-900 dark:text-white truncate min-w-0" data-testid="list-title">{{ list.name }}</h2>
         <div v-if="checked.length" class="ms-auto flex items-center gap-2" data-testid="list-selection-bar">
           <span class="text-xs text-gray-600 dark:text-gray-300 tabular-nums" data-testid="list-selected-count">{{ $t('lists.selectedCount', { n: checked.length }) }}</span>
           <button type="button" class="h-8 px-2.5 rounded-md text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="checked = []">{{ $t('lists.clearSelection') }}</button>
@@ -26,6 +27,9 @@
           </button>
         </div>
         <div v-else class="ms-auto flex items-center gap-2">
+          <span v-if="writing" class="text-xs text-blue-600 dark:text-blue-400 inline-flex items-center gap-1.5 tool-shimmer" data-testid="list-writing">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />{{ $t('tools.submitList.writing', { n: writing }, writing) }}
+          </span>
           <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums" data-testid="list-row-total">{{ $t('lists.rowsCount', { n: total }, total) }}</span>
           <button
             type="button"
@@ -45,9 +49,9 @@
           </UDropdown>
         </div>
       </div>
-      <h2 dir="auto" class="mt-2 text-base font-semibold text-gray-900 dark:text-white" data-testid="list-title">{{ list.name }}</h2>
+      <h2 v-if="!embedded" dir="auto" class="mt-2 text-base font-semibold text-gray-900 dark:text-white" data-testid="list-title">{{ list.name }}</h2>
       <p v-if="list.description" dir="auto" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ list.description }}</p>
-      <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <p v-if="!embedded" class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
         <span>{{ $t('lists.saveHint') }}</span><code class="font-mono text-gray-500 dark:text-gray-400">{{ list.tool_name }}</code>
         <span>·</span>
         <span>{{ $t('lists.queryHint') }}</span><code class="font-mono text-gray-500 dark:text-gray-400">{{ list.table_name }}</code>
@@ -83,13 +87,15 @@
             <th class="px-3 py-2 font-medium text-end whitespace-nowrap border-b border-gray-100 dark:border-gray-800">{{ $t('lists.updated') }}</th>
           </tr>
         </thead>
-        <tbody>
+        <TransitionGroup tag="tbody" name="list-row">
           <tr
             v-for="r in rows"
             :key="r.id"
             data-testid="list-row"
+            :data-row-id="r.id"
+            :data-flash="flash[r.id] || undefined"
             class="cursor-pointer border-b border-gray-50 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/40"
-            :class="selected?.id === r.id || checked.includes(r.id) ? 'bg-blue-50/60 dark:bg-blue-500/10' : ''"
+            :class="[selected?.id === r.id || checked.includes(r.id) ? 'bg-blue-50/60 dark:bg-blue-500/10' : '', flash[r.id] ? 'row-flash-' + flash[r.id] : '']"
             @click="openRow(r)"
           >
             <td v-if="list.can_manage" class="w-8 ps-3 pe-0 py-2 align-top" @click.stop>
@@ -107,7 +113,7 @@
               {{ timeAgo(r.updated_at) }}
             </td>
           </tr>
-        </tbody>
+        </TransitionGroup>
       </table>
       <div v-if="rows.length < total" class="py-3 text-center">
         <button type="button" class="h-7 px-3 rounded-md text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="loadMore">{{ $t('lists.loadMore') }}</button>
@@ -160,13 +166,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ListRowPanel from '~/components/lists/ListRowPanel.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { formatValue, type AgentList, type ListField, type ListRow } from '~/components/lists/types'
 
-const props = defineProps<{ dsId: string; list: AgentList; rowId?: string | null }>()
+const props = defineProps<{
+  dsId: string
+  list: AgentList
+  rowId?: string | null
+  // Rendered inside the report's side pane: compact header, no back link.
+  embedded?: boolean
+  // Records the agent is writing into this list right now (streamed count).
+  writing?: number
+}>()
 const emit = defineEmits<{
   (e: 'row', rowId: string | null): void
   (e: 'back'): void
@@ -322,10 +336,50 @@ function timeAgo(iso?: string) {
 
 onMounted(async () => { await load(); await openRowById(props.rowId) })
 watch(() => props.rowId, (id) => openRowById(id))
-defineExpose({ reload: () => load() })
+// A submit_<list> call finished while this list is open: pull the fresh
+// rows and flash the ones it touched (added / updated). Unchanged rows are
+// left alone so the grid only lights up where something actually moved.
+const rootEl = ref<HTMLElement | null>(null)
+const flash = ref<Record<string, 'inserted' | 'updated'>>({})
+const FLASH_MS = 1800
+async function applySubmit(records: Array<{ row_id?: string; action?: string }> = []) {
+  await load()
+  const touched: Record<string, 'inserted' | 'updated'> = {}
+  for (const r of records) {
+    if (r?.row_id && (r.action === 'inserted' || r.action === 'updated')) touched[r.row_id] = r.action
+  }
+  if (selected.value && touched[selected.value.id]) {
+    const fresh = rows.value.find(x => x.id === selected.value!.id)
+    if (fresh) selected.value = fresh
+  }
+  flash.value = { ...flash.value, ...touched }
+  // Rows are oldest-first, so new ones land at the bottom: bring the first
+  // touched row into view so the user sees the change happen.
+  await nextTick()
+  const first = Object.keys(touched).find(id => touched[id] === 'inserted') || Object.keys(touched)[0]
+  if (first) rootEl.value?.querySelector(`[data-row-id="${first}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  setTimeout(() => {
+    const next = { ...flash.value }
+    for (const id of Object.keys(touched)) if (next[id] === touched[id]) delete next[id]
+    flash.value = next
+  }, FLASH_MS)
+  emit('changed')
+}
+defineExpose({ reload: () => load(), applySubmit })
 </script>
 
 <style scoped>
+.list-row-enter-active { transition: opacity .35s ease, transform .35s ease; }
+.list-row-enter-from { opacity: 0; transform: translateY(-6px); }
+.list-row-move { transition: transform .3s ease; }
+.row-flash-inserted { animation: row-flash-inserted 1.8s ease-out; }
+.row-flash-updated { animation: row-flash-updated 1.8s ease-out; }
+@keyframes row-flash-inserted { 0%, 25% { background-color: rgb(16 185 129 / .16); } 100% { background-color: transparent; } }
+@keyframes row-flash-updated { 0%, 25% { background-color: rgb(59 130 246 / .14); } 100% { background-color: transparent; } }
+@media (prefers-reduced-motion: reduce) {
+  .list-row-enter-active, .list-row-move { transition: none; }
+  .row-flash-inserted, .row-flash-updated { animation: none; }
+}
 .slide-over-enter-active, .slide-over-leave-active { transition: transform .18s ease, opacity .18s ease; }
 .slide-over-enter-from, .slide-over-leave-to { transform: translateX(16px); opacity: 0; }
 [dir="rtl"] .slide-over-enter-from, [dir="rtl"] .slide-over-leave-to { transform: translateX(-16px); }

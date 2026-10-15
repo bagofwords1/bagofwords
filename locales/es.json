@@ -1787,7 +1787,10 @@
         "inserted": "añadida",
         "updated": "actualizada",
         "unchanged": "sin cambios"
-      }
+      },
+      "openInPane": "Mostrar la lista junto al chat",
+      "closePane": "Cerrar lista",
+      "openFull": "Abrir la lista completa"
     },
     "resource": {
       "failed": "Error al cambiar el recurso",
