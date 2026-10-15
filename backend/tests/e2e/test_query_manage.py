@@ -16,15 +16,18 @@ Run:
     uv run pytest tests/e2e/test_query_manage.py -v
 """
 import asyncio
+import re
 import uuid
 from datetime import datetime, timedelta
 
 import pytest
 
 from app.dependencies import async_session_maker
+from app.models.organization import Organization
 from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
+from app.models.user import User
 from app.models.visualization import Visualization
 from app.models.widget import Widget
 from tests.fixtures.artifact import seed_artifact
@@ -359,3 +362,148 @@ def test_add_targets_the_named_artifact_not_the_newest(
     assert older.status_code == 200, older.json()
     assert added.json()["artifact_id"] == older.json()["artifact_id"]
     assert added.json()["version"] == 2
+
+
+# A positional `viz[N]` binding
+_POSITIONAL_RE = re.compile(r"\bviz\[\d+\]")
+
+_MANUAL_ADD_DATA_MODELS = {
+    "table": {"type": "table"},
+    "bar_chart": {
+        "type": "bar_chart",
+        "columns": [{"generated_column_name": "artist"}, {"generated_column_name": "total"}],
+        "series": [{"name": "s", "key": "artist", "value": "total"}],
+    },
+    "pie_chart": {"type": "pie_chart", "series": [{"key": "artist", "value": "total"}]},
+    "metric_card": {"type": "metric_card", "series": [{"name": "Total", "value": "total"}]},
+}
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", sorted(_MANUAL_ADD_DATA_MODELS))
+def test_manually_added_sections_bind_by_id(
+    create_report, create_user, login_user, whoami, test_client, kind,
+):
+    """Both add paths — the first add (fresh scaffold) and a later add
+    (section injected into existing code) — bind each viz by id, never by
+    position, for every generated section type."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    report = create_report(title="Manual add", user_token=token, org_id=org_id)
+    headers = _auth(token, org_id)
+    data_model = _MANUAL_ADD_DATA_MODELS[kind]
+
+    viz_ids = [
+        _run(_seed_query(report["id"], failing_rerun=False, data_model=data_model))[1]
+        for _ in range(2)
+    ]
+    for viz_id in viz_ids:
+        added = test_client.post(
+            f"/api/artifacts/report/{report['id']}/add-visualization",
+            json={"visualization_id": viz_id}, headers=headers,
+        )
+        assert added.status_code == 200, added.json()
+        code = added.json()["content"]["code"]
+        assert not _POSITIONAL_RE.search(code), code
+        assert f'vizById("{viz_id}")' in code
+
+    assert all(f'vizById("{v}")' in code for v in viz_ids)
+
+
+async def _run_tool(tool, tool_input: dict, report_id: str):
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        runtime_ctx = {
+            "db": db,
+            "report": report,
+            "user": await db.get(User, report.user_id),
+            "organization": await db.get(Organization, report.organization_id),
+        }
+        return [evt async for evt in tool.run_stream(tool_input, runtime_ctx)]
+
+
+def _end_output(events):
+    ends = [e for e in events if e.type == "tool.end"]
+    assert ends, f"no tool.end event in {[e.type for e in events]}"
+    return ends[-1].payload["output"]
+
+
+_POSITIONAL_DASHBOARD = """<script type="text/babel">
+function App() {
+  const data = useArtifactData();
+  if (!data) return null;
+  const viz = data.visualizations;
+  return (
+    <div className="space-y-6">
+      <SectionCard title="First" viz={viz[0]}>
+        {<DataTable viz={viz[0]} />}
+      </SectionCard>
+      <SectionCard title="Second" viz={viz[1]}>
+        {<DataTable viz={viz[1]} />}
+      </SectionCard>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>"""
+
+
+@pytest.mark.e2e
+def test_edit_artifact_applies_finds_quoted_from_positional_code(
+    create_report, create_user, login_user, whoami, monkeypatch,
+):
+    """An agent edit whose `find` is quoted verbatim from read_artifact must
+    apply even when the stored code still binds positionally (`viz[N]`) —
+    edit_artifact upgrades the working code to vizById() before matching,
+    and used to reject every such find, so the agent retried the identical
+    edit in a loop."""
+    from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+    from app.ai.tools.implementations.edit_artifact import EditArtifactTool
+    from app.ai.tools.implementations.read_artifact import ReadArtifactTool
+
+    # Headless-browser boundary: the render pass is not under test here
+    async def _no_render(self, html):
+        return None, []
+    monkeypatch.setattr(CreateArtifactTool, "_take_preview_screenshot", _no_render)
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    report = create_report(title="Positional edit", user_token=token, org_id=org_id)
+    v1 = _run(_seed_query(report["id"], failing_rerun=False))[1]
+    v2 = _run(_seed_query(report["id"], failing_rerun=False))[1]
+
+    # Seeded directly: add-visualization no longer writes positional code,
+    # but dashboards stored before it did still exist.
+    async def _seed_positional():
+        async with async_session_maker() as db:
+            r = await db.get(Report, report["id"])
+            a = await seed_artifact(
+                db,
+                report_id=report["id"], user_id=r.user_id, organization_id=r.organization_id,
+                content={"code": _POSITIONAL_DASHBOARD, "visualization_ids": [v1, v2]},
+            )
+            await db.commit()
+            return str(a.id)
+
+    artifact_id = _run(_seed_positional())
+
+    read = _end_output(_run(_run_tool(ReadArtifactTool(), {"artifact_id": artifact_id}, report["id"])))
+    find = next(line.strip() for line in read["code"].splitlines() if "<DataTable viz={viz[1]}" in line)
+
+    edited = _end_output(_run(_run_tool(
+        EditArtifactTool(),
+        {
+            "artifact_id": artifact_id,
+            "edits": [{"find": find, "replace": "{<DataTable viz={viz[1]} pageSize={5} />}"}],
+        },
+        report["id"],
+    )))
+
+    assert edited["success"] is True, edited.get("error")
+    code = edited["code"]
+    # The edit landed on the SECOND viz's section, bound by its id
+    assert f'<DataTable viz={{vizById("{v2}")}} pageSize={{5}} />' in code
+    assert f'<DataTable viz={{vizById("{v1}")}} />' in code
+    assert not _POSITIONAL_RE.search(code)

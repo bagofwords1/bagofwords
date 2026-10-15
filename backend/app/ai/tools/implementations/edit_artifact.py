@@ -144,12 +144,21 @@ class EditArtifactTool(Tool):
         from app.ai.tools.implementations.edit_artifact_legacy import _find_closest_match
         working = code
         for i, op in enumerate(data.edits):
-            occurrences = working.count(op.find)
+            find, replace = op.find, op.replace
+            # The planner quotes the STORED code (read_artifact / context),
+            # which may still bind positionally — run the same codemod over
+            # the op so a verbatim `viz[0]` find matches the migrated working
+            # code instead of failing forever, and the replacement lands
+            # id-keyed too.
+            if artifact.mode == "page":
+                find, _ = migrate_positional_viz_refs(find, existing_viz_ids)
+                replace, _ = migrate_positional_viz_refs(replace, existing_viz_ids)
+            occurrences = working.count(find)
             if occurrences == 1:
-                working = working.replace(op.find, op.replace, 1)
+                working = working.replace(find, replace, 1)
                 continue
             if occurrences == 0:
-                closest = _find_closest_match(op.find, working)
+                closest = _find_closest_match(find, working)
                 hint = f" Closest match in current code:\n---\n{closest}\n---" if closest else ""
                 yield self._fail(
                     artifact, "op_no_match",
