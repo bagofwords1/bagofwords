@@ -20,7 +20,7 @@ from defusedxml.common import DefusedXmlException
 from app.data_sources.clients._file_source_common import INDEX_CONTENT, FileTooLargeError, GlobScopeError
 from app.data_sources.clients._sharepoint_api import SharepointAPI
 from app.data_sources.clients.progress import make_reporter
-from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _safe_path
+from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _safe_path, unresolved_path_error
 
 SOAP = 'http://schemas.xmlsoap.org/soap/envelope/'
 SP = 'http://schemas.microsoft.com/sharepoint/soap/'
@@ -282,7 +282,7 @@ class Sharepoint2010API(SharepointAPI):
         if not candidates and scope_error:
             raise scope_error
         if len(candidates) != 1:
-            raise ValueError('File path is missing or ambiguous. Use the id returned by list_files/search_files.')
+            raise unresolved_path_error(value, [m['ServerRelativeUrl'] for m in candidates])
         meta = candidates[0]
         limit = min(c._max_bytes, max_bytes) if max_bytes is not None else c._max_bytes
         if limit < 1 or meta['Length'] > limit:

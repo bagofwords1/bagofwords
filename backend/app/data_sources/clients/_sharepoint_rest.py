@@ -6,7 +6,7 @@ from urllib.parse import unquote, urlsplit
 
 from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
 from app.data_sources.clients._sharepoint_api import SharepointAPI
-from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _literal, _safe_path
+from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _literal, _safe_path, unresolved_path_error
 from app.data_sources.clients.progress import make_reporter
 
 
@@ -150,7 +150,7 @@ class SharepointRestAPI(SharepointAPI):
         if not candidates and scope_error:
             raise scope_error
         if len(candidates) != 1:
-            raise ValueError("File path is missing or ambiguous. Use the id returned by list_files/search_files.")
+            raise unresolved_path_error(value, candidates)
         return candidates[0]
 
     def read_raw_bytes(self, file_id, *, max_bytes=None):
