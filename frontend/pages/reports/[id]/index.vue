@@ -991,14 +991,10 @@
 						:list="panelList.list"
 						:embedded="true"
 						:writing="listPaneWriting"
+						:full-href="`/agents/${panelList.dsId}/lists/${panelList.listId}`"
 						class="flex-1 min-h-0"
 						@deleted="closeListPanel"
 					/>
-					<div class="shrink-0 px-3 py-2 border-t border-gray-100 dark:border-gray-800">
-						<a :href="`/agents/${panelList.dsId}/lists/${panelList.listId}`" class="inline-flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" data-testid="list-panel-open-full">
-							<Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />{{ $t('tools.submitList.openFull') }}
-						</a>
-					</div>
 				</template>
 			</div>
 
@@ -2793,7 +2789,10 @@ const listPaneWriting = computed(() => listPaneSubmits.value.reduce((n, te) => {
 // Calls already reflected in the grid. Seeded when the pane opens so history
 // does not replay; anything that succeeds afterwards is merged and flashed.
 const listPaneSeen = new Set<string>()
-const finishedKey = (te: any) => `${te.id}:${te.status}`
+// Keyed by what the call wrote, not the tool execution id: the id changes
+// when the chat reloads messages from the server after a turn, which would
+// otherwise replay old saves as new ones.
+const finishedKey = (te: any) => (te.result_json?.records || []).map((r: any) => `${r.row_id}:${r.action}`).sort().join(',') || `${te.id}`
 watch(() => panelList.value?.listId, () => {
 	listPaneSeen.clear()
 	for (const te of listPaneSubmits.value) if (te.status === 'success') listPaneSeen.add(finishedKey(te))

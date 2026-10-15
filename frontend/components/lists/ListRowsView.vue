@@ -11,14 +11,45 @@
   both keep the list itself (fields, save tool, table) so it can be refilled.
 -->
 <template>
-  <div ref="rootEl" class="flex flex-col h-full min-h-0 relative" data-testid="list-rows-view">
-    <div class="shrink-0 pt-3 pb-3 border-b border-gray-100 dark:border-gray-800" :class="embedded ? 'px-3' : 'px-6'">
+  <div ref="rootEl" class="flex flex-col h-full min-h-0 relative" :class="embedded ? 'bg-white dark:bg-gray-900' : ''" data-testid="list-rows-view">
+    <!-- Side-pane header: title, a quiet meta line, icon actions. -->
+    <div v-if="embedded" class="shrink-0 px-5 pt-5 pb-4" data-testid="list-pane-header">
+      <div class="flex items-start gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 dir="auto" class="text-[15px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 truncate" data-testid="list-title">{{ list.name }}</h2>
+          <div class="mt-1 flex items-center gap-2 text-[12px] text-gray-500 dark:text-gray-400">
+            <span class="tabular-nums" data-testid="list-row-total">{{ $t('lists.rowsCount', { n: total }, total) }}</span>
+            <Transition name="fade">
+              <span v-if="writing" class="inline-flex items-center gap-1.5 text-gray-700 dark:text-gray-300" data-testid="list-writing">
+                <span class="relative flex w-1.5 h-1.5"><span class="absolute inset-0 rounded-full bg-gray-900 dark:bg-gray-100 opacity-60 animate-ping" /><span class="relative w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-gray-100" /></span>
+                <span class="tool-shimmer">{{ $t('tools.submitList.writing', { n: writing }, writing) }}</span>
+              </span>
+            </Transition>
+          </div>
+          <p v-if="list.description" dir="auto" class="mt-2 text-[13px] leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-2">{{ list.description }}</p>
+        </div>
+        <div class="shrink-0 flex items-center gap-0.5 -me-1.5">
+          <button type="button" data-testid="list-export-csv" :disabled="exporting" :title="$t('lists.exportCsv')" :aria-label="$t('lists.exportCsv')" class="h-8 w-8 rounded-full inline-flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50" @click="exportCsv(false)">
+            <Spinner v-if="exporting" class="w-3.5 h-3.5" />
+            <UIcon v-else name="i-heroicons-arrow-down-tray" class="w-4 h-4" />
+          </button>
+          <a v-if="fullHref" :href="fullHref" data-testid="list-panel-open-full" :title="$t('tools.submitList.openFull')" :aria-label="$t('tools.submitList.openFull')" class="h-8 w-8 rounded-full inline-flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors">
+            <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-4 h-4" />
+          </a>
+          <UDropdown :items="menu" :popper="{ placement: 'bottom-end' }" :ui="{ width: 'w-52', item: { size: 'text-xs', padding: 'px-3 py-2' } }">
+            <button type="button" data-testid="list-more" :aria-label="$t('lists.more')" class="h-8 w-8 rounded-full inline-flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors">
+              <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
+            </button>
+          </UDropdown>
+        </div>
+      </div>
+    </div>
+    <div v-else class="shrink-0 px-6 pt-3 pb-3 border-b border-gray-100 dark:border-gray-800">
       <div class="flex items-center gap-2">
-        <button v-if="!embedded" type="button" data-testid="list-back" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="$emit('back')">
+        <button type="button" data-testid="list-back" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="$emit('back')">
           <UIcon name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0 rtl:rotate-180" />
           <span class="text-[13px] text-gray-500 dark:text-gray-400">{{ $t('lists.back') }}</span>
         </button>
-        <h2 v-else dir="auto" class="text-sm font-semibold text-gray-900 dark:text-white truncate min-w-0" data-testid="list-title">{{ list.name }}</h2>
         <div v-if="checked.length" class="ms-auto flex items-center gap-2" data-testid="list-selection-bar">
           <span class="text-xs text-gray-600 dark:text-gray-300 tabular-nums" data-testid="list-selected-count">{{ $t('lists.selectedCount', { n: checked.length }) }}</span>
           <button type="button" class="h-8 px-2.5 rounded-md text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="checked = []">{{ $t('lists.clearSelection') }}</button>
@@ -27,9 +58,6 @@
           </button>
         </div>
         <div v-else class="ms-auto flex items-center gap-2">
-          <span v-if="writing" class="text-xs text-blue-600 dark:text-blue-400 inline-flex items-center gap-1.5 tool-shimmer" data-testid="list-writing">
-            <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />{{ $t('tools.submitList.writing', { n: writing }, writing) }}
-          </span>
           <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums" data-testid="list-row-total">{{ $t('lists.rowsCount', { n: total }, total) }}</span>
           <button
             type="button"
@@ -49,9 +77,9 @@
           </UDropdown>
         </div>
       </div>
-      <h2 v-if="!embedded" dir="auto" class="mt-2 text-base font-semibold text-gray-900 dark:text-white" data-testid="list-title">{{ list.name }}</h2>
+      <h2 dir="auto" class="mt-2 text-base font-semibold text-gray-900 dark:text-white" data-testid="list-title">{{ list.name }}</h2>
       <p v-if="list.description" dir="auto" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ list.description }}</p>
-      <p v-if="!embedded" class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
         <span>{{ $t('lists.saveHint') }}</span><code class="font-mono text-gray-500 dark:text-gray-400">{{ list.tool_name }}</code>
         <span>·</span>
         <span>{{ $t('lists.queryHint') }}</span><code class="font-mono text-gray-500 dark:text-gray-400">{{ list.table_name }}</code>
@@ -72,6 +100,43 @@
         <div class="mt-4 flex flex-wrap justify-center gap-1.5 max-w-md">
           <span v-for="f in list.fields" :key="f.id" class="px-2 h-6 inline-flex items-center rounded-md bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-[11px] font-mono text-gray-500 dark:text-gray-400">{{ f.name }}</span>
         </div>
+      </div>
+
+      <!-- Side-pane grid: readable column labels, no selection or timestamp
+           columns, hairline separators. Row actions stay in the row panel. -->
+      <div v-else-if="embedded" class="px-3 pb-4">
+        <table class="w-full text-[13px]" data-testid="list-rows-table">
+          <thead class="sticky top-0 z-10 bg-white dark:bg-gray-900">
+            <tr>
+              <th v-for="f in list.fields" :key="f.id" class="px-2 pt-1 pb-2 text-[12px] font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-b border-gray-200/70 dark:border-gray-800" :class="numeric(f) ? 'text-end' : 'text-start'">{{ label(f) }}</th>
+            </tr>
+          </thead>
+          <TransitionGroup tag="tbody" name="list-row">
+            <tr
+              v-for="r in rows"
+              :key="r.id"
+              data-testid="list-row"
+              :data-row-id="r.id"
+              :data-flash="flash[r.id] || undefined"
+              class="group cursor-pointer"
+              :class="flash[r.id] ? 'row-flash-' + flash[r.id] : ''"
+              @click="openRow(r)"
+            >
+              <td
+                v-for="(f, i) in list.fields"
+                :key="f.id"
+                class="px-2 py-2.5 max-w-[240px] border-b border-gray-100 dark:border-gray-800/70 transition-colors group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50"
+                :class="[selected?.id === r.id ? 'bg-gray-50 dark:bg-gray-800/50' : '', numeric(f) ? 'text-end tabular-nums' : 'text-start', i === 0 ? 'rounded-s-lg' : '', i === list.fields.length - 1 ? 'rounded-e-lg' : '']"
+              >
+                <span v-if="cell(r, f).empty" class="text-gray-300 dark:text-gray-600">—</span>
+                <span v-else class="inline-flex items-center gap-1 max-w-full">
+                  <bdi class="truncate" :class="i === 0 ? 'font-medium text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-300'">{{ cell(r, f).text }}</bdi>
+                  <UIcon v-if="r.locked_fields.includes(f.id!)" name="i-heroicons-lock-closed" class="w-3 h-3 shrink-0 text-gray-400" :title="$t('lists.row.edited')" />
+                </span>
+              </td>
+            </tr>
+          </TransitionGroup>
+        </table>
       </div>
 
       <table v-else class="min-w-full text-xs" data-testid="list-rows-table">
@@ -180,6 +245,8 @@ const props = defineProps<{
   embedded?: boolean
   // Records the agent is writing into this list right now (streamed count).
   writing?: number
+  // Link to the full list page, shown as an icon in the side-pane header.
+  fullHref?: string
 }>()
 const emit = defineEmits<{
   (e: 'row', rowId: string | null): void
@@ -205,6 +272,8 @@ const allChecked = computed(() => rows.value.length > 0 && rows.value.every(r =>
 function toggleAll() { checked.value = allChecked.value ? [] : rows.value.map(r => r.id) }
 
 const base = computed(() => `/api/data_sources/${props.dsId}/lists/${props.list.id}`)
+// snake_case field name as a sentence-case column label (side pane only).
+const label = (f: ListField) => { const s = (f.name || '').replace(/_/g, ' '); return s.charAt(0).toUpperCase() + s.slice(1) }
 const numeric = (f: ListField) => f.type === 'number' || f.type === 'integer'
 const cell = (r: ListRow, f: ListField) => {
   const env = r.values[f.id!]
@@ -372,13 +441,15 @@ defineExpose({ reload: () => load(), applySubmit })
 .list-row-enter-active { transition: opacity .35s ease, transform .35s ease; }
 .list-row-enter-from { opacity: 0; transform: translateY(-6px); }
 .list-row-move { transition: transform .3s ease; }
-.row-flash-inserted { animation: row-flash-inserted 1.8s ease-out; }
-.row-flash-updated { animation: row-flash-updated 1.8s ease-out; }
-@keyframes row-flash-inserted { 0%, 25% { background-color: rgb(16 185 129 / .16); } 100% { background-color: transparent; } }
-@keyframes row-flash-updated { 0%, 25% { background-color: rgb(59 130 246 / .14); } 100% { background-color: transparent; } }
+.row-flash-inserted > td { animation: row-flash-inserted 1.8s ease-out; }
+.row-flash-updated > td { animation: row-flash-updated 1.8s ease-out; }
+@keyframes row-flash-inserted { 0%, 30% { background-color: rgb(16 185 129 / .08); } 100% { background-color: transparent; } }
+@keyframes row-flash-updated { 0%, 30% { background-color: rgb(59 130 246 / .08); } 100% { background-color: transparent; } }
+.fade-enter-active, .fade-leave-active { transition: opacity .2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   .list-row-enter-active, .list-row-move { transition: none; }
-  .row-flash-inserted, .row-flash-updated { animation: none; }
+  .row-flash-inserted > td, .row-flash-updated > td { animation: none; }
 }
 .slide-over-enter-active, .slide-over-leave-active { transition: transform .18s ease, opacity .18s ease; }
 .slide-over-enter-from, .slide-over-leave-to { transform: translateX(16px); opacity: 0; }
