@@ -210,16 +210,25 @@ class ReadFileInput(BaseModel):
         description=(
             "For object-store / large files: start byte for a windowed (ranged) "
             "read. When set, the file is NOT parsed or attached — you get a raw "
-            "byte window plus `next_cursor`/`eof` to page forward. Pass "
-            "`next_cursor` from the previous read as the next `offset` until "
-            "`eof` is true. Leave unset for a normal whole-file read."
+            "byte window plus `next_cursor`/`eof` to page forward. The window is "
+            "bytes [offset, offset+length), adjusted by at most 3 bytes at an edge "
+            "so a multi-byte character is never split; `next_cursor` is the first "
+            "byte not returned. Pass `next_cursor` from the previous read as the next "
+            "`offset` until `eof` is true — or fire windows at a fixed stride "
+            "(0, length, 2*length, …) in parallel, they are contiguous. Leave "
+            "unset for a normal whole-file read."
         ),
     )
     length: Optional[int] = Field(
         default=None,
         ge=1,
         le=50_000_000,
-        description="For windowed reads: number of bytes to fetch from `offset`. Defaults to ~1 MiB.",
+        description=(
+            "For windowed reads: number of bytes to fetch from `offset`. Defaults to "
+            "~1 MiB. Text windows return this many bytes, give or take at most 3 "
+            "so a multi-byte character at a boundary is kept whole; lines are NOT "
+            "kept whole across a boundary."
+        ),
     )
     page_range: Optional[str] = Field(
         default=None,
@@ -339,7 +348,7 @@ class ReadFileOutput(BaseModel):
     )
     next_cursor: Optional[int] = Field(
         default=None,
-        description="Byte offset to pass as the next `offset` to continue reading. Null when eof.",
+        description="First byte NOT returned by this window (offset + byte_count): pass it as the next `offset` to continue reading. Null when eof.",
     )
     total_size: Optional[int] = Field(
         default=None,
