@@ -426,7 +426,7 @@ def test_subform_table_carries_its_ancestors_columns(client):
     assert {"ORDNAME", "CURDATE", "CDES", "CUSTNAME"} <= set(cols)  # its parent's
     # both forms have STATDES: the line keeps the name, the parent's is prefixed
     assert cols["STATDES"].description == "Line Status"
-    assert cols["ORDERS_STATDES"].description == "Order Stage"
+    assert cols["ORDERS_STATDES"].description == "Order Stage (Customer Orders)"
     # a line is identified by its order plus its own key
     assert [p.name for p in items.pks] == ["ORDNAME", "KLINE"]
 
@@ -760,3 +760,82 @@ def test_subform_result_carries_the_bare_sent_request(client):
     assert sent and sent.startswith("ORDERS?") and "$expand=ORDERITEMS_SUBFORM(" in sent
     assert sent in df.attrs["bow_notice"]
     assert "bow_sent_request" not in client.execute_query("ORDERS?$top=1").attrs
+
+
+# ── titles: what users call forms and columns ─────────────────────────────
+# Priority names everything twice: a technical name (PORDERS, SUPNAME) that the
+# API and queries use, and a title ("Purchase Orders", "Supplier Number" — Hebrew
+# on an Israeli tenant) that users see. The agent must know both, and answers
+# should show titles.
+
+def test_form_title_is_recorded_and_reaches_the_agent(client):
+    from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+    from app.schemas.data_source_schema import DataSourceSummarySchema
+
+    tables = {t.name: t for t in client.get_schemas()}
+    assert tables["ORDERS"].metadata_json["priority_erp"]["title"] == "Customer Orders"
+    assert tables["PART"].metadata_json["priority_erp"]["title"] == "פריטים"
+    ctx = TablesSchemaContext(data_sources=[TablesSchemaContext.DataSource(
+        info=DataSourceSummarySchema(id="1", name="Priority", type="priority_erp"),
+        tables=list(tables.values()),
+    )])
+    out = ctx.render_combined(top_k_per_ds=len(tables), index_limit=200)
+    assert 'title="Customer Orders"' in out and 'title="פריטים"' in out
+
+
+def test_agent_is_told_to_answer_with_titles_once_per_source(client):
+    from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+    from app.schemas.data_source_schema import DataSourceSummarySchema
+    from app.ai.prompt_formatters import Table, TableColumn
+
+    other = Table(name="sales", columns=[TableColumn(name="id", dtype="int")], pks=[], fks=[])
+    ctx = TablesSchemaContext(data_sources=[
+        TablesSchemaContext.DataSource(
+            info=DataSourceSummarySchema(id="1", name="Priority", type="priority_erp"),
+            tables=client.get_schemas()),
+        TablesSchemaContext.DataSource(
+            info=DataSourceSummarySchema(id="2", name="Warehouse", type="postgresql"),
+            tables=[other]),
+    ])
+    for out in (ctx.render_combined(top_k_per_ds=10, index_limit=200), ctx.render()):
+        assert out.count("<presentation_note>") == 1
+        note_at = out.index("<presentation_note>")
+        assert out.rfind('name="Priority"', 0, note_at) > out.rfind('name="Warehouse"', 0, note_at)
+
+
+def test_column_titles_are_stored_for_query_time_headers(client):
+    tables = {t.name: t for t in client.get_schemas()}
+    assert tables["ORDERS"].metadata_json["priority_erp"]["column_titles"]["ORDNAME"] == "Order Number"
+    items = tables["ORDERITEMS"].metadata_json["priority_erp"]["column_titles"]
+    assert items["PRICE"] == "Unit Price" and items["CURDATE"] == "Order Date"
+    assert items["STATDES"] == "Line Status"
+    # a renamed (colliding) parent column says whose it is
+    assert items["ORDERS_STATDES"] == "Order Stage (Customer Orders)"
+    # the label also travels as structured column metadata (per-user schemas)
+    ordname = next(c for c in tables["ORDERS"].columns if c.name == "ORDNAME")
+    assert ordname.metadata["title"] == "Order Number"
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("ORDERS?$select=ORDNAME,CDES", {"ORDNAME": "Order Number", "CDES": "Customer Name"}),
+    ("ORDERITEMS?$select=ORDNAME,PRICE,STATDES,ORDERS_STATDES",
+     {"ORDNAME": "Order Number", "PRICE": "Unit Price", "STATDES": "Line Status",
+      "ORDERS_STATDES": "Order Stage (Customer Orders)"}),
+    ("ORDERS?$filter=ORDNAME eq 'SO25001'&$select=ORDNAME,STATDES&$expand=ORDERITEMS_SUBFORM($select=KLINE,STATDES)",
+     {"ORDNAME": "Order Number", "KLINE": "Line Number", "STATDES": "Line Status",
+      "ORDERS_STATDES": "Order Stage (Customer Orders)"}),
+])
+def test_results_carry_the_titles_of_their_columns(client, query, expected):
+    client.get_schemas()  # in production the indexed catalog is attached instead
+    df = client.execute_query(query)
+    assert df.attrs.get("bow_column_titles") == expected
+
+
+def test_attached_catalog_supplies_titles_without_a_metadata_crawl(priority_root, mock_module):
+    catalog = PriorityErpClient(service_root=priority_root, pat="DEMOTOKEN").get_schemas()
+    fresh = PriorityErpClient(service_root=priority_root, pat="DEMOTOKEN")
+    fresh.attach_table_metadata([{"name": t.name, "metadata_json": t.metadata_json} for t in catalog])
+    mock_module.REQUEST_LOG.clear()
+    df = fresh.execute_query("CUSTOMERS?$select=CUSTNAME,CUSTDES")
+    assert df.attrs["bow_column_titles"] == {"CUSTNAME": "Customer Number", "CUSTDES": "Customer Name"}
+    assert not any("metadata" in p.lower() for p in mock_module.REQUEST_LOG)

@@ -144,8 +144,37 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # agent queries it by name like any form, and these say where its rows
     # come from. `shared_by` marks a subform under several parents, which has
     # no single path and must be read via the parent the question means.
-    "priority_erp": ("subform_of", "navigation", "shared_by"),
+    "priority_erp": ("title", "subform_of", "navigation", "shared_by"),
 }
+
+
+# A one-line note for the agent that writes the user-facing answer, keyed by a
+# table-metadata namespace. The connector's query guide reaches only the code
+# writer (`client.description`); how to NAME things in the answer has to be
+# said where the planner reads the schema.
+_PRESENTATION_NOTES: dict[str, str] = {
+    "priority_erp": (
+        "Priority forms and columns have a technical name (ORDNAME, PORDERS) and a "
+        "title (a column's description; the title attribute on a form's priority_erp "
+        "entry). When writing to the user, call forms and columns by their titles, in "
+        "the user's language, never by technical name. Result tables are labelled with "
+        "the titles automatically: keep DataFrame column names technical in code."
+    ),
+}
+
+
+def _presentation_note_xml(tables) -> str:
+    """The presentation note for a data source whose tables carry a namespace
+    listed in `_PRESENTATION_NOTES`, or "" when none applies."""
+    try:
+        for ns, note in _PRESENTATION_NOTES.items():
+            for t in tables or []:
+                meta = getattr(t, "metadata_json", None)
+                if isinstance(meta, dict) and isinstance(meta.get(ns), dict):
+                    return xml_tag("presentation_note", xml_escape(note))
+    except Exception:
+        pass
+    return ""
 
 # Flat (non-namespaced) table metadata worth surfacing, keyed by connector.
 # Prometheus stores these at the top level of metadata_json.
@@ -735,6 +764,9 @@ class TablesSchemaContext(ContextSection):
                 content_parts.append(status_xml)
             if self.info.context:
                 content_parts.append(xml_tag("context", xml_escape(self.info.context)))
+            presentation = _presentation_note_xml(self.tables)
+            if presentation:
+                content_parts.append(presentation)
 
             # Check if we have multi-connection (more than one group, or the group isn't 'default')
             # File connections also count — they render as their own <connection>.
@@ -1204,6 +1236,9 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(roster_xml)
             if getattr(ds.info, 'context', None):
                 inner_parts.append(xml_tag("description", xml_escape(ds.info.context)))
+            presentation = _presentation_note_xml(getattr(ds, 'tables', None))
+            if presentation:
+                inner_parts.append(presentation)
             if sample_xml:
                 inner_parts.append(xml_tag("sample", sample_xml, {"k": str(top_k_per_ds)}))
             if index_xml:
