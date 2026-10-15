@@ -441,9 +441,12 @@ class SessionFileClient:
 
     def _inner(self):
         from app.data_sources.clients.network_dir_client import NetworkDirClient
-        # trusted_root: uploads/files lives INSIDE the app directory, which the
-        # admin-facing root policy rejects — this root is the app's own choice.
-        return NetworkDirClient(root_path=self._dir, trusted_root=True)
+        # Uploads live in the app's own uploads/files; the connection-root
+        # policy refuses that directory by design (a user must not point a
+        # network_dir connection at the app). This shim serves one report-owned
+        # upload row, not user-configured input, so it takes the internal
+        # app-owned constructor. Root confinement (`_resolve`) still applies.
+        return NetworkDirClient.for_app_owned_dir(root_path=self._dir)
 
     async def aread_file(self, _file_id: str, **kwargs) -> Any:
         import asyncio as _asyncio
@@ -502,7 +505,7 @@ class EmailAttachmentClient:
             target = os.path.join(tmp, leaf)
             with open(target, "wb") as fh:
                 fh.write(data)
-            payload = NetworkDirClient(root_path=tmp, trusted_root=True).read_file(leaf, **kwargs)
+            payload = NetworkDirClient.for_app_owned_dir(root_path=tmp).read_file(leaf, **kwargs)
         # Carry the attachment's own name on text/binary results so the tool
         # layer dispatches and labels by it (the id's leaf would also work,
         # but a DocumentText keeps the bytes for the viewer without a refetch).

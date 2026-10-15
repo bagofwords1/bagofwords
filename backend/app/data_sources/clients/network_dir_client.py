@@ -149,6 +149,32 @@ class NetworkDirClient(DataSourceClient):
     # Local FS walk is cheap → list files live, per-connection (see base).
     cheap_live_listing = True
 
+    # Root-policy exemption for app-owned directories (see
+    # ``for_app_owned_dir``). Deliberately NOT an ``__init__`` parameter:
+    # connection configs are splatted into the constructor
+    # (``Connection.get_client`` → ``ClientClass(**config)``), so any keyword
+    # here would be reachable from a user-saved network_dir connection.
+    _root_policy_exempt = False
+
+    @classmethod
+    def for_app_owned_dir(cls, root_path: str, **kwargs) -> NetworkDirClient:
+        """Internal constructor for a client over one of the app's OWN
+        directories (``uploads/files`` under the backend checkout), skipping
+        ``check_network_dir_root``.
+
+        That check exists so a user-configured network_dir connection cannot
+        point at the app's code, db or uploads. The session-file shim
+        (``SessionFileClient``) is not user input: it serves the single upload
+        row the report owns from the directory the app wrote it to — which is
+        exactly the directory the policy refuses on a default install. Root
+        confinement in ``_resolve`` still applies. Never call this with a path
+        taken from a connection config.
+        """
+        self = cls.__new__(cls)
+        self._root_policy_exempt = True
+        self.__init__(root_path=root_path, **kwargs)
+        return self
+
     def __init__(
         self,
         root_path: Optional[str] = None,
@@ -161,22 +187,12 @@ class NetworkDirClient(DataSourceClient):
         index_mode: Optional[str] = None,
         max_catalog_objects: int = 10000,
         max_keywords: int = 50,
-        trusted_root: bool = False,
         **_ignored,
     ):
         super().__init__()
         self.root_path = (root_path or "").strip()
-        # The root policy (no system / app directories) guards ADMIN-configured
-        # connections. The tool layer also instantiates this client over paths
-        # the app itself owns — a conversation upload under uploads/files, an
-        # email attachment in a scratch directory — purely to reuse the typed
-        # read pipeline. Those roots are chosen by the app, not by a form, and
-        # the upload directory is INSIDE the app directory by default, so the
-        # policy would reject every read of a chat attachment. `trusted_root`
-        # skips the policy and keeps every per-file confinement check.
-        self.trusted_root = bool(trusted_root)
-        if self.root_path and not self.trusted_root:
-            check_network_dir_root(self.root_path)
+        if self.root_path:
+            self._checked_root()
         self.allowed_extensions = self._parse_exts(allowed_extensions)
         # Include-globs scope the connection to matching files AND act as an
         # access boundary enforced in `_resolve` (a read of a real-but-off-glob
@@ -219,13 +235,17 @@ class NetworkDirClient(DataSourceClient):
             return True
         return _ext(name) in self.allowed_extensions
 
+    def _checked_root(self) -> Path:
+        """Resolve ``root_path`` through the connection-root policy, or only
+        through the filesystem for an app-owned root (``for_app_owned_dir``)."""
+        if self._root_policy_exempt:
+            return Path(self.root_path).expanduser().resolve()
+        return check_network_dir_root(self.root_path)
+
     def _root(self) -> Path:
         if not self.root_path:
             raise ValueError("root_path is required for a network directory connection")
-        root = (
-            Path(self.root_path).expanduser().resolve() if self.trusted_root
-            else check_network_dir_root(self.root_path)
-        )
+        root = self._checked_root()
         if not root.exists():
             raise ValueError(f"Directory does not exist: {self.root_path}")
         if not root.is_dir():
