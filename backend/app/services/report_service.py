@@ -73,6 +73,16 @@ class ReportService:
         from app.models.membership import Membership
         from app.models.report_share import ReportShare
 
+        # Org admins (full_admin_access) may view any report artifact in their
+        # own org, matching the in-app GET /reports/{id} admin view bypass.
+        # Artifact surface only — a private conversation stays owner/share-gated.
+        if (
+            user is not None
+            and visibility_field == 'artifact_visibility'
+            and await self._is_report_org_admin(db, user, report)
+        ):
+            return
+
         # Project membership grants read access to both surfaces (a project is
         # a sharing boundary): anyone who can view the containing project can
         # view its reports, regardless of per-report visibility settings.
@@ -133,6 +143,20 @@ class ReportService:
             if not result.scalar_one_or_none():
                 raise HTTPException(status_code=403, detail="Access denied")
             return
+
+    @staticmethod
+    async def _is_report_org_admin(db: AsyncSession, user, report: Report) -> bool:
+        """True if the user holds full_admin_access in the report's own org."""
+        from app.core.permission_resolver import (
+            resolve_permissions,
+            principal_belongs_to_org,
+            FULL_ADMIN,
+        )
+        org_id = str(report.organization_id)
+        if not await principal_belongs_to_org(db, user, org_id):
+            return False
+        resolved = await resolve_permissions(db, str(user.id), org_id)
+        return FULL_ADMIN in resolved.org_permissions
 
     @staticmethod
     def _user_group_ids_subquery(user_id, organization_id):
