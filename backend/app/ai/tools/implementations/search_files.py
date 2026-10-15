@@ -8,9 +8,10 @@ Two paths:
      directory and grep full file contents — exhaustive but slower. Used when
      the catalog isn't indexed yet, or when the caller forces `deep`.
 
-For providers that don't populate keywords (SharePoint / OneDrive / Drive) the
-index path finds nothing and it falls through to the live provider search — so
-their behavior is unchanged.
+For providers that don't populate keywords (Graph SharePoint / OneDrive / Drive)
+the index path finds nothing and it falls through to the live provider search —
+so their behavior is unchanged. SharePoint Server with content indexing uses the
+keyword catalog only when the connection runs as a service account.
 """
 from __future__ import annotations
 
@@ -77,6 +78,21 @@ def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:
             web_url=sub.get("web_url"),
         ).model_dump())
     return out
+
+
+async def _last_indexed_at(db, connection_id) -> str | None:
+    """When the connection's shared catalog last finished indexing (UTC ISO), or None."""
+    from sqlalchemy import select
+
+    from app.models.connection_indexing import ConnectionIndexing, ConnectionIndexingStatus
+    last = (await db.execute(
+        select(ConnectionIndexing.finished_at).where(
+            ConnectionIndexing.connection_id == str(connection_id),
+            ConnectionIndexing.user_id.is_(None),
+            ConnectionIndexing.status == ConnectionIndexingStatus.COMPLETED.value,
+        ).order_by(ConnectionIndexing.finished_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    return last.replace(microsecond=0).isoformat() + "Z" if last is not None else None
 
 
 class SearchFilesTool(Tool):
@@ -146,6 +162,7 @@ class SearchFilesTool(Tool):
         org = runtime_ctx.get("organization")
         if db is not None and org is not None:
             from sqlalchemy import select
+
             from app.models.connection import Connection
             c = (await db.execute(
                 select(Connection).where(
@@ -180,29 +197,37 @@ class SearchFilesTool(Tool):
         #    connection's files into another's search results.
         entries: List[Dict[str, Any]] = []
         used_index = False
+        indexed_at = None
         if not data.deep:
             conn_id = await self._resolve_connection_id(runtime_ctx, data.connection_id)
             if conn_id is not None:
                 try:
                     from sqlalchemy import select
-                    from app.models.connection_table import ConnectionTable
+
                     from app.models.connection import Connection
-                    connection_type = await runtime_ctx["db"].scalar(
-                        select(Connection.type).where(Connection.id == str(conn_id))
-                    )
+                    from app.models.connection_table import ConnectionTable
+                    policy = (await runtime_ctx["db"].execute(
+                        select(Connection.type, Connection.auth_policy).where(Connection.id == str(conn_id))
+                    )).first()
+                    connection_type, auth_policy = (policy[0], policy[1]) if policy else (None, None)
                     tables = (await runtime_ctx["db"].execute(
                         select(ConnectionTable).where(ConnectionTable.connection_id == str(conn_id))
                     )).scalars().all()
-                    if connection_type in ("sharepoint_onprem", "documentum"):
-                        # Always check the caller's identity live (Windows /
-                        # Documentum ACLs). Do not fall back to a shared
-                        # inventory on auth failure.
+                    if connection_type in ("sharepoint_onprem", "documentum") and auth_policy != "system_only":
+                        # Per-user identities (Windows / Documentum ACLs) are
+                        # checked live; the shared catalog was crawled as one
+                        # identity and must not stand in for the caller's. A
+                        # service-account (system_only) connection runs every
+                        # call as that same account, so its keyword catalog is
+                        # exactly what a live crawl would see.
                         tables = []
                     entries = _index_search(tables, data.query, data.max_results)
                     used_index = any(
                         (getattr(t, "metadata_json", None) or {}).get(k, {}).get("keywords") is not None
                         for t in (tables or []) for k in _FILE_METADATA_KEYS
                     )
+                    if used_index:
+                        indexed_at = await _last_indexed_at(runtime_ctx["db"], conn_id)
                 except Exception:
                     used_index = False
 
@@ -240,7 +265,7 @@ class SearchFilesTool(Tool):
             ).model_dump() for f in files]
             used_index = False
 
-        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
+        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at)
 
     #: Max hit rows rendered into the model-facing observation (the planner
     #: never sees the output — names/ids must live here or the model re-searches).
@@ -254,8 +279,10 @@ class SearchFilesTool(Tool):
             bits.append(str(e["path"]))
         return " — ".join(bits) + f" [id={e.get('id')}]"
 
-    def _done(self, data, entries, used_index, runtime_ctx=None) -> ToolEndEvent:
+    def _done(self, data, entries, used_index, runtime_ctx=None, indexed_at=None) -> ToolEndEvent:
         how = "keyword index" if used_index else "live scan"
+        if used_index and indexed_at:
+            how += f", indexed {indexed_at}"
         # Repeat-enumeration guard — see list_files._end.
         enum_hint = ""
         if runtime_ctx is not None:

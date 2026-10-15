@@ -5,7 +5,7 @@ from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree as ET
 import pytest
 import requests
-from app.data_sources.clients.sharepoint_onprem_client import SharepointOnpremClient
+from app.data_sources.clients.sharepoint_onprem_client import SharepointOnpremClient, SharePointHTTPError
 from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
 SOAP = 'http://schemas.xmlsoap.org/soap/envelope/'
 SP = 'http://schemas.microsoft.com/sharepoint/soap/'
@@ -99,7 +99,7 @@ class LegacyServer:
             if offset + len(page) < len(children):
                 rows.set('ListItemCollectionPositionNext', f'Paged=TRUE&p_ID={offset + len(page)}')
             for path in page:
-                ET.SubElement(rows, '{#RowsetSchema}row', ows_ID='7', ows_FileRef='7;#' + path.lstrip('/'), ows_FileLeafRef='7;#' + path.rsplit('/', 1)[1], ows_FSObjType='7;#' + str(int(path in directories)), ows_File_x0020_Size='7;#' + str(len(self.blobs.get(path, b''))), ows_Modified='2026-01-02T03:04:05Z')
+                ET.SubElement(rows, '{#RowsetSchema}row', ows_ID='7', ows_FileRef='7;#' + path.lstrip('/'), ows_FileLeafRef='7;#' + path.rsplit('/', 1)[1], ows_FSObjType='7;#' + str(int(path in directories)), ows_File_x0020_Size='7;#' + str(len(self.blobs.get(path, b''))), ows_Modified='2026-01-02T03:04:05Z', ows_Created='2025-12-31T23:00:00Z')
         elif op == 'GetItem':
             path = unquote(urlsplit(command.findtext(f'{{{SP}}}Url')).path)
             ET.SubElement(out, f'{{{SP}}}GetItemResult').text = '0'
@@ -498,3 +498,80 @@ def test_library_metadata_is_reused_but_file_access_stays_live(legacy):
     legacy.status = None
     client(drive_name='Documents').list_files(limit=1)
     assert legacy.calls.count('GetList') == 2
+
+
+def _keywords(tables):
+    return {t.name: t.metadata_json['sharepoint_onprem'] for t in tables}
+
+
+def test_content_indexing_extracts_keywords_and_timestamps(legacy):
+    c = client(drive_name='Documents', recursive=True, index_mode='content')
+    rows = _keywords(c.get_schemas())
+    assert set(rows) == {f['path'] for f in c.list_files()}
+    for meta in rows.values():
+        assert meta['indexed'] is True and meta['created_at'] and meta['modified_at']
+    # Body tokens (not only filename tokens) are searchable, in any script.
+    assert {'region', 'north', 'south'} <= set(rows['revenue.csv']['keywords'])
+    assert 'שלום' in rows['nested/דוח.txt']['keywords']
+    assert 'known' in rows["O'Brien & costs.txt"]['keywords']
+    # Empty bodies are still findable by name.
+    assert 'empty' in rows['empty.txt']['keywords'] and rows['empty.txt']['content_hash'] is None
+
+
+def test_metadata_indexing_never_downloads_documents(legacy):
+    rows = _keywords(client(drive_name='Documents', recursive=True, index_mode='metadata').get_schemas())
+    assert rows and all('keywords' not in meta for meta in rows.values())
+    assert all(meta['created_at'] for meta in rows.values())
+    assert 'GetItem' not in legacy.calls
+
+
+def test_incremental_reindex_downloads_only_changed_documents(legacy):
+    c = client(drive_name='Documents', recursive=True, index_mode='content')
+    first = c.get_schemas()
+    downloads = legacy.calls.count('GetItem')
+    assert downloads > 0
+
+    prior = {t.name: t.metadata_json for t in first}
+    second = _keywords(c.get_schemas(prior_catalog=prior))
+    assert legacy.calls.count('GetItem') == downloads
+    assert second == _keywords(first)
+
+    # A changed document (different size) is re-read; the rest are reused.
+    legacy.blobs[ROOT + '/revenue.csv'] = b'region,amount\nEast,500\n'
+    third = _keywords(c.get_schemas(prior_catalog=prior))
+    assert legacy.calls.count('GetItem') == downloads + 1
+    assert 'east' in third['revenue.csv']['keywords'] and 'north' not in third['revenue.csv']['keywords']
+    assert third['empty.txt'] == second['empty.txt']
+
+
+def test_content_index_mode_is_reported_to_the_agent(legacy):
+    assert 'keywords' in client(drive_name='Documents', index_mode='content').description
+    assert 'does not search document contents' in client(drive_name='Documents').description
+
+
+def test_failed_document_download_is_retried_on_the_next_run(legacy):
+    c = client(drive_name='Documents', recursive=True, index_mode='content')
+    failing = ROOT + '/revenue.csv'
+
+    def throttle(op, command):
+        if op == 'GetItem' and unquote(urlsplit(command.findtext(f'{{{SP}}}Url')).path) == failing:
+            return b'<html>Service Unavailable</html>', 503
+    legacy.override = throttle
+    first = c.get_schemas()
+    rows = _keywords(first)
+    assert rows['revenue.csv']['indexed'] is False
+    assert 'north' not in rows['revenue.csv']['keywords'] and 'revenue' in rows['revenue.csv']['keywords']
+    assert all(meta['indexed'] for name, meta in rows.items() if name != 'revenue.csv')
+
+    legacy.override = None
+    downloads = legacy.calls.count('GetItem')
+    second = _keywords(c.get_schemas(prior_catalog={t.name: t.metadata_json for t in first}))
+    assert legacy.calls.count('GetItem') == downloads + 1
+    assert second['revenue.csv']['indexed'] is True and 'north' in second['revenue.csv']['keywords']
+
+
+def test_rejected_login_during_content_indexing_fails_the_run(legacy):
+    c = client(drive_name='Documents', recursive=True, index_mode='content')
+    legacy.override = lambda op, command: (b'', 401) if op == 'GetItem' else None
+    with pytest.raises(SharePointHTTPError):
+        c.get_schemas()

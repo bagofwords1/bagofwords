@@ -4,8 +4,9 @@ No Graph/Entra dependency. Paths are decoded server-relative ResourcePaths;
 credentials never follow redirects. Scope is enforced again on every read.
 """
 from __future__ import annotations
-from app.data_sources.clients.progress import discovery_progress, discovery_items
+from app.data_sources.clients.progress import IndexingCancelled, discovery_progress, discovery_items
 
+import hashlib
 import io
 import json
 import mimetypes
@@ -20,11 +21,13 @@ from app.ai.prompt_formatters import Table
 from app.data_sources.clients.base import Capability, DataSourceClient
 from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 from app.data_sources.clients._document_text import (
-    DOC_EXTS, doc_text_is_usable, extract_document_text_from_bytes,
+    DOC_EXTS, doc_text_is_usable, doc_text_looks_garbled, extract_document_text_from_bytes,
 )
 from app.data_sources.clients._file_source_common import (
+    INDEX_CONTENT, INDEX_MODES, INDEX_NONE,
     DocumentText, FileTooLargeError, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
 )
+from app.data_sources.clients._keywords import extract_keywords
 from app.data_sources.clients.graph_drive_client import (
     TEXT_EXTS, _ext, _extract_pdf_pages_from_bytes, _trim_to_data,
 )
@@ -76,7 +79,7 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
                  allowed_extensions: str | None = None, recursive: bool = False,
                  index_mode: str = "metadata", max_catalog_objects: int = 5000,
                  allow_http: bool = False, max_file_size_mb: int = 50,
-                 api_mode: str = "modern",
+                 api_mode: str = "modern", max_keywords: int = 50,
                  **kwargs):
         if api_mode not in ("modern", "2010"):
             raise ValueError("API mode must be modern or 2010.")
@@ -99,9 +102,10 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
         self.include_globs = globs_from_str(include_globs)
         self.allowed_extensions = {e.strip().lower().lstrip(".") for e in (allowed_extensions or "").split(",") if e.strip()}
         self.recursive = recursive
-        if index_mode not in ("none", "metadata"):
-            raise ValueError("Indexing must be none or metadata.")
+        if index_mode not in INDEX_MODES:
+            raise ValueError("Indexing must be none, metadata, or content.")
         self.index_mode = index_mode
+        self.max_keywords = int(max_keywords) if max_keywords else 50
         if not 1 <= int(max_catalog_objects) <= 50000 or not 1 <= int(max_file_size_mb) <= 250:
             raise ValueError("Max files must be 1–50000; max file size must be 1–250 MB.")
         self.max_catalog_objects = int(max_catalog_objects)
@@ -209,6 +213,7 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
         path = meta["ServerRelativeUrl"]
         return {"id": path, "name": meta["Name"], "path": self._scope(path, libraries),
                 "size": int(meta.get("Length") or 0), "modified_at": meta.get("TimeLastModified"),
+                "created_at": meta.get("TimeCreated"),
                 "mime_type": mimetypes.guess_type(meta["Name"])[0], "is_folder": False,
                 "web_url": self._origin_url + quote(path, safe="/")}
 
@@ -252,15 +257,91 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
     def test_connection(self):
         return self._adapter.test_connection()
 
+    # Extensions whose text is extracted for the keyword index. Everything else
+    # is indexed by filename/path only (never downloaded during indexing).
+    _INDEXABLE_EXTS = DOC_EXTS | {"csv", "tsv", "xls", "xlsx"} | TEXT_EXTS
+
+    def _file_text(self, entry, max_chars=200_000):
+        """Plain text of one catalog file for keyword extraction.
+
+        Returns "" when the file is not indexable (binary, oversized, or its
+        content cannot be parsed) — such a row is indexed by name only and not
+        downloaded again until it changes. Returns None when the download
+        itself failed (throttling, a transient server error, a per-item denial)
+        so the row is recorded as not indexed and retried on the next run.
+        A rejected login (401) propagates: nothing from that crawl is trusted.
+        """
+        ext = _ext(entry["name"])
+        if ext not in self._INDEXABLE_EXTS or int(entry.get("size") or 0) > self._max_bytes:
+            return ""
+        try:
+            content, name, _ = self.read_raw_bytes(entry["id"])
+        except FileTooLargeError:
+            return ""
+        except IndexingCancelled:
+            raise
+        except SharePointHTTPError as exc:
+            if exc.status == 401:
+                raise
+            return None
+        except ValueError:
+            # Transport failure or an unreadable SOAP/REST payload for one item.
+            return None
+        try:
+            if ext in DOC_EXTS:
+                text = extract_document_text_from_bytes(content, name, max_chars=max_chars)
+                return "" if doc_text_looks_garbled(text) else text
+            if ext in ("xls", "xlsx"):
+                frames = pd.read_excel(io.BytesIO(content), sheet_name=None, header=None)
+                return "\n".join(f"{sheet}\n{df.to_csv(index=False, header=False)}"
+                                 for sheet, df in frames.items())[:max_chars]
+            return content.decode("utf-8-sig", errors="ignore")[:max_chars]
+        except Exception:
+            return ""
+
     @discovery_progress
-    def get_schemas(self, progress_callback=None):
-        if self.index_mode == "none":
+    def get_schemas(self, progress_callback=None, prior_catalog=None):
+        """Catalog rows per index tier: `none` → nothing; `metadata` → one row
+        per file (name/size/timestamps); `content` → also keywords extracted
+        from each document so search_files can match by topic without a live
+        crawl. `prior_catalog` ({table_name: metadata_json} from the previous
+        run) makes content indexing incremental: a file whose size and
+        modified time are unchanged reuses its stored keywords instead of being
+        downloaded again, so a scheduled reindex of a stable library is a
+        listing-only pass."""
+        if self.index_mode == INDEX_NONE:
             return []
-        return [Table(name=f["path"], description=f"SharePoint Server file ({_ext(f['name'])})",
-                      columns=[], pks=[], fks=[], metadata_json={"sharepoint_onprem": {
-                          "file_id": f["id"], "mime_type": f["mime_type"], "size": f["size"],
-                          "modified_at": f["modified_at"], "web_url": f["web_url"],
-                      }}) for f in discovery_items(self.list_files(progress_callback=progress_callback), "files", label=lambda f: f["path"])]
+        files = discovery_items(self.list_files(progress_callback=progress_callback), "files",
+                                label=lambda f: f["path"])
+        if self.index_mode == INDEX_CONTENT:
+            files = discovery_items(list(files), "indexing files", label=lambda f: f["path"])
+        tables = []
+        for f in files:
+            meta = {"file_id": f["id"], "mime_type": f["mime_type"], "size": f["size"],
+                    "modified_at": f["modified_at"], "created_at": f.get("created_at"),
+                    "web_url": f["web_url"]}
+            description = f"SharePoint Server file ({_ext(f['name'])})"
+            if self.index_mode == INDEX_CONTENT:
+                prior = (prior_catalog or {}).get(f["path"]) or {}
+                prior = prior.get("sharepoint_onprem") if isinstance(prior, dict) else None
+                prior = prior if isinstance(prior, dict) else {}
+                if (prior.get("indexed") and prior.get("size") == f["size"]
+                        and prior.get("modified_at") == f["modified_at"]):
+                    meta["keywords"] = prior.get("keywords") or []
+                    meta["content_hash"] = prior.get("content_hash")
+                    meta["indexed"] = True
+                else:
+                    text = self._file_text(f)
+                    # Index the relative path too: a case folder (`6044534/…`)
+                    # is how people find these files.
+                    meta["keywords"] = extract_keywords(text or "", f["path"], self.max_keywords)
+                    meta["content_hash"] = hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
+                    meta["indexed"] = text is not None
+                if meta["keywords"]:
+                    description += ". Keywords: " + ", ".join(meta["keywords"][:15]) + "."
+            tables.append(Table(name=f["path"], description=description, columns=[], pks=[], fks=[],
+                                metadata_json={"sharepoint_onprem": meta}))
+        return tables
 
     def get_schema(self, table_name):
         return next((t for t in self.get_schemas() if t.name == table_name), None)
