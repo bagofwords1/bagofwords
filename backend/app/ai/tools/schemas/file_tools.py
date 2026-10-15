@@ -219,12 +219,15 @@ class ReadFileInput(BaseModel):
             "connection and on conversation attachments. When set, the file is "
             "NOT attached; you get one window of its content plus "
             "`next_cursor`/`eof`. Pass `next_cursor` from the previous read as "
-            "the next `offset` until `eof` is true. The result's `unit` says "
-            "what the offsets count: 'bytes' (raw byte windows on Files & "
-            "Directories / S3 text files) or 'chars' (characters of the "
-            "extracted text — documents, SharePoint, Drive, mail and every "
-            "other source). Use 0 to start. Leave unset for a normal whole-file "
-            "read. For one specific PDF page, prefer page_range."
+            "the next `offset` until `eof` is true — or fire windows at a fixed "
+            "stride (0, length, 2*length, …) in parallel; they are contiguous. "
+            "The result's `unit` says what the offsets count: 'bytes' (raw byte "
+            "windows on Files & Directories / S3 text files, adjusted by at most "
+            "3 bytes at an edge so a multi-byte character is never split) or "
+            "'chars' (characters of the extracted text — documents, SharePoint, "
+            "Drive, mail and every other source). Use 0 to start. Leave unset "
+            "for a normal whole-file read. For one specific PDF page, prefer "
+            "page_range."
         ),
     )
     length: Optional[int] = Field(
@@ -234,7 +237,8 @@ class ReadFileInput(BaseModel):
         description=(
             "For windowed reads: how much to return from `offset`, in the "
             "result's `unit` (bytes or characters). Use 8000 or less so each "
-            "window reaches you in full; defaults to ~1 MiB."
+            "window reaches you in full; defaults to ~1 MiB. Lines are NOT kept "
+            "whole across a window boundary."
         ),
     )
     page_range: Optional[str] = Field(
@@ -365,7 +369,7 @@ class ReadFileOutput(BaseModel):
     )
     next_cursor: Optional[int] = Field(
         default=None,
-        description="Position (in `unit`) to pass as the next `offset` to continue reading. Null when eof.",
+        description="Position (in `unit`) of the first byte/character NOT returned by this window: pass it as the next `offset` to continue reading. Null when eof.",
     )
     total_size: Optional[int] = Field(
         default=None,

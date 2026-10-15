@@ -428,7 +428,7 @@ class SessionFileClient:
 
     Delegates parsing/windowed/page_range reads to NetworkDirClient rooted at
     the file's directory, so session files get the exact same read semantics
-    (newline-snapped windows, PDF page extraction, tabular parsing) as
+    (exact byte windows, PDF page extraction, tabular parsing) as
     connector files — one pipeline, two resolution sources. The stored disk
     name keeps the original extension (uuid_name.ext), so type dispatch works.
     """

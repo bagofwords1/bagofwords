@@ -48,7 +48,9 @@ from app.data_sources.clients._file_source_common import (
     GlobScopeError,
     NamedBytes,
     ScopeEscapeError,
+    UTF8_SLACK,
     byte_limit,
+    byte_window,
     globs_from_str,
     legacy_fs_candidates,
     normalize_index_mode,
@@ -514,8 +516,9 @@ class NetworkDirClient(DataSourceClient):
 
         # Windowed (ranged) read — same contract as S3's _read_window: a raw
         # byte window plus a cursor (next_cursor/total_size/eof) to page through
-        # arbitrarily large files. No parsing, no attachment. Text windows snap
-        # to the last complete newline so paging never splits a line.
+        # arbitrarily large files. No parsing, no attachment. The requested
+        # range, adjusted by at most 3 bytes at an edge so a multi-byte
+        # character is never split (see byte_window).
         if offset is not None:
             return self._read_window(path, int(offset), length)
 
@@ -578,54 +581,19 @@ class NetworkDirClient(DataSourceClient):
     def _read_window(self, path: Path, offset: int, length: Optional[int]) -> Dict[str, Any]:
         """Ranged byte read of a local file → a window plus a cursor to page
         forward. Mirrors S3Client._read_window so the agent sees ONE contract
-        across file sources: text windows snap back to the last complete newline
-        (unless at EOF or the window has no newline); binary windows are base64.
+        across file sources (byte_window): the requested byte range, widened by
+        at most 3 bytes at the end / narrowed by at most 3 at the start so a
+        multi-byte character is never split, with `next_cursor` at the first
+        byte not returned; binary windows are base64.
         """
-        import base64 as _b64
-
         if offset < 0:
             raise ValueError("offset must be >= 0")
         window = int(length) if length else DEFAULT_WINDOW_BYTES
         total = path.stat().st_size
         with open(path, "rb") as fh:
             fh.seek(offset)
-            data = fh.read(window)
-
-        raw_end = offset + len(data)
-        eof = raw_end >= total
-
-        try:
-            text = data.decode("utf-8")
-            is_text = True
-        except UnicodeDecodeError:
-            is_text = False
-
-        if is_text:
-            content = text
-            next_cursor = raw_end
-            if not eof:
-                nl = text.rfind("\n")
-                if nl != -1 and nl + 1 < len(text):
-                    content = text[: nl + 1]
-                    next_cursor = offset + len(content.encode("utf-8"))
-            return {
-                "content": content,
-                "encoding": "text",
-                "offset": offset,
-                "length": len(content.encode("utf-8")),
-                "next_cursor": None if eof else next_cursor,
-                "total_size": total,
-                "eof": eof,
-            }
-        return {
-            "content": _b64.b64encode(data).decode("ascii"),
-            "encoding": "base64",
-            "offset": offset,
-            "length": len(data),
-            "next_cursor": None if eof else raw_end,
-            "total_size": total,
-            "eof": eof,
-        }
+            data = fh.read(window + UTF8_SLACK)
+        return byte_window(data, offset, total, window)
 
     def _file_text(self, path: Path, max_chars: int = 200_000) -> str:
         """Extract plain text from a greppable file (doc/csv/tsv/text) for
