@@ -428,7 +428,7 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
-from app.services.sub_agent_locks import lock_report
+from app.services.sub_agent_locks import lock_report, lock_wave
 
 from sqlalchemy import select, func, update as sa_update, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7811,15 +7811,16 @@ class AgentV2:
                 logger.debug("[agent] sub_agents context block failed", exc_info=True)
 
     async def _await_sub_agent_answer(self) -> None:
-        """Suspend between planning steps without holding a DB connection/slot.
-        The existing wave deadline and stop controls remain authoritative."""
-        from sqlalchemy import select, update, func
-        from app.models.sub_agent import SubAgentRun, SubAgentWave, TERMINAL_RUN_STATUSES
-        from app.services.sub_agent_service import sub_agent_limits, effective_concurrency
+        """Suspend without holding a session or slot; bounded cross-worker polling.
+        Stop events interrupt the backoff immediately."""
+        from sqlalchemy import update
+        from app.models.sub_agent import SubAgentRun, TERMINAL_RUN_STATUSES
+        from app.services.sub_agent_service import has_free_child_slot
         from app.services.sub_agent_message_service import sub_agent_message_service
+        from app.dependencies import async_session_maker
         if not self._sub_agent_id:
             return
-        from app.dependencies import async_session_maker
+        delay = 0.5
         while not self.sigkill_event.is_set():
             async with (self._session_maker or async_session_maker)() as db:
                 row = await db.get(SubAgentRun, str(self._sub_agent_id))
@@ -7828,23 +7829,19 @@ class AgentV2:
                     return
                 question = await sub_agent_message_service.waiting_question(db, str(row.id))
                 if question:
-                    await db.execute(update(SubAgentRun).where(
-                        SubAgentRun.id == row.id, SubAgentRun.status == 'running',
-                    ).values(status='waiting'))
-                    await db.commit()
+                    if row.status == 'running':
+                        await db.execute(update(SubAgentRun).where(
+                            SubAgentRun.id == row.id, SubAgentRun.status == 'running',
+                        ).values(status='waiting'))
+                        await db.commit()
                 elif row.status != 'waiting':
                     return
-                else:
-                    # Same report-scoped lock as the launcher, including across waves.
+                elif await has_free_child_slot(db, row.report_id, settings=self.organization_settings):
+                    # Avoid a write lock while the slot is known to be occupied.
+                    # Recheck under the same report/wave locks used by launch.
                     await lock_report(db, row.report_id)
-                    await db.execute(update(SubAgentWave).where(SubAgentWave.id == row.wave_id)
-                                     .values(total=SubAgentWave.total, updated_at=SubAgentWave.updated_at))
-                    running = (await db.execute(select(func.count()).select_from(SubAgentRun).where(
-                        SubAgentRun.report_id == row.report_id, SubAgentRun.status == 'running',
-                    ))).scalar_one()
-                    limit = effective_concurrency(sub_agent_limits(self.organization_settings)['concurrency'],
-                                                  db.get_bind().dialect.name)
-                    if running < limit:
+                    await lock_wave(db, row.wave_id)
+                    if await has_free_child_slot(db, row.report_id, settings=self.organization_settings):
                         resumed = await db.execute(update(SubAgentRun).where(
                             SubAgentRun.id == row.id, SubAgentRun.status == 'waiting',
                         ).values(status='running'))
@@ -7852,9 +7849,9 @@ class AgentV2:
                         if resumed.rowcount == 1:
                             return
             try:
-                await asyncio.wait_for(self.sigkill_event.wait(), timeout=0.5)
+                await asyncio.wait_for(self.sigkill_event.wait(), timeout=delay)
             except asyncio.TimeoutError:
-                pass
+                delay = min(delay * 2, 5.0)
 
     async def _launch_pending_sub_agents(self) -> None:
         """After a batch holding delegate calls: close the wave and start its children."""

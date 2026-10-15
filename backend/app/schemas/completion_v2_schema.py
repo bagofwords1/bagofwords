@@ -254,6 +254,7 @@ class CompletionV2Schema(BaseModel):
 
 class CompletionsV2Response(BaseModel):
     report_id: str
+    busy_completion_id: Optional[str] = None
     completions: List[CompletionV2Schema]
     total_completions: int
     total_blocks: int

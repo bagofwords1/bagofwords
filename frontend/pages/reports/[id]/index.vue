@@ -5581,9 +5581,19 @@ async function startStreaming(requestBody: any, sysId: string) {
 			}
 			stopKickoffWatchdog()
 			isStreaming.value = false
-			isCompletionInProgress.value = false
 			currentController = null
-			await loadCompletions()
+			const busyId = queued?.busy_completion_id
+			if (busyId && !messages.value.some(m => m.id === busyId || m.system_completion_id === busyId)) {
+				messages.value.push({ id: busyId, role: 'system', status: 'in_progress', system_completion_id: busyId })
+			}
+			if (created?.id && !messages.value.some(m => m.id === created.id)) {
+				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })
+			}
+			// The receipt identifies the server turn even when history refresh is
+			// slow or unavailable. Transfer busy-state ownership to its watcher.
+			isCompletionInProgress.value = Boolean(busyId)
+			if (busyId) startWatchStream(String(busyId))
+			try { await loadCompletions() } catch (error) { console.error('Failed to refresh queued prompt:', error) }
 			return
 		}
 

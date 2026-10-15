@@ -76,6 +76,15 @@ _AGENT_RUN_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BOW_MAX_CONCURRENT_AGENT
 # proxies from reaping idle connections and lets clients detect dead ones.
 _SSE_HEARTBEAT_SECONDS = float(os.getenv("BOW_SSE_HEARTBEAT_SECONDS", "15"))
 
+# A stale in-progress completion should not make `queue_if_busy` callers wait
+# forever after a worker exits. Refresh updated_at while an execution is alive
+# and treat several missed heartbeats as an abandoned lease. The generous lease
+# tolerates long LLM/tool awaits; the process-local registry protects runs owned
+# by this worker even if the database heartbeat temporarily fails.
+_COMPLETION_HEARTBEAT_SECONDS = float(os.getenv("BOW_COMPLETION_HEARTBEAT_SECONDS", "30"))
+_COMPLETION_STALE_AFTER_SECONDS = float(os.getenv("BOW_COMPLETION_STALE_AFTER_SECONDS", "300"))
+_ACTIVE_COMPLETION_RUNS: set[str] = set()
+
 # DB re-read cadence for the watch endpoint's fallback tail (when the live
 # in-process queue is not available, e.g. another uvicorn worker owns the run).
 _WATCH_TAIL_INTERVAL_SECONDS = float(os.getenv("BOW_WATCH_TAIL_INTERVAL_SECONDS", "0.7"))
@@ -267,6 +276,58 @@ class CompletionService:
         self.mention_service = MentionService()
         self.llm_service = LLMService()
         self.data_source_service = DataSourceService()
+
+    async def _heartbeat_completion(self, completion_id: str) -> None:
+        """Persist a renewable execution lease without sharing the agent session."""
+        session_factory = create_async_session_factory()
+        while True:
+            await asyncio.sleep(_COMPLETION_HEARTBEAT_SECONDS)
+            try:
+                async with session_factory() as db:
+                    touched = await db.execute(
+                        update(Completion)
+                        .where(Completion.id == completion_id, Completion.status == "in_progress")
+                        .values(updated_at=datetime.utcnow())
+                    )
+                    await db.commit()
+                    if touched.rowcount != 1:
+                        return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logging.warning("Completion heartbeat failed for %s", completion_id, exc_info=True)
+
+    def _start_completion_lease(self, completion_id: str) -> asyncio.Task:
+        """Keep a row's lease fresh, including while waiting for an agent slot."""
+        completion_id = str(completion_id)
+        _ACTIVE_COMPLETION_RUNS.add(completion_id)
+        heartbeat = asyncio.create_task(self._heartbeat_completion(completion_id))
+        owner_task = asyncio.current_task()
+        if owner_task is not None:
+            owner_task.add_done_callback(
+                lambda _done: self._cancel_completion_lease(completion_id, heartbeat)
+            )
+        return heartbeat
+
+    @staticmethod
+    def _cancel_completion_lease(completion_id: str, heartbeat: asyncio.Task) -> None:
+        _ACTIVE_COMPLETION_RUNS.discard(str(completion_id))
+        heartbeat.cancel()
+
+    async def _stop_completion_lease(self, completion_id: str, heartbeat: asyncio.Task) -> None:
+        self._cancel_completion_lease(completion_id, heartbeat)
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
+
+    async def _run_agent_with_heartbeat(self, completion_id: str, agent: AgentV2) -> None:
+        """Keep a row's lease fresh across arbitrarily long planner/tool calls."""
+        heartbeat = self._start_completion_lease(completion_id)
+        try:
+            await agent.main_execution()
+        finally:
+            await self._stop_completion_lease(completion_id, heartbeat)
 
     async def _serialize_completion(self, db: AsyncSession, completion: Completion, current_user: User = None, organization: Organization = None) -> CompletionSchema:
         """Serialize a completion model to a schema following get_completions format"""
@@ -697,9 +758,13 @@ class CompletionService:
             # inserting its system row must be atomic. Children run separately.
             if trigger_source != 'sub_agent':
                 await lock_report(db, report_id)
-                if ((completion_data.queue or completion_data.queue_if_busy) and trigger_source is None and external_platform is None
-                        and await self._get_running_system_completion(db, report_id)):
-                    return await self.create_queued_completion(db, report_id, completion_data, current_user, organization)
+                if (completion_data.queue or completion_data.queue_if_busy) and trigger_source is None and external_platform is None:
+                    running = await self._get_running_system_completion(db, report_id)
+                    if running is not None:
+                        return await self.create_queued_completion(
+                            db, report_id, completion_data, current_user, organization,
+                            busy_completion_id=str(running.id),
+                        )
 
             # Create user completion (head)
             prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
@@ -870,6 +935,9 @@ class CompletionService:
                                 build_id=resolved_build_id,
                                 routing_meta=routing_meta,
                             )
+                            # The outer background task owns the completion
+                            # lease for the full lifecycle, including session
+                            # setup and semaphore waits.
                             await agent.main_execution()
                         except Exception as e:
                             logging.exception("Agent background execution failed")
@@ -889,9 +957,11 @@ class CompletionService:
                                 logging.exception("Failed to mark background completion as errored")
 
                 async def run_agent_task_then_drain_queue():
+                    heartbeat = self._start_completion_lease(_system_completion_id)
                     try:
                         await run_agent_task()
                     finally:
+                        await self._stop_completion_lease(_system_completion_id, heartbeat)
                         await self.start_next_queued_if_idle(str(_report_id), str(_system_completion_id))
 
                 asyncio.create_task(run_agent_task_then_drain_queue())
@@ -943,7 +1013,7 @@ class CompletionService:
                     )
                     span.add_event("agent_execution_started")
                     with tracer.start_as_current_span("completion.agent_execution"):
-                        await agent.main_execution()
+                        await self._run_agent_with_heartbeat(str(system_completion.id), agent)
                     span.add_event("agent_execution_finished")
 
                     # Drain the prompt queue (no-op unless this run succeeded).
@@ -2280,11 +2350,15 @@ class CompletionService:
             span.set_attribute("llm.model_id", model.model_id)
 
             await lock_report(db, report_id)
-            if ((completion_data.queue or completion_data.queue_if_busy) and external_platform is None
-                    and await self._get_running_system_completion(db, report_id)):
-                # JSON fallback: the browser reconciles the durable queued row
-                # when an automatic parent wake won the race to start.
-                return await self.create_queued_completion(db, report_id, completion_data, current_user, organization)
+            if (completion_data.queue or completion_data.queue_if_busy) and external_platform is None:
+                running = await self._get_running_system_completion(db, report_id)
+                if running is not None:
+                    # JSON fallback: the browser reconciles the durable queued row
+                    # when an automatic parent wake won the race to start.
+                    return await self.create_queued_completion(
+                        db, report_id, completion_data, current_user, organization,
+                        busy_completion_id=str(running.id),
+                    )
 
             # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()
@@ -2419,6 +2493,7 @@ class CompletionService:
 
             async def run_agent_with_streaming():
                 """Run agent in background and stream events."""
+                heartbeat = self._start_completion_lease(str(system_completion.id))
                 at0 = time.monotonic()
 
                 def _alog(label):
@@ -2653,6 +2728,7 @@ class CompletionService:
                             except Exception:
                                 logger.exception("Failed to mark streaming completion as errored")
                         finally:
+                            await self._stop_completion_lease(str(system_completion.id), heartbeat)
                             if _agent_slot:
                                 _AGENT_RUN_SEMAPHORE.release()
                             phase_trace.end(_sc_id, "released",
@@ -3281,9 +3357,45 @@ class CompletionService:
                 (Completion.trigger_source.is_(None)) | (Completion.trigger_source != 'sub_agent'),
             )
             .order_by(Completion.created_at.desc())
-            .limit(1)
+            .with_for_update()
         )
-        return res.scalars().first()
+        now = datetime.utcnow()
+        live: list[Completion] = []
+        stale: list[Completion] = []
+        for candidate in res.scalars().all():
+            if str(candidate.id) in _ACTIVE_COMPLETION_RUNS:
+                live.append(candidate)
+                continue
+            heartbeat = candidate.updated_at or candidate.created_at
+            if heartbeat is None:
+                # Missing timestamps are ambiguous. Preserve the conservative
+                # behavior and do not replace a potentially live execution.
+                live.append(candidate)
+                continue
+            if heartbeat.tzinfo is not None:
+                heartbeat = heartbeat.replace(tzinfo=None)
+            age = (now - heartbeat).total_seconds()
+            if age <= _COMPLETION_STALE_AFTER_SECONDS:
+                live.append(candidate)
+            else:
+                stale.append(candidate)
+
+        # A legacy report can contain multiple in-progress rows from before
+        # report-level launch serialization. Do not let the newest stale row
+        # hide an older live execution; retire every expired row, then honor
+        # any still-live parent execution.
+        for candidate in stale:
+            # Called under the report lock from either the submit path or queue
+            # dispatcher. Leave the transition in the caller transaction so
+            # replacement or queue claim remains atomic with stale recovery.
+            candidate.status = "error"
+            candidate.completion = {
+                "content": "This execution stopped renewing its heartbeat and was marked abandoned.",
+                "error": True,
+                "error_type": "stale_execution",
+            }
+            logging.warning("Marked stale in-progress completion %s as abandoned", candidate.id)
+        return live[0] if live else None
 
     async def create_queued_completion(
         self,
@@ -3292,6 +3404,8 @@ class CompletionService:
         completion_data: CompletionCreate,
         current_user: User,
         organization: Organization,
+        *,
+        busy_completion_id: str | None = None,
     ):
         """Persist the prompt as a queued user completion instead of starting a
         second concurrent agent run. The dispatcher starts it once the running
@@ -3347,7 +3461,7 @@ class CompletionService:
         asyncio.create_task(self.start_next_queued_if_idle(str(report.id)))
 
         v2_list = await self._assemble_v2_for_completion_ids(db, [queued.id])
-        return CompletionsV2Response(
+        response = CompletionsV2Response(
             report_id=report.id,
             completions=v2_list,
             total_completions=len(v2_list),
@@ -3357,6 +3471,8 @@ class CompletionService:
             earliest_completion=min((c.created_at for c in v2_list), default=None),
             latest_completion=max((c.updated_at for c in v2_list), default=None),
         )
+        response.busy_completion_id = busy_completion_id
+        return response
 
     async def delete_queued_completion(self, db: AsyncSession, completion_id: str, current_user: User, organization: Organization):
         """Remove a prompt from the queue. Only valid for role='user' rows still
@@ -3564,11 +3680,13 @@ class CompletionService:
         Chains the dispatcher again in ``finally`` to drain the rest of the
         queue.
         """
+        heartbeat = self._start_completion_lease(system_id)
         event_queue = CompletionEventQueue()
         register_stream(system_id, event_queue)
         session_factory = create_async_session_factory()
         _agent_slot = False
         authorization_preflight_failure = False
+        head = None
         try:
             async with session_factory() as session:
                 try:
@@ -3667,9 +3785,20 @@ class CompletionService:
                                 .values(status='error', completion=failure_content)
                             )
                             await recovery_session.commit()
+                            if (authorization_preflight_failure and head is not None
+                                    and head.trigger_source == 'sub_agent_message'):
+                                from app.services.sub_agent_service import sub_agent_service
+                                await sub_agent_service.fail_waiting_children_for_parent(
+                                    recovery_session,
+                                    report_id=str(report_id),
+                                    user_id=head.user_id,
+                                    reason=("The parent question wake could not run because its original requester "
+                                            "no longer has access to this conversation."),
+                                )
                     except Exception:
                         logger.exception("[queue] failed to mark dispatched completion as errored")
         finally:
+            await self._stop_completion_lease(system_id, heartbeat)
             if _agent_slot:
                 _AGENT_RUN_SEMAPHORE.release()
             event_queue.finish()
