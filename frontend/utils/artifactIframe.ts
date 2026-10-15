@@ -207,10 +207,39 @@ function polishScript(): string {
         return el;
       }
 
+      // The ⓘ provenance button is runtime chrome, not artifact code, so a
+      // pick on it resolves to the element it describes.
+      function infoOwner(el) {
+        if (!el.closest) return null;
+        var marker = el.closest('[data-bow-ibtn]');
+        if (marker) {
+          // The data-bow-viz overlay draws markers outside their owners.
+          var owners = document.querySelectorAll('[data-bow-viz]');
+          return owners[parseInt(marker.getAttribute('data-bow-info-for'), 10)] || null;
+        }
+        var inline = el.closest('[data-bow-info]');
+        return inline && inline.parentElement ? inline.parentElement.parentElement : null;
+      }
+
+      function pickTarget(el) {
+        return infoOwner(el) || snapToMeaningful(el);
+      }
+
+      // Without the ⓘ markup, which would otherwise fill the snippet budget
+      // before the card's own content.
+      function snippetOf(target) {
+        var clone = target.cloneNode(true);
+        clone.querySelectorAll('[data-bow-info]').forEach(function(n) {
+          var wrap = n.parentElement;
+          (wrap && wrap !== clone && wrap.children.length === 1 ? wrap : n).remove();
+        });
+        return clone.outerHTML.replace(/ class="[^"]*__polish[^"]*"/g, function(m) { return m.replace(/__polish-highlight/g, '').replace(/\\s+/g, ' '); }).slice(0, 500);
+      }
+
       function onHover(e) {
         if (!polishActive) return;
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
-        var target = snapToMeaningful(e.target);
+        var target = pickTarget(e.target);
         target.classList.add('__polish-highlight');
         currentHighlight = target;
       }
@@ -222,23 +251,30 @@ function polishScript(): string {
         if (!polishActive) return;
         e.preventDefault();
         e.stopPropagation();
-        var target = snapToMeaningful(e.target);
-        var rect = target.getBoundingClientRect();
+        // A throw here would reach window.onerror and read as a dashboard
+        // render failure; a pick that cannot be described stays in pick mode.
+        var element;
+        try {
+          var target = pickTarget(e.target);
+          var rect = target.getBoundingClientRect();
+          element = {
+            tag: target.tagName,
+            // getAttribute, not className: on SVG elements that is an SVGAnimatedString.
+            classes: (target.getAttribute('class') || '').replace(/__polish-highlight/g, '').trim(),
+            text: (target.textContent || '').slice(0, 100).trim(),
+            htmlSnippet: snippetOf(target),
+            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+          };
+        } catch (err) {
+          console.warn('Polish pick failed:', err);
+          return;
+        }
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
         polishActive = false;
         document.body.classList.remove('__polish-active');
         cursorEl.style.display = 'none';
         document.removeEventListener('mousemove', onMouseMove, true);
-        window.parent.postMessage({
-          type: 'POLISH_ELEMENT_SELECTED',
-          element: {
-            tag: target.tagName,
-            classes: target.className.replace(/__polish-highlight/g, '').trim(),
-            text: (target.textContent || '').slice(0, 100).trim(),
-            htmlSnippet: target.outerHTML.replace(/ class="[^"]*__polish[^"]*"/g, function(m) { return m.replace(/__polish-highlight/g, '').replace(/\\s+/g, ' '); }).slice(0, 500),
-            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
-          }
-        }, '*');
+        window.parent.postMessage({ type: 'POLISH_ELEMENT_SELECTED', element: element }, '*');
       }
 
       window.addEventListener('message', function(e) {
