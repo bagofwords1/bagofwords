@@ -218,30 +218,26 @@ function polishScript(): string {
       }
       function infoOwner(btn) {
         if (btn.hasAttribute('data-bow-ibtn')) {
-          // The data-bow-viz overlay draws markers outside their owners.
-          var owners = document.querySelectorAll('[data-bow-viz]');
-          return owners[parseInt(btn.getAttribute('data-bow-info-for'), 10)] || null;
+          // The data-bow-viz overlay draws markers outside their owners and
+          // publishes the elements it drew them for, so a marker resolves to
+          // its exact owner even when cards were added or removed since — a
+          // detached one means there is nothing left to edit.
+          var owners = window.__bowInfoOwners || document.querySelectorAll('[data-bow-viz]');
+          var owner = owners[parseInt(btn.getAttribute('data-bow-info-for'), 10)];
+          return owner && owner.isConnected ? owner : null;
         }
         var inline = btn.closest('[data-bow-info-btn]');
         return inline.parentElement ? inline.parentElement.parentElement : null;
       }
 
-      // { btn, owner } for an ⓘ, false for an ⓘ whose owner can't be resolved
-      // (the overlay may not have re-rendered since its owner mounted or
-      // unmounted) — nothing in the artifact to edit, and snapping from it
-      // only lands on runtime markup — or null for anything else.
-      function pickInfo(el) {
+      // What a pick selects: { target, owner } (owner set for an ⓘ, whose code
+      // lives on that owner), or null when nothing can be picked — an ⓘ whose
+      // owner is gone, where snapping would only land on runtime markup.
+      function resolvePick(el) {
         var btn = infoButton(el);
-        if (!btn) return null;
+        if (!btn) return { target: snapToMeaningful(el), owner: null };
         var owner = infoOwner(btn);
-        return owner ? { btn: btn, owner: owner } : false;
-      }
-
-      // The element a pick selects, or null when it can't be picked.
-      function pickTarget(el, info) {
-        if (info === undefined) info = pickInfo(el);
-        if (info === false) return null;
-        return info ? info.btn : snapToMeaningful(el);
+        return owner ? { target: btn, owner: owner } : null;
       }
 
       // Without the ⓘ markup, which would otherwise fill the snippet budget
@@ -258,10 +254,10 @@ function polishScript(): string {
       function onHover(e) {
         if (!polishActive) return;
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
-        var target = pickTarget(e.target);
-        if (!target) { currentHighlight = null; return; }
-        target.classList.add('__polish-highlight');
-        currentHighlight = target;
+        var pick = resolvePick(e.target);
+        if (!pick) { currentHighlight = null; return; }
+        pick.target.classList.add('__polish-highlight');
+        currentHighlight = pick.target;
       }
       function onOut(e) {
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
@@ -275,10 +271,9 @@ function polishScript(): string {
         // render failure; a pick that cannot be described stays in pick mode.
         var element;
         try {
-          var info = pickInfo(e.target);
-          var target = pickTarget(e.target, info);
-          if (!target) return;
-          var owner = info && info.owner;
+          var pick = resolvePick(e.target);
+          if (!pick) return;
+          var target = pick.target, owner = pick.owner;
           var rect = target.getBoundingClientRect();
           element = {
             tag: target.tagName,

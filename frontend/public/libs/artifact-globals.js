@@ -925,10 +925,22 @@
   // infoClassName (a color) replaces the default text color, hover included.
   // info={false} (data-bow-info="off" on custom markup) hides it; `viz` stays
   // bound either way.
-  var INFO_SIZES = { sm: { box: 'w-4 h-4', px: 16, glyph: 12 }, md: { box: 'w-5 h-5', px: 20, glyph: 15 }, lg: { box: 'w-7 h-7', px: 28, glyph: 21 } };
+  // pad: header room for the ⓘ (Tailwind spacing suffix).
+  var INFO_SIZES = {
+    sm: { box: 'w-4 h-4', px: 16, glyph: 12, pad: '-6' },
+    md: { box: 'w-5 h-5', px: 20, glyph: 15, pad: '-6' },
+    lg: { box: 'w-7 h-7', px: 28, glyph: 21, pad: '-8' }
+  };
+  Object.keys(INFO_SIZES).forEach(function(k) {
+    var sz = INFO_SIZES[k];
+    sz.btnBase = 'inline-flex items-center justify-center ' + sz.box + ' rounded-full transition-colors ';
+    sz.markerBase = 'inline-flex items-center justify-center ' + sz.box + ' rounded-full bg-surface/80 backdrop-blur border border-line shadow-card transition-colors';
+  });
   function _infoSize(size) { return Object.prototype.hasOwnProperty.call(INFO_SIZES, size) ? INFO_SIZES[size] : INFO_SIZES.md; }
-  // Header room reserved for the ⓘ (`side`: 'pe' or legacy 'pr').
-  function _infoPad(props, side) { return side + (props.infoSize === 'lg' ? '-8' : '-6'); }
+  // Header room for a shown ⓘ (`side`: 'pe', or 'pr' on the legacy runtime); '' when none is shown.
+  function _infoPad(props, side, shown) {
+    return (shown === undefined ? _showInfo(props) : shown) ? side + _infoSize(props.infoSize).pad : '';
+  }
   function _showInfo(props) { return !!props.viz && props.info !== false; }
   function _infoProps(props) {
     return { viz: props.viz, rows: props.rows, calc: props.calc, className: props.infoClassName, size: props.infoSize };
@@ -1062,7 +1074,6 @@
 
     if (!viz) return null;
     var sz = _infoSize(props.size);
-    var btnBase = 'inline-flex items-center justify-center ' + sz.box + ' rounded-full transition-colors ';
     var body = tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { rows: props.rows, calc: props.calc });
     var panel = (open && pos) ? ReactDOM.createPortal(
       _popoverPanel(viz, tab, setTab, function() { setOpen(false); }, body, {
@@ -1080,8 +1091,8 @@
         // Not one _mergeClasses call: it keeps variant classes, so the default
         // hover:text-* would override a custom color on hover.
         className: props.className
-          ? _mergeClasses(btnBase + (open ? 'bg-surface-2' : 'hover:bg-surface-2'), props.className)
-          : btnBase + (open ? POP.btnOn : POP.btnOff)
+          ? _mergeClasses(sz.btnBase + (open ? 'bg-surface-2' : 'hover:bg-surface-2'), props.className)
+          : sz.btnBase + (open ? POP.btnOn : POP.btnOff)
       }, _infoGlyph(sz.glyph)),
       panel
     ]);
@@ -1270,7 +1281,7 @@
     if (LEGACY) {
       var color = props.color || '#3B82F6';
       var lcls = LEGACY_KPI + (props.className ? ' ' + props.className : '');
-      var ltitle = 'text-xs font-medium uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400' + (props.titleClassName ? ' ' + props.titleClassName : '');
+      var ltitle = _join('text-xs font-medium uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400', _infoPad(props, 'pr')) + (props.titleClassName ? ' ' + props.titleClassName : '');
       var lsub = 'text-sm mt-1 text-slate-500 dark:text-slate-400' + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
       return h('div', { className: lcls, style: props.style }, [
         h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
@@ -1329,7 +1340,7 @@
     var hasHeader = props.title || props.eyebrow || props.actions;
     return h('section', { className: cls, style: props.style }, [
       _showInfo(props) ? h('div', { key: 'info', className: 'absolute top-3 end-3 z-10' }, h(window.InfoPopover, _infoProps(props))) : null,
-      hasHeader ? h('div', { key: 'hdr', className: _join('flex items-start justify-between gap-3', _showInfo(props) ? _infoPad(props, 'pe') : '', props.headerClassName || 'mb-4') }, [
+      hasHeader ? h('div', { key: 'hdr', className: _join('flex items-start justify-between gap-3', _infoPad(props, 'pe'), props.headerClassName || 'mb-4') }, [
         h('div', { key: 'l', className: 'min-w-0' }, [
           props.eyebrow ? h(window.Eyebrow, { key: 'e', className: 'text-[11px] font-medium uppercase tracking-eyebrow text-accent mb-1' }, props.eyebrow) : null,
           props.title ? h('h3', { key: 't', className: titleCls }, props.title) : null,
@@ -1496,7 +1507,8 @@
     var render = props.renderCell || null;
     var toolbar = null;
     if (searchable || exportable) {
-      toolbar = h('div', { key: 'tb', className: 'bow-dt-chrome flex items-center justify-between gap-2 mb-2' }, [
+      // Room for the opt-in ⓘ, drawn in the corner over the toolbar's end.
+      toolbar = h('div', { key: 'tb', className: _join('bow-dt-chrome flex items-center justify-between gap-2 mb-2', _infoPad(props, 'pe', !!(props.info && props.viz))) }, [
         searchable ? h('input', { key: 's', type: 'text', value: query, 'data-testid': 'bow-dt-search', placeholder: props.searchPlaceholder || 'Search...',
           onChange: function(e) { setQuery(e.target.value); setPage(0); }, className: DT.input }) : h('span', { key: 's' }),
         exportable ? h('button', { key: 'x', type: 'button', 'data-testid': 'bow-dt-export', title: 'Download CSV',
@@ -1915,6 +1927,11 @@
     var _open = React.useState(null), openT = _open[0], setOpenT = _open[1];
     var _tab = React.useState('data'), tab = _tab[0], setTab = _tab[1];
     var panelRef = React.useRef(null);
+    // The owner elements this render drew markers for, indexed by each
+    // marker's data-bow-info-for; published after commit so the polish picker
+    // resolves a marker to the exact element it was drawn for.
+    var ownersRef = React.useRef([]);
+    React.useLayoutEffect(function() { window.__bowInfoOwners = ownersRef.current; });
     React.useEffect(function() {
       var raf = null;
       function ping() { if (raf) return; raf = requestAnimationFrame(function() { raf = null; setTick(function(c) { return c + 1; }); }); }
@@ -1940,6 +1957,7 @@
     var rtl = (document.documentElement.getAttribute('dir') || '').toLowerCase() === 'rtl';
     var targets = [];
     var els = document.querySelectorAll('[data-bow-viz]');
+    ownersRef.current = els;
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
       if (el.getAttribute('data-bow-info') === 'off') continue;
@@ -1959,33 +1977,40 @@
         // Nested source-backed elements can share a corner. Keep each detail
         // control reachable instead of placing one button over another.
         left = Math.max(4, Math.min(left, window.innerWidth - step));
+        var maxTop = Math.max(2, window.innerHeight - step);
+        top = Math.min(top, maxTop);
         while (markerPositions.some(function(p) { var gap = Math.max(p.px, px) + 4; return Math.abs(p.left - left) < gap && Math.abs(p.top - top) < gap; })) {
           var nextLeft = left + (rtl ? step : -step);
-          if (nextLeft < 4 || nextLeft > window.innerWidth - step) top += step;
-          else left = nextLeft;
+          if (nextLeft >= 4 && nextLeft <= window.innerWidth - step) left = nextLeft;
+          else if (top + step <= maxTop) top += step;
+          else break; // no free on-screen slot: overlap rather than push it out of reach
         }
         markerPositions.push({ left: left, top: top, px: px });
       }
       t.markerTop = top;
-      var markerBase = 'inline-flex items-center justify-center ' + t.infoSize.box + ' rounded-full bg-surface/80 backdrop-blur border border-line shadow-card transition-colors';
+      t.markerLeft = left;
       // data-bow-info-for: index of the marked element in document order, so
       // the polish picker can resolve this detached marker to its owner.
       return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'data-bow-info-for': String(t.ownerIndex), 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
         style: { position: 'fixed', top: top, left: left, zIndex: 99998 },
-        className: t.infoClass ? _mergeClasses(markerBase, t.infoClass) : markerBase + ' text-ink-3 hover:text-ink' }, _infoGlyph(t.infoSize.glyph - 1));
+        className: t.infoClass ? _mergeClasses(t.infoSize.markerBase, t.infoClass) : t.infoSize.markerBase + ' text-ink-3 hover:text-ink' }, _infoGlyph(t.infoSize.glyph - 1));
     });
     var panel = null;
     if (openT) {
       var viz = openT.viz || vizs[openT.vizIndex] || {};
       var W = Math.min(400, window.innerWidth - 16);
-      var left = Math.min(openT.rect.right - W, window.innerWidth - W - 8); if (left < 8) left = 8;
-      var spaceBelow = window.innerHeight - openT.rect.top;
+      // Anchor on the marker, not the owner: it sits at the owner's start
+      // corner in RTL and can be stepped away by collisions.
+      var mTop = openT.markerTop, mPx = openT.infoSize.px;
+      var left = rtl ? openT.markerLeft : openT.markerLeft + mPx - W;
+      left = Math.max(8, Math.min(left, window.innerWidth - W - 8));
+      var spaceBelow = window.innerHeight - (mTop + mPx);
       var below = spaceBelow > 260;
       var vizForPanel = Object.assign({}, viz, { title: openT.title || viz.title });
       panel = _popoverPanel(vizForPanel, tab, setTab, function() { setOpenT(null); },
         tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { calc: openT.calc }),
-        { position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh', top: below ? (openT.markerTop + openT.infoSize.px + 2) : undefined, bottom: below ? undefined : (window.innerHeight - openT.rect.top + 6), display: 'flex', flexDirection: 'column' },
+        { position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh', top: below ? (mTop + mPx + 2) : undefined, bottom: below ? undefined : (window.innerHeight - mTop + 6), display: 'flex', flexDirection: 'column' },
         { ref: panelRef, 'data-bow-panel': '1' });
     }
     if (!markers.length && !panel) return null;

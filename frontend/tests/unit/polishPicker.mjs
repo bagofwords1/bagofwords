@@ -72,6 +72,35 @@ try{
   assert.equal(el.info,true,s);
   assert.match(el.htmlSnippet,/^<ul id="tree"/,s);
  }
+ // A stale but in-range index: an element inserted before the owner shifts
+ // document order before the overlay re-renders. The marker still resolves to
+ // the element it was drawn for, not to whatever now sits at its index.
+ const pickNow=(sel,setup)=>frame.evaluate(({sel,setup})=>{
+  (0,eval)(setup)();
+  const el=document.querySelector(sel);
+  el.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));const lit=!!document.querySelector('.__polish-highlight');
+  el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+  return {lit,active:document.body.classList.contains('__polish-active')};
+ },{sel,setup});
+ const enter=async()=>{await page.evaluate(()=>{window.msgs=[];document.querySelector('iframe').contentWindow.postMessage({type:'POLISH_ENTER'},'*')});await frame.waitForFunction(()=>document.body.classList.contains('__polish-active'))};
+ await enter();
+ await pickNow('[data-bow-ibtn] svg path',`()=>{const d=document.createElement('div');d.id='intruder';d.setAttribute('data-bow-viz','${VIZ}');d.textContent='Intruder';document.body.prepend(d)}`);
+ await page.waitForFunction(()=>window.msgs.some(m=>m.type==='POLISH_ELEMENT_SELECTED'));
+ const shifted=await page.evaluate(()=>window.msgs.find(m=>m.type==='POLISH_ELEMENT_SELECTED').element);
+ assert.equal(shifted.info,true);
+ assert.match(shifted.htmlSnippet,/^<ul id="tree"/,'stale in-range index still resolves to the marker\'s own owner');
+ await frame.evaluate(()=>{document.getElementById('intruder').remove();window.dispatchEvent(new Event('resize'))});
+ // An owner removed before the overlay re-renders: its marker is not pickable.
+ await frame.evaluate(V=>{const d=document.createElement('div');d.id='gone';d.style.cssText='position:fixed;top:320px;left:320px;width:120px;height:40px';d.setAttribute('data-bow-viz',V);document.body.prepend(d);window.dispatchEvent(new Event('resize'))},VIZ);
+ await frame.waitForFunction(()=>document.querySelectorAll('[data-bow-ibtn]').length===2);
+ await enter();
+ const gone=await pickNow('[data-bow-ibtn][data-bow-info-for="0"] svg path',`()=>document.getElementById('gone').remove()`);
+ await page.waitForTimeout(300);
+ assert.deepEqual(gone,{lit:false,active:true},'detached owner: no highlight, pick mode stays');
+ assert.deepEqual(await page.evaluate(()=>window.msgs.filter(m=>m.type==='POLISH_ELEMENT_SELECTED'||m.type==='ARTIFACT_ERROR')),[],'detached owner: nothing sent');
+ await page.evaluate(()=>document.querySelector('iframe').contentWindow.postMessage({type:'POLISH_EXIT'},'*'));
+ await frame.evaluate(()=>window.dispatchEvent(new Event('resize')));
+ await frame.waitForFunction(()=>document.querySelectorAll('[data-bow-ibtn]').length===1);
  // An overlay marker whose owner can't be resolved is not pickable: no
  // highlight, no selection (nothing in the artifact to edit), pick mode stays.
  await frame.evaluate(()=>document.querySelector('[data-bow-ibtn]').removeAttribute('data-bow-info-for'));

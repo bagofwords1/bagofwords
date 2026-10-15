@@ -18,7 +18,8 @@ function App() {
       <ul id="custom-hidden" className="h-12 w-64" data-bow-viz="${VIZ}" data-bow-info="off"><li>Hidden</li></ul>
       <ul id="custom" className="h-24 w-64" data-bow-viz="${VIZ}" data-bow-info-class="text-red-500" data-bow-info-size="lg"><li>Tree</li></ul>
       <div id="hidden-section"><SectionCard title="Hidden" viz={viz} info={false}>x</SectionCard></div>
-      <div id="hidden-kpi"><KPICard title="Hidden KPI" value="1" viz={viz} info={false} /></div>
+      <div id="hidden-kpi" className="w-64"><KPICard title="A hidden KPI with a deliberately long title" value="1" viz={viz} info={false} infoSize="lg" /></div>
+      <div id="kpi-long" className="w-64"><KPICard title="A deliberately long revenue title that wraps" value="1" viz={viz} infoSize="lg" /></div>
       <div id="hidden-chart"><EChart viz={viz} info={false} option={{xAxis:{type:'category',data:['a']},yAxis:{type:'value'},series:[{type:'bar',data:[1]}]}} /></div>
       <div id="plain"><SectionCard title="Plain" viz={viz}>x</SectionCard></div>
       <div id="section"><SectionCard title="Section" viz={viz} infoClassName="text-red-500" infoSize="lg">x</SectionCard></div>
@@ -31,6 +32,31 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>`;
 const browser=await chromium.launch({headless:true});
+// Renders artifact code through the real iframe builder; returns the page and its frame.
+async function renderAt(src,{runtime=11,width=900,height=700}={}){
+ const page=await browser.newPage();
+ await page.route('**/*',async route=>{
+  const u=new URL(route.request().url());
+  if(u.pathname.startsWith('/libs/')){const file=new URL('public'+u.pathname,root);if(fs.existsSync(file))return route.fulfill({path:file.pathname})}
+  return route.fulfill({status:200,body:'<html><body></body></html>',contentType:'text/html'});
+ });
+ await page.goto('http://artifact-review.test/');
+ await page.addScriptTag({content:'window.exports={};'+compiled});
+ await page.evaluate(({src,VIZ,runtime,width,height})=>{
+  const html=exports.buildArtifactIframeHtml({code:src,data:{runtime:{version:runtime},visualizations:[{id:VIZ,title:'Albums',rows:[{Title:'A'}],columns:[{field:'Title'}]}]}});
+  const f=document.createElement('iframe');f.style.width=width+'px';f.style.height=height+'px';f.style.border='0';f.srcdoc=html;document.body.appendChild(f);
+ },{src,VIZ,runtime,width,height});
+ return {page,frame:page.frames().find(f=>f.parentFrame())};
+}
+const appOf=(body,pre='')=>`<script type="text/babel">
+${pre}
+function App() {
+  const viz = vizById("${VIZ}");
+  return (${body});
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>`;
+const rectOf=(frame,sel)=>frame.evaluate(sel=>{const r=document.querySelector(sel).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}},sel);
 try{
  for(const runtime of [0,11]){
   const page=await browser.newPage();
@@ -83,6 +109,15 @@ try{
    assert.equal(await frame.evaluate(id=>document.querySelectorAll('#'+id+' button[aria-label="Details"]').length,id),0,`runtime ${runtime}: ${id} hidden`);
   assert.equal(await frame.evaluate(()=>document.querySelectorAll('[data-bow-ibtn]').length),1,`runtime ${runtime}: only the visible custom owner gets a marker`);
   assert.equal(await frame.evaluate(()=>document.querySelector('[data-bow-ibtn]').getAttribute('data-bow-info-for')),'1',`runtime ${runtime}: marker points at #custom (index 1)`);
+  // Header room: a long KPI title ends before an lg ⓘ (legacy: title <p>; themed: head row).
+  // Measure the laid-out text, not the <p> box (legacy pads inside the <p>).
+  const kl=await frame.evaluate(()=>{const r=document.createRange();r.selectNodeContents(document.querySelector('#kpi-long p'));return {t:Math.max(...[...r.getClientRects()].map(x=>x.right)),b:document.querySelector('#kpi-long button[aria-label="Details"]').getBoundingClientRect().left}});
+  assert.ok(kl.t<=kl.b,`runtime ${runtime}: long KPI title (${kl.t}) ends before the lg ⓘ (${kl.b})`);
+  // No ⓘ room reserved when it is hidden.
+  assert.equal(await frame.evaluate(()=>[...document.querySelectorAll('#hidden-kpi *')].some(e=>/\b(pe|pr)-(6|8)\b/.test(e.getAttribute('class')||''))),false,`runtime ${runtime}: hidden ⓘ reserves no room`);
+  // DataTable's lg ⓘ (drawn in the corner) leaves the CSV export button uncovered.
+  const dtClear=await frame.evaluate(()=>{const a=document.querySelector('#table button[aria-label="Details"]').getBoundingClientRect(),x=document.querySelector('#table [data-testid="bow-dt-export"]').getBoundingClientRect();return a.right<=x.left||x.right<=a.left||a.bottom<=x.top||x.bottom<=a.top});
+  assert.ok(dtClear,`runtime ${runtime}: DataTable ⓘ does not cover the CSV button`);
   const fits=await frame.evaluate(()=>{const o=document.querySelector('#custom').getBoundingClientRect(),m=document.querySelector('[data-bow-ibtn]').getBoundingClientRect();return m.right<=o.right&&m.left>=o.left});
   assert.ok(fits,`runtime ${runtime}: lg marker within owner`);
   await page.close();
@@ -142,5 +177,28 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   assert.ok(panelTop>=g.edge.bottom,`panel (${panelTop}) opens below the lg marker (${g.edge.bottom})`);
   await page.close();
  }
- console.log('PASS: ⓘ infoClassName/infoSize/info={false} and data-bow-info-class/-size/off on SectionCard, KPICard, EChart, DataTable and custom markup; defaults unchanged (legacy + themed); lg geometry (marker spacing, viewport clamp, panel offset, header room); prototype-key sizes');
+ // RTL: the marker sits at the owner's start (left) corner; its open panel
+ // must open there too, not at the far side of a wide card.
+ {
+  const {page,frame}=await renderAt(appOf(`<div className="p-8"><div id="wide" style={{width:600,height:60}} data-bow-viz="${VIZ}" data-bow-info-size="lg">wide</div></div>`,`document.documentElement.setAttribute('dir','rtl');`));
+  await frame.waitForSelector('[data-bow-ibtn]');
+  const m=await rectOf(frame,'[data-bow-ibtn]');
+  await frame.click('[data-bow-ibtn]');
+  await frame.waitForSelector('[data-bow-panel]');
+  const p=await rectOf(frame,'[data-bow-panel]');
+  assert.ok(p.left<=m.left&&p.right>=m.right,`RTL panel [${p.left},${p.right}] spans its marker [${m.left},${m.right}]`);
+  assert.ok(p.top>=m.bottom,'RTL panel opens below its marker');
+  await page.close();
+ }
+ // Narrow frame, nested lg owners at the bottom: markers that run out of
+ // horizontal room stay on screen instead of stepping below the viewport.
+ {
+  const owners=Array.from({length:6},(_,i)=>`<div style={{position:'fixed',bottom:8,right:0,width:100,height:30}} data-bow-viz="${VIZ}" data-bow-info-size="lg">o${i}</div>`).join('');
+  const {page,frame}=await renderAt(appOf(`<div>${owners}</div>`),{width:120,height:200});
+  await frame.waitForFunction(()=>document.querySelectorAll('[data-bow-ibtn]').length===6);
+  const off=await frame.evaluate(()=>[...document.querySelectorAll('[data-bow-ibtn]')].map(b=>b.getBoundingClientRect()).filter(r=>r.bottom>window.innerHeight||r.top<0||r.left<0||r.right>window.innerWidth).length);
+  assert.equal(off,0,'every marker stays within the viewport');
+  await page.close();
+ }
+ console.log('PASS: ⓘ infoClassName/infoSize/info={false} and data-bow-info-class/-size/off on SectionCard, KPICard, EChart, DataTable and custom markup; defaults unchanged (legacy + themed); lg geometry (marker spacing, viewport clamp both axes, panel offset + RTL anchor, header room incl. legacy KPI, DataTable toolbar, hidden ⓘ reserves none); prototype-key sizes');
 }finally{await browser.close()}
