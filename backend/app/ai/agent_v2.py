@@ -72,6 +72,51 @@ def repeated_call_final_answer(tool_name: str, times: int) -> str:
     )
 
 
+# Consecutive failed saves to one list before the agent is told to stop
+# retrying, and before the turn is ended. A fix-and-retry usually lands on the
+# first or second retry; a run seen live looped on one error for 30+ minutes.
+LIST_SAVE_WARN_AT = 3
+LIST_SAVE_STOP_AT = 5
+
+
+def list_save_failure_action(streaks: dict, list_id, failed: bool) -> Optional[str]:
+    """Per-list streak of failed submit_list calls in this run.
+
+    Returns 'warn' on the LIST_SAVE_WARN_AT-th consecutive failure, 'stop' from
+    LIST_SAVE_STOP_AT on, else None. A successful save to the list resets it;
+    lists are counted independently."""
+    key = str(list_id or "")
+    if not failed:
+        streaks.pop(key, None)
+        return None
+    n = streaks.get(key, 0) + 1
+    streaks[key] = n
+    if n >= LIST_SAVE_STOP_AT:
+        return "stop"
+    if n == LIST_SAVE_WARN_AT:
+        return "warn"
+    return None
+
+
+def list_save_failure_note(times: int) -> str:
+    return (
+        f"NOTE: saving to this list has now failed {times} times in a row. Read the errors above "
+        "and fix exactly those fields, sending every record in full. If you cannot fix them, stop "
+        "saving and tell the user which records or fields are blocking and why."
+    )
+
+
+def list_save_failure_final_answer(list_name, errors) -> str:
+    name = f"'{list_name}'" if list_name else "the list"
+    last = "; ".join(str(e) for e in (errors or [])[:3])
+    return (
+        f"Stopping: saving to {name} failed {LIST_SAVE_STOP_AT} times in a row, so nothing more was "
+        "saved in this step. Rows saved earlier are kept."
+        + (f" Last error: {last}." if last else "")
+        + " Tell me how to proceed, or ask me to retry with fewer records."
+    )
+
+
 def _issued_args(arguments) -> dict:
     """A tool call's arguments as the model issued them, minus server-side
     annotations (``_progress`` and friends are added after the call)."""
@@ -6934,6 +6979,25 @@ class AgentV2:
                                     self._sub_agent_finished = True
                                 if _tn == "delegate" and isinstance(_obs, dict) and _obs.get("sub_agent_id"):
                                     self._wave_pending = True
+                                if _tn == "submit_list" and isinstance(_obs, dict):
+                                    if not hasattr(self, "_list_save_failures"):
+                                        self._list_save_failures = {}
+                                    _lsa = list_save_failure_action(
+                                        self._list_save_failures,
+                                        _ti_args.get("list_id") if isinstance(_ti_args, dict) else None,
+                                        _observation_failed(_obs),
+                                    )
+                                    if _lsa == "warn":
+                                        _obs["repeat_warning"] = list_save_failure_note(LIST_SAVE_WARN_AT)
+                                    elif _lsa == "stop":
+                                        _lerr = _obs.get("error")
+                                        _obs.update({
+                                            "analysis_complete": True,
+                                            "final_answer": list_save_failure_final_answer(
+                                                _obs.get("list_name"),
+                                                _lerr.get("errors") if isinstance(_lerr, dict) else None,
+                                            ),
+                                        })
                                 if not _observation_failed(_obs):
                                     action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
                                     successful_tool_actions.append(action_signature)
@@ -8323,6 +8387,15 @@ class AgentV2:
         if not route:
             return tool_name, tool_input
         args = tool_input if isinstance(tool_input, dict) else {}
+        from app.ai.llm.toolcall_args import UNPARSABLE_KEY
+        if args.get(UNPARSABLE_KEY):
+            # Broken JSON the parser could not salvage (e.g. cut off). Keep
+            # the parser's marker so the tool runner reports the real error
+            # and applies its attempt cap. Defaulting records to [] here hid
+            # both: the model was told "records: [] should be non-empty" and
+            # looped on a call it never made.
+            logger.info("[agent] list tool %s -> submit_list(%s): unparsable arguments", tool_name, route["list_id"])
+            return "submit_list", {**args, "list_id": route["list_id"]}
         records = args.get("records")
         rewritten = {"list_id": route["list_id"], "records": records if isinstance(records, list) else []}
         logger.info("[agent] list tool %s -> submit_list(%s)", tool_name, route["list_id"])

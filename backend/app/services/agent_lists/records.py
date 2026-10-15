@@ -157,6 +157,30 @@ def _schema_errors(instance: Any, schema: Dict[str, Any]) -> List[str]:
     return out
 
 
+def normalize_not_found(records: Any) -> Any:
+    """``not_found`` is the claim; a value left next to it is dropped.
+
+    Agents often write the words "not found" (or "לא נמצא") into the value
+    while setting status not_found. Rejecting that failed the whole atomic
+    call, so one slip in one record lost every row in it. The leftover moves
+    into ``note`` when the note is empty. Returns a copy; the caller's records
+    (the stored tool arguments) are never mutated.
+    """
+    if not isinstance(records, list):
+        return records
+    out = copy.deepcopy(records)
+    for rec in out:
+        fields = rec.get("fields") if isinstance(rec, dict) else None
+        if not isinstance(fields, dict):
+            continue
+        for env in fields.values():
+            if isinstance(env, dict) and env.get("status") == "not_found" and env.get("value") is not None:
+                if not env.get("note"):
+                    env["note"] = str(env["value"])[:500]
+                env["value"] = None
+    return out
+
+
 def validate_records(agent_list: AgentList, records: Any) -> List[str]:
     """Schema + semantic validation. Returns path-qualified errors (empty = ok)."""
     schema = compile_list_schema(agent_list.fields or [])
@@ -227,6 +251,7 @@ async def apply_submission(
     sources: List[SourceText],
 ) -> Dict[str, Any]:
     """Validate and upsert ``records``. Raises ListValidationError (nothing written)."""
+    records = normalize_not_found(records)
     errors = validate_records(agent_list, records)
     by_name = _fields_by_name(agent_list)
     key_field = _key_field(agent_list)

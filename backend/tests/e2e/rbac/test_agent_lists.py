@@ -309,7 +309,6 @@ def test_valid_submission_creates_rows_with_provenance(test_client, world):
     ({"currency": _env("GBP")}, "records.0.fields.currency"),
     ({"renewal_date": _env("31/01/2027")}, "records.0.fields.renewal_date"),
     ({"annual_value": _env(None, "found")}, "records.0.fields.annual_value.status"),
-    ({"annual_value": _env(10, "not_found")}, "records.0.fields.annual_value.status"),
     ({"counterparty": None}, "records.0.fields.counterparty.value"),
 ])
 def test_invalid_submission_writes_nothing_and_names_the_path(test_client, world, bad, path):
@@ -317,6 +316,19 @@ def test_invalid_submission_writes_nothing_and_names_the_path(test_client, world
     assert out["output"]["success"] is False
     assert any(e.startswith(path) for e in out["output"]["errors"]), out["output"]["errors"]
     assert _rows(test_client, world)["total"] == 0
+
+
+@pytest.mark.parametrize("leftover", [10, "not found", "לא נמצא"])
+def test_not_found_with_a_leftover_value_is_saved_as_not_found(test_client, world, leftover):
+    # Live: an agent marked a field not_found but left text in the value. The
+    # rule rejected the whole batch (calls are atomic), so one slip in one
+    # record lost every row. not_found is the claim; the leftover is noise.
+    out = submit(world, [_record(annual_value=_env(leftover, "not_found")), _record(cp="Valid Co")])
+    assert out["output"]["success"] is True, out["output"]["errors"]
+    assert out["output"]["inserted"] == 2
+    acme = next(r for r in _rows(test_client, world)["rows"] if r["key_value"] == "acme ltd")
+    env = acme["values"][_fid(world, "annual_value")]
+    assert env["status"] == "not_found" and env["value"] is None
 
 
 def test_same_key_updates_and_keyless_lists_append(test_client, world):
