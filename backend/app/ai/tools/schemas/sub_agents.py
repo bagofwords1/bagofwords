@@ -34,7 +34,9 @@ class DelegateInput(BaseModel):
     ))
     profile: Literal["investigate", "validate"] = Field("investigate", description=(
         "'investigate' (default): research-only, small model, verdict + evidence ids. "
-        "'validate': produces tracked queries as evidence, regular model."
+        "'validate': produces tracked queries as evidence, regular model, and can write rows into "
+        "this conversation's lists with their submit_<list> tools — use it for per-document or "
+        "per-source extraction fan-outs (one child per document, all saving into the same list)."
     ))
     agent_ids: Optional[List[str]] = Field(None, description=(
         "Narrow the child to these agent (data source) ids from <agents>/<available_agents>. "

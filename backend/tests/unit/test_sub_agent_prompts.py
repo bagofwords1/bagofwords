@@ -89,10 +89,15 @@ def test_profiles_never_include_blocked_or_parent_only_tools(key):
         assert "finish_subtask" in tools
         assert not (tools & BLOCKED_IN_SUB_AGENTS), tools & BLOCKED_IN_SUB_AGENTS
         assert "delegate" not in tools and "clarify" not in tools
+        # The list gateway is never blocked outright: a child writes into the
+        # parent's lists on the same switch as create_data; defining a list is not.
+        assert "create_list" not in tools and "edit_list" not in tools
         if key == "investigate":
             assert ("create_data" in tools) is allow_cd
+            assert ("submit_list" in tools) is allow_cd
         if key == "validate":
             assert "create_data" in tools
+            assert "submit_list" in tools
 
 
 def test_sqlite_runs_children_one_at_a_time():

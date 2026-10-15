@@ -348,7 +348,11 @@ weekly folder with a handful of new files.
 **Add only when a customer hits that ceiling (P1):**
 
 - A fan-out for batches: one small scoped turn per document, run as the §5.2 fast path, all
-  calling the same `submit` into the same list.
+  calling the same `submit` into the same list. **Partly in place:** a `validate` sub-agent
+  (and an `investigate` one when `sub_agent_allow_create_data` is on) holds the parent's
+  `submit_<slug>` tools and writes rows itself; the parent delegates one child per document
+  (docs/design/sub-agents.md A6). Same-key races between children resolve through the unique
+  `(list_id, key_value)` index and the retry-as-update in `apply_submission_with_retry`.
 - `submit` stays the single sink either way, so this is purely an execution optimization.
 
 **Rejected, in order of how heavy they are:**
