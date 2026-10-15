@@ -4,6 +4,7 @@
 - Added keyword search and full-library browsing with paging, sorting and date filters for SharePoint Server connections (#1387) — `content` indexing option
 - Added opening a saved list beside the chat, with rows updating live as the agent saves them (#1388)
 - Added per-conversation API settings on reports (#1378) — `follow_ups`, `suggest_instructions`, `tools` on `POST`/`PUT /api/reports`
+- Added list creation and editing by the agent in training mode, approved on a review card (#1390)
 - Fixed Git repository connections failing for SSH-style repo URLs with an access token (#1385)
 - Fixed slow SharePoint file listing on large libraries (#1384)
 
