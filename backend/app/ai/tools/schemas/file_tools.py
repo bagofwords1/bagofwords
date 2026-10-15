@@ -208,26 +208,36 @@ class ReadFileInput(BaseModel):
         default=None,
         ge=0,
         description=(
-            "For object-store / large files: start byte for a windowed (ranged) "
-            "read. When set, the file is NOT parsed or attached — you get a raw "
-            "byte window plus `next_cursor`/`eof` to page forward. Pass "
-            "`next_cursor` from the previous read as the next `offset` until "
-            "`eof` is true. Leave unset for a normal whole-file read."
+            "Start position for a windowed read of a LONG file — works on every "
+            "connection and on conversation attachments. When set, the file is "
+            "NOT attached; you get one window of its content plus "
+            "`next_cursor`/`eof`. Pass `next_cursor` from the previous read as "
+            "the next `offset` until `eof` is true. The result's `unit` says "
+            "what the offsets count: 'bytes' (raw byte windows on Files & "
+            "Directories / S3 text files) or 'chars' (characters of the "
+            "extracted text — documents, SharePoint, Drive, mail and every "
+            "other source). Use 0 to start. Leave unset for a normal whole-file "
+            "read. For one specific PDF page, prefer page_range."
         ),
     )
     length: Optional[int] = Field(
         default=None,
         ge=1,
         le=50_000_000,
-        description="For windowed reads: number of bytes to fetch from `offset`. Defaults to ~1 MiB.",
+        description=(
+            "For windowed reads: how much to return from `offset`, in the "
+            "result's `unit` (bytes or characters). Use 8000 or less so each "
+            "window reaches you in full; defaults to ~1 MiB."
+        ),
     )
     page_range: Optional[str] = Field(
         default=None,
         description=(
             "For PDF documents: read ONLY these pages, e.g. '3' or '10-15' "
             "(1-based, inclusive). The result reports pages_total so you can "
-            "page through a large document deliberately — the PDF equivalent "
-            "of offset/length for text files. Mutually exclusive with offset."
+            "page through a large document deliberately — the precise way to "
+            "reach a specific page, where offset/length pages by text position. "
+            "Mutually exclusive with offset."
         ),
     )
     as_images: bool = Field(
@@ -335,19 +345,28 @@ class ReadFileOutput(BaseModel):
     # `offset` until `eof` is true.
     windowed: bool = Field(
         default=False,
-        description="True when this was a windowed byte-range read (not a parsed/attached whole-file read).",
+        description="True when this was a windowed (offset/length) read, not a parsed/attached whole-file read.",
+    )
+    unit: Literal["bytes", "chars"] | None = Field(
+        default=None,
+        description=(
+            "What `offset`, `next_cursor` and `total_size` count for a windowed "
+            "read: 'bytes' when the source served a raw byte window, 'chars' "
+            "when the tool paged the extracted text (documents and every "
+            "connector without native ranged reads)."
+        ),
     )
     next_cursor: Optional[int] = Field(
         default=None,
-        description="Byte offset to pass as the next `offset` to continue reading. Null when eof.",
+        description="Position (in `unit`) to pass as the next `offset` to continue reading. Null when eof.",
     )
     total_size: Optional[int] = Field(
         default=None,
-        description="Total size of the object in bytes (for windowed reads).",
+        description="Total size of the content in `unit` (for windowed reads).",
     )
     eof: Optional[bool] = Field(
         default=None,
-        description="True when the window reached the end of the object.",
+        description="True when the window reached the end of the content.",
     )
     encoding: Optional[str] = Field(
         default=None,
