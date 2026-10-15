@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.591 (October 15, 2026)
+- Fixed Git repository connections failing for SSH-style repo URLs with an access token (#1385)
+- Fixed slow SharePoint file listing on large libraries (#1384)
+
 ## Version 0.0.590 (October 14, 2026)
 - Bug fixes and security hardening (#1304)
 
