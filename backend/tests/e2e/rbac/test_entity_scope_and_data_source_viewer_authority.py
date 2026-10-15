@@ -11,9 +11,10 @@ Pentest WP2 (entity scope + data-source viewer leaks):
    (or org ``manage_connections``) persists the outcome (``is_active``).
 3. ``GET /data_sources/{id}``: connection ``config`` is a manage-tier field.
    Viewers get the agent without it; managers and admins keep it.
-4. ``full_schema``: columns hidden by a manager are stripped for read-only
-   callers on BOTH the paginated and non-paginated paths. Managers keep the
-   full column list in the paginated selector so they can toggle them back.
+4. ``full_schema``: columns and relationships hidden by a manager are
+   stripped for read-only callers on BOTH the paginated and non-paginated
+   paths. Managers keep the full lists in the paginated selector so they can
+   toggle them back.
 
 World: admin (full admin) creates two public SQLite agents A and B.
     owner   — plain member; reads A and B through ``is_public``; authors a
@@ -239,3 +240,61 @@ def test_manager_paginated_schema_keeps_every_column(test_client, world, who):
     table, hidden = _hide_first_column(test_client, w)
     cols, _ = _paginated_columns(test_client, w, who, table["id"])
     assert cols == {c["name"] for c in table["columns"]}
+
+
+# ── 5. Relationship hiding on full_schema ─────────────────────────────────
+
+def _edge(fk):
+    return (fk["column"]["name"], fk["references_name"], fk["references_column"]["name"])
+
+
+def _hide_first_relationship(test_client, w):
+    r = test_client.get(f"/api/data_sources/{w['ds_a']['id']}/full_schema",
+                        params={"page": 1, "page_size": 500},
+                        headers=_h(w, "admin"))
+    assert r.status_code == 200, r.text
+    tables = r.json()["tables"]
+    table = next(t for t in tables if len(t["fks"]) > 1)
+    fk = table["fks"][0]
+    # Select the table and its targets so only the manager's choice drops an edge.
+    targets = {f["references_name"] for f in table["fks"]} | {table["name"]}
+    r = test_client.put(f"/api/data_sources/{w['ds_a']['id']}/update_tables_status",
+                        json={"activate": [t["id"] for t in tables if t["name"] in targets],
+                              "excluded_fks": {table["id"]: [{
+                                  "column": fk["column"]["name"], "references_name": fk["references_name"],
+                                  "references_column": fk["references_column"]["name"]}]}},
+                        headers=_h(w, "admin"))
+    assert r.status_code == 200, r.text
+    return table, _edge(fk)
+
+
+def _paginated_edges(test_client, w, who, table_id):
+    r = test_client.get(f"/api/data_sources/{w['ds_a']['id']}/full_schema",
+                        params={"page": 1, "page_size": 500}, headers=_h(w, who))
+    assert r.status_code == 200, r.text
+    t = next(t for t in r.json()["tables"] if t["id"] == table_id)
+    return {_edge(fk) for fk in t.get("fks") or []}
+
+
+def _legacy_edges(test_client, w, who, table_name):
+    r = test_client.get(f"/api/data_sources/{w['ds_a']['id']}/full_schema", headers=_h(w, who))
+    assert r.status_code == 200, r.text
+    t = next(t for t in r.json() if t["name"] == table_name)
+    return {_edge(fk) for fk in t.get("fks") or []}
+
+
+@pytest.mark.e2e
+def test_hidden_relationships_stripped_for_reader_on_both_paths(test_client, world):
+    w = world
+    table, hidden = _hide_first_relationship(test_client, w)
+    all_edges = {_edge(fk) for fk in table["fks"]}
+    assert _paginated_edges(test_client, w, "viewer", table["id"]) == all_edges - {hidden}
+    assert hidden not in _legacy_edges(test_client, w, "viewer", table["name"])
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("who", ["manager", "admin"])
+def test_manager_paginated_schema_keeps_every_relationship(test_client, world, who):
+    w = world
+    table, _ = _hide_first_relationship(test_client, w)
+    assert _paginated_edges(test_client, w, who, table["id"]) == {_edge(fk) for fk in table["fks"]}

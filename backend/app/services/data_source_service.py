@@ -202,6 +202,33 @@ def _invalidate_agent_schema_cache(organization) -> None:
     except Exception:
         logger.debug("schema cache invalidation skipped", exc_info=True)
 
+def _remap_excluded_fk_targets(rows, renamed: dict) -> None:
+    """Point hidden relationships at a renamed target's new name.
+
+    DataSourceTable.excluded_fks names its target table the way ``fks`` does,
+    by name. When a sync renames a table that kept its identity, the edges
+    into it are rewritten with the new name; without this the stored entry
+    matches nothing and the edge the manager hid is back in the agent's
+    context. Matched case-insensitively, like fk_key. Each entry is mapped
+    once, so a swap (A->B, B->A) lands correctly.
+    """
+    by_lower = {str(old).lower(): new for old, new in renamed.items()}
+    for row in rows:
+        entries = row.excluded_fks or []
+        if not entries:
+            continue
+        changed = False
+        out = []
+        for entry in entries:
+            new_name = by_lower.get(str(entry.get("references_name") or "").lower()) if isinstance(entry, dict) else None
+            if new_name is not None and new_name != entry.get("references_name"):
+                entry = {**entry, "references_name": new_name}
+                changed = True
+            out.append(entry)
+        if changed:
+            row.excluded_fks = out
+
+
 class DataSourceService:
 
     def __init__(self):
@@ -4457,15 +4484,18 @@ class DataSourceService:
             # Column hiding is a manager's curation; readers get the same
             # stripped view the non-paginated path (to_prompt_table) serves.
             # Managers keep every column so the selector can toggle them.
-            if restrict_to_active and table.excluded_columns:
+            # Hidden relationships follow the same split.
+            if restrict_to_active and (table.excluded_columns or table.excluded_fks):
                 from app.ai.prompt_formatters import filter_columns, filter_fks
                 _cols = filter_columns(table.columns, table.excluded_columns)
                 _pks = filter_columns(table.pks, table.excluded_columns)
-                _fks = filter_fks(table.fks, table.excluded_columns)
+                _fks = filter_fks(table.fks, table.excluded_columns, table.excluded_fks)
                 _excluded = None
+                _excluded_fks = None
             else:
                 _cols, _pks, _fks = table.columns or [], table.pks or [], table.fks or []
                 _excluded = table.excluded_columns or None
+                _excluded_fks = table.excluded_fks or None
             table_schema = DataSourceTableSchema(
                 id=str(table.id),
                 name=table.name,
@@ -4477,6 +4507,7 @@ class DataSourceService:
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
                 excluded_columns=_excluded,
+                excluded_fks=_excluded_fks,
                 # Connection info
                 connection_id=conn_id,
                 connection_name=conn_name,
@@ -4670,13 +4701,15 @@ class DataSourceService:
         deactivate: List[str] = None,
         current_user: User = None,
         excluded_columns: Optional[Dict[str, List[str]]] = None,
+        excluded_fks: Optional[Dict[str, List[Dict[str, str]]]] = None,
     ):
         """
         Update table is_active status using delta (lists of table names to activate/deactivate).
         More efficient than sending all tables.
 
         `excluded_columns` maps a table id to the complete list of column
-        names hidden from the agent's context for that table.
+        names hidden from the agent's context for that table; `excluded_fks`
+        likewise maps it to the complete list of hidden relationships.
         """
         from sqlalchemy import update, func
         from app.schemas.datasource_table_schema import DeltaUpdateTablesResponse
@@ -4736,10 +4769,16 @@ class DataSourceService:
         if deactivate:
             deactivated_count = await _set_active(deactivate, False)
 
+        # Column and relationship visibility: one chunked read of the touched
+        # rows, both deny-lists applied in the same pass.
         columns_updated_count = 0
-        if excluded_columns:
+        relationships_updated_count = 0
+        excluded_columns = excluded_columns or {}
+        excluded_fks = excluded_fks or {}
+        if excluded_columns or excluded_fks:
             from app.core.sql_chunk import chunked as _chunked
-            ids = [str(k) for k in excluded_columns.keys()]
+            from app.ai.prompt_formatters import fk_flat, fk_key
+            ids = sorted({str(k) for k in excluded_columns} | {str(k) for k in excluded_fks})
             for chunk in _chunked(ids):
                 rows = (await db.execute(
                     select(DataSourceTable).where(
@@ -4748,31 +4787,56 @@ class DataSourceService:
                     )
                 )).scalars().all()
                 for row in rows:
-                    requested = excluded_columns.get(str(row.id)) or []
-                    # Keep only names the table actually has (case-insensitive,
-                    # stored with the catalog's spelling). A table with no
-                    # canonical columns (e.g. per-user only) keeps the names
-                    # as sent: there is nothing to validate against.
-                    known = {
-                        str(c.get("name")).lower(): str(c.get("name"))
-                        for c in (row.columns or []) if isinstance(c, dict) and c.get("name")
-                    }
-                    cleaned: list[str] = []
-                    seen: set[str] = set()
-                    for name in requested:
-                        if not isinstance(name, str) or not name.strip():
-                            continue
-                        key = name.lower()
-                        if key in seen:
-                            continue
-                        if known and key not in known:
-                            continue
-                        seen.add(key)
-                        cleaned.append(known.get(key, name))
-                    new_value = sorted(cleaned) or None
-                    if (row.excluded_columns or None) != new_value:
-                        row.excluded_columns = new_value
-                        columns_updated_count += 1
+                    if str(row.id) in excluded_columns:
+                        requested = excluded_columns.get(str(row.id)) or []
+                        # Keep only names the table actually has (case-insensitive,
+                        # stored with the catalog's spelling). A table with no
+                        # canonical columns (e.g. per-user only) keeps the names
+                        # as sent: there is nothing to validate against.
+                        known = {
+                            str(c.get("name")).lower(): str(c.get("name"))
+                            for c in (row.columns or []) if isinstance(c, dict) and c.get("name")
+                        }
+                        cleaned: list[str] = []
+                        seen: set[str] = set()
+                        for name in requested:
+                            if not isinstance(name, str) or not name.strip():
+                                continue
+                            key = name.lower()
+                            if key in seen:
+                                continue
+                            if known and key not in known:
+                                continue
+                            seen.add(key)
+                            cleaned.append(known.get(key, name))
+                        new_value = sorted(cleaned) or None
+                        if (row.excluded_columns or None) != new_value:
+                            row.excluded_columns = new_value
+                            columns_updated_count += 1
+
+                    if str(row.id) in excluded_fks:
+                        # Same rules for relationships: keep only edges the
+                        # table actually has, stored with the catalog's
+                        # spelling; a table with no canonical fks keeps the
+                        # edges as sent.
+                        known_fks: dict = {}
+                        for fk in row.fks or []:
+                            flat = fk_flat(fk)
+                            if flat is not None:
+                                known_fks.setdefault(fk_key(flat), flat)
+                        cleaned_fks: dict = {}
+                        for entry in excluded_fks.get(str(row.id)) or []:
+                            flat = fk_flat(entry)
+                            if flat is None:
+                                continue
+                            key = fk_key(flat)
+                            if key in cleaned_fks or (known_fks and key not in known_fks):
+                                continue
+                            cleaned_fks[key] = known_fks.get(key, flat)
+                        new_fks = [cleaned_fks[k] for k in sorted(cleaned_fks)] or None
+                        if (row.excluded_fks or None) != new_fks:
+                            row.excluded_fks = new_fks
+                            relationships_updated_count += 1
 
         await db.commit()
         _invalidate_agent_schema_cache(organization)
@@ -4814,6 +4878,7 @@ class DataSourceService:
             deactivated_count=deactivated_count,
             total_selected=total_selected,
             columns_updated_count=columns_updated_count,
+            relationships_updated_count=relationships_updated_count,
         )
 
     async def read_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User, active_only: bool = False):
@@ -6851,11 +6916,19 @@ class DataSourceService:
             should_activate = total_tables <= max_auto_select
             needs_smart_selection = total_tables > max_auto_select
 
+        # Old name -> new name for rows that keep their identity but come back
+        # renamed (e.g. a Power BI table renamed at the source). Relationships
+        # hidden on OTHER tables point at the target by name, so they are
+        # remapped below; otherwise a hidden edge silently returns.
+        renamed: dict[str, str] = {}
+
         for conn_table in conn_tables:
             domain_name = domain_names[conn_table.id]
             if conn_table.id in existing_by_conn_table_id:
                 # Update existing - refresh schema data (preserves is_active)
                 domain_table = existing_by_conn_table_id[conn_table.id]
+                if domain_table.name and domain_table.name != domain_name:
+                    renamed[domain_table.name] = domain_name
                 domain_table.name = domain_name
                 domain_table.columns = conn_table.columns
                 domain_table.pks = conn_table.pks
@@ -6876,6 +6949,8 @@ class DataSourceService:
                                       and powerbi_identity(r.metadata_json) == identity), None)
                 if candidate is not None:
                     domain_table = candidate
+                    if domain_table.name and domain_table.name != domain_name:
+                        renamed[domain_table.name] = domain_name
                     domain_table.name = domain_name
                     if candidate in pool:
                         pool.remove(candidate)
@@ -6922,6 +6997,11 @@ class DataSourceService:
                         metrics_computed_at=conn_table.metrics_computed_at,
                     )
                     db.add(domain_table)
+
+        if renamed:
+            # Edges never cross connections: only this connection's rows can
+            # point at the renamed tables (a namesake elsewhere is unrelated).
+            _remap_excluded_fk_targets([r for r in existing_rows if belongs_here(r)], renamed)
 
         # Heal pre-existing duplicates: when a name already had BOTH a linked row
         # (matched by connection_table_id above) AND a leftover unlinked orphan,

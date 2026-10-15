@@ -5779,7 +5779,18 @@
     "exitFullscreen": "Esci da schermo intero",
     "searchColumns": "Cerca colonne…",
     "noColumns": "Nessuna colonna corrispondente",
-    "centrality": "Centralità"
+    "centrality": "Centralità",
+    "relationships": "Relazioni",
+    "relationshipsContextHint": "Le relazioni non selezionate restano fuori dal contesto dell'agente. L'agente può comunque unire queste tabelle da solo.",
+    "showAllRelationships": "Mostra tutte",
+    "hideAllRelationships": "Nascondi tutte",
+    "includeRelationship": "Includi {name} nel contesto dell'agente",
+    "relationshipHidden": "nascosta",
+    "relationshipsHiddenBadge": "Nascoste: {count}",
+    "relationshipsHiddenTooltip": "Alcune relazioni sono nascoste dal contesto di questo agente",
+    "relationshipTargetNotSelected": "Fuori contesto: {name} non è selezionata",
+    "relationshipColumnHidden": "Fuori contesto: una colonna è nascosta",
+    "hiddenFromAgent": "Nascosta all'agente"
   },
   "fork": {
     "preparing": "Preparazione della tua copia…",

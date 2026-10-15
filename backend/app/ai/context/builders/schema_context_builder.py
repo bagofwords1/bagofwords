@@ -588,7 +588,7 @@ class SchemaContextBuilder:
                     excluded = getattr(base, 'excluded_columns', None) if base is not None else None
                     columns = filter_columns(columns, excluded)
                     pks = filter_columns(pks, excluded)
-                    fks = filter_fks(fks, excluded)
+                    fks = filter_fks(fks, excluded, getattr(base, 'excluded_fks', None) if base is not None else None)
                     metadata_json = _redact_source_metadata(
                         getattr(base, 'metadata_json', None) if base is not None else None
                     )
@@ -687,7 +687,7 @@ class SchemaContextBuilder:
                         "table_id": str(t.id) if getattr(t, 'id', None) else None,
                         "columns": columns,
                         "pks": filter_columns(getattr(t, 'pks', []) or [], excluded),
-                        "fks": filter_fks(getattr(t, 'fks', []) or [], excluded),
+                        "fks": filter_fks(getattr(t, 'fks', []) or [], excluded, getattr(t, 'excluded_fks', None)),
                         "excluded_columns": excluded or None,
                         "metadata_json": getattr(t, 'metadata_json', None),
                         "centrality_score": getattr(t, 'centrality_score', None),
