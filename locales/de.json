@@ -1785,6 +1785,26 @@
       "sendFeedback": "Feedback senden",
       "expired": "Diese Prüfung ist abgelaufen.",
       "respondFailed": "Antwort konnte nicht gesendet werden – bitte erneut versuchen."
+    },
+    "messageSubAgent": {
+      "sending": "Nachricht wird gesendet…",
+      "sent": "Nachricht an {title} gesendet",
+      "failed": "Nachricht an {title} konnte nicht gesendet werden",
+      "parent": "Hauptagent",
+      "agent": "Unteragent",
+      "sentHint": "Zur Zustellung vor dem nächsten Planungsschritt gespeichert. Dies bestätigt keine Umsetzung.",
+      "failedHint": "Die Nachricht wurde nicht gesendet.",
+      "messages": "Nachrichten",
+      "states": {
+        "sent": "Gesendet",
+        "delivered": "An den Agentenkontext übermittelt",
+        "undelivered": "Nicht zugestellt"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "Wartet auf Hauptagent"
+      }
     }
   },
   "entityCreate": {

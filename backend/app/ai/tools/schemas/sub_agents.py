@@ -114,3 +114,11 @@ class StopSubAgentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     sub_agent_id: str = Field(..., min_length=4)
     reason: str = Field("", max_length=300)
+
+
+class MessageSubAgentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    recipient: str = Field(..., min_length=4, max_length=36, description="Child id from delegate/<sub_agents>; a child must use 'parent'.")
+    kind: Literal['direction', 'question', 'answer', 'finding']
+    body: str = Field(..., min_length=1, max_length=2000, description="Concise update, question, or answer; include evidence ids when relevant.")
+    reply_to: Optional[str] = Field(None, max_length=36, description="For an answer, the question's message_id.")

@@ -777,6 +777,7 @@ class AgentV2:
         # for the current decision to finish. (Cross-worker steers land at the
         # next loop-top DB poll — they can't interrupt mid-stream.)
         self._steering_interrupt = asyncio.Event()
+        self._message_handoff_steers: int | None = None
 
         # SSE event queue for streaming
         self.event_queue = event_queue
@@ -982,6 +983,9 @@ class AgentV2:
         )
         if not self._sub_agents_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_agent', 'stop_sub_agent')]
+
+        if not (self._sub_agents_enabled or (self._is_sub_agent and _sub_agents_enabled(self.organization_settings))):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'message_sub_agent']
 
         # Tools the conversation switched off (report.tools; resolved above,
         # before the feature gates that also drive prompt directives). Hidden
@@ -3377,7 +3381,9 @@ class AgentV2:
         items = "\n".join(f"    - {t}" for t in self._steering_texts)
         return (
             "<steering_updates>\n"
-            "    PRIORITY — the user interrupted with these instructions WHILE you were "
+            "    These are retained updates, not new requests on each planning step. "
+            "Do not repeat sends or edits already completed for an update. "
+            "PRIORITY — the user interrupted with these instructions WHILE you were "
             "working. They override <original_user_prompt> and your current plan/notes "
             "where they conflict. Re-evaluate your plan against them in THIS decision — "
             "do not simply continue the previous plan. If you keep a plan note, update "
@@ -3398,6 +3404,7 @@ class AgentV2:
         additions = "\n".join(f"- {t}" for t in self._steering_texts)
         return (
             f"{base}\n\n<steering_updates>\n"
+            "These retained updates are shown again for context; do not repeat actions already completed for them. "
             "URGENT — the user sent these instructions WHILE you were working. "
             "Do not simply continue your previous plan: re-evaluate it against "
             "these updates in your VERY NEXT decision and adjust course now. "
@@ -5243,6 +5250,21 @@ class AgentV2:
                             routing_state=self._routing_prompt_state()[1],
                         )
                         await self._apply_sub_agent_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
+                        if self.sigkill_event.is_set():
+                            break
+                        # A correction hands work back to the child. Generate a
+                        # normal localized confirmation, without another tool
+                        # round that can resend, poll, or redo the child's work.
+                        # A NEW user steer reopens tool use immediately.
+                        if (self._message_handoff_steers is not None
+                                and self._message_handoff_steers == len(self._steering_seen_ids)):
+                            planner_input.tool_catalog = []
+                            planner_input.steering_context = (
+                                (planner_input.steering_context or "")
+                                + "\nThe correction was sent successfully. Give a short confirmation and end this turn. "
+                                "Do not claim the child acted on it. Its result will arrive automatically; "
+                                "continue the overall task then."
+                            )
                         # Trim context if it exceeds the model's token budget. After a
                         # context_length rejection the run's shrink factor tightens the
                         # window (see _handle_context_overflow) so the retry provably
@@ -6977,6 +6999,10 @@ class AgentV2:
                                 _ti_args = _o.get("tool_input")
                                 if _tn == "finish_subtask" and isinstance(_obs, dict) and _obs.get("analysis_complete"):
                                     self._sub_agent_finished = True
+                                if (_tn == "message_sub_agent" and not self._is_sub_agent
+                                        and isinstance(_obs, dict) and _obs.get("success")
+                                        and _obs.get("kind") == "direction"):
+                                    self._message_handoff_steers = len(self._steering_seen_ids)
                                 if _tn == "delegate" and isinstance(_obs, dict) and _obs.get("sub_agent_id"):
                                     self._wave_pending = True
                                 if _tn == "submit_list" and isinstance(_obs, dict):
@@ -7748,7 +7774,23 @@ class AgentV2:
         posture; a child loses conversation-level context and gets its goal,
         profile addendum and remaining budget."""
         from app.services.sub_agent_service import sub_agent_posture, sub_agent_service
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        await self._release_db_between_steps()
         if self._is_sub_agent:
+            await self._await_sub_agent_answer()
+        if self.sigkill_event.is_set():
+            return
+        from app.dependencies import async_session_maker
+        agent_messages = []
+        if self._is_sub_agent or self._sub_agents_enabled:
+            async with (self._session_maker or async_session_maker)() as mailbox_db:
+                agent_messages = await sub_agent_message_service.receive(
+                    mailbox_db, organization_id=str(self.organization.id), report_id=str(self.report_id),
+                    recipient=str(self._sub_agent_id) if self._is_sub_agent else 'parent',
+                )
+        mailbox_context = sub_agent_message_service.render(agent_messages)
+        if self._is_sub_agent:
+            planner_input.sub_agents_context = mailbox_context
             planner_input.messages_context = ""
             planner_input.history_summary = None
             planner_input.steering_context = None
@@ -7776,10 +7818,59 @@ class AgentV2:
         planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
         planner_input.sub_agent_posture = sub_agent_posture(self.organization_settings)
         if planner_input.sub_agents_enabled and self.report is not None:
+            planner_input.sub_agents_context = mailbox_context
             try:
-                planner_input.sub_agents_context = await sub_agent_service.context_block(self.db, str(self.report_id))
+                planner_input.sub_agents_context = (await sub_agent_service.context_block(self.db, str(self.report_id))) + "\n" + mailbox_context
             except Exception:
                 logger.debug("[agent] sub_agents context block failed", exc_info=True)
+
+    async def _await_sub_agent_answer(self) -> None:
+        """Suspend between planning steps without holding a DB connection/slot.
+        The existing wave deadline and stop controls remain authoritative."""
+        from sqlalchemy import select, update, func
+        from app.models.sub_agent import SubAgentRun, SubAgentWave, TERMINAL_RUN_STATUSES
+        from app.services.sub_agent_service import sub_agent_limits, effective_concurrency
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        if not self._sub_agent_id:
+            return
+        from app.dependencies import async_session_maker
+        from app.models.report import Report
+        while not self.sigkill_event.is_set():
+            async with (self._session_maker or async_session_maker)() as db:
+                row = await db.get(SubAgentRun, str(self._sub_agent_id))
+                if row is None or row.status in TERMINAL_RUN_STATUSES:
+                    self.sigkill_event.set()
+                    return
+                question = await sub_agent_message_service.waiting_question(db, str(row.id))
+                if question:
+                    await db.execute(update(SubAgentRun).where(
+                        SubAgentRun.id == row.id, SubAgentRun.status == 'running',
+                    ).values(status='waiting'))
+                    await db.commit()
+                elif row.status != 'waiting':
+                    return
+                else:
+                    # Same report-scoped lock as the launcher, including across waves.
+                    await db.execute(update(Report).where(Report.id == row.report_id)
+                                     .values(last_activity_at=Report.last_activity_at))
+                    await db.execute(update(SubAgentWave).where(SubAgentWave.id == row.wave_id)
+                                     .values(total=SubAgentWave.total))
+                    running = (await db.execute(select(func.count()).select_from(SubAgentRun).where(
+                        SubAgentRun.report_id == row.report_id, SubAgentRun.status == 'running',
+                    ))).scalar_one()
+                    limit = effective_concurrency(sub_agent_limits(self.organization_settings)['concurrency'],
+                                                  db.get_bind().dialect.name)
+                    if running < limit:
+                        resumed = await db.execute(update(SubAgentRun).where(
+                            SubAgentRun.id == row.id, SubAgentRun.status == 'waiting',
+                        ).values(status='running'))
+                        await db.commit()
+                        if resumed.rowcount == 1:
+                            return
+            try:
+                await asyncio.wait_for(self.sigkill_event.wait(), timeout=0.5)
+            except asyncio.TimeoutError:
+                pass
 
     async def _launch_pending_sub_agents(self) -> None:
         """After a batch holding delegate calls: close the wave and start its children."""

@@ -6,8 +6,8 @@ tasks*. One row of `sub_agent_runs` is one execution of a sub-agent; the
 feature-level names drop "runs": tables `sub_agent_runs` and
 `sub_agent_waves`, settings `enable_sub_agents` and `sub_agent_*`, routes
 `/reports/{id}/sub-agents` and `/sub-agent-waves/{id}/stop`, tools `delegate`,
-`finish_subtask`, `read_sub_agent`, `stop_sub_agent`, trigger sources
-`sub_agent` and `sub_agent_wave`, planner mode `subagent`.**
+`finish_subtask`, `read_sub_agent`, `stop_sub_agent`, `message_sub_agent`, trigger sources
+`sub_agent`, `sub_agent_wave`, and `sub_agent_message`, planner mode `subagent`.**
 
 A *sub-agent* is a bounded agent run the main agent delegates a self-contained
 goal to. Sub-agents launched in one planner response form a *wave*. The parent
@@ -36,7 +36,7 @@ and why it was dropped.
 2. **Asynchronous, in waves.** The `delegate` tool returns a spawn receipt.
    The parent writes one line and ends its turn. One fan-in machine turn per
    wave, through `run_machine_turn`, the primitive wait, webhooks, evals and
-   check-ins already use. No per-child wake, no sync mode in v1.
+   check-ins already use. Blocking child questions now wake the parent through the prompt queue (A4a); routine findings do not. No synchronous delegation mode.
 3. **The result is a record, not a message.** `finish_subtask` writes a typed
    row to a `sub_agents` table. The parent receives the wave's records inline in
    the fan-in trigger and reads any record again on demand with
@@ -147,6 +147,37 @@ Child system prompt: a lean `_build_subagent_system` in
 ledger when the budget is above ~10 steps", "finish by calling
 `finish_subtask`; your final text is not delivered", and the remaining
 budget on every turn (B5, B8).
+
+### A4a. Parent/child messages (2026-10-15)
+
+`message_sub_agent(recipient, kind, body, reply_to?)` persists a report-scoped
+message and returns its receipt. Parent directions and answers target a child
+ID; child findings and questions target `parent`. The sender comes from runtime
+identity, never tool arguments. Siblings, cross-report sends, nesting, and
+resuming terminal children remain deferred. Read a previous child's result and
+notes and delegate a new task instead.
+
+- **Delivery:** `sent` means durably stored; `delivered` means included in the
+  recipient's next planner input. Neither asserts compliance. An unseen parent
+  message becomes `undelivered` if its child ends. Messages survive compaction
+  because the bounded inbox is rebuilt from the database each planning step.
+- **Questions:** at most one unanswered question per child, three per run.
+  A child suspends between planning steps, releases its execution slot, and
+  keeps its deadline. The existing report queue coalesces question wakes; no
+  second parent starts beside a running parent. Answers reference the question
+  ID. A later correction is a direction, not a second answer to the same ID.
+- **Findings:** persisted and included in the parent's next turn without waking
+  it. Final results still use `finish_subtask` and the existing wave fan-in.
+- **Limits:** 2,000 characters/message, 32 messages/child across both directions,
+  and a bounded 160-message planner inbox prioritizing open questions and live
+  children. Retries with the same tool-call identity return the same receipt.
+- **UI:** expandable sent/failed tool rows and message history inside the child
+  card. Waiting is visible and remains stoppable. Message bodies are rendered
+  as text. All shipped locales have labels, including Hebrew RTL.
+
+The original child run cannot be resurrected after a process restart; durable
+receipts are not execution checkpoints. Existing stop/deadline recovery applies.
+See `docs/feedback-loops/sub-agent-messaging.md` for reproducible verification.
 
 ### A5. `finish_subtask` and the record
 
@@ -423,8 +454,9 @@ envelope and the child's tool executions (the eval-run page pattern).
    nesting, cost rollup.
 4. `create_data` inside children with widget auto-placement off; evidence
    viz ids flow into `create_doc`.
-5. Org-authored profiles via the skills catalog; `delegate(resume=...)` on
-   a finished child; steering propagation to running children.
+5. Parent/child messaging and explicit directions to running children (A4a).
+   Org-authored profiles and `delegate(resume=...)` on finished children remain
+   deferred; use a fresh delegation with the earlier record and notes.
 
 ### A13. Risks
 
@@ -710,3 +742,17 @@ a setting.*
    feature-complete harnesses carry their most fragile code.
 5. **Posture as an org setting**, because the field could not agree and
    flipped it between versions.
+
+
+### Messaging completion boundary
+
+Normal child completion locks report → wave → child and refuses to finish while
+accepted incoming messages have not reached planner context. The next planner
+step includes them. Stop, deadline, and exhausted budgets still end the run;
+unseen messages become undelivered. A finish arriving after stop cannot replace
+that terminal record. Parent reads include outgoing receipt status without
+acknowledging child delivery.
+
+After sending a direction, the parent has a tool-free confirmation response and
+yields; automatic wave fan-in resumes the overall request. A new user steer
+reopens tools. Answers can be sent to multiple waiting children in one turn.

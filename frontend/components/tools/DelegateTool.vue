@@ -83,6 +83,19 @@
         <p v-if="record.synthesized" class="text-[10px] text-gray-400 italic">{{ t('tools.delegate.synthesized') }}</p>
       </template>
 
+      <div v-if="detail?.messages?.length" class="space-y-2" data-testid="sub-agent-message-history">
+        <div class="text-[10px] uppercase tracking-wide text-gray-400">{{ t('tools.messageSubAgent.messages') }}</div>
+        <div v-for="message in detail.messages" :key="message.message_id" class="rounded-md border border-gray-200 dark:border-gray-700 p-2">
+          <div class="flex flex-wrap items-center gap-1 text-[10px] text-gray-500">
+            <span>{{ message.sender === 'parent' ? t('tools.messageSubAgent.parent') : title }}</span>
+            <span aria-hidden="true" class="inline-block rtl:rotate-180">→</span>
+            <span>{{ message.recipient === 'parent' ? t('tools.messageSubAgent.parent') : title }}</span>
+            <span class="ms-auto">{{ t(`tools.messageSubAgent.states.${message.status}`) }}</span>
+          </div>
+          <p class="mt-1 whitespace-pre-wrap break-words" dir="auto">{{ message.body }}</p>
+        </div>
+      </div>
+
       <!-- Envelope line -->
       <div v-if="envelope" class="text-[10px] text-gray-400 flex flex-wrap gap-x-2">
         <span v-if="envelope.exit_reason">{{ t('tools.delegate.exit') }}: {{ envelope.exit_reason }}</span>
@@ -139,7 +152,7 @@ const status = computed<string>(() => {
   if (refused.value) return 'refused'
   return detail.value?.status || live.value?.status || rj.value?.status || (props.toolExecution?.status === 'in_progress' ? 'running' : 'running')
 })
-const isLive = computed(() => !refused.value && (status.value === 'running' || status.value === 'pending'))
+const isLive = computed(() => !refused.value && (status.value === 'running' || status.value === 'pending' || status.value === 'waiting'))
 const record = computed<any>(() => detail.value?.record || live.value?.record || rj.value?.record || null)
 const outcome = computed<string | null>(() => record.value?.outcome || live.value?.outcome || null)
 const confidence = computed<number | null>(() => {
@@ -234,9 +247,11 @@ async function stop() {
 
 function syncDetailPolling() {
   if (detailTimer) { clearInterval(detailTimer); detailTimer = null }
-  if (expanded.value && isLive.value && !props.readonly) {
+  if (expanded.value && !props.readonly) {
+    // A finished card already has its result in the wave snapshot, but its
+    // durable message history is only returned by the detail endpoint.
     fetchDetail()
-    detailTimer = setInterval(fetchDetail, 3000)
+    if (isLive.value) detailTimer = setInterval(fetchDetail, 3000)
   }
 }
 watch([expanded, isLive], syncDetailPolling)

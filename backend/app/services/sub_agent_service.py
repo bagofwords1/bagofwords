@@ -35,7 +35,7 @@ from sqlalchemy import func, select, update
 
 from app.models.sub_agent import (
     EXIT_DEADLINE, EXIT_ERROR, EXIT_FINISH_CALL, EXIT_MAX_STEPS, EXIT_MAX_TOKENS, EXIT_NO_FINISH_CALL, EXIT_STOPPED,
-    RUN_FAILED, RUN_FINISHED, RUN_INTERRUPTED, RUN_PENDING, RUN_RUNNING, RUN_TIMED_OUT,
+    RUN_FAILED, RUN_FINISHED, RUN_INTERRUPTED, RUN_PENDING, RUN_RUNNING, RUN_WAITING, RUN_TIMED_OUT,
     TERMINAL_RUN_STATUSES,
     WAVE_COLLECTING, WAVE_DONE, WAVE_FIRING, WAVE_RUNNING, WAVE_STOPPED, WAVE_TIMED_OUT,
     SubAgentRun, SubAgentWave,
@@ -114,6 +114,10 @@ def effective_concurrency(configured: int, dialect: str) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 # Service
 # ─────────────────────────────────────────────────────────────────────────────
+
+class PendingSubAgentMessages(ValueError):
+    """A child must plan with newly accepted directions before finishing."""
+
 
 class SubAgentService:
 
@@ -407,6 +411,17 @@ class SubAgentService:
             if not (report and organization and user):
                 await self._mark_terminal(db, row, RUN_FAILED, EXIT_ERROR, error="report, organization or user gone before launch")
                 return
+            # Share the report slot lock with children resuming after questions.
+            await db.execute(update(Report).where(Report.id == row.report_id)
+                             .values(last_activity_at=Report.last_activity_at))
+            org_settings = await organization.get_settings(db)
+            cap = effective_concurrency(sub_agent_limits(org_settings)['concurrency'], _dialect_name(db))
+            running = (await db.execute(select(func.count(SubAgentRun.id)).where(
+                SubAgentRun.report_id == row.report_id, SubAgentRun.status == RUN_RUNNING,
+            ))).scalar() or 0
+            if running >= cap:
+                await db.rollback()
+                return
             # Claim the row before the run can finish (finalize_child is a
             # conditional transition from running). Conditional, so a stop that
             # landed after the read above is not overwritten back to running.
@@ -479,16 +494,42 @@ class SubAgentService:
         row = await db.get(SubAgentRun, sub_agent_id)
         if row is None:
             return None
+        # Serialize completion with sends. A message accepted while the final
+        # model response was in flight must reach another planning step, not
+        # silently become undelivered on a successful finish.
+        from app.models.report import Report
+        from app.models.sub_agent_message import SubAgentMessage
+        await db.execute(update(Report).where(Report.id == row.report_id).values(last_activity_at=Report.last_activity_at))
+        await db.execute(update(SubAgentWave).where(SubAgentWave.id == row.wave_id).values(total=SubAgentWave.total))
+        await db.execute(update(SubAgentRun).where(SubAgentRun.id == sub_agent_id).values(status=SubAgentRun.status))
+        await db.refresh(row)
+        if row.status == RUN_FINISHED and row.exit_reason == EXIT_FINISH_CALL:
+            await db.commit()
+            return row
+        if row.status not in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
+            await db.rollback()
+            raise ValueError("This sub-agent has already ended; its result cannot be replaced.")
+        unread = (await db.execute(select(SubAgentMessage.id).where(
+            SubAgentMessage.recipient == sub_agent_id, SubAgentMessage.status == "sent",
+        ).limit(1))).scalar_one_or_none()
+        if unread:
+            await db.rollback()
+            raise PendingSubAgentMessages(
+                "New parent messages arrived while you were working. Review agent_messages in your next "
+                "planning step, apply the updated direction to your work and notes, then finish."
+            )
         note_id = result.get("report_note_id")
         if note_id:
             note = await db.get(Note, str(note_id))
             if note is None or str(note.report_id) != str(row.report_id):
                 result = {**result, "report_note_id": None}
                 note_id = None
-        if row.status in (RUN_PENDING, RUN_RUNNING):
+        if row.status in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
             row.status = RUN_FINISHED
             row.exit_reason = EXIT_FINISH_CALL
             row.finished_at = datetime.utcnow()
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        await sub_agent_message_service.close_child(db, str(row.id))
         row.result_json = result
         row.report_note_id = str(note_id) if note_id else row.report_note_id
         await db.commit()
@@ -520,7 +561,7 @@ class SubAgentService:
                 # finish_subtask already closed it; `remaining` has not been
                 # touched yet (record_finish never decrements), so do it here.
                 transitioned = True
-            elif row.status in (RUN_PENDING, RUN_RUNNING):
+            elif row.status in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
                 if agent_status == "sigkill":
                     status, exit_reason = RUN_INTERRUPTED, EXIT_STOPPED
                 elif agent_status == "error" and not steps_exhausted:
@@ -546,11 +587,13 @@ class SubAgentService:
         """Conditional transition pending/running → terminal. True if THIS call won."""
         res = await db.execute(
             update(SubAgentRun)
-            .where(SubAgentRun.id == row.id, SubAgentRun.status.in_((RUN_PENDING, RUN_RUNNING)))
+            .where(SubAgentRun.id == row.id, SubAgentRun.status.in_((RUN_PENDING, RUN_RUNNING, RUN_WAITING)))
             .values(status=status, exit_reason=exit_reason, finished_at=datetime.utcnow(),
                     error_message=(error or None))
             .execution_options(synchronize_session=False)
         )
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        await sub_agent_message_service.close_child(db, str(row.id))
         await db.commit()
         won = (res.rowcount or 0) == 1
         if won:
@@ -676,6 +719,10 @@ class SubAgentService:
             "report_note_id": row.report_note_id,
             "child_completion_id": row.child_completion_id, "child_execution_id": row.child_execution_id,
         }
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        out["messages"] = await sub_agent_message_service.list_for_child(
+            db, organization_id=str(row.organization_id), report_id=str(row.report_id), sub_agent_id=str(row.id),
+        )
         calls: List[Dict[str, Any]] = []
         steps = row.steps_used or 0
         if row.child_execution_id:
