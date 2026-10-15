@@ -57,6 +57,7 @@ from app.services.widget_service import WidgetService
 from app.services.report_service import ReportService
 from app.services.mention_service import MentionService
 from app.services.data_source_service import DataSourceService
+from app.services.sub_agent_locks import lock_report
 
 from app.streaming.completion_event_bus import websocket_manager
 from app.settings.database import create_async_session_factory
@@ -695,9 +696,9 @@ class CompletionService:
             # The same lock as question wakes: claiming the parent turn and
             # inserting its system row must be atomic. Children run separately.
             if trigger_source != 'sub_agent':
-                await db.execute(update(Report).where(Report.id == report_id)
-                                 .values(last_activity_at=Report.last_activity_at))
-                if trigger_source is None and external_platform is None and await self._get_running_system_completion(db, report_id):
+                await lock_report(db, report_id)
+                if ((completion_data.queue or completion_data.queue_if_busy) and trigger_source is None and external_platform is None
+                        and await self._get_running_system_completion(db, report_id)):
                     return await self.create_queued_completion(db, report_id, completion_data, current_user, organization)
 
             # Create user completion (head)
@@ -2278,9 +2279,9 @@ class CompletionService:
 
             span.set_attribute("llm.model_id", model.model_id)
 
-            await db.execute(update(Report).where(Report.id == report_id)
-                             .values(last_activity_at=Report.last_activity_at))
-            if external_platform is None and await self._get_running_system_completion(db, report_id):
+            await lock_report(db, report_id)
+            if ((completion_data.queue or completion_data.queue_if_busy) and external_platform is None
+                    and await self._get_running_system_completion(db, report_id)):
                 # JSON fallback: the browser reconciles the durable queued row
                 # when an automatic parent wake won the race to start.
                 return await self.create_queued_completion(db, report_id, completion_data, current_user, organization)
@@ -3471,9 +3472,10 @@ class CompletionService:
         """Queue dispatcher. Called after every agent run finishes (and after
         enqueueing, to cover the nothing-was-running race).
 
-        Only drains on success: when ``prev_system_completion_id`` is given and
-        that run ended in error/stopped, the queue stays paused so a broken or
-        deliberately-stopped conversation doesn't burn through queued prompts.
+        Drains after success or an authorization preflight failure (skip only
+        that invalid queue head). Runtime errors and explicit stops keep the
+        queue paused so a broken or deliberately-stopped conversation doesn't
+        burn through queued prompts.
         The claim is a conditional UPDATE so two finishing runs (or two workers)
         can't double-start the same queued prompt.
         """
@@ -3481,15 +3483,19 @@ class CompletionService:
         async with session_factory() as db:
             try:
                 if prev_system_completion_id:
-                    prev_status = (await db.execute(
-                        select(Completion.status).where(Completion.id == prev_system_completion_id)
-                    )).scalar_one_or_none()
-                    if prev_status != 'success':
+                    prev = await db.get(Completion, prev_system_completion_id)
+                    if prev is None:
+                        return
+                    auth_failure = (
+                        prev.status == 'error'
+                        and isinstance(prev.completion, dict)
+                        and prev.completion.get('error_type') == 'authorization'
+                    )
+                    if prev.status != 'success' and not auth_failure:
                         return
                 # Serialize queue claims and system-row creation on the report.
                 # A child question can arrive from another worker at any time.
-                await db.execute(update(Report).where(Report.id == report_id)
-                                 .values(last_activity_at=Report.last_activity_at))
+                await lock_report(db, report_id)
                 running = await self._get_running_system_completion(db, report_id)
                 if running is not None:
                     return
@@ -3562,6 +3568,7 @@ class CompletionService:
         register_stream(system_id, event_queue)
         session_factory = create_async_session_factory()
         _agent_slot = False
+        authorization_preflight_failure = False
         try:
             async with session_factory() as session:
                 try:
@@ -3576,8 +3583,20 @@ class CompletionService:
                     organization = await session.get(Organization, report.organization_id)
                     user = await session.get(User, head.user_id) if head.user_id else None
                     from app.core.permission_resolver import assert_principal_belongs_to_org
-                    await assert_principal_belongs_to_org(session, user, organization.id)
-                    self._assert_can_write_to_report(report, user)
+                    if user is None:
+                        # Machine-generated queue heads may outlive the user
+                        # that submitted the wave. Never substitute the report
+                        # owner here: fail this head as an authorization error
+                        # so the dispatcher can safely continue to later work.
+                        authorization_preflight_failure = True
+                        raise HTTPException(status_code=403, detail="Queued completion has no valid principal")
+                    try:
+                        await assert_principal_belongs_to_org(session, user, organization.id)
+                        self._assert_can_write_to_report(report, user)
+                    except HTTPException as auth_error:
+                        if auth_error.status_code == 403:
+                            authorization_preflight_failure = True
+                        raise
                     org_settings = await organization.get_settings(session)
 
                     prompt = head.prompt or {}
@@ -3639,10 +3658,13 @@ class CompletionService:
                         pass
                     try:
                         async with session_factory() as recovery_session:
+                            failure_content = {'content': f"Agent failed: {str(e)}", 'error': True}
+                            if authorization_preflight_failure:
+                                failure_content['error_type'] = 'authorization'
                             await recovery_session.execute(
                                 update(Completion)
                                 .where(Completion.id == system_id)
-                                .values(status='error', completion={'content': f"Agent failed: {str(e)}", 'error': True})
+                                .values(status='error', completion=failure_content)
                             )
                             await recovery_session.commit()
                     except Exception:

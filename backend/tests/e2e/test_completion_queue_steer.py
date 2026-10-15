@@ -21,6 +21,7 @@ import time
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app.ai.agent_v2 import AgentV2
 
@@ -57,10 +58,59 @@ def _stub_success(monkeypatch):
     monkeypatch.setattr(AgentV2, "main_execution", fake_main_execution)
 
 
+def _hold_first_provider_call(monkeypatch, watched_prompt=None):
+    """Hold the first real planner request at the LLM boundary; later calls
+    receive a scripted final answer while AgentV2 and completion services run.
+    """
+    import asyncio
+    import threading
+
+    from app.ai.llm.llm import LLM
+    from app.ai.llm.types import MessageStopEvent, TextDeltaEvent, UsageEvent
+
+    first_call = threading.Event()
+    second_call = threading.Event()
+    watched_call = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    call_count = 0
+
+    async def scripted(self, *, model_id=None, messages, system=None, tools=None, **kwargs):
+        nonlocal call_count
+        with lock:
+            call_count += 1
+            current = call_count
+        if watched_prompt and watched_prompt in repr(messages):
+            watched_call.set()
+        if current == 1:
+            first_call.set()
+            await asyncio.to_thread(release.wait, 30)
+        elif current == 2:
+            second_call.set()
+        yield TextDeltaEvent(text="The requested check is complete.")
+        yield MessageStopEvent(stop_reason="end_turn", raw_stop_reason="end_turn")
+        yield UsageEvent(input_tokens=64, output_tokens=24)
+
+    monkeypatch.setenv("OPENAI_API_KEY_TEST", "dummy-local-provider-boundary")
+    monkeypatch.setattr(LLM, "inference_stream_v2", scripted)
+    return first_call, second_call, release, watched_call
+
+
 def _get_completions(test_client, report_id, token, org_id):
     r = test_client.get(f"/api/reports/{report_id}/completions?limit=50", headers=_headers(token, org_id))
     assert r.status_code == 200, r.json()
     return r.json()["completions"]
+
+
+@pytest.fixture
+def live_client():
+    """Keep background tasks on one event loop for queue dispatch tests."""
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    with TestClient(app) as client:
+        yield client
 
 
 def _wait_until(predicate, timeout=15.0, interval=0.3):
@@ -161,7 +211,7 @@ def test_queue_while_running_then_remove_and_steer(
     assert promoted["parent_id"] == system["id"]
 
 
-def _drive_dispatcher(report_id, prev_system_id):
+def _drive_dispatcher(report_id, prev_system_id, portal=None):
     """Run the dispatcher on a private loop and let its fire-and-forget
     dispatched-agent task finish before the loop closes.
 
@@ -172,15 +222,246 @@ def _drive_dispatcher(report_id, prev_system_id):
     agent-run ``finally`` blocks do in production.
     """
     import asyncio
+
     from app.services.completion_service import CompletionService
 
     async def _run():
         await CompletionService().start_next_queued_if_idle(report_id, prev_system_id)
-        pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        if pending:
-            await asyncio.wait(pending, timeout=30)
+        deadline = asyncio.get_running_loop().time() + 30
+        while True:
+            # The live TestClient also owns app-lifespan tasks which should
+            # remain pending. Wait only for the durable dispatch workers.
+            pending = [
+                task for task in asyncio.all_tasks()
+                if task is not asyncio.current_task()
+                and task.get_coro().__qualname__.endswith("CompletionService._run_dispatched_agent")
+            ]
+            if not pending:
+                return
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                return
+            done, still_pending = await asyncio.wait(pending, timeout=remaining)
+            if still_pending and not done:
+                return
 
-    asyncio.run(_run())
+    if portal is None:
+        asyncio.run(_run())
+    else:
+        portal.call(_run)
+
+
+def _wait_for_automatic_queue_drain(portal, first_head_id, timeout=30.0):
+    """Wait for the original run's own dispatcher chain to settle.
+
+    Do not manually re-dispatch with the original successful completion after
+    an unauthorized head fails: that would reset the dispatcher's prior-status
+    gate and mask a queue-stall regression.
+    """
+    import asyncio
+
+    from app.models.completion import Completion
+    from app.settings.database import create_async_session_factory
+
+    async def _wait():
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            async with create_async_session_factory()() as db:
+                first_system = (await db.execute(
+                    select(Completion).where(
+                        Completion.parent_id == first_head_id,
+                        Completion.role == "system",
+                    )
+                )).scalar_one_or_none()
+            workers = [
+                task for task in asyncio.all_tasks()
+                if task is not asyncio.current_task()
+                and task.get_coro().__qualname__.endswith("CompletionService._run_dispatched_agent")
+            ]
+            if first_system is not None and first_system.status != "in_progress" and not workers:
+                return
+            await asyncio.sleep(0.05)
+        raise AssertionError("the automatic queue dispatch did not settle")
+
+    portal.call(_wait)
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["direct", "stream"])
+@pytest.mark.e2e
+def test_busy_run_is_queued_only_when_completion_opts_in(
+    streaming, monkeypatch, live_client, create_report, create_user, login_user,
+    whoami, create_llm_provider_and_models,
+):
+    """The busy-only opt-in starts normally while idle and queues only when
+    contention occurs; callers without it retain their normal direct/SSE path.
+    """
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    first_call, second_call, release, _ = _hold_first_provider_call(monkeypatch)
+    report = create_report(title=f"opt-in-{uuid.uuid4().hex[:8]}", user_token=token, org_id=org_id, data_sources=[])
+
+    try:
+        first = live_client.post(
+            f"/api/reports/{report['id']}/completions?background=true",
+            json={
+                "queue_if_busy": True,
+                "prompt": {"content": "keep a run active", "mentions": [{}]},
+            },
+            headers=_headers(token, org_id),
+        )
+        assert first.status_code == 200, first.text
+        running = next(c for c in first.json()["completions"] if c["role"] == "system")
+        assert running["status"] == "in_progress"
+        assert first_call.wait(timeout=20), "the first parent never reached the provider boundary"
+
+        second_payload = {"prompt": {"content": "start this without queueing", "mentions": [{}]}}
+        if streaming:
+            second_payload["stream"] = True
+        second = live_client.post(
+            f"/api/reports/{report['id']}/completions",
+            json=second_payload,
+            headers=_headers(token, org_id),
+        )
+        assert second.status_code == 200, second.text
+        if streaming:
+            assert second.headers["content-type"].startswith("text/event-stream")
+        assert second_call.wait(timeout=20), "the non-queued turn did not reach the provider"
+
+        completions = _get_completions(live_client, report["id"], token, org_id)
+        assert sum(c["role"] == "system" for c in completions) == 2
+        assert not any(c["role"] == "user" and c["status"] == "queued" for c in completions)
+    finally:
+        release.set()
+
+
+@pytest.mark.parametrize("principal_state", ["missing", "revoked"], ids=["null-principal", "removed-member"])
+@pytest.mark.e2e
+def test_unauthorized_queue_head_does_not_strand_later_user_prompt(
+    principal_state, monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models,
+):
+    """An authorization failure fails only that queued row and drains the next
+    prompt under its own principal; the dispatcher never borrows the report owner.
+    """
+
+    from app.models.completion import Completion
+    from app.settings.database import create_async_session_factory
+
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    valid_prompt_text = "later prompt from the report owner"
+    first_call, second_call, release, valid_turn_call = _hold_first_provider_call(
+        monkeypatch, watched_prompt=valid_prompt_text
+    )
+    report = create_report(title=f"auth-drain-{uuid.uuid4().hex[:8]}", user_token=token, org_id=org_id, data_sources=[])
+    running = live_client.post(
+        f"/api/reports/{report['id']}/completions?background=true",
+        json={"prompt": {"content": "active first turn", "mentions": [{}]}},
+        headers=_headers(token, org_id),
+    )
+    assert running.status_code == 200, running.text
+    running_system = next(c for c in running.json()["completions"] if c["role"] == "system")
+
+    def queue_prompt(content, caller_token=token):
+        response = live_client.post(
+            f"/api/reports/{report['id']}/completions",
+            json={"prompt": {"content": content, "mentions": [{}]}, "queue": True},
+            headers=_headers(caller_token, org_id),
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["completions"][0]
+
+    former_email = None
+    former_token = None
+    invite = None
+    revoked_user_id = None
+    if principal_state == "revoked":
+        former_email = f"former-member-{uuid.uuid4().hex}@gmail.com"
+        invite = live_client.post(
+            f"/api/organizations/{org_id}/members",
+            json={"organization_id": org_id, "email": former_email, "role": "admin"},
+            headers=_headers(token, org_id),
+        )
+        assert invite.status_code == 200, invite.text
+        former_member = create_user(
+            name=f"former-member-{uuid.uuid4().hex[:8]}",
+            email=former_email,
+        )
+        former_token = login_user(email=former_member["email"], password=former_member["password"])
+        former_user_id = whoami(former_token)["id"]
+        invalid_head = queue_prompt("queued prompt with a formerly-authorized member principal")
+        removed = live_client.delete(
+            f"/api/organizations/{org_id}/members/{invite.json()['id']}",
+            headers=_headers(token, org_id),
+        )
+        assert removed.status_code == 204, removed.text
+        revoked_user_id = former_user_id
+    else:
+        invalid_head = queue_prompt("legacy machine wake without a principal")
+    valid_head = queue_prompt(valid_prompt_text)
+
+    async def _seed_invalid_queue_principal():
+        # Queue creation is report-owner-only, so the public route cannot
+        # enqueue as a collaborator. Model a previously accepted queue row
+        # whose actor was later removed, using the real removed user's ID. The
+        # null-principal branch also models a legacy machine wake that the
+        # public API cannot create.
+        session_factory = create_async_session_factory()
+        async with session_factory() as db:
+            head = await db.get(Completion, invalid_head["id"])
+            assert head is not None
+            if principal_state == "missing":
+                head.user_id = None
+                head.trigger_source = "machine_test"
+            else:
+                head.user_id = revoked_user_id
+            await db.commit()
+
+    try:
+        live_client.portal.call(_seed_invalid_queue_principal)
+        assert first_call.wait(timeout=20), "the active parent never reached the provider boundary"
+        release.set()
+        assert _wait_until(
+            lambda: next((c for c in _get_completions(live_client, report["id"], token, org_id)
+                          if c["id"] == running_system["id"]), {}).get("status") == "success",
+            timeout=30,
+            interval=0.3,
+        ), "the active parent did not finish before queue dispatch"
+        assert valid_turn_call.wait(timeout=15), (
+            "the queued valid prompt never reached the provider after the authorization failure; "
+            "do not manually kick the dispatcher here because that masks a stranded queue"
+        )
+        _wait_for_automatic_queue_drain(live_client.portal, invalid_head["id"])
+    finally:
+        release.set()
+
+    async def _read_queue_state():
+        session_factory = create_async_session_factory()
+        async with session_factory() as db:
+            machine = await db.get(Completion, invalid_head["id"])
+            user = await db.get(Completion, valid_head["id"])
+            machine_system = (await db.execute(
+                select(Completion).where(Completion.parent_id == invalid_head["id"], Completion.role == "system")
+            )).scalar_one_or_none()
+            user_system = (await db.execute(
+                select(Completion).where(Completion.parent_id == valid_head["id"], Completion.role == "system")
+            )).scalar_one_or_none()
+            return machine, machine_system, user, user_system
+
+    machine, machine_system, user, user_system = live_client.portal.call(_read_queue_state)
+    assert machine.status != "queued"
+    assert machine.user_id == (None if principal_state == "missing" else revoked_user_id)
+    assert machine_system is not None and machine_system.status == "error"
+    assert machine_system.user_id == machine.user_id, "dispatcher must not impersonate the report owner"
+    assert user.status != "queued", (
+        f"later user prompt remained queued; machine={machine.status}, "
+        f"machine_system={machine_system.status if machine_system else None}, "
+        f"machine_error={machine_system.completion if machine_system else None}"
+    )
+    assert user_system is not None and user_system.status == "success"
+    assert user_system.user_id == user.user_id
 
 
 @pytest.mark.e2e

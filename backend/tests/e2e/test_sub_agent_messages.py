@@ -920,6 +920,7 @@ def test_real_child_question_parent_answer_and_child_resume(
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("last_step", [False, True])
 def test_accepted_direction_during_finish_planning_is_consumed_before_finish(
     live_client,
     create_user,
@@ -928,6 +929,7 @@ def test_accepted_direction_during_finish_planning_is_consumed_before_finish(
     create_report,
     create_llm_provider_and_models,
     monkeypatch,
+    last_step,
 ):
     """A direction accepted after a child's planner snapshot cannot vanish
     when an in-flight finish_subtask races to close that child.
@@ -982,7 +984,7 @@ def test_accepted_direction_during_finish_planning_is_consumed_before_finish(
         events = []
         if "Mode: Sub-agent" in system_text:
             child_calls += 1
-            if child_calls == 1:
+            if child_calls < (3 if last_step else 2):
                 assert "message_sub_agent" in tool_names, f"child tools did not include messaging: {tool_names}"
                 events += _tool("message_sub_agent", {
                     "recipient": "parent",
@@ -990,7 +992,7 @@ def test_accepted_direction_during_finish_planning_is_consumed_before_finish(
                     "body": "Initial scan is complete; I am checking the final comparison.",
                     "reply_to": None,
                 }) + _end("tool_use")
-            elif child_calls == 2:
+            elif child_calls == (3 if last_step else 2):
                 # This LLM request was planned before the parent direction was
                 # sent. Keep the provider response in flight to reproduce the
                 # race at the finish_subtask boundary.
@@ -1012,6 +1014,7 @@ def test_accepted_direction_during_finish_planning_is_consumed_before_finish(
                     "goal": "Check whether the comparison holds after excluding weekend data.",
                     "context": "Check the comparison with the weekdays-only slice before reporting.",
                     "title": "Weekday comparison check",
+                    "max_steps": 3 if last_step else 10,
                 }) + _end("tool_use")
             else:
                 events += [TextDeltaEvent(text="The delegated comparison is running.")] + _end()
@@ -1074,11 +1077,12 @@ def test_accepted_direction_during_finish_planning_is_consumed_before_finish(
     release_finish.set()
 
     try:
-        assert child_received_direction.wait(timeout=20), (
-            "an accepted direction was not supplied to a later planner step before finish_subtask; "
-            f"child_calls={child_calls}"
-        )
-        assert child_finished.wait(timeout=20), "child did not finish after receiving the direction"
+        if not last_step:
+            assert child_received_direction.wait(timeout=20), (
+                "an accepted direction was not supplied to a later planner step before finish_subtask; "
+                f"child_calls={child_calls}"
+            )
+            assert child_finished.wait(timeout=20), "child did not finish after receiving the direction"
 
         async def _read_terminal_and_message_status():
             async with async_session_maker() as db:
@@ -1086,24 +1090,30 @@ def test_accepted_direction_during_finish_planning_is_consumed_before_finish(
                 message = (await db.execute(select(SubAgentMessage).where(
                     SubAgentMessage.idempotency_key == "direction-during-finish-planning",
                 ))).scalar_one()
+                if last_step and row.status == "finished":
+                    assert row.result_json["summary"] == "Finished without the newly accepted direction."
+                    assert row.result_json["findings"]
+                    assert row.result_json["caveats"]
                 return (row.status if row is not None else None), message.status
+
+        expected = ("finished", "undelivered" if last_step else "delivered")
 
         def _terminal_and_delivered():
             statuses = _run(_read_terminal_and_message_status())
-            return statuses if statuses == ("finished", "delivered") else None
+            return statuses if statuses == expected else None
 
         final_statuses = _wait_for(
             _terminal_and_delivered,
             timeout_s=20,
             what="child finish and delivery of the accepted direction",
         )
-        assert final_statuses == ("finished", "delivered"), final_statuses
+        assert final_statuses == expected, final_statuses
     finally:
         release_finish.set()
 
 
 @pytest.mark.e2e
-def test_parent_direction_handoff_confirms_once_and_fresh_steer_restores_tools(
+def test_parent_direction_preserves_tools_and_fresh_steering(
     live_client,
     create_user,
     login_user,
@@ -1112,8 +1122,8 @@ def test_parent_direction_handoff_confirms_once_and_fresh_steer_restores_tools(
     create_llm_provider_and_models,
     monkeypatch,
 ):
-    """After a correction, parent confirms without tools; a fresh steer
-    restores tool use and does not replay the completed send.
+    """After a correction, the parent can continue independent work or message
+    other children. Fresh steering still takes priority without replaying sends.
     """
     from app.ai.llm.llm import LLM
     from app.ai.llm.types import (
@@ -1278,14 +1288,13 @@ def test_parent_direction_handoff_confirms_once_and_fresh_steer_restores_tools(
     )
     assert correction.status_code == 200, correction.text
     parent_system = next(c for c in correction.json()["completions"] if c["role"] == "system")
-    assert handoff_planner.wait(timeout=30), "parent did not reach its tool-free confirmation planner step"
-    assert parent_handoff_tool_names == [], (
-        "after a successful direction send, the next planner call should only confirm; "
-        f"tools still offered: {parent_handoff_tool_names}"
+    assert handoff_planner.wait(timeout=30), "parent did not reach its post-send planner step"
+    assert {"message_sub_agent", "read_sub_agent"} <= set(parent_handoff_tool_names), (
+        "a direction must not disable other messages or independent parent work"
     )
 
-    # A new user steer on this same parent execution must interrupt the
-    # confirmation response and reopen the catalog on its next planner call.
+    # A new user steer on this same execution must interrupt the response
+    # and take priority while keeping tools available on the next planner call.
     steer = live_client.post(
         f"/api/completions/{parent_system['id']}/steer",
         json={"content": "Fresh steer: split weekday and weekend results."},
@@ -1293,7 +1302,7 @@ def test_parent_direction_handoff_confirms_once_and_fresh_steer_restores_tools(
     )
     assert steer.status_code == 200 and steer.json()["status"] == "steered", steer.text
     release_handoff_planner.set()
-    assert fresh_steer_planner.wait(timeout=20), "fresh steer did not restore parent tool availability"
+    assert fresh_steer_planner.wait(timeout=20), "fresh steer did not reach the parent with tools available"
     assert parent_direction_calls == 1
     assert parent_handoff_planner_calls == 1
 
@@ -1403,7 +1412,7 @@ def test_user_submit_racing_child_question_is_queued_and_drains_once(
         path = f"/api/reports/{report_id}/completions" + ("?stream=true" if streaming else "")
         user_submit = live_client.post(
             path,
-            json={"prompt": {"content": "Use the queued date-window follow-up.", "mentions": [{}]}},
+            json={"queue_if_busy": True, "prompt": {"content": "Use the queued date-window follow-up.", "mentions": [{}]}},
             headers=headers,
         )
         assert user_submit.status_code == 200, user_submit.text
@@ -1470,3 +1479,79 @@ def test_user_submit_racing_child_question_is_queued_and_drains_once(
         assert [kind for kind, _ in messages].count("answer") == 1
     finally:
         release_parent.set()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("can_review", [True, False])
+def test_finish_preserves_records_and_reports_unread_messages(
+    create_user, login_user, whoami, create_report, create_llm_provider_and_models,
+    monkeypatch, can_review,
+):
+    from app.ai.tools.schemas.sub_agents import FinishSubtaskInput
+    from app.models.sub_agent import SubAgentRun
+    from app.services.sub_agent_message_service import sub_agent_message_service
+    from app.services.sub_agent_service import PendingSubAgentMessages, sub_agent_service
+
+    report, _, org_id, _ = _env(create_user, login_user, whoami, create_report,
+        create_llm_provider_and_models, monkeypatch, title="Bounded finish records")
+    child, = _run(_pending_children(report["id"], org_id, count=1))
+    result = FinishSubtaskInput(outcome="partial", confidence=0.7,
+        summary="Verified the monthly totals; regional split remains uncertain.",
+        caveats=["Regional attribution is incomplete."]).model_dump()
+
+    async def check():
+        async with async_session_maker() as db:
+            await sub_agent_message_service.send(db, organization_id=org_id,
+                report_id=report["id"], sender_sub_agent_id=None,
+                recipient=child["sub_agent_id"], kind="direction",
+                body="Include the regional split.", idempotency_key="late-direction")
+            if can_review:
+                with pytest.raises(PendingSubAgentMessages):
+                    await sub_agent_service.record_finish(db, sub_agent_id=child["sub_agent_id"], result=result)
+                await sub_agent_message_service.receive(db, organization_id=org_id,
+                    report_id=report["id"], recipient=child["sub_agent_id"])
+            row = await sub_agent_service.record_finish(db, sub_agent_id=child["sub_agent_id"],
+                result=result, **({} if can_review else {"can_review_messages": False}))
+            assert row.result_json["summary"] == result["summary"]
+            assert row.result_json["caveats"][:1] == result["caveats"]
+            assert len(row.result_json["caveats"]) == (1 if can_review else 2)
+            messages = await sub_agent_message_service.list_for_child(db,
+                organization_id=org_id, report_id=report["id"], sub_agent_id=child["sub_agent_id"])
+            assert messages[0]["status"] == ("delivered" if can_review else "undelivered")
+            saved = dict(row.result_json)
+            replay = await sub_agent_service.record_finish(db, sub_agent_id=child["sub_agent_id"], result=result)
+            assert replay.result_json == saved
+            with pytest.raises(ValueError):
+                await sub_agent_service.record_finish(db, sub_agent_id=child["sub_agent_id"],
+                    result={**result, "summary": "A different, unrecorded finding."})
+            persisted = await db.get(SubAgentRun, child["sub_agent_id"], populate_existing=True)
+            assert persisted.result_json == saved
+    _run(check())
+
+
+@pytest.mark.e2e
+def test_mailbox_locking_does_not_change_report_or_wave_activity(
+    create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch,
+):
+    from app.models.report import Report
+    from app.models.sub_agent import SubAgentRun, SubAgentWave
+    from app.services.sub_agent_message_service import sub_agent_message_service
+
+    report, _, org_id, _ = _env(create_user, login_user, whoami, create_report,
+        create_llm_provider_and_models, monkeypatch, title="Stable activity timestamps")
+    child, = _run(_pending_children(report["id"], org_id, count=1))
+    async def check():
+        async with async_session_maker() as db:
+            run = await db.get(SubAgentRun, child["sub_agent_id"])
+            wave = await db.get(SubAgentWave, run.wave_id)
+            owner = await db.get(Report, report["id"])
+            before = (owner.updated_at, owner.last_activity_at, wave.updated_at, run.updated_at)
+            await sub_agent_message_service.send(db, organization_id=org_id,
+                report_id=report["id"], sender_sub_agent_id=None, recipient=run.id,
+                kind="direction", body="Check all available regions.", idempotency_key="activity-check")
+            await sub_agent_message_service.receive(db, organization_id=org_id,
+                report_id=report["id"], recipient=run.id)
+            for row in (owner, wave, run):
+                await db.refresh(row)
+            assert (owner.updated_at, owner.last_activity_at, wave.updated_at, run.updated_at) == before
+    _run(check())

@@ -753,6 +753,10 @@ unseen messages become undelivered. A finish arriving after stop cannot replace
 that terminal record. Parent reads include outgoing receipt status without
 acknowledging child delivery.
 
-After sending a direction, the parent has a tool-free confirmation response and
-yields; automatic wave fan-in resumes the overall request. A new user steer
-reopens tools. Answers can be sent to multiple waiting children in one turn.
+After sending a direction, the parent retains its tools so it can message other
+children and complete independent work. Outgoing receipts prevent treating an
+already sent correction as a fresh request. When no independent work remains,
+the prompt asks for a short confirmation and yield; automatic wave fan-in
+resumes the overall request. This is guidance, not a forced tool shutdown.
+At the last available step/token-budget grace step, finish preserves its typed
+record with a caveat for any unread directions; their receipts become undelivered.

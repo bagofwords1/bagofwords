@@ -5560,7 +5560,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 		const options: any = {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(requestBody),
+			body: JSON.stringify({ ...requestBody, queue_if_busy: true }),
 			signal: controller?.signal,
 			stream: true
 		}

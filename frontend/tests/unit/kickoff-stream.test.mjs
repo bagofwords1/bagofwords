@@ -92,3 +92,24 @@ for (const overlap of ['steering', 'fan-in']) test(`canonical refresh replaces p
   assert.equal(ctx.messages.value[2]._render_key,'system-client');
   assert.equal(ctx.cursorBefore.value,'older-cursor');
 });
+
+test('main chat opts into busy queue receipts and reconciles the queued turn', async () => {
+  const {ctx}=setup();
+  let submitted;
+  const queued={id:'queued-user',role:'user',status:'queued'};
+  Object.assign(ctx,{
+    queuedFromHere:new Set(),
+    useMyFetch:async(_url,options)=>{
+      submitted=JSON.parse(options.body);
+      return {data:{value:Response.json({completions:[queued]})}};
+    },
+    loadCompletions:async()=>{ctx.messages.value=[queued];},
+  });
+  await ctx.startStreaming({prompt:{content:'Please include the revised launch date.'},stream:true},'temporary');
+  assert.equal(submitted.queue_if_busy,true);
+  assert.equal(submitted.prompt.content,'Please include the revised launch date.');
+  assert.equal(ctx.messages.value[0].status,'queued');
+  assert.equal(ctx.queuedFromHere.has('queued-user'),true);
+  assert.equal(ctx.isStreaming.value,false);
+  assert.equal(ctx.currentController,null);
+});

@@ -83,7 +83,8 @@ class FinishSubtaskTool(Tool):
             # A rejected finish rolls back its mailbox locks. Keep that
             # transaction separate from the runner's pending tool/block writes.
             async with (runtime_ctx.get("session_maker") or async_session_maker)() as db:
-                row = await sub_agent_service.record_finish(db, sub_agent_id=str(sub_agent_id), result=record)
+                row = await sub_agent_service.record_finish(db, sub_agent_id=str(sub_agent_id), result=record,
+                    can_review_messages=runtime_ctx.get("sub_agent_can_review_messages", True))
         except PendingSubAgentMessages as e:
             yield ToolErrorEvent(type="tool.error", payload={"message": str(e), "code": "PENDING_AGENT_MESSAGES"})
             return
@@ -97,15 +98,17 @@ class FinishSubtaskTool(Tool):
         if row is None:
             yield ToolErrorEvent(type="tool.error", payload={"message": "Sub-agent row not found.", "code": "SUB_AGENT_ERROR"})
             return
+        record = row.result_json or record
         runtime_ctx["sub_agent_finished"] = True
         yield ToolEndEvent(type="tool.end", payload={
-            "output": {"status": "recorded", "sub_agent_id": str(row.id), "outcome": data.outcome},
+            "output": {"status": "recorded", "sub_agent_id": str(row.id), "outcome": record["outcome"],
+                       "caveats": record.get("caveats", [])},
             "observation": {
-                "summary": f"Record stored ({data.outcome}, confidence {data.confidence}). Sub-agent finished.",
+                "summary": f"Record stored ({record['outcome']}, confidence {record['confidence']}). Sub-agent finished.",
                 "success": True,
                 "artifacts": [],
                 "analysis_complete": True,
-                "final_answer": data.summary,
-                "outcome": data.outcome,
+                "final_answer": record["summary"],
+                "outcome": record["outcome"],
             },
         })
