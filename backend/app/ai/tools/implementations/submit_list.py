@@ -163,6 +163,7 @@ class SubmitListTool(Tool):
                 "observation": {
                     "summary": f"Nothing was saved. Fix these and call the tool again with ALL records: {msg}",
                     "success": False,
+                    "list_name": list_name,
                     "error": {"type": "validation_error", "message": msg, "errors": errors[:50]},
                 },
             },
