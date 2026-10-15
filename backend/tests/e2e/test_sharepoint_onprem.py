@@ -5,6 +5,21 @@ from tests.unit.test_sharepoint_onprem_client import remote, SITE
 from tests.unit.test_sharepoint_2010_client import legacy
 
 
+def _wait_indexed(test_client, connection_id, token, org, attempts=200):
+    """Schema refresh runs as a background indexing job; wait for its terminal
+    state before reading tables (same pattern as test_documentum.py). Reading
+    straight after the refresh raced the job and saw 0 tables on Postgres."""
+    import time
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org)}
+    for _ in range(attempts):
+        r = test_client.get(f"/api/connections/{connection_id}/indexing", headers=headers)
+        assert r.status_code == 200, r.text
+        if (r.json() or {}).get("status") not in ("running", "queued", "pending"):
+            return r.json()
+        time.sleep(0.05)
+    raise AssertionError("indexing did not finish")
+
+
 @pytest.mark.e2e
 def test_onprem_connection_lifecycle_and_member_boundary(
     remote, test_client, create_user, login_user, whoami,
@@ -25,6 +40,7 @@ def test_onprem_connection_lifecycle_and_member_boundary(
     probe = test_connection_connectivity(connection_id=conn["id"], user_token=token, org_id=org)
     assert probe["success"] is True
     refresh_connection_schema(connection_id=conn["id"], user_token=token, org_id=org)
+    _wait_indexed(test_client, conn["id"], token, org)
     tables = get_connection_tables(connection_id=conn["id"], user_token=token, org_id=org)
     assert len(tables) == len(remote["blobs"])
 
@@ -75,6 +91,7 @@ def test_blank_library_scope_is_identical_before_and_after_save(
     assert r.json()["table_count"] == expected
     conn = create_connection(**payload, user_token=token, org_id=org)
     refresh_connection_schema(connection_id=conn["id"], user_token=token, org_id=org)
+    _wait_indexed(test_client, conn["id"], token, org)
     assert len(get_connection_tables(connection_id=conn["id"], user_token=token, org_id=org)) == expected
 
 
