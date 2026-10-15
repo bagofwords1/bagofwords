@@ -129,7 +129,7 @@ chat run only by what mode switches off:
 | Switched off in `subagent` mode | Why |
 |---|---|
 | conversation history, memory, steering, active artifact, follow-ups, title generation, knowledge harness, check-ins, late scoring, instruction suggestions | not the child's job; each is a post-run hook or context section gated on mode today |
-| `clarify`, artifact tools, instruction/memory/prompt/eval/schedule/email/list/agent tools, `delegate` | profile allow-list (A6); every surveyed harness blocks clarify and nesting (B3) |
+| `clarify`, artifact tools, instruction/memory/prompt/eval/schedule/email/agent tools, list schema tools (`create_list`/`edit_list`), `delegate` | profile allow-list (A6); every surveyed harness blocks clarify and nesting (B3). `submit_<list>` is allowed per profile (A6) |
 | widget auto-placement on `create_data` | one runtime flag; the viz exists with an id and renders only where the parent embeds it |
 
 What it gets, automatically and not model-repeated (B2): the report's
@@ -196,8 +196,18 @@ hardcoded; phase 5 lets an org author its own as skills-catalog entries
 
 | Profile | Tools | Model (`sub_agent_model=auto`) |
 |---|---|---|
-| `investigate` | describe_tables, inspect_data, read_query, run_query, load_step, read_resources, read_file, grep_files, search_files, read_mcp_resource, list_mcp_resources, execute_mcp, search_instructions, read_instruction, create_note, edit_note, finish_subtask; plus create_data when `sub_agent_allow_create_data` | small |
-| `validate` | the same, with create_data always on | default |
+| `investigate` | describe_tables, inspect_data, read_query, run_query, load_step, read_resources, read_file, grep_files, search_files, read_mcp_resource, list_mcp_resources, execute_mcp, search_instructions, read_instruction, create_note, edit_note, finish_subtask; plus create_data, write_csv and the parent's `submit_<list>` tools when `sub_agent_allow_create_data` | small |
+| `validate` | the same, with create_data and the `submit_<list>` tools always on | default |
+
+Agent Lists are the one write a child may make outside its own record: the
+parent's `submit_<slug>` tools (the `submit_list` gateway) are the typed sink a
+per-document fan-out exists for (structured-extraction §7, "fan-out for
+batches"). They ride the `create_data` switch because both are the child
+persisting its own output. The child's catalog only carries them when its
+profile does, so it never sees a call the loop would refuse. Defining or
+reshaping a list (`create_list` / `edit_list`) stays with the parent and its
+review card; the rows a child writes carry the child's completion as provenance
+and surface in the report's Lists pane like the parent's own.
 
 ### A7. Storage and retrieval
 

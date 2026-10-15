@@ -8290,6 +8290,14 @@ class AgentV2:
         self._list_tool_routing = {}
         if not self.report:
             return
+        # A child's profile is applied before this point (_bind_sub_agent) and
+        # the dispatch check runs on the rewritten gateway name: only offer the
+        # submit_<slug> tools to a child whose profile holds submit_list, so the
+        # catalog never advertises a call the loop would refuse.
+        if self._is_sub_agent:
+            allowed = getattr(self, "_sub_agent_allowed_tools", None)
+            if allowed is not None and "submit_list" not in allowed:
+                return
         try:
             user = getattr(self, "user", None) or (getattr(self.head_completion, "user", None) if self.head_completion else None)
             descriptors, routing = await build_list_tools(self.db, self.report, user, self.organization)
