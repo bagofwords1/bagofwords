@@ -414,7 +414,7 @@ def flatten_subform(rows: List[dict], route: SubformRoute) -> List[dict]:
     return out
 
 
-def _nav_form(nav: str) -> str:
+def nav_form(nav: str) -> str:
     # Priority names a subform navigation property <FORM>_SUBFORM.
     return nav[: -len("_SUBFORM")] if nav.endswith("_SUBFORM") else nav
 
@@ -443,15 +443,21 @@ def expand_chain(expand: str) -> List[str]:
     return chain
 
 
-def flatten_expand(rows: List[dict], root_form: str, chain: List[str]) -> List[dict]:
+def flatten_expand(rows: List[dict], root_form: str, chain: List[str],
+                   origins: Optional[Dict[str, Tuple[str, str]]] = None) -> List[dict]:
     """Flatten an explicit `$expand` chain: one row per deepest entity. The
     deepest level keeps its column names; an ancestor column whose name is
     already taken is prefixed with its form (`ORDERS_STATDES`).
 
     The query was asked of the parent, so a parent with no children is kept
     as one row with the child columns empty — dropping it would read as "this
-    order does not exist"."""
-    forms = [root_form] + [_nav_form(n) for n in chain]
+    order does not exist".
+
+    `origins`, when given, is filled with {output column: (form, column)} —
+    which form each column came from. A bare name can come from either level
+    (the parent keeps it when the child did not select the same column), so
+    only the flattener can say."""
+    forms = [root_form] + [nav_form(n) for n in chain]
     out: List[dict] = []
 
     def walk(level: int, row: dict, acc: List[Tuple[int, str, str, object]]):
@@ -459,7 +465,7 @@ def flatten_expand(rows: List[dict], root_form: str, chain: List[str]) -> List[d
         here = acc + [(level, forms[level], k, v) for k, v in _scalars(row, [nav] if nav else []).items()]
         kids = _children(row.get(nav)) if nav else []
         if not kids:
-            out.append(_name_columns(here))
+            out.append(_name_columns(here, origins))
             return
         for child in kids:
             walk(level + 1, child, here)
@@ -482,12 +488,16 @@ def unique_name(col: str, form: str, level: int, taken) -> str:
     return f"{form}{level}_{col}_{n}"
 
 
-def _name_columns(cells: List[Tuple[int, str, str, object]]) -> dict:
+def _name_columns(cells: List[Tuple[int, str, str, object]],
+                  origins: Optional[Dict[str, Tuple[str, str]]] = None) -> dict:
     """Deepest level first, then nearest ancestor: the first claim on a name
     wins and later ones get a prefixed name."""
     named: Dict[str, object] = {}
     for level, form, col, value in sorted(cells, key=lambda c: -c[0]):
-        named[unique_name(col, form, level, named)] = value
+        name = unique_name(col, form, level, named)
+        named[name] = value
+        if origins is not None:
+            origins.setdefault(name, (form, col))
     return named
 
 

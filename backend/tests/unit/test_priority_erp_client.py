@@ -821,9 +821,16 @@ def test_column_titles_are_stored_for_query_time_headers(client):
     ("ORDERITEMS?$select=ORDNAME,PRICE,STATDES,ORDERS_STATDES",
      {"ORDNAME": "Order Number", "PRICE": "Unit Price", "STATDES": "Line Status",
       "ORDERS_STATDES": "Order Stage (Customer Orders)"}),
+    # both levels return STATDES: the line keeps the name, the order's is prefixed
     ("ORDERS?$filter=ORDNAME eq 'SO25001'&$select=ORDNAME,STATDES&$expand=ORDERITEMS_SUBFORM($select=KLINE,STATDES)",
      {"ORDNAME": "Order Number", "KLINE": "Line Number", "STATDES": "Line Status",
-      "ORDERS_STATDES": "Order Stage (Customer Orders)"}),
+      "ORDERS_STATDES": "Order Stage"}),
+    # only the order returns STATDES: the bare name is the order's, and so is its title
+    ("ORDERS?$filter=ORDNAME eq 'SO25001'&$select=ORDNAME,STATDES&$expand=ORDERITEMS_SUBFORM($select=KLINE)",
+     {"ORDNAME": "Order Number", "KLINE": "Line Number", "STATDES": "Order Stage"}),
+    # a navigation path reads the subform's own rows
+    ("ORDERS('SO25001')/ORDERITEMS_SUBFORM?$select=KLINE,STATDES",
+     {"KLINE": "Line Number", "STATDES": "Line Status"}),
 ])
 def test_results_carry_the_titles_of_their_columns(client, query, expected):
     client.get_schemas()  # in production the indexed catalog is attached instead

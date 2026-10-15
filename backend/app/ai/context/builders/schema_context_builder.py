@@ -82,9 +82,11 @@ def _prune_unresolvable_fks(normalized):
 
 
 # Connector bookkeeping read by the CLIENT at query time (attach_table_metadata
-# reads the DB rows directly), never needed by the prompt — and it names every
-# column, including ones an agent manager excluded or a member cannot see.
-_CLIENT_ONLY_METADATA = {"priority_erp": ("column_titles",)}
+# reads the DB rows directly), never needed by the prompt — and each of these
+# names columns, including ones an agent manager excluded or a member cannot
+# see: the title map, a subform table's column-origin map and access path, and
+# the mandatory-column list.
+_CLIENT_ONLY_METADATA = {"priority_erp": ("column_titles", "columns", "path", "mandatory")}
 
 # Namespaces whose column metadata `title` is a fixed label (identical for every
 # user who can open the form), safe to carry into a per-user schema.

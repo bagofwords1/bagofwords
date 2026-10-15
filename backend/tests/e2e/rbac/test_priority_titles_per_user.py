@@ -39,6 +39,10 @@ def _hdr(token, org_id):
 
 
 async def _activate(ds_id, deadline_s=90.0):
+    """Wait for the catalog indexing that data-source creation starts, then
+    select every table for the agent. Written to the DB directly: the tables
+    are still being indexed when this runs, so there is no stable set to send
+    to the selection endpoint yet."""
     end = time.monotonic() + deadline_s
     while True:
         async with async_session_maker() as db:
@@ -106,9 +110,10 @@ def test_member_on_own_token_sees_priority_titles(
     _run(_activate(ds_id))
 
     ctx, metas = _run(_context_for(ds_id, org_id, member["user_id"]))
-    # the client-only title map (it names every column, hidden ones too) never
+    # client-only bookkeeping that names columns (hidden ones too) never
     # reaches the prompt tables — the client reads it from the DB itself
-    assert metas and all("column_titles" not in (m or {}).get("priority_erp", {}) for m in metas)
+    hidden = ("column_titles", "columns", "path", "mandatory")
+    assert metas and all(k not in (m or {}).get("priority_erp", {}) for m in metas for k in hidden)
     assert 'name="ORDNAME"' in ctx, "the member's overlay was not used to build the context"
     # column titles, carried from the canonical catalog as structured metadata
     assert 'name="ORDNAME" dtype="Edm.String" description="Order Number"' in ctx

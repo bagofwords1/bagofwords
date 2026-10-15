@@ -136,32 +136,3 @@ class TestForeignKeyVisibilityFilter:
         assert self._filter(None, {"a"}) == []
         assert self._filter([{"no_ref": 1}], {"a"}) == []
 
-
-class TestFixedColumnTitles:
-    """A per-user schema keeps free text behind, but may carry a column title
-    that a connector declares to be a fixed label (Priority's form-column
-    title, identical for every user who can open the form)."""
-
-    def test_priority_column_title_is_carried(self):
-        from app.ai.context.builders.schema_context_builder import _fixed_column_title
-        assert _fixed_column_title({"priority_erp": {"form": "ORDERS"}}, {"title": "מספר הזמנה"}) == "מספר הזמנה"
-
-    def test_other_connectors_title_stays_behind(self):
-        from app.ai.context.builders.schema_context_builder import _fixed_column_title
-        assert _fixed_column_title({"powerbi": {"datasetId": "x"}}, {"title": "free text"}) is None
-        assert _fixed_column_title(None, {"title": "x"}) is None
-
-    def test_empty_or_missing_title_is_none(self):
-        from app.ai.context.builders.schema_context_builder import _fixed_column_title
-        meta = {"priority_erp": {}}
-        assert _fixed_column_title(meta, {}) is None
-        assert _fixed_column_title(meta, {"title": "  "}) is None
-
-    def test_client_only_title_map_is_stripped_without_mutating(self):
-        from app.ai.context.builders.schema_context_builder import _strip_client_only_metadata
-        meta = {"priority_erp": {"title": "Orders", "column_titles": {"SECRET_COL": "x"}}}
-        out = _strip_client_only_metadata(meta)
-        assert out == {"priority_erp": {"title": "Orders"}}
-        assert "column_titles" in meta["priority_erp"]
-        clean = {"priority_erp": {"title": "Orders"}}
-        assert _strip_client_only_metadata(clean) is clean

@@ -55,6 +55,7 @@ from app.data_sources.clients.priority_odata_query import (
     expand_chain,
     flatten_expand,
     flatten_subform,
+    nav_form,
     parse_query_string,
 )
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
@@ -381,7 +382,8 @@ class PriorityErpClient(DataSourceClient):
             self._mark_subforms(tables, roots, parents)
         # Column name -> title, after subform tables gained their ancestors'
         # columns, so a result's headers can show titles at query time from the
-        # indexed catalog alone (see `_column_titles_for`).
+        # indexed catalog alone (see `_remember_subforms`, which loads it, and
+        # `_attach_column_titles`, which applies it).
         for table in tables.values():
             titles = {c.name: c.description for c in table.columns if c.description}
             if titles:
@@ -668,22 +670,24 @@ class PriorityErpClient(DataSourceClient):
         )
         # The bare request, for the Queries tab (see code_execution.SENT_REQUEST_ATTR).
         df.attrs["bow_sent_request"] = sent
-        self._attach_column_titles(df, [route.name])
+        # The subform table's catalog entry lists every column under its
+        # exposed name, ancestors' (prefixed) ones included.
+        self._attach_column_titles(df, {c: (route.name, c) for c in df.columns})
         return df
 
-    def _attach_column_titles(self, df: pd.DataFrame, forms: List[str]) -> None:
-        """Label the result's columns with their form titles, for display
-        headers (see code_execution.COLUMN_TITLES_ATTR).
+    def _attach_column_titles(self, df: pd.DataFrame, origins: Dict[str, tuple]) -> None:
+        """Label the result's columns with their titles, for display headers
+        (see code_execution.COLUMN_TITLES_ATTR).
 
-        `forms` runs from the queried form down to the deepest expanded one;
-        the deepest form's titles win. A subform's catalog entry already lists
-        its ancestors' columns under their exposed (prefixed) names.
+        `origins` maps each output column to the (form, column) it came from,
+        so a name both levels share is titled by the form that supplied it.
         """
-        merged: Dict[str, str] = {}
-        for form in reversed(forms):
-            for col, title in (self._column_titles.get(form.upper()) or {}).items():
-                merged.setdefault(col, title)
-        titles = {c: merged[c] for c in df.columns if c in merged}
+        titles = {}
+        for col in df.columns:
+            form, source = origins.get(col, (None, None))
+            title = (self._column_titles.get(str(form).upper()) or {}).get(source) if form else None
+            if title:
+                titles[col] = title
         if titles:
             df.attrs["bow_column_titles"] = titles
 
@@ -760,22 +764,21 @@ class PriorityErpClient(DataSourceClient):
             rows = [] if not isinstance(payload, dict) else [
                 {k: v for k, v in payload.items() if not k.startswith("@odata")}
             ]
+        # The form the rows belong to: the last path segment, a navigation
+        # property (ORDERS('1')/ORDERITEMS_SUBFORM) naming its subform.
+        queried_form = nav_form(path.split("/")[-1].split("(")[0])
         if chain:
-            form = path.split("/")[-1].split("(")[0]
-            if form.endswith("_SUBFORM"):
-                form = form[: -len("_SUBFORM")]
-            flat = flatten_expand(rows, form, chain)
+            origins: Dict[str, tuple] = {}
+            flat = flatten_expand(rows, queried_form, chain, origins=origins)
             df = pd.DataFrame(flat) if flat else pd.DataFrame(
                 columns=[k for k in (rows[0] if rows else {}) if k not in chain and not k.startswith("@odata")]
             )
+            if not flat and rows:
+                origins = {c: (queried_form, c) for c in df.columns}
         else:
             df = pd.DataFrame(rows)
-        last = path.split("/")[-1].split("(")[0]
-        queried_form = last[: -len("_SUBFORM")] if last.endswith("_SUBFORM") else last
-        self._attach_column_titles(
-            df,
-            [queried_form] + [n[: -len("_SUBFORM")] if n.endswith("_SUBFORM") else n for n in (chain or [])],
-        )
+            origins = {c: (queried_form, c) for c in df.columns}
+        self._attach_column_titles(df, origins)
         # Anything still nested (a complex value outside an $expand) would make
         # the frame unusable downstream, so summarise it.
         for col in df.columns:
