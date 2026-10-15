@@ -12,6 +12,11 @@ export type GraphTable = {
   last_refreshed_at?: string; last_refresh_status?: string; rls_enabled?: boolean;
 }
 export const tableId = (t: GraphTable) => t.id || `${t.connection_id || ''}:${t.metadata_json?.schema || ''}:${t.name}`
+/** Identity of one declared foreign-key edge (one column pair), matching the
+ *  backend's `fk_key`: case-insensitive, so a re-sync's identifier case can't
+ *  re-expose a relationship hidden from the agent. */
+export const fkEdgeKey = (column = '', referencesName = '', referencesColumn = '') =>
+  [column, referencesName, referencesColumn].map(s => s.toLowerCase()).join('\u001f')
 export type TableLink = { id: string; source: string; target: string; suggested?: boolean; columns: { from: string; to: string }[] }
 const clean = (s: string) => s.replace(/["`\[\]]/g, '')
 const normalized = (s: string) => clean(s).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()

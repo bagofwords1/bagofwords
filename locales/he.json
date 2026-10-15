@@ -5999,7 +5999,18 @@
     "showAllColumns": "הצג הכל",
     "hideAllColumns": "הסתר הכל",
     "includeColumn": "כלול את {name} בהקשר הסוכן",
-    "columnHidden": "מוסתרת"
+    "columnHidden": "מוסתרת",
+    "relationships": "קשרים",
+    "relationshipsContextHint": "קשרים שלא סומנו לא ייכללו בהקשר של הסוכן. הסוכן עדיין יכול לחבר את הטבלאות בעצמו.",
+    "showAllRelationships": "הצג הכל",
+    "hideAllRelationships": "הסתר הכל",
+    "includeRelationship": "כלול את {name} בהקשר של הסוכן",
+    "relationshipHidden": "מוסתר",
+    "relationshipsHiddenBadge": "מוסתרים: {count}",
+    "relationshipsHiddenTooltip": "חלק מהקשרים מוסתרים מההקשר של הסוכן הזה",
+    "relationshipTargetNotSelected": "לא בהקשר: {name} לא נבחרה",
+    "relationshipColumnHidden": "לא בהקשר: עמודה מוסתרת",
+    "hiddenFromAgent": "מוסתר מהסוכן"
   },
   "fork": {
     "preparing": "מכין את העותק שלך…",

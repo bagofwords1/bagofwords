@@ -312,7 +312,7 @@
         <Spinner class="w-6 h-6 text-gray-400" aria-hidden="true" />
       </div>
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
-      <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
+      <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :hidden-fks="canvasHiddenFks" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
         :bottom-inset="fullscreenInPlace ? 120 : 72" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
     </div>
@@ -411,6 +411,15 @@
                          means finding the connected tables costs one click per
                          row. The badge puts that on the collapsed row so a
                          well-connected table is visible while scanning. -->
+                    <UTooltip v-if="hiddenFkCount(table)" :text="t('tableErd.relationshipsHiddenTooltip')">
+                      <span
+                        :data-testid="`rels-hidden-badge-${table.name}`"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                      >
+                        <UIcon name="heroicons-eye-slash" class="w-3 h-3" />
+                        {{ t('tableErd.relationshipsHiddenBadge', { count: hiddenFkCount(table) }) }}
+                      </span>
+                    </UTooltip>
                     <UTooltip v-if="relatedTableCount(table)" :text="relationshipSummary(table)">
                       <span
                         :data-testid="`rel-badge-${table.name}`"
@@ -492,16 +501,39 @@
                 </div>
 
                 <!-- Relationships -->
-                <div v-if="table.fks?.length" class="mt-2 border border-gray-100 dark:border-gray-800 rounded">
-                  <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">Relationships</div>
+                <div v-if="table.fks?.length" class="mt-2 border border-gray-100 dark:border-gray-800 rounded" :data-testid="`rels-panel-${table.name}`">
+                  <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">{{ t('tableErd.relationships') }}</div>
+                  <div v-if="canUpdate" class="flex items-center justify-between gap-2 text-[11px] text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
+                    <span class="flex items-center gap-1">
+                      <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
+                      {{ t('tableErd.relationshipsContextHint') }}
+                    </span>
+                    <span class="flex items-center gap-2 shrink-0">
+                      <button type="button" class="hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50" :disabled="saving || !hiddenFkCount(table)"
+                        :data-testid="`rels-show-all-${table.name}`" @click="setAllFksVisible(table, true)">{{ t('tableErd.showAllRelationships') }}</button>
+                      <span class="text-gray-300 dark:text-gray-600">·</span>
+                      <button type="button" class="hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50" :disabled="saving || hiddenFkCount(table) === (table.fks?.length || 0)"
+                        :data-testid="`rels-hide-all-${table.name}`" @click="setAllFksVisible(table, false)">{{ t('tableErd.hideAllRelationships') }}</button>
+                    </span>
+                  </div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <div v-for="(fk, idx) in table.fks" :key="idx" class="text-xs px-2 py-1 text-gray-600 dark:text-gray-400">
-                      <span class="text-gray-700 dark:text-gray-300">{{ fk.column?.name }}</span>
-                      <span class="text-gray-400 dark:text-gray-500 mx-1">→</span>
-                      <span class="text-blue-600">{{ fk.references_name }}</span>
-                      <span class="text-gray-400 dark:text-gray-500">.</span>
-                      <span class="text-gray-700 dark:text-gray-300">{{ fk.references_column?.name }}</span>
-                    </div>
+                    <label v-for="(fk, idx) in table.fks" :key="idx" class="flex items-center gap-2 text-xs px-2 py-1 text-gray-600 dark:text-gray-400"
+                      :class="canUpdate ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : ''"
+                      :data-testid="`rel-row-${table.name}-${fk.column?.name}-${fk.references_name}`">
+                      <UCheckbox v-if="canUpdate" color="blue" :model-value="isFkVisible(table, fk)" :disabled="saving"
+                        :aria-label="t('tableErd.includeRelationship', { name: `${fk.column?.name} → ${fk.references_name}.${fk.references_column?.name}` })"
+                        @update:model-value="(val: boolean) => onFkToggle(table, fk, val)" />
+                      <span class="min-w-0 truncate" dir="ltr" :class="isFkVisible(table, fk) ? '' : 'line-through opacity-60'">
+                        <span class="text-gray-700 dark:text-gray-300">{{ fk.column?.name }}</span>
+                        <span class="text-gray-400 dark:text-gray-500 mx-1">→</span>
+                        <span class="text-blue-600">{{ fk.references_name }}</span>
+                        <span class="text-gray-400 dark:text-gray-500">.</span>
+                        <span class="text-gray-700 dark:text-gray-300">{{ fk.references_column?.name }}</span>
+                      </span>
+                      <span v-if="!isFkVisible(table, fk)" class="shrink-0 text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.relationshipHidden') }}</span>
+                      <span v-else-if="canUpdate && fkOutOfContextReason(table, fk)" class="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 truncate"
+                        :data-testid="`rel-reason-${table.name}-${fk.column?.name}`">{{ fkOutOfContextReason(table, fk) }}</span>
+                    </label>
                   </div>
                 </div>
 
@@ -653,7 +685,7 @@ import Spinner from '@/components/Spinner.vue'
 import SchemaIdentityStatus from './SchemaIdentityStatus.vue'
 import { useCan } from '~/composables/usePermissions'
 const TablesCanvas = defineAsyncComponent(() => import('./TablesCanvas.vue'))
-import { tableId, matchesTable } from '~/utils/tableGraph'
+import { tableId, matchesTable, fkEdgeKey } from '~/utils/tableGraph'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
@@ -664,6 +696,7 @@ type ForeignKey = {
   references_name: string;
   references_column?: { name: string; dtype?: string };
 }
+type ExcludedFk = { column: string; references_name: string; references_column: string }
 type Table = {
   id?: string;
   name: string;
@@ -671,6 +704,8 @@ type Table = {
   columns?: Column[];
   // Column names hidden from this agent's context (null/absent = none).
   excluded_columns?: string[] | null;
+  // Relationships hidden from this agent's context, one per column pair.
+  excluded_fks?: ExcludedFk[] | null;
   pks?: any[];
   fks?: ForeignKey[];
   last_used_at?: string;
@@ -1130,6 +1165,14 @@ const originalExcluded = ref(new Map<string, string[]>())
 const currentExcluded = ref(new Map<string, string[]>())
 const tableByKey = new Map<string, Table>()
 
+// Relationship visibility draft, same shape: sorted lists of fkEdgeKey()s.
+const originalExcludedFks = ref(new Map<string, string[]>())
+const currentExcludedFks = ref(new Map<string, string[]>())
+const fkKey = (fk: ForeignKey) => fkEdgeKey(fk.column?.name, fk.references_name, fk.references_column?.name)
+function normalizeExcludedFks(list?: ExcludedFk[] | null): string[] {
+  return [...new Set((list || []).map(e => fkEdgeKey(e.column, e.references_name, e.references_column)))].sort()
+}
+
 function normalizeExcluded(list?: string[] | null): string[] {
   return [...new Set(list || [])].sort((a, b) => a.localeCompare(b))
 }
@@ -1144,6 +1187,10 @@ function registerTables(rows: Table[]) {
     if (!currentExcluded.value.has(key) || sameList(currentExcluded.value.get(key), originalExcluded.value.get(key))) {
       originalExcluded.value.set(key, normalizeExcluded(table.excluded_columns))
       currentExcluded.value.set(key, normalizeExcluded(table.excluded_columns))
+    }
+    if (!currentExcludedFks.value.has(key) || sameList(currentExcludedFks.value.get(key), originalExcludedFks.value.get(key))) {
+      originalExcludedFks.value.set(key, normalizeExcludedFks(table.excluded_fks))
+      currentExcludedFks.value.set(key, normalizeExcludedFks(table.excluded_fks))
     }
     // Refresh clean rows while keeping unsaved choices made in either view.
     if (!currentActiveState.value.has(key) || currentActiveState.value.get(key) === originalActiveState.value.get(key)) {
@@ -1288,11 +1335,18 @@ const hasPendingChanges = computed(() => {
     const originalVal = originalActiveState.value.get(name)
     if (originalVal !== currentVal) return true
   }
-  return columnChangeKeys.value.length > 0
+  return columnChangeKeys.value.length > 0 || fkChangeKeys.value.length > 0
 })
 const columnChangeKeys = computed(() =>
   [...currentExcluded.value].filter(([key, list]) => !sameList(list, originalExcluded.value.get(key))).map(([key]) => key)
 )
+const fkChangeKeys = computed(() =>
+  [...currentExcludedFks.value].filter(([key, list]) => !sameList(list, originalExcludedFks.value.get(key))).map(([key]) => key)
+)
+// The ERD greys an edge out once every column pair on it is hidden.
+const canvasHiddenFks = computed(() => new Map(
+  [...currentExcludedFks.value].filter(([, list]) => list.length).map(([key, list]) => [key, new Set(list)])
+))
 
 // Helper functions
 function tableKey(table: Table): string {
@@ -1313,7 +1367,7 @@ function isTableActive(key: string): boolean {
 function relatedTableNames(table: Table): string[] {
   const names = new Set<string>()
   for (const fk of table.fks || []) {
-    if (fk?.references_name) names.add(fk.references_name)
+    if (fk?.references_name && isFkVisible(table, fk)) names.add(fk.references_name)
   }
   return Array.from(names)
 }
@@ -1337,7 +1391,9 @@ function relationshipSummary(table: Table): string {
 function isTableDirty(key: string): boolean {
   const original = originalActiveState.value.get(key)
   const current = currentActiveState.value.get(key)
-  return original !== current || !sameList(currentExcluded.value.get(key), originalExcluded.value.get(key))
+  return original !== current
+    || !sameList(currentExcluded.value.get(key), originalExcluded.value.get(key))
+    || !sameList(currentExcludedFks.value.get(key), originalExcludedFks.value.get(key))
 }
 
 function hiddenColumnCount(table: Table): number {
@@ -1364,6 +1420,51 @@ function onColumnToggle(table: Table, column: string, visible: boolean) {
 function setAllColumnsVisible(table: Table, visible: boolean) {
   if (!props.canUpdate || saving.value) return
   currentExcluded.value.set(tableKey(table), visible ? [] : normalizeExcluded((table.columns || []).map(c => c.name)))
+}
+
+function excludedFksOf(table: Table): string[] {
+  return currentExcludedFks.value.get(tableKey(table)) ?? normalizeExcludedFks(table.excluded_fks)
+}
+
+function isFkVisible(table: Table, fk: ForeignKey): boolean {
+  return !excludedFksOf(table).includes(fkKey(fk))
+}
+
+function hiddenFkCount(table: Table): number {
+  const excluded = excludedFksOf(table)
+  if (!excluded.length) return 0
+  return (table.fks || []).filter(fk => excluded.includes(fkKey(fk))).length
+}
+
+function onFkToggle(table: Table, fk: ForeignKey, visible: boolean) {
+  if (!props.canUpdate || saving.value) return
+  const key = tableKey(table)
+  const edge = fkKey(fk)
+  const rest = (currentExcludedFks.value.get(key) || []).filter(k => k !== edge)
+  currentExcludedFks.value.set(key, [...new Set(visible ? rest : [...rest, edge])].sort())
+}
+
+function setAllFksVisible(table: Table, visible: boolean) {
+  if (!props.canUpdate || saving.value) return
+  currentExcludedFks.value.set(tableKey(table), visible ? [] : [...new Set((table.fks || []).map(fkKey))].sort())
+}
+
+// A checked relationship can still be out of the agent's context: the schema
+// context drops an edge whose target table isn't selected or whose column on
+// either end is hidden. Say so, rather than let the checkbox imply otherwise.
+// Only tables loaded into this view can be checked; others report nothing.
+function fkTarget(table: Table, fk: ForeignKey): Table | undefined {
+  const named = [...tableByKey.values()].filter(t => t.name === fk.references_name)
+  return named.find(t => t.connection_id === table.connection_id) || (named.length === 1 ? named[0] : undefined)
+}
+
+function fkOutOfContextReason(table: Table, fk: ForeignKey): string | null {
+  if (fk.column?.name && !isColumnVisible(table, fk.column.name)) return t('tableErd.relationshipColumnHidden')
+  const target = fkTarget(table, fk)
+  if (!target) return null
+  if (!isTableActive(tableKey(target))) return t('tableErd.relationshipTargetNotSelected', { name: target.name })
+  if (fk.references_column?.name && !isColumnVisible(target, fk.references_column.name)) return t('tableErd.relationshipColumnHidden')
+  return null
 }
 
 function onTableToggle(key: string, newValue: boolean) {
@@ -1635,13 +1736,28 @@ async function onSave() {
       if (id) excludedColumns[id] = currentExcluded.value.get(key) || []
     }
 
-    if (toActivate.length > 0 || toDeactivate.length > 0 || Object.keys(excludedColumns).length > 0) {
+    // Relationship visibility likewise: table id -> full hidden edge list,
+    // spelled as the table's own fks so the server can match them.
+    const excludedFks: Record<string, ExcludedFk[]> = {}
+    const hiddenEntries = (row: Table | undefined, key: string): ExcludedFk[] => {
+      const hidden = new Set(currentExcludedFks.value.get(key) || [])
+      const seen = new Set<string>()
+      return (row?.fks || []).filter(fk => hidden.has(fkKey(fk)) && !seen.has(fkKey(fk)) && seen.add(fkKey(fk)))
+        .map(fk => ({ column: fk.column?.name || '', references_name: fk.references_name, references_column: fk.references_column?.name || '' }))
+    }
+    for (const key of fkChangeKeys.value) {
+      const row = knownTables.get(key) || tableByKey.get(key)
+      if (row?.id) excludedFks[row.id] = hiddenEntries(row, key)
+    }
+
+    if (toActivate.length > 0 || toDeactivate.length > 0 || Object.keys(excludedColumns).length > 0 || Object.keys(excludedFks).length > 0) {
       const result: any = await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
         method: 'PUT',
         body: {
           activate: toActivate,
           deactivate: toDeactivate,
           excluded_columns: excludedColumns,
+          excluded_fks: excludedFks,
         }
       })
       if (result.status?.value !== 'success') throw new Error(t('tableErd.saveError'))
@@ -1656,11 +1772,19 @@ async function onSave() {
       const list = currentExcluded.value.get(key) || []
       if (row) row.excluded_columns = list.length ? list : null
     }
+    for (const key of fkChangeKeys.value) {
+      const row = knownTables.get(key) || tableByKey.get(key)
+      if (!row) continue
+      const list = hiddenEntries(row, key)
+      row.excluded_fks = list.length ? list : null
+    }
     // Refresh the baseline without losing selection in parent-owned Save flows.
     originalActiveState.value.clear()
     currentActiveState.value.clear()
     originalExcluded.value.clear()
     currentExcluded.value.clear()
+    originalExcludedFks.value.clear()
+    currentExcludedFks.value.clear()
     registerTables(savedRows)
     if (!props.skipRefreshOnSave) {
       await fetchTables()
@@ -1729,6 +1853,8 @@ watch(() => [props.dsId, props.schema, props.connectionFilter, props.canUpdate],
     currentActiveState.value.clear()
     originalExcluded.value.clear()
     currentExcluded.value.clear()
+    originalExcludedFks.value.clear()
+    currentExcludedFks.value.clear()
     tableByKey.clear()
     fetchTables()
     loadAuthConnections()
