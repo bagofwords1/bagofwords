@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.592 (October 15, 2026)
+- Added paging through long files with `offset`/`length` on every file connection and on chat uploads (#1401)
+- Added reading and searching .eml and Outlook .msg emails, including their attachments, on every file connection (#1402)
+- Added sub-agents saving rows into the parent conversation's lists (#1394)
+- Fixed the agent failing to read files uploaded to a conversation (#1402)
+- Fixed SharePoint Server deep search missing matches inside file contents (#1387)
+- Fixed org admins being denied private or selectively shared reports on the share page (#1400)
+- Fixed SharePoint Server file reads giving one error for both a missing and an ambiguous path (#1399)
+- Fixed the dashboard breaking when the ⓘ icon is clicked in Polish mode (#1393)
+- Fixed agents looping on empty saves while filling a list (#1398)
+- Fixed Priority subforms failing when queried as tables (#1391)
+
 ## Version 0.0.591 (October 15, 2026)
 - Added keyword search and full-library browsing with paging, sorting and date filters for SharePoint Server connections (#1387) — `content` indexing option
 - Added opening a saved list beside the chat, with rows updating live as the agent saves them (#1388)
