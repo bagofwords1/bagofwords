@@ -19,10 +19,16 @@ from app.data_sources.clients._document_text import (
     doc_text_is_usable,
     doc_text_looks_garbled,
 )
-from app.data_sources.clients._file_source_common import GlobScopeError, payload_name
+from app.data_sources.clients._email_text import (
+    EMAIL_EXTS,
+    absolutize_attachment_ids,
+    split_attachment_id,
+)
+from app.data_sources.clients._file_source_common import DocumentText, GlobScopeError, payload_name
 
 from . import _file_cache
 from ._file_tool_common import (
+    EmailAttachmentClient,
     SessionFileClient,
     allow_llm_see_data,
     attach_drive_file_to_session,
@@ -324,6 +330,14 @@ class ReadFileTool(Tool):
                 "as the next offset until `eof`, with length<=8000 to see each "
                 "window in full). For one specific PDF page, page_range is more "
                 "precise. Binary files with no text return their size only. "
+                "Email files (.eml, .msg) read as headers + body + an "
+                "'Attachments' list; each attachment is a sub-file with its own "
+                "file_id of the form `<email file id>#att:<index>:<filename>` — "
+                "pass that id to read_file (same connection_id) to read the "
+                "attachment like any file of its type (PDF text, CSV rows, …). "
+                "Attachment ids are understood by read_file ONLY: to analyze an "
+                "attachment with inspect_data / create_data, read it first and "
+                "use the `session_file_id` that read returns. "
                 "EXCEPTION — garbled text: if a document's extracted text comes "
                 "back as unreadable symbol soup / mojibake (broken font encoding), "
                 "do NOT try to interpret it; re-issue the same read with "
@@ -355,13 +369,19 @@ class ReadFileTool(Tool):
             "connection_id": data.connection_id,
         })
 
+        # An email attachment id (`<parent>#att:<i>:<name>`) resolves through
+        # its PARENT: the email is looked up and read exactly as if it had been
+        # named itself, so the parent's scope / permission checks are the
+        # attachment's too. Split once here; the ladder below sees the parent.
+        parent_file_id, attachment_chain = split_attachment_id(data.file_id)
+
         # Resolution ladder: the report's OWN file space first (uploads /
         # attach_file results — only when no connection was named; explicit
         # beats implicit), then the attached file connections. One verb, two
         # sources, identical read semantics.
         session_file = None
         if not (data.connection_id or "").strip():
-            session_file = resolve_session_file(runtime_ctx, data.file_id)
+            session_file = resolve_session_file(runtime_ctx, parent_file_id)
             if session_file is None:
                 # Not in the report's own space. The overwhelmingly common cause
                 # is a file-source id carried straight from list_files/search_files
@@ -370,9 +390,9 @@ class ReadFileTool(Tool):
                 # assumed: resolve_file_client re-checks that this user can reach
                 # the data source (and that it declares the capability) exactly as
                 # it does for an explicitly named connection.
-                fallback = self._implicit_connection(runtime_ctx, data.file_id)
+                fallback = self._implicit_connection(runtime_ctx, parent_file_id)
                 if fallback is None:
-                    yield self._fail_read(data, self._unresolved_error(runtime_ctx, data.file_id))
+                    yield self._fail_read(data, self._unresolved_error(runtime_ctx, parent_file_id))
                     return
                 client, err = await resolve_file_client(
                     runtime_ctx, str(fallback.id), self._required_capability
@@ -406,6 +426,16 @@ class ReadFileTool(Tool):
                     "observation": {"summary": err, "success": False},
                 })
                 return
+
+        if attachment_chain:
+            # Every read below goes through the parent's own raw-bytes path
+            # first and then the same typed-read pipeline as any file of the
+            # attachment's extension (see EmailAttachmentClient). The result
+            # is a NEW file as far as the conversation is concerned — even
+            # when the parent is an upload, the attachment's bytes/derivative
+            # must be materialized on their own, not echoed as the email's id.
+            client = EmailAttachmentClient(client, parent_file_id, attachment_chain)
+            session_file = None
 
         # Windowed (ranged) read. Two routes to ONE contract (a window dict:
         # content/encoding/offset/length/next_cursor/total_size/eof):
@@ -783,6 +813,20 @@ class ReadFileTool(Tool):
             name=render_name, payload=payload,
             max_rows=data.max_rows, max_chars=data.max_chars,
         )
+        # An email's rendered text lists its attachments with ids the
+        # extractor could only write relative to a placeholder (it knows the
+        # file's NAME, not its connector id). Substitute the id this read was
+        # made with, in both what the model sees and what gets materialized.
+        if (
+            rendered.get("content_type") == "text"
+            and _doc_ext(render_name) in EMAIL_EXTS
+            and isinstance(payload, str)
+        ):
+            rendered["text"] = absolutize_attachment_ids(rendered["text"], data.file_id)
+            payload = DocumentText(
+                absolutize_attachment_ids(str(payload), data.file_id),
+                raw=source_raw, name=payload_name(payload, ""), mime=source_raw_mime,
+            )
 
         # Garbled-text escalation for rich documents. Extraction can "succeed"
         # while producing glyph soup (subset-font PDF with a broken/missing
