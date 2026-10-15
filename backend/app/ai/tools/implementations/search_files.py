@@ -8,9 +8,10 @@ Two paths:
      directory and grep full file contents — exhaustive but slower. Used when
      the catalog isn't indexed yet, or when the caller forces `deep`.
 
-For providers that don't populate keywords (SharePoint / OneDrive / Drive) the
-index path finds nothing and it falls through to the live provider search — so
-their behavior is unchanged.
+For providers that don't populate keywords (Graph SharePoint / OneDrive / Drive)
+the index path finds nothing and it falls through to the live provider search —
+so their behavior is unchanged. SharePoint Server with content indexing uses the
+keyword catalog only when the connection runs as a service account.
 """
 from __future__ import annotations
 
@@ -187,16 +188,20 @@ class SearchFilesTool(Tool):
                     from sqlalchemy import select
                     from app.models.connection_table import ConnectionTable
                     from app.models.connection import Connection
-                    connection_type = await runtime_ctx["db"].scalar(
-                        select(Connection.type).where(Connection.id == str(conn_id))
-                    )
+                    policy = (await runtime_ctx["db"].execute(
+                        select(Connection.type, Connection.auth_policy).where(Connection.id == str(conn_id))
+                    )).first()
+                    connection_type, auth_policy = (policy[0], policy[1]) if policy else (None, None)
                     tables = (await runtime_ctx["db"].execute(
                         select(ConnectionTable).where(ConnectionTable.connection_id == str(conn_id))
                     )).scalars().all()
-                    if connection_type in ("sharepoint_onprem", "documentum"):
-                        # Always check the caller's identity live (Windows /
-                        # Documentum ACLs). Do not fall back to a shared
-                        # inventory on auth failure.
+                    if connection_type in ("sharepoint_onprem", "documentum") and auth_policy != "system_only":
+                        # Per-user identities (Windows / Documentum ACLs) are
+                        # checked live; the shared catalog was crawled as one
+                        # identity and must not stand in for the caller's. A
+                        # service-account (system_only) connection runs every
+                        # call as that same account, so its keyword catalog is
+                        # exactly what a live crawl would see.
                         tables = []
                     entries = _index_search(tables, data.query, data.max_results)
                     used_index = any(

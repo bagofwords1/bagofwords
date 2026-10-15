@@ -54,7 +54,9 @@ class ListFilesTool(Tool):
                 "recursive=false; set recursive=true to include nested files. "
                 "files matching the connection's configured patterns are "
                 "visible. Filter with name_pattern (glob, matched against the filename "
-                "and the relative path: '*.xlsx', '*6044534*')."
+                "and the relative path: '*.xlsx', '*6044534*'). SharePoint also honors "
+                "created_after/created_before/modified_after/modified_before (ISO-8601) "
+                "and returns created_at alongside modified_at."
             ),
             category="research",
             input_schema=ListFilesInput.model_json_schema(),
@@ -157,6 +159,7 @@ class ListFilesTool(Tool):
                 "mime_type": f.get("mime_type"),
                 "size": f.get("size"),
                 "modified_at": f.get("modified_at"),
+                "created_at": f.get("created_at"),
                 # Mail clients surface the sender as "from" (graph_mail_client /
                 # gmail_mail_client `_msg_to_item`). It has no meaning for
                 # ordinary files, so it stays None for them.
@@ -191,6 +194,8 @@ class ListFilesTool(Tool):
                 result = await client.alist_files_bounded(
                     folder_id=data.folder_id, recursive=data.recursive,
                     limit=data.limit, name_pattern=data.name_pattern,
+                    created_after=data.created_after, created_before=data.created_before,
+                    modified_after=data.modified_after, modified_before=data.modified_before,
                 )
                 entries, _ = self._apply(result.files, None)
                 hint = ''

@@ -41,6 +41,10 @@ class FileEntry(BaseModel):
             "directly instead of reading each message just to get its date."
         ),
     )
+    created_at: Optional[str] = Field(
+        None,
+        description="ISO-8601 creation time when the source reports one (SharePoint Server); otherwise null.",
+    )
     sender: Optional[str] = Field(
         None,
         description=(
@@ -102,6 +106,22 @@ class ListFilesInput(BaseModel):
             "'*.xlsx', 'Book *.xlsx', 'Q?_*.csv'. Case-insensitive. Saves a "
             "roundtrip vs listing everything and filtering client-side."
         ),
+    )
+    created_after: Optional[str] = Field(
+        None,
+        description=(
+            "SharePoint only: keep files created at or after this ISO-8601 date/datetime "
+            "(UTC when no offset is given). Files whose source reports no creation time never match."
+        ),
+    )
+    created_before: Optional[str] = Field(
+        None, description="SharePoint only: keep files created strictly before this ISO-8601 date/datetime.",
+    )
+    modified_after: Optional[str] = Field(
+        None, description="SharePoint only: keep files last modified at or after this ISO-8601 date/datetime.",
+    )
+    modified_before: Optional[str] = Field(
+        None, description="SharePoint only: keep files last modified strictly before this ISO-8601 date/datetime.",
     )
     title: Optional[str] = _title_field()
 

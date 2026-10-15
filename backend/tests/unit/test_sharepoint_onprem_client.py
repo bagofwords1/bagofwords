@@ -41,7 +41,8 @@ def remote(monkeypatch):
 
     def meta(path):
         return {"Name": path.rsplit("/", 1)[1], "ServerRelativeUrl": path,
-                "Length": str(len(blobs[path])), "TimeLastModified": "2026-08-01T10:00:00Z"}
+                "Length": str(len(blobs[path])), "TimeLastModified": "2026-08-01T10:00:00Z",
+                "TimeCreated": "2026-07-01T09:00:00Z"}
 
     def respond(session, url, **kw):
         state["identities"].append(getattr(session.auth, "username", None))
@@ -313,3 +314,20 @@ def test_search_does_not_crawl_after_result_limit(remote, indexed):
     assert len(results) == 1 and results[0]['name'] == 'revenue.csv'
     file_requests = [url for url, _ in remote['calls'] if url.endswith('/Files')]
     assert len(file_requests) == (0 if indexed else 1)
+
+
+def test_content_indexing_over_modern_rest(remote):
+    c = client(drive_name="Documents", recursive=True, index_mode="content")
+    rows = {t.name: t.metadata_json["sharepoint_onprem"] for t in c.get_schemas()}
+    assert set(rows) == {f["path"] for f in c.list_files()}
+    assert all(m["indexed"] and m["created_at"] and m["modified_at"] for m in rows.values())
+    assert any("revenue" in m["keywords"] for m in rows.values())
+    downloads = sum(url.endswith("/$value") for url, _ in remote["calls"])
+    assert downloads == len(rows)
+    c.get_schemas(prior_catalog={t: {"sharepoint_onprem": m} for t, m in rows.items()})
+    assert sum(url.endswith("/$value") for url, _ in remote["calls"]) == downloads
+
+
+def test_unknown_index_mode_is_rejected():
+    with pytest.raises(ValueError):
+        client(index_mode="embeddings")

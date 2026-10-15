@@ -100,7 +100,7 @@ class SharepointRestAPI(SharepointAPI):
                 raise ValueError("Folder traversal limit exceeded; narrow the folder scope.")
             endpoint = f"web/GetFolderByServerRelativePath(decodedurl={_literal(root)})"
             try:
-                for meta in self._pages(endpoint + "/Files", {"$select": "Name,ServerRelativeUrl,Length,TimeLastModified", "$top": min(cap, page_size or 200)}):
+                for meta in self._pages(endpoint + "/Files", {"$select": "Name,ServerRelativeUrl,Length,TimeLastModified,TimeCreated", "$top": min(cap, page_size or 200)}):
                     try:
                         entry = self.client._entry(meta, libraries)
                     except GlobScopeError:
@@ -157,7 +157,7 @@ class SharepointRestAPI(SharepointAPI):
         libraries = self.libraries()
         path = self._resolve(file_id, libraries)
         endpoint = f"web/GetFileByServerRelativePath(decodedurl={_literal(path)})"
-        meta = self._request(endpoint, params={"$select": "Name,ServerRelativeUrl,Length,TimeLastModified"})
+        meta = self._request(endpoint, params={"$select": "Name,ServerRelativeUrl,Length,TimeLastModified,TimeCreated"})
         self.client._scope(meta["ServerRelativeUrl"], libraries)
         limit = min(self.client._max_bytes, max_bytes) if max_bytes is not None else self.client._max_bytes
         if limit < 1 or int(meta.get("Length") or 0) > limit:
@@ -193,7 +193,7 @@ class SharepointRestAPI(SharepointAPI):
             path = unquote(url.path)
             try:
                 self.client._scope(path, libraries)
-                meta = self._request(f"web/GetFileByServerRelativePath(decodedurl={_literal(path)})", params={"$select": "Name,ServerRelativeUrl,Length,TimeLastModified"})
+                meta = self._request(f"web/GetFileByServerRelativePath(decodedurl={_literal(path)})", params={"$select": "Name,ServerRelativeUrl,Length,TimeLastModified,TimeCreated"})
                 entry = self.client._entry(meta, libraries)
                 found[entry["id"]] = entry
             except GlobScopeError:

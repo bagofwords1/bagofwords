@@ -17,7 +17,7 @@ from threading import Lock
 from defusedxml.ElementTree import fromstring
 from defusedxml.common import DefusedXmlException
 
-from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
+from app.data_sources.clients._file_source_common import INDEX_CONTENT, FileTooLargeError, GlobScopeError
 from app.data_sources.clients._sharepoint_api import SharepointAPI
 from app.data_sources.clients.progress import make_reporter
 from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _safe_path
@@ -25,7 +25,7 @@ from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPErro
 SOAP = 'http://schemas.xmlsoap.org/soap/envelope/'
 SP = 'http://schemas.microsoft.com/sharepoint/soap/'
 RS = 'urn:schemas-microsoft-com:rowset'
-FIELDS = ('ID', 'FileRef', 'FileLeafRef', 'FSObjType', 'File_x0020_Size', 'Modified')
+FIELDS = ('ID', 'FileRef', 'FileLeafRef', 'FSObjType', 'File_x0020_Size', 'Modified', 'Created')
 
 
 def _value(row, field):
@@ -187,7 +187,8 @@ class Sharepoint2010API(SharepointAPI):
                 if kind == '0' and (not length.isdigit()):
                     raise ValueError('SharePoint returned no valid file size.')
                 yield {'Name': name, 'ServerRelativeUrl': path, 'Length': int(length or 0),
-                       'TimeLastModified': row.get('ows_Modified'), 'folder': kind == '1'}
+                       'TimeLastModified': row.get('ows_Modified'), 'TimeCreated': row.get('ows_Created'),
+                       'folder': kind == '1'}
             token = rows.get('ListItemCollectionPositionNext')
             if not token:
                 return
@@ -303,9 +304,14 @@ class Sharepoint2010API(SharepointAPI):
 
     @property
     def description(self):
+        c = self.client
+        search = ("search_files matches filenames, paths and indexed document keywords "
+                  "from the content index; a live fallback matches filenames and paths only."
+                  if c.index_mode == INDEX_CONTENT else
+                  "search_files matches filenames and paths within the configured enumeration "
+                  "limit; it does not search document contents.")
         return ("Read-only SharePoint 2010 document libraries. Use list_files and read_file "
-                "with returned file ids or scoped paths. search_files matches filenames and paths "
-                "within the configured enumeration limit; it does not search document contents. "
+                f"with returned file ids or scoped paths. {search} "
                 "CSV/Excel reads return DataFrames; PDF/DOCX/PPTX return document text.")
 
     def search_files(self, query, limit=100, **_):

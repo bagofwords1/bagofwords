@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.591 (October 15, 2026)
+- Added content indexing for SharePoint Server connections, so search_files finds documents by keyword without crawling the library — `index_mode: content`
+- Added creation time, and created/modified date filters, to SharePoint file listings
+
 ## Version 0.0.590 (October 14, 2026)
 - Bug fixes and security hardening (#1304)
 
