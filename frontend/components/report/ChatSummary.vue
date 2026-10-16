@@ -134,7 +134,7 @@
             <span v-if="sr.outcome" class="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0" :class="subAgentOutcomeClass(sr.outcome)">
               {{ $t(`tools.delegate.outcomes.${sr.outcome}`, sr.outcome) }}<template v-if="typeof sr.confidence === 'number'"> · {{ Math.round(sr.confidence * 100) }}%</template>
             </span>
-            <span v-else class="text-[10px] text-gray-400 flex-shrink-0">{{ $t(`tools.delegate.status.${sr.status}`, sr.status) }}</span>
+            <span v-else class="text-[10px] text-gray-400 flex-shrink-0">{{ $t(`tools.delegate.status.${subAgentStatusKey(sr)}`, sr.status) }}</span>
             <span class="text-[10px] text-gray-400 flex-shrink-0 tabular-nums" dir="ltr">
               <template v-if="sr.steps_used !== null && sr.steps_used !== undefined">{{ sr.steps_used }} {{ $t('tools.delegate.steps') }}</template>
               <template v-if="tokensOf(sr)"> · {{ tokensOf(sr) }}</template>
@@ -271,6 +271,7 @@ import { computed, ref, watch, onMounted } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import WebhookConfigModal from '~/components/report/WebhookConfigModal.vue'
 import NoteDetailsModal from '~/components/report/NoteDetailsModal.vue'
+import { subAgentStatusKey } from '~/utils/subAgentStatus'
 
 const props = defineProps<{
   /** Host page has a side panel the query cards can open into. */

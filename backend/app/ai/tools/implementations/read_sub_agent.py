@@ -74,6 +74,12 @@ class ReadSubAgentTool(Tool):
             )
         elif snap["status"] == "pending":
             summary = f"Sub-agent '{snap['title']}' is queued, waiting for a slot."
+        elif snap["status"] == "waiting" and snap.get("waiting_for") == "slot":
+            summary = (
+                f"Sub-agent '{snap['title']}' has its answer and is waiting for a free slot to resume "
+                f"({snap['steps_used']}/{snap.get('max_steps')} steps, {snap.get('elapsed_s', 0)}s elapsed). "
+                "Nothing to answer."
+            )
         elif snap["status"] == "waiting":
             summary = f"Sub-agent '{snap['title']}' is waiting for an answer. Read its question in messages and answer it."
         else:
@@ -81,7 +87,7 @@ class ReadSubAgentTool(Tool):
                 f"Sub-agent '{snap['title']}' {snap['status']} ({snap.get('exit_reason')}): "
                 f"{rec.get('outcome', '?')} (confidence {rec.get('confidence', '?')}) — {rec.get('summary', '')}"
             )
-        if snap["status"] in ("running", "pending"):
+        if snap["status"] in ("running", "pending") or snap.get("waiting_for") == "slot":
             summary += " The wave will report back automatically; do not poll or schedule a wait."
         obs = {"summary": summary, "success": True, **{k: v for k, v in snap.items() if k != "calls"}}
         obs["outcome"] = rec.get("outcome")

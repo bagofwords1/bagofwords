@@ -1924,7 +1924,8 @@
         "timed_out": "timed out",
         "interrupted": "stopped",
         "refused": "not started",
-        "waiting": "Waiting for parent"
+        "waiting": "waiting for parent",
+        "waiting_slot": "waiting for a slot"
       },
       "outcomes": {
         "supported": "supported",
@@ -5815,7 +5816,8 @@
       "failed": "Follow-up failed"
     },
     "subAgentWaveDone": "{total} sub-agents finished · {counts}",
-    "subAgentWaveDoneTimedOut": "{total} sub-agents — deadline reached · {counts}"
+    "subAgentWaveDoneTimedOut": "{total} sub-agents — deadline reached · {counts}",
+    "subAgentQuestion": "Sub-agent '{title}' asked a question"
   },
   "sessionEvents": {
     "run_stopped": "Run was stopped",

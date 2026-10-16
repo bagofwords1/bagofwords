@@ -37,7 +37,7 @@
               <span class="text-[10px] text-gray-400 flex-shrink-0" dir="ltr">
                 <template v-if="task.status === 'running' && task.max_steps">{{ task.steps_used || 0 }}/{{ task.max_steps }}</template>
                 <template v-else-if="task.outcome">{{ t(`tools.delegate.outcomes.${task.outcome}`, task.outcome) }}<template v-if="typeof task.confidence === 'number'"> {{ Math.round(task.confidence * 100) }}%</template></template>
-                <template v-else>{{ t(`tools.delegate.status.${task.status}`, task.status) }}</template>
+                <template v-else>{{ t(`tools.delegate.status.${subAgentStatusKey(task)}`, task.status) }}</template>
               </span>
               <button
                 v-if="task.status === 'running' || task.status === 'pending' || task.status === 'waiting'"
@@ -60,6 +60,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
+import { subAgentStatusKey } from '~/utils/subAgentStatus'
 
 const { t } = useI18n()
 const props = defineProps<{

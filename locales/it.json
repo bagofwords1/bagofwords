@@ -1803,7 +1803,8 @@
     },
     "delegate": {
       "status": {
-        "waiting": "In attesa dell’agente principale"
+        "waiting": "In attesa dell’agente principale",
+        "waiting_slot": "In attesa di uno slot libero"
       }
     }
   },

@@ -1025,6 +1025,14 @@ def test_real_child_question_parent_answer_and_child_resume(
             assert len(wakes) == 1
             wake = wakes[0]
             assert wake.status == "success" and wake.message_type == "sub_agent_question"
+            events = (await db.execute(
+                select(Completion).where(
+                    Completion.report_id == report["id"],
+                    Completion.role == "external",
+                    Completion.trigger_source == "sub_agent_message",
+                )
+            )).scalars().all()
+            assert [e.status for e in events] == ["success"], "the visible event mirrors the answered wake"
             replies = (await db.execute(
                 select(Completion).where(Completion.parent_id == wake.id, Completion.role == "system")
             )).scalars().all()

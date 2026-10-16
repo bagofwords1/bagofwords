@@ -7768,7 +7768,7 @@ class AgentV2:
             return
         from app.dependencies import async_session_maker
         agent_messages = []
-        if self._is_sub_agent or self._sub_agents_enabled:
+        if self._is_sub_agent or (self._sub_agents_enabled and await self._has_sub_agent_waves()):
             async with (self._session_maker or async_session_maker)() as mailbox_db:
                 agent_messages = await sub_agent_message_service.receive(
                     mailbox_db, organization_id=str(self.organization.id), report_id=str(self.report_id),
@@ -7809,6 +7809,22 @@ class AgentV2:
                 planner_input.sub_agents_context = "\n".join(part for part in (await sub_agent_service.context_block(self.db, str(self.report_id)), mailbox_context) if part)
             except Exception:
                 logger.debug("[agent] sub_agents context block failed", exc_info=True)
+
+    async def _has_sub_agent_waves(self) -> bool:
+        """The parent mailbox only exists once this report delegated. One EXISTS
+        per step until then (most chats never do), then remembered for the run."""
+        if getattr(self, "_sub_agent_waves_seen", False):
+            return True
+        from app.services.sub_agent_service import sub_agent_service
+        from app.dependencies import async_session_maker
+        try:
+            async with (self._session_maker or async_session_maker)() as db:
+                seen = await sub_agent_service.has_waves(db, str(self.report_id))
+        except Exception:
+            logger.debug("[agent] sub_agent wave lookup failed", exc_info=True)
+            return True
+        self._sub_agent_waves_seen = bool(seen)
+        return self._sub_agent_waves_seen
 
     async def _await_sub_agent_answer(self) -> None:
         """Suspend without holding a session or slot; bounded cross-worker polling.
@@ -7869,6 +7885,7 @@ class AgentV2:
                 sigkilled=self.sigkill_event.is_set(),
             )
             if wave_id:
+                self._sub_agent_waves_seen = True
                 logger.info("[agent] launched sub-agent wave %s", wave_id)
         except Exception:
             logger.exception("[agent] launching sub-agents failed")

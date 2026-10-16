@@ -1898,7 +1898,8 @@
         "timed_out": "tiempo agotado",
         "interrupted": "detenida",
         "refused": "no iniciada",
-        "waiting": "Esperando al agente principal"
+        "waiting": "esperando al agente principal",
+        "waiting_slot": "esperando un hueco libre"
       },
       "outcomes": {
         "supported": "respaldada",
@@ -5741,7 +5742,8 @@
       "failed": "El seguimiento falló"
     },
     "subAgentWaveDone": "{total} subagentes terminados · {counts}",
-    "subAgentWaveDoneTimedOut": "{total} subagentes — plazo alcanzado · {counts}"
+    "subAgentWaveDoneTimedOut": "{total} subagentes — plazo alcanzado · {counts}",
+    "subAgentQuestion": "El subagente '{title}' hizo una pregunta"
   },
   "sessionEvents": {
     "run_stopped": "Se detuvo la ejecución",

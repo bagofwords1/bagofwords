@@ -9,7 +9,7 @@
         <Icon name="heroicons-eye" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
         <span class="text-gray-700 dark:text-gray-300 truncate">
           {{ t('tools.readSubAgent.checked', { title: title }) }}
-          <span class="text-gray-400">· {{ t(`tools.delegate.status.${runStatus}`, runStatus) }}</span>
+          <span class="text-gray-400">· {{ t(`tools.delegate.status.${subAgentStatusKey(rj)}`, runStatus) }}</span>
           <span v-if="outcome" class="text-gray-400">· {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<template v-if="confidence !== null"> {{ Math.round(confidence * 100) }}%</template></span>
           <span v-if="stepsUsed !== null" class="text-gray-400" dir="ltr">· {{ stepsUsed }} {{ t('tools.delegate.steps') }}</span>
         </span>
@@ -23,6 +23,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
+import { subAgentStatusKey } from '~/utils/subAgentStatus'
 
 const { t } = useI18n()
 const props = defineProps<{ toolExecution: { status: string; result_json?: any; arguments_json?: any } }>()

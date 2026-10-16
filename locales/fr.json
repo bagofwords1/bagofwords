@@ -1803,7 +1803,8 @@
     },
     "delegate": {
       "status": {
-        "waiting": "En attente de l’agent principal"
+        "waiting": "En attente de l’agent principal",
+        "waiting_slot": "En attente d’un créneau libre"
       }
     }
   },

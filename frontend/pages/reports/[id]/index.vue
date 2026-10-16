@@ -2180,6 +2180,7 @@ function webhookSourceIcon(source?: string): string {
 		case 'wait': return 'heroicons-clock'
 		case 'checkin': return 'heroicons-arrow-path-rounded-square'
 		case 'sub_agent_wave': return 'heroicons-squares-2x2'
+		case 'sub_agent_message': return 'heroicons-chat-bubble-left-ellipsis'
 		default: return 'heroicons-bolt'
 	}
 }
@@ -2201,6 +2202,9 @@ function machineEventLabel(m: any): string {
 	if (meta && src === 'sub_agent_wave') {
 		const counts = Object.entries(meta.counts || {}).map(([k, n]) => `${n} ${t(`tools.delegate.outcomes.${k}`, k)}`).join(' · ')
 		return t(meta.timed_out ? 'events.subAgentWaveDoneTimedOut' : 'events.subAgentWaveDone', { total: meta.total ?? 0, counts })
+	}
+	if (src === 'sub_agent_message') {
+		return t('events.subAgentQuestion', { title: meta?.title || '' })
 	}
 	if (src === 'checkin') {
 		const outcome = checkinOutcome(m)
@@ -2255,6 +2259,10 @@ function machineEventIcon(m: any): string {
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
 	if (src === 'sub_agent_wave') return 'heroicons-squares-2x2'
+	if (src === 'sub_agent_message') {
+		if (m.status === 'error') return 'heroicons-x-circle'
+		return m.status === 'in_progress' ? 'heroicons-chat-bubble-left-ellipsis' : 'heroicons-check-circle'
+	}
 	if (src === 'checkin') {
 		const outcome = checkinOutcome(m)
 		if (outcome === 'running') return 'heroicons-arrow-path'
@@ -5584,7 +5592,13 @@ async function startStreaming(requestBody: any, sysId: string) {
 			currentController = null
 			const busyId = queued?.busy_completion_id
 			if (busyId && !messages.value.some(m => m.id === busyId || m.system_completion_id === busyId)) {
-				messages.value.push({ id: busyId, role: 'system', status: 'in_progress', system_completion_id: busyId })
+				// Same shape as the optimistic `system-*` placeholder: renderers read
+				// created_at / completion_blocks on in-progress system rows, and this
+				// row outlives a failed history refresh.
+				messages.value.push({
+					id: busyId, role: 'system', status: 'in_progress', system_completion_id: busyId,
+					created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [],
+				} as ChatMessage)
 			}
 			if (created?.id && !messages.value.some(m => m.id === created.id)) {
 				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })

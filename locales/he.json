@@ -1898,7 +1898,8 @@
         "timed_out": "פג הזמן",
         "interrupted": "נעצרה",
         "refused": "לא הופעלה",
-        "waiting": "ממתין לסוכן הראשי"
+        "waiting": "ממתין לסוכן הראשי",
+        "waiting_slot": "ממתין למקום פנוי"
       },
       "outcomes": {
         "supported": "נתמכת",
@@ -5761,7 +5762,8 @@
       "failed": "המעקב נכשל"
     },
     "subAgentWaveDone": "{total} סוכני משנה הסתיימו · {counts}",
-    "subAgentWaveDoneTimedOut": "{total} סוכני משנה — הגיע מועד הסיום · {counts}"
+    "subAgentWaveDoneTimedOut": "{total} סוכני משנה — הגיע מועד הסיום · {counts}",
+    "subAgentQuestion": "סוכן המשנה '{title}' שאל שאלה"
   },
   "sessionEvents": {
     "run_stopped": "ההרצה הופסקה",

@@ -3614,15 +3614,12 @@ class CompletionService:
                 await lock_report(db, report_id)
                 running = await self._get_running_system_completion(db, report_id)
                 if running is not None:
+                    # Stale-row recovery above is an in-session mutation; the
+                    # early return must persist it, not roll it back.
+                    await db.commit()
                     return
-                # Discard question wakes already answered by an intervening user
-                # turn. They are durable queue entries, never additional tasks.
                 from app.services.sub_agent_message_service import sub_agent_message_service
-                if not await sub_agent_message_service.has_open_questions(db, report_id):
-                    await db.execute(update(Completion).where(
-                        Completion.report_id == report_id, Completion.role == 'user',
-                        Completion.status == 'queued', Completion.trigger_source == 'sub_agent_message',
-                    ).values(status='cancelled'))
+                await sub_agent_message_service.cancel_answered_wakes(db, report_id)
                 next_id = (await db.execute(
                     select(Completion.id)
                     .where(
@@ -3759,6 +3756,10 @@ class CompletionService:
                         routing_meta=routing_meta,
                     )
                     await agent.main_execution()
+                    if head.trigger_source == 'sub_agent_message':
+                        from app.services.sub_agent_message_service import sub_agent_message_service
+                        await sub_agent_message_service.close_wake_event(session, head, 'success')
+                        await session.commit()
                     await event_queue.put(SSEEvent(
                         event="completion.finished",
                         completion_id=system_id,
@@ -3784,16 +3785,25 @@ class CompletionService:
                                 .where(Completion.id == system_id)
                                 .values(status='error', completion=failure_content)
                             )
+                            if head is not None and head.trigger_source == 'sub_agent_message':
+                                from app.services.sub_agent_message_service import sub_agent_message_service
+                                await sub_agent_message_service.close_wake_event(
+                                    recovery_session, head, 'error', error=str(e))
                             await recovery_session.commit()
-                            if (authorization_preflight_failure and head is not None
-                                    and head.trigger_source == 'sub_agent_message'):
+                            if head is not None and head.trigger_source == 'sub_agent_message':
+                                # A question wake that cannot run for ANY reason
+                                # leaves its children blocked on an answer that
+                                # will never come; the queue stays paused after a
+                                # runtime error, so nothing else would release them.
                                 from app.services.sub_agent_service import sub_agent_service
+                                reason = (
+                                    "The parent question wake could not run because its original requester "
+                                    "no longer has access to this conversation."
+                                    if authorization_preflight_failure
+                                    else f"The parent could not run to answer the question: {e}"
+                                )
                                 await sub_agent_service.fail_waiting_children_for_parent(
-                                    recovery_session,
-                                    report_id=str(report_id),
-                                    user_id=head.user_id,
-                                    reason=("The parent question wake could not run because its original requester "
-                                            "no longer has access to this conversation."),
+                                    recovery_session, report_id=str(report_id), user_id=head.user_id, reason=reason,
                                 )
                     except Exception:
                         logger.exception("[queue] failed to mark dispatched completion as errored")

@@ -544,6 +544,10 @@ class SubAgentService:
                 note_id = None
         if row.status == RUN_FINISHED and row.exit_reason == EXIT_FINISH_CALL:
             stored = row.result_json or {}
+            if stored.get("report_note_id") and await db.get(Note, str(stored["report_note_id"])) is None:
+                # The incoming record was normalized the same way above: a note
+                # deleted between the call and its retry is not a different record.
+                stored = {**stored, "report_note_id": None}
             original = {**stored, "caveats": [
                 cleaned for caveat in stored.get("caveats", [])
                 if (cleaned := caveat.removesuffix(_UNREAD_FINISH_CAVEAT).rstrip())
@@ -803,7 +807,13 @@ class SubAgentService:
         if row.status in TERMINAL_RUN_STATUSES:
             out["record"] = row.result_json
             out["envelope"] = row.envelope_json
-        if row.started_at and row.status == RUN_RUNNING:
+        if row.status == RUN_WAITING:
+            # 'waiting' covers two states: blocked on the parent's answer, or
+            # answered and queued for a free slot. The parent must not be told
+            # to answer a question that already has an answer.
+            open_question = await sub_agent_message_service.waiting_question(db, str(row.id))
+            out["waiting_for"] = "answer" if open_question else "slot"
+        if row.started_at and row.status in (RUN_RUNNING, RUN_WAITING):
             out["elapsed_s"] = int((datetime.utcnow() - row.started_at).total_seconds())
         note = None
         if row.report_note_id:
@@ -832,10 +842,14 @@ class SubAgentService:
         by_wave: Dict[str, List[SubAgentRun]] = {}
         for r in runs:
             by_wave.setdefault(str(r.wave_id), []).append(r)
+        open_questions: set = set()
+        if any(r.status == RUN_WAITING for r in runs):
+            from app.services.sub_agent_message_service import sub_agent_message_service
+            open_questions = await sub_agent_message_service.children_with_open_questions(db, str(report_id))
         out_waves = []
         tasks = []
         for w in waves:
-            items = [_run_brief(r) for r in by_wave.get(str(w.id), [])]
+            items = [_run_brief(r, open_questions=open_questions) for r in by_wave.get(str(w.id), [])]
             out_waves.append({
                 "id": str(w.id), "status": w.status, "total": w.total, "remaining": w.remaining,
                 "parent_completion_id": w.parent_completion_id, "fan_in_completion_id": w.fan_in_completion_id,
@@ -848,6 +862,12 @@ class SubAgentService:
                     tasks.append({**it, "kind": "sub_agent", "wave_id": str(w.id)})
         out_waves.reverse()
         return {"waves": out_waves, "background_tasks": tasks}
+
+    async def has_waves(self, db, report_id: str) -> bool:
+        """Cheap EXISTS: a report that never delegated has no mailbox to read."""
+        return (await db.execute(
+            select(SubAgentWave.id).where(SubAgentWave.report_id == str(report_id)).limit(1)
+        )).scalar_one_or_none() is not None
 
     async def context_block(self, db, report_id: str) -> str:
         """`<sub_agents>` for the parent: recent waves, one line per child."""
@@ -1098,10 +1118,12 @@ def _synthesized_result(row: SubAgentRun, status: str, exit_reason: str, last_te
     }
 
 
-def _run_brief(r: SubAgentRun) -> Dict[str, Any]:
+def _run_brief(r: SubAgentRun, *, open_questions: Optional[set] = None) -> Dict[str, Any]:
     rec = r.result_json or {}
     return {
         "sub_agent_id": str(r.id), "title": r.title, "profile": r.profile, "status": r.status,
+        **({"waiting_for": "answer" if str(r.id) in (open_questions or set()) else "slot"}
+           if r.status == RUN_WAITING else {}),
         "exit_reason": r.exit_reason, "outcome": rec.get("outcome"), "confidence": rec.get("confidence"),
         "summary": rec.get("summary"), "steps_used": r.steps_used, "max_steps": r.max_steps,
         "tokens": r.tokens_json, "model": r.model_name,

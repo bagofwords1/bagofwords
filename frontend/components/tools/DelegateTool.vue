@@ -15,7 +15,7 @@
         {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<span v-if="confidence !== null"> · {{ Math.round(confidence * 100) }}%</span>
       </span>
       <span v-else-if="refused" class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">{{ t('tools.delegate.refused') }}</span>
-      <span v-else class="text-[10px] text-gray-400 flex-shrink-0">{{ t(`tools.delegate.status.${status}`, status) }}</span>
+      <span v-else class="text-[10px] text-gray-400 flex-shrink-0">{{ t(`tools.delegate.status.${statusKey}`, status) }}</span>
 
       <!-- Counters -->
       <span class="text-[10px] text-gray-400 flex-shrink-0 tabular-nums" dir="ltr">
@@ -110,6 +110,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
+import { subAgentStatusKey } from '~/utils/subAgentStatus'
 
 const { t } = useI18n()
 
@@ -153,6 +154,12 @@ const status = computed<string>(() => {
   return detail.value?.status || live.value?.status || rj.value?.status || (props.toolExecution?.status === 'in_progress' ? 'running' : 'running')
 })
 const isLive = computed(() => !refused.value && (status.value === 'running' || status.value === 'pending' || status.value === 'waiting'))
+// Same precedence as `status`: the freshest source decides whether a waiting
+// child is blocked on the parent or merely on a free slot.
+const statusKey = computed(() => subAgentStatusKey({
+  status: status.value,
+  waiting_for: detail.value?.waiting_for ?? live.value?.waiting_for ?? rj.value?.waiting_for,
+}))
 const record = computed<any>(() => detail.value?.record || live.value?.record || rj.value?.record || null)
 const outcome = computed<string | null>(() => record.value?.outcome || live.value?.outcome || null)
 const confidence = computed<number | null>(() => {

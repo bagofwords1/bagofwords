@@ -14,6 +14,8 @@ from app.models.sub_agent_message import SubAgentMessage
 from app.services.sub_agent_locks import lock_report, lock_wave
 
 LIVE = ('pending', 'running', 'waiting')
+WAKE_SOURCE = 'sub_agent_message'
+WAKE_MESSAGE_TYPE = 'sub_agent_question'
 MAX_MESSAGES = 32
 MAX_QUESTIONS = 3
 MAX_HISTORICAL_CONTEXT_MESSAGES = 8
@@ -116,17 +118,25 @@ class SubAgentMessageService:
         )
         db.add(message)
         if kind == 'question':
-            await self._queue_parent(db, wave)
+            await self._queue_parent(db, wave, child)
         await db.commit()
         return self.receipt(message, child.title)
 
-    async def _queue_parent(self, db, wave):
+    async def _queue_parent(self, db, wave, child):
         """Commit the wake in the SAME transaction as its message, once/report/principal.
-        The caller kicks the dispatcher after the transaction commits."""
+        The caller kicks the dispatcher after the transaction commits.
+
+        Same three-row idiom as every other machine turn (see machine_turn.py):
+        a visible ``role='external'`` event the timeline renders as a strip, the
+        hidden ``role='user'`` trigger the dispatcher runs, and the agent's reply.
+        The event is created here so the user sees the open question while the
+        wake is still queued behind their own turn; the dispatcher closes it."""
         from app.models.completion import Completion
+        # ``== None`` compiles to IS NULL, so a wave without a principal still
+        # coalesces onto one wake instead of queueing one per question.
         queued = (await db.execute(select(Completion.id).where(
             Completion.report_id == wave.report_id, Completion.user_id == wave.user_id, Completion.role == 'user',
-            Completion.status == 'queued', Completion.trigger_source == 'sub_agent_message',
+            Completion.status == 'queued', Completion.trigger_source == WAKE_SOURCE,
         ).limit(1))).scalar_one_or_none()
         if queued:
             return
@@ -134,16 +144,55 @@ class SubAgentMessageService:
         turn = (await db.execute(select(func.max(Completion.turn_index)).where(
             Completion.report_id == wave.report_id,
         ))).scalar() or 0
+        summary = f"Sub-agent '{child.title}' asked a question"
+        event = Completion(
+            report_id=wave.report_id, user_id=wave.user_id, role='external', status='in_progress',
+            model=WAKE_SOURCE, turn_index=turn + 1, message_type=WAKE_MESSAGE_TYPE,
+            trigger_source=WAKE_SOURCE, external_platform=WAKE_SOURCE, completion={'content': ''},
+            prompt={'content': summary, 'summary': summary,
+                    'meta': {'wave_id': str(wave.id), 'sub_agent_id': str(child.id), 'title': child.title}},
+        )
+        db.add(event)
+        await db.flush()
         db.add(Completion(
             report_id=wave.report_id, user_id=wave.user_id, role='user', status='queued',
-            model=parent.model if parent else None, turn_index=turn + 1,
-            message_type='sub_agent_question', trigger_source='sub_agent_message',
+            model=parent.model if parent else None, turn_index=turn + 2,
+            message_type=WAKE_MESSAGE_TYPE, trigger_source=WAKE_SOURCE,
             prompt={'content': 'A sub-agent needs your answer. Read <agent_messages>; answer each open question '
                     'with message_sub_agent(kind="answer", recipient=sender, reply_to=message_id). '
                     'Use the user’s existing instructions. If only the user can decide, ask them and tell the child '
                     'to finish with the uncertainty. Do not claim the investigation is finished.',
-                    'mode': wave.parent_mode or 'chat'},
+                    'mode': wave.parent_mode or 'chat', 'event_completion_id': str(event.id)},
         ))
+
+    @staticmethod
+    async def close_wake_event(db, head, status, *, error=None):
+        """Mirror the wake's outcome on its visible event (no commit)."""
+        from app.models.completion import Completion
+        event_id = ((head.prompt or {}) if head is not None else {}).get('event_completion_id')
+        if not event_id:
+            return
+        values = {'status': status}
+        if error:
+            values['completion'] = {'content': f'Follow-up failed: {error}'}
+        await db.execute(update(Completion).where(
+            Completion.id == event_id, Completion.role == 'external', Completion.status == 'in_progress',
+        ).values(**values))
+
+    async def cancel_answered_wakes(self, db, report_id):
+        """Question wakes are durable queue entries, never additional tasks: once
+        an intervening turn answered everything, discard them and close their
+        events so the timeline does not keep a strip spinning (no commit)."""
+        from app.models.completion import Completion
+        if await self.has_open_questions(db, report_id):
+            return
+        wakes = (await db.execute(select(Completion).where(
+            Completion.report_id == report_id, Completion.role == 'user',
+            Completion.status == 'queued', Completion.trigger_source == WAKE_SOURCE,
+        ))).scalars().all()
+        for head in wakes:
+            head.status = 'cancelled'
+            await self.close_wake_event(db, head, 'success')
 
     async def receive(self, db, *, organization_id, report_id, recipient):
         """Rebuild bounded mailbox context and acknowledge the rows included.
@@ -218,6 +267,14 @@ class SubAgentMessageService:
             SubAgentRun, SubAgentRun.id == SubAgentMessage.sub_agent_id,
         ).where(SubAgentMessage.report_id == report_id, SubAgentMessage.kind == 'question',
                 SubAgentRun.status.in_(LIVE), SubAgentMessage.id.not_in(answered)).limit(1))).scalar_one_or_none() is not None
+
+    async def children_with_open_questions(self, db, report_id):
+        """Ids of this report's children whose latest question has no answer."""
+        answered = self._answered_ids(report_id=report_id)
+        return set((await db.execute(select(SubAgentMessage.sub_agent_id).where(
+            SubAgentMessage.report_id == report_id, SubAgentMessage.kind == 'question',
+            SubAgentMessage.id.not_in(answered),
+        ).distinct())).scalars().all())
 
     async def waiting_question(self, db, sub_agent_id):
         answered = self._answered_ids(sub_agent_id=sub_agent_id)

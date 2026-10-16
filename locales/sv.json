@@ -1803,7 +1803,8 @@
     },
     "delegate": {
       "status": {
-        "waiting": "Väntar på huvudagent"
+        "waiting": "Väntar på huvudagent",
+        "waiting_slot": "Väntar på ledig plats"
       }
     }
   },
