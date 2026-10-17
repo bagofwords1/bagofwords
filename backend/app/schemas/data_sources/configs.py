@@ -2321,8 +2321,9 @@ class SharePointOnpremConfig(SharePointConfig):
             "How much to cache from the library. 'none' → nothing cached; the "
             "agent lists and reads live every time. 'metadata' → cache the file "
             "list on a schedule. 'content' → also extract keywords from "
-            "PDF/Word/PowerPoint/Excel/CSV/text files so search_files can find "
-            "files by topic without crawling the library; unchanged files are "
+            "PDF/Word/PowerPoint/Excel/CSV/text/email (.eml/.msg) files so "
+            "search_files can find files by topic without crawling the "
+            "library; unchanged files are "
             "not downloaded again on later runs. The keyword catalog is only "
             "used for service-account (system) connections; per-user "
             "connections always search live. Reads are always live regardless."
@@ -2803,8 +2804,8 @@ class NetworkDirConfig(BaseModel):
             "agent lists/reads live every time (freshest, best for volatile or "
             "huge dirs). 'metadata' → cache the file list on a schedule "
             "(fast listing, no content search). 'content' → also extract "
-            "keywords from PDF/Word/PowerPoint/Excel/CSV so the agent can find "
-            "files by topic. Reads are always live regardless."
+            "keywords from PDF/Word/PowerPoint/Excel/CSV/email (.eml/.msg) so "
+            "the agent can find files by topic. Reads are always live regardless."
         ),
         json_schema_extra={
             "ui:type": "select",

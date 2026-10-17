@@ -2,9 +2,9 @@
 large-schema source end-to-end without blocking the HTTP request.
 
 Phase 7 acceptance: a sqlite source with **500 tables** must:
-  - POST /connections in < 1s
+  - return from POST /connections while schema discovery is still running
   - reach indexing.status == "completed" with progress_done == progress_total == 500
-  - emit progress that increases monotonically across at least a few poll samples
+  - emit progress that never regresses within a phase across poll samples
   - end with ConnectionTable rows matching the 500 tables
 """
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -50,7 +51,7 @@ def _build_large_sqlite_fixture() -> str:
 
 def _poll_samples(test_client, conn_id, token, org_id, *, timeout_s: float = 120.0):
     """Poll the indexing endpoint and collect progress samples until terminal.
-    Returns (final_row, samples). Samples is a list of (progress_done, progress_total).
+    Returns (final_row, samples). Samples is a list of (progress_done, progress_total, phase).
     """
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
     deadline = time.perf_counter() + timeout_s
@@ -63,7 +64,7 @@ def _poll_samples(test_client, conn_id, token, org_id, *, timeout_s: float = 120
             continue
         assert r.status_code == 200, r.text
         last = r.json()
-        samples.append((last["progress_done"], last["progress_total"], last["status"]))
+        samples.append((last["progress_done"], last["progress_total"], last.get("phase")))
         if last["status"] in ("completed", "failed", "cancelled"):
             return last, samples
         time.sleep(0.1)
@@ -77,6 +78,7 @@ def test_large_sqlite_500_tables_indexing_completes(
     create_user,
     login_user,
     whoami,
+    monkeypatch,
 ):
     fixture_path = _build_large_sqlite_fixture()
     assert os.path.exists(fixture_path)
@@ -85,7 +87,31 @@ def test_large_sqlite_500_tables_indexing_completes(
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
 
-    t0 = time.perf_counter()
+    # POST /connections must not wait on the background indexing run. Prove
+    # it by holding that run's discovery at the driver until the POST has
+    # returned: if the request waited on it, the gate would only open on its
+    # safety timeout and `released` would be False. No wall-clock threshold —
+    # those failed on a loaded runner while the behavior was fine. The safety
+    # timeout stays under the test engine's 60s idle-in-transaction limit, so
+    # a blocking POST fails on this assertion rather than on a killed session.
+    #
+    # Only calls that report progress are gated: the indexing run is the one
+    # that does. The save-time access check also reads the schema (sqlite has
+    # no cheap count_tables()), but inside the request and without a callback.
+    from app.data_sources.clients import sqlite_client
+
+    gate = threading.Event()
+    discovery = {"started": threading.Event(), "released": None}
+    original_get_tables = sqlite_client.SqliteClient.get_tables
+
+    def gated_get_tables(self, progress_callback=None):
+        if progress_callback is not None and not discovery["started"].is_set():
+            discovery["started"].set()
+            discovery["released"] = gate.wait(timeout=30)
+        return original_get_tables(self, progress_callback=progress_callback)
+
+    monkeypatch.setattr(sqlite_client.SqliteClient, "get_tables", gated_get_tables)
+
     connection = create_connection(
         name="Load 500 Tables",
         type="sqlite",
@@ -94,23 +120,27 @@ def test_large_sqlite_500_tables_indexing_completes(
         user_token=token,
         org_id=org_id,
     )
-    post_duration = time.perf_counter() - t0
+    gate.set()
     conn_id = connection["id"]
-    # POST /connections must not wait on schema — cap at 3s to absorb
-    # test-harness overhead while still proving the refactor.
-    assert post_duration < 3.0, f"POST /connections took {post_duration:.2f}s (expected <3s)"
 
     final, samples = _poll_samples(test_client, conn_id, token, org_id, timeout_s=120.0)
+    assert discovery["started"].is_set(), "the indexing run never reached schema discovery"
+    assert discovery["released"] is True, "POST /connections waited for schema discovery"
     assert final["status"] == "completed", final
     assert final["progress_total"] == N_TABLES, final
     assert final["progress_done"] == N_TABLES, final
     assert (final.get("stats") or {}).get("table_count") == N_TABLES
 
-    # Monotonic progress: progress_done never regresses across samples.
-    last_done = -1
-    for done, total, _status in samples:
-        assert done >= last_done, f"progress_done regressed: {done} < {last_done}"
-        last_done = done
+    # Progress is reported per phase (tables → relationship_schemas → saving
+    # …; each new phase restarts its counter), so it is monotonic within a
+    # phase, never past its total, and never across the whole run.
+    by_phase: dict = {}
+    for done, total, phase in samples:
+        assert done <= total or total == 0, (phase, done, total)
+        last = by_phase.get(phase)
+        if last is not None:
+            assert done >= last, f"progress_done regressed within phase {phase!r}: {done} < {last}"
+        by_phase[phase] = done
 
     # Verify ConnectionTable rows
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}

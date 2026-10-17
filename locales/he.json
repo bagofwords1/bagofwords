@@ -1897,7 +1897,8 @@
         "failed": "נכשלה",
         "timed_out": "פג הזמן",
         "interrupted": "נעצרה",
-        "refused": "לא הופעלה"
+        "refused": "לא הופעלה",
+        "waiting": "ממתין לסוכן הראשי"
       },
       "outcomes": {
         "supported": "נתמכת",
@@ -1922,6 +1923,21 @@
     "stopSubAgent": {
       "stopping": "עוצר סוכן משנה…",
       "stopped": "סוכן המשנה '{title}' נעצר"
+    },
+    "messageSubAgent": {
+      "sending": "שולח הודעה…",
+      "sent": "נשלחה הודעה אל {title}",
+      "failed": "לא ניתן לשלוח הודעה אל {title}",
+      "parent": "הסוכן הראשי",
+      "agent": "סוכן משנה",
+      "sentHint": "נשמר למסירה לפני שלב התכנון הבא. אין בכך אישור שההנחיה בוצעה.",
+      "failedHint": "ההודעה לא נשלחה.",
+      "messages": "הודעות",
+      "states": {
+        "sent": "נשלח",
+        "delivered": "נמסר להקשר הסוכן",
+        "undelivered": "לא נמסר"
+      }
     }
   },
   "entityCreate": {
@@ -4393,7 +4409,8 @@
     "menuData": "נתונים"
   },
   "toolbar": {
-    "polishDashboard": "ליטוש דשבורד"
+    "polishDashboard": "ליטוש דשבורד",
+    "polishRequestLabel": "ליטוש"
   },
   "artifactFrame": {
     "dataAddQuery": "הוספת שאילתה",
@@ -5734,6 +5751,7 @@
     "bulkFailed": "העדכון הקבוצתי נכשל"
   },
   "events": {
+    "subAgentQuestion": "סוכן משנה שאל שאלה",
     "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
     "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}",
     "checkin": {

@@ -233,6 +233,7 @@ def test_typed_and_validation_errors_keep_their_shape(client, admin):
     assert client.get("/api/users/whoami").status_code == 401
 
 
+@pytest.mark.e2e
 def test_traceback_pages_require_explicit_opt_in():
     from app.core.request_hardening import traceback_pages_enabled
 

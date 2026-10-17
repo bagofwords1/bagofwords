@@ -253,3 +253,35 @@ def get_connection_tables(test_client):
 
     return _get_connection_tables
 
+
+
+@pytest.fixture
+def wait_for_connection_indexing(test_client):
+    """Wait until a connection's latest indexing run is no longer in flight.
+
+    Creating a connection, or an agent on one, starts a background indexing
+    run that keeps writing the catalog (tables, tools, agent tables) after
+    the request returns. Snapshot what it writes only once it has finished.
+    Returns the final run (or None if the connection has none).
+    """
+    import time
+
+    def _wait(*, connection_id: str, user_token: str, org_id: str, timeout_s: float = 60.0):
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+        deadline = time.monotonic() + timeout_s
+        last = None
+        while time.monotonic() < deadline:
+            response = test_client.get(f"/api/connections/{connection_id}/indexing", headers=headers)
+            if response.status_code == 404:
+                return None
+            assert response.status_code == 200, response.text
+            last = response.json()
+            if last["status"] in ("completed", "failed", "cancelled"):
+                return last
+            time.sleep(0.1)
+        pytest.fail(f"indexing for {connection_id} still running after {timeout_s}s: {last!r}")
+
+    return _wait

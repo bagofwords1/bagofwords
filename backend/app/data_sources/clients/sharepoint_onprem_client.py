@@ -27,7 +27,7 @@ from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT, INDEX_MODES, INDEX_NONE,
     DocumentText, FileTooLargeError, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
 )
-from app.data_sources.clients._keywords import extract_keywords
+from app.data_sources.clients._keywords import extract_file_keywords
 from app.data_sources.clients.graph_drive_client import (
     TEXT_EXTS, _ext, _extract_pdf_pages_from_bytes, _trim_to_data,
 )
@@ -372,7 +372,7 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
                     text = self._file_text(f)
                     # Index the relative path too: a case folder (`6044534/…`)
                     # is how people find these files.
-                    meta["keywords"] = extract_keywords(text or "", f["path"], self.max_keywords)
+                    meta["keywords"] = extract_file_keywords(text or "", f["path"], self.max_keywords)
                     meta["content_hash"] = hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
                     meta["indexed"] = text is not None
                 if meta["keywords"]:

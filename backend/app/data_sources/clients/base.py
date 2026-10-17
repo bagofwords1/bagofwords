@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import threading
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Optional
@@ -82,6 +83,22 @@ def _accepts_kwarg(fn, name: str) -> bool:
         return True
     # Accept anything with **kwargs since it'll silently ignore the kwarg.
     return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+class SearchStopped(Exception):
+    """A live search stopped before covering the whole source.
+
+    Raised by `search_files` implementations that honor a deadline, a cancel
+    check or a scan bound. `files` holds the matches found so far and
+    `stop_reason` says why it stopped ("deadline", "cancelled",
+    "folder_limit", "catalog_limit"), so the caller can return them as an
+    explicitly incomplete result instead of nothing.
+    """
+
+    def __init__(self, stop_reason: str, files: Optional[list] = None):
+        super().__init__(f"live search stopped early ({stop_reason})")
+        self.stop_reason = stop_reason
+        self.files = list(files or [])
 
 
 class DataSourceClient(ABC):
@@ -327,8 +344,26 @@ class DataSourceClient(ABC):
     async def aread_file(self, file_id: str, **kwargs) -> Any:
         return await asyncio.to_thread(self.read_file, file_id, **kwargs)
 
-    async def asearch_files(self, query: str, **kwargs) -> list:
-        return await asyncio.to_thread(self.search_files, query, **kwargs)
+    async def asearch_files(self, query: str, *, deadline: Optional[float] = None, **kwargs) -> list:
+        """Run `search_files` in a worker thread.
+
+        A thread cannot be killed, so a crawl that outlives its caller would
+        keep hitting the source. Clients whose `search_files` accepts
+        `deadline` (a `time.monotonic()` value) and/or `cancel_check` stop at
+        their next checkpoint once the deadline passes or the awaiting task is
+        cancelled (e.g. by the tool runner's timeout). Other clients ignore
+        both and behave as before.
+        """
+        cancelled = threading.Event()
+        if deadline is not None and _accepts_kwarg(self.search_files, "deadline"):
+            kwargs["deadline"] = deadline
+        if _accepts_kwarg(self.search_files, "cancel_check"):
+            kwargs["cancel_check"] = cancelled.is_set
+        try:
+            return await asyncio.to_thread(self.search_files, query, **kwargs)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
     async def agrep_files(self, pattern: str, **kwargs) -> dict:
         return await asyncio.to_thread(self.grep_files, pattern, **kwargs)

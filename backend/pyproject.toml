@@ -120,6 +120,8 @@ dependencies = [
     "kubernetes>=36.0.3",
     "python3-saml>=1.16.0,<2",
     "sqlglot>=27,<28",
+    "python-oxmsg>=0.0.2,<0.1",
+    "compressed-rtf>=1.0.7,<2",
 ]
 
 [project.optional-dependencies]

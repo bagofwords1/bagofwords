@@ -63,6 +63,7 @@ async def _run(tool_input, *, user_id, org_id, mode="chat", scope_ds_ids=None, w
         return end.payload["output"]
 
 
+@pytest.mark.e2e
 def test_search_instructions_allows_chat_mode():
     from app.ai.tools.implementations.search_instructions import SearchInstructionsTool
 

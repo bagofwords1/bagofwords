@@ -23,6 +23,8 @@ from app.services.connection_service import ConnectionService
 from app.services.data_source_service import DataSourceService
 from tests.unit.test_powerbi_schema_refresh import Tenant
 
+pytestmark = pytest.mark.e2e
+
 
 def meta(ds):
     return {

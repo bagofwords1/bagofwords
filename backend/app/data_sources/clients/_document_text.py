@@ -1,10 +1,11 @@
 """Best-effort plain-text extraction for rich document formats.
 
-Lets file sources make PDF / Word / PowerPoint content *searchable* and
-*readable* (not just opaque bytes). Dependency-light: PDF via PDFium
+Lets file sources make PDF / Word / PowerPoint / email content *searchable*
+and *readable* (not just opaque bytes). Dependency-light: PDF via PDFium
 (pypdfium2 — already used to rasterize pages, and the only extractor here that
 returns text in reading order rather than paint order; see _open_pdf), PPTX via
-python-pptx, DOCX by reading the OOXML zip directly (no python-docx needed).
+python-pptx, DOCX by reading the OOXML zip directly (no python-docx needed),
+email (.eml / .msg) via the stdlib parser and python-oxmsg — see _email_text.
 
 Every extractor is defensive — a corrupt/locked/oversized file or a missing
 optional lib yields "" rather than raising, so search over a mixed directory
@@ -37,7 +38,9 @@ PDFIUM_LOCK = threading.Lock()
 logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 # Extensions this module can turn into text. Callers gate on this set.
-DOC_EXTS = {"pdf", "docx", "pptx"}
+# Email files are documents with sub-files (their attachments): _email_text
+# renders them and resolves `<id>#att:<i>:<name>` attachment ids.
+DOC_EXTS = {"pdf", "docx", "pptx", "eml", "msg"}
 
 # Below this many non-whitespace characters, a rich document's text extraction
 # is treated as failed — the common case being a scanned / image-based PDF or
@@ -48,8 +51,10 @@ MIN_USABLE_DOC_CHARS = 16
 
 # Formats whose extractor is EXACT rather than heuristic. OOXML stores literal
 # text runs (<w:t> / <a:t>), so whatever comes back IS the document's text —
-# there is no "scanned docx" failure mode for the length floor to catch.
-_EXACT_TEXT_EXTS = {"docx", "pptx"}
+# there is no "scanned docx" failure mode for the length floor to catch. An
+# email's header block is literal text too: a one-word reply is a short
+# email, not a failed extraction.
+_EXACT_TEXT_EXTS = {"docx", "pptx", "eml", "msg"}
 
 
 def doc_text_is_usable(text, ext: Optional[str] = None) -> bool:
@@ -151,8 +156,9 @@ def sanitize_extracted_text(text: str) -> str:
 
 def extract_document_text(path: str, name: Optional[str] = None,
                           max_chars: int = DEFAULT_MAX_CHARS) -> str:
-    """Return extracted text for a pdf/docx/pptx file, or "" if unsupported /
-    unreadable. `name` overrides the extension source (defaults to `path`)."""
+    """Return extracted text for a pdf/docx/pptx/eml/msg file, or "" if
+    unsupported / unreadable. `name` overrides the extension source (defaults
+    to `path`)."""
     ext = _ext(name or path)
     try:
         if ext == "pdf":
@@ -161,6 +167,8 @@ def extract_document_text(path: str, name: Optional[str] = None,
             return sanitize_extracted_text(_docx(path, max_chars))
         if ext == "pptx":
             return sanitize_extracted_text(_pptx(path, max_chars))
+        if ext in ("eml", "msg"):
+            return sanitize_extracted_text(_email(path, name or path, max_chars))
     except Exception as e:  # never let one bad file break a search
         # DEBUG, not WARNING: on a real directory plenty of files legitimately
         # fail (encrypted, corrupt, Office temp stubs) — that's expected noise,
@@ -382,6 +390,18 @@ def _pptx(path: str, max_chars: int) -> str:
         if total >= max_chars:
             break
     return "\n".join(out)[:max_chars]
+
+
+def _email(path: str, name: str, max_chars: int) -> str:
+    """Header block + body + attachment list + attachment text of an email
+    file (see _email_text). Attachment ids carry a placeholder for the
+    email's own file id — the extractor only knows the NAME — which the
+    read_file tool substitutes before the text reaches the model."""
+    from app.data_sources.clients._email_text import render_email_text
+
+    with open(path, "rb") as fh:
+        data = fh.read()
+    return render_email_text(data, name, max_chars)
 
 
 def _ooxml_zip_fallback(path: str, prefix: str, max_chars: int) -> str:

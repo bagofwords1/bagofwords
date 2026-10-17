@@ -99,7 +99,9 @@
                                     <div class="flex-1 flex justify-end">
                                         <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
+                                                <PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
                                                 <InstructionText
+                                                    v-else
                                                     :text="m.prompt.content"
                                                     :references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
                                                     :prose="true"
@@ -328,6 +330,7 @@ import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
 import DelegateTool from '~/components/tools/DelegateTool.vue'
 import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import MessageSubAgentTool from '~/components/tools/MessageSubAgentTool.vue'
 import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
 import MemoryTool from '~/components/tools/MemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
@@ -345,6 +348,8 @@ import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
 
 // A shared conversation never names the org's agents, but the tool cards do
@@ -697,6 +702,7 @@ function getToolComponent(toolName: string) {
             return ClarifyTool
         case 'delegate':
             return DelegateTool
+        case 'message_sub_agent': return MessageSubAgentTool
         case 'read_sub_agent':
             return ReadSubAgentTool
         case 'stop_sub_agent':

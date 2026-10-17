@@ -26,6 +26,7 @@ WAVE_TIMED_OUT = "timed_out"  # deadline fired; fan-in created with partial reco
 
 # ── Sub-agent status ───────────────────────────────────────────────────────────
 RUN_PENDING = "pending"         # recorded, not yet launched (waits for the batch / a slot)
+RUN_WAITING = "waiting"  # waiting for a parent answer; releases the child execution slot
 RUN_RUNNING = "running"
 RUN_FINISHED = "finished"       # finish_subtask was called
 RUN_FAILED = "failed"           # the child run errored
@@ -113,6 +114,7 @@ class SubAgentRun(BaseSchema):
     exit_reason = Column(String(24), nullable=True)
     # The model-authored finish_subtask body (validated) …
     result_json = Column(JSON, nullable=True)
+    finish_input_json = Column(JSON, nullable=True)
     # … and the runtime envelope the model never writes.
     envelope_json = Column(JSON, nullable=True)
     report_note_id = Column(String(36), ForeignKey("notes.id"), nullable=True)

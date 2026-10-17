@@ -260,6 +260,49 @@ def test_openai_overflow_string_with_apostrophe_classifies_as_context_length():
     assert _code("openai", body) == "context_length"
 
 
+# Captured live from gpt-6-luna (2026-10-17) with a ~1.2M-token request. Neither
+# wording carries a "context length" marker; only the structured code does.
+_OPENAI_RESPONSES_OVERFLOW = {
+    "message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
+    "type": "invalid_request_error", "param": "input", "code": "context_length_exceeded",
+}
+_OPENAI_CHAT_OVERFLOW = {
+    "message": ("Input tokens exceed the configured limit of 922000 tokens. Your messages resulted "
+                "in 1200007 tokens. Please reduce the length of the messages."),
+    "type": "invalid_request_error", "param": "messages", "code": "context_length_exceeded",
+}
+
+
+def _openai_sdk_error(error: dict):
+    """The exception the openai SDK raises for a 400 with this error body."""
+    import httpx
+    import openai
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(400, request=request, json={"error": error})
+    return openai.BadRequestError(
+        f"Error code: 400 - {{'error': {error!r}}}", response=response, body=error,
+    )
+
+
+@pytest.mark.parametrize("error", [_OPENAI_RESPONSES_OVERFLOW, _OPENAI_CHAT_OVERFLOW],
+                         ids=["responses", "chat_completions"])
+def test_openai_current_overflow_is_context_length_not_a_retryable_provider_error(error):
+    for exc in (_openai_sdk_error(error), _wrapped("openai", f"Error code: 400 - {{'error': {error!r}}}")):
+        err = classify(exc, provider="openai", model="gpt-6-luna")
+        assert err.code == "context_length"
+        assert err.provider_message.startswith(error["message"][:40])
+        # Deterministic: same request, same rejection — never retried by the
+        # façade, never handed to another model as a "provider outage".
+        assert err.code not in _RETRYABLE_CODES
+        assert err.code not in FALLBACK_ELIGIBLE_CODES
+
+
+def test_other_openai_400_codes_stay_what_they_were():
+    error = {"message": "Invalid value for 'temperature'.", "type": "invalid_request_error",
+             "param": "temperature", "code": "invalid_value"}
+    assert classify(_openai_sdk_error(error), provider="openai", model="m").code != "context_length"
+
+
 def test_gemini_overflow_string_classifies_as_context_length():
     body = ("400 INVALID_ARGUMENT. The input token count (1200000) exceeds the maximum "
             "number of tokens allowed (1048576).")

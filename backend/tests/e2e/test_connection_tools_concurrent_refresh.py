@@ -26,6 +26,7 @@ from app.dependencies import async_session_maker
 from app.models.connection import Connection
 from app.models.connection_tool import ConnectionTool
 from app.services.connection_service import ConnectionService
+from tests.fixtures.connection_tool import _skip_network
 from tests.mocks.mock_mcp_server import MockToolProviderClient
 
 
@@ -104,26 +105,37 @@ def test_overlapping_tool_refreshes_all_succeed_and_store_each_tool_once(
 @pytest.mark.e2e
 def test_agent_creation_survives_a_failed_tool_discovery(
     test_client, create_user, login_user, whoami, create_custom_api_connection,
+    wait_for_connection_indexing,
 ):
     """Tool discovery on agent create is best-effort: if it fails mid-flush the
     agent must still be created, not 500 on a session left needing rollback."""
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
-    conn = create_custom_api_connection(name=f"api-{uuid.uuid4().hex[:6]}", user_token=token, org_id=org_id)
-    stored = asyncio.run(_stored_names(conn["id"]))
-
-    async def _failing_refresh(self, db, connection, current_user=None):
-        # A flush that violates uq_connection_tool_name, like the losing run did.
-        db.add(ConnectionTool(name=stored[0], connection_id=str(connection.id)))
-        await db.flush()
-
     name = f"agent-{uuid.uuid4().hex[:6]}"
-    with patch.object(ConnectionService, "refresh_tools", _failing_refresh):
-        r = test_client.post("/api/data_sources", json={"name": name, "connection_ids": [conn["id"]]},
-                             headers=_h(token, org_id))
-    assert r.status_code == 200, r.text
-    assert r.json()["name"] == name
-    agents = test_client.get("/api/data_sources", headers=_h(token, org_id)).json()
-    assert name in {a["name"] for a in agents}
-    assert asyncio.run(_stored_names(conn["id"])) == stored
+
+    # The tool provider is the mocked boundary for the whole flow, including
+    # the background indexing runs that rediscover the tools after each
+    # request returns: if one of them reached the real client instead, the
+    # tool list would change for a reason unrelated to the failed discovery.
+    # Snapshots are taken only once those runs have finished.
+    with _skip_network():
+        conn = create_custom_api_connection(name=f"api-{uuid.uuid4().hex[:6]}", user_token=token, org_id=org_id)
+        wait_for_connection_indexing(connection_id=conn["id"], user_token=token, org_id=org_id)
+        stored = asyncio.run(_stored_names(conn["id"]))
+
+        async def _failing_refresh(self, db, connection, current_user=None):
+            # A flush that violates uq_connection_tool_name, like the losing run did.
+            db.add(ConnectionTool(name=stored[0], connection_id=str(connection.id)))
+            await db.flush()
+
+        with patch.object(ConnectionService, "refresh_tools", _failing_refresh):
+            r = test_client.post("/api/data_sources", json={"name": name, "connection_ids": [conn["id"]]},
+                                 headers=_h(token, org_id))
+        assert r.status_code == 200, r.text
+        assert r.json()["name"] == name
+        agents = test_client.get("/api/data_sources", headers=_h(token, org_id)).json()
+        assert name in {a["name"] for a in agents}
+        wait_for_connection_indexing(connection_id=conn["id"], user_token=token, org_id=org_id)
+        after = asyncio.run(_stored_names(conn["id"]))
+    assert after == stored
