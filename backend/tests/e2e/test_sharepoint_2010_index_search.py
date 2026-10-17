@@ -169,3 +169,64 @@ async def _flow(server):
 @pytest.mark.e2e
 def test_service_account_search_answers_from_content_index(legacy):  # noqa: F811
     asyncio.run(_flow(legacy))
+
+
+async def _metadata_flow(server):
+    """Metadata mode stores names only (no keywords). search_files must still
+    answer name/path searches from that catalog instead of walking the library
+    over SOAP on every call — the walk takes minutes on a large library."""
+    from app.ai.tools.implementations.search_files import SearchFilesTool
+    from app.services.data_source_service import DataSourceService
+
+    async with async_session_maker() as db:
+        org_id, user_id, conn_id, ds_id, report_id = await _seed(db, "metadata")
+        ctx = await _ctx(db, org_id, user_id, report_id)
+        await DataSourceService().refresh_data_source_schema(db, str(ds_id), ctx["organization"], ctx["user"])
+        files = sorted(p[len(ROOT) + 1:] for p in server.blobs if p.startswith(ROOT + "/"))
+
+        async def search(query, **inputs):
+            return await _last(SearchFilesTool().run_stream(
+                {"connection_id": str(conn_id), "query": query, "max_results": 20, **inputs}, ctx))
+
+        calls_before = len(server.calls)
+        # Any filename or folder fragment, in any case, matches the catalog.
+        for query in ("revenue", "REVENUE.CSV", "nested", "דוח", "costs"):
+            payload = await search(query)
+            out = payload["output"]
+            assert len(server.calls) == calls_before, f"{query!r} walked the library live"
+            expected = [f for f in files if query.casefold() in f.casefold()]
+            assert expected, query
+            assert out["success"] and sorted(f["path"] for f in out["files"]) == expected, query
+            assert out.get("source") == "catalog" and out.get("indexed_at") and not out.get("incomplete")
+            # Ids are usable by read_file: the server-relative path.
+            assert all(f["id"].startswith(ROOT + "/") for f in out["files"])
+        # A miss is answered from the catalog too (names only, so a body-only
+        # term is not found), and says how to go further.
+        for query in ("south region", f"nothing-{uuid.uuid4().hex[:6]}"):
+            out = (await search(query))["output"]
+            assert out["success"] and out["files"] == [] and out["source"] == "catalog"
+        assert len(server.calls) == calls_before
+
+        # deep=true adds a live scan for files added after the index run.
+        server.blobs[ROOT + "/revenue-2027.csv"] = b"region,amount\n"
+        out = (await search("revenue", deep=True))["output"]
+        assert out["success"] and out["source"] == "catalog+live"
+        assert sorted(f["path"] for f in out["files"]) == ["revenue-2027.csv", "revenue.csv"]
+        assert len(server.calls) > calls_before
+
+        # A per-user connection never answers from the shared catalog.
+        conn = (await db.execute(select(Connection).where(Connection.id == conn_id))).scalar_one()
+        conn.auth_policy = "user_required"
+        conn.allowed_user_auth_modes = ["ntlm"]
+        await db.commit()
+        ctx = await _ctx(db, org_id, user_id, report_id)
+        calls_before = len(server.calls)
+        out = (await search("revenue"))["output"]
+        assert out.get("source") != "catalog"
+        if out["success"]:
+            assert len(server.calls) > calls_before
+
+
+@pytest.mark.e2e
+def test_metadata_catalog_answers_name_search_without_crawling(legacy):  # noqa: F811
+    asyncio.run(_metadata_flow(legacy))
