@@ -17,6 +17,14 @@ Paths, in the order they are tried:
 `group_by="folder"` lists folders (with file counts and dates) by grouping
 the catalog in memory; it needs the catalog and never falls back to live.
 
+`persist=true` writes the COMPLETE matching listing (files or folders) to a
+CSV in the report (execute_mcp's artifact path) and returns its file_id plus
+a capped preview, so create_data can filter/join it without the rows living
+in the conversation. It reads a catalog only, never live: the shared catalog
+for a service-account connection, and for a per-user connection only the
+CALLER's own overlay rows (UserDataSourceTable, built under their own
+credentials) — never the shared catalog, which is the service account's view.
+
 All paths respect the connection's include-globs (the client filters live;
 the catalog only ever held glob-matched files).
 """
@@ -84,10 +92,11 @@ class ListFilesTool(Tool):
                 "group_by='folder') as a CSV in the report and returns its file_id and a "
                 "short preview instead of rows — use it for large listings, folder-by-folder "
                 "work, resuming an interrupted run, or slicing work for sub-agents. All filters "
-                "apply; limit only sizes the preview; no cursor. Catalog only (not live, not "
-                "per-user connections). Then query it with create_data(source_file_ids=[file_id]); "
-                "to find folders with no Agent List row yet, pass the file_id and the list's "
-                "table (tables_by_source) to one create_data. Reuse the file_id on later turns "
+                "apply; limit only sizes the preview; no cursor. Indexed catalog only, never "
+                "live; on a per-user connection it saves only your own files. Call it once, then "
+                "query the file with create_data(source_file_ids=[file_id]); to find folders "
+                "with no Agent List row yet, pass the file_id and the list's table "
+                "(tables_by_source) to one create_data. Reuse the file_id on later turns "
                 "instead of listing again."
             ),
             category="research",
@@ -321,43 +330,105 @@ class ListFilesTool(Tool):
 
     # ------------------------------------------------------- persisted listing
 
-    #: Preview rows returned with a persisted listing when no limit is given.
+    #: Preview rows returned with a persisted listing: default, and hard cap
+    #: (the point of persist is to keep the listing OUT of the context — a
+    #: limit=500 preview put 52k characters back in, observed live).
     _PERSIST_PREVIEW_ROWS = 20
+    _PERSIST_PREVIEW_MAX = 50
 
-    def _persist_refusal(self, data, client, client_err, catalog, why_not, runtime_ctx) -> str:
-        """Why this call cannot persist, or "" when it can."""
+    def _persist_refusal(self, data, client, client_err) -> str:
+        """Why this call cannot persist at all, or "" when it may try."""
         if data.cursor:
             return ("persist=true saves the whole listing in one file, so it takes no cursor. "
                     "Call again without cursor (limit only sizes the preview).")
-        conn = getattr(client, "_bow_connection", None) if client is not None else None
-        if conn is None:
-            # No client (e.g. a per-user connection the caller has not signed
-            # in to): still name the per-user rule rather than a sign-in error.
-            from ._file_tool_common import attached_file_connections
-            sid = str(data.connection_id or "").strip()
-            conn = next((c for d, c in attached_file_connections(runtime_ctx)
-                         if sid in (str(c.id), str(d.id))), None)
-        if conn is not None and getattr(conn, "auth_policy", None) != "system_only":
-            # A per-user connection lists each person's own files. A saved file
-            # is attached to the report, where admins and anyone the
-            # conversation is shared with can open it, so one user's listing
-            # would leak to others. Refuse rather than persist it.
-            return ("persist is not available on this connection: it runs under each user's own sign-in, and "
-                    "a saved listing would be readable by others who can open this report. List with "
-                    "group_by='folder' or folder_id (without persist) instead.")
         if client is None:
             return client_err or "the connection could not be resolved."
         if data.source == "live":
             return ("persist reads the indexed catalog only — a live listing cannot be complete. "
                     "Use source='auto' or 'catalog'.")
-        if catalog is None:
-            return (f"persist needs the connection's indexed catalog ({why_not}). Ask an admin to run a "
-                    "reindex, or list without persist.")
         return ""
 
-    async def _persist(self, data, catalog: dict, conn_name: str, runtime_ctx: Dict[str, Any]) -> ToolEndEvent:
+    @staticmethod
+    def _is_per_user(conn) -> bool:
+        return getattr(conn, "auth_policy", None) != "system_only"
+
+    async def _load_user_catalog(self, runtime_ctx: Dict[str, Any], conn) -> tuple:
+        """The CALLER's own indexed files on a per-user connection, or (None, reason).
+
+        Reads only the caller's overlay rows (UserDataSourceTable, written by
+        the per-user sync that runs under the caller's own credentials) for
+        this connection on the report's agents. Never the shared
+        ConnectionTable catalog — that is the service account's view — and
+        never a live crawl: a bounded live listing cannot be complete.
+        """
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
+        db = runtime_ctx.get("db")
+        if user is None or db is None:
+            return None, "no user context"
+        cfg = getattr(conn, "config", None) or {}
+        if isinstance(cfg, str):
+            import json as _json
+            try:
+                cfg = _json.loads(cfg or "{}")
+            except Exception:
+                cfg = {}
+        if str((cfg or {}).get("index_mode") or "metadata") == "none":
+            return None, "indexing is disabled on this connection (index_mode=none)"
+        from types import SimpleNamespace
+
+        from sqlalchemy import select
+
+        from app.models.connection_indexing import ConnectionIndexing, ConnectionIndexingStatus
+        from app.models.user_data_source_overlay import UserDataSourceTable
+
+        from ._file_tool_common import attached_file_connections
+        ds_ids = sorted({str(d.id) for d, c in attached_file_connections(runtime_ctx) if str(c.id) == str(conn.id)})
+        if not ds_ids:
+            return None, "the connection is not attached to this report"
+        try:
+            rows = (await db.execute(
+                select(UserDataSourceTable).where(
+                    UserDataSourceTable.data_source_id.in_(ds_ids),
+                    UserDataSourceTable.user_id == str(user.id),
+                    UserDataSourceTable.connection_id == str(conn.id),
+                    UserDataSourceTable.deleted_at.is_(None),
+                    UserDataSourceTable.is_accessible.is_(True),
+                )
+            )).scalars().all()
+            by_name = {}
+            for r in rows:
+                by_name.setdefault(r.table_name, r)
+            entries = entries_from_tables(
+                SimpleNamespace(name=r.table_name, metadata_json=r.metadata_json) for r in by_name.values()
+            )
+            if not entries:
+                return None, ("Your own files on this connection are not indexed yet, and on a per-user "
+                              "connection persist never uses the shared catalog. Refresh the agent's files under "
+                              "your account, or list without persist (live, under your identity).")
+            last = (await db.execute(
+                select(ConnectionIndexing.finished_at).where(
+                    ConnectionIndexing.connection_id == str(conn.id),
+                    ConnectionIndexing.user_id == str(user.id),
+                    ConnectionIndexing.status == ConnectionIndexingStatus.COMPLETED.value,
+                ).order_by(ConnectionIndexing.finished_at.desc()).limit(1)
+            )).scalar_one_or_none()
+            if last is None:
+                last = max((r.updated_at for r in by_name.values() if getattr(r, "updated_at", None)), default=None)
+        except Exception as exc:
+            return None, f"your file index is unavailable: {exc}"
+        indexed_at = last.replace(microsecond=0).isoformat() + "Z" if last is not None else None
+        who = getattr(user, "email", None) or getattr(user, "name", None) or str(user.id)
+        return {"entries": entries, "indexed_at": indexed_at, "total": len(entries),
+                "key": f"{conn.id}:user:{user.id}:{indexed_at}", "listed_as": f"user:{user.id}",
+                "listed_as_label": f"your own files ({who})"}, None
+
+    async def _persist(self, data, catalog: dict, name: str, runtime_ctx: Dict[str, Any]) -> ToolEndEvent:
+        import copy
+        import re
+
         from ._file_catalog import (
             PERSIST_MAX_ROWS,
+            _fingerprint,
             persisted_file_rows,
             persisted_folder_rows,
             rows_to_csv,
@@ -365,12 +436,31 @@ class ListFilesTool(Tool):
         from .execute_mcp import save_text_artifact
 
         preview_n = data.limit if "limit" in data.model_fields_set else self._PERSIST_PREVIEW_ROWS
+        preview_n = min(preview_n, self._PERSIST_PREVIEW_MAX)
+        folder_mode = data.group_by == "folder"
+
+        # The same listing asked for twice in one run reuses the file instead of
+        # writing an identical copy (observed live: three identical persists).
+        same = _fingerprint(scope=catalog["key"], folder=(data.folder_id or "").strip().lower(),
+                            recursive=bool(data.recursive), pattern=(data.name_pattern or "").lower(),
+                            ca=data.created_after, cb=data.created_before, ma=data.modified_after,
+                            mb=data.modified_before, sort_by=data.sort_by, sort_order=data.sort_order,
+                            group_by=data.group_by, depth=data.depth if folder_mode else None)
+        done = runtime_ctx.setdefault("_persisted_listings", {}) if isinstance(runtime_ctx, dict) else {}
+        if same in done:
+            payload = copy.deepcopy(done[same])
+            payload["observation"]["summary"] = (
+                f"Already saved this run with the same inputs: file_id={payload['output']['file_id']} "
+                "(no new file written). Query that file with create_data instead of listing again. "
+                + payload["observation"]["summary"])
+            payload["observation"].pop("details", None)
+            return ToolEndEvent(type="tool.end", payload=payload)
+
         everything = max(len(catalog["entries"]), 1)
         filters = dict(name_pattern=data.name_pattern,
                        created_after=data.created_after, created_before=data.created_before,
                        modified_after=data.modified_after, modified_before=data.modified_before,
                        sort_by=data.sort_by, sort_order=data.sort_order, limit=everything)
-        folder_mode = data.group_by == "folder"
         hint = ""
         try:
             if folder_mode:
@@ -401,8 +491,7 @@ class ListFilesTool(Tool):
         if truncated:
             rows = rows[:PERSIST_MAX_ROWS]
         kind = "folders" if folder_mode else "files"
-        import re
-        stem = re.sub(r"[^\w.-]+", "_", f"{conn_name or 'files'}_{kind}"
+        stem = re.sub(r"[^\w.-]+", "_", f"{name or 'files'}_{kind}"
                       + (f"_{data.folder_id.strip('/').rsplit('/', 1)[-1]}" if data.folder_id else "")).strip("_")
         try:
             file = await save_text_artifact(runtime_ctx, f"{stem[:80]}.csv", rows_to_csv(columns, rows),
@@ -415,17 +504,18 @@ class ListFilesTool(Tool):
         scope = f" under {data.folder_id}" if data.folder_id else ""
         what = (f"{len(rows)} folder(s) at depth {data.depth}{scope} ({matched_files} matching files)"
                 if folder_mode else f"{len(rows)} file(s){scope} in {folder_count} folder(s)")
-        summary = (f"Saved the complete listing — {what} — from the catalog ({when}) to {file.filename}, "
+        source_label = catalog.get("listed_as_label") or "the shared catalog"
+        summary = (f"Saved the complete listing — {what} — from {source_label}, {when}, to {file.filename}, "
                    f"file_id={file_id}, sorted by {data.sort_by} {data.sort_order}.")
         if truncated:
             summary += (f" TRUNCATED: only the first {PERSIST_MAX_ROWS:,} rows were saved; narrow with "
                         "folder_id, name_pattern or dates for the rest.")
         summary += hint
-        summary += (f" Columns: {', '.join(columns)}. Do not list again to see more — query the file: "
-                    f"create_data(source_file_ids=['{file_id}']) to filter, group or count; for the "
-                    f"folders without a row in an Agent List yet, pass source_file_ids=['{file_id}'] AND "
-                    "the list's table in tables_by_source to one create_data and keep the folders whose "
-                    "name/path has no matching key. read_file only for a quick look.")
+        summary += (f" Columns: {', '.join(columns)}. Use this file_id from now on (also in later turns) "
+                    f"instead of listing again: create_data(source_file_ids=['{file_id}']) to filter, group, "
+                    "count or slice; for folders with no Agent List row yet, pass this file_id AND the list's "
+                    "table (tables_by_source) to one create_data and keep the folders with no matching key. "
+                    "read_file only for a quick look.")
 
         preview_rows = rows[:preview_n]
         observation: Dict[str, Any] = {"summary": summary, "success": True, "file_id": file_id,
@@ -448,7 +538,7 @@ class ListFilesTool(Tool):
         else:
             preview_folders = []
             preview_files, _ = self._apply(items[:preview_n], None)
-        return ToolEndEvent(type="tool.end", payload={
+        payload = {
             "output": {
                 "success": True, "connection_id": data.connection_id, "group_by": data.group_by,
                 "persisted": True, "file_id": file_id, "file_name": file.filename,
@@ -456,11 +546,14 @@ class ListFilesTool(Tool):
                 "folder_count": folder_count, "files": preview_files, "file_count": len(preview_files),
                 "folders": preview_folders, "source": "catalog", "indexed_at": catalog["indexed_at"],
                 "catalog_files": catalog["total"], "matched": matched_files,
+                "listed_as": catalog.get("listed_as") or "service_account",
                 "next_cursor": None, "incomplete": truncated,
                 "stop_reason": "row_cap" if truncated else None,
             },
             "observation": observation,
-        })
+        }
+        done[same] = copy.deepcopy(payload)
+        return ToolEndEvent(type="tool.end", payload=payload)
 
     def _apply(self, raw: List[dict], name_pattern) -> tuple:
         files = []
@@ -517,12 +610,29 @@ class ListFilesTool(Tool):
         # Persist saves the WHOLE matching set from the catalog — never a live
         # crawl (minutes on a large SharePoint 2010 library) and never a page.
         if getattr(data, "persist", False):
-            refusal = self._persist_refusal(data, client, _client_err, catalog, why_not, runtime_ctx)
+            refusal = self._persist_refusal(data, client, _client_err)
             if refusal:
                 yield self._fail(data.connection_id, refusal)
                 return
-            conn_name = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
-            yield await self._persist(data, catalog, conn_name, runtime_ctx)
+            conn = getattr(client, "_bow_connection", None)
+            if conn is not None and self._is_per_user(conn):
+                # Per-user: only the caller's own indexed files. `catalog` is
+                # already None here (_load_catalog never serves the shared
+                # catalog to a per-user connection); never fall back to it.
+                catalog, why_not = await self._load_user_catalog(runtime_ctx, conn)
+            if catalog is None:
+                if conn is not None and self._is_per_user(conn):
+                    msg = why_not if str(why_not or "").endswith(".") else f"persist cannot run: {why_not}."
+                else:
+                    reason = str(why_not or "there is no catalog").split(" (")[0]
+                    msg = (f"persist reads the connection's indexed catalog and never lists live, but {reason}. "
+                           "Ask an admin to reindex the connection, or list without persist.")
+                yield self._fail(data.connection_id, msg)
+                return
+            from ._file_tool_common import attached_file_connections
+            name = next((d.name for d, c in attached_file_connections(runtime_ctx)
+                         if conn is not None and str(c.id) == str(conn.id)), None) or getattr(conn, "name", "")
+            yield await self._persist(data, catalog, name, runtime_ctx)
             return
         if data.source == "catalog" and catalog is None:
             yield self._fail(data.connection_id, f"No catalog listing for this connection: {why_not}.")

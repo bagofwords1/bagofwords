@@ -10,8 +10,8 @@ Contracts:
 - Persist never crawls live and never pages: cursor, source='live' and an
   unindexed connection are refused without writing a file. A row cap cuts
   the file and says so.
-- Per-user connections are refused: a report file is readable by admins and
-  anyone the conversation is shared with, so one user's listing would leak.
+- Per-user connections save only the caller's own files (see
+  test_list_files_persist_per_user.py).
 - The saved file follows the report's file access: its owner can download it,
   a member who cannot open the report cannot download or load it.
 
@@ -413,25 +413,41 @@ def test_member_persists_in_own_report_and_others_cannot_read_it(world, test_cli
     listed = test_client.get(f"/api/reports/{world['reports']['member']['id']}/files",
                              headers=_h(world["outsider"]["token"], org))
     assert listed.status_code in (403, 404)
+    # The creator owns the file.
+    from app.models.file import File
+
+    async def _owner(db, maker):
+        return str((await db.get(File, file_id)).user_id)
+    assert run_async(_owner) == world["member"]["user_id"]
 
 
-def test_per_user_connection_is_refused_for_admin_and_member(world):
-    from sqlalchemy import select
+# ── keeping the context small ────────────────────────────────────────────
 
-    from app.models.connection import Connection
+def test_preview_is_capped_whatever_the_limit(world):
+    out, df = list_files(world, persist=True, recursive=True, limit=500)
+    assert len(df) > 50
+    assert len(out["output"]["files"]) == 50
+    assert len(out["observation"]["details"].splitlines()) == 51
 
-    async def _flip(db, maker):
-        # Direct write: a network_dir connection cannot be created per-user via
-        # the API; the contract under test is list_files' auth_policy gate.
-        conn = (await db.execute(select(Connection).where(Connection.id == world["conn_id"]))).scalar_one()
-        conn.auth_policy = "user_required"
+
+def test_repeating_the_same_persist_in_a_run_reuses_the_file(world):
+    from app.ai.tools.implementations.list_files import ListFilesTool
+
+    async def _fn(db, maker):
+        ctx = await _ctx(db, world, "admin")
+        outs = []
+        for inputs in ({"recursive": True}, {"recursive": True}, {"recursive": True, "name_pattern": "*.pdf"}):
+            last = None
+            async for ev in ListFilesTool().run_stream(
+                    {"connection_id": world["conn_id"], "persist": True, **inputs}, ctx):
+                last = ev
+            outs.append(last.payload)
         await db.commit()
-    run_async(_flip)
-    for actor in ("admin", "member"):
-        before = report_file_count(world, actor)
-        out, df = list_files(world, actor=actor, persist=True, recursive=True)
-        assert out["output"]["success"] is False and df is None, (actor, out)
-        for mode in ({"group_by": "folder"}, {"source": "catalog"}):
-            out, df = list_files(world, actor=actor, persist=True, **mode)
-            assert out["output"]["success"] is False and df is None
-        assert report_file_count(world, actor) == before
+        return outs
+    before = report_file_count(world)
+    first, again, other = run_async(_fn)
+    assert again["output"]["file_id"] == first["output"]["file_id"]
+    assert again["output"]["row_count"] == first["output"]["row_count"]
+    assert "details" not in again["observation"]
+    assert other["output"]["file_id"] != first["output"]["file_id"]
+    assert report_file_count(world) == before + 2

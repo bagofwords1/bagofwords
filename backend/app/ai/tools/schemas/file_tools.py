@@ -76,7 +76,7 @@ class ListFilesInput(BaseModel):
         description=(
             "SharePoint only: maximum matching files to return (default 50). "
             "Use 1 when any one file is sufficient. Other connectors keep their existing limits. "
-            "With persist=true: only the number of preview rows returned (default 20)."
+            "With persist=true: only the number of preview rows (default 20, max 50)."
         ),
     )
     connection_id: str = Field(
@@ -163,18 +163,17 @@ class ListFilesInput(BaseModel):
     persist: bool = Field(
         False,
         description=(
-            "Save the COMPLETE listing as a CSV file in this report and return its file_id plus a short "
-            "preview, instead of rows in the result. Use it for large listings, folder-by-folder work, "
-            "resuming an interrupted run, or giving sub-agents slices. Saves every row matching folder_id, "
-            "recursive, name_pattern, the date filters and group_by, in sort_by order; limit only sizes the "
-            "preview and cursor is not allowed. Columns — files: id, path, folder (parent path), folder_1..N "
-            "(folder name per level, folder_1 = top level), name, ext, size, modified_at, created_at, web_url, "
-            "indexed_at. Folders: path, name, parent, depth, folder_1..N, file_count, latest_modified_at, "
-            "earliest_created_at, sample_files, indexed_at. Indexed catalog only: fails with source='live', "
-            "on an unindexed connection, and on per-user (sign-in) connections. Query it with "
-            "create_data(source_file_ids=[file_id]); for the folders not yet saved to an Agent List, pass "
-            "the file_id AND the list's table (tables_by_source) to one create_data and keep the folders "
-            "with no matching key."
+            "Save the COMPLETE listing as a CSV in this report; returns a file_id and a short preview instead "
+            "of rows. Use for large listings, folder-by-folder work, resuming an interrupted run, or giving "
+            "sub-agents slices. Every row matching folder_id, recursive, name_pattern, the dates and group_by is "
+            "saved, in sort_by order; limit only sizes the preview (default 20, max 50); no cursor. Columns: "
+            "files — id, path, folder (parent path), folder_1..N (folder name per level, folder_1 = top), name, "
+            "ext, size, modified_at, created_at, web_url, indexed_at; folders — path, name, parent, depth, "
+            "folder_1..N, file_count, latest_modified_at, earliest_created_at, sample_files, indexed_at. Reads "
+            "the indexed catalog only (never live). On a per-user (sign-in) connection it saves only YOUR own "
+            "indexed files. Query it with create_data(source_file_ids=[file_id]); for folders not yet in an "
+            "Agent List, pass the file_id AND the list's table (tables_by_source) to one create_data and keep "
+            "folders with no matching key. Reuse the file_id on later turns instead of listing again."
         ),
     )
     title: Optional[str] = _title_field()
@@ -213,6 +212,9 @@ class ListFilesOutput(BaseModel):
         None, description="persist=true: the saved CSV — pass in create_data(source_file_ids=[...]) or read_file.",
     )
     file_name: Optional[str] = None
+    listed_as: Optional[str] = Field(
+        None, description="persist=true: whose view was saved — 'service_account' or 'user:<id>' (per-user).",
+    )
     row_count: Optional[int] = Field(None, description="persist=true: rows saved to the file.")
     columns: List[str] = Field(default_factory=list, description="persist=true: the CSV's columns.")
     error: Optional[str] = None
