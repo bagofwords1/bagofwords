@@ -8,7 +8,9 @@ never hold both at once, since each fact expired before the other arrived, and
 the agent's only escape was to re-read the image at a full step per look.
 
 Contracts here:
-1. A tool-supplied image stays attached for several iterations, then ages out.
+1. A tool-supplied image stays attached until newer images push it past the
+   cap — steps that carry no image do not age it out. Whole steps are kept or
+   dropped, never part of one, and the newest step is always kept.
 2. The base64 never stays ON the observation — it must not reach the
    JSON-serialized <past_observations> / <last_observation> prompt text.
 3. That holds for batched decisions too, where the recorded per-action
@@ -19,10 +21,12 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from app.ai.agent_v2 import (
     AgentV2,
     _FOLLOWUP_IMAGE_LIMIT,
-    _VISION_IMAGE_RETENTION_LOOPS,
+    _MAX_RETAINED_IMAGES,
 )
 
 
@@ -39,34 +43,39 @@ def _collect(agent, observation, loop_index):
     return AgentV2._collect_vision_images(agent, observation, loop_index)
 
 
-def test_image_stays_attached_across_iterations_then_ages_out():
+def test_image_survives_steps_that_carry_no_images():
+    """A page read once stays visible across any number of note/list/submit
+    steps — only newer images can push it out."""
     agent = _agent()
-    read_at = 4
-    images = _collect(agent, {"summary": "read", "images": [_image()]}, read_at)
-    assert [i.data for i in images] == ["AAAA"]
-
-    # Still available on the following iterations — long enough for the model
-    # to fetch something else and compare the two.
-    for step in range(1, _VISION_IMAGE_RETENTION_LOOPS):
-        later = _collect(agent, {"summary": "other tool"}, read_at + step)
-        assert [i.data for i in later] == ["AAAA"], f"lost the image after {step} step(s)"
-
-    aged_out = _collect(agent, {"summary": "other tool"}, read_at + _VISION_IMAGE_RETENTION_LOOPS)
-    assert aged_out == []
+    _collect(agent, {"summary": "read", "images": [_image("PAGE1")]}, 4)
+    for step in range(5, 30):
+        later = _collect(agent, {"summary": "edit_note"}, step)
+        assert [i.data for i in later] == ["PAGE1"], f"lost the page at step {step}"
 
 
-def test_retention_is_bounded_under_repeated_reads():
-    """Every iteration supplying a new image must not accumulate without
-    limit — only the retained window's worth is ever attached."""
+@pytest.mark.parametrize("pages_per_step", [1, 5, 8])
+def test_newest_images_are_kept_up_to_the_cap_in_whole_steps(pages_per_step):
     agent = _agent()
     attached = []
-    for loop_index in range(10):
-        attached = _collect(
-            agent, {"summary": "read", "images": [_image(f"IMG{loop_index}")]}, loop_index
-        )
-    assert len(attached) == _VISION_IMAGE_RETENTION_LOOPS
-    # And it is the most RECENT window that survives, not the oldest.
-    assert [i.data for i in attached] == ["IMG7", "IMG8", "IMG9"]
+    for loop_index in range(30):
+        attached = _collect(agent, {"summary": "read", "images": [
+            _image(f"L{loop_index}P{p}") for p in range(pages_per_step)]}, loop_index)
+    assert len(attached) <= _MAX_RETAINED_IMAGES
+    # Whole steps only, and they are the most recent ones with no gaps.
+    steps = sorted({int(i.data.split("P")[0][1:]) for i in attached})
+    assert steps == list(range(30 - len(steps), 30))
+    assert len(attached) == len(steps) * pages_per_step
+    assert len(attached) + pages_per_step > _MAX_RETAINED_IMAGES  # nothing more fit
+
+
+def test_one_step_over_the_cap_is_kept_whole_until_the_next_read():
+    agent = _agent()
+    _collect(agent, {"summary": "small", "images": [_image("OLD")]}, 0)
+    big = _collect(agent, {"summary": "big", "images": [
+        _image(f"BIG{p}") for p in range(_MAX_RETAINED_IMAGES + 6)]}, 1)
+    assert len(big) == _MAX_RETAINED_IMAGES + 6 and "OLD" not in {i.data for i in big}
+    after = _collect(agent, {"summary": "next read", "images": [_image("NEW")]}, 2)
+    assert [i.data for i in after] == ["NEW"]
 
 
 def test_base64_is_moved_off_the_observation():

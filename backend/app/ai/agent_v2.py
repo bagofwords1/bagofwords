@@ -220,23 +220,20 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # every write_csv in a session renders the same stale widget preview.
 _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
 
-# How many planner iterations a tool-supplied image (a rendered page, a
-# screenshot, a picture read with read_file) stays attached as a vision block.
+# How long a tool-supplied image (a rendered page, a screenshot, a picture
+# read with read_file) stays attached as a vision block on the legacy
+# (non-transcript) channel.
 #
-# It used to be exactly one: the image was extracted from the observation and
-# deleted, so the turn AFTER the read was the only turn that could see it. A
-# task needing the picture *and* something else — "does the screenshot match
-# what this query returns?" — could then never hold both at once, because each
-# fact expired before the other arrived. The model's only escape was to read
-# the image again, one full step per look. Images are the expensive payload
-# (~1-2k tokens each, re-sent on every call), so the window is short — but it
-# must be longer than one, or evidence can never be combined.
-#
-# Shared with the native transcript (the default path), which applies the same
-# window — and the same total-image cap — to images on its tool results.
+# It used to be exactly one iteration: the image was extracted from the
+# observation and deleted, so the turn AFTER the read was the only turn that
+# could see it. A task needing the picture *and* something else — "does the
+# screenshot match what this query returns?" — could then never hold both at
+# once. Now the newest MAX_RETAINED_IMAGES stay, whole steps at a time, newest
+# first — the same rule the native transcript applies to its tool results (see
+# transcript.retained_prefix), so both paths keep the same pictures.
 from app.ai.context.transcript import (  # noqa: E402
-    IMAGE_RETENTION_STEPS as _VISION_IMAGE_RETENTION_LOOPS,
     MAX_RETAINED_IMAGES as _MAX_RETAINED_IMAGES,
+    retained_prefix as _retained_prefix,
 )
 
 # Uploaded images to attach when the CURRENT completion has none of its own —
@@ -366,6 +363,15 @@ _CONTEXT_OVERFLOW_PATTERNS = (
         r"input token count\s*\((\d[\d,]*)\)\s*exceeds the maximum number of tokens allowed\s*\((\d[\d,]*)\)",
         _re_mod.IGNORECASE,
     ), 1, 2),
+    # OpenAI Chat Completions (current wording, observed on gpt-6-luna):
+    #   "Input tokens exceed the configured limit of 922000 tokens. Your
+    #    messages resulted in 1200007 tokens."                  (limit, actual)
+    # The Responses API says only "Your input exceeds the context window of
+    # this model" — no numbers, so it takes the geometric fallback.
+    (_re_mod.compile(
+        r"configured limit of\s+(\d[\d,]*)\s+tokens?.{0,200}?resulted in\s+(\d[\d,]*)",
+        _re_mod.IGNORECASE | _re_mod.DOTALL,
+    ), 2, 1),
 )
 
 
@@ -721,7 +727,7 @@ class AgentV2:
             # so a picture the agent happened to read or produce once would
             # ride along as a user attachment on every later turn.
             # Tool-supplied images already reach the model through
-            # _collect_vision_images, bounded by _VISION_IMAGE_RETENTION_LOOPS.
+            # _collect_vision_images, bounded by _MAX_RETAINED_IMAGES.
             # They stay in analysis_files, which is what the code sandbox
             # reads by path.
             def _is_agent_file(f) -> bool:
@@ -750,8 +756,8 @@ class AgentV2:
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
 
-        # Vision blocks harvested from tool observations, kept for
-        # _VISION_IMAGE_RETENTION_LOOPS iterations: [{"loop_index", "images"}].
+        # Vision blocks harvested from tool observations, newest
+        # _MAX_RETAINED_IMAGES kept: [{"loop_index", "images"}].
         # Held here rather than left on the observation so the base64 never
         # reaches the JSON-serialized <past_observations> / <last_observation>
         # prompt text — retention and serialization stay independent.
@@ -1892,8 +1898,9 @@ class AgentV2:
 
     def _collect_vision_images(self, observation, loop_index: int) -> list[ImageInput]:
         """Vision blocks for this planner call: any image the current
-        observation carries, plus images from the last
-        _VISION_IMAGE_RETENTION_LOOPS iterations that haven't aged out.
+        observation carries, plus earlier steps' images while the newest
+        _MAX_RETAINED_IMAGES still hold them (whole steps, newest first, the
+        newest step always kept — transcript.retained_prefix).
 
         The images are moved OFF the observation (replaced with the
         `images_provided_as_vision` marker) so the base64 never reaches the
@@ -1918,14 +1925,10 @@ class AgentV2:
                     {"loop_index": loop_index, "images": fresh}
                 )
 
-        cutoff = loop_index - _VISION_IMAGE_RETENTION_LOOPS
-        self._recent_vision_images = [
-            entry for entry in self._recent_vision_images
-            if entry["loop_index"] > cutoff
-        ]
-        images = [img for entry in self._recent_vision_images for img in entry["images"]]
-        # Same cap as the transcript path, newest kept.
-        return images[-_MAX_RETAINED_IMAGES:]
+        newest_first = list(reversed(self._recent_vision_images))
+        keep = _retained_prefix([len(e["images"]) for e in newest_first], protected=1)
+        self._recent_vision_images = list(reversed(newest_first[:keep]))
+        return [img for entry in self._recent_vision_images for img in entry["images"]]
 
     def _planner_images(self, planner_input, user_images: list, tool_images: list) -> Optional[list]:
         """The side-channel images (``planner_input.images``) for one request.
@@ -5178,8 +5181,7 @@ class AgentV2:
                         user_images = list(self._user_images_cache)
 
                         # Tool-supplied images (rendered pages, screenshots),
-                        # retained for a few iterations — see
-                        # _VISION_IMAGE_RETENTION_LOOPS.
+                        # newest _MAX_RETAINED_IMAGES retained.
                         observation_images = self._collect_vision_images(observation, loop_index)
 
                         # Combine user images + observation images

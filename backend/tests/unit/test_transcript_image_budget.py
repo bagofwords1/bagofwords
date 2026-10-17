@@ -1,9 +1,10 @@
 """Tool images in the in-run transcript: bounded, budgeted, never re-sent.
 
 Contracts:
-1. A run that reads many scanned pages keeps images only for the results of
-   the most recent planner steps, and never more than the image cap — older
-   results keep their text plus a note on how to re-read the pages.
+1. A run that reads many scanned pages keeps only the newest images, up to the
+   cap, whole results at a time and with no gaps; steps that return no images
+   never age a page out; the newest read is always kept. Older results keep
+   their text plus a note on how to re-read the pages.
 2. The budget counts what an image costs, so fit_to_budget (and therefore the
    context-overflow recovery that drives it) can actually shrink an
    image-heavy prompt.
@@ -34,11 +35,7 @@ from app.ai.context.parts import (
     image_tokens,
 )
 from app.ai.context.result_parts import build_result_part
-from app.ai.context.transcript import (
-    IMAGE_RETENTION_STEPS,
-    MAX_RETAINED_IMAGES,
-    Transcript,
-)
+from app.ai.context.transcript import MAX_RETAINED_IMAGES, Transcript
 from app.schemas.ai.planner import PlannerInput
 
 
@@ -109,44 +106,104 @@ def _rendered(t: Transcript):
 
 # --- 1. retention ---------------------------------------------------------
 
-@pytest.mark.parametrize("steps,pages", [(40, 1), (50, 4), (60, 8)])
-def test_long_scan_run_keeps_images_only_for_recent_steps(steps, pages):
+def _results_newest_first(t: Transcript):
+    return [p for turn in reversed(t.turns) for p in reversed(turn.parts)
+            if isinstance(p, ToolResultPart)]
+
+
+def _kept_flags(t: Transcript):
+    """Per read result, newest first: True when it still carries images."""
+    return [bool(p.images) for p in _results_newest_first(t) if p.images or p.images_released]
+
+
+@pytest.mark.parametrize("steps,pages", [(40, 1), (50, 4), (60, 8), (45, 7)])
+def test_long_scan_run_keeps_only_the_newest_images(steps, pages):
     t = _run(steps, pages)
     per_msg, bodies, _ = _rendered(t)
 
-    with_images = [i for i, n in enumerate(per_msg) if n]
     assert sum(per_msg) <= MAX_RETAINED_IMAGES
-    # Only the newest result turns carry pictures — never anything older.
-    assert len(with_images) <= IMAGE_RETENTION_STEPS
-    assert all(i >= len(per_msg) - 2 * IMAGE_RETENTION_STEPS for i in with_images)
-    # The newest read is always visible in full (up to the cap).
-    assert per_msg[-1] == min(pages, MAX_RETAINED_IMAGES)
+    # As many of the newest reads as fit, whole: nothing more would fit.
+    assert sum(per_msg) + pages > MAX_RETAINED_IMAGES
+    flags = _kept_flags(t)
+    kept = flags.count(True)
+    assert flags == [True] * kept + [False] * (len(flags) - kept)  # newest, no gaps
+    assert per_msg[-1] == pages  # the newest read in full
 
     # Older reads say how to get the pages back instead of looking empty.
-    older = bodies[: steps - IMAGE_RETENTION_STEPS]
+    older = bodies[: steps - kept]
     assert older and all("read_file" in b and "page_range" in b for b in older)
-    assert not any("page_range" in b for b in bodies[-1:])
+    assert not any("page_range" in b for b in bodies[steps - kept:])
 
 
-def test_one_huge_step_is_capped_newest_kept():
-    """Parallel reads in a single step can exceed the cap on their own."""
-    t = _run(steps=2, pages_per_step=8, reads_per_step=5)
+@pytest.mark.parametrize("between", [1, 3, 10])
+def test_steps_without_images_do_not_release_pages(between):
+    """One page per step, with note/list/submit steps in between. The old
+    3-step window released each page three steps later and the model re-read
+    the same pages over and over; a step with no images must cost a page
+    nothing."""
+    t = _run(steps=0, pages_per_step=0)
+    reads = 0
+    for i in range(8):
+        t.add_assistant_step(calls=[ToolCallPart(id=f"r{i}", tool_name="read_file", args={})])
+        t.add_tool_results([_read_result(f"r{i}", pages=1)])
+        reads += 1
+        for j in range(between):
+            cid = f"n{i}_{j}"
+            t.add_assistant_step(calls=[ToolCallPart(id=cid, tool_name="edit_note", args={})])
+            t.add_tool_results([build_result_part(
+                call_id=cid, tool_name="edit_note", observation={"success": True})])
     per_msg, _, _ = _rendered(t)
-    assert sum(per_msg) == MAX_RETAINED_IMAGES
-    assert per_msg[-1] == MAX_RETAINED_IMAGES
+    assert sum(per_msg) == reads  # every page still there (8 < cap)
+    assert all(p.images_released == 0 for p in _results_newest_first(t))
+
+
+@pytest.mark.parametrize("sizes", [[8, 8, 12], [10, 10, 10], [8, 8, 8, 8], [3, 8, 8, 8, 2], [5, 20, 1, 1]], ids=str)
+def test_results_are_released_whole_never_partially(sizes):
+    """Oldest first in ``sizes``. A result keeps all its pages or none."""
+    t = _run(steps=0, pages_per_step=0)
+    for i, n in enumerate(sizes):
+        t.add_assistant_step(calls=[ToolCallPart(id=f"r{i}", tool_name="read_file", args={})])
+        t.add_tool_results([_read_result(f"r{i}", pages=n)])
+    for p in _results_newest_first(t):
+        assert (len(p.images), p.images_released) in {(len(p.images), 0), (0, p.images_released)}
+    flags = _kept_flags(t)
+    kept = flags.count(True)
+    assert flags == [True] * kept + [False] * (len(flags) - kept)
+    assert sum(_rendered(t)[0]) <= MAX_RETAINED_IMAGES
+
+
+def test_one_step_over_the_cap_is_kept_whole_until_the_next_read():
+    """Parallel reads in a single step can exceed the cap on their own: that
+    step is kept in full (the model must see what it just read), everything
+    older goes, and the next read releases it in turn."""
+    t = _run(steps=1, pages_per_step=2)
+    t.add_assistant_step(calls=[ToolCallPart(id=f"b{j}", tool_name="read_file", args={}) for j in range(5)])
+    t.add_tool_results([_read_result(f"b{j}", pages=8) for j in range(5)])
+    per_msg, _, _ = _rendered(t)
+    assert per_msg[-1] == 40 and sum(per_msg) == 40
+
+    # A note step does not change that ...
+    t.add_assistant_step(calls=[ToolCallPart(id="note", tool_name="edit_note", args={})])
+    t.add_tool_results([build_result_part(call_id="note", tool_name="edit_note", observation={"success": True})])
+    assert sum(_rendered(t)[0]) == 40
+    # ... the next read does: the big step is no longer protected, so its
+    # newest results stay while they fit (whole), the rest go.
+    t.add_assistant_step(calls=[ToolCallPart(id="next", tool_name="read_file", args={})])
+    t.add_tool_results([_read_result("next", pages=1)])
+    assert sum(_rendered(t)[0]) == 1 + 8 + 8
+    big = [p for p in _results_newest_first(t) if p.call_id.startswith("b")]
+    assert [len(p.images) for p in big] == [8, 8, 0, 0, 0]
 
 
 def test_released_image_is_never_sent_again():
-    t = _run(steps=IMAGE_RETENTION_STEPS + 1, pages_per_step=2)
+    t = _run(steps=MAX_RETAINED_IMAGES + 2, pages_per_step=1)
     first_call_id = t.turns[3].parts[0].call_id
     sent_before = _rendered(t)[0]
-    # Grow the transcript and render repeatedly: the aged-out result stays
-    # image-free no matter how often the request is rebuilt.
     for _ in range(3):
         t.to_model_messages()
     oldest = next(p for turn in t.turns for p in turn.parts
                   if isinstance(p, ToolResultPart) and p.call_id == first_call_id)
-    assert oldest.images == []
+    assert oldest.images == [] and oldest.images_released == 1
     assert _rendered(t)[0] == sent_before
 
 
@@ -179,6 +236,21 @@ def test_fit_to_budget_shrinks_what_is_actually_sent(pages):
     assert stats["after"] >= after * 0.9  # the ladder sees what is sent
     # The step the model just took keeps its pages.
     assert _rendered(t)[0][-1] == pages
+
+
+def test_budget_never_takes_the_last_read_pages_even_after_other_steps():
+    """The newest read is protected even once note steps push it out of the
+    protected tail: releasing it would make the model re-read it forever."""
+    t = _run(steps=6, pages_per_step=4, text_chars=2000)
+    for j in range(6):
+        cid = f"n{j}"
+        t.add_assistant_step(calls=[ToolCallPart(id=cid, tool_name="edit_note", args={})])
+        t.add_tool_results([build_result_part(call_id=cid, tool_name="edit_note",
+                                              observation={"success": True, "content": "y" * 3000})])
+    last_read = [p for p in _results_newest_first(t) if p.tool_name == "read_file"][0]
+    t.fit_to_budget(1)  # unreachable: decay everything that may decay
+    assert len(last_read.images) == 4 and last_read.tier.name == "FULL"
+    assert sum(_rendered(t)[0]) == 4
 
 
 def test_context_overflow_recovery_brings_image_heavy_prompt_under_the_limit():
