@@ -1598,7 +1598,12 @@ class AgentV2:
             # Render the union: persisted focus + this run's working set (agents
             # a search already surfaced) — search results never decay mid-run.
             focus_set = {str(x) for x in (focus_ids or [])} | _loaded
-            sections = [s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set]
+            # The built-in BOW section (Agent Lists, training history) is not an
+            # agent and is never in the roster, so focus would always drop it —
+            # leaving the submit_* tools with no way to read their lists back.
+            from app.schemas.bow_source_schema import SOURCE_ID as _BOW_ID
+            sections = [s for s in schemas_ctx.data_sources
+                        if str(s.info.id) in focus_set or str(s.info.id) == _BOW_ID]
             # Focused agents attached AFTER the run-start schema cache was
             # primed have no cached section — build theirs fresh.
             missing = focus_set - {str(s.info.id) for s in sections}

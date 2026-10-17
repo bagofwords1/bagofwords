@@ -983,3 +983,118 @@ def test_summary_shows_the_lists_current_name_and_drops_deleted_lists(test_clien
 
     assert test_client.delete(_url(world, f"/{world['list']['id']}"), headers=h).status_code == 204
     assert _summary_lists(test_client, world) == []
+
+
+# ── Read-back: a list the agent fills must be readable by the same agent ────
+# A batch extraction (one record per folder, hundreds of folders) only resumes
+# if the agent can find the list's rows again. The read path takes the list's
+# UUID and nothing else, so the id has to reach the model on every surface it
+# might look: the submit tool itself, and the schema context — including for a
+# files-only agent and for a connection-scoped rebuild.
+
+def test_each_submit_tool_names_its_own_list_id_and_how_to_read_it(test_client, world, create_report):
+    h = _h(world["admin"]["token"], world["org_id"])
+    r = test_client.post(f"/api/data_sources/{world['other_agent']['id']}/lists",
+                         json=_schema(name="Invoices", key="counterparty"), headers=h)
+    assert r.status_code == 201, r.text
+    world["both"] = create_report(title="Both", user_token=world["admin"]["token"], org_id=world["org_id"],
+                                  data_sources=[world["agent"]["id"], world["other_agent"]["id"]])
+    descriptors, routing = _build(world, report_key="both")
+    assert len(descriptors) == 2
+    table_of = {world["list"]["id"]: world["list"]["table_name"], r.json()["id"]: r.json()["table_name"]}
+    all_ids = {v["list_id"] for v in routing.values()}
+    assert all_ids == set(table_of)
+    for d in descriptors:
+        own = routing[d["name"]]["list_id"]
+        assert own in d["description"]
+        # create_data drops a tables_by_source group with no table names, so
+        # the recipe must name the table the schema context advertises.
+        assert table_of[own] in d["description"]
+        assert not (all_ids - {own}) & set(d["description"].split()), "a tool must not name another list's id"
+        assert "builtin:bow" in d["description"]
+
+
+@pytest.fixture
+def files_world(tmp_path, bootstrap_admin, invite_user_to_org, create_data_source, grant_resource,
+                create_report, test_client):
+    (tmp_path / "folder_a").mkdir()
+    (tmp_path / "folder_a" / "contract.txt").write_text("Acme renews 2027-01-31")
+    admin = bootstrap_admin("admin")
+    org_id = admin["org_id"]
+    h = _h(admin["token"], org_id)
+    agent = create_data_source(name=f"Share {uuid.uuid4().hex[:4]}", type="network_dir",
+                               config={"root_path": str(tmp_path)}, credentials={"auth_type": "none"},
+                               user_token=admin["token"], org_id=org_id)
+    viewer = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    r = grant_resource(resource_type="data_source", resource_id=agent["id"], principal_type="user",
+                       principal_id=viewer["user_id"], permissions=["view"], user_token=admin["token"], org_id=org_id)
+    assert r.status_code in (200, 201), r.text
+    resp = test_client.post(f"/api/data_sources/{agent['id']}/lists", json=_schema(name="Folders"), headers=h)
+    assert resp.status_code == 201, resp.text
+    conns = test_client.get(f"/api/data_sources/{agent['id']}/connections", headers=h).json()
+    assert conns and all(c.get("data_shape") == "files" for c in conns)
+    report = create_report(title="Folders", user_token=admin["token"], org_id=org_id, data_sources=[agent["id"]])
+    return {"org_id": org_id, "admin": admin, "viewer": viewer, "agent": agent, "list": resp.json(),
+            "report": report, "connection_ids": [c["id"] for c in conns]}
+
+
+@pytest.mark.parametrize("actor", ["admin", "viewer"])
+@pytest.mark.parametrize("connection_scoped", [False, True])
+def test_files_only_agent_schema_context_carries_its_list_and_list_id(files_world, actor, connection_scoped):
+    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+    from app.models.data_source import DataSource
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+
+    w = files_world
+
+    async def _fn(db, maker):
+        user = await db.get(User, w[actor]["user_id"])
+        org = await db.get(Organization, w["org_id"])
+        report = await db.get(Report, w["report"]["id"])
+        ds = await db.get(DataSource, w["agent"]["id"])
+        ctx = await SchemaContextBuilder(db, [ds], org, report, user=user, mode="chat").build(
+            with_stats=False, connection_ids=w["connection_ids"] if connection_scoped else None)
+        return ctx
+    ctx = run_async(_fn)
+    bow = [s for s in ctx.data_sources if s.info.id == "builtin:bow"]
+    assert len(bow) == 1
+    assert [t.name for t in bow[0].tables] == [w["list"]["table_name"]]
+    # What the planner actually reads names the id the read path needs.
+    assert w["list"]["id"] in ctx.render_combined(top_k_per_ds=20, index_limit=0, include_index=False)
+
+
+@pytest.mark.parametrize("actor", ["admin", "viewer"])
+def test_files_only_report_reads_its_saved_rows_back_through_the_bow_source(files_world, actor):
+    """What create_data does for tables_by_source=[builtin:bow, <list table>] on
+    a report whose only agent is a file source: the table resolves and the
+    run's ``bow`` client returns the rows already saved — so a batch can skip
+    them."""
+    import re
+    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+    from app.data_sources.clients.bow_client import install_bow_client
+    from app.models.data_source import DataSource
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+
+    w = files_world
+    submit(w, [_record(cp="folder_a"), _record(cp="folder_b")])
+
+    async def _fn(db, maker):
+        user = await db.get(User, w[actor]["user_id"])
+        org = await db.get(Organization, w["org_id"])
+        report = await db.get(Report, w["report"]["id"])
+        ds = await db.get(DataSource, w["agent"]["id"])
+        ctx = await SchemaContextBuilder(db, [ds], org, report, user=user, mode="chat").build(
+            with_stats=False, data_source_ids=["builtin:bow"],
+            name_patterns=[f"(?i)(?:^|[./]){re.escape(w['list']['table_name'])}$"])
+        resolved = [t.name for s in ctx.data_sources for t in s.tables]
+        clients = {}
+        await install_bow_client(db, org, user, report, clients, mode="chat", allow_saved=False)
+        df = await asyncio.to_thread(clients["bow"].execute_query, {"dataset": "list", "list_id": w["list"]["id"]})
+        return resolved, sorted(df["counterparty"])
+    resolved, keys = run_async(_fn)
+    assert resolved == [w["list"]["table_name"]]
+    assert keys == ["folder_a", "folder_b"]

@@ -22,7 +22,7 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
     from app.models.report_data_source_association import report_data_source_association
     from app.services.agent_lists.access import viewable_agent_ids
     from app.services.agent_lists.compiler import compile_list_schema, tool_description
-    from app.services.agent_lists.naming import agent_slug, tool_name_for
+    from app.services.agent_lists.naming import agent_slug, table_name_for, tool_name_for
     from app.services.agent_lists.service import live_lists_for_agents
 
     if report is None or user is None or organization is None:
@@ -66,7 +66,8 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
         key_name = next((f["name"] for f in (l.fields or []) if f["id"] == l.key_field_id), None)
         descriptors.append({
             "name": name,
-            "description": tool_description(l.name, l.description or "", agent_name, key_name),
+            "description": tool_description(l.name, l.description or "", agent_name, key_name, list_id=str(l.id),
+                                            table_name=table_name_for(agent_name, str(l.data_source_id), l.slug)),
             "schema": compile_list_schema(l.fields or [], l.description or ""),
             "category": "both",
             "research_accessible": True,
