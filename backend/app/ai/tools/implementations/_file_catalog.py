@@ -243,3 +243,89 @@ def group_catalog_folders(
     page, next_cursor = _page(rows, fingerprint, limit, cursor)
     stats = {"folders": len(rows), "files": len(matched), "files_outside_folders": outside}
     return page, stats, next_cursor
+
+
+# ------------------------------------------------------------- persisted listing
+
+#: Rows a persisted listing may hold; beyond this the file is cut and flagged.
+PERSIST_MAX_ROWS = 100_000
+
+#: folder_1 … folder_N columns: one per folder level of the path, capped here.
+#: Deeper levels are still in the `folder` / `path` columns.
+PERSIST_MAX_FOLDER_LEVELS = 10
+
+PERSIST_FILE_COLUMNS = ("id", "path", "folder", "name", "ext", "size", "modified_at", "created_at",
+                        "web_url", "indexed_at")
+PERSIST_FOLDER_COLUMNS = ("path", "name", "parent", "depth", "file_count", "latest_modified_at",
+                          "earliest_created_at", "sample_files", "indexed_at")
+
+
+def _segments(path: Any) -> List[str]:
+    return [p for p in str(path or "").split("/") if p]
+
+
+def _level_columns(levels: int) -> List[str]:
+    return [f"folder_{i}" for i in range(1, max(1, min(levels, PERSIST_MAX_FOLDER_LEVELS)) + 1)]
+
+
+def persisted_file_rows(entries: List[Dict[str, Any]], indexed_at: Optional[str]) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """Listing entries → (columns, rows) for a one-row-per-file CSV.
+
+    `folder` is the file's parent path ("" at the root); folder_1 … folder_N
+    hold each folder name by level (folder_1 = top level), so code can group
+    at any level without parsing paths. Order is preserved.
+    """
+    rows, deepest = [], 0
+    for e in entries:
+        parts = _segments(e.get("path") or e.get("name"))
+        folders = parts[:-1]
+        deepest = max(deepest, len(folders))
+        name = str(e.get("name") or (parts[-1] if parts else ""))
+        row = {
+            "id": e.get("id"), "path": "/".join(parts), "folder": "/".join(folders), "name": name,
+            "ext": name.rsplit(".", 1)[-1].lower() if "." in name else "",
+            "size": e.get("size"), "modified_at": e.get("modified_at"), "created_at": e.get("created_at"),
+            "web_url": e.get("web_url"), "indexed_at": indexed_at,
+        }
+        for i, seg in enumerate(folders[:PERSIST_MAX_FOLDER_LEVELS], start=1):
+            row[f"folder_{i}"] = seg
+        rows.append(row)
+    return list(PERSIST_FILE_COLUMNS) + _level_columns(deepest), rows
+
+
+def persisted_folder_rows(folders: List[Dict[str, Any]], indexed_at: Optional[str]) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """group_catalog_folders rows → (columns, rows) for a one-row-per-folder CSV.
+
+    `depth` is the folder's level from the top of the catalog (1 = top level),
+    `parent` its parent path; folder_1 … folder_N name each level as in the
+    file CSV, so the two join on the same columns.
+    """
+    rows, deepest = [], 0
+    for f in folders:
+        parts = _segments(f.get("path"))
+        deepest = max(deepest, len(parts))
+        row = {
+            "path": "/".join(parts), "name": f.get("name") or (parts[-1] if parts else ""),
+            "parent": "/".join(parts[:-1]), "depth": len(parts), "file_count": f.get("file_count"),
+            "latest_modified_at": f.get("latest_modified_at"), "earliest_created_at": f.get("earliest_created_at"),
+            "sample_files": " | ".join(f.get("sample_files") or []), "indexed_at": indexed_at,
+        }
+        for i, seg in enumerate(parts[:PERSIST_MAX_FOLDER_LEVELS], start=1):
+            row[f"folder_{i}"] = seg
+        rows.append(row)
+    cols = list(PERSIST_FOLDER_COLUMNS)
+    cols[4:4] = _level_columns(deepest)  # folder levels right after depth
+    return cols, rows
+
+
+def rows_to_csv(columns: List[str], rows: List[Dict[str, Any]]) -> str:
+    """UTF-8 CSV text (no BOM, so pd.read_csv sees clean column names)."""
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    for r in rows:
+        writer.writerow({c: ("" if r.get(c) is None else r.get(c)) for c in columns})
+    return buf.getvalue()

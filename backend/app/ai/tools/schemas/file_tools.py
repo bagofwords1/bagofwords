@@ -75,7 +75,8 @@ class ListFilesInput(BaseModel):
         50, ge=1, le=500,
         description=(
             "SharePoint only: maximum matching files to return (default 50). "
-            "Use 1 when any one file is sufficient. Other connectors keep their existing limits."
+            "Use 1 when any one file is sufficient. Other connectors keep their existing limits. "
+            "With persist=true: only the number of preview rows (default 20, max 50)."
         ),
     )
     connection_id: str = Field(
@@ -159,6 +160,23 @@ class ListFilesInput(BaseModel):
         1, ge=1, le=20,
         description="With group_by='folder': folder level to group at (1 = top-level folders, 2 = their subfolders).",
     )
+    persist: bool = Field(
+        False,
+        description=(
+            "Save the COMPLETE listing as a CSV in this report; returns a file_id and a short preview instead "
+            "of rows. Use for large listings, folder-by-folder work, resuming an interrupted run, or giving "
+            "sub-agents slices. Every row matching folder_id, recursive, name_pattern, the dates and group_by is "
+            "saved, in sort_by order; limit only sizes the preview (default 20, max 50); no cursor. Columns: "
+            "files — id, path, folder (parent path), folder_1..N (folder name per level, folder_1 = top), name, "
+            "ext, size, modified_at, created_at, web_url, indexed_at; folders — path, name, parent, depth, "
+            "folder_1..N, file_count, latest_modified_at, earliest_created_at, sample_files, indexed_at. Reads "
+            "the indexed catalog only: leave source='auto' (source='live' is refused). On a per-user (sign-in) "
+            "connection it saves only YOUR own indexed files. Query it with create_data(source_file_ids=[file_id]); for folders not yet in an "
+            "Agent List, pass the file_id AND the list's table (tables_by_source) to one create_data and keep "
+            "folders with no matching key. The same call again returns the same file; reuse its file_id on "
+            "later turns instead of listing again."
+        ),
+    )
     title: Optional[str] = _title_field()
 
 
@@ -190,6 +208,16 @@ class ListFilesOutput(BaseModel):
     files_outside_folders: Optional[int] = Field(
         None, description="group_by='folder': matching files above the grouped level (in no folder at that depth).",
     )
+    persisted: bool = Field(False, description="persist=true: the full listing was saved to file_id.")
+    file_id: Optional[str] = Field(
+        None, description="persist=true: the saved CSV — pass in create_data(source_file_ids=[...]) or read_file.",
+    )
+    file_name: Optional[str] = None
+    listed_as: Optional[str] = Field(
+        None, description="persist=true: whose view was saved — 'service_account' or 'user:<id>' (per-user).",
+    )
+    row_count: Optional[int] = Field(None, description="persist=true: rows saved to the file.")
+    columns: List[str] = Field(default_factory=list, description="persist=true: the CSV's columns.")
     error: Optional[str] = None
 
 
