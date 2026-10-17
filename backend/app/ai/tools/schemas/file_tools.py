@@ -145,7 +145,30 @@ class ListFilesInput(BaseModel):
         "name", description="Catalog listings only: sort key. Files lacking the field sort last.",
     )
     sort_order: Literal["asc", "desc"] = Field("asc", description="Catalog listings only: sort direction.")
+    group_by: Literal["file", "folder"] = Field(
+        "file",
+        description=(
+            "Catalog listings only. 'file' (default) lists files. 'folder' lists the folders `depth` levels "
+            "below the scope (or below folder_id), one row per folder with its file count, latest modified "
+            "and earliest created time and sample file names — every top-level folder in one call. Filters "
+            "(name_pattern, dates, folder_id) apply to files before grouping and always include subfolders. "
+            "sort_by='size' sorts folders by file count. Needs the indexed catalog; fails with source='live'."
+        ),
+    )
+    depth: int = Field(
+        1, ge=1, le=20,
+        description="With group_by='folder': folder level to group at (1 = top-level folders, 2 = their subfolders).",
+    )
     title: Optional[str] = _title_field()
+
+
+class FolderEntry(BaseModel):
+    path: str = Field(..., description="Folder path relative to the library; pass as folder_id to list its files.")
+    name: str
+    file_count: int = Field(..., description="Matching files in this folder, including its subfolders.")
+    latest_modified_at: Optional[str] = None
+    earliest_created_at: Optional[str] = None
+    sample_files: List[str] = Field(default_factory=list)
 
 
 class ListFilesOutput(BaseModel):
@@ -161,6 +184,12 @@ class ListFilesOutput(BaseModel):
     catalog_files: Optional[int] = Field(None, description="Catalog listings: files in the whole catalog.")
     matched: Optional[int] = Field(None, description="Catalog listings: files matching the filters before paging.")
     next_cursor: Optional[str] = Field(None, description="Pass back as `cursor` for the next page. Null when complete.")
+    group_by: Optional[str] = Field(None, description="'folder' when this is a folder listing.")
+    folders: List[FolderEntry] = Field(default_factory=list, description="group_by='folder': this page of folders.")
+    folder_count: Optional[int] = Field(None, description="group_by='folder': folders matching in total, before paging.")
+    files_outside_folders: Optional[int] = Field(
+        None, description="group_by='folder': matching files above the grouped level (in no folder at that depth).",
+    )
     error: Optional[str] = None
 
 
