@@ -32,6 +32,8 @@ from app.models.data_source import DataSource
 from app.models.domain_connection import domain_connection
 from app.services.data_source_service import DataSourceService
 
+pytestmark = pytest.mark.e2e
+
 
 def _run(coro):
     return asyncio.run(coro)

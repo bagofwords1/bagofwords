@@ -92,6 +92,7 @@ async def test_wait_wake_runs_only_for_principals_who_can_still_act(kind, should
     assert await _fire(report_id, user_id, org_id) is should_run
 
 
+@pytest.mark.e2e
 def test_cancel_waits_for_user_drops_only_that_users_jobs():
     """Deprovisioning clears the user's pending waits, scoped to the org when given."""
     def _job(jid, uid, oid):

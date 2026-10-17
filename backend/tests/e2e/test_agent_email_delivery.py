@@ -15,6 +15,8 @@ from app.models.report import Report
 from app.models.user import User
 from app.services.email_send_service import EmailSendService
 
+pytestmark = pytest.mark.e2e
+
 
 async def _execution_ids():
     suffix = uuid.uuid4().hex[:8]

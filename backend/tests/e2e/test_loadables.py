@@ -31,6 +31,8 @@ from app.models.query import Query
 from app.models.step import Step
 from app.models.entity import Entity
 
+pytestmark = pytest.mark.e2e
+
 
 def _run(coro):
     return asyncio.run(coro)
