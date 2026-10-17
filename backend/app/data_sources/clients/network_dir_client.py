@@ -57,7 +57,7 @@ from app.data_sources.clients._file_source_common import (
     path_matches_globs,
     recover_filename,
 )
-from app.data_sources.clients._keywords import extract_keywords
+from app.data_sources.clients._keywords import extract_file_keywords
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 
@@ -934,7 +934,7 @@ class NetworkDirClient(DataSourceClient):
                         text = self._file_text(path)
                         # Index the RELATIVE PATH, not just the basename: a case
                         # folder (`6044534/…`) is how people find these files.
-                        meta["keywords"] = extract_keywords(text, name, self.max_keywords)
+                        meta["keywords"] = extract_file_keywords(text, name, self.max_keywords)
                         meta["content_hash"] = hashlib.sha1(
                             (text or "").encode("utf-8", "ignore")
                         ).hexdigest() if text else None

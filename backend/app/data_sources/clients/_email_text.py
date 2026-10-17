@@ -696,6 +696,45 @@ def render_email_text(data: bytes, name: str, max_chars: int, *, depth: int = 0,
     return text[:max_chars]
 
 
+# Markers `render_email_text` writes. They exist for the model (labels, sub-file
+# ids, section breaks); the keyword index must not rank them as content.
+_SECTION_RE = re.compile(r"^--- Attachment \[\d+\] (.*) ---$")
+_LIST_HEADER_RE = re.compile(r"^Attachments \(\d+\):$")
+_LIST_ITEM_RE = re.compile(r"^\s+\[\d+\] (.*) \([^()]*\) — file_id: .*$")
+_HEADER_LINE_RE = re.compile(r"^(From|To|Cc|Date|Subject): ?(.*)$")
+
+
+def email_index_parts(rendered: str) -> list[str]:
+    """Split ``render_email_text`` output into one plain text per part — the
+    email itself, then each attachment and each nested message's own parts —
+    with the rendering scaffolding removed.
+
+    Header values (names, addresses, subject) and attachment names stay; the
+    labels, the attachment listing's ids/sizes, the Date line and the section
+    separators go. Each part is ranked on its own by the keyword index
+    (``_keywords.extract_file_keywords``), so a long body cannot push a short
+    attachment or a forwarded message out of the capped keyword list."""
+    parts: list[list[str]] = [[]]
+    for line in (rendered or "").splitlines():
+        m = _SECTION_RE.match(line)
+        if m:
+            parts.append([m.group(1)])
+            continue
+        if _LIST_HEADER_RE.match(line) or line.strip() == "[body truncated]":
+            continue
+        m = _LIST_ITEM_RE.match(line)
+        if m:
+            parts[-1].append(m.group(1))
+            continue
+        m = _HEADER_LINE_RE.match(line)
+        if m:
+            if m.group(1) != "Date":
+                parts[-1].append(m.group(2))
+            continue
+        parts[-1].append(line)
+    return [t for t in ("\n".join(p).strip() for p in parts) if t]
+
+
 # --------------------------------------------------- sub-file resolution
 
 

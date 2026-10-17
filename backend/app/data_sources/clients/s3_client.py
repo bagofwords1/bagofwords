@@ -59,7 +59,7 @@ from app.data_sources.clients._file_source_common import (
     normalize_index_mode,
     path_matches_globs,
 )
-from app.data_sources.clients._keywords import extract_keywords
+from app.data_sources.clients._keywords import extract_file_keywords
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 # Same parse/scan classes as network_dir so behavior matches across file sources.
@@ -666,7 +666,7 @@ class S3Client(DataSourceClient):
             if self.index_content:
                 try:
                     text = self._file_text(self._resolve_key(f["id"]), f.get("size", 0))
-                    meta["keywords"] = extract_keywords(text, f["name"], self.max_keywords)
+                    meta["keywords"] = extract_file_keywords(text, f["name"], self.max_keywords)
                     meta["content_hash"] = (
                         hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
                     )

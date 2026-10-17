@@ -71,3 +71,68 @@ def extract_keywords(
                 break
 
     return keywords[:max_keywords]
+
+
+def _ranked_tokens(text: str) -> list[str]:
+    counts = Counter(
+        t for t in (m.lower() for m in _WORD_RE.findall(text or ""))
+        if t not in _STOPWORDS
+    )
+    return [tok for tok, _ in counts.most_common()]
+
+
+def extract_keywords_from_parts(
+    parts: list[str], filename: str | None = None, max_keywords: int = 50
+) -> list[str]:
+    """Keywords for a file made of several documents (an email with
+    attachments): filename tokens first, then the parts take turns — each
+    part's next most frequent unseen token — so every part is represented
+    instead of the longest one taking the whole budget."""
+    keywords: list[str] = []
+    seen = set()
+
+    def _add(tok: str) -> None:
+        if tok and tok not in seen and tok not in _STOPWORDS:
+            seen.add(tok)
+            keywords.append(tok)
+
+    for tok in _NAME_RE.findall((filename or "").lower()):
+        _add(tok)
+        if len(keywords) >= max_keywords:
+            return keywords[:max_keywords]
+
+    queues = [iter(_ranked_tokens(p)) for p in parts if p]
+    while queues and len(keywords) < max_keywords:
+        alive = []
+        for q in queues:
+            for tok in q:
+                if tok not in seen:
+                    _add(tok)
+                    alive.append(q)
+                    break
+            if len(keywords) >= max_keywords:
+                break
+        queues = alive
+    return keywords[:max_keywords]
+
+
+# An email is several documents in one file (body, attachments, forwarded
+# messages), so it gets a larger share of keywords than a single document.
+EMAIL_KEYWORD_FACTOR = 2
+
+
+def extract_file_keywords(
+    text: str | None, filename: str | None = None, max_keywords: int = 50
+) -> list[str]:
+    """Keywords for a catalog row: what the content indexers call.
+
+    Emails (.eml / .msg) are indexed from their parts, without the rendering
+    scaffolding the model reads (labels, sub-file ids, separators) — see
+    ``_email_text.email_index_parts``. Every other file is unchanged."""
+    from app.data_sources.clients._email_text import email_index_parts, is_email_name
+
+    if text and is_email_name(filename or ""):
+        return extract_keywords_from_parts(
+            email_index_parts(text), filename, max_keywords * EMAIL_KEYWORD_FACTOR,
+        )
+    return extract_keywords(text, filename, max_keywords)

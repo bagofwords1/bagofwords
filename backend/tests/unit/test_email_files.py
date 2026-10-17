@@ -277,6 +277,37 @@ class TestIndexing:
         assert {BODY_WORD, PDF_WORD, CSV_WORD} <= set(kws)
 
     @pytest.mark.parametrize("ext", ["eml", "msg"])
+    def test_every_layer_keeps_a_keyword_next_to_a_long_body(self, ext, tmp_path: Path):
+        """The index ranks keywords by frequency under a cap. A long body, and
+        the rendering's own scaffolding (labels, `file_id: …#att:…` lines,
+        separators), used to fill the cap first, so a term living only in an
+        attachment or a forwarded message never reached the index — and a
+        catalog-only search (SharePoint 2010) could not find the email."""
+        long_body = " ".join(f"topic{chr(97 + i % 26)}{chr(97 + i // 26)}" for i in range(120)) * 3
+        long_body = f"{BODY_WORD} {long_body} {BODY_WORD} {BODY_WORD} {BODY_WORD}"
+        if ext == "eml":
+            raw = _eml(body=long_body, attachments=STANDARD_ATTACHMENTS, nested=_nested_eml())
+        else:
+            raw = _msg(body=long_body, attachments=[
+                *({"name": n, "data": d, "mime": m} for n, d, m in STANDARD_ATTACHMENTS),
+                {"name": "fwd.msg", "message": {
+                    "subject": "FW: original thread", "sender_name": "Dana", "sender_email": "dana@example.com",
+                    "to": [("Alice", "alice@example.com")], "body": f"The {NESTED_WORD} figures are attached."}},
+            ])
+        (tmp_path / f"mail.{ext}").write_bytes(raw)
+        client = NetworkDirClient(root_path=str(tmp_path), index_mode="content")
+        kws = set({t.name: t.metadata_json["network_dir"] for t in client.get_schemas()}[f"mail.{ext}"]["keywords"])
+        assert {BODY_WORD, PDF_WORD, CSV_WORD, NESTED_WORD} <= kws
+        # Rendering scaffolding is not a keyword.
+        assert not kws & {"att", "attachment", "attachments", "subject", "file"}
+
+    def test_non_email_keywords_are_unchanged(self):
+        from app.data_sources.clients._keywords import extract_file_keywords
+
+        text = "Attachments (2):\n  [0] a.pdf (1 KB) — file_id: x#att:0:a.pdf\nFrom: someone\nbody words here"
+        assert extract_file_keywords(text, "notes.txt", 50) == extract_keywords(text, "notes.txt", 50)
+
+    @pytest.mark.parametrize("ext", ["eml", "msg"])
     def test_network_dir_content_index_and_live_search(self, ext, tmp_path: Path):
         (tmp_path / "inbox").mkdir()
         (tmp_path / "inbox" / f"mail.{ext}").write_bytes(_with_attachments(ext))
