@@ -15,7 +15,7 @@ The contract under test (see app/data_sources/clients/_email_text.py):
 
 `.eml` fixtures are built with the stdlib; `.msg` fixtures are REAL Outlook
 files written by tests/unit/_msg_fixture.py (a minimal CFB + MAPI writer) and
-parsed by extract-msg, so the .msg path is exercised end to end, not mocked.
+parsed by python-oxmsg, so the .msg path is exercised end to end, not mocked.
 """
 from __future__ import annotations
 
@@ -498,3 +498,62 @@ class TestChatUpload:
             assert out["success"] and out["content_type"] == "tabular"
         finally:
             shutil.rmtree(base, ignore_errors=True)
+
+
+# ── .msg header and RTF-only fallbacks (python-oxmsg path) ──────────────────
+
+def test_msg_recipients_keep_to_and_cc_apart():
+    """PidTagRecipientType decides the header: a Cc recipient must not be
+    rendered as To (python-oxmsg lists recipients without their type)."""
+    from app.data_sources.clients._email_text import parse_email_bytes
+
+    em = parse_email_bytes(_msg(), "q.msg")
+    assert em is not None
+    assert "bob@example.com" in em["To"] and "carol" not in em["To"].lower()
+    assert "carol@example.com" in em["Cc"]
+
+
+def test_msg_rtf_only_body_is_rendered_as_text():
+    """Older Outlook messages carry only a compressed RTF body. Its text must
+    reach the rendering (and so the keyword index) instead of an empty body."""
+    from compressed_rtf import compress
+
+    from app.data_sources.clients import _email_text as et
+
+    rtf = ("{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}{\\colortbl;\\red0\\green0\\blue0;}"
+           "\\pard Hello {\\b " + BODY_WORD + "}\\par Caf\\'e9 \\u1513?ok\\par}")
+
+    class _Props:
+        def binary_prop_value(self, pid):
+            return compress(rtf.encode("cp1252")) if pid == et._PID_RTF_COMPRESSED else None
+
+        def int_prop_value(self, pid):
+            return None
+
+    class _Msg:
+        properties = _Props()
+        sender = "Alice <alice@example.com>"
+        recipients = ()
+        subject = "Legacy"
+        sent_date = None
+        body = None
+        html_body = None
+        attachments = ()
+
+    em = et._convert_msg(_Msg(), 0)
+    text = em.get_content()
+    assert BODY_WORD in text and "Hello" in text
+    assert "Café" in text and "ש" in text
+    assert "Arial" not in text and "red0" not in text
+
+
+def test_rtf_to_text_skips_encapsulated_html_tags():
+    """\\fromhtml RTF keeps the visible text; the HTML tags live in
+    {\\*\\htmltag ...} destination groups and must not leak into the body."""
+    from app.data_sources.clients._email_text import _rtf_to_text
+
+    rtf = ("{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag64 <p>}{\\htmlrtf \\pard\\htmlrtf0}"
+           "visible " + BODY_WORD + "{\\*\\htmltag72 </p>}\\par}")
+    out = _rtf_to_text(rtf)
+    assert BODY_WORD in out and "visible" in out
+    assert "<p>" not in out and "htmltag" not in out

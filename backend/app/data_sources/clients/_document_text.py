@@ -5,7 +5,7 @@ and *readable* (not just opaque bytes). Dependency-light: PDF via PDFium
 (pypdfium2 — already used to rasterize pages, and the only extractor here that
 returns text in reading order rather than paint order; see _open_pdf), PPTX via
 python-pptx, DOCX by reading the OOXML zip directly (no python-docx needed),
-email (.eml / .msg) via the stdlib parser and extract-msg — see _email_text.
+email (.eml / .msg) via the stdlib parser and python-oxmsg — see _email_text.
 
 Every extractor is defensive — a corrupt/locked/oversized file or a missing
 optional lib yields "" rather than raising, so search over a mixed directory

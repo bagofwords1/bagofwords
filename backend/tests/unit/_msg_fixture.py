@@ -1,11 +1,11 @@
 """Build a real Outlook `.msg` file from scratch, for tests.
 
-No library in the dependency set can WRITE an MSG (extract-msg and olefile
+No library in the dependency set can WRITE an MSG (python-oxmsg and olefile
 only read), and no permissively licensed sample is at hand, so this is a
 minimal, spec-driven writer: an OLE2 compound file ([MS-CFB], v3, 512-byte
 sectors, mini stream for small streams) holding the MAPI property streams
 [MS-OXMSG] expects — subject/sender/recipients/body/html body, by-value
-attachments and an embedded message. extract-msg parses the result exactly
+attachments and an embedded message. python-oxmsg parses the result exactly
 like a message Outlook saved, which is what makes a test on it a test of the
 real `.msg` path rather than of a mock.
 

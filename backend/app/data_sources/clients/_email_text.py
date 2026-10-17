@@ -20,9 +20,9 @@ model-facing shape:
     <extracted text of the attachment, so search_files finds terms inside it>
     …
 
-`.msg` is converted to a standard ``EmailMessage`` through extract-msg
-(``asEmailMessage``) and then rendered by the same code as `.eml`, so the two
-formats cannot drift apart.
+`.msg` is converted to a standard ``EmailMessage`` from python-oxmsg's typed
+MAPI properties (``_convert_msg``) and then rendered by the same code as
+`.eml`, so the two formats cannot drift apart.
 
 Attachments are addressed as sub-files of the email they live in:
 ``<parent file id>#att:<index>:<filename>`` — the 0-based index makes the
@@ -39,7 +39,6 @@ never an exception — one bad file must not break a directory search.
 """
 from __future__ import annotations
 
-import contextlib
 import email
 import email.header
 import logging
@@ -51,11 +50,6 @@ from email import policy
 from email.message import EmailMessage, Message
 
 logger = logging.getLogger(__name__)
-
-# extract-msg warns about every optional MAPI stream a message lacks; on a
-# real mailbox export that is most of them. Our own try/except reports the
-# failures that matter.
-logging.getLogger("extract_msg").setLevel(logging.ERROR)
 
 # Extensions this module turns into text. `_document_text.DOC_EXTS` includes
 # them so every connector's "rich document" branch picks them up.
@@ -149,8 +143,8 @@ class EmailAttachment:
 
 
 def parse_email_bytes(data: bytes, name: str) -> EmailMessage | None:
-    """Parse `.eml` (stdlib, modern policy) or `.msg` (extract-msg →
-    ``asEmailMessage``) into an ``EmailMessage``. None when unparseable."""
+    """Parse `.eml` (stdlib, modern policy) or `.msg` (python-oxmsg →
+    ``_convert_msg``) into an ``EmailMessage``. None when unparseable."""
     try:
         if _ext(name) == "msg":
             return _msg_to_email_message(data)
@@ -161,56 +155,174 @@ def parse_email_bytes(data: bytes, name: str) -> EmailMessage | None:
 
 
 def _msg_to_email_message(data: bytes) -> EmailMessage | None:
-    """Outlook MSG → EmailMessage, built from extract-msg's parsed object.
+    """Outlook MSG → EmailMessage, built from python-oxmsg's typed properties.
 
-    extract-msg has its own ``asEmailMessage``, but it synthesises the header
-    from MAPI properties WITHOUT the subject when the message carries no
-    transport-header block (every message Outlook composed locally), and it
-    loses an embedded message's filename. Building the MIME tree here from
-    the typed properties keeps subject/sender/recipients/date, the plain and
-    HTML bodies, by-value attachments and embedded messages (as proper
-    message/rfc822 parts, so the `.eml` walker treats both formats alike)."""
-    import extract_msg
+    Building the MIME tree here (instead of trusting a transport-header
+    block, which every locally composed Outlook message lacks) keeps
+    subject/sender/recipients/date, the plain and HTML bodies, by-value
+    attachments and embedded messages (as proper message/rfc822 parts, so
+    the `.eml` walker treats both formats alike)."""
+    from oxmsg import Message as OxMessage
 
-    msg = extract_msg.openMsg(data)
+    return _convert_msg(OxMessage.load(data), 0)
+
+
+# MS-OXMSG / MS-OXPROPS identifiers python-oxmsg does not surface itself.
+_PID_RECIPIENT_TYPE = 0x0C15      # 1 = To, 2 = Cc, 3 = Bcc
+_PID_ATTACH_METHOD = 0x3705       # 5 = embedded message
+_PID_RTF_COMPRESSED = 0x1009
+_EMBEDDED_MSG_STORAGE = "__substg1.0_3701000D"
+_EMBEDDED_HDR_OFFSET = 24         # top-level messages use 32
+
+
+def _embedded_message(storage):
+    """A python-oxmsg Message over an embedded-message storage. Its property
+    stream has the 24-byte header of an embedded message, not the 32-byte
+    header of a top-level one, which `Message` assumes."""
+    from oxmsg.message import Message as OxMessage
+    from oxmsg.properties import Properties
+
+    class _Embedded(OxMessage):
+        @property
+        def properties(self):
+            return Properties(self._storage, properties_header_offset=_EMBEDDED_HDR_OFFSET)
+
+        _properties = properties
+
+    return _Embedded(storage)
+
+
+def _recipient_header(recipient) -> str:
+    name = (getattr(recipient, "name", None) or "").strip()
+    addr = (getattr(recipient, "email_address", None) or "").strip()
+    if name and addr and name != addr:
+        return f'"{name}" <{addr}>'
+    return addr or name
+
+
+def _rtf_to_text(rtf: str) -> str:
+    r"""Best-effort plain text from an RTF body: control words and groups
+    dropped, paragraph marks kept as newlines, ``\'xx`` and ``\uN`` escapes
+    decoded. Encapsulated HTML (``\fromhtml``) keeps its text; its tags sit
+    in ``{\*\htmltag ...}`` destination groups, which are skipped."""
+    out: list[str] = []
+    skip_depth: list[bool] = [False]
+    i, n = 0, len(rtf)
+    uc_skip = 0
+    while i < n:
+        ch = rtf[i]
+        if ch == "{":
+            skip_depth.append(skip_depth[-1])
+            i += 1
+            continue
+        if ch == "}":
+            if len(skip_depth) > 1:
+                skip_depth.pop()
+            i += 1
+            continue
+        if ch == "\\":
+            m = re.match(r"\\([a-zA-Z]+)(-?\d+)? ?|\\'([0-9a-fA-F]{2})|\\(.)", rtf[i:])
+            if not m:
+                i += 1
+                continue
+            i += m.end()
+            word, arg, hexv, sym = m.group(1), m.group(2), m.group(3), m.group(4)
+            if skip_depth[-1]:
+                continue
+            if hexv is not None:
+                if uc_skip:
+                    uc_skip -= 1
+                else:
+                    out.append(bytes([int(hexv, 16)]).decode("cp1252", "replace"))
+            elif sym is not None:
+                if sym == "*":
+                    skip_depth[-1] = True
+                elif sym in "\\{}":
+                    out.append(sym)
+                elif sym == "~":
+                    out.append(" ")
+            elif word in ("par", "line", "row"):
+                out.append("\n")
+            elif word == "tab":
+                out.append("\t")
+            elif word == "u" and arg is not None:
+                cp = int(arg)
+                out.append(chr(cp + 65536 if cp < 0 else cp))
+                uc_skip = 1
+            elif word in ("fonttbl", "colortbl", "stylesheet", "info", "pict", "htmlrtf"):
+                if word == "htmlrtf" and arg == "0":
+                    continue
+                skip_depth[-1] = True
+            continue
+        if ch in "\r\n":
+            i += 1
+            continue
+        if not skip_depth[-1]:
+            if uc_skip:
+                uc_skip -= 1
+            else:
+                out.append(ch)
+        i += 1
+    text = "".join(out)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _rtf_body(msg) -> str:
+    """Text of the compressed RTF body, for messages with no plain or HTML
+    body (older Outlook clients). Empty when absent or undecodable."""
     try:
-        return _convert_msg(msg, 0)
-    finally:
-        with contextlib.suppress(Exception):
-            msg.close()
+        raw = msg.properties.binary_prop_value(_PID_RTF_COMPRESSED)
+        if not raw:
+            return ""
+        from compressed_rtf import decompress
+
+        return _rtf_to_text(decompress(raw).decode("cp1252", "replace"))
+    except Exception as e:
+        logger.debug("msg RTF body skipped: %s", e)
+        return ""
 
 
 def _convert_msg(msg, depth: int) -> EmailMessage:
     import email.utils
 
     em = EmailMessage(policy=policy.default)
-    for label, attr in (("From", "sender"), ("To", "to"), ("Cc", "cc"), ("Subject", "subject")):
-        try:
-            value = getattr(msg, attr)
-        except Exception:
-            value = None
-        if value:
-            em[label] = str(value)
-    try:
-        date = msg.date
-    except Exception:
-        date = None
-    if date:
-        try:
-            em["Date"] = email.utils.format_datetime(date) if hasattr(date, "tzinfo") else str(date)
-        except Exception:
-            em["Date"] = str(date)
 
-    try:
-        body = msg.body or ""
-    except Exception:
-        body = ""
-    try:
-        html = msg.htmlBody
-    except Exception:
-        html = None
+    def _safe(fn):
+        try:
+            return fn()
+        except Exception:
+            return None
+
+    sender = _safe(lambda: msg.sender)
+    if sender:
+        em["From"] = str(sender)
+    to, cc = [], []
+    for r in _safe(lambda: msg.recipients) or ():
+        try:
+            kind = r.properties.int_prop_value(_PID_RECIPIENT_TYPE)
+        except Exception:
+            kind = None
+        value = _recipient_header(r)
+        if not value or kind == 3:  # Bcc is not a visible header
+            continue
+        (cc if kind == 2 else to).append(value)
+    if to:
+        em["To"] = ", ".join(to)
+    if cc:
+        em["Cc"] = ", ".join(cc)
+    subject = _safe(lambda: msg.subject)
+    if subject:
+        em["Subject"] = str(subject)
+    date = _safe(lambda: msg.sent_date)
+    if date:
+        em["Date"] = email.utils.format_datetime(date) if getattr(date, "tzinfo", None) else str(date)
+
+    body = _safe(lambda: msg.body) or ""
+    html = _safe(lambda: msg.html_body)
     if isinstance(html, bytes):
         html = html.decode("utf-8", "replace")
+    if not body and not html:
+        body = _rtf_body(msg)
     if body:
         em.set_content(str(body))
         if html:
@@ -220,33 +332,33 @@ def _convert_msg(msg, depth: int) -> EmailMessage:
     else:
         em.set_content("")
 
-    try:
-        attachments = list(msg.attachments)
-    except Exception:
-        attachments = []
-    for i, att in enumerate(attachments):
+    for i, att in enumerate(_safe(lambda: msg.attachments) or ()):
         try:
-            payload = att.data
-            name = att.getFilename() if hasattr(att, "getFilename") else None
-            name = name or getattr(att, "name", None) or f"attachment-{i}"
-            if hasattr(payload, "attachments") and hasattr(payload, "subject"):
-                # Embedded message: a Message object, converted recursively.
-                # Depth is bounded by the renderer / id grammar anyway, but
-                # a pathological file must not recurse without limit.
+            name = att.file_name or f"attachment-{i}"
+            embedded = None
+            if att.properties.int_prop_value(_PID_ATTACH_METHOD) == 5:
+                embedded = next((s for s in att._storage.storages if s.name == _EMBEDDED_MSG_STORAGE), None)
+            if embedded is not None:
+                # Embedded message: converted recursively. Depth is bounded
+                # by the renderer / id grammar anyway, but a pathological
+                # file must not recurse without limit.
                 if depth + 1 > EMAIL_MAX_DEPTH:
                     continue
-                inner = _convert_msg(payload, depth + 1)
+                inner = _convert_msg(_embedded_message(embedded), depth + 1)
                 if name.lower().endswith(".msg"):
                     name = name[:-4] + ".eml"
                 elif not name.lower().endswith(".eml"):
                     name += ".eml"
                 em.add_attachment(inner, filename=name)
-            elif isinstance(payload, (bytes, bytearray)):
-                mime = (getattr(att, "mimetype", None) or mimetypes.guess_type(name)[0]
-                        or "application/octet-stream")
-                maintype, _, subtype = str(mime).partition("/")
-                em.add_attachment(bytes(payload), maintype=maintype or "application",
-                                  subtype=subtype or "octet-stream", filename=name)
+                continue
+            payload = att.file_bytes
+            if payload is None:
+                continue
+            mime = (att.mime_type if att.mime_type and att.mime_type != "application/octet-stream" else None) \
+                or mimetypes.guess_type(name)[0] or "application/octet-stream"
+            maintype, _, subtype = str(mime).partition("/")
+            em.add_attachment(bytes(payload), maintype=maintype or "application",
+                              subtype=subtype or "octet-stream", filename=name)
         except Exception as e:
             logger.debug("msg attachment %s skipped: %s", i, e)
     return em
@@ -331,8 +443,8 @@ def _part_bytes(part: Message) -> bytes:
 
 def _nested_message_bytes(part: Message) -> tuple[bytes, str | None]:
     """Bytes + best name for a nested message part. A standard message/rfc822
-    part wraps the inner message as its single payload; extract-msg attaches
-    an embedded .msg as a multipart part that carries its own From/Subject."""
+    part wraps the inner message as its single payload; an embedded .msg
+    may arrive as a multipart part that carries its own From/Subject."""
     inner = None
     try:
         if part.get_content_type() == "message/rfc822":
@@ -442,7 +554,7 @@ def email_attachments(msg: Message) -> list[EmailAttachment]:
             data, subject = _nested_message_bytes(part)
             fname = _part_filename(part)
             if fname and _ext(fname) == "msg":
-                # extract-msg re-encodes an embedded .msg as MIME, so the
+                # _convert_msg re-encodes an embedded .msg as MIME, so the
                 # bytes ARE an .eml now; name them so the reader agrees.
                 fname = fname[:-4] + ".eml"
             name = _safe_filename(fname or (f"{subject}.eml" if subject else None), f"message-{i}.eml")
