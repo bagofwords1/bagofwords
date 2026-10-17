@@ -14,6 +14,9 @@ Paths, in the order they are tried:
   - the per-data-source cache (DataSourceTable + per-user overlay) for the
     remaining connectors, falling back to live when it is empty.
 
+`group_by="folder"` lists folders (with file counts and dates) by grouping
+the catalog in memory; it needs the catalog and never falls back to live.
+
 All paths respect the connection's include-globs (the client filters live;
 the catalog only ever held glob-matched files).
 """
@@ -27,11 +30,17 @@ from pydantic import BaseModel
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
-from app.ai.tools.schemas.file_tools import FileEntry, ListFilesInput, ListFilesOutput
+from app.ai.tools.schemas.file_tools import FileEntry, FolderEntry, ListFilesInput, ListFilesOutput
 from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 from app.data_sources.clients.base import Capability
 
-from ._file_catalog import FILE_METADATA_KEYS, CursorError, entries_from_tables, page_catalog
+from ._file_catalog import (
+    FILE_METADATA_KEYS,
+    CursorError,
+    entries_from_tables,
+    group_catalog_folders,
+    page_catalog,
+)
 from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
 _MAX_RESULTS = 500
@@ -66,7 +75,11 @@ class ListFilesTool(Tool):
                 "visible. Filter with name_pattern (glob, matched against the filename "
                 "and the relative path: '*.xlsx', '*6044534*'). SharePoint also honors "
                 "created_after/created_before/modified_after/modified_before (ISO-8601) "
-                "and returns created_at alongside modified_at."
+                "and returns created_at alongside modified_at. For 'one record per "
+                "folder' tasks, first list the folders with group_by='folder' (catalog "
+                "only; depth=1 for top-level folders): one call returns every folder with "
+                "its file count and dates. Then work folder by folder, passing each "
+                "folder's path as folder_id with recursive=true."
             ),
             category="research",
             input_schema=ListFilesInput.model_json_schema(),
@@ -91,6 +104,11 @@ class ListFilesTool(Tool):
     #: kills the turn (observed live). History compaction collapses this once
     #: superseded, so only the latest listing pays the cost.
     _OBS_INVENTORY_MAX_ROWS = 50
+
+    #: Folder mode: rows per page when no limit is given, and rows rendered
+    #: into the observation. One short line each, so the planner sees the
+    #: whole folder set of a large library in a single call.
+    _OBS_FOLDER_MAX_ROWS = 300
 
     def _inventory_row(self, e: dict) -> str:
         """One line of the model-facing inventory. Overridden by ListEmailsTool
@@ -243,6 +261,55 @@ class ListFilesTool(Tool):
         )
         return event
 
+    def _folders_from_catalog(self, data, catalog: dict) -> ToolEndEvent:
+        # Default page = the whole rendered set; an explicit limit still pages.
+        limit = data.limit if "limit" in data.model_fields_set else self._OBS_FOLDER_MAX_ROWS
+        try:
+            page, stats, next_cursor = group_catalog_folders(
+                catalog["entries"], scope_key=catalog["key"], folder_id=data.folder_id, depth=data.depth,
+                name_pattern=data.name_pattern,
+                created_after=data.created_after, created_before=data.created_before,
+                modified_after=data.modified_after, modified_before=data.modified_before,
+                sort_by=data.sort_by, sort_order=data.sort_order, limit=limit, cursor=data.cursor,
+            )
+        except (CursorError, ValueError) as exc:
+            return self._fail(data.connection_id, str(exc))
+        folders = [FolderEntry(**f).model_dump() for f in page]
+        when = f"indexed {catalog['indexed_at']}" if catalog["indexed_at"] else "index time unknown"
+        scope = f" under {data.folder_id}" if data.folder_id else ""
+        summary = (f"Listed {len(folders)} of {stats['folders']} folder(s) at depth {data.depth}{scope} (catalog); "
+                   f"{stats['files']} matching file(s) across the catalog's {catalog['total']} files, {when}.")
+        if stats["files_outside_folders"]:
+            summary += f" {stats['files_outside_folders']} matching file(s) sit above that level, in no folder."
+        if next_cursor:
+            summary += " More folders: pass next_cursor as cursor with the same inputs."
+        summary += (" Folders with no matching file are not shown. Next: list a folder's files with "
+                    "folder_id=<path> and recursive=true.")
+        observation: Dict[str, Any] = {"summary": summary, "success": True}
+        if folders:
+            rows = []
+            for f in folders[: self._OBS_FOLDER_MAX_ROWS]:
+                line = f"{f['path']} — {f['file_count']} file(s)"
+                if f.get("latest_modified_at"):
+                    line += f" — modified {f['latest_modified_at']}"
+                rows.append(line)
+            if len(folders) > self._OBS_FOLDER_MAX_ROWS:
+                rows.append(f"… +{len(folders) - self._OBS_FOLDER_MAX_ROWS} more on this page — "
+                            "page with a smaller limit and cursor to see the rest.")
+            observation["details"] = "\n".join(rows)
+        return ToolEndEvent(type="tool.end", payload={
+            "output": {
+                "success": True, "connection_id": data.connection_id, "group_by": "folder",
+                "folders": folders, "folder_count": stats["folders"],
+                "files_outside_folders": stats["files_outside_folders"],
+                "file_count": 0, "files": [], "truncated": False,
+                "source": "catalog", "indexed_at": catalog["indexed_at"], "catalog_files": catalog["total"],
+                "matched": stats["files"], "next_cursor": next_cursor, "incomplete": bool(next_cursor),
+                "stop_reason": "result_limit" if next_cursor else None,
+            },
+            "observation": observation,
+        })
+
     def _apply(self, raw: List[dict], name_pattern) -> tuple:
         files = []
         pat = (name_pattern or "").lower()
@@ -297,6 +364,23 @@ class ListFilesTool(Tool):
             catalog, why_not = await self._load_catalog(runtime_ctx, client)
         if data.source == "catalog" and catalog is None:
             yield self._fail(data.connection_id, f"No catalog listing for this connection: {why_not}.")
+            return
+        # Folder mode groups the indexed catalog in memory. It never falls
+        # back to the source: that would mean crawling the whole library.
+        if data.group_by == "folder":
+            if catalog is not None:
+                yield self._folders_from_catalog(data, catalog)
+                return
+            if client is None and _client_err:
+                yield self._fail(data.connection_id, _client_err)
+                return
+            reason = ("source='live' was requested" if data.source == "live"
+                      else (why_not or "this connection cannot be listed from a catalog"))
+            yield self._fail(data.connection_id, (
+                "group_by='folder' needs the connection's indexed catalog and never crawls the source live "
+                f"({reason}). Use source='auto' or 'catalog' on an indexed connection, or list files "
+                "with group_by='file' and a folder_id."
+            ))
             return
         if catalog is not None and (data.source == "catalog" or self._catalog_by_default(client)):
             yield self._from_catalog(data, catalog, runtime_ctx)

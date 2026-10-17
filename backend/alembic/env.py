@@ -70,6 +70,8 @@ from app.models.connection import Connection
 from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
 from app.models.connection_table import ConnectionTable
+from app.models.sub_agent import SubAgentRun, SubAgentWave
+from app.models.sub_agent_message import SubAgentMessage
 from app.models.note import Note
 from app.models.memory_entry import MemoryEntry
 from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision

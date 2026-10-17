@@ -428,6 +428,8 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
+from app.services.sub_agent_locks import lock_report, lock_wave
+
 from sqlalchemy import select, func, update as sa_update, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
@@ -982,6 +984,9 @@ class AgentV2:
         )
         if not self._sub_agents_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_agent', 'stop_sub_agent')]
+
+        if not (self._sub_agents_enabled or (self._is_sub_agent and _sub_agents_enabled(self.organization_settings))):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'message_sub_agent']
 
         # Tools the conversation switched off (report.tools; resolved above,
         # before the feature gates that also drive prompt directives). Hidden
@@ -1598,7 +1603,12 @@ class AgentV2:
             # Render the union: persisted focus + this run's working set (agents
             # a search already surfaced) — search results never decay mid-run.
             focus_set = {str(x) for x in (focus_ids or [])} | _loaded
-            sections = [s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set]
+            # The built-in BOW section (Agent Lists, training history) is not an
+            # agent and is never in the roster, so focus would always drop it —
+            # leaving the submit_* tools with no way to read their lists back.
+            from app.schemas.bow_source_schema import SOURCE_ID as _BOW_ID
+            sections = [s for s in schemas_ctx.data_sources
+                        if str(s.info.id) in focus_set or str(s.info.id) == _BOW_ID]
             # Focused agents attached AFTER the run-start schema cache was
             # primed have no cached section — build theirs fresh.
             missing = focus_set - {str(s.info.id) for s in sections}
@@ -3377,7 +3387,7 @@ class AgentV2:
         items = "\n".join(f"    - {t}" for t in self._steering_texts)
         return (
             "<steering_updates>\n"
-            "    PRIORITY — the user interrupted with these instructions WHILE you were "
+            "PRIORITY — the user interrupted with these instructions WHILE you were "
             "working. They override <original_user_prompt> and your current plan/notes "
             "where they conflict. Re-evaluate your plan against them in THIS decision — "
             "do not simply continue the previous plan. If you keep a plan note, update "
@@ -5243,6 +5253,8 @@ class AgentV2:
                             routing_state=self._routing_prompt_state()[1],
                         )
                         await self._apply_sub_agent_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
+                        if self.sigkill_event.is_set():
+                            break
                         # Trim context if it exceeds the model's token budget. After a
                         # context_length rejection the run's shrink factor tightens the
                         # window (see _handle_context_overflow) so the retry provably
@@ -6523,6 +6535,11 @@ class AgentV2:
                                         "verification_group_id": tool_input.get("_verification_group_id"),
                                         "planner_phase": "main",
                                         "planner_round_index": loop_index,
+                                        "sub_agent_can_review_messages": (
+                                            loop_index + 1 < step_limit and
+                                            (self._sub_agent_tokens_exhausted_at is None or
+                                             loop_index < self._sub_agent_tokens_exhausted_at + 1)
+                                        ),
                                         "pending_officejs_registry": pending_officejs_registry,
                                     }
 
@@ -7748,7 +7765,30 @@ class AgentV2:
         posture; a child loses conversation-level context and gets its goal,
         profile addendum and remaining budget."""
         from app.services.sub_agent_service import sub_agent_posture, sub_agent_service
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        await self._release_db_between_steps()
         if self._is_sub_agent:
+            await self._await_sub_agent_answer()
+        if self.sigkill_event.is_set():
+            return
+        from app.dependencies import async_session_maker
+        agent_messages = []
+        delegation_context = ""
+        if not self._is_sub_agent and self._sub_agents_enabled and self.report is not None:
+            try:
+                delegation_context = await sub_agent_service.context_block(self.db, str(self.report_id))
+            except Exception:
+                logger.debug("[agent] sub_agents context block failed", exc_info=True)
+            await self._release_db_between_steps()
+        if self._is_sub_agent or delegation_context:
+            async with (self._session_maker or async_session_maker)() as mailbox_db:
+                agent_messages = await sub_agent_message_service.receive(
+                    mailbox_db, organization_id=str(self.organization.id), report_id=str(self.report_id),
+                    recipient=str(self._sub_agent_id) if self._is_sub_agent else 'parent',
+                )
+        mailbox_context = sub_agent_message_service.render(agent_messages)
+        if self._is_sub_agent:
+            planner_input.sub_agents_context = mailbox_context
             planner_input.messages_context = ""
             planner_input.history_summary = None
             planner_input.steering_context = None
@@ -7776,10 +7816,50 @@ class AgentV2:
         planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
         planner_input.sub_agent_posture = sub_agent_posture(self.organization_settings)
         if planner_input.sub_agents_enabled and self.report is not None:
+            planner_input.sub_agents_context = "\n".join(part for part in (delegation_context, mailbox_context) if part)
+
+    async def _await_sub_agent_answer(self) -> None:
+        """Suspend without holding a session or slot; bounded cross-worker polling.
+        Stop events interrupt the backoff immediately."""
+        from sqlalchemy import update
+        from app.models.sub_agent import SubAgentRun, TERMINAL_RUN_STATUSES
+        from app.services.sub_agent_service import has_free_child_slot
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        from app.dependencies import async_session_maker
+        if not self._sub_agent_id:
+            return
+        delay = 0.5
+        while not self.sigkill_event.is_set():
+            async with (self._session_maker or async_session_maker)() as db:
+                row = await db.get(SubAgentRun, str(self._sub_agent_id))
+                if row is None or row.status in TERMINAL_RUN_STATUSES:
+                    self.sigkill_event.set()
+                    return
+                question = await sub_agent_message_service.waiting_question(db, str(row.id))
+                if question:
+                    if row.status == 'running':
+                        await db.execute(update(SubAgentRun).where(
+                            SubAgentRun.id == row.id, SubAgentRun.status == 'running',
+                        ).values(status='waiting'))
+                        await db.commit()
+                elif row.status != 'waiting':
+                    return
+                elif await has_free_child_slot(db, row.report_id, settings=self.organization_settings):
+                    # Avoid a write lock while the slot is known to be occupied.
+                    # Recheck under the same report/wave locks used by launch.
+                    await lock_report(db, row.report_id)
+                    await lock_wave(db, row.wave_id)
+                    if await has_free_child_slot(db, row.report_id, settings=self.organization_settings):
+                        resumed = await db.execute(update(SubAgentRun).where(
+                            SubAgentRun.id == row.id, SubAgentRun.status == 'waiting',
+                        ).values(status='running'))
+                        await db.commit()
+                        if resumed.rowcount == 1:
+                            return
             try:
-                planner_input.sub_agents_context = await sub_agent_service.context_block(self.db, str(self.report_id))
-            except Exception:
-                logger.debug("[agent] sub_agents context block failed", exc_info=True)
+                await asyncio.wait_for(self.sigkill_event.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                delay = min(delay * 2, 5.0)
 
     async def _launch_pending_sub_agents(self) -> None:
         """After a batch holding delegate calls: close the wave and start its children."""

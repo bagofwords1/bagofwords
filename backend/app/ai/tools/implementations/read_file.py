@@ -19,10 +19,16 @@ from app.data_sources.clients._document_text import (
     doc_text_is_usable,
     doc_text_looks_garbled,
 )
-from app.data_sources.clients._file_source_common import GlobScopeError, payload_name
+from app.data_sources.clients._email_text import (
+    EMAIL_EXTS,
+    absolutize_attachment_ids,
+    split_attachment_id,
+)
+from app.data_sources.clients._file_source_common import DocumentText, GlobScopeError, payload_name
 
 from . import _file_cache
 from ._file_tool_common import (
+    EmailAttachmentClient,
     SessionFileClient,
     allow_llm_see_data,
     attach_drive_file_to_session,
@@ -63,6 +69,73 @@ _OBS_DETAILS_MAX_CHARS = 4000
 # Windowed reads exist for sequential consumption — give them a bigger budget
 # and tell the model how to page losslessly (pass length <= this budget).
 _OBS_WINDOW_DETAILS_MAX_CHARS = 8000
+
+# Default page for a windowed read when the model omits `length`. The same
+# figure as DEFAULT_WINDOW_BYTES in network_dir_client / s3_client (1 MiB), so
+# the fallback's character windows default like the native byte windows do.
+# Defined here rather than imported: those modules pull in the whole connector
+# stack, and the tool must not depend on one connector to page another.
+_WINDOW_DEFAULT_LENGTH = 1024 * 1024
+
+
+def _is_native_window(obj: Any) -> bool:
+    """True when a client answered an offset/length read with its own window
+    dict (network_dir / S3 `_read_window`); every other payload is the whole
+    file, because the client ignored the window kwargs."""
+    return isinstance(obj, dict) and "content" in obj
+
+
+def _window_text_of(payload: Any) -> str | None:
+    """The text a NON-windowed read of this payload would show the model, so
+    character windows page exactly what a whole read renders: extracted text
+    for documents, CSV for a DataFrame, a JSON dump for a dict/list, the string
+    itself for text. None for a binary with no text layer (a scanned PDF, a
+    picture) — there is nothing to page."""
+    if isinstance(payload, dict) and payload.get("__note_page__"):
+        payload = payload.get("text") or ""
+    if isinstance(payload, (bytes, bytearray)):
+        return None
+    # Unbounded caps: windowing IS the bound. render_file_payload is the single
+    # place that decides how each payload type reads, so the slice can never
+    # disagree with a whole-file read of the same file.
+    rendered = render_file_payload(
+        name="", payload=payload, max_rows=1 << 62, max_chars=1 << 62,
+    )
+    if rendered.get("content_type") == "tabular":
+        return rendered.get("csv") or ""
+    text = rendered.get("text")
+    return text if isinstance(text, str) else ""
+
+
+def _char_window(text: str, offset: int, length: int | None) -> dict[str, Any]:
+    """Slice `text[offset:offset+length]` in CHARACTERS and return the same
+    dict shape as the native byte windows (`_read_window`), plus `unit`.
+
+    Exactly the slice, no newline snapping: `next_cursor` is always
+    `offset + length`, so a model that fires fixed-stride windows in parallel
+    (offset 4000, 12000, 20000 with length 8000 — observed in the feedback
+    loop) reads the text contiguously. The native byte windows snap back to
+    the last newline, and with parallel fixed-stride reads that left the
+    tail of every window unread. A split line costs the model nothing; a
+    silent gap costs it the content. An offset at or past the end is an
+    empty window at EOF, not an error.
+    """
+    window = int(length) if length else _WINDOW_DEFAULT_LENGTH
+    total = len(text)
+    offset = max(0, int(offset))
+    content = text[offset:offset + window]
+    end = offset + len(content)
+    eof = end >= total
+    return {
+        "content": content,
+        "encoding": "text",
+        "offset": offset,
+        "length": len(content),
+        "next_cursor": None if eof else end,
+        "total_size": total,
+        "eof": eof,
+        "unit": "chars",
+    }
 
 
 def _display_path(file_id: str, session_client=None) -> str:
@@ -140,7 +213,14 @@ def _content_details(output: Dict[str, Any], *, max_chars: int) -> str:
     sfid = output.get("session_file_id")
     if sfid:
         bits.append(f"full file is attached as session_file_id={sfid} (use inspect_data to analyze it)")
-    bits.append("page the rest with windowed reads (offset/length) — do NOT re-run the same read")
+    # Name the id to page with. The line above advertises session_file_id,
+    # and in the feedback loop the model paged with THAT id plus the
+    # connection_id — a provider 404 — before correcting itself.
+    bits.append(
+        f"page the rest with windowed reads: re-issue THIS read with the same "
+        f"file_id and connection_id plus offset={len(shown)}, length<=8000 "
+        f"(not the session_file_id) — do NOT re-run the same read"
+    )
     return shown + "\n[" + "; ".join(bits) + "]"
 
 
@@ -243,8 +323,21 @@ class ReadFileTool(Tool):
                 "goes through create_data with this result's `session_file_id`, "
                 "even when the file looks small enough to tally by eye. Counting "
                 "rows in your head is where wrong answers come from. "
-                "For big files, page with offset/length (text) or "
-                "page_range (PDFs/documents). Binary files return their size only. "
+                "A whole-file read shows you at most a bounded excerpt, so for a "
+                "long file page through it with offset/length — this works on "
+                "EVERY connection and on conversation attachments (`unit` says "
+                "whether the offsets are bytes or characters; pass `next_cursor` "
+                "as the next offset until `eof`, with length<=8000 to see each "
+                "window in full). For one specific PDF page, page_range is more "
+                "precise. Binary files with no text return their size only. "
+                "Email files (.eml, .msg) read as headers + body + an "
+                "'Attachments' list; each attachment is a sub-file with its own "
+                "file_id of the form `<email file id>#att:<index>:<filename>` — "
+                "pass that id to read_file (same connection_id) to read the "
+                "attachment like any file of its type (PDF text, CSV rows, …). "
+                "Attachment ids are understood by read_file ONLY: to analyze an "
+                "attachment with inspect_data / create_data, read it first and "
+                "use the `session_file_id` that read returns. "
                 "EXCEPTION — garbled text: if a document's extracted text comes "
                 "back as unreadable symbol soup / mojibake (broken font encoding), "
                 "do NOT try to interpret it; re-issue the same read with "
@@ -276,13 +369,19 @@ class ReadFileTool(Tool):
             "connection_id": data.connection_id,
         })
 
+        # An email attachment id (`<parent>#att:<i>:<name>`) resolves through
+        # its PARENT: the email is looked up and read exactly as if it had been
+        # named itself, so the parent's scope / permission checks are the
+        # attachment's too. Split once here; the ladder below sees the parent.
+        parent_file_id, attachment_chain = split_attachment_id(data.file_id)
+
         # Resolution ladder: the report's OWN file space first (uploads /
         # attach_file results — only when no connection was named; explicit
         # beats implicit), then the attached file connections. One verb, two
         # sources, identical read semantics.
         session_file = None
         if not (data.connection_id or "").strip():
-            session_file = resolve_session_file(runtime_ctx, data.file_id)
+            session_file = resolve_session_file(runtime_ctx, parent_file_id)
             if session_file is None:
                 # Not in the report's own space. The overwhelmingly common cause
                 # is a file-source id carried straight from list_files/search_files
@@ -291,9 +390,9 @@ class ReadFileTool(Tool):
                 # assumed: resolve_file_client re-checks that this user can reach
                 # the data source (and that it declares the capability) exactly as
                 # it does for an explicitly named connection.
-                fallback = self._implicit_connection(runtime_ctx, data.file_id)
+                fallback = self._implicit_connection(runtime_ctx, parent_file_id)
                 if fallback is None:
-                    yield self._fail_read(data, self._unresolved_error(runtime_ctx, data.file_id))
+                    yield self._fail_read(data, self._unresolved_error(runtime_ctx, parent_file_id))
                     return
                 client, err = await resolve_file_client(
                     runtime_ctx, str(fallback.id), self._required_capability
@@ -328,14 +427,50 @@ class ReadFileTool(Tool):
                 })
                 return
 
-        # Windowed (ranged) read: pass offset/length through, return the raw
-        # byte window + cursor WITHOUT parsing or attaching. For streaming
-        # through large objects (logs, ndjson, big CSVs) on object-store sources.
+        if attachment_chain:
+            # Every read below goes through the parent's own raw-bytes path
+            # first and then the same typed-read pipeline as any file of the
+            # attachment's extension (see EmailAttachmentClient). The result
+            # is a NEW file as far as the conversation is concerned — even
+            # when the parent is an upload, the attachment's bytes/derivative
+            # must be materialized on their own, not echoed as the email's id.
+            client = EmailAttachmentClient(client, parent_file_id, attachment_chain)
+            session_file = None
+
+        # Windowed (ranged) read. Two routes to ONE contract (a window dict:
+        # content/encoding/offset/length/next_cursor/total_size/eof):
+        #   native   — network_dir / S3 answer offset/length themselves with a
+        #              raw BYTE window, no parsing, no attaching (unit "bytes");
+        #   fallback — every other connector (SharePoint, Graph drives, Google
+        #              Drive, Documentum, mailboxes, notes) ignores the window
+        #              kwargs and returns the whole file. The tool then renders
+        #              it exactly as a normal read would (extracted document
+        #              text, CSV, JSON, the string) and slices CHARACTERS
+        #              (unit "chars"). Before this fallback those connectors
+        #              answered "does not support windowed reads", and a long
+        #              SharePoint document was unreadable past the 4,000-char
+        #              observation cap of a whole-file read.
+        # Neither route attaches or caches: paging is the lazy-read mode.
         if data.offset is not None:
+            # A native byte window of a rich document (pdf/docx/pptx — a
+            # network_dir file or a chat upload, which SessionFileClient serves
+            # through NetworkDirClient) is a slice of the container: base64, or
+            # PDF/OOXML syntax that happens to decode as text. Neither is the
+            # document. When the name says document up front, skip the byte
+            # route and page the EXTRACTED text (one whole read, no window
+            # kwargs). Opaque ids (Graph) carry no name here, but those
+            # connectors have no byte route to skip.
+            pre_name = (
+                getattr(client, "display_name", None) if session_file is not None
+                else _name_from_path_id(data.file_id)
+            ) or ""
             try:
-                window = await client.aread_file(
-                    data.file_id, offset=data.offset, length=data.length
-                )
+                if _doc_ext(pre_name) in DOC_EXTS:
+                    window = await client.aread_file(data.file_id, sheet=data.sheet)
+                else:
+                    window = await client.aread_file(
+                        data.file_id, offset=data.offset, length=data.length, sheet=data.sheet
+                    )
             except Exception as e:
                 if isinstance(e, GlobScopeError):
                     await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
@@ -354,24 +489,29 @@ class ReadFileTool(Tool):
                     "observation": {"summary": err, "success": False},
                 })
                 return
-            if not isinstance(window, dict) or "content" not in window:
-                err = "This connection does not support windowed (offset/length) reads."
-                yield ToolEndEvent(type="tool.end", payload={
-                    "output": {
-                        "success": False,
-                        "connection_id": data.connection_id,
-                        "file_id": data.file_id,
-                        "error": err,
-                    },
-                    "observation": {"summary": err, "success": False},
-                })
-                return
+            # The connector-supplied name (DocumentText/NamedBytes carry one
+            # for opaque ids) beats the pre-call guess.
+            window_name = pre_name if session_file is not None else payload_name(window, pre_name or data.file_id)
+            if not _is_native_window(window):
+                text = _window_text_of(window)
+                if text is None:
+                    yield self._fail_read(
+                        data,
+                        f"{window_name} has no text layer to page with offset/length "
+                        "(scanned/image-only document or a picture). Read it with "
+                        "as_images=true to see the pages, or attach_file to keep the "
+                        "original in the conversation.",
+                    )
+                    return
+                window = _char_window(text, data.offset, data.length)
+            unit = window.get("unit") or "bytes"
             enc = window.get("encoding", "text")
             output = {
                 "success": True,
                 "connection_id": data.connection_id,
                 "file_id": data.file_id,
                 "windowed": True,
+                "unit": unit,
                 "path": _display_path(data.file_id, client if session_file is not None else None) or None,
                 "content_type": "text" if enc == "text" else "binary",
                 "text": window.get("content"),
@@ -379,14 +519,19 @@ class ReadFileTool(Tool):
                 "next_cursor": None if window.get("eof") else window.get("next_cursor"),
                 "total_size": window.get("total_size"),
                 "eof": window.get("eof"),
-                "byte_count": window.get("length"),
+                "byte_count": window.get("length") if unit == "bytes" else None,
             }
-            pos = f"{window.get('offset')}–{window.get('next_cursor')}"
+            end_pos = window.get("total_size") if window.get("eof") else window.get("next_cursor")
+            pos = f"{window.get('offset')}–{end_pos}"
             total = window.get("total_size")
             summary = (
-                f"Read window {pos} of {total} bytes from {data.file_id}"
+                f"Read window {pos} of {total} {unit} from {data.file_id}"
                 + (" (eof)" if window.get("eof") else "")
             )
+            if unit == "chars":
+                summary += " — offsets are CHARACTERS of the extracted text"
+                if _doc_ext(window_name) == "pdf":
+                    summary += "; page_range reads a specific PDF page more precisely"
             observation: Dict[str, Any] = {"summary": summary, "success": True}
             # Ship the window text itself — paging through a file is useless
             # to the model if only the cursor arithmetic arrives.
@@ -397,7 +542,8 @@ class ReadFileTool(Tool):
                 if len(body) > len(shown):
                     details += (
                         f"\n[window content clipped to {len(shown):,} of {len(body):,} chars — "
-                        f"request length<={_OBS_WINDOW_DETAILS_MAX_CHARS} to page without loss]"
+                        f"re-read from offset={window.get('offset')} with "
+                        f"length<={_OBS_WINDOW_DETAILS_MAX_CHARS} to page without loss]"
                     )
                 elif not window.get("eof"):
                     details += f"\n[continue from offset={window.get('next_cursor')}]"
@@ -667,6 +813,20 @@ class ReadFileTool(Tool):
             name=render_name, payload=payload,
             max_rows=data.max_rows, max_chars=data.max_chars,
         )
+        # An email's rendered text lists its attachments with ids the
+        # extractor could only write relative to a placeholder (it knows the
+        # file's NAME, not its connector id). Substitute the id this read was
+        # made with, in both what the model sees and what gets materialized.
+        if (
+            rendered.get("content_type") == "text"
+            and _doc_ext(render_name) in EMAIL_EXTS
+            and isinstance(payload, str)
+        ):
+            rendered["text"] = absolutize_attachment_ids(rendered["text"], data.file_id)
+            payload = DocumentText(
+                absolutize_attachment_ids(str(payload), data.file_id),
+                raw=source_raw, name=payload_name(payload, ""), mime=source_raw_mime,
+            )
 
         # Garbled-text escalation for rich documents. Extraction can "succeed"
         # while producing glyph soup (subset-font PDF with a broken/missing

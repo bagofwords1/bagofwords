@@ -40,7 +40,7 @@ _RESEARCH = (
     "search_instructions", "read_instruction", "search_agents", "read_report", "search_reports",
     "web_fetch", "web_search",
     "create_note", "edit_note",
-    "finish_subtask",
+    "finish_subtask", "message_sub_agent",
 )
 
 

@@ -940,8 +940,11 @@ class SchemaContextBuilder:
                 ))
 
         # Agent Lists: bow.<agent>.lists.<list> tables, in every mode, for lists
-        # on this report's agents that the user can view.
-        if self.user is not None and not connection_ids:
+        # on this report's agents that the user can view. Not gated on
+        # connection_ids: a list belongs to the agent, not to a connection, so a
+        # files-only agent (sharepoint/network_dir) or a connection-scoped
+        # rebuild must still see the lists it can read back.
+        if self.user is not None:
             try:
                 await self._append_list_tables(ds_sections, ds_filter, table_names, name_patterns)
             except Exception as exc:

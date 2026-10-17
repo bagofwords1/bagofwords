@@ -150,6 +150,7 @@ async def create_chat_completion(
     )
     try:
         completion.queue = False
+        completion.queue_if_busy = False
     except Exception:
         pass
 

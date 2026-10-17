@@ -26,7 +26,6 @@ helpers, so this client only owns S3 I/O + confinement.
 from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 
-import base64
 import hashlib
 import io
 import json
@@ -44,6 +43,7 @@ from app.data_sources.clients._document_text import (
     doc_text_looks_garbled,
     extract_document_text_from_bytes,
 )
+from app.data_sources.clients._email_text import EMAIL_EXTS
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_NONE,
@@ -51,13 +51,15 @@ from app.data_sources.clients._file_source_common import (
     GlobScopeError,
     ScopeEscapeError,
     DocumentText,
+    UTF8_SLACK,
     byte_limit,
+    byte_window,
     NamedBytes,
     globs_from_str,
     normalize_index_mode,
     path_matches_globs,
 )
-from app.data_sources.clients._keywords import extract_keywords
+from app.data_sources.clients._keywords import extract_file_keywords
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 # Same parse/scan classes as network_dir so behavior matches across file sources.
@@ -431,15 +433,18 @@ class S3Client(DataSourceClient):
     def _read_window(self, key: str, offset: int, length: Optional[int]) -> Dict[str, Any]:
         """Ranged byte read → a window plus a cursor to page forward.
 
-        Text windows are snapped back to the last complete newline so the agent
-        never sees a half-line (unless the window has no newline at all, or we're
-        at EOF). Binary windows are returned base64-encoded.
+        Same contract as NetworkDirClient._read_window (byte_window): the
+        requested byte range, adjusted by at most 3 bytes at an edge so a
+        multi-byte character is never split, with `next_cursor` at the first
+        byte not returned. Binary windows are base64-encoded. The GET asks for
+        UTF8_SLACK bytes past the window so the straddling character can be
+        completed without a second round trip.
         """
         if offset < 0:
             raise ValueError("offset must be >= 0")
         window = int(length) if length else DEFAULT_WINDOW_BYTES
         s3 = self._client()
-        end = offset + window - 1
+        end = offset + window + UTF8_SLACK - 1
         obj = s3.get_object(Bucket=self.bucket, Key=key, Range=f"bytes={offset}-{end}")
         data = obj["Body"].read()
 
@@ -451,43 +456,7 @@ class S3Client(DataSourceClient):
                 total = int(cr.rsplit("/", 1)[-1])
             except ValueError:
                 pass
-
-        raw_end = offset + len(data)
-        eof = raw_end >= total
-
-        # Try text; snap to the last newline when not at EOF so paging is clean.
-        try:
-            text = data.decode("utf-8")
-            is_text = True
-        except UnicodeDecodeError:
-            is_text = False
-
-        if is_text:
-            content = text
-            next_cursor = raw_end
-            if not eof:
-                nl = text.rfind("\n")
-                if nl != -1 and nl + 1 < len(text):
-                    content = text[: nl + 1]
-                    next_cursor = offset + len(content.encode("utf-8"))
-            return {
-                "content": content,
-                "encoding": "text",
-                "offset": offset,
-                "length": len(content.encode("utf-8")),
-                "next_cursor": next_cursor,
-                "total_size": total,
-                "eof": eof,
-            }
-        return {
-            "content": base64.b64encode(data).decode("ascii"),
-            "encoding": "base64",
-            "offset": offset,
-            "length": len(data),
-            "next_cursor": raw_end,
-            "total_size": total,
-            "eof": eof,
-        }
+        return byte_window(data, offset, total, window)
 
     def grep_files(
         self,
@@ -568,7 +537,14 @@ class S3Client(DataSourceClient):
 
         def _read(entry: Dict[str, Any]) -> bytes:
             key = self._resolve_key(entry["id"])
-            return s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+            data = s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+            # Email files grep over their RENDERED text (headers, body,
+            # attachment text): the raw MIME is quoted-printable/base64 for
+            # anything non-ASCII and .msg is binary, so a raw-bytes grep would
+            # miss nearly every real term and sniff the Outlook file as binary.
+            if _ext(key) in EMAIL_EXTS:
+                return (extract_document_text_from_bytes(data, key, max_chars=byte_cap) or "").encode("utf-8")
+            return data
 
         scope_key = "|".join([
             "s3", self.bucket, self.prefix, str(folder_id or ""), str(name_pattern or ""),
@@ -690,7 +666,7 @@ class S3Client(DataSourceClient):
             if self.index_content:
                 try:
                     text = self._file_text(self._resolve_key(f["id"]), f.get("size", 0))
-                    meta["keywords"] = extract_keywords(text, f["name"], self.max_keywords)
+                    meta["keywords"] = extract_file_keywords(text, f["name"], self.max_keywords)
                     meta["content_hash"] = (
                         hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
                     )

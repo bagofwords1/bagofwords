@@ -67,8 +67,9 @@ def test_sub_agents_context_rides_in_the_parent_turn_head():
     assert '<delegation posture="proactive">' not in head
 
 
-def test_proactive_reminder_rides_in_the_turn_head_until_a_wave_exists():
-    fresh = PromptBuilderV3._build_turn_head(_parent(sub_agents_enabled=True, sub_agent_posture="proactive"))
+@pytest.mark.parametrize("empty_context", [None, "", "\n", "  "])
+def test_proactive_reminder_rides_in_the_turn_head_until_a_wave_exists(empty_context):
+    fresh = PromptBuilderV3._build_turn_head(_parent(sub_agents_enabled=True, sub_agent_posture="proactive", sub_agents_context=empty_context))
     assert '<delegation posture="proactive">' in fresh and "END YOUR TURN" in fresh
     for pi in (
         _parent(sub_agents_enabled=True, sub_agent_posture="explicit"),

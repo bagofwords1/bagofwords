@@ -428,7 +428,7 @@ class SessionFileClient:
 
     Delegates parsing/windowed/page_range reads to NetworkDirClient rooted at
     the file's directory, so session files get the exact same read semantics
-    (newline-snapped windows, PDF page extraction, tabular parsing) as
+    (exact byte windows, PDF page extraction, tabular parsing) as
     connector files — one pipeline, two resolution sources. The stored disk
     name keeps the original extension (uuid_name.ext), so type dispatch works.
     """
@@ -441,7 +441,12 @@ class SessionFileClient:
 
     def _inner(self):
         from app.data_sources.clients.network_dir_client import NetworkDirClient
-        return NetworkDirClient(root_path=self._dir)
+        # Uploads live in the app's own uploads/files; the connection-root
+        # policy refuses that directory by design (a user must not point a
+        # network_dir connection at the app). This shim serves one report-owned
+        # upload row, not user-configured input, so it takes the internal
+        # app-owned constructor. Root confinement (`_resolve`) still applies.
+        return NetworkDirClient.for_app_owned_dir(root_path=self._dir)
 
     async def aread_file(self, _file_id: str, **kwargs) -> Any:
         import asyncio as _asyncio
@@ -453,6 +458,104 @@ class SessionFileClient:
     @property
     def display_name(self) -> str:
         return getattr(self._file, "filename", None) or self._name
+
+
+class EmailAttachmentClient:
+    """File-client shim over ONE attachment of an email file.
+
+    Backs the ``<parent>#att:<i>:<name>`` ids that an email's rendered text
+    lists. The attachment is reached ONLY through the parent: every read
+    first fetches the email's bytes via the parent client's own raw-bytes
+    path (connector scope / glob / permission checks included), then walks
+    the ``#att:`` chain inside the parsed message. An attachment is therefore
+    never reachable unless the email itself is.
+
+    The extracted bytes are then read exactly like any file of that
+    extension — document extraction, CSV/XLSX → DataFrame, text, binary —
+    by handing them to NetworkDirClient in a scratch directory, the same
+    delegation SessionFileClient uses. One typed-read pipeline, three
+    resolution sources.
+    """
+
+    # read_source_bytes must not split the id again: this client already IS
+    # the resolved attachment (its raw reader ignores the id it is given).
+    resolves_attachment_ids = True
+
+    def __init__(self, parent_client, parent_id: str, chain):
+        self._parent = parent_client
+        self._parent_id = parent_id
+        self._chain = list(chain)
+        self._name = self._chain[-1][1] if self._chain else ""
+
+    def _attachment(self) -> tuple[bytes, str, str | None]:
+        from app.data_sources.clients._email_text import extract_email_attachment
+
+        content, name, _mime = _raw_bytes_sync(self._parent, self._parent_id)
+        data, leaf, mime = extract_email_attachment(content, name, self._chain)
+        return data, leaf, (mime or None)
+
+    def _read_sync(self, **kwargs) -> Any:
+        import tempfile
+
+        from app.data_sources.clients._file_source_common import DocumentText, NamedBytes
+        from app.data_sources.clients.network_dir_client import NetworkDirClient
+
+        data, leaf, mime = self._attachment()
+        with tempfile.TemporaryDirectory(prefix="bow-att-") as tmp:
+            target = os.path.join(tmp, leaf)
+            with open(target, "wb") as fh:
+                fh.write(data)
+            payload = NetworkDirClient.for_app_owned_dir(root_path=tmp).read_file(leaf, **kwargs)
+        # Carry the attachment's own name on text/binary results so the tool
+        # layer dispatches and labels by it (the id's leaf would also work,
+        # but a DocumentText keeps the bytes for the viewer without a refetch).
+        if isinstance(payload, str) and not isinstance(payload, DocumentText):
+            return DocumentText(payload, raw=data, name=leaf, mime=mime)
+        if isinstance(payload, (bytes, bytearray)) and not isinstance(payload, NamedBytes):
+            return NamedBytes(bytes(payload), name=leaf, mime=mime)
+        return payload
+
+    async def aread_file(self, _file_id: str, **kwargs) -> Any:
+        import asyncio as _asyncio
+        return await _asyncio.to_thread(self._read_sync, **kwargs)
+
+    def read_raw_bytes(self, _file_id: str, *, max_bytes: int | None = None):
+        data, leaf, mime = self._attachment()
+        if max_bytes and len(data) > max_bytes:
+            from app.data_sources.clients._file_source_common import FileTooLargeError
+            raise FileTooLargeError(
+                f"Attachment '{leaf}' is {len(data) / 1024 / 1024:.1f} MB, over the "
+                f"{max_bytes / 1024 / 1024:.0f} MB limit."
+            )
+        return data, leaf, mime
+
+    @property
+    def display_name(self) -> str:
+        return self._name
+
+    @property
+    def _bow_connection(self):
+        # The tool layer inspects the resolved connection (auth policy, name)
+        # through this attribute; the attachment belongs to the parent's.
+        return getattr(self._parent, "_bow_connection", None)
+
+
+def _raw_bytes_sync(client, file_id: str) -> tuple[bytes, str, str | None]:
+    """Synchronous twin of read_source_bytes for the attachment shim, which
+    runs on a worker thread. Same preference order: the client's raw reader,
+    else a serialized whole-file read."""
+    leaf = str(file_id or "").rsplit("/", 1)[-1] or "file"
+    if hasattr(client, "read_raw_bytes"):
+        raw = client.read_raw_bytes(file_id)
+        if isinstance(raw, tuple):
+            return raw[0], (raw[1] if len(raw) > 1 and raw[1] else leaf), (raw[2] if len(raw) > 2 else None)
+        return raw, leaf, None
+    payload = client.read_file(file_id)
+    if isinstance(payload, (bytes, bytearray)):
+        return bytes(payload), leaf, None
+    if isinstance(payload, str):
+        return payload.encode("utf-8"), leaf, None
+    raise ValueError(f"'{file_id}' cannot be read as raw bytes from this connection.")
 
 
 def render_pdf_pages_images(pdf_bytes: bytes, first: int, last: int, *, max_pages: int = 8, dpi: int = 150):
@@ -569,6 +672,10 @@ _ATTACHABLE_BY_EXT = {
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "doc": "application/msword",
     "ppt": "application/vnd.ms-powerpoint",
+    # Email files: attachable as the original message (attach_file on a
+    # connector .eml/.msg) — their text render is what the model reads.
+    "eml": "message/rfc822",
+    "msg": "application/vnd.ms-outlook",
     # Rendered page images / picture files — materialized so they get a file id
     # (referenceable in later turns and visible in the UI).
     "png": "image/png",
@@ -732,6 +839,24 @@ async def read_source_bytes(
     bytes — so normalize it here. Unpacking the bare-bytes form into three
     names is a TypeError, which is exactly why this belongs in one place.
     """
+    # An email attachment id (`<parent>#att:<i>:<name>`) is served from the
+    # PARENT's bytes: fetch the email through this same function (so the
+    # connector's scope check runs on it), then cut the attachment out. This
+    # is what lets attach_file and the document-preview path take attachment
+    # ids without knowing anything about email.
+    from app.data_sources.clients._email_text import (
+        extract_email_attachment,
+        split_attachment_id,
+    )
+
+    parent_id, chain = split_attachment_id(file_id)
+    if chain and not getattr(client, "resolves_attachment_ids", False):
+        import asyncio
+
+        content, name, _mime = await read_source_bytes(client, parent_id, max_bytes=max_bytes)
+        data, leaf, mime = await asyncio.to_thread(extract_email_attachment, content, name, chain)
+        return data, leaf, (mime or None)
+
     leaf = str(file_id or "").rsplit("/", 1)[-1] or "file"
     if hasattr(client, "read_raw_bytes"):
         import asyncio

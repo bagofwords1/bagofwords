@@ -1897,7 +1897,8 @@
         "failed": "fallida",
         "timed_out": "tiempo agotado",
         "interrupted": "detenida",
-        "refused": "no iniciada"
+        "refused": "no iniciada",
+        "waiting": "Esperando al agente principal"
       },
       "outcomes": {
         "supported": "respaldada",
@@ -1922,6 +1923,21 @@
     "stopSubAgent": {
       "stopping": "Deteniendo subagente…",
       "stopped": "Subagente '{title}' detenido"
+    },
+    "messageSubAgent": {
+      "sending": "Enviando mensaje…",
+      "sent": "Mensaje enviado a {title}",
+      "failed": "No se pudo enviar el mensaje a {title}",
+      "parent": "Agente principal",
+      "agent": "Subagente",
+      "sentHint": "Guardado para entregar antes del siguiente paso de planificación. Esto no confirma que se haya aplicado.",
+      "failedHint": "El mensaje no se envió.",
+      "messages": "Mensajes",
+      "states": {
+        "sent": "Enviado",
+        "delivered": "Entregado al contexto del agente",
+        "undelivered": "No entregado"
+      }
     }
   },
   "entityCreate": {
@@ -5714,6 +5730,7 @@
     "bulkFailed": "Falló la actualización masiva"
   },
   "events": {
+    "subAgentQuestion": "Un subagente hizo una pregunta",
     "evalRunFinished": "La ejecución de evaluación '{title}' terminó — {passed}/{total} aprobadas ({status})",
     "waitResumed": "La espera terminó — reanudando: {reason}",
     "checkin": {
