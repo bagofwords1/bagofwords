@@ -4131,7 +4131,8 @@
     "menuData": "Data"
   },
   "toolbar": {
-    "polishDashboard": "Putsa instrumentpanel"
+    "polishDashboard": "Putsa instrumentpanel",
+    "polishRequestLabel": "Putsa"
   },
   "artifactFrame": {
     "dataAddQuery": "Lägg till fråga",

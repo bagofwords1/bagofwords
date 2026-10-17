@@ -4469,7 +4469,8 @@
     "menuData": "Data"
   },
   "toolbar": {
-    "polishDashboard": "Polish Dashboard"
+    "polishDashboard": "Polish Dashboard",
+    "polishRequestLabel": "Polish"
   },
   "artifactFrame": {
     "dataAddQuery": "Add query",

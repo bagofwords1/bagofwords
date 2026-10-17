@@ -4131,7 +4131,8 @@
     "menuData": "Daten"
   },
   "toolbar": {
-    "polishDashboard": "Dashboard verfeinern"
+    "polishDashboard": "Dashboard verfeinern",
+    "polishRequestLabel": "Verfeinern"
   },
   "artifactFrame": {
     "dataAddQuery": "Abfrage hinzufügen",

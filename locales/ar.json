@@ -4131,7 +4131,8 @@
     "menuData": "البيانات"
   },
   "toolbar": {
-    "polishDashboard": "تحسين لوحة التحكم"
+    "polishDashboard": "تحسين لوحة التحكم",
+    "polishRequestLabel": "تحسين"
   },
   "artifactFrame": {
     "dataAddQuery": "إضافة استعلام",

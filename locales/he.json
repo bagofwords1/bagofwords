@@ -4409,7 +4409,8 @@
     "menuData": "נתונים"
   },
   "toolbar": {
-    "polishDashboard": "ליטוש דשבורד"
+    "polishDashboard": "ליטוש דשבורד",
+    "polishRequestLabel": "ליטוש"
   },
   "artifactFrame": {
     "dataAddQuery": "הוספת שאילתה",

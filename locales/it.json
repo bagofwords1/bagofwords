@@ -4131,7 +4131,8 @@
     "menuData": "Dati"
   },
   "toolbar": {
-    "polishDashboard": "Rifinisci dashboard"
+    "polishDashboard": "Rifinisci dashboard",
+    "polishRequestLabel": "Rifinisci"
   },
   "artifactFrame": {
     "dataAddQuery": "Aggiungi query",

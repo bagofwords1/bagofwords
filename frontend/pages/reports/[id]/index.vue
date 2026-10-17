@@ -264,7 +264,9 @@
 										<div class="flex-1 flex justify-end">
 											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
+													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
 													<InstructionText
+														v-else
 														:text="m.prompt.content"
 														:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 														:prose="true"
@@ -1137,6 +1139,8 @@ import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
 

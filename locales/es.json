@@ -4389,7 +4389,8 @@
     "menuData": "Datos"
   },
   "toolbar": {
-    "polishDashboard": "Pulir panel"
+    "polishDashboard": "Pulir panel",
+    "polishRequestLabel": "Pulir"
   },
   "artifactFrame": {
     "dataAddQuery": "Añadir consulta",
