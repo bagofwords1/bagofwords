@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.592 (October 15, 2026)
+## Version 0.0.592 (October 17, 2026)
 - Added paging through long files with `offset`/`length` on every file connection and on chat uploads (#1401)
 - Added reading and searching .eml and Outlook .msg emails, including their attachments, on every file connection (#1402)
 - Added sub-agents saving rows into the parent conversation's lists (#1394)
