@@ -440,6 +440,22 @@ def test_old_timestamp_does_not_expire_a_locally_active_long_run(
                 await db.commit()
 
         live_client.portal.call(_age_live_row)
+        # An idle dispatch that observes the still-live run must still persist
+        # retirement of expired legacy rows before it exits. A later request
+        # must not be the only path that happens to commit this recovery.
+        from app.services.completion_service import CompletionService
+        live_client.portal.call(CompletionService().start_next_queued_if_idle, report["id"], None)
+
+        async def _read_ghost_before_submit():
+            session_factory = create_async_session_factory()
+            async with session_factory() as db:
+                return await db.get(Completion, ghost_id)
+
+        ghost_before_submit = live_client.portal.call(_read_ghost_before_submit)
+        assert ghost_before_submit.status == "error", (
+            "the dispatcher returned for a live run without committing stale-row retirement"
+        )
+
         queued = live_client.post(
             f"/api/reports/{report['id']}/completions",
             json={"queue_if_busy": True, "prompt": {"content": "wait behind the active run", "mentions": [{}]}},
@@ -469,6 +485,155 @@ def test_old_timestamp_does_not_expire_a_locally_active_long_run(
         _wait_for_automatic_queue_drain(live_client.portal, user_row["id"])
     finally:
         release.set()
+
+
+@pytest.mark.e2e
+def test_unflagged_submit_retires_stale_execution_without_opt_in_queueing(
+    monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models,
+):
+    """Ordinary submit callers retain direct execution while still recovering
+    stale in-progress rows; recovery must not depend on queue_if_busy opt-in.
+    """
+    from app.models.completion import Completion
+    from app.services import completion_service as completion_service_module
+    from app.settings.database import create_async_session_factory
+
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    monkeypatch.setattr(completion_service_module, "_COMPLETION_STALE_AFTER_SECONDS", 30.0)
+    first_call, _, release, _ = _hold_first_provider_call(monkeypatch)
+    report = create_report(title=f"unflagged-stale-{uuid.uuid4().hex[:8]}", user_token=token, org_id=org_id, data_sources=[])
+    user_id = whoami(token)["id"]
+    stale_id = str(uuid.uuid4())
+    stale_at = datetime.utcnow() - timedelta(seconds=60)
+
+    async def _seed_stale_execution():
+        session_factory = create_async_session_factory()
+        async with session_factory() as db:
+            db.add(Completion(
+                id=stale_id, report_id=report["id"], user_id=user_id,
+                role="system", status="in_progress", model="stale-test-model",
+                prompt={}, completion={"content": ""}, turn_index=0,
+                created_at=stale_at, updated_at=stale_at,
+            ))
+            await db.commit()
+
+    try:
+        live_client.portal.call(_seed_stale_execution)
+        response = live_client.post(
+            f"/api/reports/{report['id']}/completions?background=true",
+            json={"prompt": {"content": "recover without queue opt-in", "mentions": [{}]}},
+            headers=_headers(token, org_id),
+        )
+        assert response.status_code == 200, response.text
+        assert first_call.wait(timeout=20), "the ordinary request did not reach the provider boundary"
+
+        async def _read_state():
+            session_factory = create_async_session_factory()
+            async with session_factory() as db:
+                return await db.get(Completion, stale_id)
+
+        stale = live_client.portal.call(_read_state)
+        assert stale.status == "error", "an unflagged submit left an abandoned execution in_progress"
+        assert (stale.completion or {}).get("error_type") == "stale_execution"
+    finally:
+        release.set()
+
+
+@pytest.mark.e2e
+def test_failed_question_wake_releases_blocked_child_with_provider_error(
+    monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models,
+):
+    """A failed question-wake agent run must terminally release its child,
+    including ordinary provider/runtime failures (not just auth preflight).
+    """
+    from sqlalchemy import select
+
+    from app.ai.llm.llm import LLM
+    from app.dependencies import async_session_maker
+    from app.models.completion import Completion
+    from app.models.sub_agent import SubAgentRun, SubAgentWave
+    from app.models.sub_agent_message import SubAgentMessage
+    from app.services.completion_service import CompletionService
+    from app.services.sub_agent_message_service import sub_agent_message_service
+    from tests.e2e.test_sub_agent_messages import _pending_children
+
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    report = create_report(title=f"failed-question-wake-{uuid.uuid4().hex[:8]}", user_token=token, org_id=org_id, data_sources=[])
+
+    async def _create_child():
+        return await _pending_children(report["id"], org_id, count=1)
+
+    child, = live_client.portal.call(_create_child)
+    monkeypatch.setenv("OPENAI_API_KEY_TEST", "dummy-provider-boundary")
+
+    async def fail_provider(self, *, model_id=None, messages, system=None, tools=None, **kwargs):
+        raise RuntimeError("scripted provider outage during parent question wake")
+        yield  # Keep this an async generator matching the provider boundary.
+
+    monkeypatch.setattr(LLM, "inference_stream_v2", fail_provider)
+
+    async def _send_question():
+        async with async_session_maker() as db:
+            return await sub_agent_message_service.send(
+                db,
+                organization_id=org_id,
+                report_id=report["id"],
+                sender_sub_agent_id=child["sub_agent_id"],
+                recipient="parent",
+                kind="question",
+                body="Which period should I compare?",
+                idempotency_key="question-wake-provider-failure",
+            )
+
+    receipt = live_client.portal.call(_send_question)
+    live_client.portal.call(
+        CompletionService().start_next_queued_if_idle, report["id"], None
+    )
+
+    def _read_failure_state():
+        async def read():
+            async with async_session_maker() as db:
+                run = await db.get(SubAgentRun, child["sub_agent_id"])
+                wake = (await db.execute(select(Completion).where(
+                    Completion.report_id == report["id"],
+                    Completion.role == "user",
+                    Completion.trigger_source == "sub_agent_message",
+                ))).scalar_one()
+                system = (await db.execute(select(Completion).where(
+                    Completion.parent_id == wake.id,
+                    Completion.role == "system",
+                ))).scalar_one_or_none()
+                wave = await db.get(SubAgentWave, run.wave_id)
+                question = (await db.execute(select(SubAgentMessage).where(
+                    SubAgentMessage.sub_agent_id == run.id,
+                    SubAgentMessage.kind == "question",
+                ))).scalar_one_or_none()
+                return run, wake, system, wave, question
+        return live_client.portal.call(read)
+
+    state = _wait_until(
+        lambda: (lambda current: current if current[2] is not None and current[2].status == "error"
+                 and current[0].status == "failed" else None)(_read_failure_state()),
+        timeout=30,
+        interval=0.25,
+    )
+    current = _read_failure_state()
+    assert state is not None, (
+        "a failed machine wake left its question-blocked child pending; "
+        f"current statuses={(current[0].status, current[0].error_message, current[1].status, current[1].user_id, current[2].status if current[2] else None, current[2].completion if current[2] else None, current[3].user_id, current[4].status if current[4] else None)!r}"
+    )
+    run, wake, system, _wave, _question = state
+    assert wake.status != "queued"
+    assert system.completion and "scripted provider outage" in system.completion.get("content", "")
+    assert run.error_message and "scripted provider outage" in run.error_message
+    assert run.result_json and run.envelope_json
+    assert receipt["message_id"]
 
 
 @pytest.mark.parametrize("principal_state", ["missing", "revoked"], ids=["null-principal", "removed-member"])

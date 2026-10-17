@@ -134,9 +134,19 @@ class SubAgentMessageService:
         turn = (await db.execute(select(func.max(Completion.turn_index)).where(
             Completion.report_id == wave.report_id,
         ))).scalar() or 0
+        event = Completion(
+            report_id=wave.report_id, user_id=wave.user_id, role='external', status='success',
+            model='sub_agent_message', turn_index=turn + 1, message_type='sub_agent_question',
+            external_platform='sub_agent_message', trigger_source='sub_agent_message',
+            prompt={'content': 'A sub-agent asked a question.', 'meta': {'wave_id': str(wave.id)}},
+            completion={'content': ''},
+        )
+        db.add(event)
+        await db.flush()
         db.add(Completion(
+            parent_id=event.id,
             report_id=wave.report_id, user_id=wave.user_id, role='user', status='queued',
-            model=parent.model if parent else None, turn_index=turn + 1,
+            model=parent.model if parent else None, turn_index=turn + 2,
             message_type='sub_agent_question', trigger_source='sub_agent_message',
             prompt={'content': 'A sub-agent needs your answer. Read <agent_messages>; answer each open question '
                     'with message_sub_agent(kind="answer", recipient=sender, reply_to=message_id). '
@@ -218,6 +228,13 @@ class SubAgentMessageService:
             SubAgentRun, SubAgentRun.id == SubAgentMessage.sub_agent_id,
         ).where(SubAgentMessage.report_id == report_id, SubAgentMessage.kind == 'question',
                 SubAgentRun.status.in_(LIVE), SubAgentMessage.id.not_in(answered)).limit(1))).scalar_one_or_none() is not None
+
+    async def waiting_children(self, db, report_id, child_ids):
+        return set((await db.execute(select(SubAgentMessage.sub_agent_id).where(
+            SubAgentMessage.report_id == report_id, SubAgentMessage.sub_agent_id.in_(child_ids),
+            SubAgentMessage.kind == 'question',
+            SubAgentMessage.id.not_in(self._answered_ids(report_id=report_id)),
+        ))).scalars().all())
 
     async def waiting_question(self, db, sub_agent_id):
         answered = self._answered_ids(sub_agent_id=sub_agent_id)

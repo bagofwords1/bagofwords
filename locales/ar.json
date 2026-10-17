@@ -5456,6 +5456,7 @@
     "bulkFailed": "فشل التحديث الجمعي"
   },
   "events": {
+    "subAgentQuestion": "طرح وكيل فرعي سؤالاً",
     "evalRunFinished": "انتهى تشغيل التقييم '{title}' — نجحت {passed}/{total} ({status})",
     "waitResumed": "انقضى الانتظار — استئناف: {reason}",
     "checkin": {

@@ -114,6 +114,7 @@ class SubAgentRun(BaseSchema):
     exit_reason = Column(String(24), nullable=True)
     # The model-authored finish_subtask body (validated) …
     result_json = Column(JSON, nullable=True)
+    finish_input_json = Column(JSON, nullable=True)
     # … and the runtime envelope the model never writes.
     envelope_json = Column(JSON, nullable=True)
     report_note_id = Column(String(36), ForeignKey("notes.id"), nullable=True)

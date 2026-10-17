@@ -5456,6 +5456,7 @@
     "bulkFailed": "Aggiornamento in blocco non riuscito"
   },
   "events": {
+    "subAgentQuestion": "Un sottoagente ha posto una domanda",
     "evalRunFinished": "L'esecuzione di valutazione '{title}' è terminata — {passed}/{total} superati ({status})",
     "waitResumed": "Attesa trascorsa — ripresa: {reason}",
     "checkin": {

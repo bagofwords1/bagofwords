@@ -29,7 +29,7 @@ const props = defineProps<{ toolExecution: { status: string; result_json?: any; 
 const status = computed(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 const title = computed(() => rj.value?.title || props.toolExecution?.arguments_json?.sub_agent_id || '')
-const runStatus = computed(() => rj.value?.status || 'running')
+const runStatus = computed(() => rj.value?.status === 'waiting' && rj.value?.wait_reason === 'slot' ? 'pending' : (rj.value?.status || 'running'))
 const outcome = computed(() => rj.value?.record?.outcome || null)
 const confidence = computed(() => (typeof rj.value?.record?.confidence === 'number' ? rj.value.record.confidence : null))
 const stepsUsed = computed(() => (typeof rj.value?.steps_used === 'number' ? rj.value.steps_used : null))

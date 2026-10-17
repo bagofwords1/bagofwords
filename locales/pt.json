@@ -5456,6 +5456,7 @@
     "bulkFailed": "Falha na atualização em massa"
   },
   "events": {
+    "subAgentQuestion": "Um subagente fez uma pergunta",
     "evalRunFinished": "Execução de avaliação '{title}' terminou — {passed}/{total} aprovadas ({status})",
     "waitResumed": "Espera concluída — retomando: {reason}",
     "checkin": {

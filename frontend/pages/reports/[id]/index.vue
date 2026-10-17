@@ -2189,6 +2189,7 @@ function webhookSourceIcon(source?: string): string {
 function machineEventLabel(m: any): string {
 	const meta = m?.prompt?.meta
 	const src = (m as any)?.trigger_source
+	if (src === 'sub_agent_message') return t('events.subAgentQuestion')
 	if (meta && src === 'eval_run') {
 		return t('events.evalRunFinished', {
 			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
@@ -5477,6 +5478,11 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
+function createSystemPlaceholder(id: string, model?: string): ChatMessage {
+	return { id, role: 'system', status: 'in_progress', model: model || undefined,
+		created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [] }
+}
+
 function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
@@ -5496,17 +5502,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 	// Append placeholder system message for streaming
 	const sysId = `system-${Date.now()}`
-	const sysMsg: ChatMessage = {
-		id: sysId,
-		role: 'system',
-		status: 'in_progress',
-		model: data.model_id || undefined,
-		// Naive-UTC, matching the server's shape. Anchors the footer's run
-		// duration (and its timestamp) on the live path, where no server row
-		// has been merged into this placeholder yet.
-		created_at: new Date().toISOString().replace('Z', ''),
-		completion_blocks: []
-	}
+	const sysMsg = createSystemPlaceholder(sysId, data.model_id)
 	messages.value.push(sysMsg)
 	pinTurnToTop(userMsg.id)
 
@@ -5584,7 +5580,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 			currentController = null
 			const busyId = queued?.busy_completion_id
 			if (busyId && !messages.value.some(m => m.id === busyId || m.system_completion_id === busyId)) {
-				messages.value.push({ id: busyId, role: 'system', status: 'in_progress', system_completion_id: busyId })
+				messages.value.push({ ...createSystemPlaceholder(busyId), system_completion_id: busyId })
 			}
 			if (created?.id && !messages.value.some(m => m.id === created.id)) {
 				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })

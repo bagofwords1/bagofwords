@@ -5456,6 +5456,7 @@
     "bulkFailed": "Massuppdatering misslyckades"
   },
   "events": {
+    "subAgentQuestion": "En underagent ställde en fråga",
     "evalRunFinished": "Utvärderingskörningen '{title}' avslutades — {passed}/{total} godkända ({status})",
     "waitResumed": "Väntan förfluten — återupptar: {reason}",
     "checkin": {

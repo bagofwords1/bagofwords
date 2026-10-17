@@ -24,7 +24,10 @@ function setup() {
       if(type==='completion.finished'){m.status=payload.status;ctx.isCompletionInProgress.value=false;}
     },
   };
-  vm.createContext(ctx);vm.runInContext(code,ctx);
+  vm.createContext(ctx);
+  const factoryStart=source.indexOf('function createSystemPlaceholder(');
+  if(factoryStart>=0) vm.runInContext(ts.transpileModule(source.slice(factoryStart,source.indexOf('function onSubmitCompletion',factoryStart)),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,ctx);
+  vm.runInContext(code,ctx);
   return {ctx,streams,emit(i,type,data){streams[i].enqueue(new TextEncoder().encode(`event: ${type}\ndata: ${JSON.stringify({data})}\n\n`));}};
 }
 for(const id of ['canonical-A','canonical-B'])test(`events survive canonical replacement: ${id}`,async()=>{
@@ -127,6 +130,9 @@ for (const refreshFails of [false, true]) test(`queued receipt keeps the active 
   const run=ctx.startStreaming({},'temporary');
   await tick();
   assert.equal(watched,'active-turn');
+  const active=ctx.messages.value.find(m=>m.id==='active-turn');
+  assert.ok(active.created_at);
+  assert.ok(Array.isArray(active.completion_blocks));
   assert.equal(ctx.isCompletionInProgress.value,true);
   assert.ok(ctx.messages.value.some(m=>m.role==='system' && m.status==='in_progress' && m.system_completion_id==='active-turn'));
   assert.ok(ctx.messages.value.some(m=>m.id==='queued-followup' && m.status==='queued'));

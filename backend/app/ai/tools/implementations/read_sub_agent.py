@@ -75,7 +75,9 @@ class ReadSubAgentTool(Tool):
         elif snap["status"] == "pending":
             summary = f"Sub-agent '{snap['title']}' is queued, waiting for a slot."
         elif snap["status"] == "waiting":
-            summary = f"Sub-agent '{snap['title']}' is waiting for an answer. Read its question in messages and answer it."
+            summary = (f"Sub-agent '{snap['title']}' has an answer and is waiting for an execution slot; do not answer again."
+                       if snap.get("wait_reason") == "slot" else
+                       f"Sub-agent '{snap['title']}' is waiting for an answer. Read its question in messages and answer it.")
         else:
             summary = (
                 f"Sub-agent '{snap['title']}' {snap['status']} ({snap.get('exit_reason')}): "

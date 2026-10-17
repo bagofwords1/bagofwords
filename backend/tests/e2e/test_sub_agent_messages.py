@@ -1790,3 +1790,121 @@ def test_parent_mailbox_bounds_history_without_losing_live_questions(
             assert len([m for m in context if m["sub_agent_id"] == ended["sub_agent_id"]]) <= 8
             assert any(m["message_id"] == question["message_id"] and m["question_state"] == "open" for m in context)
     _run(check())
+
+
+@pytest.mark.e2e
+def test_answered_child_reports_slot_wait_and_question_wake_has_event(
+    create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch,
+):
+    from app.models.completion import Completion
+    from app.models.sub_agent import SubAgentRun
+    from app.services.sub_agent_message_service import sub_agent_message_service as mail
+    from app.services.sub_agent_service import sub_agent_service as svc
+    report, _, org_id, _ = _env(create_user, login_user, whoami, create_report,
+        create_llm_provider_and_models, monkeypatch, title="Answered child slot wait")
+    child, = _run(_pending_children(report["id"], org_id, count=1))
+    async def check():
+        async with async_session_maker() as db:
+            q = await mail.send(db, organization_id=org_id, report_id=report['id'],
+                sender_sub_agent_id=child['sub_agent_id'], recipient='parent', kind='question',
+                body='Should the comparison include returns?', idempotency_key='returns-question')
+            row = await db.get(SubAgentRun, child['sub_agent_id'])
+            # Model the between-step scheduler state without running an LLM.
+            row.status = 'waiting'
+            await db.commit()
+            before = await svc.snapshot(db, str(row.id))
+            assert before['wait_reason'] == 'answer'
+            await mail.send(db, organization_id=org_id, report_id=report['id'],
+                sender_sub_agent_id=None, recipient=str(row.id), kind='answer',
+                body='Include returns.', reply_to=q['message_id'], idempotency_key='returns-answer')
+            after = await svc.snapshot(db, str(row.id))
+            assert after['status'] == 'waiting' and after['wait_reason'] == 'slot'
+            waves = await svc.list_for_report(db, report['id'])
+            assert waves['waves'][0]['sub_agents'][0]['wait_reason'] == 'slot'
+            turns = (await db.execute(select(Completion).where(Completion.report_id == report['id']))).scalars().all()
+            events = [c for c in turns if c.role == 'external' and c.trigger_source == 'sub_agent_message']
+            wakes = [c for c in turns if c.role == 'user' and c.trigger_source == 'sub_agent_message']
+            assert len(events) == len(wakes) == 1
+            assert wakes[0].parent_id == events[0].id
+    _run(check())
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("note_state", ["missing", "deleted", "removed"])
+def test_finish_replay_preserves_exact_input_even_when_note_becomes_invalid(
+    create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch, note_state,
+):
+    from app.ai.tools.schemas.sub_agents import FinishSubtaskInput
+    from app.services.sub_agent_service import _UNREAD_FINISH_CAVEAT
+    from app.services.sub_agent_service import sub_agent_service as svc
+    report, _, org_id, _ = _env(create_user, login_user, whoami, create_report,
+        create_llm_provider_and_models, monkeypatch, title="Exact finish identity")
+    child, = _run(_pending_children(report['id'], org_id, count=1))
+    # Invalid note IDs are intentionally sanitized on the first acceptance;
+    # repeating the exact validated input must remain idempotent.
+    result = FinishSubtaskInput(outcome='done', confidence=0.7, summary='Compared net revenue.',
+        report_note_id=str(uuid.uuid4()), caveats=[_UNREAD_FINISH_CAVEAT]).model_dump()
+    async def check():
+        from datetime import datetime
+        from types import SimpleNamespace
+
+        from app.ai.tools.implementations.create_note import CreateNoteTool
+        from app.models.note import Note
+        async with async_session_maker() as db:
+            if note_state != 'missing':
+                events = [e async for e in CreateNoteTool().run_stream(
+                    {'title':'Net revenue findings','content':'Compared revenue including returns.'},
+                    {'db':db,'report':SimpleNamespace(id=report['id']), 'organization':SimpleNamespace(id=org_id)},
+                )]
+                result['report_note_id'] = next(e.payload['output']['note_id'] for e in events if e.type == 'tool.end')
+            first = await svc.record_finish(db, sub_agent_id=child['sub_agent_id'], result=result)
+            saved = dict(first.result_json)
+            if note_state != 'missing':
+                note = await db.get(Note, result['report_note_id'])
+                # Simulate note lifecycle changes after acceptance; no public
+                # API permits changing a note's report during this transaction.
+                if note_state == 'deleted':
+                    note.deleted_at = datetime.utcnow()
+                else:
+                    # Removing its reference reproduces a later hard deletion.
+                    first.report_note_id = None
+                    await db.flush()
+                    await db.delete(note)
+                await db.commit()
+            replay = await svc.record_finish(db, sub_agent_id=child['sub_agent_id'], result=result)
+            assert replay.result_json == saved
+            with pytest.raises(ValueError):
+                await svc.record_finish(db, sub_agent_id=child['sub_agent_id'], result={**result,'caveats':[]})
+    _run(check())
+
+
+@pytest.mark.e2e
+def test_ownerless_question_wakes_coalesce_and_fail_closed(
+    create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch,
+):
+    from app.models.completion import Completion
+    from app.models.sub_agent import SubAgentRun, SubAgentWave
+    from app.services.sub_agent_message_service import sub_agent_message_service as mail
+    from app.services.sub_agent_service import sub_agent_service as svc
+    report, _, org_id, _ = _env(create_user, login_user, whoami, create_report,
+        create_llm_provider_and_models, monkeypatch, title="Ownerless waves")
+    children = _run(_pending_children(report['id'], org_id, count=2))
+    async def check():
+        async with async_session_maker() as db:
+            first = await db.get(SubAgentRun, children[0]['sub_agent_id'])
+            wave = await db.get(SubAgentWave, first.wave_id)
+            # Simulate a deleted principal; delegation cannot create this state.
+            wave.user_id = None
+            await db.commit()
+            for child in children:
+                await mail.send(db, organization_id=org_id, report_id=report['id'],
+                    sender_sub_agent_id=child['sub_agent_id'], recipient='parent',kind='question',
+                    body='Which dataset should I use?', idempotency_key=child['sub_agent_id'])
+            wakes=(await db.execute(select(Completion).where(Completion.report_id==report['id'],
+                Completion.role=='user',Completion.trigger_source=='sub_agent_message'))).scalars().all()
+            assert len(wakes)==1 and wakes[0].user_id is None
+            await svc.fail_waiting_children_for_parent(db,report_id=report['id'],user_id=None,reason='Principal unavailable')
+            for child in children:
+                row=await db.get(SubAgentRun,child['sub_agent_id'],populate_existing=True)
+                assert row.status=='failed'
+    _run(check())

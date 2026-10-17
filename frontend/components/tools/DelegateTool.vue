@@ -15,7 +15,7 @@
         {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<span v-if="confidence !== null"> · {{ Math.round(confidence * 100) }}%</span>
       </span>
       <span v-else-if="refused" class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">{{ t('tools.delegate.refused') }}</span>
-      <span v-else class="text-[10px] text-gray-400 flex-shrink-0">{{ t(`tools.delegate.status.${status}`, status) }}</span>
+      <span v-else class="text-[10px] text-gray-400 flex-shrink-0">{{ t(`tools.delegate.status.${displayStatus}`, displayStatus) }}</span>
 
       <!-- Counters -->
       <span class="text-[10px] text-gray-400 flex-shrink-0 tabular-nums" dir="ltr">
@@ -152,6 +152,7 @@ const status = computed<string>(() => {
   if (refused.value) return 'refused'
   return detail.value?.status || live.value?.status || rj.value?.status || (props.toolExecution?.status === 'in_progress' ? 'running' : 'running')
 })
+const displayStatus = computed(() => status.value === 'waiting' && (live.value?.wait_reason || detail.value?.wait_reason) === 'slot' ? 'pending' : status.value)
 const isLive = computed(() => !refused.value && (status.value === 'running' || status.value === 'pending' || status.value === 'waiting'))
 const record = computed<any>(() => detail.value?.record || live.value?.record || rj.value?.record || null)
 const outcome = computed<string | null>(() => record.value?.outcome || live.value?.outcome || null)

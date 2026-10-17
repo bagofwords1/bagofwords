@@ -5730,6 +5730,7 @@
     "bulkFailed": "Falló la actualización masiva"
   },
   "events": {
+    "subAgentQuestion": "Un subagente hizo una pregunta",
     "evalRunFinished": "La ejecución de evaluación '{title}' terminó — {passed}/{total} aprobadas ({status})",
     "waitResumed": "La espera terminó — reanudando: {reason}",
     "checkin": {
