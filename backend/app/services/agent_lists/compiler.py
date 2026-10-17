@@ -137,7 +137,8 @@ def compile_list_schema(fields: List[Dict[str, Any]], description: str = "") -> 
     return schema
 
 
-def tool_description(list_name: str, list_description: str, agent_name: str, key_field: str | None) -> str:
+def tool_description(list_name: str, list_description: str, agent_name: str, key_field: str | None,
+                     list_id: str | None = None, table_name: str | None = None) -> str:
     lines = [
         f"Save structured records to the list \"{list_name}\" (agent: {agent_name}). "
         + (list_description.strip() + " " if list_description else "")
@@ -154,4 +155,15 @@ def tool_description(list_name: str, list_description: str, agent_name: str, key
     if key_field:
         lines.append(f"Records with the same \"{key_field}\" update the existing row instead of adding a new one.")
     lines.append("To update a specific existing row pass its row_id; otherwise row_id is null.")
+    if list_id:
+        # The id is the only handle the read path accepts; without it here the
+        # model guesses (slug, tool-name suffix) and cannot resume a batch.
+        lines.append(
+            f"This list's id is {list_id}. To read rows back (resume a batch, dedupe, check what is "
+            "already saved) call create_data with tables_by_source=[{data_source_id:'builtin:bow', tables:['"
+            + (table_name or "bow.<agent>.lists.<list>") + "']}] and in "
+            f"code use ds_clients[\"bow\"].execute_query({{\"dataset\": \"list\", \"list_id\": \"{list_id}\"}}) "
+            "(optional \"columns\", \"query\" \"field:value\", \"limit\"). For batch extraction read it first "
+            "and skip keys already saved."
+        )
     return "\n".join(lines)
