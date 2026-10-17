@@ -148,12 +148,16 @@ class PromptBuilderV3:
 
         budget = transcript_budget_tokens(planner_input)
         stats = t.fit_to_budget(budget)
-        if stats.get("digested") or stats.get("dropped"):
+        if stats.get("digested") or stats.get("dropped") or stats.get("images_released"):
             logger.info(
-                "[transcript] decayed %d->%d tokens (budget=%d digested=%d dropped=%d)",
+                "[transcript] decayed %d->%d tokens (budget=%d digested=%d dropped=%d images_released=%d)",
                 stats["before"], stats["after"], budget,
-                stats["digested"], stats["dropped"],
+                stats["digested"], stats["dropped"], stats.get("images_released", 0),
             )
+        logger.info(
+            "[transcript] request est_tokens=%d images=%d turns=%d",
+            t.tokens(), t.image_count(), len(t.turns),
+        )
         if not stats.get("reached", True):
             # Decay exhausted itself and the transcript still does not fit.
             # The excess is in the parts the ladder cannot touch — static

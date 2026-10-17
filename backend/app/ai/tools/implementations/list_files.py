@@ -49,6 +49,13 @@ _MAX_RESULTS = 500
 _FILE_METADATA_KEYS = FILE_METADATA_KEYS
 
 
+def _scoped_listing(data: Any) -> bool:
+    """A folder-scoped listing or a cursor page is a step of a walk, not a
+    re-enumeration of the connection — the repeat-enumeration note must not
+    tell the model to stop (folder-by-folder work lists every folder once)."""
+    return bool((getattr(data, "folder_id", None) or "").strip().strip("/") or getattr(data, "cursor", None))
+
+
 class ListFilesTool(Tool):
     # Capability the resolved connection must expose. Overridden by ListEmailsTool
     # so the same listing path backs a mailbox (LIST_EMAILS).
@@ -128,13 +135,13 @@ class ListFilesTool(Tool):
             bits.append(f"created {e['created_at']}")
         return " — ".join(bits) + f" [id={e.get('id')}]"
 
-    def _end(self, connection_id: str, entries: List[dict], truncated: bool, source: str, hint: str = "", runtime_ctx: Dict[str, Any] = None) -> ToolEndEvent:
+    def _end(self, connection_id: str, entries: List[dict], truncated: bool, source: str, hint: str = "", runtime_ctx: Dict[str, Any] = None, scoped: bool = False) -> ToolEndEvent:
         # Repeat-enumeration guard: rephrased re-listing of an already-listed
         # connection gets a result-time nudge to use the note/inventory instead.
         enum_hint = ""
         if runtime_ctx is not None:
             from app.ai.tools.implementations._file_tool_common import note_enumeration
-            n = note_enumeration(runtime_ctx, connection_id, len(entries))
+            n = note_enumeration(runtime_ctx, connection_id, len(entries), scoped=scoped)
             if n:
                 enum_hint = f" {n}"
         observation = {
@@ -253,7 +260,7 @@ class ListFilesTool(Tool):
         if next_cursor:
             hint += " More pages: pass next_cursor as cursor with the same inputs."
         hint += " Files changed since the index run need source='live'."
-        event = self._end(data.connection_id, entries, False, "catalog", hint, runtime_ctx)
+        event = self._end(data.connection_id, entries, False, "catalog", hint, runtime_ctx, scoped=_scoped_listing(data))
         event.payload["output"].update(
             source="catalog", indexed_at=catalog["indexed_at"], catalog_files=catalog["total"],
             matched=matched, next_cursor=next_cursor, incomplete=bool(next_cursor),
@@ -415,7 +422,7 @@ class ListFilesTool(Tool):
                 elif result.stop_reason == 'catalog_limit':
                     hint += (" Listing stopped at the connection's Max files cap; more matching files may exist. "
                             "Narrow folder_id or ask an administrator to review the connection scope/cap.")
-                event = self._end(data.connection_id, entries, False, "live", hint, runtime_ctx)
+                event = self._end(data.connection_id, entries, False, "live", hint, runtime_ctx, scoped=_scoped_listing(data))
                 event.payload['output'].update(
                     source="live", incomplete=bool(result.stop_reason), stop_reason=result.stop_reason,
                 )
@@ -455,7 +462,7 @@ class ListFilesTool(Tool):
         if live_listing:
             try:
                 entries, truncated = await _live()
-                yield self._end(data.connection_id, entries, truncated, "live", runtime_ctx=runtime_ctx)
+                yield self._end(data.connection_id, entries, truncated, "live", runtime_ctx=runtime_ctx, scoped=_scoped_listing(data))
                 return
             except Exception as e:
                 yield self._fail(
@@ -470,7 +477,7 @@ class ListFilesTool(Tool):
             if client is not None:
                 try:
                     entries, truncated = await _live()
-                    yield self._end(data.connection_id, entries, truncated, "live", runtime_ctx=runtime_ctx)
+                    yield self._end(data.connection_id, entries, truncated, "live", runtime_ctx=runtime_ctx, scoped=_scoped_listing(data))
                     return
                 except Exception as e:
                     yield self._fail(
@@ -528,7 +535,7 @@ class ListFilesTool(Tool):
         if not entries and client is not None:
             try:
                 entries, truncated = await _live()
-                yield self._end(data.connection_id, entries, truncated, "live (cache empty)", runtime_ctx=runtime_ctx)
+                yield self._end(data.connection_id, entries, truncated, "live (cache empty)", runtime_ctx=runtime_ctx, scoped=_scoped_listing(data))
                 return
             except Exception:
                 pass
@@ -538,4 +545,4 @@ class ListFilesTool(Tool):
             if entries
             else f" Catalog is empty — try {self._empty_hint_action} or run a refresh."
         )
-        yield self._end(data.connection_id, entries, truncated, "cache", hint, runtime_ctx=runtime_ctx)
+        yield self._end(data.connection_id, entries, truncated, "cache", hint, runtime_ctx=runtime_ctx, scoped=_scoped_listing(data))
