@@ -231,7 +231,13 @@ _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_e
 # the image again, one full step per look. Images are the expensive payload
 # (~1-2k tokens each, re-sent on every call), so the window is short — but it
 # must be longer than one, or evidence can never be combined.
-_VISION_IMAGE_RETENTION_LOOPS = 3
+#
+# Shared with the native transcript (the default path), which applies the same
+# window — and the same total-image cap — to images on its tool results.
+from app.ai.context.transcript import (  # noqa: E402
+    IMAGE_RETENTION_STEPS as _VISION_IMAGE_RETENTION_LOOPS,
+    MAX_RETAINED_IMAGES as _MAX_RETAINED_IMAGES,
+)
 
 # Uploaded images to attach when the CURRENT completion has none of its own —
 # a follow-up question ("?", "why?") about a picture uploaded a turn ago. Only
@@ -1907,7 +1913,32 @@ class AgentV2:
             entry for entry in self._recent_vision_images
             if entry["loop_index"] > cutoff
         ]
-        return [img for entry in self._recent_vision_images for img in entry["images"]]
+        images = [img for entry in self._recent_vision_images for img in entry["images"]]
+        # Same cap as the transcript path, newest kept.
+        return images[-_MAX_RETAINED_IMAGES:]
+
+    def _planner_images(self, planner_input, user_images: list, tool_images: list) -> Optional[list]:
+        """The side-channel images (``planner_input.images``) for one request.
+
+        One channel per image. When the request renders the native transcript
+        (PlannerV3 with the transcript path on), tool images already ride the
+        transcript's own tool results, bounded by Transcript's retention —
+        adding them here too sent the last steps' pages twice per request. The
+        legacy planner / non-transcript prompt have no other channel, so they
+        keep both. User uploads only ever ride this channel.
+        """
+        rides_transcript = False
+        if tool_images:
+            try:
+                from app.ai.agents.planner import transcript_bridge
+                rides_transcript = (
+                    isinstance(self.planner, PlannerV3)
+                    and transcript_bridge.enabled(planner_input)
+                )
+            except Exception:
+                rides_transcript = False
+        images = list(user_images or []) + ([] if rides_transcript else list(tool_images or []))
+        return images or None
 
     async def estimate_prompt_tokens(self) -> dict:
         """Approximate the total planner prompt tokens without executing tools."""
@@ -2923,11 +2954,12 @@ class AgentV2:
                 * self._context_budget_factor
             )
             stats = self.transcript.fit_to_budget(max(budget, 1))
-            if stats.get("digested") or stats.get("dropped"):
+            if stats.get("digested") or stats.get("dropped") or stats.get("images_released"):
                 logger.info(
                     "[agent] context overflow: transcript %d->%d tokens "
-                    "(digested=%d dropped=%d)",
+                    "(digested=%d dropped=%d images_released=%d)",
                     stats["before"], stats["after"], stats["digested"], stats["dropped"],
+                    stats.get("images_released", 0),
                 )
         except Exception:
             logger.warning("[agent] overflow transcript decay failed", exc_info=True)
@@ -5243,6 +5275,9 @@ class AgentV2:
                             routing_state=self._routing_prompt_state()[1],
                         )
                         await self._apply_sub_agent_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
+                        planner_input.images = self._planner_images(
+                            planner_input, user_images, observation_images
+                        )
                         # Trim context if it exceeds the model's token budget. After a
                         # context_length rejection the run's shrink factor tightens the
                         # window (see _handle_context_overflow) so the retry provably

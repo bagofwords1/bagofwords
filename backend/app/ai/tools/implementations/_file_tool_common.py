@@ -148,7 +148,9 @@ def mark_agent_used(runtime_ctx: Dict[str, Any], ds: Any) -> None:
         pass
 
 
-def note_enumeration(runtime_ctx: Dict[str, Any], connection_key: str, count: int) -> Optional[str]:
+def note_enumeration(
+    runtime_ctx: Dict[str, Any], connection_key: str, count: int, *, scoped: bool = False,
+) -> Optional[str]:
     """Per-run repeat-enumeration guard for list/search file tools.
 
     Returns a hint string when this connection was ALREADY enumerated this
@@ -156,7 +158,14 @@ def note_enumeration(runtime_ctx: Dict[str, Any], connection_key: str, count: in
     exact-query dedupe), else records the enumeration and returns None.
     Result-time feedback lands exactly when the model is about to repeat
     itself, unlike description-time advice.
+
+    ``scoped`` (a listing narrowed to one folder, or the next cursor page) is
+    neither noted nor recorded: walking a library folder by folder lists each
+    folder once, and telling the model "already enumerated, stop re-listing"
+    on the second folder steers it away from the work it was asked to do.
     """
+    if scoped:
+        return None
     try:
         seen = runtime_ctx.setdefault("_file_enum_seen", {})
         key = str(connection_key or "")
