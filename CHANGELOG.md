@@ -6,6 +6,7 @@
 - Added sub-agents saving rows into the parent conversation's lists (#1394)
 - Added messages between agents and their sub-agents, with send receipts and questions that pause the sub-agent until answered (#1406)
 - Added listing every folder of a file connection in one call (#1410) — `group_by="folder"` on `list_files`
+- Added a compact card in chat for Polish requests from the dashboard element picker, instead of the raw prompt (#1413)
 - Fixed the agent failing to read files uploaded to a conversation (#1403)
 - Fixed paged reads of text files on Files & Directories and S3 skipping text between pages (#1405)
 - Fixed SharePoint 2010 file search running slow live crawls instead of answering from the index (#1409)
@@ -17,6 +18,7 @@
 - Fixed the dashboard breaking when the ⓘ icon is clicked in Polish mode (#1393)
 - Fixed agents looping on empty saves while filling a list (#1398)
 - Fixed Priority subforms failing when queried as tables (#1391)
+- Changed the chat submit arrow to point up (#1412)
 
 ## Version 0.0.591 (October 15, 2026)
 - Added keyword search and full-library browsing with paging, sorting and date filters for SharePoint Server connections (#1387) — `content` indexing option
