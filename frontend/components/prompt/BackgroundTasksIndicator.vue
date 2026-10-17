@@ -37,7 +37,7 @@
               <span class="text-[10px] text-gray-400 flex-shrink-0" dir="ltr">
                 <template v-if="task.status === 'running' && task.max_steps">{{ task.steps_used || 0 }}/{{ task.max_steps }}</template>
                 <template v-else-if="task.outcome">{{ t(`tools.delegate.outcomes.${task.outcome}`, task.outcome) }}<template v-if="typeof task.confidence === 'number'"> {{ Math.round(task.confidence * 100) }}%</template></template>
-                <template v-else>{{ t(`tools.delegate.status.${task.status}`, task.status) }}</template>
+                <template v-else>{{ t(`tools.delegate.status.${task.status === 'waiting' && task.wait_reason === 'slot' ? 'pending' : task.status}`, task.status) }}</template>
               </span>
               <button
                 v-if="task.status === 'running' || task.status === 'pending' || task.status === 'waiting'"

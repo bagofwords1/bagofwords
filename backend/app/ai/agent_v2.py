@@ -7768,7 +7768,14 @@ class AgentV2:
             return
         from app.dependencies import async_session_maker
         agent_messages = []
-        if self._is_sub_agent or self._sub_agents_enabled:
+        delegation_context = ""
+        if not self._is_sub_agent and self._sub_agents_enabled and self.report is not None:
+            try:
+                delegation_context = await sub_agent_service.context_block(self.db, str(self.report_id))
+            except Exception:
+                logger.debug("[agent] sub_agents context block failed", exc_info=True)
+            await self._release_db_between_steps()
+        if self._is_sub_agent or delegation_context:
             async with (self._session_maker or async_session_maker)() as mailbox_db:
                 agent_messages = await sub_agent_message_service.receive(
                     mailbox_db, organization_id=str(self.organization.id), report_id=str(self.report_id),
@@ -7804,11 +7811,7 @@ class AgentV2:
         planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
         planner_input.sub_agent_posture = sub_agent_posture(self.organization_settings)
         if planner_input.sub_agents_enabled and self.report is not None:
-            planner_input.sub_agents_context = mailbox_context
-            try:
-                planner_input.sub_agents_context = "\n".join(part for part in (await sub_agent_service.context_block(self.db, str(self.report_id)), mailbox_context) if part)
-            except Exception:
-                logger.debug("[agent] sub_agents context block failed", exc_info=True)
+            planner_input.sub_agents_context = "\n".join(part for part in (delegation_context, mailbox_context) if part)
 
     async def _await_sub_agent_answer(self) -> None:
         """Suspend without holding a session or slot; bounded cross-worker polling.

@@ -5456,6 +5456,7 @@
     "bulkFailed": "Massenaktualisierung fehlgeschlagen"
   },
   "events": {
+    "subAgentQuestion": "Ein Unteragent hat eine Frage gestellt",
     "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
     "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}",
     "checkin": {

@@ -758,8 +758,13 @@ class CompletionService:
             # inserting its system row must be atomic. Children run separately.
             if trigger_source != 'sub_agent':
                 await lock_report(db, report_id)
+                # Always retire expired legacy rows for a normal parent submit,
+                # including callers that do not opt into queue-if-busy. Keep
+                # launch detection under the same report lock so recovery and
+                # creation remain serialized with queue dispatch and question
+                # wakes.
+                running = await self._get_running_system_completion(db, report_id)
                 if (completion_data.queue or completion_data.queue_if_busy) and trigger_source is None and external_platform is None:
-                    running = await self._get_running_system_completion(db, report_id)
                     if running is not None:
                         return await self.create_queued_completion(
                             db, report_id, completion_data, current_user, organization,
@@ -2350,8 +2355,11 @@ class CompletionService:
             span.set_attribute("llm.model_id", model.model_id)
 
             await lock_report(db, report_id)
+            # Retire stale rows for every regular streaming submit, even when
+            # the client did not opt into queue-if-busy. The lock also prevents
+            # recovery racing with a concurrent parent launch.
+            running = await self._get_running_system_completion(db, report_id)
             if (completion_data.queue or completion_data.queue_if_busy) and external_platform is None:
-                running = await self._get_running_system_completion(db, report_id)
                 if running is not None:
                     # JSON fallback: the browser reconciles the durable queued row
                     # when an automatic parent wake won the race to start.
@@ -3614,6 +3622,12 @@ class CompletionService:
                 await lock_report(db, report_id)
                 running = await self._get_running_system_completion(db, report_id)
                 if running is not None:
+                    # _get_running_system_completion may have retired older
+                    # stale rows before finding this still-live run. Persist
+                    # those retirements before returning; otherwise closing
+                    # this transaction rolls the recovery back on every idle
+                    # dispatch that encounters a live run.
+                    await db.commit()
                     return
                 # Discard question wakes already answered by an intervening user
                 # turn. They are durable queue entries, never additional tasks.
@@ -3759,10 +3773,25 @@ class CompletionService:
                         routing_meta=routing_meta,
                     )
                     await agent.main_execution()
+                    # AgentV2 handles several provider/runtime failures inside
+                    # main_execution and persists an error result instead of
+                    # raising it to this dispatcher. A machine question wake
+                    # must still release its blocked children in that path.
+                    await session.refresh(system_completion)
+                    if (system_completion.status == "error" and head.trigger_source == "sub_agent_message"):
+                        failure = system_completion.completion if isinstance(system_completion.completion, dict) else {}
+                        failure_text = failure.get("content") or failure.get("error") or "The parent agent turn failed."
+                        from app.services.sub_agent_service import sub_agent_service
+                        await sub_agent_service.fail_waiting_children_for_parent(
+                            session,
+                            report_id=str(report_id),
+                            user_id=head.user_id,
+                            reason=f"The parent question wake failed before it could respond. The agent error was: {failure_text}",
+                        )
                     await event_queue.put(SSEEvent(
                         event="completion.finished",
                         completion_id=system_id,
-                        data={"status": "success"}
+                        data={"status": system_completion.status}
                     ))
                 except Exception as e:
                     logger.exception(f"[queue] dispatched agent failed for completion {system_id}")
@@ -3785,15 +3814,16 @@ class CompletionService:
                                 .values(status='error', completion=failure_content)
                             )
                             await recovery_session.commit()
-                            if (authorization_preflight_failure and head is not None
-                                    and head.trigger_source == 'sub_agent_message'):
+                            if (head is not None and head.trigger_source == 'sub_agent_message'):
                                 from app.services.sub_agent_service import sub_agent_service
                                 await sub_agent_service.fail_waiting_children_for_parent(
                                     recovery_session,
                                     report_id=str(report_id),
                                     user_id=head.user_id,
-                                    reason=("The parent question wake could not run because its original requester "
-                                            "no longer has access to this conversation."),
+                                    reason=(
+                                        "The parent question wake failed before it could respond. "
+                                        f"The agent error was: {e}"
+                                    ),
                                 )
                     except Exception:
                         logger.exception("[queue] failed to mark dispatched completion as errored")

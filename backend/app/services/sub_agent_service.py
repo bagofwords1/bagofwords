@@ -536,23 +536,19 @@ class SubAgentService:
         await lock_wave(db, row.wave_id)
         await db.execute(update(SubAgentRun).where(SubAgentRun.id == sub_agent_id).values(status=SubAgentRun.status, updated_at=SubAgentRun.updated_at))
         await db.refresh(row)
-        note_id = result.get("report_note_id")
-        if note_id:
-            note = await db.get(Note, str(note_id))
-            if note is None or str(note.report_id) != str(row.report_id):
-                result = {**result, "report_note_id": None}
-                note_id = None
+        original_input = dict(result)
         if row.status == RUN_FINISHED and row.exit_reason == EXIT_FINISH_CALL:
-            stored = row.result_json or {}
-            original = {**stored, "caveats": [
-                cleaned for caveat in stored.get("caveats", [])
-                if (cleaned := caveat.removesuffix(_UNREAD_FINISH_CAVEAT).rstrip())
-            ]}
-            if stored != result and original != result:
+            if result != (row.finish_input_json or row.result_json or {}):
                 await db.rollback()
                 raise FinishConflict("This sub-agent already stored a different finish record.")
             await db.commit()
             return row
+        note_id = result.get("report_note_id")
+        if note_id:
+            note = await db.get(Note, str(note_id))
+            if note is None or note.deleted_at is not None or str(note.report_id) != str(row.report_id):
+                result = {**result, "report_note_id": None}
+                note_id = None
         if row.status not in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
             await db.rollback()
             raise ValueError("This sub-agent has already ended; its result cannot be replaced.")
@@ -572,6 +568,7 @@ class SubAgentService:
             # stop or failed next call must not replace complete evidence with a
             # synthesized empty result. A later accepted finish replaces it.
             row.result_json = result
+            row.finish_input_json = original_input
             row.report_note_id = str(note_id) if note_id else row.report_note_id
             await db.commit()
             raise PendingSubAgentMessages(
@@ -584,6 +581,7 @@ class SubAgentService:
         from app.services.sub_agent_message_service import sub_agent_message_service
         await sub_agent_message_service.close_child(db, str(row.id), report_id=str(row.report_id))
         row.result_json = result
+        row.finish_input_json = original_input
         row.report_note_id = str(note_id) if note_id else row.report_note_id
         await db.commit()
         return row
@@ -776,6 +774,9 @@ class SubAgentService:
         out["messages"] = await sub_agent_message_service.list_for_child(
             db, organization_id=str(row.organization_id), report_id=str(row.report_id), sub_agent_id=str(row.id),
         )
+        answered = {m["reply_to"] for m in out["messages"] if m["kind"] == "answer"}
+        if row.status == RUN_WAITING:
+            out["wait_reason"] = "answer" if any(m["kind"] == "question" and m["message_id"] not in answered for m in out["messages"]) else "slot"
         calls: List[Dict[str, Any]] = []
         steps = row.steps_used or 0
         if row.child_execution_id:
@@ -829,6 +830,9 @@ class SubAgentService:
         runs = (await db.execute(
             select(SubAgentRun).where(SubAgentRun.wave_id.in_(wave_ids)).order_by(SubAgentRun.wave_index.asc())
         )).scalars().all()
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        waiting_ids = [str(r.id) for r in runs if r.status == RUN_WAITING]
+        open_questions = await sub_agent_message_service.waiting_children(db, report_id, waiting_ids) if waiting_ids else set()
         by_wave: Dict[str, List[SubAgentRun]] = {}
         for r in runs:
             by_wave.setdefault(str(r.wave_id), []).append(r)
@@ -836,6 +840,9 @@ class SubAgentService:
         tasks = []
         for w in waves:
             items = [_run_brief(r) for r in by_wave.get(str(w.id), [])]
+            for item in items:
+                if item["status"] == RUN_WAITING:
+                    item["wait_reason"] = "answer" if item["sub_agent_id"] in open_questions else "slot"
             out_waves.append({
                 "id": str(w.id), "status": w.status, "total": w.total, "remaining": w.remaining,
                 "parent_completion_id": w.parent_completion_id, "fan_in_completion_id": w.fan_in_completion_id,
@@ -859,6 +866,8 @@ class SubAgentService:
             lines.append(f'  <wave id="{w["id"]}" status="{w["status"]}" total="{w["total"]}">')
             for r in w["sub_agents"]:
                 bits = [f'id="{r["sub_agent_id"]}"', f'title="{_attr(r["title"])}"', f'status="{r["status"]}"']
+                if r.get("wait_reason"):
+                    bits.append(f'wait_reason="{r["wait_reason"]}"')
                 if r.get("outcome"):
                     bits.append(f'outcome="{r["outcome"]}"')
                 if r.get("confidence") is not None:

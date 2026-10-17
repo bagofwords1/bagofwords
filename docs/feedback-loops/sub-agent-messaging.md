@@ -401,3 +401,63 @@ Playwright, and data-source integrations passed. Unit job has eight failures
 (artifact prompt NameError; five OpenAI prompt_cache_markers failures; sandbox
 retry; query-timeout retry). LLM integration has seven Azure authentication 401
 failures. These are not attributed away from this PR without baseline proof.
+
+## Third PR review revision (2026-10-17)
+
+Seven findings were integrated and two suggestions were rejected with evidence.
+
+- `wait_reason` distinguishes an unanswered question from an answered child
+  waiting for capacity. Snapshot, wave context, read-tool summary, delegate card,
+  read card and background-task indicator agree; slot waits use the existing
+  localized queued label and never tell the parent to answer twice.
+- Every failed question wake releases that principal's blocked children,
+  including provider errors caught internally by AgentV2. The dispatcher
+  refreshes the persisted status and emits that status, not hardcoded success.
+- Question creation atomically persists a visible external event and its hidden
+  queued prompt; the latter's parent_id points at the event. Coalesced questions
+  create one event per wake. The event label ships in all ten locale catalogs.
+- Additive migration `submsg02` stores `finish_input_json` separately from the
+  normalized result. Replay compares exact input before revalidating notes.
+  Missing/deleted note references and model-authored caveats cannot change the
+  identity of an accepted call; no reverse parsing of caveat strings remains.
+- Busy fallback and ordinary submission share `createSystemPlaceholder`,
+  including timestamp/model/block defaults. Slow/failed-refresh tests now assert
+  that the retained placeholder has the normal render fields.
+- Parent planner input uses the existing wave context read to skip mailbox
+  session/queries entirely when the report has no delegation history.
+- Stale retirement runs under the report lock for all parent submissions, and
+  dispatcher early return with another live row commits the recovered rows.
+
+The NULL comparison claim is false: SQLAlchemy overloads `column == None` to
+`IS NULL`. A real ownerless-wave regression proves two questions coalesce and
+both children fail closed when the wake principal is absent. The proposed
+conditional lock was rejected because unflagged submissions also need atomic
+recovery/turn-index creation relative to dispatch. Unflagged callers still keep
+existing non-queue semantics; the lock does not promise exclusive parent runs.
+
+Reproduction: before changes, answered-slot snapshot and exact finish-identity
+regressions failed. The prior frontend source fails both normal-placeholder
+assertions. Luna reproduced stale retirement and swallowed provider-error
+failures before fixing them. Note replay coverage includes missing, soft-deleted
+and hard-deleted notes. Tests use the real services and only stub providers.
+
+Live UI evidence uses the prior sandbox report with a temporary waiting-row
+fixture, not a fresh model run. Before: “Waiting for parent”; after: “queued”.
+A persisted external-event fixture renders “A sub-agent asked a question”.
+All fixture rows were restored afterward. Files are
+`media/pr/sub-agent-messaging/slot-wait-{before,after}.png` and
+`question-event-{before,after}.png`; `question-event-flow.gif` combines the two
+captured timeline states. API/service tests separately verify event creation
+and linkage, so screenshots are only evidence of rendering.
+
+SQLite combined messaging/delegation/queue/prompt suite: **53 passed**.
+Frontend stream/refresh suite: **11 passed**. Nullable finish-input migration
+was applied successfully to the local sandbox. Locale-key additions match in
+all ten catalogs. Targeted Ruff and diff whitespace checks passed. Existing
+SQLite asynchronous teardown warnings remain; no warning-free claim.
+
+Final PostgreSQL combined four-file suite: **53 passed**, on a disposable DB
+that was dropped afterward. Luna independently reviewed the final backend
+changes and found no further blocker. Previous-head CI (`6a1be3014`, run
+38801370476) passed both database e2e jobs, Playwright and data-source tests;
+unit and LLM-integration jobs failed. New-head CI is not yet observed.

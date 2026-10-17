@@ -5456,6 +5456,7 @@
     "bulkFailed": "Массовое обновление не удалось"
   },
   "events": {
+    "subAgentQuestion": "Субагент задал вопрос",
     "evalRunFinished": "Запуск проверки '{title}' завершён — {passed}/{total} пройдено ({status})",
     "waitResumed": "Ожидание истекло — продолжение: {reason}",
     "checkin": {

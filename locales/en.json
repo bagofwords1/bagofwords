@@ -5804,6 +5804,7 @@
     "bulkFailed": "Bulk update failed"
   },
   "events": {
+    "subAgentQuestion": "A sub-agent asked a question",
     "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
     "waitResumed": "Wait elapsed — resuming: {reason}",
     "checkin": {

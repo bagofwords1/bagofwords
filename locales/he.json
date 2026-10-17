@@ -5750,6 +5750,7 @@
     "bulkFailed": "העדכון הקבוצתי נכשל"
   },
   "events": {
+    "subAgentQuestion": "סוכן משנה שאל שאלה",
     "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
     "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}",
     "checkin": {
