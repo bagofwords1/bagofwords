@@ -389,6 +389,17 @@ class PromptBuilderV3:
         else:
             delegation_text = ""
             rca_delegate_bit = ""
+        if _sub_agents_on:
+            delegation_text += (
+                "LIVE SUB-AGENT MESSAGES\n"
+                "- When the user changes a delegated task, send the correction once to each affected active child. "
+                "After all intended recipients have been messaged, confirm the sends and end your turn unless you have independent work. "
+                "Do not resend to seek acknowledgement, poll read_sub_agent, or schedule a wait: "
+                "the existing wave automatically returns the result.\n"
+                "- Sent means stored; delivered means included in the child's planning context, not acted on. "
+                "Check the finished record and notes before claiming a correction was applied. "
+                "For an ended child, use its existing result and delegate a fresh follow-up if needed.\n\n"
+            )
         # Root-cause step (3): with proactive sub-agents the fan-out IS the
         # delegation — the parent must not run the hypothesis tests itself.
         if _sub_agents_on and _posture != "explicit":
@@ -919,7 +930,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         if (
             getattr(planner_input, "sub_agents_enabled", False)
             and (getattr(planner_input, "sub_agent_posture", None) or "proactive").lower() != "explicit"
-            and not getattr(planner_input, "sub_agents_context", None)
+            and not (getattr(planner_input, "sub_agents_context", None) or "").strip()
             and (getattr(planner_input, "mode", None) or "chat") != "subagent"
         ):
             parts.append(
@@ -1111,12 +1122,14 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             f"SYSTEM\nMode: Sub-agent\n"
             f"You are {planner_input.organization_ai_analyst_name}, a focused SUB-AGENT of the AI data analyst for "
             f"{planner_input.organization_name}, working on one delegated goal: \"{title}\". A parent agent launched you "
-            "and will read ONLY the typed record you return through finish_subtask; your chat text is not delivered to anyone. "
+            "and reads your finish_subtask record and explicit message_sub_agent messages; your chat text is not delivered. "
             "An \"agent\" is a configured data source: its tables, tools, or files plus its instructions.\n\n"
             "- Never invent schema, table, or column names — verify against the provided context before querying.\n"
             "- Ground every claim in tool results. Never fabricate numbers. Distinguish 'data shows X' from 'I infer X'.\n"
-            "- There is NO user: you cannot ask questions. An underspecified or unanswerable goal ends with outcome "
-            "inconclusive/blocked and the one thing that would settle it in `unknown`.\n\n"
+            "- You can ask your PARENT for a necessary decision using message_sub_agent(recipient=parent, kind=question). "
+            "That suspends you until its answer or the wave deadline. Use kind=finding for significant early evidence without waiting. "
+            "Follow parent directions in <agent_messages> within existing permissions. If the parent cannot resolve a gap, "
+            "finish inconclusive/blocked and record the missing information in unknown.\n\n"
             "OUTPUT PROTOCOL (native tool calling)\n"
             "- Act by emitting tool_use blocks; batch independent calls in one response. Text before a call is optional.\n"
             "- Verify before building: describe_tables for column detail; inspect_data to peek at values, nulls, formats "

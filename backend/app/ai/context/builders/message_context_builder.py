@@ -360,7 +360,7 @@ def _digest_eval_tool(tool_execution) -> str:
     return ""
 
 
-SUB_AGENT_TOOL_NAMES = ("delegate", "read_sub_agent", "stop_sub_agent")
+SUB_AGENT_TOOL_NAMES = ("delegate", "read_sub_agent", "stop_sub_agent", "message_sub_agent")
 
 
 def _not_sub_agent_child(stmt):
@@ -409,6 +409,8 @@ def _digest_sub_agent_tool(tool_execution) -> str:
         elif rj.get("steps_used") is not None:
             bits.append(f"{rj['steps_used']} steps")
         return " — ".join(b for b in bits if b)
+    if name == "message_sub_agent":
+        return f"message {rj.get('message_id')} to {rj.get('recipient')} — {rj.get('status')} — {str(rj.get('body') or '')[:300]}"
     if name == "stop_sub_agent":
         return f"sub_agent {rj.get('sub_agent_id')} → {rj.get('status')}"
     return ""

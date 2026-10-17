@@ -1092,6 +1092,7 @@ import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
 import DelegateTool from '~/components/tools/DelegateTool.vue'
 import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import MessageSubAgentTool from '~/components/tools/MessageSubAgentTool.vue'
 import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
 import SubAgentWaveStrip from '~/components/report/SubAgentWaveStrip.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
@@ -2188,6 +2189,7 @@ function webhookSourceIcon(source?: string): string {
 function machineEventLabel(m: any): string {
 	const meta = m?.prompt?.meta
 	const src = (m as any)?.trigger_source
+	if (src === 'sub_agent_message') return t('events.subAgentQuestion')
 	if (meta && src === 'eval_run') {
 		return t('events.evalRunFinished', {
 			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
@@ -3021,6 +3023,8 @@ function getToolComponent(toolName: string) {
 			return WaitTool
 		case 'delegate':
 			return DelegateTool
+		case 'message_sub_agent':
+			return MessageSubAgentTool
 		case 'read_sub_agent':
 			return ReadSubAgentTool
 		case 'stop_sub_agent':
@@ -4550,8 +4554,13 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		// viewport and jump the reader. Keep the messages older than the first
 		// one the fresh page overlaps, and keep their pagination cursor.
 		const freshIds = new Set(list.map((c: any) => String(c.id)))
-		const overlapIdx = messages.value.findIndex(m => freshIds.has(String(m.id)))
-		const olderKept = overlapIdx > 0 ? messages.value.slice(0, overlapIdx) : []
+		const overlapIdx = messages.value.findIndex(m => freshIds.has(String(m.id)) || freshIds.has(String((m as any).system_completion_id)))
+		// A steering/fan-in row can be the first canonical overlap while the
+		// preceding turn still has client ids. Replace that whole optimistic
+		// pair, rather than preserving it as supposedly older history.
+		const overlapStart = overlapIdx > 0 && String(messages.value[overlapIdx]?.id).startsWith('system-')
+			&& String(messages.value[overlapIdx - 1]?.id).startsWith('user-') ? overlapIdx - 1 : overlapIdx
+		const olderKept = overlapStart > 0 ? messages.value.slice(0, overlapStart) : []
 		const freshMessages = list.map((c: any) => {
 			// Override status if sigkill timestamp exists - this means it was stopped
 			let status = c.status as ChatStatus
@@ -5469,6 +5478,11 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
+function createSystemPlaceholder(id: string, model?: string): ChatMessage {
+	return { id, role: 'system', status: 'in_progress', model: model || undefined,
+		created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [] }
+}
+
 function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
@@ -5488,17 +5502,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 	// Append placeholder system message for streaming
 	const sysId = `system-${Date.now()}`
-	const sysMsg: ChatMessage = {
-		id: sysId,
-		role: 'system',
-		status: 'in_progress',
-		model: data.model_id || undefined,
-		// Naive-UTC, matching the server's shape. Anchors the footer's run
-		// duration (and its timestamp) on the live path, where no server row
-		// has been merged into this placeholder yet.
-		created_at: new Date().toISOString().replace('Z', ''),
-		completion_blocks: []
-	}
+	const sysMsg = createSystemPlaceholder(sysId, data.model_id)
 	messages.value.push(sysMsg)
 	pinTurnToTop(userMsg.id)
 
@@ -5552,7 +5556,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 		const options: any = {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(requestBody),
+			body: JSON.stringify({ ...requestBody, queue_if_busy: true }),
 			signal: controller?.signal,
 			stream: true
 		}
@@ -5560,6 +5564,34 @@ async function startStreaming(requestBody: any, sysId: string) {
 		const res: Response = (raw?.data?.value ?? raw?.data) as unknown as Response
 
 		if (!res?.ok || !res?.body) throw new Error(`Stream HTTP error: ${res?.status}`)
+
+		if (res.headers.get('content-type')?.includes('application/json')) {
+			const queued = await res.json()
+			if (!ownsStream()) return
+			const created = queued?.completions?.find((c: any) => c.role === 'user')
+			if (created?.id) queuedFromHere.add(String(created.id))
+			const idx = ensureSys()
+			if (idx >= 0) {
+				if (idx > 0 && String(messages.value[idx - 1].id).startsWith('user-')) messages.value.splice(idx - 1, 2)
+				else messages.value.splice(idx, 1)
+			}
+			stopKickoffWatchdog()
+			isStreaming.value = false
+			currentController = null
+			const busyId = queued?.busy_completion_id
+			if (busyId && !messages.value.some(m => m.id === busyId || m.system_completion_id === busyId)) {
+				messages.value.push({ ...createSystemPlaceholder(busyId), system_completion_id: busyId })
+			}
+			if (created?.id && !messages.value.some(m => m.id === created.id)) {
+				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })
+			}
+			// The receipt identifies the server turn even when history refresh is
+			// slow or unavailable. Transfer busy-state ownership to its watcher.
+			isCompletionInProgress.value = Boolean(busyId)
+			if (busyId) startWatchStream(String(busyId))
+			try { await loadCompletions() } catch (error) { console.error('Failed to refresh queued prompt:', error) }
+			return
+		}
 
 		const reader = res.body!.getReader()
 		const decoder = new TextDecoder()

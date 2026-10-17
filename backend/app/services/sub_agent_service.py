@@ -35,13 +35,17 @@ from sqlalchemy import func, select, update
 
 from app.models.sub_agent import (
     EXIT_DEADLINE, EXIT_ERROR, EXIT_FINISH_CALL, EXIT_MAX_STEPS, EXIT_MAX_TOKENS, EXIT_NO_FINISH_CALL, EXIT_STOPPED,
-    RUN_FAILED, RUN_FINISHED, RUN_INTERRUPTED, RUN_PENDING, RUN_RUNNING, RUN_TIMED_OUT,
+    RUN_FAILED, RUN_FINISHED, RUN_INTERRUPTED, RUN_PENDING, RUN_RUNNING, RUN_WAITING, RUN_TIMED_OUT,
     TERMINAL_RUN_STATUSES,
     WAVE_COLLECTING, WAVE_DONE, WAVE_FIRING, WAVE_RUNNING, WAVE_STOPPED, WAVE_TIMED_OUT,
     SubAgentRun, SubAgentWave,
 )
 
+from app.services.sub_agent_locks import lock_report, lock_wave
+
 logger = logging.getLogger(__name__)
+
+_UNREAD_FINISH_CAVEAT = "Parent messages arrived after this record was prepared and were not incorporated; inspect message delivery history."
 
 _DEADLINE_JOB_PREFIX = "sub_agent_wave:"
 # How long the fan-in waits for a user turn on the report to finish before
@@ -114,6 +118,23 @@ def effective_concurrency(configured: int, dialect: str) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 # Service
 # ─────────────────────────────────────────────────────────────────────────────
+
+class PendingSubAgentMessages(ValueError):
+    """A child must plan with newly accepted directions before finishing."""
+
+
+class FinishConflict(ValueError):
+    """A terminal finish record already exists with different content."""
+
+
+async def has_free_child_slot(db, report_id, *, settings=None, concurrency=None):
+    configured = concurrency if concurrency is not None else sub_agent_limits(settings)["concurrency"]
+    limit = effective_concurrency(configured, _dialect_name(db))
+    running = (await db.execute(select(func.count(SubAgentRun.id)).where(
+        SubAgentRun.report_id == report_id, SubAgentRun.status == RUN_RUNNING,
+    ))).scalar_one()
+    return running < limit
+
 
 class SubAgentService:
 
@@ -373,12 +394,7 @@ class SubAgentService:
                     )).scalars().first()
                     if nxt is None:
                         return
-                    running = (await db.execute(
-                        select(func.count(SubAgentRun.id)).where(
-                            SubAgentRun.report_id == wave.report_id, SubAgentRun.status == RUN_RUNNING,
-                        )
-                    )).scalar() or 0
-                    if running >= concurrency:
+                    if not await has_free_child_slot(db, wave.report_id, concurrency=concurrency):
                         nxt = None
                 if nxt is None:
                     await asyncio.sleep(_SLOT_POLL_SECONDS)
@@ -406,6 +422,17 @@ class SubAgentService:
             user = await db.get(User, wave.user_id) if wave and wave.user_id else None
             if not (report and organization and user):
                 await self._mark_terminal(db, row, RUN_FAILED, EXIT_ERROR, error="report, organization or user gone before launch")
+                return
+            # Share the report slot lock with children resuming after questions.
+            await lock_report(db, row.report_id)
+            await lock_wave(db, row.wave_id)
+            await db.refresh(wave)
+            if wave.status != WAVE_RUNNING:
+                await db.rollback()
+                return
+            org_settings = await organization.get_settings(db)
+            if not await has_free_child_slot(db, row.report_id, settings=org_settings):
+                await db.rollback()
                 return
             # Claim the row before the run can finish (finalize_child is a
             # conditional transition from running). Conditional, so a stop that
@@ -473,23 +500,88 @@ class SubAgentService:
                 ae.parent_tool_execution_id = row.parent_tool_execution_id
         await db.commit()
 
-    async def record_finish(self, db, *, sub_agent_id: str, result: Dict[str, Any]) -> Optional[SubAgentRun]:
+    async def fail_waiting_children_for_parent(self, db, *, report_id, user_id, reason):
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        children = (await db.execute(select(SubAgentRun).join(
+            SubAgentWave, SubAgentWave.id == SubAgentRun.wave_id,
+        ).where(SubAgentRun.report_id == report_id,
+                SubAgentWave.user_id == user_id,
+                SubAgentRun.status.in_((RUN_PENDING, RUN_RUNNING, RUN_WAITING))))).scalars().all()
+        for child in children:
+            await lock_report(db, report_id)
+            await lock_wave(db, child.wave_id)
+            if not await sub_agent_message_service.waiting_question(db, str(child.id)):
+                # Release the no-op locks without expiring other loaded children.
+                await db.commit()
+                continue
+            if await self._mark_terminal(db, child, RUN_FAILED, EXIT_ERROR, error=reason):
+                if child.child_completion_id:
+                    await _sigkill_completion(db, child.child_completion_id)
+                child.envelope_json = _envelope(child)
+                await db.commit()
+                await self._write_back(db, child)
+                await self._after_terminal(db, child)
+
+    async def record_finish(self, db, *, sub_agent_id: str, result: Dict[str, Any], can_review_messages: bool = True) -> Optional[SubAgentRun]:
         """`finish_subtask`: store the validated body; the envelope lands at finalize."""
         from app.models.note import Note
         row = await db.get(SubAgentRun, sub_agent_id)
         if row is None:
             return None
+        # Serialize completion with sends. A message accepted while the final
+        # model response was in flight must reach another planning step, not
+        # silently become undelivered on a successful finish.
+        from app.models.sub_agent_message import SubAgentMessage
+        await lock_report(db, row.report_id)
+        await lock_wave(db, row.wave_id)
+        await db.execute(update(SubAgentRun).where(SubAgentRun.id == sub_agent_id).values(status=SubAgentRun.status, updated_at=SubAgentRun.updated_at))
+        await db.refresh(row)
+        original_input = dict(result)
+        if row.status == RUN_FINISHED and row.exit_reason == EXIT_FINISH_CALL:
+            if result != (row.finish_input_json or row.result_json or {}):
+                await db.rollback()
+                raise FinishConflict("This sub-agent already stored a different finish record.")
+            await db.commit()
+            return row
         note_id = result.get("report_note_id")
         if note_id:
             note = await db.get(Note, str(note_id))
-            if note is None or str(note.report_id) != str(row.report_id):
+            if note is None or note.deleted_at is not None or str(note.report_id) != str(row.report_id):
                 result = {**result, "report_note_id": None}
                 note_id = None
-        if row.status in (RUN_PENDING, RUN_RUNNING):
-            row.status = RUN_FINISHED
-            row.exit_reason = EXIT_FINISH_CALL
-            row.finished_at = datetime.utcnow()
+        if row.status not in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
+            await db.rollback()
+            raise ValueError("This sub-agent has already ended; its result cannot be replaced.")
+        unread = (await db.execute(select(SubAgentMessage.id).where(
+            SubAgentMessage.report_id == row.report_id,
+            SubAgentMessage.recipient == sub_agent_id, SubAgentMessage.status == "sent",
+        ).limit(1))).scalar_one_or_none()
+        if unread:
+            caveats = list(result.get("caveats", []))
+            if len(caveats) >= 8:
+                caveats[-1] += " " + _UNREAD_FINISH_CAVEAT
+            else:
+                caveats.append(_UNREAD_FINISH_CAVEAT)
+            result = {**result, "caveats": caveats}
+        if unread and can_review_messages:
+            # Preserve a candidate before asking the model to revise. A deadline,
+            # stop or failed next call must not replace complete evidence with a
+            # synthesized empty result. A later accepted finish replaces it.
+            row.result_json = result
+            row.finish_input_json = original_input
+            row.report_note_id = str(note_id) if note_id else row.report_note_id
+            await db.commit()
+            raise PendingSubAgentMessages(
+                "New parent messages arrived while you were working. Review agent_messages in your next "
+                "planning step, apply the updated direction to your work and notes, then finish."
+            )
+        row.status = RUN_FINISHED
+        row.exit_reason = EXIT_FINISH_CALL
+        row.finished_at = datetime.utcnow()
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        await sub_agent_message_service.close_child(db, str(row.id), report_id=str(row.report_id))
         row.result_json = result
+        row.finish_input_json = original_input
         row.report_note_id = str(note_id) if note_id else row.report_note_id
         await db.commit()
         return row
@@ -520,7 +612,7 @@ class SubAgentService:
                 # finish_subtask already closed it; `remaining` has not been
                 # touched yet (record_finish never decrements), so do it here.
                 transitioned = True
-            elif row.status in (RUN_PENDING, RUN_RUNNING):
+            elif row.status in (RUN_PENDING, RUN_RUNNING, RUN_WAITING):
                 if agent_status == "sigkill":
                     status, exit_reason = RUN_INTERRUPTED, EXIT_STOPPED
                 elif agent_status == "error" and not steps_exhausted:
@@ -546,18 +638,23 @@ class SubAgentService:
         """Conditional transition pending/running → terminal. True if THIS call won."""
         res = await db.execute(
             update(SubAgentRun)
-            .where(SubAgentRun.id == row.id, SubAgentRun.status.in_((RUN_PENDING, RUN_RUNNING)))
+            .where(SubAgentRun.id == row.id, SubAgentRun.status.in_((RUN_PENDING, RUN_RUNNING, RUN_WAITING)))
             .values(status=status, exit_reason=exit_reason, finished_at=datetime.utcnow(),
                     error_message=(error or None))
             .execution_options(synchronize_session=False)
         )
-        await db.commit()
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        await sub_agent_message_service.close_child(db, str(row.id), report_id=str(row.report_id))
         won = (res.rowcount or 0) == 1
         if won:
+            # Same transaction as the status flip: no reader may see a terminal
+            # row without its record and envelope. Callers rewrite the envelope
+            # afterwards with sigkill/duration/model details.
             await db.refresh(row)
             if not row.result_json:
                 row.result_json = _synthesized_result(row, status, exit_reason, last_text, error)
-                await db.commit()
+            row.envelope_json = _envelope(row)
+        await db.commit()
         return won
 
     async def _after_terminal(self, db, row: SubAgentRun) -> None:
@@ -676,6 +773,13 @@ class SubAgentService:
             "report_note_id": row.report_note_id,
             "child_completion_id": row.child_completion_id, "child_execution_id": row.child_execution_id,
         }
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        out["messages"] = await sub_agent_message_service.list_for_child(
+            db, organization_id=str(row.organization_id), report_id=str(row.report_id), sub_agent_id=str(row.id),
+        )
+        answered = {m["reply_to"] for m in out["messages"] if m["kind"] == "answer"}
+        if row.status == RUN_WAITING:
+            out["wait_reason"] = "answer" if any(m["kind"] == "question" and m["message_id"] not in answered for m in out["messages"]) else "slot"
         calls: List[Dict[str, Any]] = []
         steps = row.steps_used or 0
         if row.child_execution_id:
@@ -729,6 +833,9 @@ class SubAgentService:
         runs = (await db.execute(
             select(SubAgentRun).where(SubAgentRun.wave_id.in_(wave_ids)).order_by(SubAgentRun.wave_index.asc())
         )).scalars().all()
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        waiting_ids = [str(r.id) for r in runs if r.status == RUN_WAITING]
+        open_questions = await sub_agent_message_service.waiting_children(db, report_id, waiting_ids) if waiting_ids else set()
         by_wave: Dict[str, List[SubAgentRun]] = {}
         for r in runs:
             by_wave.setdefault(str(r.wave_id), []).append(r)
@@ -736,6 +843,9 @@ class SubAgentService:
         tasks = []
         for w in waves:
             items = [_run_brief(r) for r in by_wave.get(str(w.id), [])]
+            for item in items:
+                if item["status"] == RUN_WAITING:
+                    item["wait_reason"] = "answer" if item["sub_agent_id"] in open_questions else "slot"
             out_waves.append({
                 "id": str(w.id), "status": w.status, "total": w.total, "remaining": w.remaining,
                 "parent_completion_id": w.parent_completion_id, "fan_in_completion_id": w.fan_in_completion_id,
@@ -759,6 +869,8 @@ class SubAgentService:
             lines.append(f'  <wave id="{w["id"]}" status="{w["status"]}" total="{w["total"]}">')
             for r in w["sub_agents"]:
                 bits = [f'id="{r["sub_agent_id"]}"', f'title="{_attr(r["title"])}"', f'status="{r["status"]}"']
+                if r.get("wait_reason"):
+                    bits.append(f'wait_reason="{r["wait_reason"]}"')
                 if r.get("outcome"):
                     bits.append(f'outcome="{r["outcome"]}"')
                 if r.get("confidence") is not None:

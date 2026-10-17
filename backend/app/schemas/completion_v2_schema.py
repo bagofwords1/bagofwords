@@ -109,11 +109,11 @@ class CompletionBase(BaseModel):
 
 class CompletionCreate(CompletionBase):
     stream: Optional[bool] = False
-    # When true and a completion is already running on the report, the prompt
-    # is persisted as a role='user' status='queued' row instead of starting a
-    # second concurrent agent run. The queue dispatcher starts it when the
-    # running turn finishes successfully.
+    # Explicit queue mode: enqueue immediately; the dispatcher starts it when idle.
     queue: Optional[bool] = False
+    # Opt-in for clients that can accept a queued JSON receipt if a concurrent
+    # parent starts before their normal direct/SSE request claims the report.
+    queue_if_busy: bool = False
 
 
 class CompactionStateSchema(BaseModel):
@@ -254,6 +254,7 @@ class CompletionV2Schema(BaseModel):
 
 class CompletionsV2Response(BaseModel):
     report_id: str
+    busy_completion_id: Optional[str] = None
     completions: List[CompletionV2Schema]
     total_completions: int
     total_blocks: int

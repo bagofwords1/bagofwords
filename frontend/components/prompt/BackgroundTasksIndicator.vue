@@ -37,10 +37,10 @@
               <span class="text-[10px] text-gray-400 flex-shrink-0" dir="ltr">
                 <template v-if="task.status === 'running' && task.max_steps">{{ task.steps_used || 0 }}/{{ task.max_steps }}</template>
                 <template v-else-if="task.outcome">{{ t(`tools.delegate.outcomes.${task.outcome}`, task.outcome) }}<template v-if="typeof task.confidence === 'number'"> {{ Math.round(task.confidence * 100) }}%</template></template>
-                <template v-else>{{ t(`tools.delegate.status.${task.status}`, task.status) }}</template>
+                <template v-else>{{ t(`tools.delegate.status.${task.status === 'waiting' && task.wait_reason === 'slot' ? 'pending' : task.status}`, task.status) }}</template>
               </span>
               <button
-                v-if="task.status === 'running' || task.status === 'pending'"
+                v-if="task.status === 'running' || task.status === 'pending' || task.status === 'waiting'"
                 class="text-red-500 hover:text-red-700 flex-shrink-0"
                 :title="t('tools.delegate.stop')"
                 :data-testid="`popover-stop-${task.sub_agent_id}`"
@@ -81,7 +81,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 const liveStatuses = ['collecting', 'running', 'firing']
 const waves = computed(() => (props.waves || []).map((w: any, i: number) => {
   const tasks = w.sub_agents || []
-  const running = tasks.filter((r: any) => r.status === 'running' || r.status === 'pending').length
+  const running = tasks.filter((r: any) => r.status === 'running' || r.status === 'pending' || r.status === 'waiting').length
   return {
     id: w.id,
     number: i + 1,
@@ -91,7 +91,7 @@ const waves = computed(() => (props.waves || []).map((w: any, i: number) => {
   }
 }).filter((w: any) => w.live))
 
-const runningCount = computed(() => waves.value.reduce((n: number, w: any) => n + w.tasks.filter((r: any) => r.status === 'running' || r.status === 'pending').length, 0))
+const runningCount = computed(() => waves.value.reduce((n: number, w: any) => n + w.tasks.filter((r: any) => r.status === 'running' || r.status === 'pending' || r.status === 'waiting').length, 0))
 
 function parseServerTimestamp(v: any): number | null {
   if (!v) return null
@@ -101,7 +101,7 @@ function parseServerTimestamp(v: any): number | null {
 }
 function durationLabel(task: any): string {
   const start = parseServerTimestamp(task.started_at)
-  if (!start) return task.status === 'pending' ? t('subAgents.queued') : ''
+  if (!start) return task.status === 'pending' || task.status === 'waiting' ? t('subAgents.queued') : ''
   const end = task.status === 'running' ? now.value : (parseServerTimestamp(task.finished_at) || now.value)
   const s = Math.max(0, Math.floor((end - start) / 1000))
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
