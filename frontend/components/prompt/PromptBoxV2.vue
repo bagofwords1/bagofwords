@@ -578,7 +578,7 @@
                             :disabled="!canSubmit"
                             @click="submit"
                         >
-                            <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5 rtl-flip" />
+                            <Icon name="heroicons-arrow-up" class="w-3.5 h-3.5" />
                         </button>
                     </UTooltip>
                 </div>
