@@ -383,6 +383,71 @@ def test_row_id_update_is_partial_and_scoped_to_the_list(test_client, world):
     assert out["output"]["success"] is False and any("row_id" in e for e in out["output"]["errors"])
 
 
+@pytest.mark.parametrize("name,env,expected", [
+    ("renewal_date", _env("2029-06-30"), "2029-06-30"),
+    ("annual_value", _env(9999), 9999),
+    ("auto_renew", _env(False), False),
+])
+def test_row_id_update_with_only_the_changed_field_saves(test_client, world, name, env, expected):
+    # Live: a batch of updates each sending one field returned an error per
+    # omitted field. Omitted fields mean "unchanged", like an explicit null.
+    submit(world, [_record()])
+    row = _rows(test_client, world)["rows"][0]
+    before = row["values"]
+    out = submit(world, [{"row_id": row["id"], "fields": {name: env}}])
+    assert out["output"]["success"] is True, out["output"]["errors"]
+    assert out["output"]["updated"] == 1
+    after = _rows(test_client, world)["rows"][0]["values"]
+    assert after[_fid(world, name)]["value"] == expected
+    for other in ("counterparty", "annual_value", "currency", "renewal_date", "auto_renew"):
+        if other != name:
+            assert after[_fid(world, other)] == before[_fid(world, other)]
+
+
+def test_flat_records_without_a_fields_wrapper_are_saved(test_client, world):
+    # Live: records sent as {"row_id": ..., "<field>": ...} lost the whole batch.
+    out = submit(world, [
+        {"row_id": None, "counterparty": "Initech", "annual_value": 4200, "currency": _env("ILS")},
+        {"counterparty": "Umbrella", "auto_renew": None},
+    ])
+    assert out["output"]["success"] is True, out["output"]["errors"]
+    assert out["output"]["inserted"] == 2
+    rows = {r["key_value"]: r for r in _rows(test_client, world)["rows"]}
+    initech = rows["initech"]["values"]
+    assert initech[_fid(world, "annual_value")]["value"] == 4200
+    assert initech[_fid(world, "currency")]["value"] == "ILS"
+
+    out = submit(world, [{"row_id": rows["umbrella"]["id"], "annual_value": 15}])
+    assert out["output"]["success"] is True, out["output"]["errors"]
+    assert out["output"]["updated"] == 1
+    umbrella = next(r for r in _rows(test_client, world)["rows"] if r["key_value"] == "umbrella")["values"]
+    assert umbrella[_fid(world, "annual_value")]["value"] == 15
+    assert umbrella[_fid(world, "counterparty")]["value"] == "Umbrella"
+
+
+@pytest.mark.parametrize("record", [
+    {"row_id": None, "fields": {"annual_value": _env(10)}},
+    {"row_id": None, "annual_value": 10},
+])
+def test_new_row_missing_a_required_field_is_rejected(test_client, world, record):
+    out = submit(world, [record])
+    assert out["output"]["success"] is False
+    assert any(e.startswith("records.0.fields.counterparty.value") for e in out["output"]["errors"]), \
+        out["output"]["errors"]
+    assert _rows(test_client, world)["total"] == 0
+
+
+@pytest.mark.parametrize("record", [
+    {"row_id": None, "counterparty": "Hooli", "made_up": 1},
+    {"row_id": None, "fields": {"counterparty": _env("Hooli"), "made_up": _env(1)}},
+])
+def test_unknown_field_keys_are_rejected(test_client, world, record):
+    out = submit(world, [record])
+    assert out["output"]["success"] is False
+    assert any(e.startswith("records.0") for e in out["output"]["errors"]), out["output"]["errors"]
+    assert _rows(test_client, world)["total"] == 0
+
+
 def test_require_evidence_rejects_extracted_values_without_quotes(test_client, world):
     h = _h(world["admin"]["token"], world["org_id"])
     strict = test_client.post(_url(world), json=_schema(name="Strict", require_evidence=True), headers=h).json()
