@@ -7,6 +7,7 @@
 - Added messages between agents and their sub-agents, with send receipts and questions that pause the sub-agent until answered (#1406)
 - Added listing every folder of a file connection in one call (#1410) — `group_by="folder"` on `list_files`
 - Added a compact card in chat for Polish requests from the dashboard element picker, instead of the raw prompt (#1413)
+- Fixed long runs over scanned PDFs stopping with "Conversation too long for this model" (#1414)
 - Fixed the agent failing to read files uploaded to a conversation (#1403)
 - Fixed paged reads of text files on Files & Directories and S3 skipping text between pages (#1405)
 - Fixed SharePoint 2010 file search running slow live crawls instead of answering from the index (#1409)
