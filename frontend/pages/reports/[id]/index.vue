@@ -3844,6 +3844,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					// Reset result_json for fresh run to avoid stale shared references
 					lastBlock.tool_execution.result_json = {}
+					// Every tool card may read its inputs while running (e.g. the
+					// search query). The per-tool branches below may still override.
+					if (payload.arguments && !(lastBlock.tool_execution as any).arguments_json) {
+						;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+					}
 					// For describe_tables, stash the query so the UI can show it
 					try {
 						if (payload.tool_name === 'describe_tables' && payload.arguments) {
