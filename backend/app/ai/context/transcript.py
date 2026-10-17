@@ -29,16 +29,42 @@ from app.ai.context.parts import (
 # just took in full, plus the one before it for continuity.
 PROTECT_LAST_TURNS = 4
 
-# Tool-supplied images (rendered PDF pages, screenshots) stay in context only
-# for the results of the last IMAGE_RETENTION_STEPS planner steps, and never
-# more than MAX_RETAINED_IMAGES at once, newest first. Older results keep
-# their text plus a note saying how to re-read the pages. Without this bound
-# every page a run had read was re-sent on every later call: a ~50-scan
-# SharePoint list fill passed 1M tokens inside one turn. Three steps is long
-# enough to hold a picture beside whatever was fetched next; 24 is three
-# full 8-page read_file calls (~60k tokens at 1568 px).
-IMAGE_RETENTION_STEPS = 3
+# Tool-supplied images (rendered PDF pages, screenshots): only the newest
+# MAX_RETAINED_IMAGES stay in context, counted across the whole run whatever
+# step they came from. Older results keep their text plus a note saying how to
+# re-read the pages. Without a bound every page a run had read was re-sent on
+# every later call: a ~50-scan SharePoint list fill passed 1M tokens inside one
+# turn. 24 is three full 8-page read_file calls (~60k tokens at 1568 px).
+#
+# Counted in images, not steps: an earlier 3-step window released a page as
+# soon as three note/list/submit steps followed it, and a model reading one
+# page per step re-read the same pages over and over (57 reads instead of 24
+# in a live run). Steps that carry no images now cost a page nothing.
 MAX_RETAINED_IMAGES = 24
+
+
+def retained_prefix(sizes: list, *, protected: int, cap: int = MAX_RETAINED_IMAGES) -> int:
+    """How many image-bearing units to keep, given their image counts
+    newest-first. A unit is one tool result (transcript) or one step's images
+    (legacy channel) and is kept whole or not at all — never pages 1-3 of 8.
+
+    The first ``protected`` units (the newest step's) are always kept, even
+    past the cap: the model must see what it just read, or it re-reads it
+    forever. After that, units are kept while they fit under ``cap``, and the
+    first one that does not fit ends the run — strict recency, so the kept set
+    is always "the most recent reads" with no gaps. Skipping a big result to
+    keep a smaller, older one would leave the model holding page images from
+    a read it did *before* one it can no longer see, which is harder to
+    reason about than "everything since X".
+    """
+    total = 0
+    kept = 0
+    for idx, n in enumerate(sizes):
+        if idx >= protected and total + n > cap:
+            break
+        total += n
+        kept += 1
+    return kept
 
 
 def _image_source(img: dict) -> dict:
@@ -105,31 +131,39 @@ class Transcript:
     # -- images -------------------------------------------------------
 
     def enforce_image_retention(self) -> int:
-        """Release tool images outside the retention window or over the cap.
+        """Release tool images beyond the newest MAX_RETAINED_IMAGES.
 
-        Walks result turns newest-first: results from the last
-        IMAGE_RETENTION_STEPS steps keep their images until
-        MAX_RETAINED_IMAGES is reached; everything older, and any result that
-        has decayed past FULL, loses them. Released images are gone from the
-        part itself, so no later render can send them again. Returns the
-        number of images released.
+        See retained_prefix: whole results, newest first, the newest
+        image-bearing step always kept. Results that decayed past FULL lose
+        their images regardless. Released images are gone from the part
+        itself, so no later render can send them again. Returns the number of
+        images released.
         """
+        newest = self._newest_image_turn()
+        units = []      # FULL results with images, newest first
+        protected = 0
         released = 0
-        remaining = MAX_RETAINED_IMAGES
-        step = 0
-        for turn in reversed(self.turns):
-            results = [p for p in turn.parts if isinstance(p, ToolResultPart)]
-            if not results:
-                continue
-            in_window = step < IMAGE_RETENTION_STEPS
-            step += 1
-            for p in results:
-                if not p.images:
+        for idx in range(len(self.turns) - 1, -1, -1):
+            for p in reversed(self.turns[idx].parts):
+                if not isinstance(p, ToolResultPart) or not p.images:
                     continue
-                keep = min(len(p.images), remaining) if in_window and p.tier is Tier.FULL else 0
-                remaining -= keep
-                released += p.release_images(keep=keep)
+                if p.tier is not Tier.FULL:
+                    released += p.release_images()
+                    continue
+                units.append(p)
+                if idx == newest:
+                    protected += 1
+        keep = retained_prefix([len(p.images) for p in units], protected=protected)
+        for p in units[keep:]:
+            released += p.release_images()
         return released
+
+    def _newest_image_turn(self) -> int:
+        """Index of the newest turn whose tool results carry images (-1 if none)."""
+        for idx in range(len(self.turns) - 1, -1, -1):
+            if any(isinstance(p, ToolResultPart) and p.images for p in self.turns[idx].parts):
+                return idx
+        return -1
 
     def image_count(self) -> int:
         return sum(
@@ -177,13 +211,6 @@ class Transcript:
 
     # -- the ladder ---------------------------------------------------
 
-    def _newest_result_turn(self) -> int:
-        """Index of the newest turn carrying tool results (-1 if none)."""
-        for idx in range(len(self.turns) - 1, -1, -1):
-            if self.turns[idx].tool_result_ids():
-                return idx
-        return -1
-
     def floor_tokens(self) -> int:
         """Size the ladder cannot reduce below.
 
@@ -193,18 +220,19 @@ class Transcript:
         decay will exhaust itself moving a handful of tokens and the real
         problem is elsewhere (usually an oversized schema block).
 
-        Images are reducible everywhere except on the newest step's results
-        (see fit_to_budget's last rung).
+        Images are reducible everywhere except on the newest image-bearing
+        step, which the ladder never touches (see fit_to_budget).
         """
         split = max(len(self.turns) - PROTECT_LAST_TURNS, 0)
-        newest = self._newest_result_turn()
+        newest = self._newest_image_turn()
         reducible = 0
         for idx, turn in enumerate(self.turns):
+            if idx == newest:
+                continue
             for p in turn.parts:
                 if not isinstance(p, ToolResultPart):
                     continue
-                if idx != newest:
-                    reducible += p.image_tokens()
+                reducible += p.image_tokens()
                 if idx < split:
                     # What this part could still give back at its floor tier.
                     at_floor = estimate_tokens(
@@ -228,12 +256,13 @@ class Transcript:
         2. digest (a field swap, no LLM call), then dropped bodies — the ids
            survive and results stay re-fetchable through read_query /
            read_artifact / read_file;
-        3. images inside the protected tail, oldest first — but never the
-           newest step's, so the model always sees the pages it just read
-           (releasing those would make it re-read them forever).
+        3. images inside the protected tail, oldest first.
 
         Text in the last PROTECT_LAST_TURNS turns is never touched, so the step
-        the model just took is always present in full.
+        the model just took is always present in full. The newest step that
+        returned images is never touched either — not its images, not its
+        text — even when it has aged out of the tail: the model must always
+        see the pages it last read, or it re-reads them forever.
 
         ``reached`` says whether the budget was actually met. It can be False
         even after decaying everything available, because the floor (static
@@ -250,7 +279,9 @@ class Transcript:
             return stats
 
         split = max(len(self.turns) - PROTECT_LAST_TURNS, 0)
-        decayable = self.turns[:split]
+        newest = self._newest_image_turn()
+        decayable = [t for i, t in enumerate(self.turns[:split]) if i != newest]
+        tail_images = [t for i, t in enumerate(self.turns) if i >= split and i != newest]
 
         def _results(turns):
             for turn in turns:
@@ -279,8 +310,7 @@ class Transcript:
                 if self.tokens() <= budget_tokens:
                     return _done()
 
-        newest = self._newest_result_turn()
-        for p in _results(self.turns[split:newest] if newest > split else []):
+        for p in _results(tail_images):
             if p.images:
                 stats["images_released"] += p.release_images()
                 if self.tokens() <= budget_tokens:
