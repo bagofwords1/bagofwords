@@ -79,7 +79,16 @@ class ListFilesTool(Tool):
                 "folder' tasks, first list the folders with group_by='folder' (catalog "
                 "only; depth=1 for top-level folders): one call returns every folder with "
                 "its file count and dates. Then work folder by folder, passing each "
-                "folder's path as folder_id with recursive=true."
+                "folder's path as folder_id with recursive=true. "
+                "persist=true saves the COMPLETE matching listing (files, or folders with "
+                "group_by='folder') as a CSV in the report and returns its file_id and a "
+                "short preview instead of rows — use it for large listings, folder-by-folder "
+                "work, resuming an interrupted run, or slicing work for sub-agents. All filters "
+                "apply; limit only sizes the preview; no cursor. Catalog only (not live, not "
+                "per-user connections). Then query it with create_data(source_file_ids=[file_id]); "
+                "to find folders with no Agent List row yet, pass the file_id and the list's "
+                "table (tables_by_source) to one create_data. Reuse the file_id on later turns "
+                "instead of listing again."
             ),
             category="research",
             input_schema=ListFilesInput.model_json_schema(),
@@ -310,6 +319,149 @@ class ListFilesTool(Tool):
             "observation": observation,
         })
 
+    # ------------------------------------------------------- persisted listing
+
+    #: Preview rows returned with a persisted listing when no limit is given.
+    _PERSIST_PREVIEW_ROWS = 20
+
+    def _persist_refusal(self, data, client, client_err, catalog, why_not, runtime_ctx) -> str:
+        """Why this call cannot persist, or "" when it can."""
+        if data.cursor:
+            return ("persist=true saves the whole listing in one file, so it takes no cursor. "
+                    "Call again without cursor (limit only sizes the preview).")
+        conn = getattr(client, "_bow_connection", None) if client is not None else None
+        if conn is None:
+            # No client (e.g. a per-user connection the caller has not signed
+            # in to): still name the per-user rule rather than a sign-in error.
+            from ._file_tool_common import attached_file_connections
+            sid = str(data.connection_id or "").strip()
+            conn = next((c for d, c in attached_file_connections(runtime_ctx)
+                         if sid in (str(c.id), str(d.id))), None)
+        if conn is not None and getattr(conn, "auth_policy", None) != "system_only":
+            # A per-user connection lists each person's own files. A saved file
+            # is attached to the report, where admins and anyone the
+            # conversation is shared with can open it, so one user's listing
+            # would leak to others. Refuse rather than persist it.
+            return ("persist is not available on this connection: it runs under each user's own sign-in, and "
+                    "a saved listing would be readable by others who can open this report. List with "
+                    "group_by='folder' or folder_id (without persist) instead.")
+        if client is None:
+            return client_err or "the connection could not be resolved."
+        if data.source == "live":
+            return ("persist reads the indexed catalog only — a live listing cannot be complete. "
+                    "Use source='auto' or 'catalog'.")
+        if catalog is None:
+            return (f"persist needs the connection's indexed catalog ({why_not}). Ask an admin to run a "
+                    "reindex, or list without persist.")
+        return ""
+
+    async def _persist(self, data, catalog: dict, conn_name: str, runtime_ctx: Dict[str, Any]) -> ToolEndEvent:
+        from ._file_catalog import (
+            PERSIST_MAX_ROWS,
+            persisted_file_rows,
+            persisted_folder_rows,
+            rows_to_csv,
+        )
+        from .execute_mcp import save_text_artifact
+
+        preview_n = data.limit if "limit" in data.model_fields_set else self._PERSIST_PREVIEW_ROWS
+        everything = max(len(catalog["entries"]), 1)
+        filters = dict(name_pattern=data.name_pattern,
+                       created_after=data.created_after, created_before=data.created_before,
+                       modified_after=data.modified_after, modified_before=data.modified_before,
+                       sort_by=data.sort_by, sort_order=data.sort_order, limit=everything)
+        folder_mode = data.group_by == "folder"
+        hint = ""
+        try:
+            if folder_mode:
+                items, stats, _ = group_catalog_folders(
+                    catalog["entries"], scope_key=catalog["key"], folder_id=data.folder_id, depth=data.depth, **filters)
+                matched_files = stats["files"]
+                columns, rows = persisted_folder_rows(items, catalog["indexed_at"])
+                folder_count = len(rows)
+                if stats["files_outside_folders"]:
+                    hint += (f" {stats['files_outside_folders']} matching file(s) sit above depth {data.depth} "
+                             "and are in no folder row.")
+            else:
+                items, matched_files, _ = page_catalog(
+                    catalog["entries"], scope_key=catalog["key"], folder_id=data.folder_id,
+                    recursive=bool(data.recursive), **filters)
+                columns, rows = persisted_file_rows(items, catalog["indexed_at"])
+                folder_count = len({r["folder"] for r in rows if r["folder"]})
+                if not data.recursive:
+                    _, deep, _ = page_catalog(catalog["entries"], scope_key=catalog["key"], folder_id=data.folder_id,
+                                              recursive=True, **{**filters, "limit": 1})
+                    if deep > matched_files:
+                        hint += (f" {deep - matched_files} more matching file(s) sit in subfolders and were NOT "
+                                 "saved — add recursive=true to include them.")
+        except (CursorError, ValueError) as exc:
+            return self._fail(data.connection_id, str(exc))
+
+        truncated = len(rows) > PERSIST_MAX_ROWS
+        if truncated:
+            rows = rows[:PERSIST_MAX_ROWS]
+        kind = "folders" if folder_mode else "files"
+        import re
+        stem = re.sub(r"[^\w.-]+", "_", f"{conn_name or 'files'}_{kind}"
+                      + (f"_{data.folder_id.strip('/').rsplit('/', 1)[-1]}" if data.folder_id else "")).strip("_")
+        try:
+            file = await save_text_artifact(runtime_ctx, f"{stem[:80]}.csv", rows_to_csv(columns, rows),
+                                            content_type="text/csv")
+        except Exception as exc:
+            return self._fail(data.connection_id, f"Could not save the listing to a file: {exc}")
+        file_id = str(file.id)
+
+        when = f"indexed {catalog['indexed_at']}" if catalog["indexed_at"] else "index time unknown"
+        scope = f" under {data.folder_id}" if data.folder_id else ""
+        what = (f"{len(rows)} folder(s) at depth {data.depth}{scope} ({matched_files} matching files)"
+                if folder_mode else f"{len(rows)} file(s){scope} in {folder_count} folder(s)")
+        summary = (f"Saved the complete listing — {what} — from the catalog ({when}) to {file.filename}, "
+                   f"file_id={file_id}, sorted by {data.sort_by} {data.sort_order}.")
+        if truncated:
+            summary += (f" TRUNCATED: only the first {PERSIST_MAX_ROWS:,} rows were saved; narrow with "
+                        "folder_id, name_pattern or dates for the rest.")
+        summary += hint
+        summary += (f" Columns: {', '.join(columns)}. Do not list again to see more — query the file: "
+                    f"create_data(source_file_ids=['{file_id}']) to filter, group or count; for the "
+                    f"folders without a row in an Agent List yet, pass source_file_ids=['{file_id}'] AND "
+                    "the list's table in tables_by_source to one create_data and keep the folders whose "
+                    "name/path has no matching key. read_file only for a quick look.")
+
+        preview_rows = rows[:preview_n]
+        observation: Dict[str, Any] = {"summary": summary, "success": True, "file_id": file_id,
+                                       "row_count": len(rows), "truncated": truncated}
+        if preview_rows:
+            lines = []
+            for r in preview_rows:
+                if folder_mode:
+                    lines.append(f"{r['path']} — {r['file_count']} file(s)"
+                                 + (f" — modified {r['latest_modified_at']}" if r.get("latest_modified_at") else ""))
+                else:
+                    lines.append(self._inventory_row(r))
+            if len(rows) > len(preview_rows):
+                lines.append(f"… +{len(rows) - len(preview_rows)} more in file_id={file_id}")
+            observation["details"] = "\n".join(lines)
+
+        if folder_mode:
+            preview_folders = [FolderEntry(**f).model_dump() for f in items[:preview_n]]
+            preview_files: List[dict] = []
+        else:
+            preview_folders = []
+            preview_files, _ = self._apply(items[:preview_n], None)
+        return ToolEndEvent(type="tool.end", payload={
+            "output": {
+                "success": True, "connection_id": data.connection_id, "group_by": data.group_by,
+                "persisted": True, "file_id": file_id, "file_name": file.filename,
+                "row_count": len(rows), "columns": columns, "truncated": truncated,
+                "folder_count": folder_count, "files": preview_files, "file_count": len(preview_files),
+                "folders": preview_folders, "source": "catalog", "indexed_at": catalog["indexed_at"],
+                "catalog_files": catalog["total"], "matched": matched_files,
+                "next_cursor": None, "incomplete": truncated,
+                "stop_reason": "row_cap" if truncated else None,
+            },
+            "observation": observation,
+        })
+
     def _apply(self, raw: List[dict], name_pattern) -> tuple:
         files = []
         pat = (name_pattern or "").lower()
@@ -362,6 +514,16 @@ class ListFilesTool(Tool):
         catalog, why_not = (None, None)
         if client is not None and data.source != "live":
             catalog, why_not = await self._load_catalog(runtime_ctx, client)
+        # Persist saves the WHOLE matching set from the catalog — never a live
+        # crawl (minutes on a large SharePoint 2010 library) and never a page.
+        if getattr(data, "persist", False):
+            refusal = self._persist_refusal(data, client, _client_err, catalog, why_not, runtime_ctx)
+            if refusal:
+                yield self._fail(data.connection_id, refusal)
+                return
+            conn_name = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
+            yield await self._persist(data, catalog, conn_name, runtime_ctx)
+            return
         if data.source == "catalog" and catalog is None:
             yield self._fail(data.connection_id, f"No catalog listing for this connection: {why_not}.")
             return
