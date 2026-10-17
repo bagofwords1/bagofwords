@@ -4111,7 +4111,8 @@
     "menuData": "Dados"
   },
   "toolbar": {
-    "polishDashboard": "Aprimorar painel"
+    "polishDashboard": "Aprimorar painel",
+    "polishRequestLabel": "Aprimorar"
   },
   "artifactFrame": {
     "dataAddQuery": "Adicionar consulta",

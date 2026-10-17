@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { polishPromptPosition } from '../../utils/polishPrompt.ts'
+import { polishPromptPosition, buildPolishPrompt, parsePolishPrompt, describePolishTarget } from '../../utils/polishPrompt.ts'
 
 // The Polish prompt box sits next to the element picked inside the dashboard
 // iframe, inside the pane that iframe fills. Pane 800x600, box 320x120, 8px gap.
@@ -50,3 +50,25 @@ assert.deepEqual(
   { top: 8, left: 8 },
   'pane smaller than the box: pin to the top-left corner',
 )
+
+// --- Polish chat prompt: build → parse round trip, and the element label ---
+const req = {
+  title: 'Sales "Q3" overview',
+  artifactId: 'a1b2-c3',
+  htmlSnippet: '<h2 class="text-xl">Revenue &amp; margin\n  <span>by month</span></h2>',
+  instruction: 'Make this bigger\nand bold',
+}
+assert.deepEqual(parsePolishPrompt(buildPolishPrompt(req)), req, 'built prompt parses back')
+assert.equal(parsePolishPrompt('Make the title bigger'), null, 'ordinary message is not a polish request')
+assert.equal(parsePolishPrompt(''), null)
+assert.equal(
+  parsePolishPrompt(buildPolishPrompt({ ...req, instruction: '' })),
+  null,
+  'no instruction: not a polish request',
+)
+
+assert.deepEqual(describePolishTarget(req.htmlSnippet), { tag: 'h2', text: 'Revenue & margin by month' })
+assert.deepEqual(describePolishTarget('<DIV><p>x</p><span cla'), { tag: 'div', text: 'x' }, 'cut-off snippet')
+assert.equal(describePolishTarget(`<p>${'a'.repeat(100)}</p>`, 10).text, 'aaaaaaaaa…')
+
+console.log('polishPrompt: ok')

@@ -4111,7 +4111,8 @@
     "menuData": "Données"
   },
   "toolbar": {
-    "polishDashboard": "Peaufiner le tableau de bord"
+    "polishDashboard": "Peaufiner le tableau de bord",
+    "polishRequestLabel": "Peaufiner"
   },
   "artifactFrame": {
     "dataAddQuery": "Ajouter une requête",
