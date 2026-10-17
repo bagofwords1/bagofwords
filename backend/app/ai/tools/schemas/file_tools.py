@@ -170,10 +170,11 @@ class ListFilesInput(BaseModel):
             "files — id, path, folder (parent path), folder_1..N (folder name per level, folder_1 = top), name, "
             "ext, size, modified_at, created_at, web_url, indexed_at; folders — path, name, parent, depth, "
             "folder_1..N, file_count, latest_modified_at, earliest_created_at, sample_files, indexed_at. Reads "
-            "the indexed catalog only (never live). On a per-user (sign-in) connection it saves only YOUR own "
-            "indexed files. Query it with create_data(source_file_ids=[file_id]); for folders not yet in an "
+            "the indexed catalog only: leave source='auto' (source='live' is refused). On a per-user (sign-in) "
+            "connection it saves only YOUR own indexed files. Query it with create_data(source_file_ids=[file_id]); for folders not yet in an "
             "Agent List, pass the file_id AND the list's table (tables_by_source) to one create_data and keep "
-            "folders with no matching key. Reuse the file_id on later turns instead of listing again."
+            "folders with no matching key. The same call again returns the same file; reuse its file_id on "
+            "later turns instead of listing again."
         ),
     )
     title: Optional[str] = _title_field()

@@ -89,15 +89,16 @@ class ListFilesTool(Tool):
                 "its file count and dates. Then work folder by folder, passing each "
                 "folder's path as folder_id with recursive=true. "
                 "persist=true saves the COMPLETE matching listing (files, or folders with "
-                "group_by='folder') as a CSV in the report and returns its file_id and a "
-                "short preview instead of rows — use it for large listings, folder-by-folder "
-                "work, resuming an interrupted run, or slicing work for sub-agents. All filters "
-                "apply; limit only sizes the preview; no cursor. Indexed catalog only, never "
-                "live; on a per-user connection it saves only your own files. Call it once, then "
-                "query the file with create_data(source_file_ids=[file_id]); to find folders "
-                "with no Agent List row yet, pass the file_id and the list's table "
-                "(tables_by_source) to one create_data. Reuse the file_id on later turns "
-                "instead of listing again."
+                "group_by='folder') as a CSV in the report and returns its file_id plus a short "
+                "preview instead of rows. Use it for large listings, folder-by-folder work, "
+                "resuming an interrupted run, or slicing work for sub-agents. All filters apply; "
+                "limit only sizes the preview; no cursor. It reads the indexed catalog (leave "
+                "source='auto'; never live); on a per-user connection it saves only your own "
+                "files. Then query the file with create_data(source_file_ids=[file_id]). For a "
+                "folder work queue, persist with group_by='folder' and pass that file_id plus the "
+                "Agent List's table (tables_by_source) to one create_data to get the folders with "
+                "no row yet. The same call again returns the same file; reuse its file_id on "
+                "later turns instead of listing again."
             ),
             category="research",
             input_schema=ListFilesInput.model_json_schema(),
@@ -251,7 +252,7 @@ class ListFilesTool(Tool):
             return None, f"catalog unavailable: {exc}"
         indexed_at = last.replace(microsecond=0).isoformat() + "Z" if last is not None else None
         return {"entries": entries, "indexed_at": indexed_at, "total": len(entries),
-                "key": f"{conn.id}:{indexed_at}"}, None
+                "key": f"{conn.id}:{indexed_at}", "scope": str(conn.id)}, None
 
     def _from_catalog(self, data, catalog: dict, runtime_ctx: Dict[str, Any]) -> ToolEndEvent:
         try:
@@ -419,11 +420,11 @@ class ListFilesTool(Tool):
         indexed_at = last.replace(microsecond=0).isoformat() + "Z" if last is not None else None
         who = getattr(user, "email", None) or getattr(user, "name", None) or str(user.id)
         return {"entries": entries, "indexed_at": indexed_at, "total": len(entries),
-                "key": f"{conn.id}:user:{user.id}:{indexed_at}", "listed_as": f"user:{user.id}",
+                "key": f"{conn.id}:user:{user.id}:{indexed_at}", "scope": f"{conn.id}:user:{user.id}",
+                "listed_as": f"user:{user.id}",
                 "listed_as_label": f"your own files ({who})"}, None
 
     async def _persist(self, data, catalog: dict, name: str, runtime_ctx: Dict[str, Any]) -> ToolEndEvent:
-        import copy
         import re
 
         from ._file_catalog import (
@@ -439,22 +440,28 @@ class ListFilesTool(Tool):
         preview_n = min(preview_n, self._PERSIST_PREVIEW_MAX)
         folder_mode = data.group_by == "folder"
 
-        # The same listing asked for twice in one run reuses the file instead of
-        # writing an identical copy (observed live: three identical persists).
-        same = _fingerprint(scope=catalog["key"], folder=(data.folder_id or "").strip().lower(),
+        # Keyed on the catalog's CONTENT, not its index time: a reindex that
+        # changed nothing still reuses the file, and any change writes a new one.
+        import hashlib
+        content = hashlib.sha1("\n".join(sorted(
+            f"{e.get('id')}|{e.get('path')}|{e.get('size')}|{e.get('modified_at')}|{e.get('created_at')}"
+            for e in catalog["entries"])).encode()).hexdigest()
+        same = _fingerprint(scope=catalog.get("scope") or catalog["key"], content=content, who=str(getattr(runtime_ctx.get("user"), "id", "")),
+                            folder=(data.folder_id or "").strip().lower(),
                             recursive=bool(data.recursive), pattern=(data.name_pattern or "").lower(),
                             ca=data.created_after, cb=data.created_before, ma=data.modified_after,
                             mb=data.modified_before, sort_by=data.sort_by, sort_order=data.sort_order,
                             group_by=data.group_by, depth=data.depth if folder_mode else None)
-        done = runtime_ctx.setdefault("_persisted_listings", {}) if isinstance(runtime_ctx, dict) else {}
-        if same in done:
-            payload = copy.deepcopy(done[same])
-            payload["observation"]["summary"] = (
-                f"Already saved this run with the same inputs: file_id={payload['output']['file_id']} "
-                "(no new file written). Query that file with create_data instead of listing again. "
-                + payload["observation"]["summary"])
-            payload["observation"].pop("details", None)
-            return ToolEndEvent(type="tool.end", payload=payload)
+        # The same listing of the same catalog version, already saved to this
+        # report by this user (this turn or an earlier one), is reused instead
+        # of written again — observed live: the model re-persisted the same
+        # listing three times in one run, and again on "continue".
+        tag = f"list_files:{same}"
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
+        from app.ai.tools.implementations._source_files import _candidates
+        existing = next((f for f in _candidates(runtime_ctx)
+                         if getattr(f, "source_ref", None) == tag
+                         and str(getattr(f, "user_id", "")) == str(getattr(user, "id", ""))), None)
 
         everything = max(len(catalog["entries"]), 1)
         filters = dict(name_pattern=data.name_pattern,
@@ -493,11 +500,14 @@ class ListFilesTool(Tool):
         kind = "folders" if folder_mode else "files"
         stem = re.sub(r"[^\w.-]+", "_", f"{name or 'files'}_{kind}"
                       + (f"_{data.folder_id.strip('/').rsplit('/', 1)[-1]}" if data.folder_id else "")).strip("_")
-        try:
-            file = await save_text_artifact(runtime_ctx, f"{stem[:80]}.csv", rows_to_csv(columns, rows),
-                                            content_type="text/csv")
-        except Exception as exc:
-            return self._fail(data.connection_id, f"Could not save the listing to a file: {exc}")
+        if existing is not None:
+            file = existing
+        else:
+            try:
+                file = await save_text_artifact(runtime_ctx, f"{stem[:80]}.csv", rows_to_csv(columns, rows),
+                                                content_type="text/csv", source_ref=tag)
+            except Exception as exc:
+                return self._fail(data.connection_id, f"Could not save the listing to a file: {exc}")
         file_id = str(file.id)
 
         when = f"indexed {catalog['indexed_at']}" if catalog["indexed_at"] else "index time unknown"
@@ -505,8 +515,13 @@ class ListFilesTool(Tool):
         what = (f"{len(rows)} folder(s) at depth {data.depth}{scope} ({matched_files} matching files)"
                 if folder_mode else f"{len(rows)} file(s){scope} in {folder_count} folder(s)")
         source_label = catalog.get("listed_as_label") or "the shared catalog"
-        summary = (f"Saved the complete listing — {what} — from {source_label}, {when}, to {file.filename}, "
-                   f"file_id={file_id}, sorted by {data.sort_by} {data.sort_order}.")
+        if existing is not None:
+            summary = (f"Already saved in this report with the same inputs and catalog version — reusing "
+                       f"file_id={file_id} ({file.filename}; {what}, from {source_label}, {when}); no new file "
+                       "written and no preview repeated. Query it with create_data instead of listing again.")
+        else:
+            summary = (f"Saved the complete listing — {what} — from {source_label}, {when}, to {file.filename}, "
+                       f"file_id={file_id}, sorted by {data.sort_by} {data.sort_order}.")
         if truncated:
             summary += (f" TRUNCATED: only the first {PERSIST_MAX_ROWS:,} rows were saved; narrow with "
                         "folder_id, name_pattern or dates for the rest.")
@@ -517,7 +532,7 @@ class ListFilesTool(Tool):
                     "table (tables_by_source) to one create_data and keep the folders with no matching key. "
                     "read_file only for a quick look.")
 
-        preview_rows = rows[:preview_n]
+        preview_rows = rows[:preview_n] if existing is None else []
         observation: Dict[str, Any] = {"summary": summary, "success": True, "file_id": file_id,
                                        "row_count": len(rows), "truncated": truncated}
         if preview_rows:
@@ -541,7 +556,7 @@ class ListFilesTool(Tool):
         payload = {
             "output": {
                 "success": True, "connection_id": data.connection_id, "group_by": data.group_by,
-                "persisted": True, "file_id": file_id, "file_name": file.filename,
+                "persisted": True, "reused": existing is not None, "file_id": file_id, "file_name": file.filename,
                 "row_count": len(rows), "columns": columns, "truncated": truncated,
                 "folder_count": folder_count, "files": preview_files, "file_count": len(preview_files),
                 "folders": preview_folders, "source": "catalog", "indexed_at": catalog["indexed_at"],
@@ -552,7 +567,6 @@ class ListFilesTool(Tool):
             },
             "observation": observation,
         }
-        done[same] = copy.deepcopy(payload)
         return ToolEndEvent(type="tool.end", payload=payload)
 
     def _apply(self, raw: List[dict], name_pattern) -> tuple:

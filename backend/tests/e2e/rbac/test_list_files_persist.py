@@ -263,7 +263,7 @@ def test_preview_size_follows_limit_and_defaults_small(world):
     out, df = list_files(world, persist=True, recursive=True, limit=3)
     assert len(out["output"]["files"]) == 3 and len(df) > 3
     assert out["observation"]["details"].count("\n") == 3  # 3 rows + the "more in file" line
-    out, df = list_files(world, persist=True, recursive=True)
+    out, df = list_files(world, persist=True, recursive=True, sort_order="desc")  # a different listing
     n = len(out["output"]["files"])
     assert 0 < n < len(df) and n <= 20
     # The observation stays small: it names the file instead of carrying rows.
@@ -446,8 +446,28 @@ def test_repeating_the_same_persist_in_a_run_reuses_the_file(world):
         return outs
     before = report_file_count(world)
     first, again, other = run_async(_fn)
-    assert again["output"]["file_id"] == first["output"]["file_id"]
+    assert again["output"]["file_id"] == first["output"]["file_id"] and again["output"]["reused"]
     assert again["output"]["row_count"] == first["output"]["row_count"]
     assert "details" not in again["observation"]
     assert other["output"]["file_id"] != first["output"]["file_id"]
     assert report_file_count(world) == before + 2
+
+
+def test_a_later_turn_reuses_the_file_until_the_catalog_changes(world, test_client):
+    first, df = list_files(world, persist=True, group_by="folder")
+    # "continue" in a new turn: same inputs, same catalog → the same file.
+    later, _ = list_files(world, persist=True, group_by="folder")
+    assert later["output"]["file_id"] == first["output"]["file_id"] and later["output"]["reused"]
+    # Another user's report never reuses it (they get their own file).
+    member, _ = list_files(world, actor="member", persist=True, group_by="folder")
+    assert member["output"]["file_id"] != first["output"]["file_id"]
+
+    # A new case folder lands and is indexed → a fresh, complete file.
+    (world["share"] / "Case 9999").mkdir()
+    (world["share"] / "Case 9999" / "new.pdf").write_text("new")
+    r = test_client.get(f"/api/data_sources/{world['ds']['id']}/refresh_schema",
+                        headers=_h(world["admin"]["token"], world["org_id"]))
+    assert r.status_code == 200
+    fresh, fresh_df = list_files(world, persist=True, group_by="folder")
+    assert fresh["output"]["file_id"] != first["output"]["file_id"] and not fresh["output"]["reused"]
+    assert set(fresh_df["path"]) == set(df["path"]) | {"Case 9999"}

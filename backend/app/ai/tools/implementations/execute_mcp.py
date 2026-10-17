@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import AsyncIterator, Dict, Any, Type
+from typing import AsyncIterator, Dict, Any, Optional, Type
 from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
@@ -200,7 +200,8 @@ def _upload_path(filename: str) -> str:
     return os.path.join(_UPLOAD_DIR, filename)
 
 
-async def save_text_artifact(runtime_ctx: dict, filename: str, text: str, *, content_type: str = "text/plain"):
+async def save_text_artifact(runtime_ctx: dict, filename: str, text: str, *, content_type: str = "text/plain",
+                             source_ref: Optional[str] = None):
     """Save `text` as a tool-produced File on the current report.
 
     The one persistence path for agent-tool artifacts (execute_mcp results,
@@ -231,6 +232,9 @@ async def save_text_artifact(runtime_ctx: dict, filename: str, text: str, *, con
         # A tool product, not a user attachment: keeps it off the prompt
         # box's pending-attachment chips (see File.source_kind).
         source_kind="artifact",
+        # Optional producer tag (e.g. list_files' listing fingerprint) so the
+        # producer can find and reuse its own earlier artifact.
+        source_ref=source_ref,
         user_id=str(user.id) if user else None,
         organization_id=str(organization.id) if organization else None,
     )
