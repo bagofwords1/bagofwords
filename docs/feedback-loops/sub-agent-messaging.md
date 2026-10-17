@@ -461,3 +461,21 @@ that was dropped afterward. Luna independently reviewed the final backend
 changes and found no further blocker. Previous-head CI (`6a1be3014`, run
 38801370476) passed both database e2e jobs, Playwright and data-source tests;
 unit and LLM-integration jobs failed. New-head CI is not yet observed.
+
+
+## Lightweight receipt styling (2026-10-17)
+
+The collapsed `MessageSubAgentTool.vue` receipt used a full-width border and
+padding, making it heavier than InspectData. It now uses a borderless,
+content-width summary with a 12px icon and adjacent chevron; expanded content
+is indented below it. Native details/summary and focus-visible styling remain.
+
+Repeat in the seeded sandbox: open the existing Customer Support Pilot Readiness
+report, locate “Sent message to Review pilot readiness”, then focus the summary
+and press Enter to expand and again to collapse. Observed: collapsed content is
+hidden, expansion shows the complete message and delivery caveat, and Enter
+collapses it again. Captured the same report/viewport before and after under
+`media/pr/sub-agent-messaging/light-receipt-{before,after,expanded}.png`.
+Luna reviewed accessibility, wrapping and RTL classes without finding a blocker.
+This is a presentation-only change; no backend or new model run was needed.
+RTL was reviewed in source, not re-tested live for this styling follow-up.
