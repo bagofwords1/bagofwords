@@ -17,6 +17,8 @@ import httpx
 from tests.mocks.mock_oauth_provider import MockOAuthProvider, patch_oauth_for_tests
 from app.services.connection_oauth_service import auto_provision_connection_credentials
 
+pytestmark = pytest.mark.e2e
+
 
 def _state_from_authorize(auth_resp) -> str:
     """Extract the signed state JWT from the authorization_url returned by /authorize.

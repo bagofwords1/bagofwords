@@ -39,6 +39,8 @@ from app.models.user import User
 
 from scripts.gen_network_dir_fixtures import generate
 
+pytestmark = pytest.mark.e2e
+
 
 def _run(coro):
     return asyncio.run(coro)

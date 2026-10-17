@@ -179,6 +179,7 @@ async def test_overlong_evidence_is_clamped_not_rejected(
     assert ev.startswith("Observed while exploring")
 
 
+@pytest.mark.e2e
 def test_clamp_evidence_normalizes_blank_and_long_values():
     """Pure contract of the clamp helper: blank -> None, short -> unchanged,
     long -> bounded."""

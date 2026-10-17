@@ -281,6 +281,7 @@ async def test_suggestion_without_a_report_emits_nothing(
     assert await _events(report_id) == [], "no report to notify — expected silence"
 
 
+@pytest.mark.e2e
 def test_verdict_kinds_reach_the_agent_context_and_the_timeline():
     """The whole point is context: these must not be LLM-hidden. They are also
     UI-visible — the verdict is reached outside the conversation, so the strip

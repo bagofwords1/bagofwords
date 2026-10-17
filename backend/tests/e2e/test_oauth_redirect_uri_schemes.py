@@ -427,6 +427,7 @@ def test_unset_base_url_ignores_untrusted_forwarded_headers(
     assert proto.status_code == 200, proto.json()
 
 
+@pytest.mark.e2e
 @pytest.mark.parametrize("peer,expected", [
     ("10.0.0.7", "https://bow.corp:3000"),   # trusted proxy: X-Forwarded-Proto honored
     ("203.0.113.9", "http://bow.corp:3000"),  # untrusted peer: header ignored

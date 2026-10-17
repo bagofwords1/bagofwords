@@ -4,6 +4,7 @@ import os
 import sys
 import atexit
 import shutil
+import time
 import uuid
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -73,7 +74,12 @@ def _setup_test_database():
             from testcontainers.postgres import PostgresContainer
 
             print("🐘 Starting PostgreSQL container...")
-            _postgres_container = PostgresContainer("postgres:15")
+            # A throwaway test server needs no crash safety. Without fsync,
+            # every commit and the checkpoint each CREATE/DROP DATABASE forces
+            # stop waiting on the disk; query behavior is unchanged.
+            _postgres_container = PostgresContainer("postgres:15").with_command(
+                "postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off"
+            )
             _postgres_container.start()
 
             # testcontainers returns a postgresql+psycopg2:// URL
@@ -246,6 +252,7 @@ from tests.fixtures.connection import (
     test_connection_connectivity,
     refresh_connection_schema,
     get_connection_tables,
+    wait_for_connection_indexing,
 )
 from tests.fixtures.connection_tool import (
     create_mcp_connection,
@@ -515,18 +522,171 @@ def _build_postgres_template(alembic_config):
     return template_db
 
 
-def _clone_postgres_from_template(alembic_config, template_db):
-    """Replace the test database with a fresh copy of the session template.
+class _PostgresInPlaceReset:
+    """Give each test a database identical to the session template by
+    resetting the same database in place instead of re-cloning it.
 
-    ``WITH (FORCE)`` kicks any session a test leaked (an `idle in transaction`
-    indexing job, say) — the same job ``pg_terminate_backend`` did for the old
-    DROP SCHEMA reset, which otherwise blocked until the 6h job timeout.
+    ``DROP DATABASE`` forces a cluster-wide checkpoint (the dropping backend
+    waits on ``CheckpointDone``), so a per-test drop+clone costs whatever it
+    takes to flush every dirty buffer the other workers' tests just wrote —
+    measured at 3-5s per test (up to ~18s) on a busy server. The schema is
+    static across tests (nothing runs DDL against the app database), so a
+    reset only has to restore the *data*: delete every row, reload the rows
+    the data migrations seeded into the template, and put the sequences back.
+
+    Guarded: tables the app created at runtime are dropped, and if the schema
+    still differs from the template's (the fingerprint of tables, columns,
+    constraints and indexes — a test that re-runs a migration can drop an
+    index) the database is re-cloned from the template as before.
     """
-    admin, url = _pg_admin_engine(alembic_config.get_main_option("sqlalchemy.url"))
-    with admin.connect() as conn:
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{url.database}" WITH (FORCE)'))
-        conn.execute(text(f'CREATE DATABASE "{url.database}" TEMPLATE "{template_db}"'))
-    admin.dispose()
+
+    _FINGERPRINT = """
+        SELECT md5(string_agg(x, ',' ORDER BY x)) FROM (
+            SELECT c.relname::text || ':' || c.relkind::text || ':' || coalesce(string_agg(
+                       a.attname::text || '/' || format_type(a.atttypid, a.atttypmod), ';'
+                       ORDER BY a.attnum), '') AS x
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+            WHERE n.nspname = 'public'
+            GROUP BY c.relname, c.relkind
+            UNION ALL
+            SELECT conname::text || ':' || pg_get_constraintdef(oid)
+            FROM pg_constraint WHERE connamespace = 'public'::regnamespace
+            UNION ALL
+            SELECT indexdef FROM pg_indexes WHERE schemaname = 'public'
+        ) s
+    """
+    _TABLES = (
+        "SELECT quote_ident(tablename) FROM pg_tables "
+        "WHERE schemaname = 'public' ORDER BY tablename"
+    )
+
+    def __init__(self, sync_url, template_db):
+        import io
+
+        from sqlalchemy import create_engine
+
+        url = make_url(sync_url)
+        self.db = url.database
+        self.template = template_db
+        self.admin = create_engine(
+            url.set(database="postgres"), isolation_level="AUTOCOMMIT", pool_pre_ping=True,
+        )
+        self.live = create_engine(url, pool_size=1, max_overflow=0, pool_pre_ping=True)
+
+        template = create_engine(url.set(database=template_db))
+        try:
+            with template.connect() as conn:
+                self.tables = [r[0] for r in conn.execute(text(self._TABLES))]
+                self.fingerprint = conn.execute(text(self._FINGERPRINT)).scalar()
+                self.sequences = [tuple(r) for r in conn.execute(text(
+                    "SELECT quote_ident(schemaname) || '.' || quote_ident(sequencename), last_value "
+                    "FROM pg_sequences WHERE schemaname = 'public'"
+                ))]
+                cursor = conn.connection.dbapi_connection.cursor()
+                self.seed = {}
+                for table in self.tables:
+                    buf = io.StringIO()
+                    cursor.copy_expert(f"COPY {table} TO STDOUT", buf)
+                    if buf.tell():
+                        self.seed[table] = buf.getvalue()
+        finally:
+            template.dispose()
+        self._table_set = set(self.tables)
+        self.reclones = 0
+        self._reclone()
+
+    def _reclone(self):
+        self.live.dispose()
+        with self.admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{self.db}" WITH (FORCE)'))
+            conn.execute(text(f'CREATE DATABASE "{self.db}" TEMPLATE "{self.template}"'))
+
+    def reset(self):
+        import io
+
+        raw = self.live.raw_connection()
+        # Shut the door before clearing the room: a writer a test leaked (a
+        # background task recording usage, say) reconnects as fast as it is
+        # terminated. Our own connection is already in, so it stays usable.
+        self._allow_connections(False)
+        try:
+            cursor = raw.cursor()
+            # Sessions a test leaked (an `idle in transaction` indexing job,
+            # say) would hold row locks the DELETEs below wait on.
+            self._terminate_other_sessions(cursor)
+            # Tables the app creates for itself at runtime (APScheduler's job
+            # store creates `apscheduler_jobs` on first use) are not part of
+            # the template; a fresh clone would not have them either.
+            cursor.execute(self._TABLES)
+            for (extra,) in cursor.fetchall():
+                if extra not in self._table_set:
+                    cursor.execute(f"DROP TABLE {extra} CASCADE")
+            cursor.execute(self._FINGERPRINT)
+            if cursor.fetchone()[0] != self.fingerprint:
+                raw.rollback()
+                raw.close()
+                raw = None
+                self.reclones += 1
+                self._reclone()
+                return
+            # replica: skip FK triggers while the rows go and come back.
+            cursor.execute(
+                "SET LOCAL session_replication_role = replica; "
+                + "; ".join(f"DELETE FROM {table}" for table in self.tables)
+            )
+            for table, rows in self.seed.items():
+                cursor.copy_expert(f"COPY {table} FROM STDIN", io.StringIO(rows))
+            for sequence, last_value in self.sequences:
+                if last_value is None:
+                    cursor.execute("SELECT setval(%s, 1, false)", (sequence,))
+                else:
+                    cursor.execute("SELECT setval(%s, %s, true)", (sequence, last_value))
+            raw.commit()
+        except BaseException:
+            if raw is not None:
+                raw.rollback()
+            raise
+        finally:
+            if raw is not None:
+                raw.close()
+            self._allow_connections(True)
+
+    def _allow_connections(self, allowed):
+        with self.admin.connect() as conn:
+            conn.execute(text(
+                f'ALTER DATABASE "{self.db}" WITH ALLOW_CONNECTIONS {"true" if allowed else "false"}'
+            ))
+
+    @staticmethod
+    def _terminate_other_sessions(cursor, attempts=200):
+        # pg_terminate_backend only signals; wait until the backends are gone.
+        # Client sessions only: the DELETEs keep autovacuum busy on this
+        # database, and its workers neither block a DELETE nor stay killed.
+        for _ in range(attempts):
+            # pg_stat_activity is snapshotted once per transaction; without
+            # clearing it every retry would re-read the first look.
+            cursor.execute("SELECT pg_stat_clear_snapshot()")
+            cursor.execute(
+                "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND pid <> pg_backend_pid() "
+                "AND backend_type = 'client backend'"
+            )
+            if not cursor.fetchone()[0]:
+                return
+            time.sleep(0.01)
+        cursor.execute("SELECT pg_stat_clear_snapshot()")
+        cursor.execute(
+            "SELECT pid, application_name, backend_start, state, wait_event, left(query, 120) "
+            "FROM pg_stat_activity WHERE datname = current_database() "
+            "AND pid <> pg_backend_pid() AND backend_type = 'client backend'"
+        )
+        raise RuntimeError(f"sessions on the test database did not terminate: {cursor.fetchall()}")
+
+    def close(self):
+        self.live.dispose()
+        self.admin.dispose()
 
 
 def _drop_postgres_template(alembic_config, template_db):
@@ -538,17 +698,22 @@ def _drop_postgres_template(alembic_config, template_db):
 
 @pytest.fixture(scope="session")
 def db_template(db_backend, alembic_config):
-    """Build the per-session migrated template once (sqlite file or postgres
-    database) and yield its handle; None for ``external``, which keeps the
-    per-test migration replay because we may not own that server."""
+    """Build the per-session migrated template once and yield its handle: the
+    template file for sqlite, a `_PostgresInPlaceReset` over the template
+    database for postgres, None for ``external`` (which keeps the per-test
+    migration replay because we may not own that server)."""
     if db_backend == "sqlite":
         template_file = _build_sqlite_template(_sqlite_db_file(alembic_config))
         yield template_file
         _remove_sqlite_files(template_file)
     elif db_backend == "postgres":
         template_db = _build_postgres_template(alembic_config)
-        yield template_db
-        _drop_postgres_template(alembic_config, template_db)
+        resetter = _PostgresInPlaceReset(alembic_config.get_main_option("sqlalchemy.url"), template_db)
+        try:
+            yield resetter
+        finally:
+            resetter.close()
+            _drop_postgres_template(alembic_config, template_db)
     else:
         yield None
 
@@ -558,7 +723,8 @@ def _fresh_test_database(alembic_config, db_backend, db_template):
     """Give the test a fresh, fully migrated, empty database.
 
     sqlite and postgres clone the session template (see `_build_sqlite_template`
-    / `_build_postgres_template`); ``external`` replays the alembic chain into
+    / `_build_postgres_template`; postgres then resets in place, see
+    `_PostgresInPlaceReset`); ``external`` replays the alembic chain into
     the server it was pointed at. In every case the app's async engine is
     disposed first so no pooled connection outlives the database it belongs to.
     """
@@ -576,7 +742,7 @@ def _fresh_test_database(alembic_config, db_backend, db_template):
 
     if db_backend == "postgres":
         _dispose_async_engine()
-        _clone_postgres_from_template(alembic_config, db_template)
+        db_template.reset()
         yield
         # Cleanup happens at the START of the next test (or container shutdown).
         return
