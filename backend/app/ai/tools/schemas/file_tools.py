@@ -450,6 +450,14 @@ class SearchFilesOutput(BaseModel):
     file_count: int = 0
     files: List[FileEntry] = Field(default_factory=list)
     error: Optional[str] = None
+    # "catalog" (keyword index or catalog name match), "live", or "catalog+live".
+    source: Optional[str] = None
+    # When the catalog was last indexed (UTC ISO), for catalog answers.
+    indexed_at: Optional[str] = None
+    # True when a live scan stopped early; stop_reason says why
+    # (deadline / cancelled / folder_limit / catalog_limit).
+    incomplete: bool = False
+    stop_reason: Optional[str] = None
 
 
 # ----------------------------------------------------------- grep_files

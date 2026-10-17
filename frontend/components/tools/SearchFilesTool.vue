@@ -6,7 +6,7 @@
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
           <span class="tool-shimmer">
             <template v-if="modelTitle">{{ modelTitle }}…</template>
-            <template v-else>Searching {{ noun.many }} for {{ queryLabel }}…</template>
+            <template v-else>Searching {{ noun.many }}<template v-if="queryLabel"> for {{ queryLabel }}</template>…</template>
           </span>
         </span>
         <span
@@ -23,8 +23,8 @@
             <span v-if="files.length" class="ms-2 text-gray-400">{{ files.length }} {{ files.length === 1 ? noun.one : noun.many }}</span>
           </template>
           <template v-else>
-            <span class="align-middle">Searched {{ noun.many }} for&nbsp;</span>
-            <Transition name="fade-in" mode="out-in">
+            <span class="align-middle">Searched {{ noun.many }}<template v-if="queryLabel"> for&nbsp;</template></span>
+            <Transition v-if="queryLabel" name="fade-in" mode="out-in">
               <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
             </Transition>
             <span v-if="files.length" class="ms-2 text-gray-400">{{ files.length }} {{ files.length === 1 ? noun.one : noun.many }}</span>
@@ -107,7 +107,7 @@ const queryLabel = computed(() => {
   const q = props.toolExecution?.arguments_json?.query
     ?? props.toolExecution?.result_json?.query
   if (typeof q === 'string') return `"${q}"`
-  return 'files'
+  return ''
 })
 
 const files = computed<any[]>(() => {
