@@ -6,6 +6,7 @@
 - Added sub-agents saving rows into the parent conversation's lists (#1394)
 - Added messages between agents and their sub-agents, with send receipts and questions that pause the sub-agent until answered (#1406)
 - Added listing every folder of a file connection in one call (#1410) — `group_by="folder"` on `list_files`
+- Added saving a whole file or folder listing as a CSV the agent can query, so large libraries need one call instead of hundreds (#1415) — `persist=true` on `list_files`
 - Added a compact card in chat for Polish requests from the dashboard element picker, instead of the raw prompt (#1413)
 - Fixed long runs over scanned PDFs stopping with "Conversation too long for this model" (#1414)
 - Fixed the agent failing to read files uploaded to a conversation (#1403)
