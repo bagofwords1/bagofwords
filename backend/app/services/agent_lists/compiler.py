@@ -4,7 +4,10 @@ The output stays inside the strict JSON-Schema subset both OpenAI and
 Anthropic accept for constrained decoding:
 
 - every object has ``additionalProperties: false`` and lists every property
-  in ``required`` (optional values are expressed as ``[T, "null"]``);
+  in ``required`` (optional values are expressed as ``[T, "null"]``), except
+  a record's ``fields`` object: an update by ``row_id`` sends only the fields
+  it changes, so no field key is required there. "Required for a new row" is
+  a row rule, checked in ``records.apply_submission``;
 - no numeric/length/pattern keywords — richer checks run server-side in
   ``records.validate_record``;
 - construction is deterministic, so the same list always serializes to the
@@ -112,7 +115,6 @@ def compile_list_schema(fields: List[Dict[str, Any]], description: str = "") -> 
             "fields": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": [f["name"] for f in fields],
                 "properties": field_props,
             },
         },
@@ -141,9 +143,13 @@ def tool_description(list_name: str, list_description: str, agent_name: str, key
         + (list_description.strip() + " " if list_description else "")
         + "Gather the facts first with your other tools, then call this once with all records "
         "(one record per subject). Rows are stored durably and shown to the user as a table.",
+        "Shape: each record is {row_id, fields}; put the values under \"fields\", "
+        "one {value, status, evidence, note} object per field name.",
         "Rules: use status not_found with value null when a value is absent — never guess; "
-        "for values read from documents include evidence with an exact short quote and the page; "
-        "a field set to null (the whole field object) leaves an existing value unchanged on update.",
+        "for values read from documents include evidence with an exact short quote and the page.",
+        "Updating an existing row: send only the fields you are changing — omitted fields, and fields "
+        "set to null (the whole field object), keep their current value. "
+        "A new row needs every required field.",
     ]
     if key_field:
         lines.append(f"Records with the same \"{key_field}\" update the existing row instead of adding a new one.")

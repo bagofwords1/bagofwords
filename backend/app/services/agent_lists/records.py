@@ -157,6 +157,46 @@ def _schema_errors(instance: Any, schema: Dict[str, Any]) -> List[str]:
     return out
 
 
+def _flat_envelope(value: Any) -> Any:
+    if value is None:
+        return None  # same as a null envelope: leave the field unchanged
+    if isinstance(value, dict) and ("value" in value or "status" in value):
+        return {"evidence": [], "note": None, **value}
+    if isinstance(value, (dict, list)):
+        return value  # not a value we can wrap; schema validation reports it
+    return {"value": value, "status": "found", "evidence": [], "note": None}
+
+
+def normalize_flat_records(records: Any, field_names: Any) -> Any:
+    """Accept a record sent without the ``fields`` wrapper.
+
+    Agents sometimes send ``{"row_id": ..., "supplier_name": "Acme"}``. Schema
+    validation then reported "'fields' is a required property" for every
+    record and the whole atomic call was lost. When a record has no
+    ``fields`` key and every other key (besides ``row_id``) names a field of
+    the list, the values move under ``fields``: a bare value becomes
+    ``{"value": v, "status": "found"}``, an envelope dict is kept, null stays
+    null (unchanged on update). A record with any unknown key is left as is,
+    so validation still rejects it. Returns a copy; the caller's records (the
+    stored tool arguments) are never mutated.
+    """
+    if not isinstance(records, list):
+        return records
+    names = set(field_names or [])
+    out = copy.deepcopy(records)
+    for i, rec in enumerate(out):
+        if not isinstance(rec, dict) or "fields" in rec:
+            continue
+        keys = set(rec) - {"row_id"}
+        if not keys or not keys <= names:
+            continue
+        out[i] = {
+            "row_id": rec.get("row_id"),
+            "fields": {k: _flat_envelope(v) for k, v in rec.items() if k != "row_id"},
+        }
+    return out
+
+
 def normalize_not_found(records: Any) -> Any:
     """``not_found`` is the claim; a value left next to it is dropped.
 
@@ -251,6 +291,7 @@ async def apply_submission(
     sources: List[SourceText],
 ) -> Dict[str, Any]:
     """Validate and upsert ``records``. Raises ListValidationError (nothing written)."""
+    records = normalize_flat_records(records, [f["name"] for f in agent_list.fields or []])
     records = normalize_not_found(records)
     errors = validate_records(agent_list, records)
     by_name = _fields_by_name(agent_list)
