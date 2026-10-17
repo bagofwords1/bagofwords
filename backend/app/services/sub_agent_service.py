@@ -645,13 +645,16 @@ class SubAgentService:
         )
         from app.services.sub_agent_message_service import sub_agent_message_service
         await sub_agent_message_service.close_child(db, str(row.id), report_id=str(row.report_id))
-        await db.commit()
         won = (res.rowcount or 0) == 1
         if won:
+            # Same transaction as the status flip: no reader may see a terminal
+            # row without its record and envelope. Callers rewrite the envelope
+            # afterwards with sigkill/duration/model details.
             await db.refresh(row)
             if not row.result_json:
                 row.result_json = _synthesized_result(row, status, exit_reason, last_text, error)
-                await db.commit()
+            row.envelope_json = _envelope(row)
+        await db.commit()
         return won
 
     async def _after_terminal(self, db, row: SubAgentRun) -> None:
