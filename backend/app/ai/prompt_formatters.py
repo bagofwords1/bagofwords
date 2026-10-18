@@ -252,6 +252,9 @@ class Table(BaseModel):
     # DataSourceTable.excluded_columns). Carried so late column fills — e.g.
     # describe_tables sampling a thin table live — re-apply the same filter.
     excluded_columns: Optional[list[str]] = None
+    # Relationships hidden from context (DataSourceTable.excluded_fks), so a
+    # management read can show which edges a manager hid next to their fks.
+    excluded_fks: Optional[list[dict]] = None
 
 
 def excluded_column_set(excluded) -> frozenset:
@@ -340,7 +343,7 @@ def apply_column_exclusions(table: "Table", excluded, excluded_fks=None) -> "Tab
     """Return `table` with excluded columns removed from columns/pks/fks and
     hidden relationships removed from fks."""
     ex = excluded_column_set(excluded)
-    ex_fks = excluded_fk_set(excluded_fks)
+    ex_fks = excluded_fks if isinstance(excluded_fks, frozenset) else excluded_fk_set(excluded_fks)
     if ex:
         table.columns = filter_columns(table.columns, ex)
         table.pks = filter_columns(table.pks, ex)

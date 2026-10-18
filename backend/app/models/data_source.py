@@ -337,6 +337,9 @@ class DataSource(BaseSchema):
                 pks=filter_columns(table.pks, excluded),
                 fks=filter_fks(table.fks, excluded, excluded_fks),
                 excluded_columns=table.excluded_columns or None,
+                # Managers only, like the paginated view: a reader gets the
+                # stripped fks, not the list of what was hidden.
+                excluded_fks=(table.excluded_fks or None) if include_inactive else None,
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
                 # Connection info (for multi-connection support)

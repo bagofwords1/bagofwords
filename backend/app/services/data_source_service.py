@@ -211,19 +211,37 @@ def _remap_excluded_fk_targets(rows, renamed: dict) -> None:
     matches nothing and the edge the manager hid is back in the agent's
     context. Matched case-insensitively, like fk_key. Each entry is mapped
     once, so a swap (A->B, B->A) lands correctly.
+
+    `renamed` maps a lower-cased old name to every new name it became: two
+    rows can share an old name (a linked row and the legacy orphan the sync
+    adopts) and come back under different names. Such an entry follows the
+    row's own, already rewritten fks — the edge with the same column pair
+    into one of those names — and is left alone when that is still ambiguous.
     """
-    by_lower = {str(old).lower(): new for old, new in renamed.items()}
+    from app.ai.prompt_formatters import fk_flat
+
     for row in rows:
         entries = row.excluded_fks or []
         if not entries:
             continue
+        edges = [f for f in (fk_flat(fk) for fk in (row.fks or [])) if f is not None]
         changed = False
         out = []
         for entry in entries:
-            new_name = by_lower.get(str(entry.get("references_name") or "").lower()) if isinstance(entry, dict) else None
-            if new_name is not None and new_name != entry.get("references_name"):
-                entry = {**entry, "references_name": new_name}
-                changed = True
+            flat = fk_flat(entry) if isinstance(entry, dict) else None
+            candidates = renamed.get(flat["references_name"].lower(), set()) if flat else set()
+            if len(candidates) > 1:
+                candidates = {
+                    e["references_name"] for e in edges
+                    if e["references_name"] in candidates
+                    and e["column"].lower() == flat["column"].lower()
+                    and e["references_column"].lower() == flat["references_column"].lower()
+                }
+            if len(candidates) == 1:
+                new_name = next(iter(candidates))
+                if new_name != entry.get("references_name"):
+                    entry = {**entry, "references_name": new_name}
+                    changed = True
             out.append(entry)
         if changed:
             row.excluded_fks = out
@@ -4815,10 +4833,11 @@ class DataSourceService:
                             columns_updated_count += 1
 
                     if str(row.id) in excluded_fks:
-                        # Same rules for relationships: keep only edges the
-                        # table actually has, stored with the catalog's
-                        # spelling; a table with no canonical fks keeps the
-                        # edges as sent.
+                        # Keep only edges the table actually has, stored with
+                        # the catalog's spelling. Unlike columns, a table with
+                        # no canonical fks stores nothing: every filter runs
+                        # over these fks (the per-user overlay carries none),
+                        # so an entry there could never hide anything.
                         known_fks: dict = {}
                         for fk in row.fks or []:
                             flat = fk_flat(fk)
@@ -4830,9 +4849,9 @@ class DataSourceService:
                             if flat is None:
                                 continue
                             key = fk_key(flat)
-                            if key in cleaned_fks or (known_fks and key not in known_fks):
+                            if key in cleaned_fks or key not in known_fks:
                                 continue
-                            cleaned_fks[key] = known_fks.get(key, flat)
+                            cleaned_fks[key] = known_fks[key]
                         new_fks = [cleaned_fks[k] for k in sorted(cleaned_fks)] or None
                         if (row.excluded_fks or None) != new_fks:
                             row.excluded_fks = new_fks
@@ -6916,11 +6935,11 @@ class DataSourceService:
             should_activate = total_tables <= max_auto_select
             needs_smart_selection = total_tables > max_auto_select
 
-        # Old name -> new name for rows that keep their identity but come back
+        # Old name -> new name(s) for rows that keep their identity but come back
         # renamed (e.g. a Power BI table renamed at the source). Relationships
         # hidden on OTHER tables point at the target by name, so they are
         # remapped below; otherwise a hidden edge silently returns.
-        renamed: dict[str, str] = {}
+        renamed: dict[str, set] = {}
 
         for conn_table in conn_tables:
             domain_name = domain_names[conn_table.id]
@@ -6928,7 +6947,7 @@ class DataSourceService:
                 # Update existing - refresh schema data (preserves is_active)
                 domain_table = existing_by_conn_table_id[conn_table.id]
                 if domain_table.name and domain_table.name != domain_name:
-                    renamed[domain_table.name] = domain_name
+                    renamed.setdefault(domain_table.name.lower(), set()).add(domain_name)
                 domain_table.name = domain_name
                 domain_table.columns = conn_table.columns
                 domain_table.pks = conn_table.pks
@@ -6950,7 +6969,7 @@ class DataSourceService:
                 if candidate is not None:
                     domain_table = candidate
                     if domain_table.name and domain_table.name != domain_name:
-                        renamed[domain_table.name] = domain_name
+                        renamed.setdefault(domain_table.name.lower(), set()).add(domain_name)
                     domain_table.name = domain_name
                     if candidate in pool:
                         pool.remove(candidate)

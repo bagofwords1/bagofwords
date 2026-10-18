@@ -169,9 +169,11 @@ function pairHidden(link: TableLink, pair: { from: string; to: string }) {
   return (byId.value.get(link.source)?.fks || []).some(fk => fk.column?.name === pair.from && fk.references_column?.name === pair.to && hidden.has(fkEdgeKey(fk.column?.name, fk.references_name, fk.references_column?.name)))
 }
 const linkHidden = (link: TableLink) => link.columns.length > 0 && link.columns.every(pair => pairHidden(link, pair))
-const hasHidden = computed(() => graph.value.links.some(l => rendered.value.has(l.source) && rendered.value.has(l.target) && linkHidden(l)))
+// Resolved once per change; the legend and the edge styling both read it.
+const hiddenLinkIds = computed(() => new Set(graph.value.links.filter(linkHidden).map(l => l.id)))
+const hasHidden = computed(() => graph.value.links.some(l => rendered.value.has(l.source) && rendered.value.has(l.target) && hiddenLinkIds.value.has(l.id)))
 const edges = computed(() => graph.value.links.filter(l => rendered.value.has(l.source) && rendered.value.has(l.target)).map(l => {
-  const hidden = linkHidden(l)
+  const hidden = hiddenLinkIds.value.has(l.id)
   const inFocus = focused.value && (l.source === focused.value || l.target === focused.value)
   return {
     id: l.id, source: l.source, target: l.target, type: l.source === l.target ? 'self' : 'smoothstep', markerEnd: MarkerType.ArrowClosed,

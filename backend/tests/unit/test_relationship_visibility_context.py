@@ -340,3 +340,97 @@ async def test_rename_remaps_entry_stored_in_other_case(db):
     await DataSourceService().sync_domain_tables_from_connection(db, ds, conn)
     await db.refresh(orders)
     assert orders.excluded_fks == [_hide("customer_id", "clients", "id")]
+
+
+async def _two_sales(db, ds, conn, orders_fks, excluded):
+    """Two rows that both still carry the old name `Sales` (the duplicate
+    state a sync heals) whose connection tables now come back as
+    `Sales (v2)` and `Sales (v3)`, plus an `orders` table pointing at them."""
+    rows = {}
+    for new in ("Sales (v2)", "Sales (v3)"):
+        ct = ConnectionTable(name=new, connection_id=str(conn.id), columns=[_col("id"), _col("region_id")], pks=[], fks=[])
+        db.add(ct)
+        await db.flush()
+        row = DataSourceTable(name="Sales", datasource_id=str(ds.id), connection_table_id=str(ct.id),
+                              is_active=True, columns=ct.columns, pks=[], fks=[])
+        db.add(row)
+        rows[new] = row
+    ct = ConnectionTable(name="orders", connection_id=str(conn.id),
+                         columns=[_col("id"), _col("x_id"), _col("y_id")], pks=[], fks=orders_fks)
+    db.add(ct)
+    await db.flush()
+    orders = DataSourceTable(name="orders", datasource_id=str(ds.id), connection_table_id=str(ct.id),
+                             is_active=True, columns=ct.columns, pks=[], fks=[], excluded_fks=excluded)
+    db.add(orders)
+    await db.commit()
+    return orders
+
+
+@pytest.mark.asyncio
+async def test_rename_collision_follows_the_rows_own_edges(db):
+    """Two rows renamed away from the same old name: each hidden entry goes
+    to the target its own edge now names, not to whichever rename came last."""
+    from app.services.data_source_service import DataSourceService
+
+    org, ds, conn = await _seed(db, "system_only")
+    orders = await _two_sales(
+        db, ds, conn,
+        orders_fks=[_fk("x_id", "Sales (v2)", "id"), _fk("y_id", "Sales (v3)", "id")],
+        excluded=[_hide("x_id", "Sales", "id")],
+    )
+    await DataSourceService().sync_domain_tables_from_connection(db, ds, conn)
+    await db.refresh(orders)
+    assert orders.excluded_fks == [_hide("x_id", "Sales (v2)", "id")]
+    tables, _ = await _render(db, org, ds)
+    assert _edges(tables["orders"]) == {("y_id", "Sales (v3)", "id")}
+
+
+@pytest.mark.asyncio
+async def test_rename_collision_left_alone_when_still_ambiguous(db):
+    """Same column pair into both new names: no way to tell which one the
+    manager meant, so the entry is not guessed."""
+    from app.services.data_source_service import DataSourceService
+
+    org, ds, conn = await _seed(db, "system_only")
+    orders = await _two_sales(
+        db, ds, conn,
+        orders_fks=[_fk("x_id", "Sales (v2)", "id"), _fk("x_id", "Sales (v3)", "id")],
+        excluded=[_hide("x_id", "Sales", "id")],
+    )
+    await DataSourceService().sync_domain_tables_from_connection(db, ds, conn)
+    await db.refresh(orders)
+    assert orders.excluded_fks == [_hide("x_id", "Sales", "id")]
+
+
+def test_apply_column_exclusions_accepts_a_normalized_set():
+    """filter_fks takes raw entries or a pre-built frozenset; so must
+    apply_column_exclusions, or a normalized caller hides nothing."""
+    from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, apply_column_exclusions, excluded_fk_set
+
+    def table():
+        cid, cust_id = TableColumn(name="cid", dtype="int"), TableColumn(name="id", dtype="int")
+        return Table(name="orders", columns=[cid], pks=[], fks=[
+            ForeignKey(column=cid, references_name="customers", references_column=cust_id),
+        ])
+
+    hidden = [_hide("cid", "customers", "id")]
+    for arg in (hidden, excluded_fk_set(hidden)):
+        assert apply_column_exclusions(table(), None, arg).fks == []
+
+
+@pytest.mark.asyncio
+async def test_table_without_fks_stores_no_hidden_relationships(db):
+    """With no canonical fks nothing can ever be filtered, so whatever is
+    sent is dropped instead of kept as dead data."""
+    from app.services.data_source_service import DataSourceService
+
+    org, ds, conn = await _seed(db, "system_only")
+    lone = await _table(db, ds, conn, "events", [_col("id"), _col("user_id")])
+    await db.commit()
+    res = await DataSourceService().update_tables_status_delta(
+        db=db, data_source_id=str(ds.id), organization=org,
+        excluded_fks={str(lone.id): [_hide("user_id", "users", "id"), _hide("x" * 5000, "y" * 5000, "z" * 5000)]},
+    )
+    assert res.relationships_updated_count == 0
+    await db.refresh(lone)
+    assert lone.excluded_fks is None

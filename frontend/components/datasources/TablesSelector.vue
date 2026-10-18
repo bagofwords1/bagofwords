@@ -517,7 +517,7 @@
                     </span>
                   </div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <label v-for="({ fk, visible, reason }, idx) in fkRows(table)" :key="idx" class="flex items-center gap-2 text-xs px-2 py-1 text-gray-600 dark:text-gray-400"
+                    <label v-for="({ fk, visible, reason }, idx) in fkRowsByKey.get(tableKey(table)) || []" :key="idx" class="flex items-center gap-2 text-xs px-2 py-1 text-gray-600 dark:text-gray-400"
                       :class="canUpdate ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : ''"
                       :data-testid="`rel-row-${table.name}-${fk.column?.name}-${fk.references_name}`">
                       <UCheckbox v-if="canUpdate" color="blue" :model-value="visible" :disabled="saving"
@@ -1430,18 +1430,25 @@ function setAllColumnsVisible(table: Table, visible: boolean) {
   currentExcluded.value.set(tableKey(table), visible ? [] : normalizeExcluded((table.columns || []).map(c => c.name)))
 }
 
-function excludedFksOf(table: Table): string[] {
-  return currentExcludedFks.value.get(tableKey(table)) ?? normalizeExcludedFks(table.excluded_fks)
+// Draft hidden edges as Sets, built once per change rather than scanned per
+// row: the badge, the panel buttons and every row all read them each render.
+const excludedFkSets = computed(() => new Map([...currentExcludedFks.value].map(([key, list]) => [key, new Set(list)])))
+
+function excludedFksOf(table: Table): Set<string> {
+  return excludedFkSets.value.get(tableKey(table)) ?? new Set(normalizeExcludedFks(table.excluded_fks))
 }
 
 function isFkVisible(table: Table, fk: ForeignKey): boolean {
-  return !excludedFksOf(table).includes(fkKey(fk))
+  return !excludedFksOf(table).has(fkKey(fk))
 }
 
-function hiddenFkCount(table: Table): number {
+const hiddenFkCounts = computed(() => new Map(tables.value.map(table => {
   const excluded = excludedFksOf(table)
-  if (!excluded.length) return 0
-  return (table.fks || []).filter(fk => excluded.includes(fkKey(fk))).length
+  return [tableKey(table), excluded.size ? (table.fks || []).filter(fk => excluded.has(fkKey(fk))).length : 0]
+})))
+
+function hiddenFkCount(table: Table): number {
+  return hiddenFkCounts.value.get(tableKey(table)) ?? 0
 }
 
 function onFkToggle(table: Table, fk: ForeignKey, visible: boolean) {
@@ -1457,32 +1464,32 @@ function setAllFksVisible(table: Table, visible: boolean) {
   currentExcludedFks.value.set(tableKey(table), visible ? [] : [...new Set((table.fks || []).map(fkKey))].sort())
 }
 
-// A checked relationship can still be out of the agent's context: the schema
-// context drops an edge whose target table isn't selected or whose column on
-// either end is hidden. Say so, rather than let the checkbox imply otherwise.
-// Only tables loaded into this view can be checked; others report nothing.
-function fkTarget(table: Table, fk: ForeignKey): Table | undefined {
-  const named = tablesByName.get(fk.references_name) || []
-  return named.find(t => t.connection_id === table.connection_id) || (named.length === 1 ? named[0] : undefined)
-}
-
-// One pass per expanded table: each row's checkbox state and, for a checked
-// edge, why it is still out of context (managers only).
-function fkRows(table: Table) {
-  return (table.fks || []).map(fk => {
-    const visible = isFkVisible(table, fk)
-    return { fk, visible, reason: visible && props.canUpdate ? fkOutOfContextReason(table, fk) : null }
-  })
-}
-
+// A checked relationship can still be out of the agent's context. Mirrors the
+// server (_prune_unresolvable_fks in schema_context_builder): an edge stays if
+// ANY selected table carries exactly its references_name, and drops when its
+// local column is hidden or its target column is hidden. Several tables can
+// share a name, so "not selected" means none of them is; only tables loaded
+// into this view are known, and an unknown target reports nothing.
 function fkOutOfContextReason(table: Table, fk: ForeignKey): string | null {
   if (fk.column?.name && !isColumnVisible(table, fk.column.name)) return t('tableErd.relationshipColumnHidden')
-  const target = fkTarget(table, fk)
-  if (!target) return null
-  if (!isTableActive(tableKey(target))) return t('tableErd.relationshipTargetNotSelected', { name: target.name })
-  if (fk.references_column?.name && !isColumnVisible(target, fk.references_column.name)) return t('tableErd.relationshipColumnHidden')
+  const named = tablesByName.get(fk.references_name) || []
+  if (!named.length) return null
+  const selected = named.filter(target => isTableActive(tableKey(target)))
+  if (!selected.length) return t('tableErd.relationshipTargetNotSelected', { name: fk.references_name })
+  const refColumn = fk.references_column?.name
+  if (refColumn && selected.every(target => !isColumnVisible(target, refColumn))) return t('tableErd.relationshipColumnHidden')
   return null
 }
+
+// Each expanded table's relationship rows — checkbox state and, for a checked
+// edge, why it is still out of context (managers only) — computed once.
+const fkRowsByKey = computed(() => new Map(tables.value.filter(table => expandedTables.value[table.name]).map(table => [
+  tableKey(table),
+  (table.fks || []).map(fk => {
+    const visible = isFkVisible(table, fk)
+    return { fk, visible, reason: visible && props.canUpdate ? fkOutOfContextReason(table, fk) : null }
+  }),
+])))
 
 function onTableToggle(key: string, newValue: boolean) {
   if (!props.canUpdate || saving.value) return
@@ -1756,15 +1763,20 @@ async function onSave() {
     // Relationship visibility likewise: table id -> full hidden edge list,
     // spelled as the table's own fks so the server can match them.
     const excludedFks: Record<string, ExcludedFk[]> = {}
-    const hiddenEntries = (row: Table | undefined, key: string): ExcludedFk[] => {
-      const hidden = new Set(currentExcludedFks.value.get(key) || [])
-      const seen = new Set<string>()
-      return (row?.fks || []).filter(fk => hidden.has(fkKey(fk)) && !seen.has(fkKey(fk)) && seen.add(fkKey(fk)))
-        .map(fk => ({ column: fk.column?.name || '', references_name: fk.references_name, references_column: fk.references_column?.name || '' }))
-    }
+    const hiddenFksByKey = new Map<string, ExcludedFk[]>()
     for (const key of fkChangeKeys.value) {
       const row = knownTables.get(key) || tableByKey.get(key)
-      if (row?.id) excludedFks[row.id] = hiddenEntries(row, key)
+      if (!row) continue
+      const hidden = new Set(currentExcludedFks.value.get(key) || [])
+      const entries = new Map<string, ExcludedFk>()
+      for (const fk of row.fks || []) {
+        const edge = fkKey(fk)
+        if (hidden.has(edge) && !entries.has(edge)) {
+          entries.set(edge, { column: fk.column?.name || '', references_name: fk.references_name, references_column: fk.references_column?.name || '' })
+        }
+      }
+      hiddenFksByKey.set(key, [...entries.values()])
+      if (row.id) excludedFks[row.id] = hiddenFksByKey.get(key)!
     }
 
     if (toActivate.length > 0 || toDeactivate.length > 0 || Object.keys(excludedColumns).length > 0 || Object.keys(excludedFks).length > 0) {
@@ -1789,11 +1801,9 @@ async function onSave() {
       const list = currentExcluded.value.get(key) || []
       if (row) row.excluded_columns = list.length ? list : null
     }
-    for (const key of fkChangeKeys.value) {
+    for (const [key, list] of hiddenFksByKey) {
       const row = knownTables.get(key) || tableByKey.get(key)
-      if (!row) continue
-      const list = hiddenEntries(row, key)
-      row.excluded_fks = list.length ? list : null
+      if (row) row.excluded_fks = list.length ? list : null
     }
     // Refresh the baseline without losing selection in parent-owned Save flows.
     originalActiveState.value.clear()

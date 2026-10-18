@@ -298,3 +298,17 @@ def test_manager_paginated_schema_keeps_every_relationship(test_client, world, w
     w = world
     table, _ = _hide_first_relationship(test_client, w)
     assert _paginated_edges(test_client, w, who, table["id"]) == {_edge(fk) for fk in table["fks"]}
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("who, sees_list", [("admin", True), ("manager", True), ("viewer", False)])
+def test_legacy_full_schema_reports_hidden_relationships_to_managers_only(test_client, world, who, sees_list):
+    """The non-paginated full_schema carries excluded_fks next to excluded
+    columns for managers; a reader gets the stripped fks, not the list."""
+    w = world
+    table, hidden = _hide_first_relationship(test_client, w)
+    r = test_client.get(f"/api/data_sources/{w['ds_a']['id']}/full_schema", headers=_h(w, who))
+    assert r.status_code == 200, r.text
+    t = next(t for t in r.json() if t["name"] == table["name"])
+    listed = [(e["column"], e["references_name"], e["references_column"]) for e in (t.get("excluded_fks") or [])]
+    assert listed == ([hidden] if sees_list else [])
