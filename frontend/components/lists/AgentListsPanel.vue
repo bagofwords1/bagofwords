@@ -92,6 +92,10 @@
             <span dir="auto" class="min-w-0 truncate text-[12px] text-gray-500 dark:text-gray-400">{{ l.description || fieldNames(l) }}</span>
             <span class="ms-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{{ $t('lists.fieldsCount', { n: l.fields.length }, l.fields.length) }}</span>
           </div>
+          <div v-if="l.shared" class="mt-1 flex items-center gap-1 min-w-0 ps-6 text-[11px] text-gray-400 dark:text-gray-500" data-testid="agent-list-shared">
+            <UIcon name="i-heroicons-link" class="w-3 h-3 shrink-0" />
+            <span dir="auto" class="min-w-0 truncate">{{ sharedWithLabel(l, $t) }}</span>
+          </div>
         </button>
       </div>
     </div>
@@ -105,6 +109,7 @@ import ListEditor from '~/components/lists/ListEditor.vue'
 import ListRowsView from '~/components/lists/ListRowsView.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import type { AgentList } from '~/components/lists/types'
+import { sharedWithLabel } from '~/components/lists/shared'
 
 const props = defineProps<{ dsId: string; listId?: string | null; rowId?: string | null; canManage?: boolean }>()
 const emit = defineEmits<{

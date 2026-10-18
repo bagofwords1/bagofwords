@@ -79,6 +79,10 @@
       </div>
       <h2 dir="auto" class="mt-2 text-base font-semibold text-gray-900 dark:text-white" data-testid="list-title">{{ list.name }}</h2>
       <p v-if="list.description" dir="auto" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ list.description }}</p>
+      <p v-if="list.shared" class="mt-1 flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400" data-testid="list-shared">
+        <UIcon name="i-heroicons-link" class="w-3 h-3 shrink-0" />
+        <span dir="auto">{{ sharedWithLabel(list, t) }}</span>
+      </p>
       <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
         <span>{{ $t('lists.saveHint') }}</span><code class="font-mono text-gray-500 dark:text-gray-400">{{ list.tool_name }}</code>
         <span>·</span>
@@ -205,7 +209,7 @@
         <h3 dir="auto" class="text-sm font-semibold text-gray-900 dark:text-white">
           {{ confirm === 'clear' ? $t('lists.clearConfirmTitle', { name: list.name }) : $t('lists.deleteRowsTitle', { n: checked.length }, checked.length) }}
         </h3>
-        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ confirm === 'clear' ? $t('lists.clearConfirmBody', { n: total }) : $t('lists.deleteRowsBody') }}</p>
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ confirm === 'clear' ? (list.shared ? $t('lists.clearConfirmBodyShared', { n: total }) : $t('lists.clearConfirmBody', { n: total })) : $t('lists.deleteRowsBody') }}</p>
         <div class="mt-5 flex justify-end gap-2">
           <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="confirm = null">{{ $t('lists.cancel') }}</button>
           <button type="button" data-testid="list-rows-delete-confirm-button" :disabled="deleting" class="h-8 px-3 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1.5" @click="deleteRows(confirm === 'clear')">
@@ -218,11 +222,24 @@
     <UModal :model-value="confirm === 'list'" :ui="{ width: 'sm:max-w-md' }" @update:model-value="v => { if (!v) confirm = null }">
       <div class="p-5" data-testid="list-delete-confirm">
         <h3 dir="auto" class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('lists.deleteConfirmTitle', { name: list.name }) }}</h3>
-        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('lists.deleteConfirmBody') }}</p>
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ list.shared ? $t('lists.deleteEverywhereBody') : $t('lists.deleteConfirmBody') }}</p>
         <div class="mt-5 flex justify-end gap-2">
           <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="confirm = null">{{ $t('lists.cancel') }}</button>
-          <button type="button" data-testid="list-delete-confirm-button" :disabled="deleting" class="h-8 px-3 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1.5" @click="deleteList">
+          <button type="button" data-testid="list-delete-confirm-button" :disabled="deleting" class="h-8 px-3 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1.5" @click="deleteList('all')">
             <Spinner v-if="deleting" class="w-3 h-3" />{{ $t('lists.delete') }}
+          </button>
+        </div>
+      </div>
+    </UModal>
+
+    <UModal :model-value="confirm === 'unlink'" :ui="{ width: 'sm:max-w-md' }" @update:model-value="v => { if (!v) confirm = null }">
+      <div class="p-5" data-testid="list-unlink-confirm">
+        <h3 dir="auto" class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('lists.unlinkConfirmTitle', { name: list.name }) }}</h3>
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('lists.unlinkConfirmBody') }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="confirm = null">{{ $t('lists.cancel') }}</button>
+          <button type="button" data-testid="list-unlink-confirm-button" :disabled="deleting" class="h-8 px-3 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1.5" @click="deleteList('agent')">
+            <Spinner v-if="deleting" class="w-3 h-3" />{{ $t('lists.remove') }}
           </button>
         </div>
       </div>
@@ -236,6 +253,7 @@ import Spinner from '~/components/Spinner.vue'
 import ListRowPanel from '~/components/lists/ListRowPanel.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { formatValue, type AgentList, type ListField, type ListRow } from '~/components/lists/types'
+import { sharedWithLabel } from '~/components/lists/shared'
 
 const props = defineProps<{
   dsId: string
@@ -264,7 +282,7 @@ const total = ref(0)
 const loading = ref(true)
 const selected = ref<ListRow | null>(null)
 const exporting = ref(false)
-const confirm = ref<null | 'list' | 'rows' | 'clear'>(null)
+const confirm = ref<null | 'list' | 'unlink' | 'rows' | 'clear'>(null)
 const deleting = ref(false)
 // Rows ticked for bulk delete (managers only). Selection is over loaded rows.
 const checked = ref<string[]>([])
@@ -286,11 +304,26 @@ const menu = computed(() => {
     { label: t('lists.exportWithEvidence'), icon: 'i-heroicons-document-arrow-down', click: () => exportCsv(true) },
   ]]
   if (props.list.can_manage) {
-    groups.push([{ label: t('lists.editFields'), icon: 'i-heroicons-pencil-square', click: () => emit('edit') }])
-    groups.push([
-      { label: t('lists.clearRows'), icon: 'i-heroicons-archive-box-x-mark', class: 'text-red-600', disabled: total.value === 0, click: () => { confirm.value = 'clear' } },
-      { label: t('lists.deleteList'), icon: 'i-heroicons-trash', class: 'text-red-600', click: () => { confirm.value = 'list' } },
-    ])
+    // A shared list's fields belong to every agent it is shared with, so only
+    // someone who manages all of them may change them or delete it everywhere.
+    const canSchema = props.list.can_manage_schema ?? props.list.can_manage
+    if (canSchema) {
+      groups.push([{ label: t('lists.editFields'), icon: 'i-heroicons-pencil-square', click: () => emit('edit') }])
+    }
+    const danger: any[] = []
+    // Clearing a shared list wipes what every agent saved: same bar as its fields.
+    if (!props.list.shared || canSchema) {
+      danger.push({ label: t('lists.clearRows'), icon: 'i-heroicons-archive-box-x-mark', class: 'text-red-600', disabled: total.value === 0, click: () => { confirm.value = 'clear' } })
+    }
+    if (props.list.shared) {
+      danger.push({ label: t('lists.removeFromAgent'), icon: 'i-heroicons-link-slash', class: 'text-red-600', click: () => { confirm.value = 'unlink' } })
+      if (canSchema) {
+        danger.push({ label: t('lists.deleteEverywhere'), icon: 'i-heroicons-trash', class: 'text-red-600', click: () => { confirm.value = 'list' } })
+      }
+    } else {
+      danger.push({ label: t('lists.deleteList'), icon: 'i-heroicons-trash', class: 'text-red-600', click: () => { confirm.value = 'list' } })
+    }
+    groups.push(danger)
   }
   return groups
 })
@@ -376,13 +409,15 @@ async function deleteRows(all: boolean) {
   }
 }
 
-async function deleteList() {
+// `agent`: take the list off this agent only (it stays on the others);
+// `all`: delete it from every agent.
+async function deleteList(scope: 'agent' | 'all' = 'all') {
   deleting.value = true
   try {
-    const { error } = await useMyFetch(base.value, { method: 'DELETE' })
+    const { error } = await useMyFetch(`${base.value}?scope=${scope}`, { method: 'DELETE' })
     if (error.value) throw new Error(t('lists.toastError'))
     confirm.value = null
-    toast.add({ title: t('lists.toastDeleted'), color: 'green' })
+    toast.add({ title: scope === 'agent' ? t('lists.toastRemoved') : t('lists.toastDeleted'), color: 'green' })
     emit('deleted')
   } catch (e: any) {
     toast.add({ title: t('lists.toastError'), description: e?.message, color: 'red' })
