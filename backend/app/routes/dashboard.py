@@ -21,13 +21,17 @@ from app.models.artifact import ArtifactVersion
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.dashboard_schema import (
+    DashboardConnectionKind,
     DashboardForkRequest,
+    DashboardListResponse,
+    DashboardNotifyRequest,
     DashboardPublishRequest,
     DashboardPublishStatusSchema,
     DashboardSettingsSchema,
     DashboardSettingsUpdate,
     DashboardSharingSchema,
     DashboardSharingUpdate,
+    DashboardSourceKind,
     DraftDashboardSchema,
     PublicGeneralSettings,
     PublishedDashboardSchema,
@@ -58,13 +62,22 @@ async def get_published_dashboard(
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
+    from app.services.dashboard_lifecycle import fork_eligibility
+    from app.services.dashboard_runs import release_data_sources
+
     artifact, release = await dashboard_access.open_published(db, ref, user)
+    sources = [DashboardSourceKind(connections=[
+        DashboardConnectionKind(type=c.type, auth_policy=c.auth_policy) for c in (ds.connections or [])
+    ]) for ds in await release_data_sources(db, release)]
     return PublishedDashboardSchema(
         id=str(artifact.id), slug=artifact.slug, title=artifact.title, mode=artifact.mode,
         release_id=str(release.id), published_at=release.published_at, last_run_at=artifact.last_run_at,
         theme_name=release.theme_name, theme_overrides=release.theme_overrides,
         include_data_tab=bool(artifact.include_data_tab), chat_enabled=bool(artifact.chat_enabled),
         general=await _general(db, artifact.organization_id),
+        is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
+        fork_eligibility=await fork_eligibility(db, artifact, release, user),
+        refresh_on_view=bool(artifact.refresh_on_view), data_sources=sources,
     )
 
 
@@ -93,7 +106,28 @@ async def get_draft_dashboard(
         version_id=str(version_id) if version_id else None,
         published=await dashboard_access.published_release(db, artifact) is not None,
         theme_name=theme[0] if theme else None, theme_overrides=theme[1] if theme else None,
+        general=await _general(db, artifact.organization_id),
     )
+
+
+@router.get("/dashboards", response_model=DashboardListResponse)
+@requires_permission("view_reports")
+async def list_dashboards(
+    page: int = Query(1, ge=1),
+    limit: int = Query(15, ge=1, le=100),
+    filter: str = Query("my", pattern="^(my|shared)$"),
+    search: str | None = Query(None, max_length=200),
+    mode: str | None = Query(None, pattern="^(page|slides|doc)$"),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The dashboards page (phase 8): one card per dashboard, mine or shared
+    with me -- only those whose /d page would open for me."""
+    from app.services.dashboard_list import list_dashboards as list_for
+
+    return await list_for(db, current_user, organization, filter=filter, search=search, mode=mode,
+                          page=page, limit=limit)
 
 
 @router.get("/dashboards/{dashboard_id}/sharing", response_model=DashboardSharingSchema)
@@ -122,6 +156,85 @@ async def set_dashboard_sharing(
         db, artifact, visibility=payload.visibility, user_ids=payload.user_ids, group_ids=payload.group_ids,
         current_user=current_user, organization=organization,
     )
+
+
+@router.post("/dashboards/{dashboard_id}/notify")
+@requires_permission("publish_reports")
+async def notify_dashboard_share(
+    dashboard_id: str,
+    payload: DashboardNotifyRequest,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The share window's notify (phase 8): the email, and to members the
+    in-app notice, with the dashboard's own /d link -- by its name when it
+    has one. Published dashboards only: sharing waits for Publish."""
+    from app.dependencies import _locale_from_org
+    from app.ee.audit.service import audit_service
+    from app.models.membership import Membership
+    from app.schemas.notification_schema import NotificationChannel, NotificationType
+    from app.services.email_client_resolver import is_outbound_available
+    from app.services.inbox_service import inbox_service
+    from app.services.notification_service import notification_service
+    from app.settings.config import settings as app_settings
+
+    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    if await dashboard_access.published_release(db, artifact) is None:
+        raise AppError.conflict(ErrorCode.DASHBOARD_SHARE_REQUIRES_PUBLISH)
+    if NotificationChannel.EMAIL in payload.channels and not await is_outbound_available(
+            db, str(organization.id), purpose="system"):
+        raise AppError.bad_request(ErrorCode.VALIDATION, "Email notifications are not available (SMTP not configured)")
+    share_url = f"{app_settings.bow_config.base_url}/d/{artifact.slug or artifact.id}"
+    members = [str(r[0]) for r in (await db.execute(
+        select(User.id).join(Membership, Membership.user_id == User.id).where(
+            Membership.organization_id == str(organization.id), Membership.deleted_at.is_(None),
+            User.email.in_(payload.recipients)))).all()]
+    if members:
+        try:
+            await inbox_service.notify_dashboard_share(db, artifact=artifact, user_ids=members,
+                                                       actor_user=current_user)
+        except Exception:
+            pass  # the email still goes
+    release = await dashboard_access.published_release(db, artifact)
+    title = (artifact.title or "").strip() or "dashboard"
+
+    made: list[str] = []
+
+    async def attachments() -> list:
+        # As the conversation's share email attaches its PDF: the release's,
+        # as any reader would export it -- none when each reader sees their own.
+        if await _withheld_from(db, artifact, release, None, baked=artifact.mode == "slides"):
+            return []
+        path = await _release_pdf(db, artifact, release, None)
+        if not path:
+            return []
+        made.append(path)
+        return [{"file": path, "filename": f"{title}.pdf", "type": "application", "subtype": "pdf"}]
+
+    response = await notification_service.dispatch(
+        attachment_builder=attachments,
+        notification_type=NotificationType.SHARE_DASHBOARD, channels=payload.channels,
+        recipients=payload.recipients, share_url=share_url, report_title=artifact.title,
+        sender_name=current_user.name or current_user.email, message=payload.message,
+        report_id=str(artifact.id), locale=_locale_from_org(organization),
+        db=db, organization_id=str(organization.id),
+    )
+    # The file holds the release's rows: it goes once the email went, as the
+    # /d export removes its file once sent.
+    from pathlib import Path
+
+    for path in made:
+        Path(path).unlink(missing_ok=True)
+    try:
+        await audit_service.log(db=db, organization_id=str(organization.id), action="dashboard.notification_sent",
+                                user_id=str(current_user.id), resource_type="artifact", resource_id=str(artifact.id),
+                                details={"channels": [c.value for c in payload.channels],
+                                         "recipient_count": len(payload.recipients)}, request=request)
+    except Exception:
+        pass
+    return response
 
 
 @router.post("/dashboards/{dashboard_id}/publish", response_model=DashboardPublishStatusSchema, status_code=202)
@@ -247,6 +360,33 @@ async def _withheld_from(db, artifact, release, user, *, baked: bool = False) ->
     if await release_snapshot_withheld(db, artifact, release):
         return True
     return baked and await any_copy_tainted(db, release)
+
+
+async def _release_pdf(db, artifact, release, user) -> str | None:
+    """The release's PDF as `user` (None: any reader) would export it from
+    /d; the caller has checked it is not withheld. Raises TimeoutError."""
+    import os
+
+    from app.core.path_safety import UnsafePathError, safe_join
+    from app.services import dashboard_data
+    from app.services.report_pdf_service import ReportPdfService
+
+    render = dashboard_data.ReleaseRender.build(artifact, release, user)
+    if (artifact.mode or "page") == "slides":
+        render.pptx_path = None
+        try:
+            deck = safe_join(ReportPdfService.PPTX_DIR, os.path.basename(release.pptx_path or ""))
+            render.pptx_path = str(deck) if release.pptx_path and deck.is_file() else None
+        except UnsafePathError:
+            pass
+    service = ReportPdfService()
+
+    async def _locked():
+        # One render of a release at a time, as /r renders one per report.
+        async with _lock(str(release.id)):
+            return await service.generate_for_release(db, render)
+
+    return await asyncio.wait_for(_locked(), timeout=_PDF_EXPORT_TIMEOUT_SECONDS)
 
 
 async def _audit_export(db, artifact, user, fmt, request, *, step=None, row_count=None):
@@ -477,22 +617,8 @@ async def export_published_dashboard(
                                    f"filename*=UTF-8''{quote(filename)}",
             "Cache-Control": "no-store"})
 
-    if mode == "slides":
-        render.pptx_path = None
-        try:
-            deck = safe_join(ReportPdfService.PPTX_DIR, os.path.basename(release.pptx_path or ""))
-            render.pptx_path = str(deck) if release.pptx_path and deck.is_file() else None
-        except UnsafePathError:
-            pass
-    service = ReportPdfService()
-
-    async def _locked():
-        # One render of a release at a time, as /r renders one per report.
-        async with _lock(str(release.id)):
-            return await service.generate_for_release(db, render)
-
     try:
-        pdf_path = await asyncio.wait_for(_locked(), timeout=_PDF_EXPORT_TIMEOUT_SECONDS)
+        pdf_path = await _release_pdf(db, artifact, release, user)
     except TimeoutError:
         raise AppError(ErrorCode.INTERNAL, "PDF export timed out. Please try again.", status_code=504)
     uploads_root = ReportPdfService.UPLOADS_DIR.resolve()

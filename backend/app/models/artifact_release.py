@@ -104,3 +104,19 @@ class ArtifactShare(BaseSchema):
                      nullable=True, index=True)
     group_id = Column(String(36), ForeignKey("groups.id", name="fk_artifact_shares_group_id", ondelete="CASCADE"),
                       nullable=True, index=True)
+
+
+class ArtifactSlugHistory(BaseSchema):
+    """A name a dashboard had (migration dashfc06): it keeps leading to the
+    dashboard until the owner removes the name (released_at), and no other
+    dashboard takes it."""
+    __tablename__ = "artifact_slug_history"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_artifact_slug_history"),
+        UniqueConstraint("slug", name="uq_artifact_slug_history_slug"),
+    )
+
+    slug = Column(String(255), nullable=False)
+    artifact_id = Column(String(36), ForeignKey("artifacts.id", name="fk_artifact_slug_history_artifact_id",
+                                                ondelete="CASCADE"), nullable=False, index=True)
+    released_at = Column(DateTime, nullable=True)

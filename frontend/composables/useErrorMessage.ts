@@ -15,6 +15,29 @@
  *     toast.add({ description: getErrorMessage(e, t('errors.generic')) })
  *   }
  */
+/**
+ * The catalog keys an error code may live under, in lookup order. Most codes
+ * hold a dot ("artifact.not_found") and the catalog stores them as flat keys
+ * under `errors`, but vue-i18n reads a dotted path as nesting
+ * (errors → artifact → not_found), so the flat key needs bracket form.
+ */
+export function errorCatalogKeys(code: string): string[] {
+  return [`errors.${code}`, `errors['${code}']`]
+}
+
+/**
+ * Whether the catalog's message should be shown for this code. Only when the
+ * server sent no message of its own: AppError then puts the bare code in
+ * `detail` ("membership.not_found"), which is no message for a person. A
+ * sentence the server wrote for this case ("This change moved since you
+ * viewed it…") is more specific than the code's generic catalog text, so it
+ * stays.
+ */
+export function wantsCatalogMessage(code?: string, detail?: unknown): boolean {
+  if (!code) return false
+  return typeof detail !== 'string' || !detail.trim() || detail === code
+}
+
 export function useErrorMessage() {
   const { t, te } = useI18n()
 
@@ -39,10 +62,11 @@ export function useErrorMessage() {
   function getErrorMessage(err: unknown, fallback?: string): string {
     const payload = extractPayload(err)
     const code = payload.error_code
-    if (code) {
-      const key = `errors.${code}`
-      if (te(key)) {
-        return t(key, (payload.params ?? {}) as Record<string, unknown>)
+    if (code && wantsCatalogMessage(code, payload.detail)) {
+      for (const key of errorCatalogKeys(code)) {
+        if (te(key)) {
+          return t(key, (payload.params ?? {}) as Record<string, unknown>)
+        }
       }
     }
     // Fall back to server-provided English string, then caller fallback, then generic.

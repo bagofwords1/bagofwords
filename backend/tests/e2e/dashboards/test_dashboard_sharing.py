@@ -136,13 +136,10 @@ def test_new_readers_are_notified_with_the_dashboard_link(corpus, corpus_rows, t
 
 
 @pytest.mark.e2e
-def test_the_list_shows_grants_that_still_count_and_saves_back(corpus, corpus_rows, test_client, monkeypatch):
+def test_the_list_shows_grants_that_still_count_and_saves_back(corpus, corpus_rows, test_client, multi_org):
     """Someone who left the organization keeps their row but not their access;
     the owner's list leaves them out, so saving it back (plus a new person)
     works, and the save drops the old row."""
-    from app.settings.config import settings
-
-    monkeypatch.setattr(settings.bow_config.features, "allow_multiple_organizations", True)
     aid = own(corpus_rows, corpus, DASH)
     publish(aid)
     cast = corpus.cast

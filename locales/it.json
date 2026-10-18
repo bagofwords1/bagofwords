@@ -794,7 +794,8 @@
         "prompt": "Esamina le risposte che hanno ricevuto feedback negativi dagli utenti per individuare schemi e aree di miglioramento."
       }
     ],
-    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare."
+    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare.",
+    "deleteUnpublishedDashboards": "Verranno eliminate anche le dashboard non pubblicate: {names}"
   },
   "projects": {
     "title": "Progetti",
@@ -3744,7 +3745,9 @@
     "chatModelOrgDefaultPlain": "Predefinito dell'organizzazione",
     "chatModelReport": "Come nel report ({name})",
     "chatModelReportPlain": "Come nel report",
-    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito"
+    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito",
+    "linkNameEdit": "Modifica nome del link",
+    "linkNameRemove": "Senza nome, i link che lo usano smettono di funzionare; il link con l'id continua a funzionare."
   },
   "publish": {
     "published": "Pubblicato",
@@ -3781,8 +3784,9 @@
     "dashboard.version_not_publishable": "Si può pubblicare solo una versione completata correttamente.",
     "dashboard.publish_public_monitoring": "Questa dashboard è pubblica e usa dati di monitoraggio. Modifica la condivisione prima di pubblicarla.",
     "dashboard.publish_connection": "Una connessione usata da questa dashboard non funziona: {names}. Ricollegala e pubblica di nuovo.",
-    "dashboard.schedule_requires_publish": "Pubblica la dashboard prima di pianificarla.",
     "dashboard.edit_first": "Questa dashboard non ha una bozza da pubblicare. Modificala prima.",
+    "dashboard.slug_invalid": "Un nome di link usa da 3 a 80 lettere inglesi minuscole, cifre e trattini, e inizia e finisce con una lettera o una cifra.",
+    "dashboard.slug_taken": "Questo nome di link è già in uso. Scegline un altro.",
     "access.denied": "Accesso negato",
     "account.disabled": "Il tuo account è stato disattivato. Contatta il tuo amministratore.",
     "connection.not_found": "Connessione non trovata",
@@ -4074,7 +4078,14 @@
     "exportAs": "Esporta come {format}",
     "partialNoAccess": "Non hai accesso ai dati di: {charts}",
     "partialFailed": "Impossibile caricare: {charts}",
-    "partialRenderFailed": "Parte di questa dashboard usa dati a cui non hai accesso, quindi non è stato possibile visualizzarla. Chiedi l’accesso al proprietario della dashboard."
+    "partialRenderFailed": "Parte di questa dashboard usa dati a cui non hai accesso, quindi non è stato possibile visualizzarla. Chiedi l’accesso al proprietario della dashboard.",
+    "publish": "Pubblica",
+    "publishing": "Pubblicazione…",
+    "published": "Dashboard pubblicata",
+    "publishFailed": "Pubblicazione non riuscita",
+    "notPublishedYet": "Non ancora pubblicata",
+    "unpublishedChanges": "Ci sono modifiche non pubblicate",
+    "publishedUpToDate": "Pubblicata e aggiornata"
   },
   "filter": {
     "selectColumn": "Seleziona colonna",

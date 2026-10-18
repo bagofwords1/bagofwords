@@ -5,7 +5,10 @@ Three triggers, one run (`refresh`):
 - the dashboard's schedule (`scheduled_refresh`, an APScheduler job per
   dashboard holding only its id): run as the dashboard's owner as they are
   at run time, while still in the organization; subscribers are told on
-  success (inbox and email, a link to /d), the owner on failure;
+  success (inbox and email, a link to /d), the owner on failure. The
+  schedule refreshes what is seen (phase 8): a dashboard not published yet
+  refreshes its draft with the conversation's own rerun, as a conversation's
+  schedule does today (its queries only; the link is the draft's);
 - a reader opening it (`refresh_on_view`): the conversation's rule -- the
   owner's credentials, at most once per REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS,
   one at a time; no thumbnail, no email;
@@ -106,16 +109,16 @@ def register_job(artifact_id: str, cron: str | None, timezone: str | None) -> No
 
 
 async def register_all_jobs() -> None:
-    """At startup, on the leader: one job per published, scheduled dashboard,
-    and no other dashboard job. The same on every call."""
+    """At startup, on the leader: one job per scheduled dashboard, published
+    or not, and no other dashboard job. The same on every call."""
     from app.dependencies import async_session_maker
 
     async with async_session_maker() as db:
         rows = (await db.execute(
             select(Artifact.id, Artifact.organization_id, Artifact.cron_schedule).where(
                 Artifact.cron_schedule.isnot(None), Artifact.cron_schedule != "",
-                Artifact.published_release_id.isnot(None), Artifact.deleted_at.is_(None),
-                Artifact.mode != "slides",  # a published deck is frozen
+                Artifact.deleted_at.is_(None),
+                Artifact.mode != "slides",  # a deck does not refresh
             )
         )).all()
         zones = {org: await org_timezone(db, org) for org in {str(r[1]) for r in rows}}
@@ -294,8 +297,8 @@ async def refresh_on_view(db, artifact: Artifact) -> dict:
 # ── scheduled ────────────────────────────────────────────────────────────
 
 async def scheduled_refresh(artifact_id: str) -> None:
-    """The dashboard's job. One worker runs a fire; a dashboard that is gone,
-    unpublished or unscheduled drops its job."""
+    """The dashboard's job. One worker runs a fire; a dashboard that is gone
+    or unscheduled drops its job. Not published yet: its draft refreshes."""
     from app.dependencies import async_session_maker
     from app.models.organization import Organization
     from app.services.dashboard_access import counts_as_owner
@@ -304,8 +307,7 @@ async def scheduled_refresh(artifact_id: str) -> None:
         return
     async with async_session_maker() as db:
         artifact = await db.get(Artifact, str(artifact_id))
-        if (artifact is None or artifact.deleted_at is not None or not artifact.cron_schedule
-                or not artifact.published_release_id):
+        if artifact is None or artifact.deleted_at is not None or not artifact.cron_schedule:
             remove_job(artifact_id)
             return
         organization = await db.get(Organization, str(artifact.organization_id))
@@ -316,6 +318,9 @@ async def scheduled_refresh(artifact_id: str) -> None:
             return
         title, subscribers = artifact.title or "Untitled", artifact.notification_subscribers
         owner_id, organization_id = str(owner.id), str(organization.id)
+        if not artifact.published_release_id:
+            await _refresh_draft(db, artifact, owner, organization, title, subscribers)
+            return
         result = await refresh(db, artifact, owner, organization, trigger="schedule", thumbnail=True)
         # A failed run rolled the session back: load them again.
         owner, organization = await db.get(User, owner_id), await db.get(Organization, organization_id)
@@ -325,15 +330,51 @@ async def scheduled_refresh(artifact_id: str) -> None:
             await _tell_owner(db, str(artifact_id), title, owner, organization, result["error"])
 
 
-async def _tell_subscribers(db, artifact_id: str, title: str, subscribers: list, organization) -> None:
+async def _refresh_draft(db, artifact: Artifact, owner: User, organization, title: str, subscribers) -> None:
+    """A dashboard not published yet: the conversation's rerun of this
+    dashboard's draft, as a conversation's schedule runs today. Told as the
+    published dashboard's schedule tells: subscribers when something ran,
+    the owner when nothing did -- with the draft's link."""
+    from app.models.report import Report
+    from app.services.dashboard_data import draft_version
+    from app.services.report_service import ReportService
+
+    artifact_id, link = str(artifact.id), f"/d/{artifact.id}/draft"
+    report = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
+    version = await draft_version(db, artifact)
+    if report is None or report.deleted_at is not None or report.status == "archived" or version is None:
+        return  # nothing to refresh: no live conversation, or no finished version
+    try:
+        run = await ReportService().rerun_report_steps(db, str(report.id), owner, organization,
+                                                       artifact_id=str(version.id), notify_subscribers=False)
+    except Exception as e:
+        logger.warning("Dashboard %s: draft refresh failed", artifact_id, exc_info=True)
+        owner_id, organization_id = str(owner.id), str(organization.id)
+        await db.rollback()
+        # The rollback expired them: load them again (as the published path does).
+        from app.models.organization import Organization
+
+        owner, organization = await db.get(User, owner_id), await db.get(Organization, organization_id)
+        run = {"steps_total": 1, "steps_succeeded": 0, "error": str(e)}
+    if run.get("steps_succeeded"):
+        if subscribers:
+            await _tell_subscribers(db, artifact_id, title, subscribers, organization, link=link)
+    elif run.get("steps_total"):
+        await _tell_owner(db, artifact_id, title, owner, organization,
+                          run.get("error") or run.get("message") or "The draft's queries failed", link=link)
+
+
+async def _tell_subscribers(db, artifact_id: str, title: str, subscribers: list, organization,
+                            *, link: str | None = None) -> None:
     """As a conversation's schedule does: an inbox row for user subscribers
-    and the email, with a link to the dashboard."""
+    and the email, with a link to the dashboard (its draft, before it is
+    published)."""
     from app.dependencies import _locale_from_org
     from app.services.inbox_service import inbox_service
     from app.services.notification_service import notification_service
     from app.settings.config import settings
 
-    link = f"/d/{artifact_id}"
+    link = link or f"/d/{artifact_id}"
     try:
         user_ids = [str(s.get("id")) for s in subscribers if s.get("type") == "user" and s.get("id")]
         if user_ids:
@@ -356,14 +397,15 @@ async def _tell_subscribers(db, artifact_id: str, title: str, subscribers: list,
         logger.warning("Dashboard %s: scheduled-run email failed", artifact_id, exc_info=True)
 
 
-async def _tell_owner(db, artifact_id: str, title: str, owner: User, organization, error: str) -> None:
+async def _tell_owner(db, artifact_id: str, title: str, owner: User, organization, error: str,
+                      *, link: str | None = None) -> None:
     from app.services import automation_alerts
 
     try:
         await automation_alerts.notify_owner_of_failure(
             db, kind="dashboard", automation_id=artifact_id, automation_name=title, owner=owner,
             organization=organization, outcome=automation_alerts.RunOutcome(ok=False, error_message=error),
-            link=f"/d/{artifact_id}",
+            link=link or f"/d/{artifact_id}",
         )
     except Exception:
         logger.warning("Dashboard %s: failure alert not sent", artifact_id, exc_info=True)

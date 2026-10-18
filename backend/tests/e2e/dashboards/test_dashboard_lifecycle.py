@@ -434,3 +434,22 @@ def test_a_dashboard_deleted_while_publishing_does_not_go_live(corpus, corpus_ro
     assert _rows(corpus_rows, "SELECT status FROM artifact_releases WHERE id = :r", r=attempt) == [
         {"status": "failed"}]
     assert _artifact(corpus_rows, aid)["published_release_id"] is None
+
+
+# ── phase 8: a fork from /d says where it came from ──────────────────────
+
+@pytest.mark.e2e
+def test_a_fork_from_d_names_its_source_dashboard(corpus, corpus_rows, test_client, spawned):
+    """The conversation's Fork shows "Forked from <conversation>" and waits
+    for its hydration; a fork from /d names the dashboard instead (never the
+    owner's conversation), so the editor shows the same banner and the same
+    waiting."""
+    aid, _ = _published_shared(corpus, corpus_rows, test_client, f"{CONV}/dash_sales")
+    fork = _fork(test_client, corpus, aid)
+    (row,) = _rows(corpus_rows, "SELECT forked_from_id, forked_from_artifact_id FROM reports WHERE id = :r",
+                   r=fork["report_id"])
+    assert row == {"forked_from_id": None, "forked_from_artifact_id": aid}
+    body = test_client.get(f"/api/reports/{fork['report_id']}", headers=as_(corpus, "member")).json()
+    assert body["forked_from_artifact_id"] == aid and body["forked_from_id"] is None
+    assert body["forked_from_title"] == "לוח מכירות"
+    assert body["forked_from_user_name"] == "corpus owner"

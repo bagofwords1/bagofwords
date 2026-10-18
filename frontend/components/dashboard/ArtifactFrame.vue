@@ -145,7 +145,7 @@
           :artifact-viz-ids="selectedArtifact?.content?.visualization_ids || []"
           :artifact-mode="selectedArtifact?.mode"
         />
-        <CronModal v-if="report" :report="report" compact />
+        <CronModal v-if="report" :report="report" :dashboard-id="selectedArtifact?.artifact_id" compact />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -211,8 +211,12 @@
           <Icon name="heroicons:information-circle" class="w-3.5 h-3.5 text-amber-500" />
         </UTooltip>
 
+        <!-- Publish (the version open here) beside Share -->
+        <PublishButton v-if="report && selectedArtifact" :artifact="selectedArtifact" />
+
         <!-- Share Dashboard -->
-        <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')" />
+        <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')"
+          :dashboard-id="selectedArtifact?.artifact_id" />
       </div>
     </div>
 
@@ -540,6 +544,7 @@ import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
 import DataModal from './DataModal.vue';
 import ShareModal from '../ShareModal.vue';
+import PublishButton from './PublishButton.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
 import DocViewer from './DocViewer.vue';
@@ -1603,9 +1608,12 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     { label: t('artifactFrame.fullScreen'), icon: 'i-heroicons-arrows-pointing-out', click: openFullscreen },
   ];
   if (props.report) {
-    // /r/{id} itself enforces access — an unshared report is still viewable
-    // there by its owner.
-    view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
+    // The dashboard's own page (phase 8): /d enforces access, and sends its
+    // editors to the draft while it is not published. Without a dashboard
+    // id (older rows), the conversation's /r as before.
+    const dashboardId = selectedArtifact.value?.artifact_id;
+    const page = dashboardId ? `/d/${dashboardId}` : `/r/${props.report.id}`;
+    view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(page, '_blank', 'noopener') });
   }
 
   if (selectedArtifact.value?.artifact_id && !props.verificationPreview) {

@@ -836,7 +836,8 @@
       "errorNew": "Finished with an error"
     },
     "inProject": "In {name}",
-    "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again."
+    "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
+    "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}"
   },
   "projects": {
     "title": "Projects",
@@ -3926,7 +3927,9 @@
     "chatModelOrgDefaultPlain": "Organization default",
     "chatModelReport": "Same as report ({name})",
     "chatModelReportPlain": "Same as report",
-    "chatModelUnavailable": "Unavailable model — using default"
+    "chatModelUnavailable": "Unavailable model — using default",
+    "linkNameEdit": "Edit link name",
+    "linkNameRemove": "Without a name, links that use it stop working; the link with the id keeps working."
   },
   "publish": {
     "published": "Published",
@@ -3963,8 +3966,9 @@
     "dashboard.version_not_publishable": "Only a version that finished successfully can be published.",
     "dashboard.publish_public_monitoring": "This dashboard is public and uses monitoring data. Change its sharing before publishing.",
     "dashboard.publish_connection": "A connection this dashboard uses isn't working: {names}. Reconnect it and publish again.",
-    "dashboard.schedule_requires_publish": "Publish the dashboard before scheduling it.",
     "dashboard.edit_first": "This dashboard has no draft to publish. Edit it first.",
+    "dashboard.slug_invalid": "A link name uses 3 to 80 lowercase English letters, digits and hyphens, and starts and ends with a letter or digit.",
+    "dashboard.slug_taken": "This link name is taken. Choose another.",
     "access.denied": "Access denied",
     "account.disabled": "Your account has been disabled. Contact your administrator.",
     "connection.not_found": "Connection not found",
@@ -4283,7 +4287,14 @@
     "exportAs": "Export as {format}",
     "partialNoAccess": "You don't have access to the data for: {charts}",
     "partialFailed": "Couldn't load: {charts}",
-    "partialRenderFailed": "Part of this dashboard uses data you don't have access to, so it couldn't be displayed. Ask the dashboard's owner for access."
+    "partialRenderFailed": "Part of this dashboard uses data you don't have access to, so it couldn't be displayed. Ask the dashboard's owner for access.",
+    "publish": "Publish",
+    "publishing": "Publishing…",
+    "published": "Dashboard published",
+    "publishFailed": "Publish failed",
+    "notPublishedYet": "Not published yet",
+    "unpublishedChanges": "You have changes that aren't published",
+    "publishedUpToDate": "Published and up to date"
   },
   "filter": {
     "selectColumn": "Select column",

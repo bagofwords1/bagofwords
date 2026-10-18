@@ -794,7 +794,8 @@
         "prompt": "Granska svar som fått negativ återkoppling från användare för att hitta mönster och förbättringsområden."
       }
     ],
-    "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen."
+    "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen.",
+    "deleteUnpublishedDashboards": "Opublicerade instrumentpaneler i den raderas också: {names}"
   },
   "projects": {
     "title": "Projekt",
@@ -3744,7 +3745,9 @@
     "chatModelOrgDefaultPlain": "Organisationens standard",
     "chatModelReport": "Samma som rapporten ({name})",
     "chatModelReportPlain": "Samma som rapporten",
-    "chatModelUnavailable": "Modellen är inte tillgänglig — standard används"
+    "chatModelUnavailable": "Modellen är inte tillgänglig — standard används",
+    "linkNameEdit": "Redigera länknamn",
+    "linkNameRemove": "Utan namn slutar länkar med namnet att fungera; länken med id:t fungerar fortfarande."
   },
   "publish": {
     "published": "Publicerad",
@@ -3781,8 +3784,9 @@
     "dashboard.version_not_publishable": "Bara en version som slutförts utan fel kan publiceras.",
     "dashboard.publish_public_monitoring": "Den här instrumentpanelen är offentlig och använder övervakningsdata. Ändra delningen innan du publicerar.",
     "dashboard.publish_connection": "En anslutning som den här instrumentpanelen använder fungerar inte: {names}. Anslut den igen och publicera på nytt.",
-    "dashboard.schedule_requires_publish": "Publicera instrumentpanelen innan du schemalägger den.",
     "dashboard.edit_first": "Den här instrumentpanelen har inget utkast att publicera. Redigera den först.",
+    "dashboard.slug_invalid": "Ett länknamn består av 3 till 80 små engelska bokstäver, siffror och bindestreck och börjar och slutar med en bokstav eller siffra.",
+    "dashboard.slug_taken": "Det här länknamnet är upptaget. Välj ett annat.",
     "access.denied": "Åtkomst nekad",
     "account.disabled": "Ditt konto har inaktiverats. Kontakta din administratör.",
     "connection.not_found": "Anslutningen hittades inte",
@@ -4074,7 +4078,14 @@
     "exportAs": "Exportera som {format}",
     "partialNoAccess": "Du har inte åtkomst till data för: {charts}",
     "partialFailed": "Kunde inte läsas in: {charts}",
-    "partialRenderFailed": "En del av den här instrumentpanelen använder data du inte har åtkomst till, så den kunde inte visas. Be ägaren om åtkomst."
+    "partialRenderFailed": "En del av den här instrumentpanelen använder data du inte har åtkomst till, så den kunde inte visas. Be ägaren om åtkomst.",
+    "publish": "Publicera",
+    "publishing": "Publicerar…",
+    "published": "Instrumentpanelen publicerad",
+    "publishFailed": "Publiceringen misslyckades",
+    "notPublishedYet": "Inte publicerad ännu",
+    "unpublishedChanges": "Du har ändringar som inte är publicerade",
+    "publishedUpToDate": "Publicerad och aktuell"
   },
   "filter": {
     "selectColumn": "Välj kolumn",

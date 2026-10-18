@@ -2,7 +2,7 @@
     <!-- Trigger is optional: ArtifactFrame lists "Schedule" in its overflow
          menu and opens this modal through the exposed open() instead. -->
     <UTooltip v-if="!hideTrigger" :text="$t('artifactFrame.schedule')">
-        <button @click="cronModalOpen = true"
+        <button @click="cronModalOpen = true" data-testid="schedule-dashboard"
             :class="compact
                 ? 'p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center'
                 : 'text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded'">
@@ -99,8 +99,8 @@
                     </p>
                 </div>
 
-                <p v-if="report.last_run_at" class="mt-4 text-sm text-gray-500 dark:text-gray-400">
-                    Last run: {{ formatDate(report.last_run_at) }}
+                <p v-if="lastRunAt" class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                    Last run: {{ formatDate(lastRunAt) }}
                 </p>
             </div>
 
@@ -181,12 +181,18 @@ const props = defineProps<{
     hideTrigger?: boolean
     /** Small icon button matching the artifact toolbar (ArtifactFrame). */
     compact?: boolean
+    /** The dashboard open in the editor (phase 8): its own schedule. Not
+     *  published yet, the schedule refreshes its draft, as today. */
+    dashboardId?: string
 }>();
 
 const report = ref(props.report);
 const isSaving = ref(false);
-
-const reportUrl = computed(() => `${window.location.origin}/r/${report.value.id}`);
+const { getErrorMessage } = useErrorMessage();
+// The dashboard's last refresh: the published version's when it has one,
+// else the draft's (its conversation's rerun).
+const dashboardLastRun = ref<string | null>(null);
+const lastRunAt = computed(() => (props.dashboardId ? dashboardLastRun.value : report.value.last_run_at));
 
 const { t } = useI18n()
 const { getCronLabel } = useCronLabel()
@@ -251,9 +257,10 @@ function currentCron(): string {
 
 const scheduleLabel = computed(() => getCronLabel(currentCron()));
 
-// Hydrate the structured inputs from the report's saved cron on mount.
-if (props.report.cron_schedule) {
-    const patch = parseRecurringCron(props.report.cron_schedule);
+// Hydrate the structured inputs from a saved cron.
+function hydrateCron(cron: string | null | undefined) {
+    if (!cron) return;
+    const patch = parseRecurringCron(cron);
     if (patch) {
         if (patch.interval !== undefined) recurInterval.value = patch.interval;
         if (patch.everyN !== undefined) recurEveryN.value = patch.everyN;
@@ -262,6 +269,7 @@ if (props.report.cron_schedule) {
         if (patch.dayOfMonth !== undefined) recurDayOfMonth.value = patch.dayOfMonth;
     }
 }
+if (!props.dashboardId) hydrateCron(props.report.cron_schedule);
 
 // ---- Subscriber management ----
 
@@ -269,8 +277,37 @@ type Subscriber = { type: 'user'; id: string } | { type: 'email'; address: strin
 
 // Initialize from existing report data
 const subscribers = ref<Subscriber[]>(
-    (props.report.notification_subscribers || []).map((s: any) => ({ ...s }))
+    props.dashboardId ? [] : (props.report.notification_subscribers || []).map((s: any) => ({ ...s }))
 );
+
+// The dashboard's own schedule (phase 8), read when the modal opens and when
+// another dashboard is opened in the editor.
+// Another dashboard: nothing of the previous one's schedule carries over.
+function resetSchedule() {
+    refreshMode.value = 'off';
+    recurInterval.value = 'day'; recurEveryN.value = 15; recurHour.value = 8;
+    recurDays.value = [1]; recurDayOfMonth.value = 1;
+    subscribers.value = [];
+    dashboardLastRun.value = null;
+}
+
+async function loadDashboardSchedule() {
+    const id = props.dashboardId;
+    if (!id) return;
+    const [settings, status] = await Promise.all([
+        useMyFetch(`/dashboards/${id}/settings`),
+        useMyFetch(`/dashboards/${id}/publish`),
+    ]);
+    if (id !== props.dashboardId || settings.error.value || !settings.data.value) return;
+    const st = settings.data.value as any;
+    refreshMode.value = refreshModeFromReport(st);
+    hydrateCron(st.cron_schedule);
+    subscribers.value = (st.notification_subscribers || []).map((x: any) => ({ ...x }));
+    const published = (status.data.value as any)?.published;
+    dashboardLastRun.value = published ? ((status.data.value as any)?.last_run?.at || null) : (report.value.last_run_at || null);
+}
+watch(() => props.dashboardId, () => { resetSchedule(); loadDashboardSchedule(); }, { immediate: true });
+watch(cronModalOpen, (open) => { if (open) loadDashboardSchedule(); });
 
 const inputRef = ref<HTMLInputElement | null>(null);
 const inputValue = ref('');
@@ -385,8 +422,35 @@ function savedModeDescription(): string {
         : 'Report scheduled successfully';
 }
 
+async function scheduleDashboard() {
+    const mode = refreshModeSettings(refreshMode.value, currentCron());
+    const response = await useMyFetch(`/dashboards/${props.dashboardId}/settings`, {
+        method: 'PUT',
+        body: {
+            cron_schedule: mode.cron_expression,
+            refresh_on_view: mode.refresh_on_view,
+            // [] clears them; unscheduling clears them on the server too.
+            notification_subscribers: scheduleEnabled.value ? subscribers.value : [],
+        },
+    });
+    if (response.error.value) {
+        toast.add({ title: 'Error', color: 'red', description: getErrorMessage(response.error.value, 'Failed to schedule report') });
+        return;
+    }
+    toast.add({
+        title: scheduleEnabled.value ? 'Report scheduled' : 'Settings saved',
+        color: 'green',
+        description: savedModeDescription(),
+    });
+    cronModalOpen.value = false;
+}
+
 async function scheduleReport() {
     isSaving.value = true;
+    if (props.dashboardId) {
+        try { await scheduleDashboard(); } finally { isSaving.value = false; }
+        return;
+    }
     try {
         const response = await useMyFetch(`/api/reports/${report.value.id}/schedule`, {
             method: 'POST',

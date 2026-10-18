@@ -17,6 +17,7 @@ Saving registers the dashboard's job (dashboard_refresh).
 import logging
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from app.errors import AppError, ErrorCode
 from app.models.artifact import Artifact
@@ -204,7 +205,8 @@ def get_settings(artifact) -> dict:
             "chat_model_id": artifact.chat_model_id,
             "cron_schedule": artifact.cron_schedule,
             "refresh_on_view": bool(artifact.refresh_on_view),
-            "notification_subscribers": artifact.notification_subscribers}
+            "notification_subscribers": artifact.notification_subscribers,
+            "slug": artifact.slug}
 
 
 async def _data_source_ids(db, artifact) -> list[str]:
@@ -275,11 +277,10 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
             parse_cron(cron)
         except Exception:
             raise AppError.bad_request(ErrorCode.VALIDATION, "Invalid schedule")
-        if await published_release(db, artifact) is None:
-            raise AppError.conflict(ErrorCode.DASHBOARD_SCHEDULE_REQUIRES_PUBLISH,
-                                    "Publish the dashboard before scheduling it")
+        # Published or not (phase 8): before publishing the schedule refreshes
+        # the draft, as a conversation's does today.
         if artifact.mode == "slides":
-            raise AppError.bad_request(ErrorCode.VALIDATION, "A published deck is frozen and does not refresh")
+            raise AppError.bad_request(ErrorCode.VALIDATION, "A deck does not refresh on a schedule")
 
     if switch_identity:
         await _drop_viewer_results(db, artifact)
@@ -301,8 +302,16 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
         artifact.notification_subscribers = list(changes["notification_subscribers"])
     if changes.get("refresh_on_view") is not None:
         artifact.refresh_on_view = bool(changes["refresh_on_view"])
+    if changes.get("slug") is not None:
+        from app.services.dashboard_slug import set_slug
 
-    await db.commit()
+        await set_slug(db, artifact, changes["slug"])
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise AppError.conflict(ErrorCode.DASHBOARD_SLUG_TAKEN)
     await db.refresh(artifact)
     if cron is not None:
         from app.services.dashboard_refresh import org_timezone, register_job

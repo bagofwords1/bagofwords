@@ -88,8 +88,9 @@
 		<template v-if="!isMobile || mobileView === 'chat'">
 		<!-- Fork banner -->
 		<ForkBanner
-			v-if="report?.forked_from_id"
+			v-if="isFork"
 			:forked-from-id="report.forked_from_id"
+			:forked-from-dashboard-id="report.forked_from_artifact_id"
 			:forked-from-title="report.forked_from_title"
 			:forked-from-user-name="report.forked_from_user_name"
 		/>
@@ -100,7 +101,7 @@
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
-				<ForkPreparing v-if="report?.forked_from_id && !forkReady" :nothing-ran="forkNothingRan" class="mb-4" />
+				<ForkPreparing v-if="isFork && !forkReady" :nothing-ran="forkNothingRan" class="mb-4" />
 				<ForkedQueriesPanel
 					v-else-if="forkedQueries.length > 0"
 					:queries="forkedQueries"
@@ -108,7 +109,7 @@
 				/>
 
 				<!-- Fork summary separator -->
-				<div v-if="report?.forked_from_id && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
+				<div v-if="isFork && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 					<span class="text-[10px] text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
@@ -2360,6 +2361,10 @@ const forkedArtifactRef = computed(() => {
 // refresh-on-view; mounted mid-hydration it would rerun every query
 // underneath the hydration pass. Mounting after it, the backend skips that
 // rerun — hydration stamped last_run_at, so the data reads as fresh.
+// A conversation's fork names its conversation; a fork from a published
+// dashboard's page names the dashboard (phase 8). Both show the same banner
+// and wait for hydration the same way.
+const isFork = computed(() => !!((report.value as any)?.forked_from_id || (report.value as any)?.forked_from_artifact_id))
 const forkStatusChecked = ref(false)
 const forkHydrating = ref(false)
 const forkNothingRan = ref(false)
@@ -2389,7 +2394,7 @@ let forkHydrationTimer: ReturnType<typeof setTimeout> | null = null
 // gated, so the waiting state is reached only by the forks it was written for.
 const forkMayHydrate = computed(() => {
     const r = report.value as any
-    if (!r?.forked_from_id || !r?.created_at) return false
+    if (!isFork.value || !r?.created_at) return false
     // Naive UTC on the wire (the backend stores utcnow()); only stamp a zone
     // onto a value that carries none, or the parse turns to NaN.
     const raw = String(r.created_at)

@@ -87,15 +87,19 @@
                 <!-- Cards grid -->
                 <div v-else-if="reports.length > 0">
                     <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                        <!-- view-mode="org" so cards open the dashboard view
-                             (/r/[id]) on both tabs — owners edit via the pencil
-                             (/reports/[id]). 'my' mode would link the editor. -->
+                        <!-- One card per dashboard (phase 8): it opens the
+                             dashboard's /d page on both tabs; its owner edits
+                             through the pencil (its conversation, or a new one
+                             from the published version when that was deleted). -->
                         <RecentReportCard
-                            v-for="report in reports"
-                            :key="report.id"
-                            :report="report"
+                            v-for="dashboard in reports"
+                            :key="dashboard.id"
+                            :report="asCard(dashboard)"
                             view-mode="org"
-                            :is-owner="report.user?.id === (currentUser as any)?.id"
+                            :to="`/d/${dashboard.slug || dashboard.id}`"
+                            :edit-to="dashboard.report_id ? `/reports/${dashboard.report_id}` : null"
+                            :is-owner="dashboard.is_owner"
+                            @edit="editDashboard(dashboard)"
                         />
                     </div>
 
@@ -175,7 +179,6 @@
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import RecentReportCard from '~/components/home/RecentReportCard.vue'
 
-const { data: currentUser } = useAuth()
 const { t } = useI18n()
 const toast = useToast()
 
@@ -258,20 +261,19 @@ const setTypeFilter = async (tf: 'all' | 'page' | 'doc') => {
 const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my', search: string = '') => {
     isLoading.value = true
     try {
-        const response = await useMyFetch('/reports', {
+        const response = await useMyFetch('/dashboards', {
             method: 'GET',
             query: {
                 page,
                 limit: pagination.value.limit,
                 filter,
                 search: search?.trim() || undefined,
-                has_artifacts: 'yes',
-                artifact_mode: typeFilter.value === 'all' ? undefined : typeFilter.value,
+                mode: typeFilter.value === 'all' ? undefined : typeFilter.value,
             },
         })
 
         if (response.status.value === 'success' && response.data.value) {
-            reports.value = response.data.value.reports
+            reports.value = (response.data.value as any).dashboards
             pagination.value = response.data.value.meta
         } else {
             throw new Error('Could not fetch dashboards')
@@ -285,6 +287,29 @@ const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my',
         })
     } finally {
         isLoading.value = false
+    }
+}
+
+// The card reads a conversation's fields: give it the dashboard's. Its id is
+// the editing conversation's when there is one, for the activity dot, as
+// the conversation's card had.
+const asCard = (d: any) => ({
+    id: d.report_id || d.id,
+    title: d.title,
+    slug: d.slug || d.id,
+    status: d.published ? 'published' : 'draft',
+    user: d.owner || {},
+    artifact_modes: [d.mode],
+    conversation_share_enabled: false,
+    thumbnail_url: d.thumbnail_url,
+})
+
+// The owner's pencil on a dashboard whose conversation was deleted: Edit
+// opens a new one from the published version, as on /d.
+const editDashboard = async (d: any) => {
+    const { data, error } = await useMyFetch(`/dashboards/${d.id}/edit`, { method: 'POST' })
+    if (!error.value && (data.value as any)?.report_id) {
+        navigateTo(`/reports/${(data.value as any).report_id}`)
     }
 }
 

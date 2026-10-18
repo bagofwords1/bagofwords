@@ -109,6 +109,10 @@ class Report(BaseSchema):
 
     # Fork lineage
     forked_from_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
+    # A fork from a published dashboard's page (dashfc07): the dashboard, not
+    # the owner's conversation (forked_from_id stays empty for it).
+    forked_from_artifact_id = Column(String(36), ForeignKey('artifacts.id', name='fk_reports_forked_from_artifact_id',
+                                                            ondelete='SET NULL'), nullable=True, index=True)
     forked_from = relationship("Report", remote_side="Report.id", lazy="selectin")
 
     # Project membership (shared folder). NULL = personal root list. Moving a

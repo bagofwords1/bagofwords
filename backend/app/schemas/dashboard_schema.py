@@ -2,9 +2,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.schemas.notification_schema import NotificationSubscriber
+from app.schemas.notification_schema import NotificationSubscriber, NotificationType, NotifyRequest
 
 Visibility = Literal["none", "shared", "internal", "public"]
 
@@ -13,6 +13,20 @@ class PublicGeneralSettings(BaseModel):
     ai_analyst_name: str = "AI Analyst"
     bow_credit: bool = True
     icon_url: str | None = None
+
+
+class DashboardForkEligibility(BaseModel):
+    can_fork: bool
+    reason: str | None = None
+
+
+class DashboardConnectionKind(BaseModel):
+    type: str | None = None
+    auth_policy: str | None = None
+
+
+class DashboardSourceKind(BaseModel):
+    connections: list[DashboardConnectionKind] = []
 
 
 class PublishedDashboardSchema(BaseModel):
@@ -31,6 +45,13 @@ class PublishedDashboardSchema(BaseModel):
     include_data_tab: bool
     chat_enabled: bool
     general: PublicGeneralSettings | None = None
+    # What /r's page reads besides the dashboard (phase 8): the reader's
+    # standing, Fork, refresh-on-view, and the kinds of connection it runs
+    # on (the sign-in gate's icon) -- never their names or ids.
+    is_owner: bool = False
+    fork_eligibility: DashboardForkEligibility
+    refresh_on_view: bool
+    data_sources: list[DashboardSourceKind] = []
 
 
 class DraftDashboardSchema(BaseModel):
@@ -43,6 +64,7 @@ class DraftDashboardSchema(BaseModel):
     published: bool
     theme_name: str | None = None
     theme_overrides: dict | None = None
+    general: PublicGeneralSettings | None = None  # the page's credit and analyst name (phase 8)
 
 
 class DashboardSharingSchema(BaseModel):
@@ -70,6 +92,7 @@ class DashboardSettingsSchema(BaseModel):
     cron_schedule: str | None = None
     refresh_on_view: bool = True
     notification_subscribers: list[dict] | None = None
+    slug: str | None = None  # the name in its link (phase 8)
 
 
 class DashboardSettingsUpdate(BaseModel):
@@ -85,6 +108,8 @@ class DashboardSettingsUpdate(BaseModel):
     cron_schedule: str | None = None
     refresh_on_view: bool | None = None
     notification_subscribers: list[NotificationSubscriber] | None = None
+    # The name in its link (phase 8); "" removes it.
+    slug: str | None = Field(default=None, max_length=255)
 
 
 class DashboardReleaseSchema(BaseModel):
@@ -125,3 +150,43 @@ class DashboardPublishRequest(BaseModel):
 
 
 DashboardPublishStatusSchema.model_rebuild()
+
+
+class DashboardNotifyRequest(NotifyRequest):
+    """Telling people a dashboard was shared with them (phase 8). Always a
+    dashboard share; the link is the server's (share_url is ignored)."""
+    type: NotificationType = NotificationType.SHARE_DASHBOARD
+
+
+class DashboardListOwner(BaseModel):
+    id: str
+    name: str | None = None
+
+
+class DashboardListItem(BaseModel):
+    """One card of the dashboards page (phase 8). report_id only for its
+    editors (the card's pencil)."""
+    id: str
+    slug: str | None = None
+    title: str | None = None
+    mode: str
+    published: bool
+    is_owner: bool
+    report_id: str | None = None
+    owner: DashboardListOwner | None = None
+    thumbnail_url: str | None = None
+    updated_at: datetime | None = None
+
+
+class DashboardListMeta(BaseModel):
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
+
+
+class DashboardListResponse(BaseModel):
+    dashboards: list[DashboardListItem]
+    meta: DashboardListMeta

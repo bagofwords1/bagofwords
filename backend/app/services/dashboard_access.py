@@ -42,6 +42,14 @@ async def resolve(db, ref: str) -> Artifact:
     artifact = (await db.execute(
         select(Artifact).where(column == ref, Artifact.deleted_at.is_(None))
     )).scalar_one_or_none()
+    if artifact is None and column is Artifact.slug:
+        # A name the dashboard had keeps leading to it (phase 8).
+        from app.services.dashboard_slug import by_old_name
+
+        old = await by_old_name(db, ref)
+        artifact = (await db.execute(
+            select(Artifact).where(Artifact.id == str(old), Artifact.deleted_at.is_(None))
+        )).scalar_one_or_none() if old else None
     if artifact is None:
         raise _not_found()
     return artifact
@@ -163,3 +171,24 @@ async def open_draft(db, ref: str, user) -> Artifact:
         raise _not_found()
     await assert_read(db, await report_access(db, artifact.report_id), user)
     return artifact
+
+
+async def admit_reader(db, artifact: Artifact, user) -> None:
+    """Raise unless `user` may read this dashboard through /d: its editors,
+    or -- once published -- whoever its sharing lets in. For what the page
+    reaches besides the release (its runtime: forms, records, views)."""
+    from app.services.bow_source_access import assert_read, report_access
+
+    release = await published_release(db, artifact)
+    if await can_edit(db, artifact, user):
+        # As the doors do: /d checks the release's monitoring access, the
+        # draft its conversation's.
+        if release is not None:
+            await assert_read(db, release.bow_source_access, user)
+        elif artifact.report_id:
+            await assert_read(db, await report_access(db, artifact.report_id), user)
+        return
+    if release is None:
+        raise _not_found()
+    await assert_read(db, release.bow_source_access, user)
+    await check_visibility(db, artifact, user)

@@ -120,11 +120,13 @@ def _settings(test_client, corpus, aid, **body):
 # ── the schedule's settings ──────────────────────────────────────────────
 
 @pytest.mark.e2e
-def test_the_schedule_is_a_setting_of_the_published_dashboard(corpus, corpus_rows, test_client, jobs):
+def test_the_schedule_is_a_setting_of_the_dashboard(corpus, corpus_rows, test_client, jobs):
+    """Published or not (phase 8): before publishing it refreshes the draft,
+    as a conversation's schedule does today; the job is the same."""
     aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
     early = _settings(test_client, corpus, aid, cron_schedule="0 8 * * *")
-    assert early.status_code == 409 and early.json()["error_code"] == "dashboard.schedule_requires_publish"
-    assert jobs.get_job(f"dashboard_{aid}") is None
+    assert early.status_code == 200, early.text
+    assert jobs.get_job(f"dashboard_{aid}") is not None
 
     publish(aid)
     subscribers = [{"type": "user", "id": corpus.cast.id("member")}, {"type": "email", "address": "cfo@corpus.com"}]
@@ -376,9 +378,9 @@ def test_a_schedule_waits_for_a_publish_that_is_running(corpus, corpus_rows, tes
 @pytest.mark.e2e
 def test_startup_registers_exactly_the_dashboard_schedules(corpus, corpus_rows, test_client, jobs):
     """The leader rebuilds the dashboards' jobs from the table: one per
-    published, scheduled dashboard; a job left for a dashboard without a
-    schedule goes; the conversations' jobs are not touched. Twice gives the
-    same."""
+    scheduled dashboard, published or not (phase 8); a job left for a
+    dashboard without a schedule goes; the conversations' jobs are not
+    touched. Twice gives the same."""
     from app.services import dashboard_refresh
 
     scheduled = []
@@ -396,8 +398,8 @@ def test_startup_registers_exactly_the_dashboard_schedules(corpus, corpus_rows, 
     for _ in range(2):
         asyncio.run(dashboard_refresh.register_all_jobs())
         mine = {j.id for j in jobs.get_jobs() if j.id.startswith("dashboard_")}
-        assert {f"dashboard_{a}" for a in scheduled} <= mine
-        assert f"dashboard_{stray}" not in mine and f"dashboard_{unpublished}" not in mine
+        assert {f"dashboard_{a}" for a in scheduled} | {f"dashboard_{unpublished}"} <= mine
+        assert f"dashboard_{stray}" not in mine
         assert jobs.get_job("report_phase6_keep") is not None
 
 
@@ -599,3 +601,116 @@ def test_the_owners_alert_links_to_the_dashboard(corpus, monkeypatch):
             outcome=outcome, report_id=report_id, link=link))
     assert links[0] == "/d/abc" and links[1].endswith("/d/abc")
     assert links[2] == "/reports/r1" and links[4] == "/automations"
+
+
+# ── the schedule of a dashboard not published yet (phase 8) ──────────────
+#
+# "The schedule refreshes what is seen": before publishing, the draft, with
+# the conversation's own rerun as today (only this dashboard's queries); once
+# published, the release only.
+
+def _draft_steps(corpus_rows, report_id):
+    return {r["title"]: r for r in _rows(
+        corpus_rows, "SELECT q.title, s.id AS step, s.data FROM queries q JOIN steps s ON s.id = q.default_step_id "
+                     "WHERE q.report_id = :r AND q.artifact_release_id IS NULL", r=report_id)}
+
+
+@pytest.fixture
+def no_thumbnail(monkeypatch):
+    """The conversation rerun regenerates its thumbnail (a headless browser): not here."""
+    from app.services.thumbnail_service import ThumbnailService
+
+    async def skip(self, *args, **kwargs):
+        return None
+
+    monkeypatch.setattr(ThumbnailService, "regenerate_for_report", skip)
+
+
+@pytest.mark.e2e
+def test_an_unpublished_dashboards_schedule_refreshes_its_draft_as_today(corpus, corpus_rows, test_client,
+                                                                         no_thumbnail, sent):
+    conv = corpus.reports["conv_three_dash"]
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    steps = _draft_steps(corpus_rows, conv)
+    for title in ("הכנסות לפי חודש", "מלאי לפי מחסן"):
+        corpus_rows.update("steps", steps[title]["step"], data=STALE)
+    subscribers = [{"type": "user", "id": corpus.cast.id("member")}, {"type": "email", "address": "cfo@corpus.com"}]
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *", notification_subscribers=subscribers)
+    _scheduled(aid)
+    after = _draft_steps(corpus_rows, conv)
+    assert _months(after["הכנסות לפי חודש"]["data"]) == {"ינואר", "פברואר"}  # this dashboard's query ran
+    assert _months(after["מלאי לפי מחסן"]["data"]) == {"ישן"}  # another dashboard's did not
+    (email,) = sent["email"]
+    assert email["report_url"].endswith(f"/d/{aid}/draft") and email["subscribers"] == subscribers
+    (inbox,) = sent["inbox"]
+    assert inbox["link"] == f"/d/{aid}/draft" and inbox["user_ids"] == [corpus.cast.id("member")]
+    assert sent["owner"] == []
+    # The published version's record is not the draft's.
+    assert _artifact(corpus_rows, aid)["last_run_status"] is None
+
+
+@pytest.mark.e2e
+def test_a_draft_refresh_that_fails_tells_the_owner_only(corpus, corpus_rows, test_client, no_thumbnail, sent):
+    conv = corpus.reports["conv_three_dash"]
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    step = _draft_steps(corpus_rows, conv)["הכנסות לפי חודש"]["step"]
+    corpus_rows.update("steps", step, code=BROKEN, data=STALE)
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *",
+                       notification_subscribers=[{"type": "email", "address": "cfo@corpus.com"}])
+    _scheduled(aid)
+    assert sent["email"] == [] and sent["inbox"] == []
+    (alert,) = sent["owner"]
+    assert str(alert["owner"].id) == corpus.cast.id("owner") and alert["link"] == f"/d/{aid}/draft"
+
+
+@pytest.mark.e2e
+def test_once_published_the_schedule_refreshes_the_release_and_not_the_draft(corpus, corpus_rows, test_client,
+                                                                             spawned, no_thumbnail, sent):
+    conv = corpus.reports["conv_three_dash"]
+    aid, release = _published(corpus, corpus_rows, test_client)
+    draft_step = _draft_steps(corpus_rows, conv)["הכנסות לפי חודש"]["step"]
+    (copy,) = _copies(corpus_rows, release)
+    corpus_rows.update("steps", draft_step, data=STALE)
+    corpus_rows.update("steps", copy["step"], data=STALE)
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *")
+    _scheduled(aid)
+    assert _months(_copies(corpus_rows, release)[0]["data"]) == {"ינואר", "פברואר"}
+    assert _months(_draft_steps(corpus_rows, conv)["הכנסות לפי חודש"]["data"]) == {"ישן"}
+
+
+@pytest.mark.e2e
+def test_a_draft_schedule_runs_as_the_owner_while_they_are_in_the_organization(corpus, corpus_rows, test_client,
+                                                                                no_thumbnail, sent):
+    conv = corpus.reports["conv_three_dash"]
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    step = _draft_steps(corpus_rows, conv)["הכנסות לפי חודש"]["step"]
+    corpus_rows.update("steps", step, data=STALE)
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *",
+                       notification_subscribers=[{"type": "email", "address": "cfo@corpus.com"}])
+    membership = corpus.cast.people["owner"].membership_id
+    assert test_client.delete(f"/api/organizations/{corpus.cast.org_id}/members/{membership}",
+                              headers=as_(corpus, "admin")).status_code == 204
+    _scheduled(aid)
+    assert _months(_draft_steps(corpus_rows, conv)["הכנסות לפי חודש"]["data"]) == {"ישן"}
+    assert sent["email"] == []
+
+
+@pytest.mark.e2e
+def test_a_draft_refresh_that_breaks_outright_still_tells_the_owner(corpus, corpus_rows, test_client,
+                                                                     no_thumbnail, sent, monkeypatch):
+    """The rerun itself raising (not one query failing): the session is
+    rolled back, and the owner is still told."""
+    from app.services.report_service import ReportService
+
+    async def broken(self, *args, **kwargs):
+        raise RuntimeError("the connection could not be built")
+
+    monkeypatch.setattr(ReportService, "rerun_report_steps", broken)
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *",
+                       notification_subscribers=[{"type": "email", "address": "cfo@corpus.com"}])
+    _scheduled(aid)
+    assert sent["email"] == []
+    (alert,) = sent["owner"]
+    assert str(alert["owner"].id) == corpus.cast.id("owner") and alert["link"] == f"/d/{aid}/draft"
+    assert "could not be built" in alert["outcome"].error_message

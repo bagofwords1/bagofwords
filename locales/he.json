@@ -810,7 +810,8 @@
     "inProject": "בפרויקט {name}",
     "sharedEmpty": "אין דוחות משותפים",
     "sharedEmptyHint": "דוחות שאחרים ישתפו איתך יופיעו כאן.",
-    "artifactLoadFailed": "לא ניתן לטעון את הגלריה. יש לרענן את הדף ולנסות שוב."
+    "artifactLoadFailed": "לא ניתן לטעון את הגלריה. יש לרענן את הדף ולנסות שוב.",
+    "deleteUnpublishedDashboards": "דשבורדים שלא פורסמו יימחקו גם הם: {names}"
   },
   "projects": {
     "title": "פרויקטים",
@@ -3864,7 +3865,9 @@
     "chatModelOrgDefaultPlain": "ברירת המחדל של הארגון",
     "chatModelReport": "כמו בדוח ({name})",
     "chatModelReportPlain": "כמו בדוח",
-    "chatModelUnavailable": "מודל לא זמין — נעשה שימוש בברירת המחדל"
+    "chatModelUnavailable": "מודל לא זמין — נעשה שימוש בברירת המחדל",
+    "linkNameEdit": "עריכת השם בקישור",
+    "linkNameRemove": "בלי שם, קישורים עם השם יפסיקו לעבוד. הקישור עם המזהה ממשיך לעבוד."
   },
   "publish": {
     "published": "פורסם",
@@ -3901,8 +3904,9 @@
     "dashboard.version_not_publishable": "אפשר לפרסם רק גרסה שהסתיימה בהצלחה.",
     "dashboard.publish_public_monitoring": "הדשבורד הזה ציבורי ומשתמש בנתוני ניטור. יש לשנות את השיתוף לפני הפרסום.",
     "dashboard.publish_connection": "חיבור שהדשבורד משתמש בו לא עובד: {names}. יש לחבר אותו מחדש ולפרסם שוב.",
-    "dashboard.schedule_requires_publish": "יש לפרסם את הדשבורד לפני שמתזמנים אותו.",
     "dashboard.edit_first": "אין לדשבורד הזה טיוטה לפרסום. יש לערוך אותו קודם.",
+    "dashboard.slug_invalid": "שם בקישור הוא 3 עד 80 אותיות אנגליות קטנות, ספרות ומקפים, ומתחיל ומסתיים באות או בספרה.",
+    "dashboard.slug_taken": "השם הזה כבר תפוס. יש לבחור שם אחר.",
     "access.denied": "הגישה נדחתה",
     "account.disabled": "החשבון שלך הושבת. פנה למנהל המערכת.",
     "connection.not_found": "החיבור לא נמצא",
@@ -4223,7 +4227,14 @@
     "exportAs": "ייצוא כ-{format}",
     "partialNoAccess": "אין לך הרשאה לנתונים של: {charts}",
     "partialFailed": "לא ניתן היה לטעון: {charts}",
-    "partialRenderFailed": "חלק מהדשבורד מבוסס על נתונים שאין לך הרשאה אליהם, ולכן לא ניתן היה להציג אותו. בקשו גישה מבעלי הדשבורד."
+    "partialRenderFailed": "חלק מהדשבורד מבוסס על נתונים שאין לך הרשאה אליהם, ולכן לא ניתן היה להציג אותו. בקשו גישה מבעלי הדשבורד.",
+    "publish": "פרסום",
+    "publishing": "מפרסם…",
+    "published": "הדשבורד פורסם",
+    "publishFailed": "הפרסום נכשל",
+    "notPublishedYet": "הדשבורד עוד לא פורסם",
+    "unpublishedChanges": "יש שינויים שעוד לא פורסמו",
+    "publishedUpToDate": "פורסם ומעודכן"
   },
   "filter": {
     "selectColumn": "בחר עמודה",

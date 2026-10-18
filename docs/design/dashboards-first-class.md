@@ -623,8 +623,9 @@ migration.
 - **Settings**: `cron_schedule`, `refresh_on_view` and
   `notification_subscribers` on `/api/dashboards/{id}/settings`, with the
   conversation's validation; `""` unschedules and clears the subscribers;
-  scheduling an unpublished dashboard is refused
-  (`dashboard.schedule_requires_publish`). Saving registers the job.
+  scheduling an unpublished dashboard was refused here; phase 8 reverses
+  that (see there): before its first publish a dashboard's schedule
+  refreshes its draft. Saving registers the job.
 - **Jobs** (`dashboard_refresh`): `dashboard_{id}`, holding only the id; the
   leader re-registers every published, scheduled dashboard's job at startup
   and removes any other `dashboard_` job. A fire claims the run
@@ -713,3 +714,72 @@ organization's model.
   rows (`ReleaseRender`).
 
 Tests: `test_dashboard_lifecycle.py`, `test_dashboard_chat.py`.
+
+## Phase 8 — the UI, as close to today's as possible
+
+Decisions (with Rachel, 2026-10-18): no redesign -- the work is wiring. The
+/d page is the /r page; Share and Schedule look as they did; one Publish
+button; one small line in the delete dialog; a pencil beside the link for
+its name.
+
+- **/d page**: the /r page body moved into
+  `frontend/components/dashboard/SharedDashboardView.vue`, read through an
+  endpoint map (`frontend/utils/sharedDashboardApi.ts`) for three sources:
+  `report` (the conversation's /r, unchanged), `dashboard` (/d) and `draft`
+  (/d/{id}/draft, where an unpublished /d sends its editors). The /d meta
+  adds what the page reads: `is_owner` (counts_as_owner), `fork_eligibility`
+  (`dashboard_lifecycle.fork_eligibility`, the same rule the fork route
+  applies), `refresh_on_view`, and `data_sources` -- connection type and
+  auth policy only (the sign-in gate's icon). The draft meta adds `general`.
+- **Runtime** (`/api/artifacts/{id}/runtime/...`): the conversation's
+  sharing still lets its readers in; the dashboard's lets in its /d readers
+  too (`dashboard_access.admit_reader`: editors, with the doors' monitoring
+  check, or -- once published -- its visibility), also once the conversation
+  is gone. The owner is the conversation's, or the dashboard's while a
+  member.
+- **Publish button** (`PublishButton.vue`, beside Share): publishes the
+  version open in the editor; spinner while publishing, a toast with the
+  reason on failure, a dot while the open draft is not what readers see.
+  Shown to whoever the status call answers (the owner).
+- **Share and Schedule** save to the dashboard open in the editor
+  (`/api/dashboards/{id}/sharing|settings`) and show its `/d` link. Sharing
+  waits for Publish: until then the access list is off, with one line.
+- **Schedule refreshes what is seen** (reverses phase 6): an unpublished
+  dashboard's schedule refreshes its draft with the conversation's own rerun
+  (`ReportService.rerun_report_steps`, this dashboard's queries only), as a
+  conversation's schedule does; subscribers get the draft's link
+  (`/d/{id}/draft`, editors only), the owner is told on failure. Once
+  published, only the release refreshes. `dashboard.schedule_requires_publish`
+  is gone.
+- **The name in the link** (`artifacts.slug`, `artifact_slug_history` --
+  dashfc06, `services/dashboard_slug.py`): lowercase English letters, digits
+  and hyphens, 3 to 80, not shaped like an id, not reserved; unique in the
+  installation, also against other dashboards' old names. Renaming keeps the
+  old name leading to the same dashboard; removing the name stops every name
+  link (they stay taken). Set through `settings.slug`; a fork has none.
+- **Share email**: `POST /api/dashboards/{id}/notify` builds the /d link
+  itself (never the page's), and attaches the release's PDF as any reader
+  would export it (none when withheld; the file is removed once sent).
+- **Fork from /d** records `reports.forked_from_artifact_id` (dashfc07), so
+  the editor shows the conversation Fork's banner (linking to /d) and waits
+  for hydration the same way.
+- **Delete dialogs** name the never-published dashboards that go with the
+  conversation (`delete_preview`).
+- **Dashboards page**: `GET /api/dashboards`, one card per dashboard, the
+  same tabs, search, type filter and paging; SQL narrows to what the /d check
+  can admit and each candidate is then admitted by it; the conversation id
+  only for editors (the pencil).
+- **Errors**: `useErrorMessage` finds catalog messages for dotted codes
+  (bracket form), and uses them only when the server sent no message of its
+  own.
+
+Depends on phase 9 shipping in the same release: dashboards created before
+this code have no `owner_id` (they are missing from the list and the new
+Share/Schedule/Publish refuse them) and a conversation's schedule is not
+shown in the dashboard's Schedule; the data migration fills both.
+
+Tests: `test_dashboard_page.py`, `test_dashboard_slug.py`,
+`test_schema_dashfc06.py`, `test_schema_dashfc07.py`,
+`test_dashboard_notify.py`, `test_dashboard_list.py`, additions to
+`test_dashboard_refresh.py` and `test_dashboard_lifecycle.py`;
+`frontend/tests/unit/useErrorMessage.mjs`.

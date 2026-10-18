@@ -3015,6 +3015,21 @@ class ReportService:
     async def _enrich_fork_lineage(db: AsyncSession, report: Report, schema: "ReportSchema"):
         """Populate fork lineage fields on a ReportSchema from the Report model."""
         forked_from_id = getattr(report, "forked_from_id", None)
+        forked_from_artifact_id = getattr(report, "forked_from_artifact_id", None)
+        if forked_from_artifact_id and not forked_from_id:
+            # A fork from a published dashboard (phase 8): its title and owner.
+            from app.models.artifact import Artifact
+            from app.models.user import User
+
+            schema.forked_from_artifact_id = str(forked_from_artifact_id)
+            source = (await db.execute(
+                select(Artifact.title, Artifact.owner_id).where(Artifact.id == str(forked_from_artifact_id))
+            )).first()
+            if source:
+                schema.forked_from_title = source[0]
+                owner = await db.get(User, str(source[1])) if source[1] else None
+                if owner:
+                    schema.forked_from_user_name = owner.name or owner.email
         if forked_from_id:
             schema.forked_from_id = forked_from_id
             from app.models.user import User

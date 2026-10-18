@@ -170,6 +170,7 @@ class ReportSchema(ReportBase):
     scheduled_prompt_id: Optional[str] = None
     # Fork lineage
     forked_from_id: Optional[str] = None
+    forked_from_artifact_id: Optional[str] = None  # a fork from /d (phase 8)
     forked_from_title: Optional[str] = None
     forked_from_user_name: Optional[str] = None
     # Project (folder) membership; project carries name/icon for the chip.

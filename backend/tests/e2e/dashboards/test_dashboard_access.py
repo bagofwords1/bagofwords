@@ -116,15 +116,12 @@ def test_a_conversation_share_opens_no_dashboard(corpus, corpus_rows, test_clien
 @pytest.mark.e2e
 @pytest.mark.parametrize("person, visibility", [("direct_share", "shared"), ("member", "internal"),
                                                 ("owner", "internal")])
-def test_leaving_the_organization_closes_the_dashboard(corpus, corpus_rows, test_client, monkeypatch,
+def test_leaving_the_organization_closes_the_dashboard(corpus, corpus_rows, test_client, multi_org,
                                                          person, visibility):
     """A grant, the organization's visibility and ownership itself count only
     while their holder is still in the organization. With several
     organizations allowed the account stays active after the removal, so it
     is the dashboard that refuses, not the login."""
-    from app.settings.config import settings
-
-    monkeypatch.setattr(settings.bow_config.features, "allow_multiple_organizations", True)
     aid = own(corpus_rows, corpus, DASH)
     publish(aid)
     users = ["direct_share"] if visibility == "shared" else None
@@ -186,8 +183,11 @@ def test_a_viewer_gets_what_the_page_needs_and_none_of_the_settings(corpus, corp
     body = test_client.get(f"/api/d/{aid}").json()
     assert body["id"] == aid and body["release_id"] == release and body["mode"] == "page"
     assert set(body) <= {"id", "slug", "title", "mode", "release_id", "published_at", "last_run_at",
-                         "theme_name", "theme_overrides", "include_data_tab", "chat_enabled", "general"}
+                         "theme_name", "theme_overrides", "include_data_tab", "chat_enabled", "general",
+                         # what /r's page reads besides the dashboard (phase 8)
+                         "is_owner", "fork_eligibility", "refresh_on_view", "data_sources"}
     assert "boss@example.com" not in str(body) and "0 8 * * *" not in str(body)
+    assert corpus.cast.data_sources["chinook"] not in str(body)
 
 
 @pytest.mark.e2e

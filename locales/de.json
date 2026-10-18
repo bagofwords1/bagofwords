@@ -794,7 +794,8 @@
         "prompt": "Prüfe Antworten mit negativem Nutzerfeedback, um Muster und Verbesserungsmöglichkeiten zu erkennen."
       }
     ],
-    "artifactLoadFailed": "Das Dashboard konnte nicht geladen werden. Bitte lade die Seite erneut."
+    "artifactLoadFailed": "Das Dashboard konnte nicht geladen werden. Bitte lade die Seite erneut.",
+    "deleteUnpublishedDashboards": "Nicht veröffentlichte Dashboards darin werden ebenfalls gelöscht: {names}"
   },
   "projects": {
     "title": "Projekte",
@@ -3744,7 +3745,9 @@
     "chatModelOrgDefaultPlain": "Standard der Organisation",
     "chatModelReport": "Wie im Bericht ({name})",
     "chatModelReportPlain": "Wie im Bericht",
-    "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet"
+    "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet",
+    "linkNameEdit": "Linknamen bearbeiten",
+    "linkNameRemove": "Ohne Namen funktionieren Links mit diesem Namen nicht mehr; der Link mit der ID funktioniert weiterhin."
   },
   "publish": {
     "published": "Veröffentlicht",
@@ -3781,8 +3784,9 @@
     "dashboard.version_not_publishable": "Nur eine erfolgreich abgeschlossene Version kann veröffentlicht werden.",
     "dashboard.publish_public_monitoring": "Dieses Dashboard ist öffentlich und nutzt Monitoring-Daten. Ändere die Freigabe vor dem Veröffentlichen.",
     "dashboard.publish_connection": "Eine Verbindung, die dieses Dashboard nutzt, funktioniert nicht: {names}. Verbinde sie neu und veröffentliche erneut.",
-    "dashboard.schedule_requires_publish": "Veröffentliche das Dashboard, bevor du es planst.",
     "dashboard.edit_first": "Für dieses Dashboard gibt es keinen Entwurf zum Veröffentlichen. Bearbeite es zuerst.",
+    "dashboard.slug_invalid": "Ein Linkname besteht aus 3 bis 80 englischen Kleinbuchstaben, Ziffern und Bindestrichen und beginnt und endet mit einem Buchstaben oder einer Ziffer.",
+    "dashboard.slug_taken": "Dieser Linkname ist bereits vergeben. Wählen Sie einen anderen.",
     "access.denied": "Zugriff verweigert",
     "account.disabled": "Ihr Konto wurde deaktiviert. Wenden Sie sich an Ihren Administrator.",
     "connection.not_found": "Verbindung nicht gefunden",
@@ -4074,7 +4078,14 @@
     "exportAs": "Als {format} exportieren",
     "partialNoAccess": "Du hast keinen Zugriff auf die Daten für: {charts}",
     "partialFailed": "Konnte nicht geladen werden: {charts}",
-    "partialRenderFailed": "Ein Teil dieses Dashboards nutzt Daten, auf die du keinen Zugriff hast, daher konnte es nicht angezeigt werden. Bitte die Person, der das Dashboard gehört, um Zugriff."
+    "partialRenderFailed": "Ein Teil dieses Dashboards nutzt Daten, auf die du keinen Zugriff hast, daher konnte es nicht angezeigt werden. Bitte die Person, der das Dashboard gehört, um Zugriff.",
+    "publish": "Veröffentlichen",
+    "publishing": "Wird veröffentlicht…",
+    "published": "Dashboard veröffentlicht",
+    "publishFailed": "Veröffentlichung fehlgeschlagen",
+    "notPublishedYet": "Noch nicht veröffentlicht",
+    "unpublishedChanges": "Sie haben nicht veröffentlichte Änderungen",
+    "publishedUpToDate": "Veröffentlicht und aktuell"
   },
   "filter": {
     "selectColumn": "Spalte auswählen",

@@ -51,3 +51,21 @@ def _remove_published_files():
     yield
     remove_release_files(PUBLISHED)
     PUBLISHED.clear()
+
+
+@pytest.fixture
+def multi_org():
+    """Several organizations allowed, so a removed member's account stays
+    active and it is the dashboard that refuses. Restored by hand, as the
+    other tests of this flag do: monkeypatch's undo did not restore it here,
+    and the flag then leaked into later tests (test_membership failing with
+    403 instead of 401 in a full run)."""
+    from app.settings.config import settings
+
+    flags = settings.bow_config.features
+    saved = flags.allow_multiple_organizations
+    flags.allow_multiple_organizations = True
+    try:
+        yield
+    finally:
+        flags.allow_multiple_organizations = saved

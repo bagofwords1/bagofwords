@@ -95,7 +95,13 @@ class ArtifactResources:
         self.actor = str(user.id) if user else None
         self.groups = set(groups)
         self.member = member
-        self.owner = bool(user and str(report.user_id) == self.actor)
+        # The conversation's owner, as before; and the dashboard's, whose page
+        # it is once the conversation is gone (phase 8) -- the latter only while
+        # still in the organization, as dashboard_access.counts_as_owner says.
+        owners = {str(report.user_id) if report else None}
+        if artifact.owner_id and member:
+            owners.add(str(artifact.owner_id))
+        self.owner = bool(user and self.actor in owners)
 
     @classmethod
     async def open(cls, db, artifact_id, user=None, organization_id=None, manage=False, resources=True):
@@ -121,9 +127,9 @@ class ArtifactResources:
                 )
             )
         ).scalar_one_or_none()
-        if report is None or report.status == "archived":
-            fail("NOT_FOUND", "Artifact not found", 404)
-        await ReportService()._check_visibility(db, report, "artifact_visibility", user)
+        await cls._admit(db, artifact, report, user)
+        if report is not None and report.status == "archived":
+            report = None  # let in as the dashboard's reader: no conversation to speak of
         # resources=False: visibility only (view counting and analytics have no switch).
         if resources:
             from app.services.artifact_resource_policy import require_artifact_resources
@@ -152,6 +158,31 @@ class ArtifactResources:
 
             await require_org_permission(db, result.actor, str(artifact.organization_id), "update_reports")
         return result
+
+    @staticmethod
+    async def _admit(db, artifact, report, user):
+        """The conversation's sharing lets its readers in, as before; the
+        dashboard's lets in its /d readers too, also once the conversation
+        is deleted. Refused by both: the dashboard's answer once it is
+        published, else the conversation's."""
+        from fastapi import HTTPException
+        from app.services import dashboard_access
+        from app.services.report_service import ReportService
+
+        live = report is not None and report.status != "archived"
+        try:
+            if not live:
+                fail("NOT_FOUND", "Artifact not found", 404)
+            await ReportService()._check_visibility(db, report, "artifact_visibility", user)
+            return
+        except (HTTPException, AppError) as refused:
+            conversation_refusal = refused
+        try:
+            await dashboard_access.admit_reader(db, artifact, user)
+        except (HTTPException, AppError):
+            if live and await dashboard_access.published_release(db, artifact) is None:
+                raise conversation_refusal
+            raise
 
     def audience(self, rule):
         if getattr(rule, "any_of", None):

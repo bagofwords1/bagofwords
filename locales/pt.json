@@ -794,7 +794,8 @@
         "prompt": "Revise as respostas que receberam feedback negativo dos usuários para identificar padrões e pontos de melhoria."
       }
     ],
-    "artifactLoadFailed": "Não foi possível carregar o painel. Atualize a página para tentar novamente."
+    "artifactLoadFailed": "Não foi possível carregar o painel. Atualize a página para tentar novamente.",
+    "deleteUnpublishedDashboards": "Os painéis não publicados também serão excluídos: {names}"
   },
   "projects": {
     "title": "Projetos",
@@ -3744,7 +3745,9 @@
     "chatModelOrgDefaultPlain": "Padrão da organização",
     "chatModelReport": "Igual ao relatório ({name})",
     "chatModelReportPlain": "Igual ao relatório",
-    "chatModelUnavailable": "Modelo indisponível — usando o padrão"
+    "chatModelUnavailable": "Modelo indisponível — usando o padrão",
+    "linkNameEdit": "Editar nome do link",
+    "linkNameRemove": "Sem nome, os links que o usam deixam de funcionar; o link com o id continua funcionando."
   },
   "publish": {
     "published": "Publicado",
@@ -3781,8 +3784,9 @@
     "dashboard.version_not_publishable": "Só é possível publicar uma versão concluída com sucesso.",
     "dashboard.publish_public_monitoring": "Este painel é público e usa dados de monitoramento. Altere o compartilhamento antes de publicar.",
     "dashboard.publish_connection": "Uma conexão usada por este painel não está funcionando: {names}. Reconecte-a e publique novamente.",
-    "dashboard.schedule_requires_publish": "Publique o painel antes de agendá-lo.",
     "dashboard.edit_first": "Este painel não tem um rascunho para publicar. Edite-o primeiro.",
+    "dashboard.slug_invalid": "Um nome de link usa de 3 a 80 letras minúsculas em inglês, dígitos e hifens, e começa e termina com uma letra ou um dígito.",
+    "dashboard.slug_taken": "Este nome de link já está em uso. Escolha outro.",
     "access.denied": "Acesso negado",
     "account.disabled": "Sua conta foi desativada. Entre em contato com seu administrador.",
     "connection.not_found": "Conexão não encontrada",
@@ -4074,7 +4078,14 @@
     "exportAs": "Exportar como {format}",
     "partialNoAccess": "Você não tem acesso aos dados de: {charts}",
     "partialFailed": "Não foi possível carregar: {charts}",
-    "partialRenderFailed": "Parte deste painel usa dados aos quais você não tem acesso, por isso não pôde ser exibido. Peça acesso ao proprietário do painel."
+    "partialRenderFailed": "Parte deste painel usa dados aos quais você não tem acesso, por isso não pôde ser exibido. Peça acesso ao proprietário do painel.",
+    "publish": "Publicar",
+    "publishing": "Publicando…",
+    "published": "Painel publicado",
+    "publishFailed": "Falha ao publicar",
+    "notPublishedYet": "Ainda não publicado",
+    "unpublishedChanges": "Há alterações não publicadas",
+    "publishedUpToDate": "Publicado e atualizado"
   },
   "filter": {
     "selectColumn": "Selecionar coluna",

@@ -263,33 +263,55 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
     return {"report_id": str(report.id), "created": True}
 
 
-async def _fork_eligibility(db, artifact: Artifact, release: ArtifactRelease, user) -> None:
+_FORK_REFUSALS = {
+    "not_logged_in": "Cannot fork: not_logged_in",
+    "different_org": "Cannot fork: different_org",
+    "no_permission": "Cannot fork: no permission to create reports",
+    "forks_disabled": "Cannot fork: forks_disabled",
+    "no_data_source_access": "Cannot fork: no_data_source_access",
+}
+
+
+async def fork_eligibility(db, artifact: Artifact, release: ArtifactRelease, user) -> dict:
     """Fork's rules, against the release: the forker is a member who may
     create conversations, the organization allows forks, and the forker may
-    use every source the release runs on."""
-    from fastapi import HTTPException
-
+    use every source the release runs on. {can_fork, reason}, as /r's page
+    reads it; the reason is the first rule that fails."""
     from app.core.permission_resolver import FULL_ADMIN, resolve_permissions, user_can_access_data_source
     from app.models.membership import Membership
     from app.models.organization import Organization
     from app.services.dashboard_runs import release_data_sources
 
+    def no(reason):
+        return {"can_fork": False, "reason": reason}
+
+    if user is None:
+        return no("not_logged_in")
     member = (await db.execute(select(Membership.id).where(
         Membership.user_id == str(user.id), Membership.organization_id == str(artifact.organization_id),
         Membership.deleted_at.is_(None)))).first()
     if member is None:
-        raise HTTPException(status_code=403, detail="Cannot fork: different_org")
+        return no("different_org")
     resolved = await resolve_permissions(db, str(user.id), str(artifact.organization_id))
     if FULL_ADMIN not in resolved.org_permissions and not resolved.has_org_permission("create_reports"):
-        raise HTTPException(status_code=403, detail="Cannot fork: no permission to create reports")
+        return no("no_permission")
     organization = await db.get(Organization, str(artifact.organization_id))
     settings = await organization.get_settings(db) if organization else None
     allow = settings.get_config("allow_forks") if settings is not None else None
     if allow is not None and not (allow.value if hasattr(allow, "value") else allow):
-        raise HTTPException(status_code=403, detail="Cannot fork: forks_disabled")
+        return no("forks_disabled")
     for ds in await release_data_sources(db, release):
         if not await user_can_access_data_source(db, str(user.id), str(artifact.organization_id), ds):
-            raise HTTPException(status_code=403, detail="Cannot fork: no_data_source_access")
+            return no("no_data_source_access")
+    return {"can_fork": True, "reason": None}
+
+
+async def _fork_eligibility(db, artifact: Artifact, release: ArtifactRelease, user) -> None:
+    from fastapi import HTTPException
+
+    reason = (await fork_eligibility(db, artifact, release, user))["reason"]
+    if reason is not None:
+        raise HTTPException(status_code=403, detail=_FORK_REFUSALS[reason])
 
 
 async def fork_release(db, artifact: Artifact, release: ArtifactRelease, user, *, title: str | None = None) -> dict:
@@ -318,6 +340,9 @@ async def fork_release(db, artifact: Artifact, release: ArtifactRelease, user, *
         db, artifact, release, user=user, title=title or f"Fork of {artifact.title or 'Untitled'}",
         project_id=None, slug_prefix="fork", step_overrides=make_step_overrides(user_scoped, strict_source),
         copy_source_refs=False, link_files=False)
+    # The fork names the dashboard, never the owner's conversation (phase 8):
+    # the editor's "Forked from" banner and hydration wait read it.
+    report.forked_from_artifact_id = str(artifact.id)
     pending_code = {}
     if user_scoped:
         for query in await _release_queries(db, str(release.id)):

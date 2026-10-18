@@ -74,8 +74,13 @@ class NotificationService:
         locale: Optional[str] = None,
         db=None,
         organization_id: Optional[str] = None,
+        attachment_builder=None,
     ) -> NotifyResponse:
         """Send notifications across multiple channels. Failures in one channel don't block others.
+
+        ``attachment_builder``: an async callable returning the email's
+        attachments, in place of the conversation's PDF (a published
+        dashboard's share, phase 8). Called only when an email goes out.
 
         When ``db`` + ``organization_id`` are supplied, email goes out via the
         org's **system** transport (Org SMTP → global), not the AI mailbox.
@@ -93,6 +98,7 @@ class NotificationService:
             "locale": _valid_locale(locale),
             "db": db,
             "organization_id": organization_id,
+            "attachment_builder": attachment_builder,
         }
 
         for channel in channels:
@@ -386,6 +392,12 @@ class NotificationService:
             # the PDF renders the creator's snapshot, which those viewers
             # must not receive (see viewer_data_policy) — email ships with
             # the link only.
+            if context.get("attachment_builder") is not None:
+                try:
+                    return await context["attachment_builder"]()
+                except Exception as e:
+                    logger.warning("Attachment for shared dashboard %s failed: %s", context.get("report_id"), e)
+                    return []
             attachments = []
             report_id = context.get("report_id")
             if context["notification_type"] == NotificationType.SHARE_DASHBOARD and report_id:

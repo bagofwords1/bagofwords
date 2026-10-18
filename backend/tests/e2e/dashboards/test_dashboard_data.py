@@ -273,13 +273,10 @@ def test_slide_previews_picture_the_owners_data_so_withheld_readers_get_none(cor
 
 
 @pytest.mark.e2e
-def test_an_owner_who_left_the_organization_gets_a_readers_view(corpus, corpus_rows, test_client, monkeypatch):
+def test_an_owner_who_left_the_organization_gets_a_readers_view(corpus, corpus_rows, test_client, multi_org):
     """Ownership counts only while the owner is in the organization: on a
     public dashboard they are a reader like anyone, and the personal
     connection's rows are withheld from them too."""
-    from app.settings.config import settings
-
-    monkeypatch.setattr(settings.bow_config.features, "allow_multiple_organizations", True)
     aid, release = _published(corpus, corpus_rows, test_client, "user_required/dash", visibility="public")
     (copy,) = _copies(corpus_rows, release)
     path = f"/api/d/{aid}/queries/{copy['id']}/step"

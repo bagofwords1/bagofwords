@@ -716,6 +716,11 @@
     <div class="p-4">
       <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reports.deleteTitle') }}</h3>
       <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('reports.deleteBody') }}</p>
+      <!-- Never-published dashboards go with the conversation (phase 7);
+           published ones stay. Only the first need saying. -->
+      <p v-if="deleteUnpublished.length" class="mt-2 text-[12px] text-amber-700 dark:text-amber-400" data-testid="delete-unpublished-dashboards">
+        {{ $t('reports.deleteUnpublishedDashboards', { names: deleteUnpublished.join(', ') }) }}
+      </p>
       <div class="flex justify-end gap-2 mt-4">
         <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="deleteOpen = false">{{ $t('common.cancel') }}</button>
         <button class="px-3 py-1.5 text-[13px] rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="deleting" @click="doDelete">{{ $t('common.delete') }}</button>
@@ -1388,7 +1393,15 @@
     }
   }
 
-  const openDelete = (report: any) => { menuReport.value = report; deleteOpen.value = true }
+  const deleteUnpublished = ref<string[]>([])
+  const openDelete = async (report: any) => {
+    menuReport.value = report
+    deleteUnpublished.value = []
+    deleteOpen.value = true
+    const names = await unpublishedDashboardsDeletedWith([report.id])
+    // A later dialog (another conversation) may have opened meanwhile.
+    if (menuReport.value?.id === report.id) deleteUnpublished.value = names
+  }
   const doDelete = async () => {
     const r = menuReport.value
     if (!r || deleting.value) return

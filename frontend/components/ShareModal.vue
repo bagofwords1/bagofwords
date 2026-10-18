@@ -34,6 +34,7 @@
                 option-attribute="label"
                 size="xs"
                 class="mb-5"
+                :disabled="dashboardMode && !dashboardPublished"
                 :ui="{ rounded: 'rounded-lg', size: { xs: 'text-xs' }, padding: { xs: 'px-2.5 py-1.5' } }"
                 @change="onVisibilityChange"
             >
@@ -54,6 +55,13 @@
                 </template>
             </USelectMenu>
 
+            <!-- A dashboard is shared once published (phase 8): until then the
+                 access list is off and says why. -->
+            <p v-if="dashboardMode && !dashboardPublished" class="text-[11px] text-gray-400 -mt-3 mb-5"
+                data-testid="share-requires-publish">
+                {{ $t("errors['dashboard.share_requires_publish']") }}
+            </p>
+
             <!-- Public link on a per-user-data dashboard: the link is open to
                  anyone, but data resolves per signed-in viewer — say so. -->
             <p v-if="shareType === 'artifact' && currentVisibility === 'public' && showRunIdentity"
@@ -62,10 +70,37 @@
             </p>
 
             <!-- Share link -->
-            <div v-if="isShared && shareUrl" class="flex items-center gap-2 mb-6">
+            <div v-if="isShared && shareUrl && editingName" class="mb-6" data-testid="link-name-editor">
+                <div class="flex items-center gap-2">
+                    <div class="flex-1 flex items-center h-[32px] px-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs bg-white dark:bg-gray-900 min-w-0 focus-within:ring-2 focus-within:ring-blue-500" dir="ltr">
+                        <span class="text-gray-400 whitespace-nowrap">{{ linkPrefix }}</span>
+                        <input ref="nameInputRef" v-model="nameDraft" type="text" maxlength="80"
+                            class="flex-1 min-w-0 border-none outline-none bg-transparent p-0 text-xs text-gray-700 dark:text-gray-300"
+                            :placeholder="dashboardId" @keydown.enter.prevent="saveName" @keydown.esc.prevent="editingName = false" />
+                    </div>
+                    <button @click="saveName" :disabled="isSaving || !nameValid"
+                        class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 disabled:opacity-40">
+                        <Icon name="heroicons:check" class="w-3.5 h-3.5" />
+                    </button>
+                    <button @click="editingName = false"
+                        class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
+                        <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
+                    </button>
+                </div>
+                <p v-if="!nameValid" class="text-[11px] text-red-500 mt-1">{{ $t("errors['dashboard.slug_invalid']") }}</p>
+                <p v-else-if="!nameDraft && dashboardSlug" class="text-[11px] text-gray-400 mt-1">{{ $t('share.linkNameRemove') }}</p>
+            </div>
+            <div v-else-if="isShared && shareUrl" class="flex items-center gap-2 mb-6">
                 <input :value="shareUrl" type="text"
                     class="flex-1 h-[32px] px-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 min-w-0"
                     readonly />
+                <!-- The dashboard's name in its link (phase 8) -->
+                <UTooltip v-if="dashboardMode" :text="$t('share.linkNameEdit')">
+                    <button @click="startEditingName" data-testid="edit-link-name"
+                        class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
+                        <Icon name="heroicons:pencil" class="w-3.5 h-3.5" />
+                    </button>
+                </UTooltip>
                 <button @click="copyLink"
                     class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
                     <Icon :name="copied ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
@@ -231,25 +266,36 @@
                 v-if="smtpEnabled && isShared"
                 :report-id="report.id"
                 :notification-type="shareType === 'artifact' ? 'share_dashboard' : 'share_conversation'"
-                :share-url="shareUrl" />
+                :share-url="shareUrl"
+                :notify-path="dashboardMode ? `/dashboards/${dashboardId}/notify` : undefined" />
         </div>
     </UModal>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 
 const props = withDefaults(defineProps<{
     report: any
     shareType: 'artifact' | 'conversation'
     title: string
     compact?: boolean
+    // The dashboard open in the editor (phase 8): its own sharing and
+    // settings, its /d link. Without it, the conversation's, as before.
+    dashboardId?: string
 }>(), {
     compact: false,
 })
+const emit = defineEmits<{ (e: 'slug-changed', slug: string | null): void }>()
 
 const toast = useToast()
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
+const dashboardMode = computed(() => props.shareType === 'artifact' && !!props.dashboardId)
+const dashboardPublished = ref(true)
+const dashboardSlug = ref<string | null>(null)
+// The visibility as last saved (the conversation's lives on the report).
+const savedDashboardVisibility = ref('none')
 const { smtpEnabled } = useAppSettings()
 const modalOpen = ref(false)
 const isSaving = ref(false)
@@ -356,7 +402,11 @@ const buttonLabel = computed(() => {
 
 const buttonIcon = computed(() => selectedOption.value.icon)
 
+const linkPrefix = computed(() => `${window.location.origin}/d/`)
 const shareUrl = computed(() => {
+    if (dashboardMode.value) {
+        return `${linkPrefix.value}${dashboardSlug.value || props.dashboardId}`
+    }
     if (props.shareType === 'artifact') {
         return `${window.location.origin}/r/${props.report.id}`
     }
@@ -468,25 +518,55 @@ const onBlur = () => {
 }
 
 // API calls
+// The dashboard's own sharing and settings (phase 8), in the shape the
+// conversation's answer has, so the rest of the modal reads either.
+const fetchDashboard = async () => {
+    const [sharing, settings] = await Promise.all([
+        useMyFetch(`/dashboards/${props.dashboardId}/sharing`),
+        useMyFetch(`/dashboards/${props.dashboardId}/settings`),
+    ])
+    const sh = (sharing.data.value || {}) as any
+    const st = (settings.data.value || {}) as any
+    dashboardPublished.value = sh.published !== false
+    dashboardSlug.value = st.slug || null
+    savedDashboardVisibility.value = sh.visibility || 'none'
+    dashboardGrants.value = { user_ids: sh.user_ids || [], group_ids: sh.group_ids || [] }
+    return {
+        artifact_visibility: sh.visibility || 'none',
+        shared_run_identity: st.shared_run_identity,
+        include_data_tab: st.include_data_tab,
+        artifact_chat_enabled: st.chat_enabled,
+        artifact_chat_model_id: st.chat_model_id,
+        artifact_chat_data_source_ids: st.chat_data_source_ids,
+    }
+}
+const dashboardGrants = ref<{ user_ids: string[]; group_ids: string[] }>({ user_ids: [], group_ids: [] })
+// Writes onto the report object only for the conversation's own settings.
+const setOnReport = (key: string, value: any) => {
+    if (props.report && !dashboardMode.value) props.report[key] = value
+}
+
 const fetchVisibility = async () => {
     try {
         const res = await useMyFetch(`/reports/${props.report.id}`, { method: 'GET' })
         if (res.data.value) {
-            const data = res.data.value as any
+            const data = dashboardMode.value
+                ? { ...(res.data.value as any), ...(await fetchDashboard()) }
+                : res.data.value as any
             currentVisibility.value = data[visibilityField.value] || 'none'
             hasRls.value = !!data.has_rls
             hasUserScoped.value = !!data.has_user_scoped
             if (data.shared_run_identity !== undefined) {
                 runAsCreator.value = data.shared_run_identity === 'creator'
-                if (props.report) props.report.shared_run_identity = data.shared_run_identity
+                setOnReport('shared_run_identity', data.shared_run_identity)
             }
             if (data.include_data_tab !== undefined) {
                 includeDataTab.value = data.include_data_tab !== false
-                if (props.report) props.report.include_data_tab = data.include_data_tab
+                setOnReport('include_data_tab', data.include_data_tab)
             }
             if (data.artifact_chat_enabled !== undefined) {
                 chatEnabled.value = data.artifact_chat_enabled === true
-                if (props.report) props.report.artifact_chat_enabled = data.artifact_chat_enabled
+                setOnReport('artifact_chat_enabled', data.artifact_chat_enabled)
             }
             // Candidate agents = what the report actually uses (attached
             // roster, or recovered from its runs for Auto reports) — not the
@@ -499,7 +579,7 @@ const fetchVisibility = async () => {
                 reportAgents.value = (data.data_sources || []).map((ds: any) => ({ id: ds.id, name: ds.name }))
             }
             chatModelId.value = data.artifact_chat_model_id || INHERIT_MODEL
-            if (props.report) props.report.artifact_chat_model_id = data.artifact_chat_model_id || null
+            setOnReport('artifact_chat_model_id', data.artifact_chat_model_id || null)
             reportModelId.value = data.model_id || ''
             try {
                 const modelsRes = await useMyFetch('/llm/models?is_enabled=true')
@@ -527,6 +607,20 @@ const fetchVisibility = async () => {
 }
 
 const fetchShares = async () => {
+    if (dashboardMode.value) {
+        // The dashboard's grants, named from the organization's lists.
+        sharedEntries.value = [
+            ...dashboardGrants.value.user_ids.map((id) => {
+                const m = members.value.find(x => x.id === id)
+                return { id: `user:${id}`, principal_type: 'user', user_id: id, user_name: m?.name || '', user_email: m?.email || '' }
+            }),
+            ...dashboardGrants.value.group_ids.map((id) => {
+                const g = groups.value.find(x => x.id === id)
+                return { id: `group:${id}`, principal_type: 'group', group_id: id, group_name: g?.name || '', member_count: g?.memberCount || 0 }
+            }),
+        ]
+        return
+    }
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/shares/${props.shareType}`)
         if (res.data.value) {
@@ -542,7 +636,49 @@ const sharedGroupIds = () => sharedEntries.value
     .filter(e => e.principal_type === 'group')
     .map(e => e.group_id)
 
+const saveDashboardSharing = async (visibility: string, userIds?: string[], groupIds?: string[]) => {
+    isSaving.value = true
+    try {
+        const body: any = { visibility }
+        if (userIds) body.user_ids = userIds
+        if (groupIds) body.group_ids = groupIds
+        const res = await useMyFetch(`/dashboards/${props.dashboardId}/sharing`, { method: 'PUT', body })
+        if (res.error.value) throw res.error.value
+        const data = res.data.value as any
+        savedDashboardVisibility.value = data?.visibility || visibility
+        dashboardGrants.value = { user_ids: data?.user_ids || [], group_ids: data?.group_ids || [] }
+        await fetchShares()
+        toast.add({
+            title: visibility === 'none' ? t('share.sharingDisabled') : t('share.sharingUpdated'),
+            color: 'green',
+        })
+    } catch (e) {
+        currentVisibility.value = savedDashboardVisibility.value
+        toast.add({ title: t('share.sharingFailed'), description: getErrorMessage(e), color: 'red' })
+    } finally {
+        isSaving.value = false
+    }
+}
+
+// One PUT per change of a dashboard setting (phase 8).
+const saveDashboardSettings = async (body: Record<string, any>, revert: () => void) => {
+    isSaving.value = true
+    try {
+        const res = await useMyFetch(`/dashboards/${props.dashboardId}/settings`, { method: 'PUT', body })
+        if (res.error.value) throw res.error.value
+        toast.add({ title: t('share.sharingUpdated'), color: 'green' })
+        return res.data.value as any
+    } catch (e) {
+        revert()
+        toast.add({ title: t('share.sharingFailed'), description: getErrorMessage(e), color: 'red' })
+        return null
+    } finally {
+        isSaving.value = false
+    }
+}
+
 const saveVisibility = async (visibility: string, userIds?: string[], groupIds?: string[]) => {
+    if (dashboardMode.value) return saveDashboardSharing(visibility, userIds, groupIds)
     isSaving.value = true
     try {
         const body: any = { visibility }
@@ -584,6 +720,10 @@ const saveVisibility = async (visibility: string, userIds?: string[], groupIds?:
 
 const onRunIdentityChange = async (value: boolean) => {
     const identity = value ? 'creator' : 'viewer'
+    if (dashboardMode.value) {
+        await saveDashboardSettings({ shared_run_identity: identity }, () => { runAsCreator.value = identity !== 'creator' })
+        return
+    }
     isSaving.value = true
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
@@ -604,6 +744,10 @@ const onRunIdentityChange = async (value: boolean) => {
 }
 
 const onIncludeDataTabChange = async (value: boolean) => {
+    if (dashboardMode.value) {
+        await saveDashboardSettings({ include_data_tab: value }, () => { includeDataTab.value = !value })
+        return
+    }
     isSaving.value = true
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
@@ -626,7 +770,17 @@ const onIncludeDataTabChange = async (value: boolean) => {
 
 // One PUT per chat-settings change, mirroring onIncludeDataTabChange: resend
 // the current visibility unchanged and only the field being written.
+const DASHBOARD_CHAT_KEYS: Record<string, string> = {
+    artifact_chat_enabled: 'chat_enabled',
+    artifact_chat_data_source_ids: 'chat_data_source_ids',
+    artifact_chat_model_id: 'chat_model_id',
+}
 const saveChatSettings = async (body: Record<string, any>, revert: () => void) => {
+    if (dashboardMode.value) {
+        const mapped = Object.fromEntries(Object.entries(body).map(([k, v]) => [DASHBOARD_CHAT_KEYS[k] || k, v]))
+        await saveDashboardSettings(mapped, revert)
+        return
+    }
     isSaving.value = true
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
@@ -653,10 +807,10 @@ const chatScopeIdsPayload = (): string[] => {
 }
 
 const onChatEnabledChange = async (value: boolean) => {
-    if (props.report) props.report.artifact_chat_enabled = value
+    setOnReport('artifact_chat_enabled', value)
     await saveChatSettings(
         { artifact_chat_enabled: value },
-        () => { chatEnabled.value = !value; if (props.report) props.report.artifact_chat_enabled = !value },
+        () => { chatEnabled.value = !value; setOnReport('artifact_chat_enabled', !value) },
     )
 }
 
@@ -669,12 +823,17 @@ const onChatScopeChange = async () => {
 
 const onChatModelChange = async (value: string) => {
     const next = value === INHERIT_MODEL ? '' : value
-    const prev = props.report?.artifact_chat_model_id || ''
+    const prev = (dashboardMode.value ? savedChatModelId.value : props.report?.artifact_chat_model_id) || ''
     if (next === prev) return
-    if (props.report) props.report.artifact_chat_model_id = next || null
+    setOnReport('artifact_chat_model_id', next || null)
+    if (dashboardMode.value) savedChatModelId.value = next
     await saveChatSettings(
         { artifact_chat_model_id: next },
-        () => { chatModelId.value = prev || INHERIT_MODEL; if (props.report) props.report.artifact_chat_model_id = prev || null },
+        () => {
+            chatModelId.value = prev || INHERIT_MODEL
+            setOnReport('artifact_chat_model_id', prev || null)
+            if (dashboardMode.value) savedChatModelId.value = prev
+        },
     )
 }
 
@@ -683,7 +842,7 @@ const onChatAgentsChange = async () => {
 }
 
 const onVisibilityChange = async (value: string) => {
-    const prev = props.report?.[visibilityField.value] || 'none'
+    const prev = dashboardMode.value ? savedDashboardVisibility.value : (props.report?.[visibilityField.value] || 'none')
     if (value === prev) return
 
     const userIds = value === 'shared' ? sharedUserIds() : undefined
@@ -730,6 +889,32 @@ const removeSharedEntry = async (entry: any) => {
     await fetchShares()
 }
 
+// The dashboard's name in its link (phase 8): owner-only, server-checked;
+// the same rule here so a bad name is caught while typing.
+const editingName = ref(false)
+const nameDraft = ref('')
+const nameInputRef = ref<HTMLInputElement | null>(null)
+const NAME_RULE = /^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$/
+const nameValid = computed(() => !nameDraft.value || NAME_RULE.test(nameDraft.value))
+watch(nameDraft, (v) => { if (v !== v.toLowerCase()) nameDraft.value = v.toLowerCase() })
+const startEditingName = async () => {
+    nameDraft.value = dashboardSlug.value || ''
+    editingName.value = true
+    await nextTick()
+    nameInputRef.value?.focus()
+}
+const saveName = async () => {
+    if (!nameValid.value) return
+    const next = nameDraft.value.trim()
+    if (next === (dashboardSlug.value || '')) { editingName.value = false; return }
+    const saved = await saveDashboardSettings({ slug: next }, () => {})
+    if (saved) {
+        dashboardSlug.value = saved.slug || null
+        editingName.value = false
+        emit('slug-changed', dashboardSlug.value)
+    }
+}
+
 const copyLink = async () => {
     try {
         await navigator.clipboard.writeText(shareUrl.value)
@@ -742,6 +927,16 @@ const copyLink = async () => {
 
 const openModal = async () => {
     modalOpen.value = true
+    editingName.value = false
+    if (dashboardMode.value) {
+        currentVisibility.value = savedDashboardVisibility.value
+        // The grants are named from these lists, so they come first.
+        await Promise.all([fetchMembers(), fetchGroups()])
+        await fetchVisibility()
+        savedChatModelId.value = chatModelId.value === INHERIT_MODEL ? '' : chatModelId.value
+        await fetchShares()
+        return
+    }
     currentVisibility.value = props.report?.[visibilityField.value] || 'none'
     conversationShareToken.value = props.report?.conversation_share_token ?? null
     runAsCreator.value = props.report?.shared_run_identity === 'creator'
@@ -749,12 +944,25 @@ const openModal = async () => {
     chatEnabled.value = props.report?.artifact_chat_enabled === true
     await Promise.all([fetchMembers(), fetchGroups(), fetchVisibility(), fetchShares()])
 }
+const savedChatModelId = ref('')
+
+// The button shows the dashboard's own sharing (phase 8): read it whenever
+// another dashboard is opened in the editor. Silent for whoever may not
+// manage it (the modal then shows what the server refuses).
+watch(() => props.dashboardId, async (id) => {
+    if (!id || props.shareType !== 'artifact') return
+    const { data, error } = await useMyFetch(`/dashboards/${id}/sharing`)
+    if (id !== props.dashboardId || error.value || !data.value) return
+    savedDashboardVisibility.value = (data.value as any).visibility || 'none'
+    dashboardPublished.value = (data.value as any).published !== false
+    if (!modalOpen.value) currentVisibility.value = savedDashboardVisibility.value
+}, { immediate: true })
 
 // Keep button in sync when report data loads/changes (e.g. after page reload)
 watch(
     () => props.report?.[visibilityField.value],
     (val) => {
-        if (val && !modalOpen.value) {
+        if (val && !modalOpen.value && !dashboardMode.value) {
             currentVisibility.value = val
         }
     },
