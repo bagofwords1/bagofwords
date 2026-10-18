@@ -2,8 +2,10 @@ FROM ubuntu:24.04 AS backend-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# No `apt-get upgrade` here: nothing from this stage's OS reaches the final
+# image (only /opt/python, /opt/venv and the Playwright cache are copied out),
+# so upgrading would just add build time.
 RUN apt-get update && \
-    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
       ca-certificates \
       build-essential \
@@ -43,16 +45,21 @@ RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-proj
 # carried most of the image's critical/high CVEs (netty, jackson, avro, ...).
 RUN rm -rf /opt/venv/lib/python3*/site-packages/pyspark/jars
 
-# Copy the full backend source after deps are installed
-COPY ./backend /app/backend
-RUN rm -f /app/backend/db/app.db
+# Everything below up to the source COPY depends only on the venv, so it stays
+# cached across application-code changes. Keep source-independent steps here.
 
 # Pre-cache tiktoken encodings for airgapped environments
 RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
     "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
-# Install Playwright browser (chromium only to save space)
-RUN playwright install chromium --with-deps
+# Download the Playwright browser (chromium only to save space). Only the
+# browser binaries are copied to the runtime stage, which installs the system
+# libraries itself (`playwright install-deps`), so no `--with-deps` here.
+RUN playwright install chromium
+
+# Copy the full backend source after deps are installed
+COPY ./backend /app/backend
+RUN rm -f /app/backend/db/app.db
 
 FROM rust:1-slim-bookworm AS qvd2parquet-builder
 
@@ -71,9 +78,9 @@ FROM ubuntu:24.04 AS frontend-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Node.js 22 and prepare environment
+# Install Node.js 22 and prepare environment. No `apt-get upgrade`: nothing
+# from this stage's OS reaches the final image (only the generated SPA does).
 RUN apt-get update && \
-    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg && \
     mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
@@ -81,34 +88,35 @@ RUN apt-get update && \
     npm install --global yarn@1.22.22 && \
     rm -rf /var/lib/apt/lists/*
 
-# Set the working directory in the container for the frontend
-WORKDIR /app
-
-# Copy the VERSION and config file first so they can be used by Nuxt
-COPY ./VERSION /app/VERSION
-COPY ./bow-config.yaml /app/bow-config.yaml
-
-# Copy the frontend directory contents
-COPY ./frontend /app/frontend
-
-# `frontend/plugins/i18n.ts` imports `../../locales/*.json` at build time,
-# so the repo-root `locales/` dir must be present for Rollup to resolve them.
-COPY ./locales /app/locales
-
-# Set working directory for frontend
 WORKDIR /app/frontend
 
-# Install frontend dependencies and build the project
-RUN yarn install --frozen-lockfile
+# Install dependencies from the manifests alone so this layer is cached until
+# package.json/yarn.lock change, not on every frontend source edit.
+# `--ignore-scripts` skips the `postinstall: nuxt prepare` hook, which needs
+# the app source that is not copied yet; `nuxt generate` runs prepare itself.
+# The only other install scripts are esbuild's and @parcel/watcher's, and both
+# fall back to their prebuilt optional platform packages when skipped.
+COPY ./frontend/package.json ./frontend/yarn.lock ./
+RUN yarn install --frozen-lockfile --ignore-scripts
 
-# Download vendored JS libraries for airgapped artifact rendering
+# Download vendored JS libraries for airgapped artifact rendering into a
+# staging dir (also source-independent), merged into public/libs below.
 COPY ./scripts/download-vendor-libs.sh /app/scripts/download-vendor-libs.sh
-RUN bash /app/scripts/download-vendor-libs.sh /app/frontend/public/libs
+RUN bash /app/scripts/download-vendor-libs.sh /opt/vendor-libs
+
+# Source last. VERSION and bow-config.yaml are placed at /app as before;
+# `frontend/plugins/i18n.ts` imports `../../locales/*.json` at build time,
+# so the repo-root `locales/` dir must be present for Rollup to resolve them.
+COPY ./VERSION /app/VERSION
+COPY ./bow-config.yaml /app/bow-config.yaml
+COPY ./locales /app/locales
+COPY ./frontend /app/frontend
 
 # `nuxt generate` produces a fully static SPA under .output/public, which
 # FastAPI serves directly in production (see backend/app/core/spa.py).
 # This replaces the previous `yarn build` + Node runtime pattern.
-RUN yarn generate
+RUN cp -a /opt/vendor-libs/. /app/frontend/public/libs/ && \
+    yarn generate
 
 FROM ubuntu:24.04
 
@@ -191,27 +199,35 @@ RUN groupadd -r app \
     && mkdir -p /home/app /app/backend/db /app/frontend \
     && chown -R app:app /app /home/app
 
-# Copy the Python interpreter, virtual environment and application code
+# Download RDS/Aurora CA certificate bundle for IAM auth SSL verification
+RUN mkdir -p /app/certs && \
+    curl -sSL -o /app/certs/rds-combined-ca-bundle.pem \
+      https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem && \
+    chown -R app:app /app/certs
+
+# Copy the Python interpreter and virtual environment. Layers from here down
+# to the first source COPY depend only on the locked dependencies, so they
+# stay cached across application-code changes.
 COPY --from=backend-builder /opt/python /opt/python
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 
-# Streaming QVD → Parquet converter (bounded RAM; replaces in-process qvdrs wheel)
-COPY --from=qvd2parquet-builder /build/qvd2parquet/target/release/qvd2parquet /usr/local/bin/qvd2parquet
+# Install Playwright system dependencies (runtime libs only, no browser download)
+RUN playwright install-deps chromium
+
+# Copy Playwright browser binaries from builder
+COPY --from=backend-builder --chown=app:app /root/.cache/ms-playwright /home/app/.cache/ms-playwright
 
 # Copy pre-cached tiktoken encodings for airgapped environments
 COPY --from=backend-builder --chown=app:app /opt/tiktoken_cache /opt/tiktoken_cache
 ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache
 
-# Copy Playwright browser binaries from builder
-COPY --from=backend-builder --chown=app:app /root/.cache/ms-playwright /home/app/.cache/ms-playwright
+# Streaming QVD → Parquet converter (bounded RAM; replaces in-process qvdrs wheel)
+COPY --from=qvd2parquet-builder /build/qvd2parquet/target/release/qvd2parquet /usr/local/bin/qvd2parquet
 
-# Install Playwright system dependencies (runtime libs only, no browser download)
-RUN playwright install-deps chromium
-
-# Copy demo data sources (SQLite/DuckDB files for demo databases)
-COPY --chown=app:app ./backend/demo-datasources /app/backend/demo-datasources
+# Application code (includes backend/demo-datasources, the SQLite/DuckDB
+# files for the demo databases).
+COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 
 # Copy the generated static SPA (nuxt generate output includes all public/
 # assets — libs, artifact-sandbox.html, icons, etc. — copied automatically).
@@ -222,17 +238,15 @@ COPY --from=frontend-builder --chown=app:app /app/frontend/.output/public /app/f
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/artifact-sandbox.html /app/frontend/public/artifact-sandbox.html
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/libs /app/frontend/public/libs
 
-# Download RDS/Aurora CA certificate bundle for IAM auth SSL verification
-RUN mkdir -p /app/certs && \
-    curl -sSL -o /app/certs/rds-combined-ca-bundle.pem \
-      https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
-
 # Create directories that the application needs to write to
 # These paths match volume mounts in docker-compose.yaml; they must exist with
 # app-user ownership so Docker seeds named volumes with writable perms on first run.
+# Only chown what this step creates: every COPY above already uses --chown, and
+# a `chown -R /app` here would rewrite all of those files into a new layer.
 RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding \
              /app/backend/branding_uploads /app/backend/logs /app/backend/data && \
-    chown -R app:app /app
+    chown -R app:app /app/backend/uploads /app/backend/branding_uploads \
+                     /app/backend/logs /app/backend/data
 
 WORKDIR /app
 
