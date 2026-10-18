@@ -5,6 +5,26 @@ from typing import Optional
 from .base import WebhookAdapter
 
 
+def _text(value) -> str:
+    """Readable text for a payload field.
+
+    Some senders wrap fields in reference objects such as
+    {"value": "<id>", "display_value": "<label>"}. Formatting those directly
+    put the dict's repr into chat titles.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        for key in ("display_value", "name", "label", "title", "value"):
+            inner = value.get(key)
+            if inner not in (None, "", {}, []):
+                return _text(inner)
+        return ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(t for t in (_text(v) for v in value) if t)
+    return str(value).strip()
+
+
 class GenericAdapter(WebhookAdapter):
     """Generic source (cron / curl / Zapier / custom service).
 
@@ -37,12 +57,16 @@ class GenericAdapter(WebhookAdapter):
 
     def normalize(self, headers: dict, payload: dict) -> dict:
         event_key = (
-            payload.get("type")
-            or payload.get("event")
-            or payload.get("action")
+            _text(payload.get("type"))
+            or _text(payload.get("event"))
+            or _text(payload.get("action"))
             or "event"
         )
-        title = payload.get("title") or payload.get("name") or payload.get("message") or ""
+        title = (
+            _text(payload.get("title"))
+            or _text(payload.get("name"))
+            or _text(payload.get("message"))
+        )
         summary = f"{event_key}: {title}".strip(": ").strip() or f"Webhook event: {event_key}"
         try:
             details = json.dumps(payload, indent=1, default=str)[:2000]
