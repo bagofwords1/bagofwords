@@ -6,8 +6,13 @@ AgentV2 uses to rewrite the call into the ``submit_list`` gateway.
 
 Prompt-cache rules (docs/design/structured-extraction.md §7.2):
 - built once per run, before the loop — never mutated mid-run;
-- deterministic order: sorted by (data_source_id, slug), appended after the
+- deterministic order: sorted by (agent id, slug), appended after the
   static + MCP tools; schema construction is deterministic.
+
+A list shared by several of the report's agents gets ONE tool, routed the
+way the submit gateway routes it (service.submit_route) and qualified by that
+agent when slugs collide; its table name is the one every other surface shows
+(ListAccess.name_agent).
 """
 import logging
 from typing import Any, Dict, List, Tuple
@@ -18,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, str]]]:
-    from app.models.data_source import DataSource
     from app.models.report_data_source_association import report_data_source_association
     from app.services.agent_lists.access import viewable_agent_ids
     from app.services.agent_lists.compiler import compile_list_schema, tool_description
@@ -40,38 +44,42 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
     lists = [l for l in await live_lists_for_agents(db, sorted(allowed))]
     if not lists:
         return [], {}
-    agents = {str(d.id): d for d in (await db.execute(
-        select(DataSource).where(DataSource.id.in_(list(allowed)))
-    )).scalars().all()}
-    from app.services.agent_lists.access import can_submit_to_list
-    lists = [l for l in lists
-             if await can_submit_to_list(db, user, organization, agents.get(str(l.data_source_id)), l)]
-    if not lists:
+    from app.services.agent_lists.access import resolved_permissions
+    from app.services.agent_lists.service import access_for_lists, submit_route
+    resolved = await resolved_permissions(db, user, organization)
+    access = await access_for_lists(db, user, organization, lists)
+    # (list, the agent it is routed through, the list's agents in this report)
+    routed = []
+    for l in lists:
+        via, here = await submit_route(db, user, organization, l, allowed, resolved=resolved)
+        if via is not None:
+            routed.append((l, via, here))
+    if not routed:
         return [], {}
 
-    lists.sort(key=lambda l: (str(l.data_source_id), l.slug))
+    routed.sort(key=lambda t: (str(t[1].id), t[0].slug))
     slug_counts: Dict[str, int] = {}
-    for l in lists:
+    for l, _, _ in routed:
         slug_counts[l.slug] = slug_counts.get(l.slug, 0) + 1
 
     descriptors: List[Dict[str, Any]] = []
     routing: Dict[str, Dict[str, str]] = {}
-    for l in lists:
-        ds = agents.get(str(l.data_source_id))
-        agent_name = ds.name if ds else "agent"
-        qualifier = agent_slug(agent_name, str(l.data_source_id)) if slug_counts[l.slug] > 1 else None
+    for l, ds, here in routed:
+        agent_name = " and ".join(a.name for a in here)
+        qualifier = agent_slug(ds.name, str(ds.id)) if slug_counts[l.slug] > 1 else None
         name = tool_name_for(l.slug, agent_slug_value=qualifier, list_id=str(l.id))
         if name in routing:  # hash-suffixed fallback for pathological collisions
             name = tool_name_for(l.slug + "_" + str(l.id)[:6], list_id=str(l.id))
         key_name = next((f["name"] for f in (l.fields or []) if f["id"] == l.key_field_id), None)
+        named = access[str(l.id)].name_agent or ds
         descriptors.append({
             "name": name,
             "description": tool_description(l.name, l.description or "", agent_name, key_name, list_id=str(l.id),
-                                            table_name=table_name_for(agent_name, str(l.data_source_id), l.slug)),
+                                            table_name=table_name_for(named.name, str(named.id), l.slug)),
             "schema": compile_list_schema(l.fields or [], l.description or ""),
             "category": "both",
             "research_accessible": True,
             "is_active": True,
         })
-        routing[name] = {"list_id": str(l.id), "list_name": l.name, "data_source_id": str(l.data_source_id)}
+        routing[name] = {"list_id": str(l.id), "list_name": l.name, "data_source_id": str(ds.id)}
     return descriptors, routing

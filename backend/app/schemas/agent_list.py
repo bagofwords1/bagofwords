@@ -104,9 +104,19 @@ class ListFieldOut(BaseModel):
     method: Optional[str] = None
 
 
+class ListAgentOut(BaseModel):
+    id: str
+    name: str
+
+
 class AgentListOut(BaseModel):
     id: str
+    # The agent the list is being looked at from (the one in the URL).
     data_source_id: str
+    # Linked agents the caller can see, and how many more they cannot.
+    agents: List[ListAgentOut] = []
+    hidden_agent_count: int = 0
+    shared: bool = False
     name: str
     slug: str
     description: Optional[str] = ""
@@ -122,7 +132,10 @@ class AgentListOut(BaseModel):
     table_name: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Rows: MANAGE on this agent. Schema (and deleting from every agent):
+    # MANAGE on every linked agent.
     can_manage: bool = False
+    can_manage_schema: bool = False
     # Present on PUT responses: what the edit did to the schema version.
     change: Optional[Literal["none", "additive", "breaking"]] = None
 

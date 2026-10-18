@@ -131,10 +131,13 @@ def card_fields(fields: List[Dict[str, Any]], key_field_id: Optional[str],
 
 
 def output_for(lst, ds, *, status: str, change: Optional[str] = None, row_count: int = 0,
-               message: Optional[str] = None) -> ListToolOutput:
+               message: Optional[str] = None, named=None) -> ListToolOutput:
+    """``named``: the agent the table is named after when it is not ``ds``
+    (a shared list; see ListAccess.name_agent)."""
     from app.services.agent_lists.naming import table_name_for, tool_name_for
 
     fields = lst.fields or []
+    named = named or ds
     return ListToolOutput(
         success=status in ("created", "updated"),
         status=status,
@@ -145,7 +148,7 @@ def output_for(lst, ds, *, status: str, change: Optional[str] = None, row_count:
         agent_id=str(ds.id),
         agent_name=ds.name,
         tool_name=tool_name_for(lst.slug, list_id=str(lst.id)),
-        table_name=table_name_for(ds.name, str(ds.id), lst.slug),
+        table_name=table_name_for(named.name, str(named.id), lst.slug),
         version=int(lst.version or 1),
         change=change,
         fields=fields_out(fields, lst.key_field_id),

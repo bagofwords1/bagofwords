@@ -6,16 +6,18 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 
-from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision
+from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision, agent_list_data_sources as links
 from app.models.data_source import DataSource
 from app.schemas.agent_list import (
     MAX_LISTS_PER_AGENT,
     AgentListOut,
+    ListAgentOut,
     ListSchemaIn,
     RowOut,
 )
+from app.services.agent_lists.access import ListAccess, access_from, first_submittable_agent, resolved_permissions
 from app.services.agent_lists.naming import slugify, table_name_for, tool_name_for, unique_slug
 from app.services.agent_lists.schema_change import classify_schema_change
 
@@ -33,10 +35,14 @@ async def get_agent(db, organization, data_source_id: str) -> DataSource:
 
 
 async def get_list(db, ds: DataSource, list_id: str) -> AgentList:
+    """A live list linked to ``ds`` (404 otherwise, including a list that
+    exists but belongs only to other agents)."""
     lst = (await db.execute(
-        select(AgentList).where(
+        select(AgentList)
+        .join(links, links.c.list_id == AgentList.id)
+        .where(
             AgentList.id == str(list_id),
-            AgentList.data_source_id == str(ds.id),
+            links.c.data_source_id == str(ds.id),
             AgentList.deleted_at.is_(None),
         )
     )).scalar_one_or_none()
@@ -46,14 +52,157 @@ async def get_list(db, ds: DataSource, list_id: str) -> AgentList:
 
 
 async def live_lists_for_agents(db, data_source_ids: Iterable[str]) -> List[AgentList]:
+    """Live lists linked to any of ``data_source_ids``, each once."""
     ids = [str(i) for i in data_source_ids if i]
     if not ids:
         return []
+    linked = select(links.c.list_id).where(links.c.data_source_id.in_(ids))
     return list((await db.execute(
         select(AgentList)
-        .where(AgentList.data_source_id.in_(ids), AgentList.deleted_at.is_(None))
+        .where(AgentList.id.in_(linked), AgentList.deleted_at.is_(None))
         .order_by(AgentList.data_source_id, AgentList.slug)
     )).scalars().all())
+
+
+async def linked_agent_ids(db, list_ids: Iterable[str]) -> Dict[str, List[str]]:
+    """``{list_id: [data_source_id, ...]}`` (sorted) for the given lists."""
+    ids = [str(i) for i in list_ids if i]
+    if not ids:
+        return {}
+    out: Dict[str, List[str]] = {i: [] for i in ids}
+    for lid, ds_id in (await db.execute(
+        select(links.c.list_id, links.c.data_source_id).where(links.c.list_id.in_(ids))
+    )).all():
+        out.setdefault(str(lid), []).append(str(ds_id))
+    for v in out.values():
+        v.sort()
+    return out
+
+
+async def linked_agents(db, lst: AgentList) -> List[DataSource]:
+    """The agents ``lst`` is linked to, in id order."""
+    ids = (await linked_agent_ids(db, [lst.id])).get(str(lst.id), [])
+    if not ids:
+        return []
+    return list((await db.execute(
+        select(DataSource).where(DataSource.id.in_(ids)).order_by(DataSource.id)
+    )).scalars().all())
+
+
+def _check_fits(existing: List[AgentList], name: str, slug: Optional[str] = None) -> None:
+    """A list must fit on every agent it is linked to: the per-agent cap, a
+    unique name, and (when linking an existing list) a unique slug."""
+    if len(existing) >= MAX_LISTS_PER_AGENT:
+        raise HTTPException(status_code=400, detail=f"An agent can have at most {MAX_LISTS_PER_AGENT} lists.")
+    if any(l.name.strip().casefold() == name.strip().casefold() for l in existing):
+        raise HTTPException(status_code=409, detail="A list with this name already exists on this agent.")
+    if slug is not None and any(l.slug == slug for l in existing):
+        raise HTTPException(status_code=409, detail="A list with this machine name already exists on this agent.")
+
+
+async def _lock(db, lst: AgentList) -> None:
+    """Serialize link changes on one list, so two agents removing it at once
+    cannot both see the other's link and leave it live with none (row lock on
+    Postgres; SQLite serializes writes on its own). Reloads ``lst`` under the
+    lock, so the home agent compared afterwards is the committed one."""
+    await db.execute(
+        select(AgentList).where(AgentList.id == str(lst.id)).with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def link_list(db, lst: AgentList, ds: DataSource, *, commit: bool = True) -> None:
+    """Link an existing list to another agent of the same organization, so
+    both agents read and fill the same rows."""
+    if lst.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="List not found")
+    if str(ds.organization_id) != str(lst.organization_id):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    await _lock(db, lst)
+    existing = await live_lists_for_agents(db, [ds.id])
+    if any(str(l.id) == str(lst.id) for l in existing):
+        return
+    _check_fits(existing, lst.name, lst.slug)
+    await db.execute(insert(links).values(list_id=str(lst.id), data_source_id=str(ds.id)))
+    if commit:
+        await db.commit()
+
+
+async def _drop_link(db, lst: AgentList, ds_id: str) -> List[str]:
+    """Remove one link; move home to a remaining agent if needed. Returns the
+    agents still linked."""
+    await db.execute(delete(links).where(links.c.list_id == str(lst.id), links.c.data_source_id == str(ds_id)))
+    remaining = (await linked_agent_ids(db, [lst.id])).get(str(lst.id), [])
+    if remaining and str(lst.data_source_id) == str(ds_id):
+        lst.data_source_id = remaining[0]
+    return remaining
+
+
+async def unlink_list(db, lst: AgentList, ds: DataSource) -> None:
+    """Remove ``lst`` from one agent. The list and its rows stay on the other
+    agents; a list left with no agent is deleted."""
+    await _lock(db, lst)
+    remaining = await _drop_link(db, lst, str(ds.id))
+    if not remaining:
+        lst.deleted_at = datetime.utcnow()
+    await db.commit()
+
+
+async def detach_agent_lists(db, data_source_id: str) -> None:
+    """Before an agent is deleted: lists shared with other agents lose only
+    this link (and get a new home). Lists on this agent alone are left as they
+    are, for the agent's CASCADE to delete with their rows, so a delete that
+    fails later leaves them intact. Does not commit."""
+    mine = select(links.c.list_id).where(links.c.data_source_id == str(data_source_id))
+    elsewhere = select(links.c.list_id).where(links.c.data_source_id != str(data_source_id))
+    shared = (await db.execute(
+        select(AgentList).where(AgentList.id.in_(mine), AgentList.id.in_(elsewhere))
+    )).scalars().all()
+    for lst in shared:
+        await _lock(db, lst)
+        await _drop_link(db, lst, str(data_source_id))
+    # Write the new homes before the agent row goes, so its CASCADE spares them.
+    await db.flush()
+
+
+async def access_for_lists(db, user, organization, lists: Iterable[AgentList]) -> Dict[str, ListAccess]:
+    """``{list_id: ListAccess}`` for ``user``, in a fixed number of queries."""
+    lists = list(lists)
+    ids = await linked_agent_ids(db, [l.id for l in lists])
+    all_ids = sorted({i for v in ids.values() for i in v})
+    agents = {str(a.id): a for a in (await db.execute(
+        select(DataSource).where(DataSource.id.in_(all_ids))
+    )).scalars().all()} if all_ids else {}
+    resolved = await resolved_permissions(db, user, organization)
+    return {
+        str(l.id): access_from(resolved, organization, [agents[i] for i in ids.get(str(l.id), []) if i in agents],
+                               home_id=str(l.data_source_id))
+        for l in lists
+    }
+
+
+async def submit_route(db, user, organization, lst: AgentList, report_agent_ids: Iterable[str], *,
+                       resolved=None):
+    """How a conversation saves to ``lst``: ``(via, here)`` where ``here`` are
+    the list's agents among ``report_agent_ids`` that the user can see (by id)
+    and ``via`` the first of them the user may save through (or None). Used by
+    both the tool registry and the submit gateway, so they always agree."""
+    if resolved is None:
+        resolved = await resolved_permissions(db, user, organization)
+    in_report = {str(i) for i in report_agent_ids}
+    ids = [i for i in (await linked_agent_ids(db, [lst.id])).get(str(lst.id), []) if i in in_report]
+    agents = list((await db.execute(
+        select(DataSource).where(DataSource.id.in_(ids)).order_by(DataSource.id)
+    )).scalars().all()) if ids else []
+    here = access_from(resolved, organization, agents).visible_agents if resolved is not None else []
+    via = await first_submittable_agent(db, user, organization, here, lst, resolved=resolved) if here else None
+    return via, here
+
+
+async def can_manage_schema(db, user, organization, lst: AgentList) -> bool:
+    """MANAGE on every agent ``lst`` is linked to: the bar for changing its
+    fields, clearing its rows when shared, or deleting it from every agent."""
+    return (await access_for_lists(db, user, organization, [lst]))[str(lst.id)].can_manage_schema
 
 
 async def row_counts(db, list_ids: List[str]) -> Dict[str, int]:
@@ -73,11 +222,19 @@ def _key_name(lst: AgentList) -> Optional[str]:
     return next((f["name"] for f in (lst.fields or []) if f["id"] == lst.key_field_id), None)
 
 
-def serialize_list(lst: AgentList, ds: DataSource, *, row_count: int = 0, can_manage: bool = False,
-                   change: Optional[str] = None) -> AgentListOut:
+def serialize_list(lst: AgentList, ds: DataSource, access: Optional[ListAccess] = None, *, row_count: int = 0,
+                   can_manage: bool = False, change: Optional[str] = None) -> AgentListOut:
+    """``ds`` is the agent the list is being looked at from. ``access`` (from
+    ``access_for_lists``) says which linked agents the caller may see; without
+    it the list is shown as belonging to ``ds`` alone."""
+    access = access or ListAccess(visible_agents=[ds], can_manage_schema=can_manage, home_id=str(ds.id))
+    named = access.name_agent or ds
     return AgentListOut(
         id=str(lst.id),
-        data_source_id=str(lst.data_source_id),
+        data_source_id=str(ds.id),
+        agents=[ListAgentOut(id=str(a.id), name=a.name) for a in access.visible_agents],
+        hidden_agent_count=access.hidden_agent_count,
+        shared=access.shared,
         name=lst.name,
         slug=lst.slug,
         description=lst.description or "",
@@ -90,10 +247,11 @@ def serialize_list(lst: AgentList, ds: DataSource, *, row_count: int = 0, can_ma
         version=int(lst.version or 1),
         row_count=row_count,
         tool_name=tool_name_for(lst.slug, list_id=str(lst.id)),
-        table_name=table_name_for(ds.name, str(ds.id), lst.slug),
+        table_name=table_name_for(named.name, str(named.id), lst.slug),
         created_at=lst.created_at,
         updated_at=lst.updated_at,
         can_manage=can_manage,
+        can_manage_schema=can_manage and access.can_manage_schema,
         change=change,
     )
 
@@ -110,10 +268,7 @@ def _key_id(payload: ListSchemaIn, fields: List[Dict[str, Any]]) -> Optional[str
 
 async def create_list(db, organization, ds: DataSource, payload: ListSchemaIn, user) -> AgentList:
     existing = await live_lists_for_agents(db, [ds.id])
-    if len(existing) >= MAX_LISTS_PER_AGENT:
-        raise HTTPException(status_code=400, detail=f"An agent can have at most {MAX_LISTS_PER_AGENT} lists.")
-    if any(l.name.strip().casefold() == payload.name.casefold() for l in existing):
-        raise HTTPException(status_code=409, detail="A list with this name already exists on this agent.")
+    _check_fits(existing, payload.name)
     base = slugify(payload.name, fallback_prefix="list", seed=payload.name)
     slug = unique_slug(base, [l.slug for l in existing])
     fields = _fields_payload(payload)
@@ -132,15 +287,21 @@ async def create_list(db, organization, ds: DataSource, payload: ListSchemaIn, u
         version=1,
     )
     db.add(lst)
+    await db.flush()
+    await db.execute(insert(links).values(list_id=str(lst.id), data_source_id=str(ds.id)))
     await db.commit()
     await db.refresh(lst)
     return lst
 
 
 async def update_list(db, ds: DataSource, lst: AgentList, payload: ListSchemaIn) -> str:
-    others = [l for l in await live_lists_for_agents(db, [ds.id]) if l.id != lst.id]
+    # The new name must be free on every agent the list is linked to.
+    agent_ids = (await linked_agent_ids(db, [lst.id])).get(str(lst.id)) or [str(ds.id)]
+    others = [l for l in await live_lists_for_agents(db, agent_ids) if l.id != lst.id]
     if any(l.name.strip().casefold() == payload.name.casefold() for l in others):
-        raise HTTPException(status_code=409, detail="A list with this name already exists on this agent.")
+        detail = ("A list with this name already exists on this agent." if len(agent_ids) == 1 else
+                  "A list with this name already exists on one of the agents this list is shared with.")
+        raise HTTPException(status_code=409, detail=detail)
     fields = _fields_payload(payload)
     key_id = _key_id(payload, fields)
     change = classify_schema_change(lst.fields or [], lst.key_field_id, fields, key_id)
