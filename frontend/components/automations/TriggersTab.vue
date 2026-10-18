@@ -136,7 +136,7 @@
          inactive trigger up front so its delivery URL exists immediately and
          stays visible at the top — the URL is what the user actually came for,
          and pasting it into the sending service is step one. -->
-    <UModal v-model="showModal" :ui="{ width: viewMode ? 'sm:max-w-4xl' : 'sm:max-w-2xl' }">
+    <UModal v-model="showModal" :ui="{ width: modalWidth }">
       <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
         <template #header>
           <div class="flex items-start justify-between gap-3">
@@ -492,6 +492,13 @@ const showPayload = ref(false)
 // An existing trigger opens read-only; a freshly provisioned one goes straight
 // to the form (there is nothing to look at yet).
 const viewMode = ref(false)
+// UModal (Nuxt UI v2) re-applies the transition's hidden `enterFrom` classes
+// to the dialog panel whenever a class in the `ui` prop changes while the
+// modal is open, leaving the panel stuck at opacity-0. So the width cannot
+// follow viewMode reactively: freeze it per open — wide when opening on an
+// existing trigger (two-column summary), narrow when opening straight into the
+// form — and keep it until the modal closes. Same as ScheduledPromptModal.
+const modalWidth = ref('sm:max-w-2xl')
 const { formatDateTime } = useFormatDate()
 function formatRunDate(v?: string) { return v ? formatDateTime(v) : '' }
 let pollTimer: any = null
@@ -694,7 +701,10 @@ function stopPolling() {
 // setups don't litter the list; one with any work in it is kept AND persisted,
 // so reopening shows what they typed rather than an empty shell.
 watch(showModal, async (open) => {
-  if (open) return
+  if (open) {
+    modalWidth.value = viewMode.value ? 'sm:max-w-4xl' : 'sm:max-w-2xl'
+    return
+  }
   stopPolling()
   const trig = current.value
   const draft = isUnsavedDraft.value
