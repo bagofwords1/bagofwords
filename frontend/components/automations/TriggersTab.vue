@@ -136,7 +136,7 @@
          inactive trigger up front so its delivery URL exists immediately and
          stays visible at the top — the URL is what the user actually came for,
          and pasting it into the sending service is step one. -->
-    <UModal v-model="showModal" :ui="{ width: viewMode ? 'sm:max-w-4xl' : 'sm:max-w-2xl' }">
+    <UModal v-model="showModal" :ui="{ width: modalWidth }">
       <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
         <template #header>
           <div class="flex items-start justify-between gap-3">
@@ -492,6 +492,12 @@ const showPayload = ref(false)
 // An existing trigger opens read-only; a freshly provisioned one goes straight
 // to the form (there is nothing to look at yet).
 const viewMode = ref(false)
+// UModal (Nuxt UI v2) re-applies the transition's hidden `enterFrom` classes
+// to the panel whenever a class in the `ui` prop changes while it is open,
+// leaving it stuck at opacity-0 (same bug as ScheduledPromptModal). So the
+// width is frozen per open — wide for an existing trigger's summary, narrow
+// for a new draft — instead of following viewMode when Edit/Cancel toggle it.
+const modalWidth = ref('sm:max-w-2xl')
 const { formatDateTime } = useFormatDate()
 function formatRunDate(v?: string) { return v ? formatDateTime(v) : '' }
 let pollTimer: any = null
@@ -632,6 +638,7 @@ async function openNew() {
     hydrateForm(created)
     showPayload.value = false
     viewMode.value = false
+    modalWidth.value = 'sm:max-w-2xl'
     runs.value = []
     showModal.value = true
     startPolling()
@@ -649,6 +656,7 @@ function openEdit(trig: any) {
   hydrateForm(trig)
   showPayload.value = false
   viewMode.value = true
+  modalWidth.value = 'sm:max-w-4xl'
   showModal.value = true
   fetchRuns(trig.id)
   startPolling()
