@@ -81,6 +81,42 @@ def _prune_unresolvable_fks(normalized):
         item["fks"] = [fk for fk in item_fks if _keep(fk)]
 
 
+# Connector bookkeeping read by the CLIENT at query time (attach_table_metadata
+# reads the DB rows directly), never needed by the prompt — and each of these
+# names columns, including ones an agent manager excluded or a member cannot
+# see: the title map, a subform table's column-origin map and access path, and
+# the mandatory-column list.
+_CLIENT_ONLY_METADATA = {"priority_erp": ("column_titles", "columns", "path", "mandatory")}
+
+# Namespaces whose column metadata `title` is a fixed label (identical for every
+# user who can open the form), safe to carry into a per-user schema.
+_FIXED_COLUMN_TITLE_NAMESPACES = ("priority_erp",)
+
+
+def _fixed_column_title(table_metadata, column_metadata):
+    """The column title a per-user schema may carry over from the canonical
+    catalog: only a connector-declared fixed label, never free text."""
+    if not isinstance(table_metadata, dict) or not isinstance(column_metadata, dict):
+        return None
+    if not any(isinstance(table_metadata.get(ns), dict) for ns in _FIXED_COLUMN_TITLE_NAMESPACES):
+        return None
+    title = column_metadata.get("title")
+    return title if isinstance(title, str) and title.strip() else None
+
+
+def _strip_client_only_metadata(metadata_json):
+    """Drop client-only keys from table metadata bound for the prompt/UI."""
+    if not isinstance(metadata_json, dict):
+        return metadata_json
+    out = None
+    for ns, keys in _CLIENT_ONLY_METADATA.items():
+        blob = metadata_json.get(ns)
+        if isinstance(blob, dict) and any(k in blob for k in keys):
+            out = dict(metadata_json) if out is None else out
+            out[ns] = {k: v for k, v in blob.items() if k not in keys}
+    return out if out is not None else metadata_json
+
+
 def _redact_source_metadata(metadata_json):
     """Strip owner identity and artefact inventories from per-user schema.
 
@@ -526,6 +562,7 @@ class SchemaContextBuilder:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
                     base = _canonical_for(ot)
+                    _base_meta = getattr(base, 'metadata_json', None) if base is not None else None
                     # The overlay decides WHICH columns this user may see; the
                     # canonical row describes WHAT they are. Column descriptors
                     # (measure role, hidden flag, return type) are model-level
@@ -568,7 +605,11 @@ class SchemaContextBuilder:
                             # back to the canonical dtype so it still renders as
                             # a measure rather than an untyped column.
                             "dtype": getattr(c, 'data_type', None) or canon.get("dtype"),
-                            "description": None,
+                            # Free text stays behind (see above), but a column
+                            # TITLE a connector records as structured metadata
+                            # (Priority's form-column label, identical for every
+                            # user who can open the form) is carried across.
+                            "description": _fixed_column_title(_base_meta, canon_meta),
                             "metadata": safe_meta,
                         })
                     # Reported activation is the canonical flag (already gated
@@ -589,9 +630,9 @@ class SchemaContextBuilder:
                     columns = filter_columns(columns, excluded)
                     pks = filter_columns(pks, excluded)
                     fks = filter_fks(fks, excluded)
-                    metadata_json = _redact_source_metadata(
+                    metadata_json = _strip_client_only_metadata(_redact_source_metadata(
                         getattr(base, 'metadata_json', None) if base is not None else None
-                    )
+                    ))
                     # Extract connection info from the base table
                     conn_id = None
                     conn_name = None
@@ -689,7 +730,7 @@ class SchemaContextBuilder:
                         "pks": filter_columns(getattr(t, 'pks', []) or [], excluded),
                         "fks": filter_fks(getattr(t, 'fks', []) or [], excluded),
                         "excluded_columns": excluded or None,
-                        "metadata_json": getattr(t, 'metadata_json', None),
+                        "metadata_json": _strip_client_only_metadata(getattr(t, 'metadata_json', None)),
                         "centrality_score": getattr(t, 'centrality_score', None),
                         "richness": getattr(t, 'richness', None),
                         "degree_in": getattr(t, 'degree_in', None),

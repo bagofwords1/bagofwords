@@ -318,3 +318,17 @@ def test_explicit_expand_never_overwrites_a_value_on_name_collision():
     # a form expanding into itself: both levels' values survive
     row = flatten_expand([{"K": "g", "X_SUBFORM": [{"K": "p"}]}], "X", ["X_SUBFORM"])[0]
     assert sorted(row.values()) == ["g", "p"] and row["K"] == "p"
+
+
+def test_explicit_expand_reports_which_form_each_column_came_from():
+    """A bare name can come from either level: the parent keeps it when the
+    child did not return the same column. Only the flattener knows which."""
+    rows = [{"ORDNAME": "A", "STATDES": "Open", "ORDERITEMS_SUBFORM": [{"KLINE": 1}]}]
+    origins = {}
+    flatten_expand(rows, "ORDERS", ["ORDERITEMS_SUBFORM"], origins=origins)
+    assert origins == {"KLINE": ("ORDERITEMS", "KLINE"), "ORDNAME": ("ORDERS", "ORDNAME"),
+                       "STATDES": ("ORDERS", "STATDES")}
+    origins = {}
+    flatten_expand(_RESPONSE, "ORDERS", ["ORDERITEMS_SUBFORM"], origins=origins)
+    assert origins["STATDES"] == ("ORDERITEMS", "STATDES")
+    assert origins["ORDERS_STATDES"] == ("ORDERS", "STATDES")

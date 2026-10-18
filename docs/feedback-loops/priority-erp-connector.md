@@ -211,6 +211,29 @@ timing record (`query_timings[].sent_request`, capped at 1,000 chars), which
 survives in the persisted step summary — so it shows after a refresh — and is
 redacted with the code for users without `view_code`.
 
+### Titles
+
+Priority names every form and column twice: a technical name (PORDERS,
+ORDNAME) used by the API, and a title ("Purchase Orders", "Order Number" —
+Hebrew on an Israeli tenant) users see. The catalog keeps both, and:
+
+- the form title is rendered to the agent as `<priority_erp title="…"/>`
+  (`metadata_json.priority_erp.title`, via `_TABLE_META_KEYS`); column titles
+  as each column's `description`;
+- each Priority data source gets one `<presentation_note>` telling the planner
+  to call forms and columns by their titles in answers;
+- result headers show titles: the client labels each result with
+  `df.attrs["bow_column_titles"]` (from `metadata_json.priority_erp.column_titles`,
+  read from the DB at construction — client-only, stripped from prompt tables),
+  the query wrapper merges them per execution (a name titled differently by two
+  queries stays technical), and `format_df_for_widget` uses them as
+  `headerName` while `field` stays the column name;
+- a member on their own token (per-user overlay) gets column titles too: the
+  canonical column metadata `title` is a fixed form label, carried for the
+  `priority_erp` namespace only (free-text descriptions still stay behind).
+
+Existing catalogs pick titles up on the next schema refresh.
+
 ## Not covered
 
 - **No live tenant.** Everything above is against the mock. The real `$metadata`

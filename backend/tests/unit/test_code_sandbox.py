@@ -1011,3 +1011,91 @@ def generate_df(ds_clients, excel_files):
     by_sql = {t["sql"]: t for t in timings}
     assert by_sql["ORDERITEMS?$top=1"]["sent_request"] == "ORDERS?$expand=ORDERITEMS_SUBFORM"
     assert "sent_request" not in by_sql["SELECT 1"]
+
+
+class _TitledClient(_StubClient):
+    """A client whose catalog knows column titles (Priority: ORDNAME -> "Order
+    Number") and labels its results with them."""
+
+    def __init__(self, df, titles):
+        super().__init__(df=df)
+        self._titles = titles
+
+    def execute_query(self, query=None, *args, **kwargs):
+        out = super().execute_query(query, *args, **kwargs)
+        out.attrs["bow_column_titles"] = dict(self._titles)
+        return out
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_result_headers_show_column_titles_and_keep_field_names(monkeypatch, mode):
+    """The frame generate_df returns comes back from the sandbox without attrs;
+    the titles collected from the queries still label its headers, while
+    `field` stays the column name that code, filters and dashboards use."""
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    orders = _TitledClient(pd.DataFrame({"ORDNAME": ["SO1"], "PRICE": [5.0]}),
+                           {"ORDNAME": "מספר הזמנה", "PRICE": "מחיר יחידה"})
+    code = """
+def generate_df(ds_clients, excel_files):
+    df = ds_clients["p"].execute_query("ORDERITEMS?$top=1")
+    df["TOTAL"] = df["PRICE"] * 2
+    return df
+"""
+    executor = StreamingCodeExecutor(organization_settings=None)
+    df, _, _ = executor.execute_code(code=code, ds_clients={"p": orders}, excel_files=[])
+    cols = executor.format_df_for_widget(df)["columns"]
+    assert cols == [
+        {"headerName": "מספר הזמנה", "field": "ORDNAME"},
+        {"headerName": "מחיר יחידה", "field": "PRICE"},
+        {"headerName": "TOTAL", "field": "TOTAL"},   # computed by the code: no title
+    ]
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_a_name_titled_differently_by_two_queries_stays_technical(monkeypatch, mode):
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    part = _TitledClient(pd.DataFrame({"PRICE": [1.0]}), {"PRICE": "מחיר"})
+    lines = _TitledClient(pd.DataFrame({"PRICE": [2.0], "KLINE": [1]}),
+                          {"PRICE": "מחיר יחידה", "KLINE": "שורה"})
+    code = """
+def generate_df(ds_clients, excel_files):
+    a = ds_clients["part"].execute_query("PART")
+    b = ds_clients["lines"].execute_query("ORDERITEMS")
+    return b
+"""
+    executor = StreamingCodeExecutor(organization_settings=None)
+    df, _, _ = executor.execute_code(code=code, ds_clients={"part": part, "lines": lines}, excel_files=[])
+    headers = {c["field"]: c["headerName"] for c in executor.format_df_for_widget(df)["columns"]}
+    assert headers == {"PRICE": "PRICE", "KLINE": "שורה"}
+
+
+def test_untitled_results_keep_their_headers():
+    executor = StreamingCodeExecutor(organization_settings=None)
+    df, _, _ = executor.execute_code(
+        code="def generate_df(ds_clients, excel_files):\n    return ds_clients['db'].execute_query('SELECT 1')\n",
+        ds_clients={"db": _StubClient()}, excel_files=[])
+    assert executor.format_df_for_widget(df)["columns"] == [{"headerName": "a", "field": "a"}]
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_all_titles_conflicting_leaves_every_header_technical(monkeypatch, mode):
+    """In process the returned frame still carries its own client's labels; a
+    conflict across queries must override them, not let them through."""
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    part = _TitledClient(pd.DataFrame({"PRICE": [1.0]}), {"PRICE": "A"})
+    lines = _TitledClient(pd.DataFrame({"PRICE": [2.0]}), {"PRICE": "B"})
+    code = """
+def generate_df(ds_clients, excel_files):
+    ds_clients["part"].execute_query("PART")
+    return ds_clients["lines"].execute_query("ORDERITEMS")
+"""
+    executor = StreamingCodeExecutor(organization_settings=None)
+    df, _, _ = executor.execute_code(code=code, ds_clients={"part": part, "lines": lines}, excel_files=[])
+    assert executor.format_df_for_widget(df)["columns"] == [{"headerName": "PRICE", "field": "PRICE"}]
+
+
+def test_two_columns_never_share_a_header():
+    df = pd.DataFrame({"CURDATE": ["x"], "ORDERS_CURDATE": ["y"]})
+    df.attrs["bow_column_titles"] = {"CURDATE": "תאריך", "ORDERS_CURDATE": "תאריך"}
+    headers = [c["headerName"] for c in StreamingCodeExecutor(organization_settings=None).format_df_for_widget(df)["columns"]]
+    assert len(set(headers)) == 2 and headers[0] == "תאריך"

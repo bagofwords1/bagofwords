@@ -145,3 +145,40 @@ def test_agent_context_is_independent_of_connection_order(monkeypatch):
         f"  delegated-first={contexts[True]}\n  delegated-second={contexts[False]}"
     )
     assert "ModelU2/T8" not in contexts[True]
+
+
+async def _title_canonical_pbi_columns(ids, title):
+    """Give the canonical Power BI columns a free-text `title` in their column
+    metadata. Written directly, like the rest of this module's seed: no API
+    produces column metadata for a faked connector."""
+    from app.models.connection_table import ConnectionTable
+    async with async_session_maker() as db:
+        rows = (await db.execute(
+            select(DataSourceTable).where(DataSourceTable.datasource_id == ids["ds_id"])
+        )).scalars().all()
+        for r in rows:
+            if isinstance(r.metadata_json, dict) and "powerbi" in r.metadata_json:
+                r.columns = [{"name": "id", "dtype": "int", "metadata": {"title": title}}]
+                db.add(r)
+                if r.connection_table_id:
+                    ct = await db.get(ConnectionTable, r.connection_table_id)
+                    ct.columns = [{"name": "id", "dtype": "int", "metadata": {"title": title}}]
+                    db.add(ct)
+        await db.commit()
+
+
+@pytest.mark.e2e
+def test_free_text_column_title_of_another_connector_stays_out_of_a_users_schema(monkeypatch):
+    """A per-user schema may carry a canonical column `title` only for
+    connectors whose titles are fixed labels (Priority). Any other connector's
+    `title` is free text indexed by the system identity and must stay behind,
+    like descriptions do."""
+    ids = _run(_seed(True))
+    _install_fake_pbi(monkeypatch, ids, [])
+    u1 = ids["users"]["analyst1"]
+    _run(_title_canonical_pbi_columns(ids, "SYSTEM ONLY NOTE"))
+    _run(_sync(ids, u1))
+    _run(_activate_all(ids))
+    ctx = _run(_context_for(ids, u1))
+    assert "ModelA/T1" in ctx, "the delegated table is not in the user's context"
+    assert "SYSTEM ONLY NOTE" not in ctx
