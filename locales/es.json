@@ -5828,6 +5828,7 @@
     "untitledInstruction": "Instrucción sin título",
     "pending": "Pendiente",
     "accepted": "Aceptada",
+    "rejected": "Rechazada",
     "webhooks": "Webhooks",
     "configureWebhook": "Configurar webhook",
     "subAgents": "Subagentes"

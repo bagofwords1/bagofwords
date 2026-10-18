@@ -5848,6 +5848,7 @@
     "untitledInstruction": "הנחיה ללא כותרת",
     "pending": "ממתין",
     "accepted": "התקבלה",
+    "rejected": "נדחתה",
     "webhooks": "Webhooks",
     "configureWebhook": "הגדרת webhook",
     "subAgents": "סוכני משנה"

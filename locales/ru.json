@@ -5482,6 +5482,7 @@
     "untitledInstruction": "Инструкция без названия",
     "pending": "Ожидает",
     "accepted": "Принята",
+    "rejected": "Отклонена",
     "webhooks": "Вебхуки",
     "configureWebhook": "Настроить вебхук"
   },

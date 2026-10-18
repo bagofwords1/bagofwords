@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from .tool_execution_schema import ToolExecutionSchema
 from .step_schema import StepSchema
@@ -20,6 +20,9 @@ class SummaryInstructionItem(BaseModel):
     line_count: int
     message_id: str  # completion_id, for scrollToMessage
     build_id: Optional[str] = None  # draft build this change was staged in
+    # Review state of this conversation's change, read from the instruction
+    # itself (see ReportService.get_report_summary).
+    state: Literal["pending", "accepted", "rejected"] = "pending"
 
 
 class SummaryListSubmission(BaseModel):

@@ -50,8 +50,6 @@
 							:listSubmissions="summaryLists"
 							:subAgents="summarySubAgents"
 							:trainingInstructions="summaryInstructions"
-							:reportInstructions="reportInstructions"
-							:pendingBuildId="pendingTrainingBuild?.id || null"
 							:pendingTrainingBuild="pendingTrainingBuild"
 							:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 							@approveTrainingBuild="onApproveTrainingBuild"
@@ -922,8 +920,6 @@
 						:listSubmissions="summaryLists"
 						:subAgents="summarySubAgents"
 						:trainingInstructions="summaryInstructions"
-						:reportInstructions="reportInstructions"
-						:pendingBuildId="pendingTrainingBuild?.id || null"
 						:pendingTrainingBuild="pendingTrainingBuild"
 						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 						@approveTrainingBuild="onApproveTrainingBuild"
@@ -1800,10 +1796,6 @@ const summaryLists = ref<any[]>([])
 // Sub-agents (delegated background investigations) of this report, for the
 // Summary tab (GET /reports/{id}/summary → sub_agents).
 const summarySubAgents = ref<any[]>([])
-// Historical list of instructions created during this report's agent runs.
-// Separate from summaryInstructions (which is pending-only) so the Summary
-// tab can keep showing accepted instructions after the build is approved.
-const reportInstructions = ref<any[]>([])
 // Fold boundary of rolling context compaction: the transcript divider renders
 // right after this completion. State-derived (from the completions payload,
 // the context.compacted SSE, and manual compaction responses).
@@ -1920,10 +1912,8 @@ async function onDiscardTrainingInstruction(payload: { buildId: string; instruct
 // Listen for resolutions originating elsewhere (modal tracked-changes panel,
 // tool cards) so the pill state stays in sync without prop drilling.
 function onInstructionResolved(_e: Event) {
-    // Re-fetch both: summary drives the pending pill; reportInstructions
-    // drives the historical "Instructions" section in ChatSummary.
+    // The summary carries each instruction's review state.
     loadReportSummary().catch(() => {})
-    loadReportInstructions().catch(() => {})
 }
 onMounted(() => {
     loadLlmModels()
@@ -2369,6 +2359,7 @@ async function loadReportSummary() {
             lineCount: i.line_count,
             messageId: i.message_id,
             buildId: i.build_id,
+            state: i.state,
         }))
         pendingTrainingBuild.value = res?.pending_training_build || null
         await loadPendingBuildDiff()
@@ -2378,21 +2369,6 @@ async function loadReportSummary() {
         summaryInstructions.value = []
         pendingTrainingBuild.value = null
         pendingTrainingBuildDiff.value = null
-    }
-}
-
-async function loadReportInstructions() {
-    try {
-        const { data, error } = await useMyFetch(`/reports/${report_id}/instructions`)
-        if (error.value) {
-            console.warn('[reportInstructions] fetch error:', error.value)
-        }
-        const res = data.value as any
-        reportInstructions.value = Array.isArray(res) ? res : []
-        console.debug('[reportInstructions] loaded', reportInstructions.value.length, 'items')
-    } catch (e) {
-        console.warn('[reportInstructions] threw:', e)
-        reportInstructions.value = []
     }
 }
 
@@ -6129,10 +6105,10 @@ onMounted(async () => {
 			|| (report.value as any)?.instruction_count > 0
 			|| (report.value as any)?.has_scheduled_prompts)
 	if (opensSummary) {
-		await Promise.all([loadReportSummary(), loadReportInstructions()])
+		await loadReportSummary()
 	} else {
 		window.setTimeout(() => {
-			void Promise.all([loadReportSummary(), loadReportInstructions()])
+			void loadReportSummary()
 		}, 250)
 	}
 

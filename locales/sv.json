@@ -5482,6 +5482,7 @@
     "untitledInstruction": "Namnlös instruktion",
     "pending": "Väntar",
     "accepted": "Godkänd",
+    "rejected": "Avvisad",
     "webhooks": "Webhooks",
     "configureWebhook": "Konfigurera webhook"
   },

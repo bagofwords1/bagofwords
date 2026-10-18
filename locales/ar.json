@@ -5482,6 +5482,7 @@
     "untitledInstruction": "تعليمات بلا عنوان",
     "pending": "قيد الانتظار",
     "accepted": "مقبولة",
+    "rejected": "مرفوضة",
     "webhooks": "Webhooks",
     "configureWebhook": "إعداد webhook"
   },

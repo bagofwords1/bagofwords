@@ -5482,6 +5482,7 @@
     "untitledInstruction": "Istruzione senza titolo",
     "pending": "In attesa",
     "accepted": "Accettata",
+    "rejected": "Rifiutata",
     "webhooks": "Webhook",
     "configureWebhook": "Configura webhook"
   },
