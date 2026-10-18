@@ -261,11 +261,16 @@ class PostOps:
     orderby: List[Tuple[str, bool]] = field(default_factory=list)  # (column, descending)
     top: Optional[int] = None
     skip: Optional[int] = None
-    # The sort as the top-level form's own columns, when every $orderby column
-    # belongs to it: Priority can then sort and page the parents itself, and
+    # The leading $orderby columns that belong to the top-level form, as its
+    # own columns: Priority can then sort and page the parents itself, and
     # whole parents taken in that order give the lines in the right order.
-    # None when a column of a lower level is sorted on.
+    # None when the sort starts with a column of a lower level.
     parent_orderby: Optional[List[Tuple[str, bool]]] = None
+    # True when the sort goes on past `parent_orderby` (KLINE in
+    # `CURDATE desc,KLINE`) and it can tie: lines of parents with equal
+    # `parent_orderby` values are ordered by the later columns, so a read that
+    # stops early must first take every parent tied with the last one.
+    parent_ties: bool = False
     # A $filter clause on the top-level form, or $since: what keeps a read of
     # every matching parent from being a read of the whole form.
     parent_bounded: bool = False
@@ -353,8 +358,15 @@ def build_subform_request(route: SubformRoute, query_string: str) -> Tuple[str, 
     post.parent_filter = " and ".join(filters[0]) or None
     post.since = opts.get("$since") or None
     resolved = [(route.resolve(c), desc) for c, desc in post.orderby]
-    if all(lvl == 0 for (lvl, _), _ in resolved):
-        post.parent_orderby = [(original, desc) for (_, original), desc in resolved]
+    lead = 0
+    while lead < len(resolved) and resolved[lead][0][0] == 0:
+        lead += 1
+    if lead or not resolved:
+        post.parent_orderby = [(original, desc) for (_, original), desc in resolved[:lead]]
+        # The parent's keys among the leading columns make every parent's
+        # values distinct, so there is nothing to tie.
+        sorted_on = {c for c, _ in post.parent_orderby}
+        post.parent_ties = lead < len(resolved) and not set(route.levels[0].keys) <= sorted_on
 
     # Columns each level must return: what $select and $orderby name, plus
     # every non-target level's keys (Priority requires parent keys in $select,
