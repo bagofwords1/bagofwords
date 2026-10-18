@@ -261,6 +261,18 @@ class PostOps:
     orderby: List[Tuple[str, bool]] = field(default_factory=list)  # (column, descending)
     top: Optional[int] = None
     skip: Optional[int] = None
+    # The sort as the top-level form's own columns, when every $orderby column
+    # belongs to it: Priority can then sort and page the parents itself, and
+    # whole parents taken in that order give the lines in the right order.
+    # None when a column of a lower level is sorted on.
+    parent_orderby: Optional[List[Tuple[str, bool]]] = None
+    # A $filter clause on the top-level form, or $since: what keeps a read of
+    # every matching parent from being a read of the whole form.
+    parent_bounded: bool = False
+    # The top-level form's own conditions (and `$since`), for a request that
+    # counts matching parents without their lines.
+    parent_filter: Optional[str] = None
+    since: Optional[str] = None
 
 
 # Characters that keep their meaning in the request we build. Everything else
@@ -337,6 +349,12 @@ def build_subform_request(route: SubformRoute, query_string: str) -> Tuple[str, 
     )
     if opts.get("$select"):
         post.select = split_top_level(opts["$select"], ",")
+    post.parent_bounded = bool(filters[0]) or bool(opts.get("$since"))
+    post.parent_filter = " and ".join(filters[0]) or None
+    post.since = opts.get("$since") or None
+    resolved = [(route.resolve(c), desc) for c, desc in post.orderby]
+    if all(lvl == 0 for (lvl, _), _ in resolved):
+        post.parent_orderby = [(original, desc) for (_, original), desc in resolved]
 
     # Columns each level must return: what $select and $orderby name, plus
     # every non-target level's keys (Priority requires parent keys in $select,
@@ -373,6 +391,35 @@ def build_subform_request(route: SubformRoute, query_string: str) -> Tuple[str, 
         top.append(f"$since={opts['$since']}")
     query = "&".join(quote(p, safe=_SAFE) for p in top)
     return f"{route.levels[0].form}?{query}", post
+
+
+def with_parent_page(request_path: str, orderby: List[Tuple[str, bool]],
+                     top: int, skip: int) -> str:
+    """Add paging of the top-level form to a request from
+    `build_subform_request`: these options sit at the top level, outside any
+    `$expand`, so they order and limit the parents, never lines within one."""
+    parts = []
+    if orderby:
+        parts.append("$orderby=" + ",".join(f"{c} desc" if d else c for c, d in orderby))
+    parts.append(f"$top={int(top)}")
+    if skip:
+        parts.append(f"$skip={int(skip)}")
+    extra = "&".join(quote(p, safe=_SAFE) for p in parts)
+    path, _, query = request_path.partition("?")
+    return f"{path}?{query}&{extra}" if query else f"{path}?{extra}"
+
+
+def parent_probe_path(route: SubformRoute, post: PostOps, skip: int) -> str:
+    """A request that answers "do more than `skip` parents match?" cheaply:
+    the parent's own conditions, its key only, no lines, one row."""
+    parts = []
+    if post.parent_filter:
+        parts.append("$filter=" + post.parent_filter)
+    parts.append("$select=" + ",".join(route.levels[0].keys))
+    parts += ["$top=1", f"$skip={int(skip)}"]
+    if post.since:
+        parts.append(f"$since={post.since}")
+    return f"{route.levels[0].form}?" + "&".join(quote(p, safe=_SAFE) for p in parts)
 
 
 # ── flattening ──────────────────────────────────────────────────────────────
