@@ -1236,7 +1236,7 @@ async def get_report_summary(
     Unlike completions (which are paginated), this returns the full set so the
     summary sidebar is complete on first load.
     """
-    return await report_service.get_report_summary(db, report_id)
+    return await report_service.get_report_summary(db, report_id, organization, current_user)
 
 
 # --- Training Mode Instructions ---

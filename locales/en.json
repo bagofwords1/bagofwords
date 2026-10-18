@@ -5866,6 +5866,7 @@
     "untitledInstruction": "Untitled instruction",
     "pending": "Pending",
     "accepted": "Accepted",
+    "rejected": "Rejected",
     "webhooks": "Webhooks",
     "configureWebhook": "Configure webhook",
     "subAgents": "Sub-agents"
