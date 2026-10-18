@@ -155,6 +155,7 @@ async def stream_reports_activity(
     import asyncio as _asyncio
     from fastapi.responses import StreamingResponse
     from app.streaming.report_activity_hub import report_activity_hub, format_activity_event
+    from app.streaming.delivery import NO_BUFFER_HEADERS
 
     org_id = str(organization.id)
     user_id = str(current_user.id)
@@ -182,10 +183,7 @@ async def stream_reports_activity(
         finally:
             report_activity_hub.unsubscribe(org_id, sub)
 
-    return StreamingResponse(gen(), media_type="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-    })
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=NO_BUFFER_HEADERS)
 
 @router.post("/reports/{report_id}/viewed")
 @requires_permission('view_reports', model=Report)

@@ -1139,6 +1139,7 @@ import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
+import { createStreamDeliveryTracker, isBufferedDelivery } from '~/utils/streamDelivery'
 
 // An @agent chip in an already-sent prompt names a LIVE agent, so it should draw
 // the icon that agent has now — not the one snapshotted into the prompt's
@@ -5580,11 +5581,13 @@ async function startStreaming(requestBody: any, sysId: string) {
 
 		const reader = res.body!.getReader()
 		const decoder = new TextDecoder()
+		const delivery = createStreamDeliveryTracker('kickoff', res)
 		let buffer = ''
 		let currentEvent: string | null = null
 
 		while (true) {
 			const { done, value } = await reader.read()
+			const readAt = performance.now()
 			if (done) {
 				break
 			}
@@ -5609,6 +5612,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 				} else if (line.startsWith('data:')) {
 					const dataStr = line.slice(5).trim()
 					if (dataStr === '[DONE]') {
+						reportStreamDelivery(delivery, completionId)
 						// Refresh report data and context estimate after stream fully ends.
 						// force=true: without it refreshContextEstimate early-returns after
 						// its first fetch, leaving the context meter stale for the whole
@@ -5626,6 +5630,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 					}
 					try {
 						const parsed = JSON.parse(dataStr)
+						delivery.observe(currentEvent, parsed, readAt)
 						const payload = parsed.data ?? parsed
 						if (currentEvent === 'completion.started' && payload?.system_completion_id) {
 							completionId = payload.system_completion_id
@@ -5745,6 +5750,20 @@ function startKickoffWatchdog() {
 			try { currentController?.abort() } catch {}
 		}
 	}, 5000)
+}
+
+// When a finished stream shows its tokens were held back on the way (a
+// buffering proxy, TLS inspection, AV scanner: the answer appeared all at
+// once), tell the backend so it lands in the server logs. Fire-and-forget, at
+// most once per stream, never for streams that arrived live.
+function reportStreamDelivery(delivery: ReturnType<typeof createStreamDeliveryTracker>, completionId: string | null | undefined) {
+	const summary = delivery.summary()
+	if (!completionId || !isBufferedDelivery(summary)) return
+	console.warn(`[stream] live tokens were held back ${summary.holdback_ms} ms on the way to the browser and arrived all at once`, summary)
+	useMyFetch(`/reports/${report_id}/completions/${completionId}/stream-diagnostics`, {
+		method: 'POST',
+		body: summary,
+	}).catch(() => {})
 }
 
 function stopKickoffWatchdog() {
@@ -5883,12 +5902,14 @@ async function startWatchStream(completionId: string, opts: { sysId?: string; ow
 async function consumeWatchStream(res: Response, completionId: string, sysId: string | undefined, gen: number, ownStream = false): Promise<{ sawDone: boolean, gotEvents: boolean }> {
 	const reader = res.body!.getReader()
 	const decoder = new TextDecoder()
+	const delivery = createStreamDeliveryTracker('watch', res)
 	let buffer = ''
 	let currentEvent: string | null = null
 	let gotEvents = false
 
 	while (true) {
 		const { done, value } = await reader.read()
+		const readAt = performance.now()
 		if (done) break
 		lastWatchByteAt = Date.now()
 		if (watchGeneration !== gen) break
@@ -5905,6 +5926,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 			} else if (line.startsWith('data:')) {
 				const dataStr = line.slice(5).trim()
 				if (dataStr === '[DONE]') {
+					reportStreamDelivery(delivery, sysId || completionId)
 					// Terminal: converge on canonical persisted state.
 					await loadCompletions({ skipEstimate: true })
 					loadReport()
@@ -5915,6 +5937,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 				}
 				try {
 					const parsed = JSON.parse(dataStr)
+					delivery.observe(currentEvent, parsed, readAt)
 					const payload = parsed.data ?? parsed
 					const idx = findWatchMessageIndex(completionId, sysId)
 					// Report-scoped events (artifacts, the generated title) are not

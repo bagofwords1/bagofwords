@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Request, UploadFile, File as Upload, Query
 from fastapi.responses import Response, StreamingResponse
+from app.streaming.delivery import NO_BUFFER_HEADERS
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete, update
 from sqlalchemy.exc import IntegrityError
@@ -284,7 +285,8 @@ async def ai_stream(operation: str, payload: AIInput, request: Request, service=
                 await usage.flush()
 
     return StreamingResponse(
-        events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
+        events(), media_type="application/x-ndjson",
+        headers={**NO_BUFFER_HEADERS, "Cache-Control": "no-store, no-transform"},
     )
 
 
