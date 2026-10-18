@@ -297,6 +297,28 @@ def test_openai_current_overflow_is_context_length_not_a_retryable_provider_erro
         assert err.code not in FALLBACK_ELIGIBLE_CODES
 
 
+def test_openai_streamed_overflow_is_context_length_through_the_llm_wrapper():
+    """The live shape on the planner path (gpt-6-luna, Responses API stream):
+    the rejection arrives as a stream error event, the SDK raises a bare
+    APIError with no HTTP status, and LLM.inference_stream_v2 re-raises it as
+    RuntimeError("LLM v2 streaming failed …: <message>") from the original —
+    only the cause chain still knows the code."""
+    import httpx
+    import openai
+    error = dict(_OPENAI_RESPONSES_OVERFLOW)
+    stream_err = openai.APIError(error["message"], httpx.Request("POST", "https://api.openai.com/v1/responses"),
+                                 body=error)
+    try:
+        try:
+            raise stream_err
+        except Exception as e:
+            raise RuntimeError(f"LLM v2 streaming failed (provider=openai, model=gpt-6-luna): {e}") from e
+    except RuntimeError as wrapped:
+        err = classify(wrapped, provider="openai", model="gpt-6-luna")
+    assert err.code == "context_length"
+    assert "exceeds the context window" in err.provider_message
+
+
 def test_other_openai_400_codes_stay_what_they_were():
     error = {"message": "Invalid value for 'temperature'.", "type": "invalid_request_error",
              "param": "temperature", "code": "invalid_value"}

@@ -146,33 +146,88 @@ in *image-bearing* steps, or simply the newest 24 images whatever the step,
 would keep the last few pages alive across text-only steps. That is a
 follow-up decision and is not part of this change.
 
-### OpenAI's overflow messages are not recognized (found, not fixed here)
+### Follow-up 1 — retention by image count (shipped in 1eec3a1)
 
-A deliberately oversized request (~1.2M tokens) to `gpt-6-luna` returns:
+The 3-step window above was replaced: the newest `MAX_RETAINED_IMAGES` (24)
+tool images stay whatever step they came from. Whole results only, newest
+first, strict recency; the newest image-bearing step is always kept (even past
+24) and is never decayed by `fit_to_budget`.
 
-* Responses API: `400 … 'Your input exceeds the context window of this
-  model. Please adjust your input and try again.'`, `code:
-  context_length_exceeded`
-* Chat Completions: `400 … 'Input tokens exceed the configured limit of
-  922000 tokens. Your messages resulted in 1200007 tokens. …'`, `code:
-  context_length_exceeded`
+One-page-per-step A/B on gpt-6-luna. Prompt: "read each PDF one page at a
+time, note after each PDF, save each folder with submit_case_summaries". The
+previous commit (3-step window) ran against this change. One run each; both
+runs drifted:
 
-`app/ai/llm/errors.py:classify` matches context-length markers in the message
-text only (`"maximum context"`, `"context length"`, …). Neither wording
-matches, and the `context_length_exceeded` code is not checked. Both are
-classified as `provider_error`, so for OpenAI `_handle_context_overflow` never
-runs, and the error is retried and is eligible for fallback. The
-chat-completions wording also does not match `_CONTEXT_OVERFLOW_PATTERNS`, so
-the exact shrink ratio could not be parsed. This is a separate fix, outside
-this change.
+| Run | Calls | Rows | `read_file` calls | Repeat reads | Most reads of one page | Max images/request | Max input | Total input |
+|---|---|---|---|---|---|---|---|---|
+| 3-step window | 93 (finished) | 8/8 | 58 | 10 | 3 | 3 | 95,554 | 6.5M |
+| newest-24 | 100 (step limit) | 4/8 | 51 | 15 | 6 | 24 | 140,797 | 10.4M |
+
+An earlier pair (note after every page) also hit the step limit on both sides.
+The 3-step run saved 4 rows with 4 repeat reads. The newest-24 run made no
+repeat reads, but it searched MCPs for the list tool and saved nothing, even
+though `submit_case_summaries` was registered.
+
+**The new rule did not reduce re-reads in these samples.** Every repeat read
+in the newest-24 run (15 of 15) happened while that page was **still in
+context** under the 24-image rule. Several were the same page read
+back-to-back up to 6 times. So these re-reads are model behaviour, not
+retention. One hint: in an earlier run the model's note called a tool-read
+page "visible in the user's attached screenshot". Tool images are hoisted into
+the user turn next to the `tool_result`, so the model may not tie the picture
+to the read. This was not investigated further. The new rule does cost more
+per request (up to 24 pages held: 141k vs 96k max input), as designed.
+
+### Follow-up 2 — OpenAI context-length recognition
+
+A deliberately oversized request (~1.2M tokens) to `gpt-6-luna` returns
+`code: context_length_exceeded` with wordings that the old markers missed:
+
+* Responses API: `Your input exceeds the context window of this model. Please
+  adjust your input and try again.`
+* Chat Completions: `Input tokens exceed the configured limit of 922000
+  tokens. Your messages resulted in 1200007 tokens. …`
+
+1eec3a1 matched the structured code only together with an HTTP 400. On the
+planner's real path that never holds. The Responses **stream** reports the
+rejection as an `error` event. The SDK raises a bare `openai.APIError` (no
+`status_code`, `code=context_length_exceeded`), and
+`LLM.inference_stream_v2` re-raises it as `RuntimeError("LLM v2 streaming
+failed …: <message>") from e`. The outer exception has no status and no
+code, so the live classification after 1eec3a1 was still `unknown`, and
+`_handle_context_overflow` did not run. fb9f621 walks the
+`__cause__`/`__context__` chain for the structured code and accepts it
+without a status.
+
+Live, through the app's own `LLM`/`OpenAIResponsesClient`
+(`real_overflow_harness`: a 30-result transcript plus a 4-page read, est
+764k tokens, digit-dense so ~1.2M real):
+
+```
+first request rejected: RuntimeError
+   chain: openai APIError status None code context_length_exceeded
+  classify -> unknown          (1eec3a1)
+  classify -> context_length   (fb9f621)
+  _shrunk_context_factor -> 0.85   (Responses wording has no numbers: geometric)
+  _handle_context_overflow: transcript 764113 -> 437517 est tokens; images 4 kept (newest step)
+retry accepted, provider input_tokens 873284
+```
+
+The retry fit, but OpenAI billed 873k for a 437k estimate. Digit-dense text
+runs ~2.2 chars/token, which chars/4 undercounts 2x; JSON-heavy tool results
+are the same. A second overflow would still have converged (×0.85 per
+attempt). An attempt to reach a real overflow through a full agent run
+(24 Hebrew text reads) only reached 656k tokens. `read_file` caps
+observation text at 4k chars, so text reads cannot fill a 1M window.
 
 ## The fix
 
-* `app/ai/context/transcript.py`: `IMAGE_RETENTION_STEPS = 3`,
-  `MAX_RETAINED_IMAGES = 24`. `enforce_image_retention()` runs on every
-  `add_tool_results`. Walking newest-first, results from the last 3 result
-  turns keep images up to the cap; older results and decayed (non-FULL)
-  results lose them, permanently, on the live transcript. `to_model_messages`
+* `app/ai/context/transcript.py` (as of 1eec3a1): `MAX_RETAINED_IMAGES = 24`,
+  `retained_prefix()`. `enforce_image_retention()` runs on every
+  `add_tool_results` and keeps the newest 24 images in whole results, newest
+  first, strict recency; the newest image-bearing step is always kept.
+  Decayed (non-FULL) results lose their images. Releases are permanent, on
+  the live transcript. `to_model_messages`
   renders images only for FULL results. `fit_to_budget` gains two rungs:
   release images outside the protected tail first (oldest first), and as a
   last resort release images inside the tail, but never the newest step's,
@@ -191,8 +246,13 @@ this change.
   `planner_input.images` when the request renders the native transcript
   (PlannerV3 + transcript path). User uploads always stay. The legacy planner,
   `BOW_PLANNER_TRANSCRIPT=0` and knowledge mode keep tool images on that
-  channel, now under the same 3-step / 24-image limits.
+  channel, now under the same newest-24 rule (one unit per step).
   `_handle_context_overflow` logs `images_released`.
+* `app/ai/llm/errors.py` (1eec3a1 + fb9f621): structured
+  `context_length_exceeded`, read from the exception or its cause chain, maps
+  to `context_length`. The current OpenAI wordings are markers too.
+  `agent_v2._CONTEXT_OVERFLOW_PATTERNS` parses the Chat Completions
+  "configured limit … resulted in" numbers.
 * `app/ai/tools/implementations/list_files.py` + `_file_tool_common.py`:
   `note_enumeration(…, scoped=True)` for a `folder_id` (other than root) or a
   `cursor` page neither notes nor records the listing. Repeated
@@ -200,7 +260,7 @@ this change.
 
 ## What this proves / regression notes
 
-* Unit suite: 8436 passed. The 40 failures all fail identically on a clean
+* Unit suite (fb9f621): 8455 passed. Earlier: 8436 passed. The 40 failures all fail identically on a clean
   `main` checkout in this sandbox: the 8 known ones, plus
   `test_obo_*` / `test_discovery_progress_contract`, which need `libodbc`.
   Nothing new fails.
