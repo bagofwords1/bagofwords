@@ -23,9 +23,11 @@ Two more things made it worse, both seen in a real trace:
   5-minute tool limit allowed barely one attempt.
 - After a connector error, the code retry sometimes came back as an
   explanation followed by the code ("The previous attempt failed because …
-  \n\ndef generate_df…"). The coder only stripped a fence at the very start,
+  \n\ndef generate_df…"). The coder only strips a fence at the very start,
   so the prose ran as Python: `SyntaxError … (<string>, line 1)`, one more
   wasted attempt. Captured with a temporary log line on the failing code.
+  **Not fixed here** (it affects code generation for every source, so it is
+  kept for a separate change) — see "Known issue" below.
 
 ## Loop A — deterministic reproduction (no LLM)
 
@@ -72,9 +74,9 @@ After:
 |---|---|---|
 | show me 5 rows from purchase order items | 10.1 s | `PORDERITEMS?$top=5…`, query 0.55 s |
 | PORDERSITEMS TOP 5 | 62.6 s | ranked by line total over the last 3 months (stated), query 47.6 s |
-| what are the 10 most recent purchase order lines? | 42.3 s | `$orderby=CURDATE desc&$top=10`, query 0.8 s (this run predates the coder fix: 2 wasted retries) |
+| what are the 10 most recent purchase order lines? | 42.3 s | `$orderby=CURDATE desc&$top=10`, query 0.8 s (2 retries lost to the SyntaxError issue below) |
 | Which 5 parts did we spend the most on … last 3 months? | 49.3 s | 3,221 lines in the window, aggregated in pandas |
-| top 5 most expensive purchase order lines | 50.3 s | ranked the latest 2,000 lines and **said so**, offering to widen |
+| top 5 most expensive purchase order lines | 50.3 s – 180 s | ranked the latest 2,000 lines and **said so**, offering to widen; in one run three retries were lost to the SyntaxError issue below before a date-bounded query succeeded |
 | how much did we spend per vendor this year? top 10 | 16.3 s | used PORDERS totals directly (5 s), no lines needed |
 | list all purchase order lines for part P-0007 from last month | 22.2 s | parent date filter + part filter, 18 lines |
 | תראה לי 5 שורות מפריטי הזמנות רכש | 9.8 s | 5 rows, answered in Hebrew |
@@ -108,15 +110,22 @@ records whether the sort is on parent columns, whether the parent read is
 filtered, and the parent filter itself; `with_parent_page` and
 `parent_probe_path` build the paged and probing requests.
 
-`backend/app/ai/agents/coder/coder.py` — `strip_code_response` takes the
-fenced block wherever it is, or starts at the first `def`/import line when
-prose precedes the code; used by all four code generators.
-
 ## What this proves / regression notes
 
 - Existing unit tests (`test_priority_odata_query.py`,
-  `test_priority_erp_client.py`, coder tests): 185 passed, unchanged.
+  `test_priority_erp_client.py`): 154 passed, unchanged.
 - Not yet added: regression tests for the paging/probe/budget paths and the
   coder extraction (deliberately deferred; the cases above are the spec).
 - Mock timings are a model, not a measurement of any one server; the probe
   adapts to the real server's pace.
+
+## Known issue (not in this change)
+
+Code retries can be lost to `SyntaxError … (<string>, line 1)` when the model
+explains its fix before the code. The cleanup in
+`backend/app/ai/agents/coder/coder.py` (the `re.sub` fence stripping after
+each generation) removes a fence only at the start of the reply. Taking the
+fenced block wherever it is — or starting at the first `def` line when prose
+precedes it — fixed it in this sandbox (the same two prompts then succeeded
+on the first attempt), but it changes code generation for every data source,
+so it is left for its own change.

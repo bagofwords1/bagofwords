@@ -131,35 +131,6 @@ def trim_after_final_df_return(code: str) -> str:
     return _FINAL_DF_RETURN.sub(r'\1', code)
 
 
-_FENCED_BLOCK = re.compile(r'```[A-Za-z0-9_\-]*[^\S\n]*\r?\n(.*?)(?:```|\Z)', re.S)
-_DEF_LINE = re.compile(r'(?m)^(?:async\s+)?def\s')
-_IMPORT_LINE = re.compile(r'(?m)^(?:import|from)\s+[A-Za-z_]')
-
-
-def strip_code_response(text: str) -> str:
-    """The code in a code-generation reply, without fences or prose.
-
-    The prompts ask for bare code, but a model retrying after an error
-    sometimes explains its fix first ("The previous attempt failed because …")
-    and then gives the function, fenced or not. Running that reply as-is fails
-    with a SyntaxError on line 1 and wastes the retry. So: take a fenced block
-    if there is one (the one defining a function, else the first), otherwise
-    start at the first `def` line (or import line) when prose precedes it.
-    """
-    text = (text or "").strip()
-    blocks = _FENCED_BLOCK.findall(text)
-    if blocks:
-        text = next((b for b in blocks if _DEF_LINE.search(b)), blocks[0])
-    else:
-        start = _DEF_LINE.search(text) or _IMPORT_LINE.search(text)
-        if start and start.start() > 0:
-            text = text[start.start():]
-    text = re.sub(r'(?m)^\s*```\s*$', '', text)
-    # Defensive: a leading standalone language tag line (e.g. "python").
-    text = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', text, flags=re.IGNORECASE)
-    return text.strip()
-
-
 def _file_access_rules(indent: str = "") -> str:
     """How to read an entry in `excel_files`.
 
@@ -634,7 +605,12 @@ class Coder:
                 raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
 
-        result = strip_code_response(result)
+        # Remove markdown code fence (with optional language tag) if present
+        result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
+        # Remove any closing fence lines that are just ```
+        result = re.sub(r'(?m)^\s*```\s*$', '', result)
+        # Defensive: remove a leading standalone language tag line (e.g., "python" or "json")
+        result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
         result = trim_after_final_df_return(result)
         return result
     
@@ -1104,7 +1080,9 @@ class Coder:
             if truncated:
                 raise RuntimeError(_TRUNCATION_ERROR)
             result = "".join(chunks)
-            result = strip_code_response(result)
+            result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
+            result = re.sub(r'(?m)^\s*```\s*$', '', result)
+            result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
             result = trim_after_final_df_return(result)
 
             return result
@@ -1259,7 +1237,9 @@ class Coder:
         result = "".join(chunks)
 
         # Clean up code fences
-        result = strip_code_response(result)
+        result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
+        result = re.sub(r'(?m)^\s*```\s*$', '', result)
+        result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
 
         return result
 
@@ -1409,7 +1389,9 @@ class Coder:
             raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
 
-        result = strip_code_response(result)
+        result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
+        result = re.sub(r'(?m)^\s*```\s*$', '', result)
+        result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
         result = trim_after_final_df_return(result)
 
         return result
