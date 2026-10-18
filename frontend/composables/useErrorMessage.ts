@@ -15,6 +15,16 @@
  *     toast.add({ description: getErrorMessage(e, t('errors.generic')) })
  *   }
  */
+/**
+ * The catalog keys an error code may live under, in lookup order. Most codes
+ * hold a dot ("artifact.not_found") and the catalog stores them as flat keys
+ * under `errors`, but vue-i18n reads a dotted path as nesting
+ * (errors → artifact → not_found), so the flat key needs bracket form.
+ */
+export function errorCatalogKeys(code: string): string[] {
+  return [`errors.${code}`, `errors['${code}']`]
+}
+
 export function useErrorMessage() {
   const { t, te } = useI18n()
 
@@ -40,9 +50,10 @@ export function useErrorMessage() {
     const payload = extractPayload(err)
     const code = payload.error_code
     if (code) {
-      const key = `errors.${code}`
-      if (te(key)) {
-        return t(key, (payload.params ?? {}) as Record<string, unknown>)
+      for (const key of errorCatalogKeys(code)) {
+        if (te(key)) {
+          return t(key, (payload.params ?? {}) as Record<string, unknown>)
+        }
       }
     }
     // Fall back to server-provided English string, then caller fallback, then generic.
