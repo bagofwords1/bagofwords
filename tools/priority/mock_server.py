@@ -33,7 +33,15 @@ Deliberately faithful to the details that shape the client:
   Hebrew ones, mirroring a real Israeli tenant, so the catalog must never
   assume titles are English or ASCII.
 
+**Large-tenant mode** (`--orders N`) adds purchasing forms (SUPPLIERS,
+PORDERS, PORDERITEMS) and N generated sales and purchase orders, and makes
+every response cost time in proportion to the parent rows it reads — expanded
+rows cost more — the way a real tenant does. On such a tenant a subform read
+with nothing limiting the parent form runs for minutes; a bounded one returns
+in a second. All generated data is synthetic.
+
 Run:  uv run python tools/priority/mock_server.py [--port 8901]
+      uv run python tools/priority/mock_server.py --orders 6000   # large + slow
 Then point a Priority ERP connection at:
     service_root = http://127.0.0.1:8901/odata/Priority/tabmock.ini/demo
     PAT          = DEMOTOKEN   (or API user demo/demo)
@@ -67,10 +75,24 @@ REQUEST_LOG: List[str] = []
 app = FastAPI(title="Mock Priority ERP OData")
 
 
+# Optional JSON-lines log of every request (path, decoded query, status,
+# seconds) — set by --log, for evidence of what a client actually sent.
+ACCESS_LOG_PATH: Optional[str] = None
+
+
 @app.middleware("http")
 async def _log_requests(request, call_next):
     REQUEST_LOG.append(request.url.path)
-    return await call_next(request)
+    started = time.monotonic()
+    response = await call_next(request)
+    if ACCESS_LOG_PATH:
+        import json
+        with open(ACCESS_LOG_PATH, "a") as fh:
+            fh.write(json.dumps({
+                "at": time.strftime("%H:%M:%S"), "path": unquote(request.url.path.split(ROOT, 1)[-1]),
+                "query": unquote(request.url.query), "status": response.status_code,
+                "seconds": round(time.monotonic() - started, 2)}) + "\n")
+    return response
 
 
 # ── schema definition ──────────────────────────────────────────────────────
@@ -257,8 +279,125 @@ def _key_of(form: str, row: dict, parent_key: tuple = ()) -> tuple:
     return tuple(parent_key) + tuple(row.get(k) for k in FORMS[form]["key"])
 
 
+_CHILD_INDEX: Dict[str, Dict[tuple, List[dict]]] = {}
+
+
 def _children(child_form: str, parent_key: tuple) -> List[dict]:
-    return [r for r in ROWS.get(child_form, []) if r.get("_p") == tuple(parent_key)]
+    index = _CHILD_INDEX.get(child_form)
+    if index is None or sum(map(len, index.values())) != len(ROWS.get(child_form, [])):
+        index = {}
+        for r in ROWS.get(child_form, []):
+            index.setdefault(tuple(r.get("_p") or ()), []).append(r)
+        _CHILD_INDEX[child_form] = index
+    return list(index.get(tuple(parent_key), []))
+
+
+# ── large-tenant mode ──────────────────────────────────────────────────────
+# Seconds a response costs: a base, plus per parent row returned (much more
+# when a subform is expanded into it), plus per line. 0 = instant (default).
+LATENCY = {"base": 0.0, "per_row": 0.0, "per_expanded_row": 0.0, "per_line": 0.0}
+
+_PURCHASING_FORMS: Dict[str, dict] = {
+    "SUPPLIERS": {
+        "title": "Vendors",
+        "key": ["SUPNAME"],
+        "columns": [
+            ("SUPNAME", "Edm.String", "Vendor Number", True, "16"),
+            ("SUPDES", "Edm.String", "Vendor Name", True, "48"),
+            ("COUNTRYNAME", "Edm.String", "Country", False, "32"),
+        ],
+        "subforms": [],
+    },
+    "PORDERS": {
+        "title": "Purchase Orders",
+        "key": ["ORDNAME"],
+        "columns": [
+            ("ORDNAME", "Edm.String", "PO Number", True, "16"),
+            ("SUPNAME", "Edm.String", "Vendor Number", True, "16"),
+            ("CDES", "Edm.String", "Vendor Name", False, "48"),
+            ("CURDATE", "Edm.DateTimeOffset", "Date", False, None),
+            ("STATDES", "Edm.String", "Status", False, "16"),
+            ("BRANCHNAME", "Edm.String", "Branch", False, "8"),
+            ("TOTPRICE", "Edm.Decimal", "Total Price", False, None),
+        ],
+        "subforms": [("PORDERITEMS_SUBFORM", "PORDERITEMS")],
+    },
+    "PORDERITEMS": {
+        "title": "Purchase Order Items",
+        "key": ["KLINE"],
+        "columns": [
+            ("KLINE", "Edm.Int64", "Line", True, None),
+            ("PARTNAME", "Edm.String", "Part Number", True, "20"),
+            ("PDES", "Edm.String", "Part Description", False, "48"),
+            ("TQUANT", "Edm.Decimal", "Quantity", False, None),
+            ("PRICE", "Edm.Decimal", "Unit Price", False, None),
+            ("QPRICE", "Edm.Decimal", "Total Price", False, None),
+            ("REQDATE", "Edm.DateTimeOffset", "Due Date", False, None),
+            ("PORDISTATUSDES", "Edm.String", "Line Status", False, "16"),
+        ],
+        "subforms": [],
+    },
+}
+
+
+def seed_large(orders: int, seed: int = 7) -> None:
+    """Add the purchasing forms and `orders` generated sales and purchase
+    orders (1-8 lines each, dated over the two years up to 2026-10-15)."""
+    import random
+    from datetime import datetime, timedelta
+
+    global SUBFORMS, ROOT_FORMS
+    FORMS.update(_PURCHASING_FORMS)
+    SUBFORMS = {child for spec in FORMS.values() for _, child in spec["subforms"]}
+    ROOT_FORMS = [f for f in FORMS if f not in SUBFORMS]
+
+    rnd = random.Random(seed)
+    end = datetime(2026, 10, 15)
+    parts = [(f"P-{n:04d}", f"{a} {b}") for n, (a, b) in enumerate(
+        (a, b) for a in ("Steel", "Copper", "Nylon", "Brass", "Cable", "Valve", "Pump", "Filter")
+        for b in ("bracket", "fitting", "gasket", "housing", "seal", "sleeve", "spacer", "clamp"))]
+    vendors = [(f"V{n:04d}", f"Vendor {n:04d}") for n in range(1, 61)]
+    customers = [(f"C{n:04d}", f"Customer {n:04d}") for n in range(1, 121)]
+    ROWS["SUPPLIERS"] = [{"SUPNAME": v, "SUPDES": d, "COUNTRYNAME": rnd.choice(["USA", "Israel", "Germany", "UK"])}
+                         for v, d in vendors]
+    ROWS.setdefault("PORDERS", [])
+    ROWS.setdefault("PORDERITEMS", [])
+    statuses = ["Draft", "Approved", "Sent", "Partially received", "Closed"]
+    for i in range(orders):
+        day = end - timedelta(days=int(730 * i / max(orders, 1)), hours=rnd.randint(0, 23))
+        when = day.strftime("%Y-%m-%dT00:00:00Z")
+        for form, line_form, prefix, party in (("ORDERS", "ORDERITEMS", "SO", customers),
+                                               ("PORDERS", "PORDERITEMS", "PO", vendors)):
+            name = f"{prefix}{26 - (730 * i // max(orders, 1)) // 365:02d}{orders - i:06d}"
+            code, label = rnd.choice(party)
+            total = 0.0
+            for k in range(1, rnd.randint(1, 8) + 1):
+                pn, pd_ = rnd.choice(parts)
+                qty = rnd.choice([1, 2, 5, 10, 20, 50, 100])
+                price = round(rnd.uniform(2, 2500), 2)
+                total += qty * price
+                line = {"_p": (name,), "KLINE": k, "PARTNAME": pn, "PDES": pd_, "TQUANT": qty, "PRICE": price}
+                if line_form == "ORDERITEMS":
+                    line["STATDES"] = rnd.choice(["Pending", "Supplied"])
+                else:
+                    line.update({"QPRICE": round(qty * price, 2),
+                                 "REQDATE": (day + timedelta(days=rnd.randint(7, 60))).strftime("%Y-%m-%dT00:00:00Z"),
+                                 "PORDISTATUSDES": rnd.choice(["Open", "Received", "Partially received"])})
+                ROWS[line_form].append(line)
+            head = {"ORDNAME": name, "CDES": label, "CURDATE": when, "TOTPRICE": round(total, 2),
+                    "STATDES": rnd.choice(statuses)}
+            if form == "ORDERS":
+                head.update({"CUSTNAME": code, "ORDSTATUSDES": head["STATDES"]})
+            else:
+                head.update({"SUPNAME": code, "BRANCHNAME": rnd.choice(["HQ", "NORTH", "SOUTH"])})
+            ROWS[form].append(head)
+    _CHILD_INDEX.clear()
+
+
+def _response_cost(value: List[dict], expanded: bool) -> float:
+    lines = sum(len(v) for row in value for v in row.values() if isinstance(v, list)) if expanded else 0
+    per_row = LATENCY["per_expanded_row"] if expanded else LATENCY["per_row"]
+    return LATENCY["base"] + len(value) * per_row + lines * LATENCY["per_line"]
 
 
 # ── auth + rate limiting ───────────────────────────────────────────────────
@@ -693,6 +832,9 @@ def query(path: str, request: Request):
     except _BadRequest as e:
         return JSONResponse({"error": {"code": "", "message": str(e)}}, status_code=400)
 
+    cost = _response_cost(value, bool(qp.get("$expand")))
+    if cost > 0:
+        time.sleep(cost)
     context = f"{request.base_url}".rstrip("/") + f"{ROOT}/$metadata#{form}"
     if single:
         return {"@odata.context": context, **value[0]}
@@ -708,6 +850,18 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8901)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--orders", type=int, default=0,
+                    help="large-tenant mode: generate this many sales and purchase orders")
+    ap.add_argument("--speed", type=float, default=1.0,
+                    help="latency multiplier in large-tenant mode (0 = instant)")
+    ap.add_argument("--log", help="append a JSON line per request to this file")
     args = ap.parse_args()
+    ACCESS_LOG_PATH = args.log
+    if args.orders:
+        seed_large(args.orders)
+        LATENCY.update({k: v * args.speed for k, v in
+                        {"base": 0.25, "per_row": 0.002, "per_expanded_row": 0.03, "per_line": 0.004}.items()})
+        print(f"large tenant: {len(ROWS['PORDERS'])} purchase orders, "
+              f"{len(ROWS['PORDERITEMS'])} purchase order lines")
     print(f"Priority mock: http://{args.host}:{args.port}{ROOT}  (PAT={VALID_PAT})")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

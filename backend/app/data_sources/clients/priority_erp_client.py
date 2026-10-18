@@ -56,7 +56,9 @@ from app.data_sources.clients.priority_odata_query import (
     flatten_expand,
     flatten_subform,
     nav_form,
+    parent_probe_path,
     parse_query_string,
+    with_parent_page,
 )
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 
@@ -86,6 +88,19 @@ _DEFAULT_FORMS = [
 _METADATA_TIMEOUT = 190
 _QUERY_TIMEOUT = 120
 
+# Wall-clock budget for one execute_query, all its requests included. Replaced
+# by the connection's query timeout (less a margin) via `apply_query_timeout`,
+# so the client stops with an actionable error before the executor gives up on
+# it. A subform read pages through its parent form inside this budget.
+_DEFAULT_QUERY_BUDGET = 90
+# Parents per request when a subform read must go through every matching
+# parent; small pages keep each request well inside Priority's own limits.
+_SCAN_PAGE = 50
+_MAX_PAGE = 200
+# An explicit `$expand` on a form is one request; with no $top, more matching
+# rows than this are refused up front (checked with a one-key request).
+_EXPAND_MAX_ROWS = 500
+
 # Detects a SQL statement handed to `execute_query`. Priority form names are
 # bare identifiers, so a leading SELECT/WITH can only be a dialect mix-up.
 _SQL_PREFIX_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
@@ -102,6 +117,10 @@ _CATALOG_VERSION = 2
 
 class _NotFound(RuntimeError):
     """Priority answered 404 for the requested resource."""
+
+
+class _BudgetExceeded(Exception):
+    """The query's time budget ran out before Priority answered."""
 
 
 class _RateLimiter:
@@ -168,6 +187,14 @@ class PriorityErpClient(DataSourceClient):
         # Form (upper-cased) -> {column name: title}, for result headers.
         self._column_titles: Dict[str, Dict[str, str]] = {}
         self._catalog_known = False
+        self._query_budget = float(_DEFAULT_QUERY_BUDGET)
+
+    def apply_query_timeout(self, seconds: int) -> None:
+        """Adopt the connection's query timeout as this client's budget, a
+        little under it, so a slow Priority read ends here with a message the
+        agent can act on rather than as a bare executor timeout."""
+        if isinstance(seconds, (int, float)) and seconds > 0:
+            self._query_budget = float(max(5.0, seconds - max(3.0, seconds * 0.1)))
 
     # ── connection ──────────────────────────────────────────────────────────
 
@@ -641,7 +668,16 @@ class PriorityErpClient(DataSourceClient):
     def _query_subform(self, name: str, meta: dict, query_string: str,
                        max_rows: Optional[int]) -> pd.DataFrame:
         """Answer a query against a subform table through its parent's
-        `$expand`, flattened to one row per line."""
+        `$expand`, flattened to one row per line.
+
+        Priority returns lines only inside their parent, and `$top`/`$orderby`
+        inside an `$expand` act per parent, so the parent form is what gets
+        limited. With a row limit and no sort on line columns, parents are read
+        in pages (in the requested parent order, keys breaking ties) until
+        there are enough lines. Otherwise every matching parent is needed: it
+        is read in pages within the query budget, and when the budget runs out
+        the error says why the read was large and how to narrow it.
+        """
         route = SubformRoute.from_metadata(name.upper(), meta)
         if route is None:
             via = meta.get("via") or []
@@ -651,11 +687,55 @@ class PriorityErpClient(DataSourceClient):
                 f"so it has no single parent to read it through. Query it via the form you mean, "
                 f"e.g. {example}."
             )
-        request_path, post = build_subform_request(route, query_string)
-        with self.connect() as session:
-            payload = self._get(session, request_path).json()
+        base_path, post = build_subform_request(route, query_string)
+        parent = route.levels[0]
 
-        rows = flatten_subform(payload.get("value") or [], route)
+        limit = None
+        if post.top is not None:
+            limit = (post.skip or 0) + post.top
+        elif max_rows:
+            limit = (post.skip or 0) + int(max_rows)
+        # A sample stops once enough lines are in; anything else reads every
+        # matching parent, page by page, until the budget runs out.
+        sample = limit is not None and post.parent_orderby is not None
+
+        order = list(post.parent_orderby or [])
+        order += [(k, False) for k in parent.keys if k not in {c for c, _ in order}]
+
+        deadline = time.monotonic() + self._query_budget
+        rows: List[dict] = []
+        parents_read = requests_sent = 0
+        first_sent = None
+        page = max(1, min(limit, _MAX_PAGE)) if sample else _SCAN_PAGE
+        partial = False
+        read_started = time.monotonic()
+        with self.connect() as session:
+            while True:
+                request_path = with_parent_page(base_path, order, page, parents_read)
+                first_sent = first_sent or unquote(request_path)
+                try:
+                    payload = self._get_within(session, request_path, deadline).json()
+                except _BudgetExceeded:
+                    if sample and rows:
+                        partial = True
+                        break
+                    raise QueryError(self._budget_message(route, post, parents_read, requests_sent))
+                requests_sent += 1
+                parents = payload.get("value") or []
+                parents_read += len(parents)
+                rows.extend(flatten_subform(parents, route))
+                if len(parents) < page:
+                    break  # the last page of matching parents
+                if sample and len(rows) >= limit:
+                    break
+                if sample:
+                    page = min(page * 2, _MAX_PAGE)
+                elif requests_sent == 1:
+                    # A full read: having timed one page, check up front that
+                    # the rest fits in the budget instead of finding out at it.
+                    self._check_full_read_fits(session, route, post, parents_read,
+                                               time.monotonic() - read_started, deadline)
+
         catalog_order = list(route.columns)
         df = pd.DataFrame(rows)
         df = df.reindex(columns=catalog_order + [c for c in df.columns if c not in route.columns])
@@ -664,16 +744,129 @@ class PriorityErpClient(DataSourceClient):
         # endpoint serves; put the request actually sent in the run output so
         # whoever reads it — a Priority consultant included — sees real OData
         # they can recognise and replay.
-        sent = unquote(request_path)
-        df.attrs["bow_notice"] = (
-            f"Priority request ({route.name} is a subform of {route.levels[-2].form}): {sent}"
-        )
+        notice = f"Priority request ({route.name} is a subform of {parent.form}): {first_sent}"
+        if requests_sent > 1:
+            notice += f" — {requests_sent} pages, {parents_read} {parent.form} rows read"
+        if partial:
+            notice += (
+                f". Stopped at the time limit with {len(df)} of the {post.top or max_rows} "
+                f"rows asked for; add a $filter on {parent.form} columns to find the rest faster"
+            )
+        df.attrs["bow_notice"] = notice
         # The bare request, for the Queries tab (see code_execution.SENT_REQUEST_ATTR).
-        df.attrs["bow_sent_request"] = sent
+        df.attrs["bow_sent_request"] = first_sent
         # The subform table's catalog entry lists every column under its
         # exposed name, ancestors' (prefixed) ones included.
         self._attach_column_titles(df, {c: (route.name, c) for c in df.columns})
         return df
+
+    @staticmethod
+    def _parent_filter_hint(route: SubformRoute) -> str:
+        parent = route.levels[0].form
+        cols = [name for name, (form, original) in route.columns.items()
+                if form == parent and "DATE" in original.upper()]
+        example = cols[0] if cols else None
+        listed = ", ".join((cols or list(route.levels[0].keys))[:4])
+        # An example cutoff about three months back, from today: a fixed date
+        # would age, and an agent copies the example as given.
+        from datetime import datetime, timedelta, timezone
+        since = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-01T00:00:00Z")
+        filt = (f"$filter={example} ge {since}" if example
+                else f"$filter on {parent} columns")
+        return f"Bound the read with a {filt} (columns of {parent}: {listed}) or $since"
+
+    def _check_full_read_fits(self, session: requests.Session, route: SubformRoute, post,
+                              parents_read: int, elapsed: float, deadline: float) -> None:
+        """Refuse a full read that cannot finish in time, before reading on.
+
+        The first page's pace says how many more parents the remaining budget
+        can take; one request for a single parent key past that point says
+        whether more match. Anything wrong with the probe itself is ignored —
+        the budget still bounds the read."""
+        per_parent = elapsed / max(parents_read, 1)
+        remaining = deadline - time.monotonic()
+        capacity = parents_read + int(0.8 * remaining / per_parent) if per_parent > 0 else 10 ** 9
+        try:
+            probe = self._get_within(session, parent_probe_path(route, post, capacity), deadline)
+            more = bool((probe.json() or {}).get("value"))
+        except Exception:
+            return
+        if more:
+            raise QueryError(self._too_large_message(route, post, capacity))
+
+    def _too_large_message(self, route: SubformRoute, post, capacity: int) -> str:
+        parent = route.levels[0].form
+        why, narrow = self._why_and_narrow(route, post)
+        return (
+            f"Not run to the end: this {route.name} query needs more than {capacity} {parent} "
+            f"rows read with their lines — more than fit in the {int(self._query_budget)}s "
+            f"query limit at this server's speed — because {why}. Do not retry it unchanged. "
+            f"{narrow}, and $select only the columns you need."
+        )
+
+    def _why_and_narrow(self, route: SubformRoute, post):
+        parent = route.levels[0].form
+        if post.parent_bounded:
+            return (f"that many {parent} rows match its $filter",
+                    f"Narrow the $filter on {parent} (e.g. a shorter date range) so fewer "
+                    f"{parent} rows match")
+        if post.top is None:
+            why = f"it has no $top, so it reads every {parent} row with all its lines"
+        else:
+            sorted_on = ", ".join(c for c, _ in post.orderby)
+            why = (f"it sorts on {sorted_on}, a column of the lines, so it reads every "
+                   f"{parent} row with all its lines")
+        why += f" (a filter on line columns does not reduce that: {route.name} is read through {parent})"
+        return why, self._parent_filter_hint(route) + f" to read fewer {parent} rows"
+
+    def _check_expand_size(self, session: requests.Session, path: str, query_string: str,
+                           chain: List[str], deadline: float) -> None:
+        """An explicit `$expand` with no `$top` is answered in one request; if
+        more than `_EXPAND_MAX_ROWS` rows of the form match, refuse it before
+        Priority starts on the lines of all of them."""
+        opts = parse_query_string(query_string)
+        if opts.get("$top") or "(" in path or "/" in path:
+            return
+        probe = ["$top=1", f"$skip={_EXPAND_MAX_ROWS}"]
+        if opts.get("$filter"):
+            probe.insert(0, "$filter=" + opts["$filter"])
+        if opts.get("$since"):
+            probe.append("$since=" + opts["$since"])
+        probe_path = f"{path}?" + "&".join(quote(p, safe="()$,;=:'/@!*-._~") for p in probe)
+        try:
+            more = bool((self._get_within(session, probe_path, deadline).json() or {}).get("value"))
+        except Exception:
+            return  # the budget still bounds the real request
+        if more:
+            child = nav_form(chain[-1])
+            raise QueryError(
+                f"Not sent: more than {_EXPAND_MAX_ROWS} {path} rows match, and $expand="
+                f"{chain[0]} with no $top makes Priority build every one of them with its "
+                f"{child} lines in a single response. Add $top, narrow the $filter (e.g. a "
+                f"date range), or query the {child} table by name, which reads {path} in pages."
+            )
+
+    def _budget_message(self, route: SubformRoute, post, parents_read: int,
+                        requests_sent: int) -> str:
+        parent = route.levels[0].form
+        why, narrow = self._why_and_narrow(route, post)
+        return (
+            f"Priority did not finish this {route.name} query within "
+            f"{int(self._query_budget)}s ({requests_sent} pages, {parents_read} {parent} rows "
+            f"read so far): {why}. Do not retry it unchanged. {narrow}, and $select only "
+            f"the columns you need."
+        )
+
+    def _get_within(self, session: requests.Session, path: str, deadline: float,
+                    params: Optional[dict] = None) -> requests.Response:
+        """`_get` bounded by what is left of the query budget."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 1:
+            raise _BudgetExceeded()
+        try:
+            return self._get(session, path, params=params, timeout=min(_QUERY_TIMEOUT, remaining))
+        except requests.Timeout:
+            raise _BudgetExceeded()
 
     def _attach_column_titles(self, df: pd.DataFrame, origins: Dict[str, tuple]) -> None:
         """Label the result's columns with their titles, for display headers
@@ -741,10 +934,23 @@ class PriorityErpClient(DataSourceClient):
         if max_rows and "$top" not in query_string:
             params["$top"] = str(int(max_rows))
 
+        started = time.monotonic()
+        deadline = started + self._query_budget
         try:
             with self.connect() as session:
                 url_path = f"{path}?{query_string}" if query_string else path
-                resp = self._get(session, url_path, params=params or None)
+                if chain and not params:
+                    self._check_expand_size(session, path, query_string, chain, deadline)
+                try:
+                    resp = self._get_within(session, url_path, deadline, params=params or None)
+                except _BudgetExceeded:
+                    expanded = (f" and each row's {nav_form(chain[-1])} lines" if chain else "")
+                    raise QueryError(
+                        f"Priority did not answer {path} within {int(time.monotonic() - started)}s: "
+                        f"the request reads {path} rows{expanded} until its $filter/$top stop it. "
+                        f"Do not retry it unchanged: add a $filter (e.g. a date range), a "
+                        f"smaller $top, and $select only the columns you need."
+                    )
                 payload = resp.json()
         except _NotFound as original:
             # Without an attached catalog there was no way to know this was a
@@ -779,6 +985,14 @@ class PriorityErpClient(DataSourceClient):
             df = pd.DataFrame(rows)
             origins = {c: (queried_form, c) for c in df.columns}
         self._attach_column_titles(df, origins)
+        if chain:
+            # Models know Priority's raw nested shape and try to unnest it;
+            # say plainly that the connector already did.
+            cols = ", ".join(map(str, list(df.columns)[:20]))
+            df.attrs["bow_notice"] = (
+                f"{path} with $expand={'/'.join(chain)} is already flattened: one row per "
+                f"{nav_form(chain[-1])} line ({len(df)} rows), no nested column. Columns: {cols}"
+            )
         # Anything still nested (a complex value outside an $expand) would make
         # the frame unusable downstream, so summarise it.
         for col in df.columns:
@@ -871,20 +1085,44 @@ columns of the forms above it (marked `from_form`), so you can filter, select
 and sort on the order's fields too. A parent column whose name the line already
 uses carries the parent's prefix (`ORDERS_STATDES`).
 
+**Cost rule.** Priority serves lines only inside their parent, so every
+subform query is a read of the parent form (ORDERS), with each order's lines
+attached. What makes it fast or slow is **how many parent rows it reads** —
+not how many lines come back:
+
+- A `$filter` on a **parent** column (a date range, the customer, the order
+  number) narrows the read. A filter on a **line** column (PRICE, PARTNAME)
+  does not: every order is still read, then its lines are filtered.
+- `$top` with no `$orderby`, or with `$orderby` on parent columns only, reads
+  just enough orders to fill it — a quick sample.
+- `$orderby` on a line column, or no `$top` at all, needs every matching
+  order: include a `$filter` on a parent column (or `$since`). Without one it
+  reads the whole form, which on a large company runs out of time.
+
 ```
-ORDERITEMS?$filter=PRICE gt 100&$select=ORDNAME,PARTNAME,TQUANT,PRICE
+ORDERITEMS?$top=5&$select=ORDNAME,PARTNAME,TQUANT,PRICE
+ORDERITEMS?$orderby=CURDATE desc&$top=20&$select=ORDNAME,CURDATE,PARTNAME,PRICE
 ORDERITEMS?$filter=CURDATE ge 2026-07-01T00:00:00Z and PRICE gt 100&$select=ORDNAME,CDES,PARTNAME,PRICE
-ORDERITEMS?$orderby=PRICE desc&$top=10&$select=ORDNAME,PARTNAME,PRICE
+ORDERITEMS?$filter=CURDATE ge 2026-01-01T00:00:00Z&$orderby=PRICE desc&$top=10&$select=ORDNAME,PARTNAME,PRICE
 ```
 
+- If the question needs no line detail (order counts, order totals per
+  customer or month), query the parent form itself — it is one row per order
+  and much cheaper than its lines.
+- For "the latest lines" sort on the parent's date, not the line's.
+- For totals and rankings over lines, choose the date range the question
+  implies (or a recent one, and say which) and aggregate in pandas.
 - `$orderby`, `$top` and `$skip` apply to all lines together ("the 10 most
   expensive lines overall").
 - Join conditions on different forms with a top-level `and`. One condition may
   not mix forms: `CURDATE ge … or PRICE gt 100` and `PRICE gt TOTPRICE` are
   refused — run one query per side, or compare in pandas.
 - Do not write `$expand` yourself for a subform table. If you do expand a
-  subform from its parent, the result is still one row per line; expand one
-  subform per query.
+  subform from its parent, give the parent a `$top` or `$filter`; the result
+  is already flattened to one row per line (no nested column to unpack) —
+  expand one subform per query.
+- If a query is refused or runs out of time, the message says how to narrow
+  it; change the query accordingly instead of re-running it.
 - A table marked `shared_by` belongs to several forms; read it through the
   form you mean: `ORDERS?$filter=...&$expand=EXTFILES_SUBFORM`.
 """
