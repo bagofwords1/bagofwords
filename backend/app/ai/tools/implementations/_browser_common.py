@@ -236,6 +236,20 @@ def browser_egress_decider(session: "BrowserSession"):
     return decide
 
 
+def _is_top_level_document(request) -> bool:
+    """True for a navigation of a page's main frame. Playwright also labels
+    iframe loads as resource_type "document"; those are embedded content
+    (e.g. a reCAPTCHA widget from www.google.com) and must not be treated as
+    the agent leaving the allowlist. Fails closed: if the frame can't be
+    read, treat it as top-level."""
+    if request.resource_type != "document":
+        return False
+    try:
+        return request.frame.parent_frame is None
+    except Exception:
+        return True
+
+
 def _is_link_local_literal(hostname: str) -> bool:
     """169.254.0.0/16 (incl. cloud metadata 169.254.169.254) — always refused."""
     try:
@@ -474,8 +488,9 @@ class BrowserSessionManager:
                         await route.abort()
                     return
                 # Not allowlisted: permit only if it is a public host (lets a
-                # page pull public CDN assets) and never for the main document.
-                if request.resource_type == "document":
+                # page pull public CDN assets and embed public iframes such
+                # as reCAPTCHA) and never for a top-level page.
+                if _is_top_level_document(request):
                     await route.abort()
                     return
                 if await asyncio.to_thread(_host_is_public, host, s._host_cache):

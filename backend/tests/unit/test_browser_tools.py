@@ -16,6 +16,7 @@ import pytest
 
 from app.ai.tools.implementations._browser_common import (
     _is_link_local_literal,
+    _is_top_level_document,
     get_browser_connection,
     url_matches_patterns,
     validate_url_pattern,
@@ -98,6 +99,35 @@ class TestLinkLocal:
 
     def test_hostname_not_link_local(self):
         assert not _is_link_local_literal("example.com")
+
+
+class TestTopLevelDocument:
+    """Off-allowlist iframes (reCAPTCHA, embedded maps) may load from public
+    hosts; only top-level page navigations are confined to the allowlist."""
+
+    @staticmethod
+    def _req(resource_type, parent):
+        return SimpleNamespace(resource_type=resource_type, frame=SimpleNamespace(parent_frame=parent))
+
+    def test_main_frame_navigation_is_top_level(self):
+        assert _is_top_level_document(self._req("document", None))
+
+    def test_iframe_document_is_not_top_level(self):
+        assert not _is_top_level_document(self._req("document", object()))
+
+    @pytest.mark.parametrize("rtype", ["script", "xhr", "fetch", "image", "stylesheet"])
+    def test_subresources_are_not_top_level(self, rtype):
+        assert not _is_top_level_document(self._req(rtype, None))
+
+    def test_unreadable_frame_fails_closed(self):
+        class Req:
+            resource_type = "document"
+
+            @property
+            def frame(self):
+                raise RuntimeError("frame detached")
+
+        assert _is_top_level_document(Req())
 
 
 class TestConnectionResolution:
