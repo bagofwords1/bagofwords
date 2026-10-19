@@ -1,7 +1,10 @@
+import asyncio
 import base64
 import contextvars
 import json
+import threading
 import uuid
+from contextlib import aclosing
 from typing import AsyncGenerator, AsyncIterator, Optional
 
 from google import genai
@@ -178,21 +181,24 @@ class Google(LLMClient):
 
         prompt_tokens = 0
         completion_tokens = 0
-        for chunk in self.client.models.generate_content_stream(
+        # aclosing: if our caller stops early, close the chunk stream now so
+        # its worker thread stops reading, rather than whenever GC gets to it.
+        async with aclosing(self._stream_chunks(
             model=model_id,
             contents=self._build_contents(prompt, images),
             config=types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
                 temperature=self.temperature,
             ),
-        ):
-            text = getattr(chunk, "text", None)
-            if text:
-                yield text
-            usage_meta = getattr(chunk, "usage_metadata", None)
-            if usage_meta:
-                prompt_tokens = getattr(usage_meta, "prompt_token_count", prompt_tokens) or prompt_tokens
-                completion_tokens = getattr(usage_meta, "candidates_token_count", completion_tokens) or completion_tokens
+        )) as chunks:
+            async for chunk in chunks:
+                text = getattr(chunk, "text", None)
+                if text:
+                    yield text
+                usage_meta = getattr(chunk, "usage_metadata", None)
+                if usage_meta:
+                    prompt_tokens = getattr(usage_meta, "prompt_token_count", prompt_tokens) or prompt_tokens
+                    completion_tokens = getattr(usage_meta, "candidates_token_count", completion_tokens) or completion_tokens
 
         self._set_last_usage(
             LLMUsage(
@@ -200,6 +206,45 @@ class Google(LLMClient):
                 completion_tokens=completion_tokens,
             )
         )
+
+    async def _stream_chunks(self, **request) -> AsyncIterator:
+        """Yield Gemini stream chunks as they arrive.
+
+        google-genai's stream is a blocking generator. Read it in a worker
+        thread so the event loop stays free, and hand each chunk over through
+        a queue so callers see it right away instead of after the whole
+        response (same approach as the Bedrock client).
+        """
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        done = object()
+        stop = threading.Event()
+
+        def _pump():
+            try:
+                for chunk in self.client.models.generate_content_stream(**request):
+                    if stop.is_set():
+                        break
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
+            finally:
+                # Always unblock the consumer, even when the stream raised.
+                loop.call_soon_threadsafe(queue.put_nowait, done)
+
+        # The worker thread doesn't inherit contextvars; carry them so the
+        # per-request identity headers see this run's identity.
+        future = loop.run_in_executor(None, contextvars.copy_context().run, _pump)
+        try:
+            while True:
+                chunk = await queue.get()
+                if chunk is done:
+                    break
+                yield chunk
+            # Re-raise anything the stream raised in the worker thread.
+            await future
+        finally:
+            # Consumer stopped early (cancelled or closed): let the thread quit
+            # at the next chunk instead of reading the rest of the response.
+            stop.set()
 
     # thought_signature is opaque binary. ToolUseCompleteEvent.signature is a
     # str (it gets stored on a tool_use block and JSON-serialized alongside the
@@ -377,24 +422,6 @@ class Google(LLMClient):
         completion_tokens = 0
         stop_reason = "end_turn"
 
-        # google-genai sync generator — run in executor to avoid blocking
-        import asyncio
-        loop = asyncio.get_running_loop()
-
-        def _collect():
-            chunks = []
-            for chunk in self.client.models.generate_content_stream(
-                model=model_id,
-                contents=contents,
-                config=types.GenerateContentConfig(**config_kwargs),
-            ):
-                chunks.append(chunk)
-            return chunks
-
-        # The executor thread doesn't inherit contextvars; carry them so the
-        # per-request identity headers see this run's identity.
-        chunks = await loop.run_in_executor(None, contextvars.copy_context().run, _collect)
-
         # Gemini doesn't hand out tool-call ids, so we mint them. Scope them to
         # this request: a bare counter restarts at 0 every turn, and the
         # recurring "call_0" made ids ambiguous once several turns were replayed
@@ -402,54 +429,59 @@ class Google(LLMClient):
         call_prefix = f"call_{uuid.uuid4().hex[:8]}"
         tool_call_counter = 0
         reasoning_started = False
-        for chunk in chunks:
-            usage_meta = getattr(chunk, "usage_metadata", None)
-            if usage_meta:
-                prompt_tokens = getattr(usage_meta, "prompt_token_count", prompt_tokens) or prompt_tokens
-                completion_tokens = getattr(usage_meta, "candidates_token_count", completion_tokens) or completion_tokens
+        async with aclosing(self._stream_chunks(
+            model=model_id,
+            contents=contents,
+            config=types.GenerateContentConfig(**config_kwargs),
+        )) as chunks:
+            async for chunk in chunks:
+                usage_meta = getattr(chunk, "usage_metadata", None)
+                if usage_meta:
+                    prompt_tokens = getattr(usage_meta, "prompt_token_count", prompt_tokens) or prompt_tokens
+                    completion_tokens = getattr(usage_meta, "candidates_token_count", completion_tokens) or completion_tokens
 
-            candidate = chunk.candidates[0] if chunk.candidates else None
-            if not candidate:
-                continue
+                candidate = chunk.candidates[0] if chunk.candidates else None
+                if not candidate:
+                    continue
 
-            finish = getattr(candidate, "finish_reason", None)
-            if finish:
-                finish_name = getattr(finish, "name", str(finish))
-                # Gemini reports STOP alongside function calls; once we've seen a
-                # call the turn is a tool turn, so don't let STOP downgrade it.
-                if finish_name in ("STOP",) and stop_reason != "tool_use":
-                    stop_reason = "end_turn"
-                elif finish_name in ("MAX_TOKENS",):
-                    stop_reason = "max_tokens"
+                finish = getattr(candidate, "finish_reason", None)
+                if finish:
+                    finish_name = getattr(finish, "name", str(finish))
+                    # Gemini reports STOP alongside function calls; once we've seen a
+                    # call the turn is a tool turn, so don't let STOP downgrade it.
+                    if finish_name in ("STOP",) and stop_reason != "tool_use":
+                        stop_reason = "end_turn"
+                    elif finish_name in ("MAX_TOKENS",):
+                        stop_reason = "max_tokens"
 
-            for part in (candidate.content.parts if candidate.content else []):
-                is_thought = getattr(part, "thought", False)
-                if part.text and is_thought:
-                    if not reasoning_started:
-                        reasoning_started = True
-                        yield ReasoningStartEvent()
-                    yield ReasoningDeltaEvent(text=part.text)
-                elif part.text and not is_thought:
-                    if reasoning_started:
-                        reasoning_started = False
-                        yield ReasoningCompleteEvent(text="")
-                    yield TextDeltaEvent(text=part.text)
-                fc = getattr(part, "function_call", None)
-                if fc:
-                    stop_reason = "tool_use"
-                    call_id = f"{call_prefix}_{tool_call_counter}"
-                    tool_call_counter += 1
-                    yield ToolUseStartEvent(id=call_id, name=fc.name)
-                    args_json = json.dumps(dict(fc.args))
-                    yield ToolUseInputDeltaEvent(id=call_id, partial_json=args_json)
-                    # Gemini 3 requires the thought_signature back on any replay
-                    # of this call; it rides along on the same part.
-                    yield ToolUseCompleteEvent(
-                        id=call_id,
-                        name=fc.name,
-                        input=dict(fc.args),
-                        signature=self._encode_signature(getattr(part, "thought_signature", None)),
-                    )
+                for part in (candidate.content.parts if candidate.content else []):
+                    is_thought = getattr(part, "thought", False)
+                    if part.text and is_thought:
+                        if not reasoning_started:
+                            reasoning_started = True
+                            yield ReasoningStartEvent()
+                        yield ReasoningDeltaEvent(text=part.text)
+                    elif part.text and not is_thought:
+                        if reasoning_started:
+                            reasoning_started = False
+                            yield ReasoningCompleteEvent(text="")
+                        yield TextDeltaEvent(text=part.text)
+                    fc = getattr(part, "function_call", None)
+                    if fc:
+                        stop_reason = "tool_use"
+                        call_id = f"{call_prefix}_{tool_call_counter}"
+                        tool_call_counter += 1
+                        yield ToolUseStartEvent(id=call_id, name=fc.name)
+                        args_json = json.dumps(dict(fc.args))
+                        yield ToolUseInputDeltaEvent(id=call_id, partial_json=args_json)
+                        # Gemini 3 requires the thought_signature back on any replay
+                        # of this call; it rides along on the same part.
+                        yield ToolUseCompleteEvent(
+                            id=call_id,
+                            name=fc.name,
+                            input=dict(fc.args),
+                            signature=self._encode_signature(getattr(part, "thought_signature", None)),
+                        )
 
         if reasoning_started:
             yield ReasoningCompleteEvent(text="")
