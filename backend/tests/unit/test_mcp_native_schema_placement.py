@@ -118,14 +118,16 @@ def test_builder_moves_schemas_to_native_tools_at_any_catalog_size(monkeypatch, 
     assert "contract_id" not in sections[0]._render_mcp_tools_xml()
 
 
-def test_builder_inlines_schemas_when_the_deployment_turns_native_off(monkeypatch):
+def test_the_removed_deployment_switch_no_longer_inlines_schemas(monkeypatch):
+    """BOW_MCP_NATIVE_TOOLS=0 used to turn native tools off; tools_max=0 is the
+    way to put every MCP tool behind search now, so the old variable is inert."""
     monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS", "0")
-    sections = [_section(4, native_mcp=True)]
+    sections = [_section(4, native_mcp=False)]
     import app.models  # noqa: F401
     from app.models.organization_settings import OrganizationSettings
 
-    assert _builder(OrganizationSettings(organization_id="org", config={}))._apply_native_mcp_decision(sections) is False
-    assert "contract_id" in sections[0]._render_mcp_tools_xml()
+    assert _builder(OrganizationSettings(organization_id="org", config={}))._apply_native_mcp_decision(sections) is True
+    assert "contract_id" not in sections[0]._render_mcp_tools_xml()
 
 
 def test_builder_falls_back_to_inline_when_resolution_raises(monkeypatch):
@@ -136,3 +138,22 @@ def test_builder_falls_back_to_inline_when_resolution_raises(monkeypatch):
     sections = [_section(30, native_mcp=True)]
     assert _builder(object())._apply_native_mcp_decision(sections) is False
     assert "contract_id" in sections[0]._render_mcp_tools_xml()
+
+
+def test_tools_past_the_cap_are_marked_and_the_note_says_to_search_for_them():
+    """A tool past tools_max is not in the request's tool list. Listed without a
+    marker, the model called it by a guessed mcp__ name with guessed arguments."""
+    from app.ai.context.context_hub import ContextHub
+
+    section = _section(3, native_mcp=True)
+    hub = ContextHub.__new__(ContextHub)
+    hub._static_cache = {"schemas": TablesSchemaContext(data_sources=[section])}
+    hub.mark_deferred_mcp_tools([("conn-1", "get_thing_2")])
+
+    xml = section._render_mcp_tools_xml()
+    assert '<tool name="get_thing_2" deferred="true"' in xml
+    assert '<tool name="get_thing_0">' in xml
+    assert "search_tools" in xml and "call_tool" in xml
+
+    hub.mark_deferred_mcp_tools([])
+    assert "deferred" not in section._render_mcp_tools_xml()

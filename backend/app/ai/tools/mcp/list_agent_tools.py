@@ -1,6 +1,6 @@
 """MCP Tool: list_agent_tools — discover an agent's MCP / custom-API tools.
 
-External twin of the internal ``search_mcps`` planner tool. ``get_context``
+External twin of the internal ``search_tools`` planner tool. ``get_context``
 advertises tool *names*; this returns each tool's full ``input_schema`` so an
 external client knows exactly how to call ``execute_mcp``.
 """

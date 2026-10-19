@@ -3249,9 +3249,9 @@
           "name": "MCP & Custom API Tools",
           "description": "Allow connecting external MCP servers and custom API endpoints to data sources as tool providers"
         },
-        "mcp_native_tools_max": {
-          "name": "Max native MCP tools",
-          "description": "Upper bound on how many external MCP / custom API tools are registered as their own agent tools in one run. Each tool on the run's agents is registered natively up to this cap; tools past it stay on the generic execute_mcp path, so a very large catalog cannot fill every request with permanent tool definitions."
+        "tools_max": {
+          "name": "Tools max",
+          "description": "How many external MCP / custom API tools are given to the agent as its own tools in one run. Past this number, the most used tools are kept and the rest stay reachable through tool search, so a very large catalog cannot fill every request with tool definitions."
         },
         "mcp_create_data_preview_rows": {
           "name": "MCP data preview rows",

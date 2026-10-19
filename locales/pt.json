@@ -2958,9 +2958,9 @@
           "name": "Ferramentas MCP e de API personalizada",
           "description": "Permite conectar servidores MCP externos e endpoints de API personalizados às fontes de dados como provedores de ferramentas"
         },
-        "mcp_native_tools_max": {
-          "name": "Máximo de ferramentas MCP nativas",
-          "description": "Limite superior de quantas ferramentas são registradas nativamente para um relatório. As ferramentas acima do teto permanecem no caminho genérico execute_mcp, para que um catálogo muito grande não preencha cada solicitação com definições de ferramentas permanentes."
+        "tools_max": {
+          "name": "Máximo de ferramentas",
+          "description": "Quantas ferramentas externas de MCP / API personalizada o agente recebe como ferramentas próprias numa execução. Acima desse número, as mais usadas são mantidas e o restante continua acessível pela pesquisa de ferramentas, para que um catálogo muito grande não encha cada pedido de definições de ferramentas."
         },
         "mcp_create_data_preview_rows": {
           "name": "Linhas de pré-visualização de dados MCP",

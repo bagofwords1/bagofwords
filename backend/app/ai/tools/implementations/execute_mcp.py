@@ -455,9 +455,8 @@ access to it.
 Use when:
     - You need to fetch data from an external tool (Notion, Jira, Datadog, etc.)
     - You need to invoke an API endpoint to retrieve or submit data
-    - If a tool's <mcp_tools> entry shows no <arg> elements (or the tool isn't
-      listed), call search_mcps first for its schema; entries WITH <arg>
-      elements are complete — call directly.
+    - The model never sees this tool: native mcp__ tools and call_tool are
+      rewritten into it, so this description documents the shared path.
 
 Argument typing — `arguments` is validated against the tool's real schema
 before the call goes out, so match declared types exactly:

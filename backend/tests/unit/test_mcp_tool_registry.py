@@ -3,7 +3,7 @@ import pytest
 
 from app.ai.tools.mcp_tool_registry import (
     build_tool_name, normalize_schema, parse_native_tool_name, sanitize,
-    native_tools_enabled, native_tools_budget,
+    native_tools_enabled, tools_max,
 )
 
 MAX = 64
@@ -143,8 +143,7 @@ class _FakeSettings:
 
 @pytest.fixture(autouse=True)
 def _no_env_flag(monkeypatch):
-    monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS", raising=False)
-    monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS_MAX", raising=False)
+    monkeypatch.delenv("BOW_TOOLS_MAX", raising=False)
 
 
 @pytest.mark.parametrize("settings", [
@@ -158,47 +157,46 @@ def test_native_registration_is_on_for_any_org_and_any_catalog_size(settings, co
     assert native_tools_enabled(settings, count) is True
 
 
-@pytest.mark.parametrize("val", ["0", "false", "OFF", "no"])
-def test_deployment_can_switch_it_off(monkeypatch, val):
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS", val)
-    assert native_tools_enabled(_FakeSettings(), 100) is False
+def test_the_old_deployment_switch_no_longer_turns_tools_off(monkeypatch):
+    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS", "0")
+    assert native_tools_enabled(_FakeSettings(), 100) is True
 
 
-def test_budget_defaults_and_overrides(monkeypatch):
-    assert native_tools_budget() == 60
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS_MAX", "12")
-    assert native_tools_budget() == 12
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS_MAX", "not-a-number")
-    assert native_tools_budget() == 60
+def test_tools_max_defaults_and_env_override(monkeypatch):
+    assert tools_max() == 50
+    monkeypatch.setenv("BOW_TOOLS_MAX", "12")
+    assert tools_max() == 12
+    monkeypatch.setenv("BOW_TOOLS_MAX", "not-a-number")
+    assert tools_max() == 50
 
 
-def test_budget_reads_from_settings():
-    assert native_tools_budget(_FakeSettings(mcp_native_tools_max=25)) == 25
-    assert native_tools_budget(_FakeSettings()) == 60
+def test_garbage_setting_falls_back_to_the_default():
+    assert tools_max(_FakeSettings(tools_max="lots")) == 50
 
 
-def test_settings_garbage_values_fall_back_to_defaults():
-    assert native_tools_budget(_FakeSettings(mcp_native_tools_max="lots")) == 60
-
-
-@pytest.mark.parametrize("stored", [
-    {},
-    # A config saved before the switch was removed, with it off, as the
-    # settings UI wrote it (a full FeatureConfig dict).
-    {"ai_features": {
-        "enable_mcp_native_tools": {"name": "Native MCP tool registration", "description": "d", "value": False},
-        "mcp_native_tools_threshold": {"name": "t", "description": "d", "value": 12},
-    }},
-])
-def test_real_org_settings_register_natively_up_to_the_cap(stored):
-    """Read through the real settings object, whatever the org stored."""
+def _real_settings(stored):
     import app.models  # noqa: F401  (register every mapper before instantiating)
     from app.models.organization_settings import OrganizationSettings
+    return OrganizationSettings(organization_id="org", config=stored)
 
-    s = OrganizationSettings(organization_id="org", config=stored)
-    assert native_tools_budget(s) == 60
+
+def _feature(value):
+    return {"name": "n", "description": "d", "value": value}
+
+
+@pytest.mark.parametrize("stored, expected", [
+    ({}, 50),
+    ({"ai_features": {"tools_max": _feature(25)}}, 25),
+    # A cap saved under the old name is kept until the org saves tools_max.
+    ({"ai_features": {"mcp_native_tools_max": _feature(30)}}, 30),
+    ({"ai_features": {"mcp_native_tools_max": _feature(30), "tools_max": _feature(8)}}, 8),
+    # Saved before the on/off switch was removed, with it off.
+    ({"ai_features": {"enable_mcp_native_tools": _feature(False), "mcp_native_tools_threshold": _feature(12)}}, 50),
+])
+def test_real_org_settings(stored, expected):
+    s = _real_settings(stored)
+    assert tools_max(s) == expected
     assert native_tools_enabled(s) is True
-    assert native_tools_enabled(s, 1) is True
 
 
 # ── dispatch rewrite ───────────────────────────────────────────────────────
@@ -248,3 +246,41 @@ def test_non_native_tool_untouched():
 def test_rewrite_noop_when_routing_absent():
     name, args = _FakeAgent({})._rewrite_native_mcp_action("mcp__conn__issue_create", {"a": 1})
     assert name == "mcp__conn__issue_create"
+
+
+DEFERRED = {"mcp__conn__report_2012": {"connection_id": "c1", "tool_name": "report_2012"}}
+
+
+def test_call_tool_for_a_found_tool_maps_to_execute_mcp():
+    name, args = _FakeAgent(DEFERRED)._rewrite_native_mcp_action(
+        "call_tool", {"name": "mcp__conn__report_2012", "arguments": {"year": 2012}, "title": "Pulling 2012"},
+    )
+    assert name == "execute_mcp"
+    assert args == {"connection_id": "c1", "tool_name": "report_2012",
+                    "arguments": {"year": 2012}, "title": "Pulling 2012"}
+
+
+@pytest.mark.parametrize("call", [
+    {"name": "mcp__conn__not_found", "arguments": {}},
+    {"name": "create_data", "arguments": {}},
+    {"arguments": {}},
+])
+def test_call_tool_for_an_unknown_name_stays_call_tool(call):
+    name, args = _FakeAgent(DEFERRED)._rewrite_native_mcp_action("call_tool", call)
+    assert name == "call_tool" and args == call
+
+
+def test_call_tool_accepts_the_short_name_when_it_is_unambiguous():
+    name, args = _FakeAgent(DEFERRED)._rewrite_native_mcp_action(
+        "call_tool", {"name": "report_2012", "arguments": {"year": 2012}},
+    )
+    assert name == "execute_mcp" and args["tool_name"] == "report_2012"
+
+
+def test_call_tool_refuses_a_short_name_shared_by_two_connections():
+    routing = {
+        "mcp__a__echo": {"connection_id": "a", "tool_name": "echo"},
+        "mcp__b__echo": {"connection_id": "b", "tool_name": "echo"},
+    }
+    name, _ = _FakeAgent(routing)._rewrite_native_mcp_action("call_tool", {"name": "echo", "arguments": {}})
+    assert name == "call_tool"

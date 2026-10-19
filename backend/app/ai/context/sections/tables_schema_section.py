@@ -41,10 +41,13 @@ class MCPToolItem(BaseModel):
     policy: Optional[str] = None
     # The tool's declared JSON Schema, admin-locked fields already stripped.
     # Carried so <mcp_tools> can render the argument shape inline instead of
-    # sending the agent on a search_mcps round trip for it. The block is
+    # sending the agent on a discovery round trip for it. The block is
     # rebuilt every turn, so a schema here never ages out of context — unlike
-    # a search_mcps observation, which past-observation compaction minifies.
+    # a search_tools observation, which past-observation compaction minifies.
     input_schema: Optional[dict] = None
+    # Past tools_max: not in the model's tool list, reached via search_tools +
+    # call_tool. Set by the agent once it has registered the run's tools.
+    deferred: bool = False
 
 
 class FileScopeItem(BaseModel):
@@ -372,7 +375,7 @@ class TablesSchemaContext(ContextSection):
 
         # Below this many MCP/custom-API tools, inline each tool's argument
         # schema in <mcp_tools>; above it the block would dominate the prompt
-        # every turn, so those connections keep the search_mcps discovery hop.
+        # every turn, so those connections keep a discovery hop.
         _MCP_INLINE_SCHEMA_MAX: ClassVar[int] = 40
 
         # Short, human-readable explanations of each agent (data source)
@@ -597,7 +600,7 @@ class TablesSchemaContext(ContextSection):
 
             # Inline argument schemas when the catalog is small enough to
             # afford it. Above the threshold the block would dominate the
-            # prompt every turn, so those fall back to search_mcps discovery.
+            # prompt every turn, so those fall back to discovery.
             #
             # When native registration is on, each tool already carries its
             # schema in the request's tools array. Inlining here as well would
@@ -613,9 +616,9 @@ class TablesSchemaContext(ContextSection):
                 for t in tools:
                     desc = xml_escape(t.description or "")
                     policy = getattr(t, 'policy', None)
-                    policy_attr = ""
+                    policy_attr = ' deferred="true"' if getattr(t, "deferred", False) else ""
                     if policy and policy != "allow":
-                        policy_attr = f' policy="{xml_escape(policy)}"'
+                        policy_attr += f' policy="{xml_escape(policy)}"'
                         has_gated = True
                     args_xml = ""
                     if inline_schemas and getattr(t, "input_schema", None):
@@ -636,32 +639,20 @@ class TablesSchemaContext(ContextSection):
                 if conn_id != 'default':
                     conn_attrs["id"] = conn_id
                 conn_parts.append(xml_tag("connection", "\n".join(tool_xmls), conn_attrs))
-            if inline_schemas:
-                # Schemas are right here, every turn. Say so explicitly —
-                # otherwise the agent defensively calls search_mcps before each
-                # execute_mcp anyway, which is a wasted planner turn plus a
-                # wasted tool round trip per call.
-                conn_parts.append(
-                    "<note>The <arg> elements above ARE each tool's full argument schema — name, type, "
-                    "requiredness, enums and nested shape. They are authoritative and always current, so "
-                    "call execute_mcp directly; do NOT call search_mcps first. Match the declared type "
-                    "exactly: an arg typed \"string\" takes a string even when its content is JSON "
-                    "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
-                )
-            elif self.native_mcp:
-                conn_parts.append(
-                    "<note>Each tool above is also available to you directly as a tool named "
-                    "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying its own argument schema — call it "
-                    "directly rather than going through execute_mcp, and do not call search_mcps "
-                    "for it. Use search_mcps + execute_mcp only for a tool listed here that has no "
-                    "matching mcp__ tool available.</note>"
-                )
-            else:
-                conn_parts.append(
-                    "<note>Only tool names and descriptions are shown above, not their argument schemas. "
-                    "Call search_mcps to get a tool's full input schema (exact argument names and types) "
-                    "before calling execute_mcp — do not guess arguments.</note>"
-                )
+            # MCP tools are the model's own tools (mcp__<connection>__<tool>),
+            # each with its schema, up to tools_max; the rest are reached via
+            # search_tools + call_tool. This block is the index of all of them.
+            conn_parts.append(
+                "<note>Each tool above is in your tool list as mcp__&lt;connection&gt;__&lt;tool&gt;, "
+                "carrying its own argument schema: call it directly.</note>"
+                if not any(getattr(t, "deferred", False) for t in (self.mcp_tools or [])) else
+                "<note>Tools above without deferred=\"true\" are in your tool list as "
+                "mcp__&lt;connection&gt;__&lt;tool&gt;, each with its own argument schema: call them "
+                "directly. Tools marked deferred=\"true\" are NOT in your tool list and their "
+                "arguments are not shown: call search_tools to get the exact name and input schema, "
+                "then call_tool(name=&lt;that exact name&gt;, arguments=...). Do not guess their "
+                "arguments.</note>"
+            )
             if has_gated:
                 conn_parts.append(
                     '<note>Tools marked policy="ask" pause the run for the user to approve the call '

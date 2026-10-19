@@ -2958,9 +2958,9 @@
           "name": "Strumenti MCP e API personalizzate",
           "description": "Consente di collegare server MCP esterni ed endpoint API personalizzati alle sorgenti dati come fornitori di strumenti"
         },
-        "mcp_native_tools_max": {
-          "name": "Numero massimo di strumenti MCP nativi",
-          "description": "Limite superiore al numero di strumenti registrati in modo nativo per un report. Gli strumenti oltre il tetto restano sul percorso generico execute_mcp, così un catalogo molto ampio non riempie ogni richiesta con definizioni di strumenti permanenti."
+        "tools_max": {
+          "name": "Numero massimo di strumenti",
+          "description": "Quanti strumenti esterni MCP / API personalizzate l'agente riceve come strumenti propri in un'esecuzione. Oltre questo numero si mantengono i più usati e gli altri restano raggiungibili tramite la ricerca strumenti, così un catalogo molto grande non riempie ogni richiesta di definizioni."
         },
         "mcp_create_data_preview_rows": {
           "name": "Righe di anteprima dati MCP",

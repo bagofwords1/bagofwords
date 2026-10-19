@@ -2958,9 +2958,9 @@
           "name": "MCP- und benutzerdefinierte API-Tools",
           "description": "Erlaubt es, externe MCP-Server und benutzerdefinierte API-Endpunkte als Tool-Anbieter mit Datenquellen zu verbinden"
         },
-        "mcp_native_tools_max": {
-          "name": "Maximale Anzahl nativer MCP-Tools",
-          "description": "Obergrenze dafür, wie viele Tools für einen Bericht nativ registriert werden. Tools jenseits der Grenze bleiben auf dem generischen execute_mcp-Weg, damit ein sehr großer Katalog nicht jede Anfrage mit permanenten Tool-Definitionen füllt."
+        "tools_max": {
+          "name": "Maximale Anzahl Tools",
+          "description": "Wie viele externe MCP- / Custom-API-Tools der Agent in einem Lauf als eigene Tools erhält. Darüber hinaus werden die meistgenutzten behalten und der Rest bleibt über die Tool-Suche erreichbar, damit ein sehr großer Katalog nicht jede Anfrage mit Tool-Definitionen füllt."
         },
         "mcp_create_data_preview_rows": {
           "name": "MCP-Datenvorschauzeilen",

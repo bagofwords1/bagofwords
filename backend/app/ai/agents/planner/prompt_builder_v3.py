@@ -349,7 +349,7 @@ class PromptBuilderV3:
         mcp_directives_text = ""
         if getattr(planner_input, "tools_context", None):
             mcp_directives_text = (
-                "- **MCP / external tools** (<mcp_tools> in context): if a <tool> entry lists <arg> elements, that IS its complete schema — call execute_mcp directly; call search_mcps only when a tool's args are not shown or it is not listed. Follow execute_mcp's description for argument typing and result files.\n"
+                "- **MCP / external tools** (<mcp_tools> in context): call each by its own name (mcp__<connection>__<tool>) with its schema; match declared types exactly (a string arg takes a string even when its content is JSON). A tool listed in <mcp_tools> but missing from your tool list: search_tools, then call_tool. Every result is saved as a file (file_id); `preview` holds what fits — if `preview_truncated` is true, never answer from the partial list: read_file(file_id, offset) for more records, or create_data(source_file_ids=[file_id]) to aggregate or chart.\n"
                 "- MCP servers may expose business rules/definitions/schemas as resources — list_mcp_resources, then read_mcp_resource on relevant ones BEFORE querying (read_resources only covers indexed dbt/LookML/docs, not MCP URIs).\n"
             )
 

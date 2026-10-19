@@ -579,6 +579,9 @@ function getToolComponent(toolName: string) {
     // Native per-list tools (submit_<list>) stream under their own name
     // before the gateway rewrite to submit_list.
     if (toolName?.startsWith('submit_')) return SubmitListTool
+    // Native MCP tools (mcp__<connection>__<tool>) and call_tool stream under
+    // their own name before the rewrite to execute_mcp.
+    if (toolName?.startsWith('mcp__')) return MCPTool
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
@@ -640,6 +643,8 @@ function getToolComponent(toolName: string) {
         case 'write_officejs_code':
             return WriteOfficeJsCodeTool
         case 'search_mcps':
+        case 'search_tools':
+        case 'call_tool':
         case 'execute_mcp':
             return MCPTool
         case 'search_reports':

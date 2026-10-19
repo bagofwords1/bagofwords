@@ -641,6 +641,7 @@ class ContextHub:
         )
         # Cache
         self._static_cache["schemas"] = schemas_obj or self._static_cache.get("schemas")
+        self._apply_deferred_mcp_marks()
         self._static_cache["files"] = files_obj or self._static_cache.get("files")
         return snapshot
 
@@ -692,6 +693,23 @@ class ContextHub:
         except Exception:
             ids = []
         return ids or None
+
+    def mark_deferred_mcp_tools(self, keys) -> None:
+        """Mark which MCP tools sit past tools_max, as (connection_id, tool_name)
+        pairs, so <mcp_tools> tells the model to search for them instead of
+        guessing their arguments. Re-applied whenever schemas are rebuilt."""
+        self._deferred_mcp_keys = {(str(c), str(n)) for c, n in (keys or [])}
+        self._apply_deferred_mcp_marks()
+
+    def _apply_deferred_mcp_marks(self) -> None:
+        keys = getattr(self, "_deferred_mcp_keys", None) or set()
+        schemas = self._static_cache.get("schemas")
+        for ds in (getattr(schemas, "data_sources", None) or []):
+            for t in (getattr(ds, "mcp_tools", None) or []):
+                try:
+                    t.deferred = (str(t.connection_id), str(t.name)) in keys
+                except Exception:
+                    pass
 
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
@@ -806,6 +824,7 @@ class ContextHub:
 
         # Store results (handle exceptions gracefully)
         self._static_cache["schemas"] = schemas if not isinstance(schemas, Exception) else None
+        self._apply_deferred_mcp_marks()
         self._static_cache["instructions"] = instructions if not isinstance(instructions, Exception) else None
         self._static_cache["code"] = None
         self._static_cache["resources"] = resources if not isinstance(resources, Exception) else None

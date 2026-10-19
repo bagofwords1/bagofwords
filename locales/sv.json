@@ -2958,9 +2958,9 @@
           "name": "MCP- och egna API-verktyg",
           "description": "Gör det möjligt att koppla externa MCP-servrar och egna API-slutpunkter till datakällor som verktygsleverantörer"
         },
-        "mcp_native_tools_max": {
-          "name": "Maximalt antal inbyggda MCP-verktyg",
-          "description": "Övre gräns för hur många verktyg som registreras inbyggt för en rapport. Verktyg utöver taket ligger kvar på den generiska execute_mcp-vägen, så att en mycket stor katalog inte fyller varje förfrågan med permanenta verktygsdefinitioner."
+        "tools_max": {
+          "name": "Max antal verktyg",
+          "description": "Hur många externa MCP- / anpassade API-verktyg agenten får som egna verktyg i en körning. Över detta antal behålls de mest använda och resten nås via verktygssökning, så att en mycket stor katalog inte fyller varje förfrågan med verktygsdefinitioner."
         },
         "mcp_create_data_preview_rows": {
           "name": "Förhandsgranskningsrader för MCP-data",

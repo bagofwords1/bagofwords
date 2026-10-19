@@ -61,7 +61,7 @@ Do not use for:
         data = ReadMcpResourceInput(**tool_input)
         organization_settings = runtime_ctx.get("settings")
 
-        # Feature gate — same flag that governs search_mcps/execute_mcp.
+        # Feature gate — same flag that governs the MCP tools.
         if organization_settings:
             enable_mcp = organization_settings.get_config("enable_mcp_tools")
             if enable_mcp and not enable_mcp.value:
@@ -80,7 +80,7 @@ Do not use for:
             return
 
         # Resolve MCP connections linked to this report (explicit join — see
-        # search_mcps for why lazy-loading is unreliable in async context).
+        # mcp_tool_registry for why lazy-loading is unreliable in async context).
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "resolving_connection"})
         from sqlalchemy import select
         from app.models.connection import Connection

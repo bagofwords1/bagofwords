@@ -1,36 +1,23 @@
-"""Native registration of MCP / custom-API tools as first-class planner tools.
+"""MCP / custom-API tools as the model's own tools, capped by ``tools_max``.
 
-Default path today is the ``execute_mcp`` gateway: one tool whose ``arguments``
-field is an unconstrained object, so the provider never sees the real schema and
-cannot constrain decoding against it. The agent compensates by calling
-``search_mcps`` to fetch the schema, which costs a planner turn and a tool round
-trip per call.
+Each allowed ``ConnectionTool`` on the run's agents becomes one planner tool
+(``mcp__<connection>__<tool>``) carrying the server's own JSON Schema, so the
+provider constrains decoding against it and the schema sits in the cacheable
+prefix. Through the old ``execute_mcp`` gateway every call spelled out a
+connection UUID, the tool name, nested arguments and a title: with a 5-tool
+server that was 195 output tokens and 2.0 s per tool turn, versus 81 tokens
+and 0.95 s native.
 
-This module builds the alternative: one ``ToolDescriptor`` per allowed
-``ConnectionTool``, each carrying the server's own JSON Schema. The schema then
-travels in the request's ``tools`` array, which means it is present at every
-generation, sits in the cacheable prefix, and constrains sampling. It is the
-pattern used by other MCP clients in the ecosystem.
+``tools_max`` (org setting, default 50; ``BOW_TOOLS_MAX`` overrides) caps how
+many are registered, because a very large catalog costs more as permanent
+tool definitions than it saves. Past the cap the most used tools (last 30
+days) are registered and the rest are reached through ``search_tools`` +
+``call_tool``. The list is sorted by connection and tool name, never by
+usage, so it is byte-stable for prompt caching.
 
-Dispatch stays on the existing path: a native call is rewritten into the same
-``execute_mcp`` arguments, so tool policy, per-user identity forwarding, CSV/JSON
-materialization and audit are unchanged.
-
-Native registration is always on. It used to be an org toggle with a size
-threshold (12 tools) below which the gateway was kept as "a wash", but that
-measured planner turns and context bytes, not what the model writes per call:
-through the gateway every call spells out a connection UUID, the tool name,
-nested arguments and a display title. With a 5-tool server that was 195 output
-tokens and 2.0 s per tool turn versus 81 tokens and 0.95 s native.
-
-Only tools on the run's agents are registered: the working set the run executes
-against (attached agents, or every agent the user can reach in Auto), not every
-connection in the org. ``mcp_native_tools_max`` caps how many tools are
-registered, because a very large catalog costs more as permanent tool
-definitions than it saves; the remainder stay on the gateway.
-
-``BOW_MCP_NATIVE_TOOLS=0`` switches registration off for a whole deployment and
-``BOW_MCP_NATIVE_TOOLS_MAX`` overrides the cap.
+Dispatch stays on one path: a native or ``call_tool`` call is rewritten into
+``execute_mcp`` arguments, so tool policy, per-user identity forwarding,
+CSV/JSON materialization and audit are unchanged.
 """
 
 from __future__ import annotations
@@ -39,6 +26,7 @@ import hashlib
 import logging
 import os
 import re
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -47,20 +35,7 @@ logger = logging.getLogger(__name__)
 _MAX_TOOL_NAME = 64
 _PREFIX = "mcp__"
 
-_DEFAULT_MAX_NATIVE_TOOLS = 60
-
-_TRUTHY = ("1", "true", "yes", "on")
-_FALSY = ("0", "false", "no", "off")
-
-
-def _env_override() -> Optional[bool]:
-    """The deployment-level escape hatch: on, off, or 'not set' (None)."""
-    raw = os.environ.get("BOW_MCP_NATIVE_TOOLS", "").strip().lower()
-    if raw in _TRUTHY:
-        return True
-    if raw in _FALSY:
-        return False
-    return None
+_DEFAULT_TOOLS_MAX = 50
 
 
 def _setting_value(organization_settings, key, default):
@@ -75,34 +50,41 @@ def _setting_value(organization_settings, key, default):
     return default if value is None else value
 
 
-def _setting_int(organization_settings, key, default: int) -> int:
-    try:
-        return int(_setting_value(organization_settings, key, default))
-    except (TypeError, ValueError):
-        return default
+def _stored(organization_settings, key):
+    """The value the organization saved for ``key``, or None (schema default)."""
+    cfg = getattr(organization_settings, "config", None)
+    if not isinstance(cfg, dict):
+        return None
+    if key in cfg:
+        return cfg[key]
+    ai = cfg.get("ai_features")
+    return ai.get(key) if isinstance(ai, dict) else None
 
 
-def native_tools_budget(organization_settings=None) -> int:
-    env = os.environ.get("BOW_MCP_NATIVE_TOOLS_MAX")
+def tools_max(organization_settings=None) -> int:
+    """How many MCP tools are registered natively; the rest go behind search."""
+    env = os.environ.get("BOW_TOOLS_MAX")
     if env is not None:
         try:
-            return int(env)
+            return max(0, int(env))
         except (TypeError, ValueError):
             pass
-    return max(0, _setting_int(organization_settings, "mcp_native_tools_max", _DEFAULT_MAX_NATIVE_TOOLS))
+    # Organizations that saved the cap under its previous name keep it until
+    # they save ``tools_max``.
+    if _stored(organization_settings, "tools_max") is None and _stored(organization_settings, "mcp_native_tools_max") is not None:
+        raw = _setting_value(organization_settings, "mcp_native_tools_max", _DEFAULT_TOOLS_MAX)
+    else:
+        raw = _setting_value(organization_settings, "tools_max", _DEFAULT_TOOLS_MAX)
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return _DEFAULT_TOOLS_MAX
 
 
 def native_tools_enabled(organization_settings=None, tool_count: Optional[int] = None) -> bool:
-    """Should MCP tools be registered natively? Yes, unless the deployment
-    switched it off with ``BOW_MCP_NATIVE_TOOLS=0``.
-
-    The arguments are accepted for the callers that still pass them. Both
-    callers that matter (native registration and the ``<mcp_tools>`` renderer
-    that decides whether to inline schemas) must agree, or a tool ends up with
-    its schema in both places or in neither.
-    """
-    override = _env_override()
-    return True if override is None else override
+    """MCP tools are always native up to ``tools_max``. Kept so the
+    ``<mcp_tools>`` renderer and the planner keep asking the same question."""
+    return True
 
 
 def sanitize(value: str) -> str:
@@ -178,24 +160,96 @@ def parse_native_tool_name(name: str) -> Optional[str]:
     return name if isinstance(name, str) and name.startswith(_PREFIX) else None
 
 
-async def build_native_mcp_tools(
+@dataclass
+class McpToolCatalog:
+    """The run's MCP / custom-API tools, split by the ``tools_max`` cap.
+
+    ``native``: descriptor dicts registered as the model's own tools, sorted by
+    connection then tool name so the request's tool list is byte-stable.
+    ``deferred``: the tools past the cap, reachable through ``search_tools`` +
+    ``call_tool`` (each entry carries name, description, schema, connection).
+    ``routing``: generated name -> ``{"connection_id", "tool_name"}`` for every
+    tool, native or deferred, so dispatch resolves either the same way.
+    """
+
+    native: List[Dict[str, Any]] = field(default_factory=list)
+    deferred: List[Dict[str, Any]] = field(default_factory=list)
+    routing: Dict[str, Dict[str, str]] = field(default_factory=dict)
+
+
+# How long a usage ranking is reused. Recomputing it at most once a day keeps
+# the cap's selection (and so the tool list) stable within a conversation.
+_USAGE_TTL_S = 24 * 3600
+_USAGE_WINDOW_DAYS = 30
+_USAGE_ROW_LIMIT = 5000
+_usage_cache: Dict[str, Tuple[float, Dict[Tuple[str, str], int]]] = {}
+
+
+def clear_usage_cache() -> None:
+    _usage_cache.clear()
+
+
+async def _usage_counts(db, organization_id: Optional[str]) -> Dict[Tuple[str, str], int]:
+    """Calls per (connection_id, tool_name) over the last 30 days, per org.
+
+    Every MCP call, native or not, is persisted as ``execute_mcp`` with its
+    connection and tool in the arguments, so one query covers both.
+    """
+    import time
+    from datetime import datetime, timedelta
+    from sqlalchemy import select
+    from app.models.agent_execution import AgentExecution
+    from app.models.tool_execution import ToolExecution
+
+    if not organization_id:
+        return {}
+    key = str(organization_id)
+    hit = _usage_cache.get(key)
+    if hit and time.monotonic() - hit[0] < _USAGE_TTL_S:
+        return hit[1]
+    counts: Dict[Tuple[str, str], int] = {}
+    try:
+        cutoff = datetime.utcnow() - timedelta(days=_USAGE_WINDOW_DAYS)
+        rows = (await db.execute(
+            select(ToolExecution.arguments_json)
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(
+                AgentExecution.organization_id == key,
+                ToolExecution.tool_name == "execute_mcp",
+                ToolExecution.created_at >= cutoff,
+            )
+            .order_by(ToolExecution.created_at.desc())
+            .limit(_USAGE_ROW_LIMIT)
+        )).scalars().all()
+        for args in rows:
+            if isinstance(args, dict) and args.get("connection_id") and args.get("tool_name"):
+                k = (str(args["connection_id"]), str(args["tool_name"]))
+                counts[k] = counts.get(k, 0) + 1
+    except Exception as e:
+        logger.debug("mcp tool usage ranking unavailable: %s", e)
+        return {}
+    _usage_cache[key] = (time.monotonic(), counts)
+    return counts
+
+
+async def build_mcp_tool_catalog(
     db, report, user=None, organization_settings=None, data_source_ids: Optional[List[str]] = None,
-) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, str]]]:
-    """Build native tool descriptors for the MCP / custom-API tools in scope.
+) -> McpToolCatalog:
+    """The MCP / custom-API tools on the run's agents, split at ``tools_max``.
 
-    Scope is ``data_source_ids`` — the run's agents — when given. That is what
-    an Auto report needs: it has no attached agents, so scoping by the report
-    found nothing while the ``<mcp_tools>`` section (which counts the run's
-    agents) assumed the schemas were native, and the tools ended up with their
-    schema nowhere. Without ids it falls back to the report's attached agents.
+    Scope is ``data_source_ids`` (the run's agents: the pinned ones, or every
+    agent the user can access in Auto); without ids, the report's attached
+    agents. A tool is left out when it is disabled, or denied for this user,
+    under the strictest setting across the run's agents that carry it
+    (``strictest_admin_setting``, the same rule the call-time check applies).
 
-    Returns ``(descriptor_dicts, routing)`` where routing maps the generated tool
-    name to ``{"connection_id", "tool_name"}`` for dispatch. Mirrors the
-    discovery, policy and locked-field filtering that ``search_mcps`` performs,
-    so a tool hidden there is hidden here too.
+    Which tools are native: the most used on this org's agents in the last 30
+    days, then the rest alphabetically, up to the cap. The selection is then
+    sorted by connection and tool name, so usage only decides what makes the
+    cut, never the order.
 
-    Returns empty on any failure — the gateway path remains available, so a
-    problem here degrades to today's behavior rather than breaking the run.
+    Returns an empty catalog on any failure; dispatch still works for a
+    tool already in the conversation.
     """
     from sqlalchemy import select
     from app.models.connection import Connection
@@ -204,8 +258,11 @@ async def build_native_mcp_tools(
     from app.models.domain_connection import domain_connection
     from app.models.report_data_source_association import report_data_source_association
     from app.services.mcp_context_injection import filter_locked_from_schema
-    from app.services.tool_policy_service import ToolPolicyService, resolve_effective_policy
+    from app.services.tool_policy_service import (
+        ToolPolicyService, resolve_effective_policy, strictest_admin_setting,
+    )
 
+    catalog = McpToolCatalog()
     try:
         if data_source_ids is not None:
             scope_ds_ids = [str(i) for i in data_source_ids if i]
@@ -215,7 +272,7 @@ async def build_native_mcp_tools(
                 .where(report_data_source_association.c.report_id == str(report.id))
             )).all()]
         if not scope_ds_ids:
-            return [], {}
+            return catalog
 
         # IN (subquery), not JOIN + DISTINCT: Postgres has no equality
         # operator for the JSON config column, so DISTINCT on it errors.
@@ -230,7 +287,7 @@ async def build_native_mcp_tools(
             )
         )).scalars().all()
         if not conns:
-            return [], {}
+            return catalog
 
         import json as _json
         conn_by_id = {}
@@ -249,25 +306,29 @@ async def build_native_mcp_tools(
             )
         )).scalars().all()
         if not tools:
-            return [], {}
+            return catalog
 
-        ds_ids = [str(r[0]) for r in (await db.execute(
-            select(domain_connection.c.data_source_id)
+        # Which of the run's agents carry each connection.
+        agents_by_conn: Dict[str, set] = {}
+        for ds_id, conn_id in (await db.execute(
+            select(domain_connection.c.data_source_id, domain_connection.c.connection_id)
             .where(
                 domain_connection.c.data_source_id.in_(scope_ds_ids),
                 domain_connection.c.connection_id.in_(list(conn_by_id.keys())),
             )
-        )).all()]
+        )).all():
+            agents_by_conn.setdefault(str(conn_id), set()).add(str(ds_id))
 
-        overlays = {}
-        if ds_ids:
-            rows = (await db.execute(
+        overlays_by_tool: Dict[str, list] = {}
+        all_agents = sorted({a for ids in agents_by_conn.values() for a in ids})
+        if all_agents:
+            for o in (await db.execute(
                 select(DataSourceConnectionTool).where(
-                    DataSourceConnectionTool.data_source_id.in_(ds_ids),
+                    DataSourceConnectionTool.data_source_id.in_(all_agents),
                     DataSourceConnectionTool.connection_tool_id.in_([str(t.id) for t in tools]),
                 )
-            )).scalars().all()
-            overlays = {str(o.connection_tool_id): o for o in rows}
+            )).scalars().all():
+                overlays_by_tool.setdefault(str(o.connection_tool_id), []).append(o)
 
         user_prefs = {}
         if user is not None:
@@ -275,28 +336,40 @@ async def build_native_mcp_tools(
                 db, str(user.id), [str(t.id) for t in tools]
             )
 
-        # Only tools the agent can actually call: enabled for the agent and
-        # not policy-denied for this user.
+        # Only tools the run can actually call: enabled and not denied, under
+        # the strictest setting across the agents that carry them.
         eligible: List[Tuple[Any, str]] = []
         for t in tools:
-            overlay = overlays.get(str(t.id))
-            if not (overlay.is_enabled if overlay else t.is_enabled):
+            agents = agents_by_conn.get(str(t.connection_id), set())
+            is_enabled, admin_policy = strictest_admin_setting(
+                t, overlays_by_tool.get(str(t.id), []), len(agents) or None,
+            )
+            if not is_enabled:
                 continue
-            admin_policy = overlay.policy if overlay else t.policy
             effective = resolve_effective_policy(admin_policy, user_prefs.get(str(t.id)))
             if effective == "deny":
                 continue
             eligible.append((t, effective))
+        if not eligible:
+            return catalog
 
-        if not native_tools_enabled(organization_settings, len(eligible)):
-            logger.debug("native mcp tools: switched off for this deployment; keeping the execute_mcp gateway")
-            return [], {}
+        def _sort_key(item):
+            t = item[0]
+            cname = (conn_by_id.get(str(t.connection_id)) or {}).get("name") or ""
+            return (cname.lower(), str(t.connection_id), (t.name or "").lower())
 
-        descriptors: List[Dict[str, Any]] = []
-        routing: Dict[str, Dict[str, str]] = {}
+        # Names are issued in the stable order, so a tool keeps its name no
+        # matter which side of the cap it lands on.
+        eligible.sort(key=_sort_key)
+        budget = tools_max(organization_settings)
+        usage = await _usage_counts(db, getattr(report, "organization_id", None)) if len(eligible) > budget else {}
+        ranked = sorted(
+            eligible,
+            key=lambda it: (-usage.get((str(it[0].connection_id), it[0].name), 0), _sort_key(it)),
+        )
+        native_ids = {str(t.id) for t, _ in ranked[:budget]}
+
         taken: set = set()
-        budget = native_tools_budget(organization_settings)
-
         for t, effective in eligible:
             cid = str(t.connection_id)
             info = conn_by_id.get(cid) or {}
@@ -312,26 +385,44 @@ async def build_native_mcp_tools(
                     f"\n\n(Policy: {effective} — this call is reviewed before it runs "
                     "and may be declined.)"
                 )
-
-            descriptors.append({
-                "name": name,
-                "description": desc,
-                "schema": normalize_schema(visible),
-                "category": "both",
-                "research_accessible": True,
-                "is_active": True,
-            })
-            routing[name] = {"connection_id": cid, "tool_name": t.name}
-
-            if len(descriptors) >= budget:
-                logger.info(
-                    "native mcp tools: budget %d reached; %d tool(s) remain on the "
-                    "execute_mcp gateway path", budget, len(eligible) - len(descriptors),
-                )
-                break
-
-        return descriptors, routing
+            schema = normalize_schema(visible)
+            catalog.routing[name] = {"connection_id": cid, "tool_name": t.name}
+            if str(t.id) in native_ids:
+                catalog.native.append({
+                    "name": name,
+                    "description": desc,
+                    "schema": schema,
+                    "category": "both",
+                    "research_accessible": True,
+                    "is_active": True,
+                })
+            else:
+                catalog.deferred.append({
+                    "name": name,
+                    "description": desc,
+                    "input_schema": schema,
+                    "connection_id": cid,
+                    "connection_name": info.get("name") or "",
+                    "tool_name": t.name,
+                    "policy": effective,
+                })
+        if catalog.deferred:
+            logger.info(
+                "mcp tools: %d native (tools_max=%d), %d behind search_tools",
+                len(catalog.native), budget, len(catalog.deferred),
+            )
+        return catalog
 
     except Exception as e:
-        logger.warning("native mcp tool registration failed, falling back to gateway: %s", e)
-        return [], {}
+        logger.warning("mcp tool catalog failed; no MCP tools registered: %s", e)
+        return McpToolCatalog()
+
+
+async def build_native_mcp_tools(
+    db, report, user=None, organization_settings=None, data_source_ids: Optional[List[str]] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, str]]]:
+    """``(native descriptors, routing)`` — the native half of the catalog."""
+    catalog = await build_mcp_tool_catalog(
+        db, report, user, organization_settings=organization_settings, data_source_ids=data_source_ids,
+    )
+    return catalog.native, catalog.routing

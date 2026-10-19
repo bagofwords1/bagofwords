@@ -3,7 +3,7 @@
 
 Drives a real Anthropic model (Haiku) through a multi-step agentic tool-use loop
 using the ACTUAL input schemas of BOW's connection tools (execute_mcp,
-search_mcps, read_file, web_fetch) — the same schemas the planner ships. Each
+search_tools, read_file, web_fetch) — the same schemas the planner ships. Each
 tool call is dispatched against a small in-memory fake connection (a stand-in
 Notion-like MCP server + a file source), so no external network or real
 credential is needed for the tools themselves — only a Haiku-capable
@@ -30,14 +30,14 @@ import sys
 import anthropic
 
 from app.ai.tools.implementations.execute_mcp import ExecuteMCPTool
-from app.ai.tools.implementations.search_mcps import SearchMCPsTool
+from app.ai.tools.implementations.search_tools import SearchToolsTool
 from app.ai.tools.implementations.read_file import ReadFileTool
 from app.ai.tools.implementations.web_fetch import WebFetchTool
 
 MODEL = "claude-haiku-4-5-20251001"
 
 # The real connection tools whose schemas now advertise `title`.
-TOOL_CLASSES = [SearchMCPsTool, ExecuteMCPTool, ReadFileTool, WebFetchTool]
+TOOL_CLASSES = [SearchToolsTool, ExecuteMCPTool, ReadFileTool, WebFetchTool]
 CONNECTION_TOOL_NAMES = {c().metadata.name for c in TOOL_CLASSES}
 
 # A fake "Notion" MCP connection + a file source the model operates on.
@@ -66,7 +66,7 @@ def build_anthropic_tools():
 
 def dispatch(name: str, args: dict) -> dict:
     """Execute a tool call against the in-memory fakes; return a JSON-able result."""
-    if name == "search_mcps":
+    if name == "search_tools":
         return {"success": True, "total_count": len(FAKE_MCP_TOOLS), "tools": FAKE_MCP_TOOLS}
     if name == "execute_mcp":
         called = args.get("tool_name")
@@ -98,7 +98,7 @@ def main() -> int:
     system = (
         "You are a data analytics agent operating external connections through tools. "
         f"A Notion MCP connection is attached with connection_id '{CONNECTION_ID}'. "
-        "Always discover tools with search_mcps before calling execute_mcp. "
+        "Discover tools with search_tools, then call one with call_tool. "
         "Pass connection_id to every connection tool. "
         "Follow each tool's schema exactly, including any optional fields it documents. "
         "When you have gathered enough, give a short final text answer."

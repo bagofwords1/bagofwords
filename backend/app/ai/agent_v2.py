@@ -500,7 +500,7 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 # Tools that never read the turn's context view or hub; they skip the pre-tool
 # context rebuild. Anything not listed keeps it.
 _CONTEXT_FREE_TOOLS = frozenset({
-    "execute_mcp", "read_mcp_resource", "list_mcp_resources", "search_mcps",
+    "execute_mcp", "read_mcp_resource", "list_mcp_resources", "search_tools", "call_tool",
     "read_file", "grep_files", "list_files", "search_files", "web_fetch",
 })
 
@@ -2478,6 +2478,7 @@ class AgentV2:
                         "settings": self.organization_settings,
                         "report": self.report,
                         "run_agent_ids": self._run_agent_ids(),
+                        "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
@@ -5055,6 +5056,14 @@ class AgentV2:
             # they are never stripped by a filter that doesn't know about them,
             # and before routing/fallback so the catalog is final by loop start.
             await self._register_native_mcp_tools()
+            # The schema block was rendered above, before registration knew
+            # which MCP tools sit past tools_max. Render it again so <mcp_tools>
+            # marks them deferred (once, before the first planner call).
+            if getattr(self, "_deferred_mcp_tools", None):
+                try:
+                    schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+                except Exception:
+                    logger.debug("[agent] schema re-render after MCP registration failed", exc_info=True)
             # Agent Lists: one native submit_<list> tool per list on the report's
             # agents. Registered once, after MCP tools, so the tools block (the
             # first prompt-cache breakpoint) is stable for the whole run.
@@ -6567,6 +6576,7 @@ class AgentV2:
                                         "settings": self.organization_settings,
                                         "report": self.report,
                                         "run_agent_ids": self._run_agent_ids(),
+                        "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
                                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
@@ -8477,7 +8487,25 @@ class AgentV2:
         resolution, which is the correct outcome for a hallucinated name.
         """
         routing = getattr(self, "_native_mcp_routing", None)
-        if not routing or not isinstance(tool_name, str) or not tool_name.startswith("mcp__"):
+        if not routing or not isinstance(tool_name, str):
+            return tool_name, tool_input
+        title = None
+        if tool_name == "call_tool":
+            # A tool found with search_tools: same rewrite, its name and
+            # arguments are nested. Unknown names fall through to call_tool,
+            # which answers with an error.
+            call = tool_input if isinstance(tool_input, dict) else {}
+            target = call.get("name")
+            if isinstance(target, str) and target not in routing:
+                # The short tool name ("find_artist") when it is unambiguous.
+                matches = [n for n, r in routing.items() if r.get("tool_name") == target]
+                target = matches[0] if len(matches) == 1 else target
+            if not isinstance(target, str) or target not in routing:
+                return tool_name, tool_input
+            tool_name = target
+            title = call.get("title") if isinstance(call.get("title"), str) else None
+            tool_input = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+        if not tool_name.startswith("mcp__"):
             return tool_name, tool_input
         route = routing.get(tool_name)
         if not route:
@@ -8494,8 +8522,11 @@ class AgentV2:
             "connection_id": route["connection_id"],
             "tool_name": route["tool_name"],
             "arguments": dict(args),
-            "title": f"Running {route['tool_name']}",
         }
+        # Only a model-written label (call_tool's title). A made-up "Running X"
+        # stayed on screen as the finished call's label.
+        if title:
+            rewritten["title"] = title
         logger.info("[agent] native mcp call %s -> execute_mcp(%s)", tool_name, route["tool_name"])
         return "execute_mcp", rewritten
 
@@ -8507,39 +8538,61 @@ class AgentV2:
         """
         return [str(ds.id) for ds in (self.data_sources or []) if getattr(ds, "id", None)]
 
+    # The model-facing MCP surface. execute_mcp stays the one execution path
+    # but is never offered: tools are native (mcp__...), and the ones past
+    # tools_max are reached with search_tools + call_tool, offered only then.
+    _MCP_GATEWAY_TOOLS = ("execute_mcp", "search_tools", "call_tool")
+
     async def _register_native_mcp_tools(self) -> None:
-        """Add one planner tool per MCP/custom-API tool on the run's agents.
+        """Register the run's MCP / custom-API tools, capped by ``tools_max``.
 
         Runs in the async post-init phase (``__init__`` is sync and has no DB
-        access), alongside the other catalog adjustments. On failure the
-        catalog is left untouched and the gateway serves.
+        access), alongside the other catalog adjustments.
         """
-        from app.ai.tools.mcp_tool_registry import build_native_mcp_tools, native_tools_enabled
+        from app.ai.tools.mcp_tool_registry import build_mcp_tool_catalog
 
         self._native_mcp_routing = {}
-        if not self.report or not native_tools_enabled(self.organization_settings):
+        self._deferred_mcp_tools = []
+        catalog_tools = list(self.planner.tool_catalog or [])
+        gateway = {t.name: t for t in catalog_tools if t.name in self._MCP_GATEWAY_TOOLS}
+        self.planner.tool_catalog = [t for t in catalog_tools if t.name not in self._MCP_GATEWAY_TOOLS]
+        if not self.report or "execute_mcp" in self._disabled_tools:
             return
-        if "execute_mcp" in self._disabled_tools:
+        try:
+            mcp_on = getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", True)
+        except Exception:
+            mcp_on = True
+        if mcp_on is False:
             return
         try:
             user = self.user if hasattr(self, "user") else None
-            descriptors, routing = await build_native_mcp_tools(
+            catalog = await build_mcp_tool_catalog(
                 self.db,
                 self.report,
                 user or getattr(self.head_completion, "user", None),
                 organization_settings=self.organization_settings,
                 data_source_ids=self._run_agent_ids(),
             )
-            if not descriptors:
-                return
-            existing = {t.name for t in (self.planner.tool_catalog or [])}
-            added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
-            self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
-            self._native_mcp_routing = routing
-            logger.info("[agent] registered %d native MCP tool(s)", len(added))
+            existing = {t.name for t in self.planner.tool_catalog}
+            added = [ToolDescriptor(**d) for d in catalog.native if d["name"] not in existing]
+            if catalog.deferred:
+                added += [gateway[n] for n in ("search_tools", "call_tool") if n in gateway]
+            self.planner.tool_catalog = self.planner.tool_catalog + added
+            self._native_mcp_routing = catalog.routing
+            self._deferred_mcp_tools = catalog.deferred
+            try:
+                self.context_hub.mark_deferred_mcp_tools(
+                    (d["connection_id"], d["tool_name"]) for d in catalog.deferred
+                )
+            except Exception:
+                logger.debug("[agent] could not mark deferred MCP tools in context", exc_info=True)
+            if catalog.native or catalog.deferred:
+                logger.info("[agent] MCP tools: %d native, %d behind search_tools",
+                            len(catalog.native), len(catalog.deferred))
         except Exception as e:
-            logger.warning("[agent] native MCP tool registration skipped: %s", e)
+            logger.warning("[agent] MCP tool registration skipped: %s", e)
             self._native_mcp_routing = {}
+            self._deferred_mcp_tools = []
 
     def _rewrite_list_action(self, tool_name: str, tool_input):
         """Translate a native ``submit_<list>`` call into the submit_list gateway.
