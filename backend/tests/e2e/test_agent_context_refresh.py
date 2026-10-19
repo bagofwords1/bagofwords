@@ -10,7 +10,9 @@ behavior here, which is why the test observes the hub's public refresh entry:
     three — before the tool, after it, and again at the next loop start with
     nothing changed in between;
   * a step whose tool reads the context (here describe_tables) still gets its
-    pre-tool rebuild, so it adds two.
+    pre-tool rebuild, so it adds two;
+  * the end-of-turn snapshot reuses the last view instead of rebuilding, so a
+    turn with no tools rebuilds once (it used to rebuild twice).
 
 The LLM boundary and the MCP provider client are stubbed; routes, services and
 the agent loop run real.
@@ -155,3 +157,7 @@ def test_a_tool_that_reads_the_context_keeps_its_pre_tool_rebuild(test_client, e
     baseline = _rebuilds_for(test_client, env, planner, rebuilds)
     with_tool = _rebuilds_for(test_client, env, planner, rebuilds, ("describe_tables", {"query": "anything"}))
     assert with_tool - baseline == 2, (baseline, with_tool)
+
+
+def test_a_turn_without_tools_rebuilds_once(test_client, env, planner, rebuilds):
+    assert _rebuilds_for(test_client, env, planner, rebuilds) == 1

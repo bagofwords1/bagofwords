@@ -150,6 +150,7 @@ async def create_completion(
         current_user,
         organization,
         background=background,
+        return_on_answer=True,
     )
 
 @router.get("/api/reports/{report_id}/completions/{completion_id}/stream")

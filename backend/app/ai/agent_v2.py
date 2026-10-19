@@ -767,6 +767,9 @@ class AgentV2:
             self.analysis_files = []
 
         self.sigkill_event = asyncio.Event()
+        # Set once the final answer is saved; a non-streaming caller waits on
+        # it instead of on the whole run (see CompletionService).
+        self.answer_ready: asyncio.Event | None = None
         websocket_manager.add_handler(self._handle_completion_update)
 
         # Vision blocks harvested from tool observations, newest
@@ -4072,6 +4075,16 @@ class AgentV2:
             async with self._session_maker() as db:
                 yield db
 
+    async def _drain_then_signal_answer(self):
+        """Drain the answer's background writes, then tell a waiting
+        non-streaming caller the answer is saved (``answer_ready``)."""
+        try:
+            await self._drain_bg_writes()
+        finally:
+            ev = getattr(self, "answer_ready", None)
+            if ev is not None:
+                ev.set()
+
     async def _drain_bg_writes(self, *, timeout_s: float = 10.0):
         """Wait for all scheduled background writes to complete.
 
@@ -6156,7 +6169,7 @@ class AgentV2:
                                     # until persist_tool/rebuild land, but we don't
                                     # block on them before signalling done.
                                     asyncio.create_task(
-                                        self._drain_bg_writes(),
+                                        self._drain_then_signal_answer(),
                                         name="agent.post_finished_drain",
                                     )
 
@@ -7197,7 +7210,7 @@ class AgentV2:
                                             ))
                                         completion_finished_emitted = True
                                         asyncio.create_task(
-                                            self._drain_bg_writes(),
+                                            self._drain_then_signal_answer(),
                                             name="agent.post_finished_drain",
                                         )
 
@@ -7485,8 +7498,10 @@ class AgentV2:
                 except Exception as _checkin_exc:
                     logger.warning(f"[agent] checkin dispatch failed: {_checkin_exc!r}")
 
-            # Save final context snapshot (recompute metadata so counts/tokens are up to date)
-            view = await self._refresh_warm_traced("final_snapshot")
+            # Final context snapshot: the context as last built (what the last
+            # planner call saw). Rebuilding it here re-ran every warm builder
+            # only to add the answer just written — which the transcript holds.
+            view = self.context_hub.get_view()
             await self._update_context_token_metadata(view)
 
             # Save final context snapshot in background (not user-facing).
@@ -7651,7 +7666,7 @@ class AgentV2:
                     await self.event_queue.put(finished_event)
                 completion_finished_emitted = True
                 asyncio.create_task(
-                    self._drain_bg_writes(),
+                    self._drain_then_signal_answer(),
                     name="agent.post_finished_drain",
                 )
 
