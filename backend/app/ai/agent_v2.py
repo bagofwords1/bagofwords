@@ -497,6 +497,19 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 }
 
 
+# Tools that never read the turn's context view or hub; they skip the pre-tool
+# context rebuild. Anything not listed keeps it.
+_CONTEXT_FREE_TOOLS = frozenset({
+    "execute_mcp", "read_mcp_resource", "list_mcp_resources", "search_mcps",
+    "read_file", "grep_files", "list_files", "search_files", "web_fetch",
+})
+
+
+def _tool_ignores_turn_context(tool_name) -> bool:
+    name = str(tool_name or "")
+    return name in _CONTEXT_FREE_TOOLS or name.startswith("mcp__")
+
+
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
@@ -5105,8 +5118,9 @@ class AgentV2:
                     # Pick up any steering messages sent while the previous step ran
                     # — they flow into this iteration's planner input via
                     # _effective_user_message().
+                    _new_steers = []
                     try:
-                        await self._collect_steering_messages()
+                        _new_steers = await self._collect_steering_messages()
                     except Exception:
                         pass
 
@@ -5124,10 +5138,17 @@ class AgentV2:
                         lambda t: t.cancelled() or t.exception()  # mark retrieved if never awaited
                     )
 
-                    # Refresh warm context (skip on first loop - already done above)
+                    # Refresh warm context (skip on first loop - already done above). When the last
+                    # iteration ended with a post-tool refresh, only the in-memory transcript flush,
+                    # the steering poll and a commit ran since; reuse that view unless a steer arrived.
                     if loop_index > 0:
-                        view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
-                        await self._update_context_token_metadata(view)
+                        _carried = getattr(self, "_carried_warm_view", None)
+                        self._carried_warm_view = None
+                        if _carried is not None and not _new_steers:
+                            view = _carried
+                        else:
+                            view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
+                            await self._update_context_token_metadata(view)
                 
                     # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
                     if loop_index > 0:
@@ -6499,11 +6520,15 @@ class AgentV2:
                                         }
                                     ))
                         
-                                    # Refresh warm context to include the latest planner decision blocks in messages
-                                    try:
-                                        _view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
-                                    except Exception:
-                                        pass
+                                    # Refresh warm context to include the latest planner decision blocks in messages,
+                                    # for tools that read it. Tools that never touch the context view or hub
+                                    # (MCP calls, file reads, web fetch) keep the loop's view: rebuilding it
+                                    # cost ~25-30 ms per call for a result nothing reads.
+                                    if not _tool_ignores_turn_context(tool_name):
+                                        try:
+                                            _view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
+                                        except Exception:
+                                            pass
                                     # The schema block is NOT rebuilt here. It used
                                     # to be rebuilt before every tool call with
                                     # with_stats=True, which re-read TableStats —
@@ -7211,6 +7236,9 @@ class AgentV2:
                             # Refresh for next iteration
                             view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
                             await self._update_context_token_metadata(view)
+                            # The next iteration starts from this view unless something can change the
+                            # warm sections first (a steer message, or sub-agents launched below).
+                            self._carried_warm_view = None if self._wave_pending else view
                             if _post_snap_tool_exec_ids:
                                 await self._save_post_tool_snapshots(view, list(_post_snap_tool_exec_ids))
                             # NOTE: schemas_excerpt is deliberately NOT recomputed here.
