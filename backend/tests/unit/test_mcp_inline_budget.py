@@ -7,8 +7,6 @@ bigger payload from stacking across a run.
 """
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.tools.implementations.execute_mcp import (
-    _DEFAULT_INLINE_CHARS,
-    _MAX_INLINE_CHARS,
     _MIN_PREVIEW_ROWS,
     _fit_rows,
     _inline_budget,
@@ -17,77 +15,55 @@ from app.ai.tools.implementations.execute_mcp import (
 )
 
 
-class _Cfg:
-    def __init__(self, value):
-        self.value = value
-
-
-class _Settings:
-    """Stand-in for OrganizationSettings — only get_config is read."""
-    def __init__(self, value):
-        self._value = value
-
-    def get_config(self, key):
-        return _Cfg(self._value) if key == "mcp_result_inline_chars" else None
+# A generous fixed budget for the fitting tests below.
+_BUDGET = 50_000
 
 
 def _rows(n, width=1):
     return [{"id": i, "name": "x" * width} for i in range(n)]
 
 
-# -- the budget ------------------------------------------------------------
+# -- the budget: no fixed cap, the window decides ---------------------------
 
-def test_budget_defaults_when_unset_or_unreadable():
-    assert _inline_budget(None) == _DEFAULT_INLINE_CHARS
-    assert _inline_budget(_Settings("not-a-number")) == _DEFAULT_INLINE_CHARS
-
-
-def test_budget_is_clamped_both_ways():
-    # A negative stored value must not become an unbounded slice.
-    assert _inline_budget(_Settings(-1)) == 0
-    assert _inline_budget(_Settings(10_000_000)) == _MAX_INLINE_CHARS
-    assert _inline_budget(_Settings(1234)) == 1234
+class _Settings:
+    """An org that still has the old cap stored. It must not apply."""
+    def get_config(self, key):
+        return type("_C", (), {"value": 50_000})() if key == "mcp_result_inline_chars" else None
 
 
-# -- the window ceiling ----------------------------------------------------
-
-def test_large_window_leaves_the_setting_alone():
-    """The models this actually runs on must not be quietly shrunk."""
-    assert _inline_budget(_Settings(50_000), 200_000) == 50_000
-    assert _inline_budget(_Settings(50_000), 1_000_000) == 50_000
-
-
-def test_small_window_caps_below_the_setting():
-    """A 32k model's whole transcript budget is 16k tokens; two protected
-    50k-char previews would be a floor the decay ladder cannot reduce."""
-    small = _inline_budget(_Settings(50_000), 32_000)
-    assert small < 50_000
-    assert small > 0
-    # Monotone in the window, or a bigger model would get a smaller slice.
-    assert small < _inline_budget(_Settings(50_000), 128_000) < 50_000
-
-
-def test_unknown_window_keeps_the_operator_value():
-    """A provider that reports no window must not shrink every result."""
-    for window in (None, 0, -1, "200k"):
-        assert _inline_budget(_Settings(50_000), window) == 50_000
-
-
-def test_window_ceiling_keeps_the_protected_tail_under_budget():
-    """The regression this ceiling exists for: measured against the real
-    ladder, the two protected results must fit the transcript budget."""
+def _transcript_budget(window):
     from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
-    from app.ai.context.parts import estimate_tokens
+    return transcript_budget_tokens(type("_S", (), {"context_window_tokens": window})())
 
-    for window in (32_000, 128_000, 200_000):
-        budget = transcript_budget_tokens(
-            type("_S", (), {"context_window_tokens": window})()
-        )
-        chars = _inline_budget(_Settings(50_000), window)
-        # Two results is what PROTECT_LAST_TURNS actually shields, since turns
-        # alternate assistant/user.
-        protected = 2 * estimate_tokens("x" * chars)
-        assert protected < budget, f"window={window}: {protected} >= {budget}"
+
+def test_a_large_window_takes_a_large_result_whole():
+    """A 360k-char export (~203k tokens) fits a 1M-token model's window, so it
+    must reach the model whole; 50k of it made the agent page a file."""
+    assert _inline_budget(None, 1_000_000) >= 360_000
+
+
+def test_no_stored_setting_caps_the_result():
+    for window in (200_000, 1_000_000):
+        assert _inline_budget(_Settings(), window) == _inline_budget(None, window)
+
+
+def test_budget_grows_with_the_window():
+    sizes = [_inline_budget(None, w) for w in (32_000, 128_000, 200_000, 1_000_000)]
+    assert sizes == sorted(sizes) and len(set(sizes)) == len(sizes)
+
+
+def test_unknown_window_uses_the_assumed_window():
+    for window in (None, 0, -1, "200k"):
+        assert _inline_budget(None, window) == _inline_budget(None, 128_000)
+
+
+def test_two_protected_dense_results_still_fit_the_transcript():
+    """The decay ladder cannot shrink the last two tool results. Dense tabular
+    data runs ~1.8 chars per token, so count it that way, not as prose."""
+    for window in (32_000, 128_000, 200_000, 1_000_000):
+        chars = _inline_budget(None, window)
+        dense_tokens = chars / 1.8
+        assert 2 * dense_tokens <= _transcript_budget(window) * 1.15, window
 
 
 # -- fitting ---------------------------------------------------------------
@@ -95,7 +71,7 @@ def test_window_ceiling_keeps_the_protected_tail_under_budget():
 def test_small_result_arrives_whole():
     """The regression that started this: 40 records came back as 3."""
     rows = _rows(40)
-    fitted, truncated = _fit_rows(rows, _DEFAULT_INLINE_CHARS)
+    fitted, truncated = _fit_rows(rows, _BUDGET)
     assert fitted == rows
     assert truncated is False
 
@@ -128,7 +104,7 @@ def test_zero_budget_falls_back_to_a_sample():
 
 
 def test_empty_result_is_not_reported_as_truncated():
-    assert _fit_rows([], _DEFAULT_INLINE_CHARS) == ([], False)
+    assert _fit_rows([], _BUDGET) == ([], False)
 
 
 # -- the whole payload, not just the detected list --------------------------
@@ -148,7 +124,7 @@ def test_envelope_that_fits_goes_inline_whole():
     rows = [{"Project": "X707", "Activity": "PCA80115"}]
     preview, shown, truncated, is_full = _inline_preview(
         envelope, rows, "ShowResponse.ShowResponse.DataArea.ProductionOrdersSF.pegging",
-        _DEFAULT_INLINE_CHARS,
+        _BUDGET,
     )
     assert preview is envelope
     assert is_full is True
@@ -169,7 +145,7 @@ def test_oversized_envelope_falls_back_to_rows():
 def test_bare_list_payload_never_claims_full_payload():
     """path == "": the rows ARE the payload; the flag would be redundant noise."""
     rows = _rows(5)
-    preview, shown, truncated, is_full = _inline_preview(rows, rows, "", _DEFAULT_INLINE_CHARS)
+    preview, shown, truncated, is_full = _inline_preview(rows, rows, "", _BUDGET)
     assert preview == rows
     assert is_full is False
     assert truncated is False

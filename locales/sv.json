@@ -2962,10 +2962,6 @@
           "name": "Maximalt antal inbyggda MCP-verktyg",
           "description": "Övre gräns för hur många verktyg som registreras inbyggt för en rapport. Verktyg utöver taket ligger kvar på den generiska execute_mcp-vägen, så att en mycket stor katalog inte fyller varje förfrågan med permanenta verktygsdefinitioner."
         },
-        "mcp_result_inline_chars": {
-          "name": "Inbäddad storlek på MCP-resultat",
-          "description": "Hur mycket av ett resultat från ett MCP- eller eget API-verktyg som agenten ser direkt i sin kontext, i tecken. Hela svaret sparas alltid till en fil oavsett detta värde; inställningen avgör bara hur mycket modellen kan läsa utan att öppna den filen. Höj värdet så att agenten kan svara utifrån en hel resultatmängd i stället för ett stickprov; sänk det för att förbruka färre tokens per anrop. Ange 0 för ett stickprov på 3 poster. Begränsat till 0-500000."
-        },
         "mcp_create_data_preview_rows": {
           "name": "Förhandsgranskningsrader för MCP-data",
           "description": "Hur många resultatrader create_data returnerar till en extern MCP-klient (Claude, Cursor m.fl.) i sitt svar. Hela resultatet sparas alltid i rapporten; detta avgör bara hur mycket klientens modell får direkt. En klient kan be om färre rader, aldrig fler. Begränsas även av 'Begränsa antalet rader'. Begränsat till 1-10000."

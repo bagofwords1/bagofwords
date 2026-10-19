@@ -32,64 +32,45 @@ _SHAPE_MAX_COLUMNS = 40
 # disk either way (see the materialization block below) — this only decides how
 # much the model can read WITHOUT opening the file.
 #
-# It used to be three records, flat, whoever the caller was. Three records is
-# enough to infer a schema and not enough to answer a question, so a 40-record
-# purchase order came back, went to disk in full, and the agent still had to
-# spend a second tool call to read what it had just fetched. Budgeting by
-# characters instead of by record count makes the cutoff track what actually
-# costs tokens: narrow rows arrive whole, wide ones still get capped.
-_DEFAULT_INLINE_CHARS = 50_000
+# There is no fixed cap: a result arrives whole whenever it fits the model's
+# window. It used to be min(org setting, default 50k / max 500k chars, 15% of the
+# transcript budget). On a 1M-token model that showed 50k of a 360k-char export;
+# the agent then paged the file 8k chars at a time, made 4-18 model calls and
+# answered correctly 1-3 times in 5. Clients that pass the whole result answer
+# from it in one call.
+#
+# The window still decides. The transcript's decay ladder protects the last
+# PROTECT_LAST_TURNS turns, which shields roughly the last TWO tool results, so
+# one result may take at most half the transcript budget. Characters per token
+# is taken at 2: dense tabular payloads measured ~1.8 (a CSV export of 360k
+# chars was 203k tokens), well below the ~4 of English prose, and
+# underestimating is what overflows the window.
+_PROTECTED_RESULT_SHARE = 0.5
+_CHARS_PER_TOKEN = 2
+# Fallback for the one path that wants a budget when none was computed.
 _MAX_INLINE_CHARS = 500_000
-# Floor when the budget is set to 0 — the shape has to survive even when an
-# operator has turned inlining off, or the agent cannot write a reader for the
-# file without opening it first.
+# Floor for a result too big for the window: the shape has to survive, or the
+# agent cannot write a reader for the file without opening it first.
 _MIN_PREVIEW_ROWS = 3
 
-# Share of the transcript budget one preview may occupy, and the rough
-# chars-per-token used to convert between the two (measured at ~4.0 on real
-# record payloads).
-#
-# The setting alone is not safe on a small-window model. The transcript's decay
-# ladder protects the last PROTECT_LAST_TURNS turns, and because turns alternate
-# assistant/user that shields roughly the last TWO tool results — which the
-# ladder then cannot decay no matter how far over budget it is. Six 400-record
-# calls measured a 27,250-token floor: fine against a 200k model's 100k budget,
-# larger than the whole 16k budget of a 32k model. So the configured value is a
-# CEILING, and the window decides the rest.
-_PREVIEW_BUDGET_SHARE = 0.15
-_CHARS_PER_TOKEN = 4
 
+def _inline_budget(organization_settings: Any = None, context_window_tokens: Any = None) -> int:
+    """Characters of result the model may see inline: as much as the window holds.
 
-def _inline_budget(organization_settings: Any, context_window_tokens: Any = None) -> int:
-    """Characters of result the model may see inline.
-
-    `mcp_result_inline_chars` clamped, then capped against what this model's
-    transcript can actually hold. Clamped because a bad stored value here is
-    the difference between a useless observation and one that fills the
-    context window on its own.
+    ``organization_settings`` is accepted for callers that still pass it; no
+    setting caps the result any more. An unknown window uses the transcript's
+    own assumed window.
     """
-    try:
-        cfg = organization_settings.get_config("mcp_result_inline_chars") if organization_settings else None
-        budget = int(getattr(cfg, "value", _DEFAULT_INLINE_CHARS))
-    except (TypeError, ValueError, AttributeError):
-        budget = _DEFAULT_INLINE_CHARS
-    budget = max(0, min(_MAX_INLINE_CHARS, budget))
-
-    if not isinstance(context_window_tokens, int) or context_window_tokens <= 0:
-        # No window to reason about — the operator's number stands. Guessing a
-        # small window here would silently shrink every result on a provider
-        # that simply doesn't report one.
-        return budget
     try:
         from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
 
+        window = context_window_tokens if isinstance(context_window_tokens, int) and context_window_tokens > 0 else None
         transcript_budget = transcript_budget_tokens(
-            type("_S", (), {"context_window_tokens": context_window_tokens})()
+            type("_S", (), {"context_window_tokens": window})()
         )
     except Exception:
-        return budget
-    ceiling = int(transcript_budget * _PREVIEW_BUDGET_SHARE * _CHARS_PER_TOKEN)
-    return min(budget, max(ceiling, 0))
+        return _MAX_INLINE_CHARS // 10
+    return max(0, int(transcript_budget * _PROTECTED_RESULT_SHARE * _CHARS_PER_TOKEN))
 
 
 def _fit_rows(rows: list, budget: int) -> tuple:
