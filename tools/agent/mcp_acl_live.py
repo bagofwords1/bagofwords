@@ -5,9 +5,10 @@ Three steps, each its own subcommand so a failure is cheap to rerun:
 
   serve   Boot the backend on a dedicated SQLite DB with an enterprise license
           stub (custom roles + groups) and open sign-ups (the outsider org).
-  matrix  Build the RBAC world over HTTP and run the ACL e2e tests
-          (backend/tests/e2e/rbac/test_mcp_builder_tools_acl.py) against the
-          live server instead of TestClient — same matrix, real transport.
+  matrix  Build the RBAC world over HTTP and run the ACL and web-app parity
+          e2e tests (backend/tests/e2e/rbac/test_mcp_builder_tools_acl.py and
+          test_mcp_instruction_parity.py) against the live server instead of
+          TestClient — same matrix, real transport.
   llm     Let Claude Haiku 5.5 drive the MCP tools as different personas
           through natural-language tasks; verify outcomes over REST.
 
@@ -97,9 +98,11 @@ def _world(a):
 def matrix(a):
     import inspect
 
-    from tests.e2e.rbac import test_mcp_builder_tools_acl as suite
+    from tests.e2e.rbac import test_mcp_builder_tools_acl as acl
+    from tests.e2e.rbac import test_mcp_instruction_parity as parity
 
-    tests = [(n, f) for n, f in inspect.getmembers(suite, inspect.isfunction)
+    tests = [(n, f) for suite in (acl, parity)
+             for n, f in inspect.getmembers(suite, inspect.isfunction)
              if n.startswith("test_") and list(inspect.signature(f).parameters) == ["world"]]
     results = []
     for name, fn in sorted(tests):
@@ -154,7 +157,22 @@ def _scenarios(w):
         r = w.rest_get_instruction(reader, inst_id)
         return sorted(d["id"] for d in (r.json().get("data_sources") or [])) if r.status_code == 200 else None
 
+    multi = w.create_instruction_as(
+        M.ORG_ADMIN,
+        "Exclude cancelled orders from revenue. Report amounts in USD. Use UTC dates.",
+        ["ALPHA"],
+    )
+    surgical = "Exclude cancelled orders from revenue. Report amounts in EUR. Use UTC dates."
+
     return [
+        {
+            # Anchored edit: one sentence changes, the rest must survive.
+            "persona": M.AGENT_INSTR_MANAGER,
+            "task": (f"In instruction {multi}, amounts should be reported in EUR instead of USD. "
+                     "Change only that; keep everything else as it is."),
+            "expect": "allowed",
+            "check": lambda: text_of(multi) == surgical,
+        },
         {
             "persona": M.AGENT_MANAGER,
             "task": (f"On agent '{alpha['name']}' (id {alpha['id']}) there is an instruction with id {inst_alpha}. "

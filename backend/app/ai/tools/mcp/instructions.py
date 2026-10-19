@@ -68,10 +68,18 @@ def is_admin(permissions: set) -> bool:
 # would let a caller probe which ids exist.
 NOT_FOUND = "Instruction not found, or you don't have permission to change it."
 
-VALID_STATUSES = {"published", "draft", "archived"}
-# 'disabled' is not offered: it reads as "off" but used to widen loading.
-# Turning a rule off is status='archived'.
-VALID_LOAD_MODES = {"always", "intelligent"}
+# The edit contract is the in-app agent's (app/ai/tools/implementations/
+# edit_instruction.py): same anchor matching, same status words, same limits.
+# What differs is the outcome — MCP edits publish like the web app's save,
+# where the in-app agent stages a suggestion for review.
+from app.ai.tools.implementations.edit_instruction import (  # noqa: E402
+    DB_TO_STATUS,
+    MIN_RESULT_TEXT_LENGTH,
+    STATUS_TO_DB,
+    VALID_CATEGORIES,
+    VALID_LOAD_MODES,
+    _apply_anchor_edit as apply_anchor_edit,
+)
 
 
 def _refusal(exc: Exception) -> str:
@@ -102,6 +110,7 @@ def _detail(schema, *, can_edit: bool) -> MCPInstructionDetail:
         status=getattr(schema, "status", None),
         load_mode=getattr(schema, "load_mode", None),
         kind=getattr(schema, "kind", None),
+        state=DB_TO_STATUS.get(getattr(schema, "status", None)),
         agents=[
             MCPInstructionAgentRef(id=str(ds.id), name=getattr(ds, "name", None))
             for ds in (getattr(schema, "data_sources", None) or [])
@@ -209,14 +218,14 @@ class ReadInstructionMCPTool(MCPTool):
 
 
 class CreateInstructionMCPTool(MCPTool):
-    """Create an instruction, scoped to agents the caller manages instructions on."""
+    """Create an instruction — same rules and outcome as creating it in the web app."""
 
     name = "create_instruction"
     description = (
         "Create a new instruction that guides AI behavior when generating code and analyzing data. "
-        "Pass data_source_ids to scope it to agents you manage instructions on; it goes live at once. "
-        "Without data_source_ids it is global (every agent): org instruction admins publish it, "
-        "anyone else's global rule is submitted for admin approval."
+        "It is published immediately. Pass data_source_ids to scope it to agents you manage "
+        "instructions on; without them it is global (every agent), which needs org-level "
+        "instruction admin."
     )
 
     @property
@@ -231,17 +240,15 @@ class CreateInstructionMCPTool(MCPTool):
         input_data = MCPCreateInstructionInput(**args)
         ds_ids = [str(i) for i in (input_data.data_source_ids or [])]
 
-        # Agent-scoped rules need manage_instructions on every listed agent —
-        # the POST /instructions gate. Global rules stay open to anyone who
-        # manages instructions somewhere (the call gate), but only org admins'
-        # go live; the build layer routes the rest to review.
-        if ds_ids:
-            try:
-                await require_scope_authority(db, user, organization, ds_ids)
-            except HTTPException as e:
-                return MCPCreateInstructionOutput(
-                    success=False, requires_approval=False, error_message=_refusal(e),
-                ).model_dump()
+        # The web app's gates: POST /instructions needs manage_instructions on
+        # every listed agent; POST /instructions/global (no agents) needs it
+        # org-wide. An agent manager can't author an org-wide rule.
+        try:
+            await require_scope_authority(db, user, organization, ds_ids)
+        except HTTPException as e:
+            return MCPCreateInstructionOutput(
+                success=False, requires_approval=False, error_message=_refusal(e),
+            ).model_dump()
 
         svc = InstructionService()
         instruction_data = InstructionCreate(
@@ -250,7 +257,7 @@ class CreateInstructionMCPTool(MCPTool):
             category=input_data.category,
             load_mode=input_data.load_mode,
             data_source_ids=ds_ids,
-            status="published",  # the build decides whether it goes live
+            status="published",
         )
         try:
             result = await svc.create_instruction(
@@ -263,8 +270,7 @@ class CreateInstructionMCPTool(MCPTool):
                 success=False, requires_approval=False, error_message=_refusal(e),
             ).model_dump()
 
-        # Report what actually happened, not a guess from org-level perms:
-        # agent managers publish on their own agents.
+        # Report what the build layer actually did.
         fresh = await svc.get_instruction(db, str(result.id), organization, user)
         pending = _pending(fresh) if fresh is not None else True
         logger.info("create_instruction: %s by user %s pending=%s", result.id, user.id, pending)
@@ -277,15 +283,23 @@ class CreateInstructionMCPTool(MCPTool):
 
 
 class EditInstructionMCPTool(MCPTool):
-    """Edit an existing instruction — same rules as the web app's edit."""
+    """Edit an existing instruction.
+
+    Input contract = the in-app agent's edit_instruction (anchored text edits,
+    active/inactive status, the same limits). Outcome and rights = the web
+    app's save (PUT /instructions/{id}): published directly, by someone with
+    authority over the instruction and over any new scope.
+    """
 
     name = "edit_instruction"
     description = (
-        "Edit an existing instruction. Omitted fields stay unchanged; `text` replaces the whole text, "
-        "so read_instruction first and send the complete new text. data_source_ids replaces the agent "
-        "scope ([] = global). You need instruction-management rights on every agent the instruction "
-        "applies to (and on the new scope); global instructions need org-level instruction admin. "
-        "To turn an instruction off, set status='archived'."
+        "Edit an existing instruction; the change is published immediately. "
+        "Text edits are anchored: pass `old_text` (an exact, unique snippet of the current text — "
+        "read_instruction first) and `text` (its replacement). Only for an explicit rewrite, set "
+        "replace_entire_text: true. Make several small anchored edits rather than one rewrite. "
+        "status 'inactive' turns it off, 'active' back on. data_source_ids replaces the agent "
+        "scope ([] = global). You need instruction-management rights on every agent it applies "
+        "to (and on the new scope); global instructions need org-level instruction admin."
     )
 
     @property
@@ -298,62 +312,125 @@ class EditInstructionMCPTool(MCPTool):
 
     async def execute(self, args, db, user, organization):
         data = MCPEditInstructionInput(**args)
-        fail = lambda msg: MCPEditInstructionOutput(  # noqa: E731
-            success=False, instruction_id=data.instruction_id, error_message=msg,
-        ).model_dump()
 
-        if data.status is not None and data.status not in VALID_STATUSES:
-            return fail(f"Invalid status '{data.status}'. Use one of: {', '.join(sorted(VALID_STATUSES))}.")
+        def fail(msg, code, **extra):
+            return MCPEditInstructionOutput(
+                success=False, instruction_id=data.instruction_id,
+                error_message=msg, rejected_reason=code, **extra,
+            ).model_dump()
+
+        # ── input checks (in-app tool's rules) ──
         if data.load_mode is not None and data.load_mode not in VALID_LOAD_MODES:
             return fail(
                 f"Invalid load_mode '{data.load_mode}'. Use one of: {', '.join(sorted(VALID_LOAD_MODES))}. "
-                "To turn an instruction off, set status='archived'."
+                "To take an instruction out of use, set status: 'inactive'.",
+                "invalid_load_mode",
             )
-        if data.text is not None and not data.text.strip():
-            return fail("text cannot be empty.")
-        changes = data.model_dump(exclude_none=True, exclude={"instruction_id"})
-        if not changes:
-            return fail("Nothing to change: pass at least one field.")
+        if data.category is not None and data.category not in VALID_CATEGORIES:
+            return fail(
+                f"Invalid category '{data.category}'. Use one of: {', '.join(sorted(VALID_CATEGORIES))}.",
+                "invalid_category",
+            )
+        if (data.old_text is not None or data.replace_entire_text) and data.text is None:
+            return fail("old_text / replace_entire_text need `text` (the replacement).", "invalid_input")
+        if not any(v is not None for v in (
+            data.text, data.title, data.category, data.load_mode, data.status, data.data_source_ids,
+        )):
+            return fail("Nothing to change: pass at least one field.", "no_change")
 
+        # ── rights (web app's rules) ──
         svc = InstructionService()
         existing = await svc.get_instruction(db, data.instruction_id, organization, user)
         if existing is None:
-            return fail(NOT_FOUND)
-        # Same order as PUT /instructions/{id}: authority over the row as it is,
-        # then over the scope it's being moved to.
+            return fail(NOT_FOUND, "not_found")
         try:
             await require_instruction_authority(db, user, organization, existing, allow_owner=True)
         except HTTPException:
             if await svc.user_can_view_instruction(db, existing, user, organization):
-                return fail("Permission denied: you can read this instruction but not change it. "
-                            "Changing it needs instruction-management rights on every agent it applies to.")
-            return fail(NOT_FOUND)
+                return fail(
+                    "Permission denied: you can read this instruction but not change it. Changing "
+                    "it needs instruction-management rights on every agent it applies to.",
+                    "permission_denied",
+                )
+            return fail(NOT_FOUND, "not_found")
         try:
             await require_scope_authority(db, user, organization, data.data_source_ids)
         except HTTPException as e:
-            return fail(_refusal(e))
+            return fail(_refusal(e), "permission_denied")
 
-        update = InstructionUpdate(**changes)
+        # ── resulting text (anchor semantics, as in-app) ──
+        current_text = existing.text or ""
+        new_text = None
+        if data.text is not None:
+            if data.replace_entire_text:
+                new_text = data.text
+            elif data.old_text is None or data.old_text == "":
+                return fail(
+                    "Edit rejected: `text` needs an anchor. Pass `old_text` with an exact snippet of "
+                    "the current text to replace it (\"\" is not an anchor; to add, anchor the "
+                    "sentence it belongs after and repeat it before your addition). Only for an "
+                    "explicit rewrite, re-send with replace_entire_text: true.",
+                    "anchor_required", current_text=current_text,
+                )
+            else:
+                applied, code, detail = apply_anchor_edit(current_text, data.old_text, data.text)
+                if code:
+                    return fail(f"Edit rejected: {detail}", code, current_text=current_text)
+                new_text = applied
+            if len(new_text.strip()) < MIN_RESULT_TEXT_LENGTH:
+                return fail(
+                    f"Edit rejected: the resulting text would be shorter than {MIN_RESULT_TEXT_LENGTH} characters.",
+                    "result_too_short", current_text=current_text,
+                )
+
+        # ── status (active/inactive ↔ published/draft, as in-app) ──
+        base_status = existing.status
+        new_db_status = None
+        if data.status is not None:
+            if base_status not in DB_TO_STATUS:
+                return fail(
+                    f"This instruction is {base_status}; only active and inactive instructions can "
+                    "be switched on or off.", "status_change_not_allowed",
+                )
+            new_db_status = STATUS_TO_DB[data.status]
+            only_status = all(v is None for v in (
+                data.text, data.title, data.category, data.load_mode, data.data_source_ids,
+            ))
+            if new_db_status == base_status and only_status:
+                return fail(f"The instruction is already {data.status}.", "no_change")
+
+        # Only the fields being changed: the admin edit path applies every
+        # field that is *set*, so an explicit None would blank a column.
+        changes = {
+            "text": new_text, "title": data.title, "category": data.category,
+            "load_mode": data.load_mode, "status": new_db_status,
+            "data_source_ids": data.data_source_ids,
+        }
+        update = InstructionUpdate(**{k: v for k, v in changes.items() if v is not None})
         try:
             updated = await svc.update_instruction(db, data.instruction_id, update, organization, user)
         except HTTPException as e:
             logger.info("edit_instruction %s by %s refused: %s", data.instruction_id, user.id, e.detail)
-            return fail(_refusal(e))
+            return fail(_refusal(e), "permission_denied" if e.status_code == 403 else "invalid_input")
         except Exception as e:
             logger.exception("edit_instruction %s by %s failed: %s", data.instruction_id, user.id, e)
-            return fail(_refusal(e))
+            return fail(_refusal(e), "edit_failed")
         if updated is None:
-            return fail(NOT_FOUND)
+            return fail(NOT_FOUND, "not_found")
 
         fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
         pending = _pending(fresh)
-        logger.info("edit_instruction: %s by user %s fields=%s pending=%s",
-                    data.instruction_id, user.id, sorted(changes), pending)
+        status_changed = new_db_status is not None and new_db_status != base_status
+        logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user.id, pending)
         return MCPEditInstructionOutput(
             success=True,
             instruction_id=data.instruction_id,
             build_status="pending_approval" if pending else "approved",
             requires_approval=pending,
+            previous_text=current_text if new_text is not None else None,
+            new_text=fresh.text if new_text is not None else None,
+            previous_status=DB_TO_STATUS.get(base_status) if status_changed else None,
+            new_status=data.status if status_changed else None,
             instruction=_detail(fresh, can_edit=True),
         ).model_dump()
 

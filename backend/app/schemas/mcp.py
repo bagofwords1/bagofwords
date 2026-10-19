@@ -3,7 +3,7 @@ from app.schemas.artifact_resource_schema import ResourceDefinition
 
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Literal, Optional, List, TYPE_CHECKING
 
 # Reuse existing schemas
 from app.ai.tools.schemas.create_widget import TablesBySource
@@ -294,6 +294,7 @@ class MCPInstructionDetail(BaseModel):
     status: Optional[str] = None
     load_mode: Optional[str] = None
     kind: Optional[str] = None
+    state: Optional[str] = Field(default=None, description="active or inactive — what edit_instruction's status takes")
     agents: List[MCPInstructionAgentRef] = Field(
         default_factory=list, description="Agents this applies to. Empty means global (every agent).",
     )
@@ -308,13 +309,46 @@ class MCPReadInstructionOutput(BaseModel):
 
 
 class MCPEditInstructionInput(BaseModel):
-    """Input for edit_instruction MCP tool. Omitted fields stay unchanged."""
+    """Input for edit_instruction MCP tool — the in-app agent's anchored edit contract.
+
+    Omitted fields stay unchanged. Unlike the in-app agent (which stages edits
+    as suggestions for review), an MCP edit is published directly, exactly as
+    if the caller saved it in the web app — so the caller needs the same rights.
+    """
     instruction_id: str = Field(..., description="ID of the instruction to edit")
-    text: Optional[str] = Field(default=None, description="New full text (replaces the current text)")
-    title: Optional[str] = Field(default=None, description="New title")
-    category: Optional[str] = Field(default=None, description="code_gen, data_modeling, general, dashboard, visualization")
-    load_mode: Optional[str] = Field(default=None, description="always or intelligent")
-    status: Optional[str] = Field(default=None, description="published, draft or archived")
+    old_text: Optional[str] = Field(
+        default=None,
+        description=(
+            "REQUIRED whenever you pass `text`: an exact snippet of the CURRENT text, which `text` "
+            "replaces. Must match exactly once — use a short unique phrase or sentence, not the "
+            "whole instruction. \"\" is not an anchor. To ADD a rule, anchor the sentence it "
+            "belongs after and repeat it verbatim at the start of `text`, then your addition. "
+            "Several small anchored edits beat one rewrite."
+        ),
+    )
+    replace_entire_text: bool = Field(
+        default=False,
+        description=(
+            "Opt in to replacing the WHOLE instruction with `text`. Only for an explicit rewrite "
+            "request; everything else uses `old_text`."
+        ),
+    )
+    text: Optional[str] = Field(
+        default=None, max_length=20000,
+        description="Replacement for `old_text` (or the whole text with replace_entire_text). Write only the change asked for.",
+    )
+    title: Optional[str] = Field(default=None, max_length=200, description="New title")
+    category: Optional[str] = Field(
+        default=None, description="general, code_gen, visualization, dashboard or system",
+    )
+    load_mode: Optional[str] = Field(
+        default=None,
+        description="'always' or 'intelligent' (load when its tables are relevant). Not an off switch — use status.",
+    )
+    status: Optional[Literal["active", "inactive"]] = Field(
+        default=None,
+        description="Turn the instruction on ('active') or off ('inactive', kept but no longer loaded). Omit to leave unchanged.",
+    )
     data_source_ids: Optional[List[str]] = Field(
         default=None,
         description="New agent scope (replaces it). [] makes it global, which needs org-level instruction admin.",
@@ -326,7 +360,17 @@ class MCPEditInstructionOutput(BaseModel):
     instruction_id: Optional[str] = None
     build_status: Optional[str] = Field(default=None, description="approved (live) or pending_approval")
     requires_approval: bool = False
+    previous_text: Optional[str] = None
+    new_text: Optional[str] = Field(default=None, description="Full text after the edit — anchor your next edit on it")
+    previous_status: Optional[str] = None
+    new_status: Optional[str] = None
     instruction: Optional[MCPInstructionDetail] = None
+    rejected_reason: Optional[str] = Field(
+        default=None,
+        description="anchor_required, anchor_not_found, ambiguous_anchor, result_too_short, invalid_*, "
+                    "no_change, status_change_not_allowed, not_found, permission_denied",
+    )
+    current_text: Optional[str] = Field(default=None, description="Current full text, returned when an anchor fails")
     error_message: Optional[str] = None
 
 

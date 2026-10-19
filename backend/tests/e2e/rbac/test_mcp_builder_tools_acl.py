@@ -59,7 +59,8 @@ def test_calling_an_unlisted_tool_is_refused(world):
     listed = member.tool_names()
     pub = world.agent_id("PUB")
     calls = {
-        "edit_instruction": {"instruction_id": world.instructions["inst_pub"], "text": "member hijack"},
+        "edit_instruction": {"instruction_id": world.instructions["inst_pub"],
+                             "text": "member hijack of the public rule", "replace_entire_text": True},
         "delete_instruction": {"instruction_id": world.instructions["inst_pub"]},
         "create_instruction": {"text": "member rule", "data_source_ids": [pub]},
         "edit_schema": {"data_source_id": pub, "deactivate": ["albums"]},
@@ -112,7 +113,9 @@ def test_edit_instruction_follows_instruction_authority(world):
             before = _text_of(world, inst_id, reader)
             assert before, f"ground truth unreadable for {key}"
             new_text = f"{persona} edits {key} {uuid.uuid4().hex[:6]}"
-            res = world.mcp(persona).call("edit_instruction", {"instruction_id": inst_id, "text": new_text})
+            res = world.mcp(persona).call("edit_instruction", {
+                "instruction_id": inst_id, "text": new_text, "replace_entire_text": True,
+            })
             after = _text_of(world, inst_id, reader)
             if persona in allowed:
                 if res.refused:

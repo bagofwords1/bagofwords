@@ -111,16 +111,15 @@ SCOPE_CHANGES = [
 ]
 
 # create_instruction: scope → (personas that may create, personas whose
-# creation must go live immediately). Everyone else is refused.
+# creation goes live). Same as the web app: POST /instructions needs the right
+# on every listed agent, POST /instructions/global needs it org-wide. Everyone
+# allowed publishes directly; everyone else is refused.
 CREATE_ALLOWED = {
     ("ALPHA",): (ORG_INSTRUCTION_ADMINS | ALPHA_INSTRUCTION_WRITERS,
                  ORG_INSTRUCTION_ADMINS | ALPHA_INSTRUCTION_WRITERS),
     ("BETA",): (ORG_INSTRUCTION_ADMINS, ORG_INSTRUCTION_ADMINS),
     ("OWNED",): (ORG_INSTRUCTION_ADMINS | {AGENT_OWNER}, ORG_INSTRUCTION_ADMINS | {AGENT_OWNER}),
-    # Global: org admins publish; agent-level writers may only *suggest*
-    # (lands pending admin review, never live).
-    (): (ORG_INSTRUCTION_ADMINS | ALPHA_INSTRUCTION_WRITERS | {AGENT_OWNER},
-         ORG_INSTRUCTION_ADMINS),
+    (): (ORG_INSTRUCTION_ADMINS, ORG_INSTRUCTION_ADMINS),
 }
 
 # ── Schema targets ──────────────────────────────────────────────────────

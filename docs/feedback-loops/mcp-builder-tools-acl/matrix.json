@@ -2,46 +2,71 @@
   {
     "test": "test_calling_an_unlisted_tool_is_refused",
     "ok": true,
-    "seconds": 15.7
+    "seconds": 10.7
   },
   {
     "test": "test_create_instruction_scope_and_publish_authority",
     "ok": true,
-    "seconds": 24.7
+    "seconds": 17.4
+  },
+  {
+    "test": "test_create_matches_the_web_app_for_every_persona",
+    "ok": true,
+    "seconds": 20.3
   },
   {
     "test": "test_delete_instruction_follows_instruction_authority",
     "ok": true,
-    "seconds": 39.0
+    "seconds": 37.3
+  },
+  {
+    "test": "test_delete_matches_the_web_app_for_every_persona",
+    "ok": true,
+    "seconds": 66.9
   },
   {
     "test": "test_describe_tables_follows_view_schema",
     "ok": true,
-    "seconds": 17.8
+    "seconds": 15.8
   },
   {
     "test": "test_edit_instruction_cannot_widen_scope_past_authority",
     "ok": true,
-    "seconds": 14.2
+    "seconds": 12.2
   },
   {
     "test": "test_edit_instruction_follows_instruction_authority",
     "ok": true,
-    "seconds": 28.5
+    "seconds": 27.2
+  },
+  {
+    "test": "test_edit_matches_the_web_app_for_every_persona",
+    "ok": true,
+    "seconds": 243.3
   },
   {
     "test": "test_edit_schema_follows_manage",
     "ok": true,
-    "seconds": 18.8
+    "seconds": 18.6
+  },
+  {
+    "test": "test_edit_uses_the_in_app_anchored_contract_and_publishes",
+    "ok": true,
+    "seconds": 14.1
   },
   {
     "test": "test_read_instruction_matches_rest_visibility",
     "ok": true,
-    "seconds": 20.7
+    "seconds": 20.4
+  },
+  {
+    "test": "test_scope_changes_match_the_web_app",
+    "ok": true,
+    "seconds": 16.1
   },
   {
     "test": "test_tool_catalog_lists_builder_tools_only_for_people_who_can_use_them",
     "ok": true,
-    "seconds": 12.2
+    "seconds": 11.7
   }
 ]
