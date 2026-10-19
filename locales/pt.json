@@ -2958,14 +2958,6 @@
           "name": "Ferramentas MCP e de API personalizada",
           "description": "Permite conectar servidores MCP externos e endpoints de API personalizados às fontes de dados como provedores de ferramentas"
         },
-        "enable_mcp_native_tools": {
-          "name": "Registro nativo de ferramentas MCP",
-          "description": "Registra cada ferramenta MCP ou de API personalizada como uma ferramenta de agente própria, chamável diretamente, em vez de encaminhar cada chamada pela ferramenta genérica execute_mcp. Só entra em vigor quando o catálogo de ferramentas de um relatório atinge o limiar abaixo."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Limiar de ferramentas MCP nativas",
-          "description": "Quantas ferramentas MCP ou de API personalizada ativas um relatório precisa ter antes de usar o registro nativo. Abaixo disso, o registro nativo se equivale ao caminho genérico na medição, então o caminho genérico é mantido. Defina 0 para sempre registrar nativamente."
-        },
         "mcp_native_tools_max": {
           "name": "Máximo de ferramentas MCP nativas",
           "description": "Limite superior de quantas ferramentas são registradas nativamente para um relatório. As ferramentas acima do teto permanecem no caminho genérico execute_mcp, para que um catálogo muito grande não preencha cada solicitação com definições de ferramentas permanentes."

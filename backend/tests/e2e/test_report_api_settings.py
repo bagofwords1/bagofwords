@@ -442,10 +442,6 @@ def tool_agent(test_client, env, enable_mcp, create_mcp_connection, create_domai
     also owns an Agent List (one submit_<list> tool)."""
     token, org_id, h = env["token"], env["org_id"], env["headers"]
     enable_mcp(user_token=token, org_id=org_id)
-    update_organization_settings(
-        {"enable_mcp_native_tools": {"value": True}, "mcp_native_tools_threshold": {"value": 0}},
-        user_token=token, org_id=org_id,
-    )
     conn = create_mcp_connection(name="Mock MCP", server_url="http://mock:3000/mcp", user_token=token, org_id=org_id)
     with _mock_mcp_provider():
         r = test_client.post(f"/api/connections/{conn['id']}/refresh-tools", headers=h)

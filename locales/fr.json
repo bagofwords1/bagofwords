@@ -2958,14 +2958,6 @@
           "name": "Outils MCP et API personnalisées",
           "description": "Permet de connecter des serveurs MCP externes et des points de terminaison d'API personnalisés aux sources de données en tant que fournisseurs d'outils"
         },
-        "enable_mcp_native_tools": {
-          "name": "Enregistrement natif des outils MCP",
-          "description": "Enregistre chaque outil MCP ou API personnalisée comme un outil d'agent à part entière, appelable directement, au lieu d'acheminer chaque appel via l'outil générique execute_mcp. Ne prend effet que lorsque le catalogue d'outils d'un rapport atteint le seuil ci-dessous."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Seuil des outils MCP natifs",
-          "description": "Combien d'outils MCP ou d'API personnalisées activés un rapport doit compter avant que l'enregistrement natif soit utilisé. En dessous, l'enregistrement natif équivaut, à la mesure, à la voie générique ; celle-ci est donc conservée. Mettez 0 pour toujours enregistrer nativement."
-        },
         "mcp_native_tools_max": {
           "name": "Nombre maximal d'outils MCP natifs",
           "description": "Limite supérieure du nombre d'outils enregistrés nativement pour un rapport. Les outils au-delà du plafond restent sur la voie générique execute_mcp, afin qu'un très grand catalogue ne remplisse pas chaque requête de définitions d'outils permanentes."

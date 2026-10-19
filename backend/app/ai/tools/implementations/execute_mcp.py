@@ -565,15 +565,30 @@ Do not use when:
         from app.models.connection_tool import ConnectionTool
         from app.services.connection_service import ConnectionService
 
-        # Resolve connection — only allow MCP/API connections linked to this report's data sources
+        # Resolve connection — only allow MCP/API connections on the agents
+        # this run executes against. The run's agents are the scope when the
+        # agent loop supplies them: an Auto report has no attachments, so
+        # scoping by the report alone left every connection in the org
+        # callable by id. Other callers fall back to the report's agents.
         from sqlalchemy import or_
         report = runtime_ctx.get("report")
         allowed_conn_ids = set()
-        if report:
+        run_agent_ids = runtime_ctx.get("run_agent_ids")
+        enforce_scope = run_agent_ids is not None
+        if enforce_scope:
+            if run_agent_ids:
+                from app.models.domain_connection import domain_connection
+                rows = await db.execute(
+                    select(domain_connection.c.connection_id)
+                    .where(domain_connection.c.data_source_id.in_([str(i) for i in run_agent_ids]))
+                )
+                allowed_conn_ids = {str(r[0]) for r in rows.all()}
+        elif report:
             for ds in (report.data_sources or []):
                 for conn in (ds.connections or []):
                     if conn.type in ("mcp", "custom_api"):
                         allowed_conn_ids.add(str(conn.id))
+            enforce_scope = bool(allowed_conn_ids)
 
         conn_result = await db.execute(
             select(Connection).where(
@@ -587,8 +602,8 @@ Do not use when:
         )
         connection = conn_result.scalars().first()
 
-        # Verify connection is linked to this report's data sources
-        if connection and allowed_conn_ids and str(connection.id) not in allowed_conn_ids:
+        # Verify connection is on one of the agents in scope
+        if connection and enforce_scope and str(connection.id) not in allowed_conn_ids:
             connection = None
         if not connection:
             yield ToolEndEvent(
@@ -1015,11 +1030,24 @@ Do not use when:
 
         user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
         # Agents in this run that own the connection — their overlay applies.
-        ds_ids = [
-            str(ds.id)
-            for ds in (getattr(report, "data_sources", None) or [])
-            if any(str(c.id) == str(connection.id) for c in (ds.connections or []))
-        ]
+        # The run's agents when known (an Auto report has none attached, which
+        # silently skipped per-agent overrides such as a disabled tool).
+        run_agent_ids = runtime_ctx.get("run_agent_ids")
+        if run_agent_ids is not None:
+            from sqlalchemy import select
+            from app.models.domain_connection import domain_connection
+            ds_ids = [str(r[0]) for r in (await db.execute(
+                select(domain_connection.c.data_source_id).where(
+                    domain_connection.c.connection_id == str(connection.id),
+                    domain_connection.c.data_source_id.in_([str(i) for i in run_agent_ids] or [""]),
+                )
+            )).all()]
+        else:
+            ds_ids = [
+                str(ds.id)
+                for ds in (getattr(report, "data_sources", None) or [])
+                if any(str(c.id) == str(connection.id) for c in (ds.connections or []))
+            ]
         policy_svc = ToolPolicyService()
         resolution = await policy_svc.resolve_for_run(
             db, tool=tool_record, data_source_ids=ds_ids, user=user

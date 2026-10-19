@@ -3249,17 +3249,9 @@
           "name": "MCP & Custom API Tools",
           "description": "Allow connecting external MCP servers and custom API endpoints to data sources as tool providers"
         },
-        "enable_mcp_native_tools": {
-          "name": "Native MCP tool registration",
-          "description": "Register each external MCP / custom API tool as its own directly callable agent tool, instead of routing every call through the generic execute_mcp tool. Only takes effect once a report's tool catalog reaches the threshold below."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Native MCP tools threshold",
-          "description": "How many enabled MCP / custom API tools a report needs before native registration is used. Below this, native registration measures as a wash against the generic path, so the generic path is kept. Set to 0 to always register natively."
-        },
         "mcp_native_tools_max": {
           "name": "Max native MCP tools",
-          "description": "Upper bound on how many tools are registered natively for one report. Tools past the cap stay on the generic execute_mcp path, so a very large catalog cannot fill every request with permanent tool definitions."
+          "description": "Upper bound on how many external MCP / custom API tools are registered as their own agent tools in one run. Each tool on the run's agents is registered natively up to this cap; tools past it stay on the generic execute_mcp path, so a very large catalog cannot fill every request with permanent tool definitions."
         },
         "mcp_result_inline_chars": {
           "name": "MCP result inline size",

@@ -103,16 +103,28 @@ def test_builder_counts_across_every_agent_in_the_report(monkeypatch):
     assert all(s.native_mcp is True for s in sections)
 
 
-def test_builder_stays_on_gateway_below_the_threshold(monkeypatch):
+@pytest.mark.parametrize("tool_count", [1, 4, 30])
+def test_builder_moves_schemas_to_native_tools_at_any_catalog_size(monkeypatch, tool_count):
+    """Real settings, real defaults: native registration has no size threshold,
+    so the block never repeats a schema the request's tools array carries."""
     monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS", raising=False)
-    sections = [_section(4, native_mcp=True)]  # seeded wrong on purpose
-    # Real settings, real defaults: 4 tools is under the threshold of 12.
+    sections = [_section(tool_count, native_mcp=False)]  # seeded wrong on purpose
     import app.models  # noqa: F401
     from app.models.organization_settings import OrganizationSettings
 
     settings = OrganizationSettings(organization_id="org", config={})
-    assert _builder(settings)._apply_native_mcp_decision(sections) is False
-    assert sections[0].native_mcp is False
+    assert _builder(settings)._apply_native_mcp_decision(sections) is True
+    assert sections[0].native_mcp is True
+    assert "contract_id" not in sections[0]._render_mcp_tools_xml()
+
+
+def test_builder_inlines_schemas_when_the_deployment_turns_native_off(monkeypatch):
+    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS", "0")
+    sections = [_section(4, native_mcp=True)]
+    import app.models  # noqa: F401
+    from app.models.organization_settings import OrganizationSettings
+
+    assert _builder(OrganizationSettings(organization_id="org", config={}))._apply_native_mcp_decision(sections) is False
     assert "contract_id" in sections[0]._render_mcp_tools_xml()
 
 

@@ -2461,6 +2461,7 @@ class AgentV2:
                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                         "settings": self.organization_settings,
                         "report": self.report,
+                        "run_agent_ids": self._run_agent_ids(),
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
@@ -6527,6 +6528,7 @@ class AgentV2:
                                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                                         "settings": self.organization_settings,
                                         "report": self.report,
+                                        "run_agent_ids": self._run_agent_ids(),
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
                                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
@@ -8454,14 +8456,20 @@ class AgentV2:
         logger.info("[agent] native mcp call %s -> execute_mcp(%s)", tool_name, route["tool_name"])
         return "execute_mcp", rewritten
 
+    def _run_agent_ids(self) -> list:
+        """Ids of the agents this run executes against (its working set).
+
+        Auto resolves to the user's accessible agents, so this is the scope for
+        MCP tools too: an unattached report has no agents of its own.
+        """
+        return [str(ds.id) for ds in (self.data_sources or []) if getattr(ds, "id", None)]
+
     async def _register_native_mcp_tools(self) -> None:
-        """Add one planner tool per MCP/custom-API tool, when the org allows it.
+        """Add one planner tool per MCP/custom-API tool on the run's agents.
 
         Runs in the async post-init phase (``__init__`` is sync and has no DB
-        access), alongside the other catalog adjustments. The org setting is a
-        cheap pre-check; the adaptive size threshold is applied inside
-        ``build_native_mcp_tools``, which is where the effective tool count is
-        known. On failure the catalog is left untouched and the gateway serves.
+        access), alongside the other catalog adjustments. On failure the
+        catalog is left untouched and the gateway serves.
         """
         from app.ai.tools.mcp_tool_registry import build_native_mcp_tools, native_tools_enabled
 
@@ -8477,6 +8485,7 @@ class AgentV2:
                 self.report,
                 user or getattr(self.head_completion, "user", None),
                 organization_settings=self.organization_settings,
+                data_source_ids=self._run_agent_ids(),
             )
             if not descriptors:
                 return

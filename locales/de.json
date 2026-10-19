@@ -2958,14 +2958,6 @@
           "name": "MCP- und benutzerdefinierte API-Tools",
           "description": "Erlaubt es, externe MCP-Server und benutzerdefinierte API-Endpunkte als Tool-Anbieter mit Datenquellen zu verbinden"
         },
-        "enable_mcp_native_tools": {
-          "name": "Native Registrierung von MCP-Tools",
-          "description": "Registriert jedes externe MCP- bzw. benutzerdefinierte API-Tool als eigenes, direkt aufrufbares Agenten-Tool, statt jeden Aufruf über das generische Tool execute_mcp zu leiten. Wird erst wirksam, wenn der Tool-Katalog eines Berichts den unten stehenden Schwellenwert erreicht."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Schwellenwert für native MCP-Tools",
-          "description": "Wie viele aktivierte MCP- bzw. benutzerdefinierte API-Tools ein Bericht braucht, bevor die native Registrierung genutzt wird. Darunter ist die native Registrierung messbar gleichwertig zum generischen Weg, daher bleibt der generische Weg bestehen. 0 bedeutet, immer nativ zu registrieren."
-        },
         "mcp_native_tools_max": {
           "name": "Maximale Anzahl nativer MCP-Tools",
           "description": "Obergrenze dafür, wie viele Tools für einen Bericht nativ registriert werden. Tools jenseits der Grenze bleiben auf dem generischen execute_mcp-Weg, damit ein sehr großer Katalog nicht jede Anfrage mit permanenten Tool-Definitionen füllt."
