@@ -1202,6 +1202,22 @@ class AgentV2:
         return self._project_files_cache
 
     async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
+        """``_resolve_user_profile_uncached``, once per run.
+
+        It ran before every planner step (a membership query plus the memory
+        block). Within a run only the memory can change, through the run's
+        own memory tools, so the result is rebuilt after one of those runs.
+        """
+        counts = getattr(self, "_tool_call_counts", None) or {}
+        key = tuple(counts.get(n, 0) for n in ("create_memory", "edit_memory"))
+        cached = getattr(self, "_user_profile_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        value = await self._resolve_user_profile_uncached()
+        self._user_profile_cache = (key, value)
+        return value
+
+    async def _resolve_user_profile_uncached(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
         """Return (user_name, user_note, user_memory, profile_attributes).
 
         ``user_note`` is the per-org admin-managed note on the asker's

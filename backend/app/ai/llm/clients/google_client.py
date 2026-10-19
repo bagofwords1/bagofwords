@@ -71,11 +71,21 @@ class Google(LLMClient):
         # Identity-forwarding headers resolve per request via an httpx hook on
         # the (sync) client this wrapper uses.
         sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
-        if default_headers or sync_hooks:
-            client_kwargs["http_options"] = types.HttpOptions(
-                headers=default_headers or None,
-                client_args={"event_hooks": sync_hooks} if sync_hooks else None,
-            )
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+        # Our own httpx clients on the process-wide pool (app.core.llm_transport),
+        # so a message reuses the previous one's connection to Google.
+        import httpx
+        from app.core.llm_transport import shared_transports
+        from app.core.tls import shared_ssl_context
+        tls = shared_ssl_context()
+        sync_t, async_t = shared_transports(pinned=False)
+        client_kwargs["http_options"] = types.HttpOptions(
+            headers=default_headers or None,
+            httpx_client=httpx.Client(
+                transport=sync_t, verify=tls, **({"event_hooks": sync_hooks} if sync_hooks else {})),
+            httpx_async_client=httpx.AsyncClient(
+                transport=async_t, verify=tls, **({"event_hooks": async_hooks} if async_hooks else {})),
+        )
         self.client = genai.Client(**client_kwargs)
         # Admin-configured override, or the historical default.
         self.temperature = 0.3 if temperature is None else temperature

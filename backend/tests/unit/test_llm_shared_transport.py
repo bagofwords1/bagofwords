@@ -90,3 +90,49 @@ def test_each_event_loop_gets_its_own_pool(server):
 
     assert asyncio.run(call()) == 200
     assert asyncio.run(call()) == 200  # a new loop: no connection from the closed one
+
+
+def test_google_clients_share_the_pool():
+    from app.ai.llm.clients.google_client import Google
+    from app.core.llm_transport import shared_transports
+
+    sync_t, async_t = shared_transports(pinned=False)
+    for g in (Google(api_key="a"), Google(api_key="b")):
+        api = g.client._api_client
+        assert api._httpx_client._transport is sync_t
+        assert api._async_httpx_client._transport is async_t
+
+
+def test_bedrock_clients_share_the_session_but_keep_their_own_auth():
+    """One connection pool; each client still signs with its own key."""
+    from app.ai.llm.clients.bedrock_client import BedrockClient
+
+    seen = []
+
+    class Stop(Exception):
+        pass
+
+    def capture(request, **_):
+        seen.append(request.headers.get("Authorization"))
+        raise Stop()
+
+    a = BedrockClient(region="us-east-1", auth_mode="api_key", api_key="key-a")
+    b = BedrockClient(region="us-east-1", auth_mode="api_key", api_key="key-b")
+    assert a.client._endpoint.http_session is b.client._endpoint.http_session
+    for c in (a, b):
+        c.client.meta.events.register("before-send.bedrock-runtime.*", capture)
+        with pytest.raises(Stop):
+            c.client.converse(modelId="m", messages=[{"role": "user", "content": [{"text": "hi"}]}])
+    assert [h.decode() if isinstance(h, bytes) else h for h in seen] == ["Bearer key-a", "Bearer key-b"]
+
+
+def test_custom_api_calls_reuse_one_connection(server):
+    from app.data_sources.clients.custom_api_client import CustomApiClient
+    import inspect
+
+    params = inspect.signature(CustomApiClient.__init__).parameters
+    kwargs = {"base_url": server["url"], "endpoints": [{"name": "ping", "method": "GET", "path": "/v1/ping"}]}
+    client = CustomApiClient(**{k: v for k, v in kwargs.items() if k in params})
+    for _ in range(3):
+        assert client.call_tool("ping", {})["success"] is True
+    assert len(server["seen"]["peers"]) == 1, server["seen"]["peers"]
