@@ -1607,17 +1607,12 @@ class ReportService:
         data_source_errors: list[dict] = []
 
         def _source_error(name: str, ds_id: str, e: Exception) -> dict:
+            from app.services.access_errors import source_error_code
+
             detail = str(getattr(e, 'detail', None) or str(e))
             # Machine-readable cause so the viewer gate can offer the right
             # action: connect their credential vs. request access vs. retry.
-            lowered = detail.lower()
-            if "credentials required" in lowered:
-                code = "credentials_required"
-            elif "do not have access" in lowered:
-                code = "no_access"
-            else:
-                code = "connection_failed"
-            return {"data_source": name, "data_source_id": ds_id, "code": code, "error": detail}
+            return {"data_source": name, "data_source_id": ds_id, "code": source_error_code(e), "error": detail}
 
         # Each connection builds on its own: a viewer missing one connection's
         # credential still gets the data source's other connections. Those
@@ -1635,6 +1630,9 @@ class ReportService:
                 db_clients.update(ds_clients)
             except Exception as e:
                 logger.warning(f"Viewer rerun: failed to construct clients for data source {data_source.id}: {e}; continuing")
+                # Its steps still get a client that fails with the cause, not
+                # a bare missing key (construct_clients attaches the stand-ins).
+                db_clients.update(getattr(e, "unavailable_clients", None) or {})
                 data_source_errors.append(_source_error(data_source.name, str(data_source.id), e))
         for ce in connection_errors:
             logger.warning(

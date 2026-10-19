@@ -3747,7 +3747,7 @@
     "chatModelReportPlain": "Identique au rapport",
     "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé",
     "linkNameEdit": "Modifier le nom du lien",
-    "linkNameRemove": "Sans nom, les liens qui l'utilisent cessent de fonctionner ; le lien avec l'identifiant fonctionne toujours."
+    "linkNameRemove": "Les liens qui utilisent déjà un nom continuent de fonctionner ; le lien avec l'identifiant aussi."
   },
   "publish": {
     "published": "Publié",
@@ -3779,6 +3779,7 @@
     "dashboard.share_requires_publish": "Publiez le tableau de bord avant de le partager.",
     "dashboard.rls_requires_viewer": "Ce tableau de bord utilise la sécurité au niveau des lignes : les spectateurs s'exécutent toujours sous leur propre identité. « Exécuter en mon nom » n'est pas disponible.",
     "dashboard.export_withheld": "Ce tableau de bord montre à chaque spectateur ses propres données : il ne peut donc pas être exporté.",
+    "dashboard.export_needs_run": "Exécutez d'abord le tableau de bord pour exporter vos données.",
     "dashboard.export_unavailable": "Cet export n'est pas disponible pour ce tableau de bord.",
     "dashboard.publish_in_progress": "Ce tableau de bord est déjà en cours de publication.",
     "dashboard.version_not_publishable": "Seule une version terminée avec succès peut être publiée.",
@@ -5756,5 +5757,11 @@
     "failed": "Impossible de charger les données de l’artefact",
     "newest": "Plus récents en premier",
     "oldest": "Plus anciens en premier"
+  },
+  "integrationConnection": {
+    "noConnection": "Cet agent n'a pas encore de connexion.",
+    "notFound": "Cette connexion est introuvable.",
+    "forbidden": "Vous n'avez pas accès à cette connexion.",
+    "loadFailed": "Impossible de charger la connexion. Réessayez plus tard."
   }
 }

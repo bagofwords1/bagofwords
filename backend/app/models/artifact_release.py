@@ -108,8 +108,8 @@ class ArtifactShare(BaseSchema):
 
 class ArtifactSlugHistory(BaseSchema):
     """A name a dashboard had (migration dashfc06): it keeps leading to the
-    dashboard until the owner removes the name (released_at), and no other
-    dashboard takes it."""
+    dashboard, renamed or with its name removed, and no other dashboard
+    takes it."""
     __tablename__ = "artifact_slug_history"
     __table_args__ = (
         PrimaryKeyConstraint("id", name="pk_artifact_slug_history"),
@@ -119,4 +119,3 @@ class ArtifactSlugHistory(BaseSchema):
     slug = Column(String(255), nullable=False)
     artifact_id = Column(String(36), ForeignKey("artifacts.id", name="fk_artifact_slug_history_artifact_id",
                                                 ondelete="CASCADE"), nullable=False, index=True)
-    released_at = Column(DateTime, nullable=True)

@@ -58,6 +58,7 @@ class ErrorCode(str, Enum):
     DASHBOARD_SHARE_REQUIRES_PUBLISH = "dashboard.share_requires_publish"
     DASHBOARD_RLS_REQUIRES_VIEWER = "dashboard.rls_requires_viewer"
     DASHBOARD_EXPORT_WITHHELD = "dashboard.export_withheld"
+    DASHBOARD_EXPORT_NEEDS_RUN = "dashboard.export_needs_run"
     DASHBOARD_EXPORT_UNAVAILABLE = "dashboard.export_unavailable"
     DASHBOARD_PUBLISH_IN_PROGRESS = "dashboard.publish_in_progress"
     DASHBOARD_VERSION_NOT_PUBLISHABLE = "dashboard.version_not_publishable"

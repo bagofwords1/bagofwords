@@ -87,7 +87,8 @@ class DuplicatedAssets(NamedTuple):
     widget_id_map: Dict[str, str]
     query_id_map: Dict[str, str]
     viz_id_map: Dict[str, str]
-    artifact: Optional[ArtifactVersion]
+    # One per dashboard of the conversation (see _artifacts_to_copy).
+    artifacts: List[ArtifactVersion]
     # {new_step_id: source code} for steps whose code was deliberately NOT
     # written into the fork (delegated sources). The hydration pass runs each
     # under the forker's own credentials and writes the code back only where
@@ -328,7 +329,7 @@ class ForkService:
         # 5. Generate fork summary completion
         await self._create_fork_summary(
             db, original, new_report, user,
-            assets.query_id_map, assets.viz_id_map, assets.artifact,
+            assets.query_id_map, assets.viz_id_map, assets.artifacts,
         )
 
         await db.commit()
@@ -862,27 +863,63 @@ class ForkService:
                 # pointing its load_step calls at the fork's own steps.
                 pending_code[maps.step_map[str(old_step.id)]] = maps.rewrite_code(old_step.code)
 
-        # -- Artifact (depends on viz_id_map) --
-        new_artifact, needs_thumbnail = await self._duplicate_artifact(
-            db, original, new_report, user, maps.ids(), strict_source, user_scoped,
-        )
+        # -- Artifacts (depend on viz_id_map): every dashboard of the conversation --
+        new_artifacts: List[ArtifactVersion] = []
+        needs_thumbnail = False
+        for source in await self._artifacts_to_copy(db, original):
+            new_artifact, needs = await self._duplicate_artifact(
+                db, source, new_report, user, maps.ids(), strict_source, user_scoped,
+            )
+            new_artifacts.append(new_artifact)
+            needs_thumbnail = needs_thumbnail or needs
 
         return DuplicatedAssets(
-            widget_id_map, query_id_map, viz_id_map, new_artifact, pending_code,
+            widget_id_map, query_id_map, viz_id_map, new_artifacts, pending_code,
             needs_thumbnail,
         )
+
+    async def _artifacts_to_copy(self, db: AsyncSession, original: Report) -> List[ArtifactVersion]:
+        """The version to copy of each dashboard in the conversation, oldest
+        first (so the newest stays newest in the fork).
+
+        Each live dashboard -- page, slides or doc -- gives its newest
+        completed version: a failed or still-generating one is never copied.
+        Versions from before versions were tied to their dashboard are each a
+        dashboard of their own (same id); there is no lineage to tell which
+        belong together, so they count as one per mode, its newest -- not one
+        fork dashboard per old version.
+        """
+        from app.models.artifact import Artifact
+        from app.services.dashboard_data import draft_version
+
+        dashboards = (await db.execute(select(Artifact).where(
+            Artifact.report_id == str(original.id), Artifact.deleted_at.is_(None),
+        ))).scalars().all()
+        tied: List[ArtifactVersion] = []
+        legacy: Dict[str, ArtifactVersion] = {}
+        for dashboard in dashboards:
+            version = await draft_version(db, dashboard)
+            if version is None:
+                continue
+            if str(version.id) != str(dashboard.id):
+                tied.append(version)
+                continue
+            newest = legacy.get(dashboard.mode)
+            if newest is None or version.created_at > newest.created_at:
+                legacy[dashboard.mode] = version
+        return sorted(tied + list(legacy.values()), key=lambda v: v.created_at)
 
     async def _duplicate_artifact(
         self,
         db: AsyncSession,
-        original: Report,
+        latest: ArtifactVersion,
         new_report: Report,
         user: User,
         id_map: Dict[str, str],
         strict_source: bool = False,
         user_scoped: bool = False,
-    ) -> Tuple[Optional[ArtifactVersion], bool]:
-        """Duplicate the latest artifact with remapped visualization_ids.
+    ) -> Tuple[ArtifactVersion, bool]:
+        """Duplicate one dashboard's version with remapped visualization_ids.
 
         Returns the new artifact and whether the fork must draw its own
         thumbnail because it was withheld the creator's and has no hydration
@@ -893,9 +930,6 @@ class ForkService:
         output rather than from the dashboard's definition, so they are dropped
         rather than copied — see the call sites below.
         """
-        latest = await artifact_service.get_latest_by_report(db, str(original.id))
-        if not latest:
-            return None, False
 
         # Remap every id the artifact carries — not only the
         # `visualization_ids` list, but the ids baked into its source too.
@@ -998,7 +1032,7 @@ class ForkService:
         user: User,
         query_id_map: Dict[str, str],
         viz_id_map: Dict[str, str],
-        new_artifact: Optional[ArtifactVersion],
+        new_artifacts: List[ArtifactVersion],
     ):
         """Create a summary completion with asset references for the forked report."""
         # Build asset refs list using NEW IDs. What was deleted in the source
@@ -1024,7 +1058,7 @@ class ForkService:
                         "title": old_viz.title or "",
                     })
 
-        if new_artifact:
+        for new_artifact in new_artifacts:
             asset_refs.append({
                 "type": "artifact",
                 "id": str(new_artifact.id),
@@ -1053,11 +1087,19 @@ class ForkService:
                     f"- {old_query.title or 'Untitled'}{step_info} [query: {new_qid}{viz_info}]"
                 )
 
-        if new_artifact:
+        if len(new_artifacts) == 1:
+            new_artifact = new_artifacts[0]
             summary_parts.append(
                 f"\nAn artifact ({new_artifact.mode} mode) was also inherited: "
                 f'"{new_artifact.title or "Untitled"}" [artifact: {str(new_artifact.id)}].'
             )
+        elif new_artifacts:
+            summary_parts.append(f"\n{len(new_artifacts)} artifacts were also inherited:")
+            for new_artifact in new_artifacts:
+                summary_parts.append(
+                    f'- "{new_artifact.title or "Untitled"}" ({new_artifact.mode} mode) '
+                    f"[artifact: {str(new_artifact.id)}]"
+                )
 
         summary_text = "\n".join(summary_parts)
 

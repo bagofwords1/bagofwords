@@ -9,17 +9,14 @@ settings:
   link would read as one) and not a reserved word;
 - unique in the installation (a link carries no organization): neither
   another dashboard's name nor a name another dashboard had;
-- renaming keeps the old name leading to the same dashboard
-  (artifact_slug_history), and the dashboard may take an old name of its
-  own back;
-- removing the name stops every name of the dashboard (released_at); the
-  names stay taken. A deleted dashboard's names open nothing and stay
-  taken, as its row stays.
+- renaming or removing the name keeps the old name leading to the same
+  dashboard (artifact_slug_history): a link already sent never stops
+  working -- who may open it is the dashboard's sharing. The dashboard may
+  take an old name of its own back. A deleted dashboard's names open
+  nothing and stay taken, as its row stays.
 """
 import re
-from datetime import datetime
-
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.errors import AppError, ErrorCode
@@ -56,15 +53,12 @@ async def _taken_by_another(db, artifact: Artifact, slug: str) -> bool:
     return old is not None and str(old[0]) != str(artifact.id)
 
 
-async def _keep_old_name(db, artifact: Artifact, slug: str, *, released: bool) -> None:
+async def _keep_old_name(db, artifact: Artifact, slug: str) -> None:
     row = (await db.execute(
         select(ArtifactSlugHistory).where(ArtifactSlugHistory.slug == slug)
     )).scalar_one_or_none()
     if row is None:
-        db.add(ArtifactSlugHistory(slug=slug, artifact_id=str(artifact.id),
-                                   released_at=datetime.utcnow() if released else None))
-    elif released:
-        row.released_at = datetime.utcnow()
+        db.add(ArtifactSlugHistory(slug=slug, artifact_id=str(artifact.id)))
 
 
 async def set_slug(db, artifact: Artifact, slug: str) -> None:
@@ -75,10 +69,7 @@ async def set_slug(db, artifact: Artifact, slug: str) -> None:
         return
     if not new:
         if artifact.slug:
-            await _keep_old_name(db, artifact, artifact.slug, released=True)
-        await db.execute(update(ArtifactSlugHistory).where(
-            ArtifactSlugHistory.artifact_id == str(artifact.id), ArtifactSlugHistory.released_at.is_(None),
-        ).values(released_at=datetime.utcnow()))
+            await _keep_old_name(db, artifact, artifact.slug)
         artifact.slug = None
         await db.flush()
         return
@@ -86,7 +77,7 @@ async def set_slug(db, artifact: Artifact, slug: str) -> None:
     if await _taken_by_another(db, artifact, new):
         raise _taken()
     if artifact.slug:
-        await _keep_old_name(db, artifact, artifact.slug, released=False)
+        await _keep_old_name(db, artifact, artifact.slug)
     # Taking back an old name of its own: it is the current name again.
     own_old = (await db.execute(
         select(ArtifactSlugHistory).where(ArtifactSlugHistory.slug == new,
@@ -103,8 +94,7 @@ async def set_slug(db, artifact: Artifact, slug: str) -> None:
 
 
 async def by_old_name(db, slug: str) -> str | None:
-    """The dashboard an old, not removed name leads to."""
+    """The dashboard an old name leads to."""
     return (await db.execute(
-        select(ArtifactSlugHistory.artifact_id).where(
-            ArtifactSlugHistory.slug == slug, ArtifactSlugHistory.released_at.is_(None))
+        select(ArtifactSlugHistory.artifact_id).where(ArtifactSlugHistory.slug == slug)
     )).scalar_one_or_none()

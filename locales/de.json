@@ -3747,7 +3747,7 @@
     "chatModelReportPlain": "Wie im Bericht",
     "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet",
     "linkNameEdit": "Linknamen bearbeiten",
-    "linkNameRemove": "Ohne Namen funktionieren Links mit diesem Namen nicht mehr; der Link mit der ID funktioniert weiterhin."
+    "linkNameRemove": "Links, die bereits einen Namen verwenden, funktionieren weiter; der Link mit der ID ebenfalls."
   },
   "publish": {
     "published": "Veröffentlicht",
@@ -3779,6 +3779,7 @@
     "dashboard.share_requires_publish": "Veröffentlichen Sie das Dashboard, bevor Sie es teilen.",
     "dashboard.rls_requires_viewer": "Dieses Dashboard verwendet Sicherheit auf Zeilenebene, daher werden Betrachter immer unter ihrer eigenen Identität ausgeführt. „In meinem Namen ausführen“ ist nicht verfügbar.",
     "dashboard.export_withheld": "Dieses Dashboard zeigt jedem Betrachter seine eigenen Daten und kann daher nicht exportiert werden.",
+    "dashboard.export_needs_run": "Führen Sie das Dashboard zuerst aus, um Ihre Daten zu exportieren.",
     "dashboard.export_unavailable": "Dieser Export ist für dieses Dashboard nicht verfügbar.",
     "dashboard.publish_in_progress": "Dieses Dashboard wird bereits veröffentlicht.",
     "dashboard.version_not_publishable": "Nur eine erfolgreich abgeschlossene Version kann veröffentlicht werden.",
@@ -5756,5 +5757,11 @@
     "failed": "Artefaktdaten konnten nicht geladen werden",
     "newest": "Neueste zuerst",
     "oldest": "Älteste zuerst"
+  },
+  "integrationConnection": {
+    "noConnection": "Dieser Agent hat noch keine Verbindung.",
+    "notFound": "Diese Verbindung wurde nicht gefunden.",
+    "forbidden": "Sie haben keinen Zugriff auf diese Verbindung.",
+    "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut."
   }
 }

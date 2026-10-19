@@ -2632,7 +2632,9 @@ class DataSourceService:
         
         # user_required → require per-user credentials
         if not current_user:
-            raise HTTPException(status_code=403, detail="User credentials required")
+            from app.services.access_errors import CredentialsRequiredError
+
+            raise CredentialsRequiredError("User credentials required")
         row = await db.execute(
             select(UserDataSourceCredentials)
             .where(
@@ -3024,7 +3026,20 @@ class DataSourceService:
         if failed:
             if len(failed) == len(active_connections):
                 # Nothing usable: the same data-source-level failure as before.
-                raise failed[0]["error"]
+                # The stand-ins ride along, so a caller that still runs this
+                # source's charts (a reader's run) hands their code a client
+                # that fails with this cause, not a missing-key error.
+                error = failed[0]["error"]
+                stand_ins = dict(clients)
+                if len(active_connections) == 1:
+                    only_key = f"{data_source.name}:{active_connections[0].name}"
+                    if only_key in stand_ins:
+                        stand_ins[data_source.name] = stand_ins[only_key]
+                try:
+                    error.unavailable_clients = stand_ins
+                except Exception:
+                    pass
+                raise error
             connection_errors.extend(failed)
 
         # Backward compatibility: add legacy key aliases for single-connection domains

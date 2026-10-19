@@ -113,15 +113,10 @@ async def run_identity(db, artifact: Artifact, release: ArtifactRelease, caller,
 
 def _source_error(name: str, ds_id: str, e) -> dict:
     """The same machine-readable causes the conversation's viewer run gives."""
+    from app.services.access_errors import source_error_code
+
     detail = str(getattr(e, "detail", None) or str(e))
-    lowered = detail.lower()
-    if "credentials required" in lowered:
-        code = "credentials_required"
-    elif "do not have access" in lowered:
-        code = "no_access"
-    else:
-        code = "connection_failed"
-    return {"data_source": name, "data_source_id": ds_id, "code": code, "error": detail}
+    return {"data_source": name, "data_source_id": ds_id, "code": source_error_code(e), "error": detail}
 
 
 # ── the whole dashboard ──────────────────────────────────────────────────
@@ -171,7 +166,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
     """StepService.run_step_to_user_result for one copy: the reader's own row."""
     from app.ai.code_execution.query_params import params_fingerprint
     from app.models.step_user_result import StepUserResult
-    from app.services.access_errors import NO_ACCESS_REASON, is_access_denied
+    from app.services.access_errors import (CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON, is_access_denied,
+                                            needs_credentials)
     from app.services.step_service import StepService
     from app.services.viewer_result_store import store_viewer_result
 
@@ -202,6 +198,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
         status, reason = "error", (str(e)[:2000] or e.__class__.__name__)
         if is_access_denied(reason):
             reason = NO_ACCESS_REASON
+        elif needs_credentials(e):
+            reason = CREDENTIALS_REQUIRED_REASON
     await store_viewer_result(
         db, step_id=str(step.id), user_id=str(run_user.id), organization_id=str(release.organization_id),
         report_id=None, params_fingerprint=params_fingerprint(params), status=status, status_reason=reason,
@@ -242,6 +240,9 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
             db_clients.update(await ds_service.construct_clients(
                 db, ds, current_user=credential_user, connection_errors=connection_errors))
         except Exception as e:
+            # Its charts still get a client that fails with the cause, not a
+            # bare missing key (construct_clients attaches the stand-ins).
+            db_clients.update(getattr(e, "unavailable_clients", None) or {})
             errors.append(_source_error(ds.name, str(ds.id), e))
     for ce in connection_errors:
         errors.append({**_source_error(ce["data_source_name"], ce["data_source_id"], ce["error"]),
@@ -298,7 +299,8 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
     from app.models.organization import Organization
     from app.models.step_user_result import StepUserResult
     from app.schemas.param_schema import parse_param_specs
-    from app.services.access_errors import NO_ACCESS_REASON, is_access_denied
+    from app.services.access_errors import (CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON, is_access_denied,
+                                            needs_credentials)
     from app.services.dashboard_data import default_step
     from app.services.data_source_service import DataSourceService
     from app.services.identity_taint import step_identity_scope
@@ -354,6 +356,8 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
                                                               connection_errors=[]))
         except Exception as e:
             source_errors.append(str(getattr(e, "detail", None) or e))
+            if needs_credentials(e):
+                clients.update(getattr(e, "unavailable_clients", None) or {})
     if not clients and source_errors:
         raise AppError.bad_request(ErrorCode.VALIDATION, "; ".join(source_errors[:2]))
 
@@ -386,6 +390,8 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
         df, status, reason = None, "error", str(e)
         if is_access_denied(reason):
             reason = NO_ACCESS_REASON
+        elif needs_credentials(e):
+            reason = CREDENTIALS_REQUIRED_REASON
     finally:
         if usage is not None:
             with contextlib.suppress(Exception):

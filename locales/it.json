@@ -3747,7 +3747,7 @@
     "chatModelReportPlain": "Come nel report",
     "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito",
     "linkNameEdit": "Modifica nome del link",
-    "linkNameRemove": "Senza nome, i link che lo usano smettono di funzionare; il link con l'id continua a funzionare."
+    "linkNameRemove": "I link che usano già un nome continuano a funzionare; anche il link con l'id."
   },
   "publish": {
     "published": "Pubblicato",
@@ -3779,6 +3779,7 @@
     "dashboard.share_requires_publish": "Pubblica la dashboard prima di condividerla.",
     "dashboard.rls_requires_viewer": "Questa dashboard usa la sicurezza a livello di riga, quindi gli spettatori eseguono sempre con la propria identità. \"Esegui a mio nome\" non è disponibile.",
     "dashboard.export_withheld": "Questa dashboard mostra a ogni spettatore i propri dati, quindi non può essere esportata.",
+    "dashboard.export_needs_run": "Esegui prima la dashboard per esportare i tuoi dati.",
     "dashboard.export_unavailable": "Questa esportazione non è disponibile per questa dashboard.",
     "dashboard.publish_in_progress": "Questa dashboard è già in fase di pubblicazione.",
     "dashboard.version_not_publishable": "Si può pubblicare solo una versione completata correttamente.",
@@ -5756,5 +5757,11 @@
     "failed": "Impossibile caricare i dati dell’artefatto",
     "newest": "Più recenti prima",
     "oldest": "Meno recenti prima"
+  },
+  "integrationConnection": {
+    "noConnection": "Questo agente non ha ancora una connessione.",
+    "notFound": "Impossibile trovare questa connessione.",
+    "forbidden": "Non hai accesso a questa connessione.",
+    "loadFailed": "Impossibile caricare la connessione. Riprova più tardi."
   }
 }

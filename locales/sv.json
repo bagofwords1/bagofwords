@@ -3747,7 +3747,7 @@
     "chatModelReportPlain": "Samma som rapporten",
     "chatModelUnavailable": "Modellen är inte tillgänglig — standard används",
     "linkNameEdit": "Redigera länknamn",
-    "linkNameRemove": "Utan namn slutar länkar med namnet att fungera; länken med id:t fungerar fortfarande."
+    "linkNameRemove": "Länkar som redan använder ett namn fortsätter att fungera; länken med id:t också."
   },
   "publish": {
     "published": "Publicerad",
@@ -3779,6 +3779,7 @@
     "dashboard.share_requires_publish": "Publicera instrumentpanelen innan du delar den.",
     "dashboard.rls_requires_viewer": "Den här instrumentpanelen använder säkerhet på radnivå, så visare kör alltid med sin egen identitet. \"Kör för min räkning\" är inte tillgängligt.",
     "dashboard.export_withheld": "Den här instrumentpanelen visar varje visare deras egna data, så den kan inte exporteras.",
+    "dashboard.export_needs_run": "Kör instrumentpanelen först för att exportera dina data.",
     "dashboard.export_unavailable": "Den här exporten är inte tillgänglig för den här instrumentpanelen.",
     "dashboard.publish_in_progress": "Den här instrumentpanelen håller redan på att publiceras.",
     "dashboard.version_not_publishable": "Bara en version som slutförts utan fel kan publiceras.",
@@ -5756,5 +5757,11 @@
     "failed": "Det gick inte att läsa artefaktdata",
     "newest": "Nyast först",
     "oldest": "Äldst först"
+  },
+  "integrationConnection": {
+    "noConnection": "Den här agenten har ingen anslutning än.",
+    "notFound": "Anslutningen kunde inte hittas.",
+    "forbidden": "Du har inte åtkomst till den här anslutningen.",
+    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare."
   }
 }

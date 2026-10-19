@@ -552,6 +552,7 @@ import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
 import { polishPromptPosition as computePolishPromptPosition } from '~/utils/polishPrompt';
+import { isNewestVersion, newestVersionOf } from '~/utils/artifactVersionLatest';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -596,6 +597,9 @@ const props = defineProps<{
    *  summary unmounts it and every click from there arrives too early. A prop
    *  is already reactive state on the page, so it survives the remount. */
   requestedArtifactId?: string | null;
+  /** A dashboard to open on its newest version (Edit from its draft page,
+   *  `?dashboard=`), instead of the conversation's newest version. */
+  requestedDashboardId?: string | null;
   /** Server-brokered preview: no user credential/session enters this page. */
   verificationPreview?: boolean;
 }>();
@@ -1416,22 +1420,10 @@ const selectedArtifactLabel = computed(() => {
   return t('artifactFrame.selectArtifact');
 });
 
-// "Use this version" appears when the selection is NOT the newest row of its
-// MODE (the list is created_at desc). Why mode and not artifact_id: versions
-// of one artifact always share its mode, so "newest of my artifact" is a
-// subset of "newest of my mode" — and pre-migration history has one parent
-// per version (backfill didn't guess lineage), where an artifact_id-only rule
-// would make every old version "latest of itself" and hide the revert button
-// from all existing data. The old rule (first row overall) was buggy the
-// other way: the newest DOC showed the button merely because a newer
-// dashboard existed above it.
-const isLatestSelected = computed(() => {
-  if (!selectedArtifactId.value || artifactsList.value.length === 0) return true;
-  const selected = artifactsList.value.find(a => a.id === selectedArtifactId.value);
-  if (!selected) return true;
-  const newestOfMode = artifactsList.value.find(a => a.mode === selected.mode);
-  return !newestOfMode || newestOfMode.id === selected.id;
-});
+// "Use this version" appears when the selection is not the newest version of
+// its dashboard (utils/artifactVersionLatest.ts; old versions with no tie to
+// their dashboard keep the rule by mode).
+const isLatestSelected = computed(() => isNewestVersion(artifactsList.value, selectedArtifactId.value));
 
 // Check if selected artifact is pending (still generating)
 const isPendingArtifact = computed(() => {
@@ -1608,11 +1600,12 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     { label: t('artifactFrame.fullScreen'), icon: 'i-heroicons-arrows-pointing-out', click: openFullscreen },
   ];
   if (props.report) {
-    // The dashboard's own page (phase 8): /d enforces access, and sends its
-    // editors to the draft while it is not published. Without a dashboard
+    // What the editor works on, as /r showed until now: the dashboard's
+    // draft, its newest version (phase 8). Whoever may not edit it lands on
+    // its published page instead (SharedDashboardView). Without a dashboard
     // id (older rows), the conversation's /r as before.
     const dashboardId = selectedArtifact.value?.artifact_id;
-    const page = dashboardId ? `/d/${dashboardId}` : `/r/${props.report.id}`;
+    const page = dashboardId ? `/d/${dashboardId}/draft` : `/r/${props.report.id}`;
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(page, '_blank', 'noopener') });
   }
 
@@ -1645,6 +1638,9 @@ const allWithheld = ref(false);
 // Some own run was refused by the provider (classified server-side as
 // error_code 'no_access'), as opposed to breaking for another reason.
 const viewerRunNoAccess = ref(false);
+// Some own run stopped because the viewer must sign in to a connection first
+// (error_code 'credentials_required') -- they HAVE access.
+const viewerRunNeedsConnect = ref(false);
 // The dashboard renders, but some of its charts are unavailable to this viewer.
 const partiallyWithheld = computed(() =>
   (snapshotWithheld.value || ownerFailedCharts.value)
@@ -1670,7 +1666,7 @@ const autoRunTried = ref(false);
 const reportSources = ref<any[]>([]);
 
 const gateErrorMessage = computed(() =>
-  viewerRunFailedReason.value || dataSourceErrors.value[0]?.error || null);
+  dataSourceErrors.value[0]?.error || viewerRunFailedReason.value || null);
 
 const gateSourceType = computed<string | null>(() => {
   const conns = reportSources.value.flatMap((ds: any) => ds.connections || []);
@@ -1691,7 +1687,7 @@ const showViewerGate = computed(() =>
 const gateState = computed<'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready'>(() => {
   if (isViewerRunning.value) return 'loading';
   const errs = dataSourceErrors.value;
-  if (errs.some((e) => e.code === 'credentials_required')) return 'connect';
+  if (errs.some((e) => e.code === 'credentials_required') || viewerRunNeedsConnect.value) return 'connect';
   // Refused at the data-source level (no client) OR at query time (one
   // dataset) — both are "no access", never the provider's HTTP status.
   if (errs.some((e) => e.code === 'no_access') || viewerRunNoAccess.value) return 'no_access';
@@ -2058,10 +2054,7 @@ onMounted(async () => {
   // mount and only for first-time viewers; a viewer whose earlier run failed
   // gets the explicit fallback state instead of a retry loop. (The backend
   // never withholds from the report owner, so this cannot fire for owners.)
-  if (snapshotWithheld.value && !isReportOwner.value && !hasOwnResult.value && !autoRunTried.value) {
-    autoRunTried.value = true;
-    await runAsViewer();
-  }
+  await autoRunForViewer();
 
   // Paint first, refresh second (refresh_on_view, default-on): the server
   // enforces the flag, a staleness gate, and a cross-worker single-flight
@@ -2071,9 +2064,25 @@ onMounted(async () => {
     if (props.verificationPreview) return; // Verification only runs explicit viewer queries.
     const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun`, { method: 'POST' });
     const run: any = data.value;
-    if (run && !run.skipped && run.steps_succeeded) await refreshDataInPlace();
+    if (run && !run.skipped && run.steps_succeeded) {
+      await refreshDataInPlace();
+      // A refresh drops every viewer's own results: run again for them (one
+      // more run, whatever ran before), as on a first open.
+      autoRunTried.value = false;
+      await autoRunForViewer();
+    }
   } catch { /* a failed background refresh must never break a rendered page */ }
 });
+
+// Also when their last run stopped on a missing sign-in: only a run names the
+// connection to connect, and they may have connected since.
+async function autoRunForViewer() {
+  if (!snapshotWithheld.value || isReportOwner.value || isViewerRunning.value || autoRunTried.value) return;
+  const needsRun = !hasOwnResult.value || (viewerRunNeedsConnect.value && dataSourceErrors.value.length === 0);
+  if (!needsRun) return;
+  autoRunTried.value = true;
+  await runAsViewer();
+}
 
 // Fetch list of all artifacts for the report
 async function fetchArtifactsList(force = false) {
@@ -2099,7 +2108,10 @@ async function fetchArtifactsList(force = false) {
       if (artifactsList.value.length > 0) {
         const stillExists = !!selectedArtifactId.value &&
           artifactsList.value.some(a => a.id === selectedArtifactId.value);
-        if (!stillExists) selectedArtifactId.value = artifactsList.value[0].id;
+        if (!stillExists) {
+          selectedArtifactId.value = newestVersionOf(artifactsList.value, props.requestedDashboardId)
+            || artifactsList.value[0].id;
+        }
       }
     }
   } catch (e) {
@@ -2272,6 +2284,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     // The owner's own steps that hydration could not run — banner, not gate.
     let anyOwnerFailed = false;
     let anyNoAccess = false;
+    let anyNeedsConnect = false;
 
     const nextParamSpecs: Record<string, any[]> = {};
     for (let qi = 0; qi < queries.length; qi++) {
@@ -2329,6 +2342,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
         anyOwnResult = true;
         if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
         if (vr.status === 'error' && vr.error_code === 'no_access') anyNoAccess = true;
+        if (vr.status === 'error' && vr.error_code === 'credentials_required') anyNeedsConnect = true;
       }
 
       // Process each visualization in the query
@@ -2406,6 +2420,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     ownerFailedCharts.value = anyOwnerFailed;
     allWithheld.value = queries.length > 0 && visibleQueries === 0;
     viewerRunNoAccess.value = anyNoAccess;
+    viewerRunNeedsConnect.value = anyNeedsConnect;
     hasOwnResult.value = anyOwnResult;
     credentialScoped.value = anyCredentialScoped;
     viewerRunFailedReason.value = failedReason;

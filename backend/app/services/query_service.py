@@ -127,9 +127,10 @@ async def resolve_options_source_refs(
 
 
 def _no_access_code(status_reason):
-    """'no_access' when a viewer run's reason is the classified refusal."""
-    from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
-    return NO_ACCESS_CODE if status_reason == NO_ACCESS_REASON else None
+    """'no_access' / 'credentials_required' when a viewer run's reason is one
+    of the classified causes."""
+    from app.services.access_errors import viewer_error_code
+    return viewer_error_code("error", status_reason)
 
 
 class QueryService:
@@ -868,6 +869,9 @@ class QueryService:
                 ds_clients.update(ds_conns)
             except Exception as e:
                 ds_errors.append(str(getattr(e, "detail", None) or e))
+                from app.services.access_errors import needs_credentials
+                if needs_credentials(e):
+                    ds_clients.update(getattr(e, "unavailable_clients", None) or {})
                 continue
         if not ds_clients and ds_errors:
             raise ParamError("; ".join(ds_errors[:2]))
@@ -912,9 +916,12 @@ class QueryService:
             df, status, status_reason = None, "error", str(e)
             # Same treatment as the dashboard's viewer run: a per-dataset
             # refusal becomes "no access", never the provider's raw text.
-            from app.services.access_errors import is_access_denied, NO_ACCESS_REASON
+            from app.services.access_errors import (CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON,
+                                                    is_access_denied, needs_credentials)
             if is_access_denied(status_reason):
                 status_reason = NO_ACCESS_REASON
+            elif needs_credentials(e):
+                status_reason = CREDENTIALS_REQUIRED_REASON
         finally:
             if usage_context is not None:
                 try:

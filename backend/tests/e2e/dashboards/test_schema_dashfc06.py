@@ -1,8 +1,8 @@
 """dashfc06: a dashboard's old names (phase 8).
 
 `artifact_slug_history` keeps the names a dashboard had: each unique in the
-installation, leading to its dashboard until the owner removes the name
-(`released_at`). The downgrade drops the table.
+installation, leading to its dashboard -- renamed or with its name removed.
+The downgrade drops the table.
 """
 import pytest
 from sqlalchemy import create_engine, inspect

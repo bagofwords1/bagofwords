@@ -3867,7 +3867,7 @@
     "chatModelReportPlain": "כמו בדוח",
     "chatModelUnavailable": "מודל לא זמין — נעשה שימוש בברירת המחדל",
     "linkNameEdit": "עריכת השם בקישור",
-    "linkNameRemove": "בלי שם, קישורים עם השם יפסיקו לעבוד. הקישור עם המזהה ממשיך לעבוד."
+    "linkNameRemove": "קישורים שכבר משתמשים בשם ימשיכו לעבוד. גם הקישור עם המזהה ממשיך לעבוד."
   },
   "publish": {
     "published": "פורסם",
@@ -3899,6 +3899,7 @@
     "dashboard.share_requires_publish": "יש לפרסם את הדשבורד לפני שמשתפים אותו.",
     "dashboard.rls_requires_viewer": "הדשבורד הזה משתמש באבטחה ברמת השורה, ולכן צופים תמיד מריצים בזהות שלהם. \"הרצה בשמי\" לא זמינה.",
     "dashboard.export_withheld": "הדשבורד הזה מציג לכל צופה את הנתונים שלו, ולכן אי אפשר לייצא אותו.",
+    "dashboard.export_needs_run": "צריך להריץ קודם את הדשבורד כדי לייצא את הנתונים שלך.",
     "dashboard.export_unavailable": "הייצוא הזה לא זמין לדשבורד הזה.",
     "dashboard.publish_in_progress": "הדשבורד הזה כבר מתפרסם.",
     "dashboard.version_not_publishable": "אפשר לפרסם רק גרסה שהסתיימה בהצלחה.",
@@ -5950,5 +5951,11 @@
     "failed": "לא ניתן לטעון את נתוני התוצר",
     "newest": "החדשים ביותר תחילה",
     "oldest": "הישנים ביותר תחילה"
+  },
+  "integrationConnection": {
+    "noConnection": "לסוכן זה אין עדיין חיבור.",
+    "notFound": "החיבור לא נמצא.",
+    "forbidden": "אין לך גישה לחיבור זה.",
+    "loadFailed": "טעינת החיבור נכשלה. נסו שוב מאוחר יותר."
   }
 }

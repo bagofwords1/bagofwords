@@ -589,9 +589,14 @@ class StepService:
             # A provider refusing this viewer one dataset is not an error to
             # show verbatim: it would read "HTTP 401" instead of "no access",
             # and the response body it carries can name the refused model.
-            from app.services.access_errors import is_access_denied, NO_ACCESS_REASON
+            from app.services.access_errors import (CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON,
+                                                    is_access_denied, needs_credentials)
             if is_access_denied(status_reason):
                 status_reason = NO_ACCESS_REASON
+            # A reader who must sign in first: one fixed sentence, never the
+            # client's key or the provider's message.
+            elif needs_credentials(e):
+                status_reason = CREDENTIALS_REQUIRED_REASON
 
         # Write to the slot for THIS parameter combination. The unique key is
         # (step_id, user_id, params_fingerprint); a lookup that ignores the

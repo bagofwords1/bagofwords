@@ -52,6 +52,9 @@ class PublishedDashboardSchema(BaseModel):
     fork_eligibility: DashboardForkEligibility
     refresh_on_view: bool
     data_sources: list[DashboardSourceKind] = []
+    # This reader's exports cannot hold the shared snapshot: a page or doc
+    # holds their own run's rows (and needs one), a deck is refused.
+    exports_own_rows: bool = False
 
 
 class DraftDashboardSchema(BaseModel):

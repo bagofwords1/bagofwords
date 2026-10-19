@@ -5,8 +5,11 @@ the public view): a /d export of the release embeds, for each chart, exactly
 the rows `GET /api/d/{id}/queries/{qid}/step` would give the same reader --
 nothing for a chart whose snapshot is one identity's, everything for a plain
 one. When the whole snapshot is withheld from a reader (a personal connection
-in viewer mode), the export is refused for them, as on /r; the owner exports
-their own view.
+in viewer mode), the reader's export holds their own run's rows -- what they
+see on the page (found in manual testing: it used to be refused, as on /r).
+A reader with no run of their own yet is told to run it first. A deck stays
+refused: it is drawn once, from the owner's rows. The owner exports their own
+view.
 
 The browser that renders PDFs and the vendored JS libraries are outside the
 app, so they are stubbed; everything that decides the data runs for real.
@@ -106,16 +109,64 @@ def test_an_export_holds_exactly_the_rows_its_reader_sees(
         assert all(rows == [] for rows in member_rows.values())
 
 
+def _copy_step(corpus_rows, release):
+    with corpus_rows.engine.connect() as conn:
+        return conn.execute(text("SELECT q.default_step_id FROM queries q WHERE q.artifact_release_id = :r"),
+                            {"r": release}).scalar_one()
+
+
+def _own_run(corpus, corpus_rows, release, reader, label):
+    # A reader's own run of a personal connection needs the provider; its
+    # stored result is what the run leaves behind, so it is written directly.
+    rows = [{"מי": label}]
+    corpus_rows.insert("step_user_results", step_id=_copy_step(corpus_rows, release),
+                       user_id=corpus.cast.id(reader), organization_id=corpus.cast.org_id, report_id=None,
+                       status="success", executed_as="viewer", params_fingerprint="",
+                       data={"rows": rows, "columns": [{"field": "מי"}]})
+    return rows
+
+
 @pytest.mark.e2e
 @pytest.mark.parametrize("fmt", ["html", "pdf"])
-def test_a_withheld_snapshot_is_not_exported_for_readers_but_is_for_the_owner(
+def test_a_reader_of_a_personal_dashboard_exports_their_own_rows(
         corpus, corpus_rows, test_client, no_vendor_libs, pdf_pages, fmt):
-    aid, _ = _published(corpus, corpus_rows, test_client, "user_required/dash")
-    assert test_client.get(f"/api/d/{aid}/export/{fmt}", headers=as_(corpus, "member")).status_code == 409
+    aid, release = _published(corpus, corpus_rows, test_client, "user_required/dash")
+    mine = _own_run(corpus, corpus_rows, release, "has_results", "has_results")
+    resp = test_client.get(f"/api/d/{aid}/export/{fmt}", headers=as_(corpus, "has_results"))
+    assert resp.status_code == 200, resp.text
+    exported = _rows_by_query(_embedded(resp.text if fmt == "html" else pdf_pages[-1]))
+    assert list(exported.values()) == [mine], "the reader's file holds their own run, nothing else"
+    # Another reader, with no run of their own, gets neither theirs nor the owner's rows.
+    other = test_client.get(f"/api/d/{aid}/export/{fmt}", headers=as_(corpus, "no_creds"))
+    assert other.status_code == 409 and other.json()["error_code"] == "dashboard.export_needs_run", other.text
+    # The owner exports their own view, as before.
     owner = test_client.get(f"/api/d/{aid}/export/{fmt}", headers=as_(corpus, "owner"))
     assert owner.status_code == 200
-    rows = _rows_by_query(_embedded(owner.text if fmt == "html" else pdf_pages[-1]))
-    assert any(rows.values())
+    owner_rows = _rows_by_query(_embedded(owner.text if fmt == "html" else pdf_pages[-1]))
+    assert any(owner_rows.values()) and list(owner_rows.values()) != [mine]
+
+
+@pytest.mark.e2e
+def test_a_personal_deck_stays_refused_for_readers(corpus, corpus_rows, test_client):
+    """A deck is drawn once, at publish, from the owner's rows."""
+    aid = own(corpus_rows, corpus, "user_required/dash")
+    corpus_rows.update("artifacts", aid, mode="slides")
+    release = publish(aid)
+    assert share(test_client, corpus, aid, "internal").status_code == 200
+    _own_run(corpus, corpus_rows, release, "has_results", "has_results")
+    for fmt in ("pptx", "pdf"):
+        refused = test_client.get(f"/api/d/{aid}/export/{fmt}", headers=as_(corpus, "has_results"))
+        assert refused.status_code == 409 and refused.json()["error_code"] == "dashboard.export_withheld", fmt
+
+
+@pytest.mark.e2e
+def test_the_page_is_told_whose_rows_an_export_holds(corpus, corpus_rows, test_client):
+    aid, _ = _published(corpus, corpus_rows, test_client, "user_required/dash")
+    plain, _ = _published(corpus, corpus_rows, test_client, "conv_three_dash/dash_sales")
+    meta = lambda ref, who: test_client.get(f"/api/d/{ref}", headers=as_(corpus, who)).json()
+    assert meta(aid, "has_results")["exports_own_rows"] is True
+    assert meta(aid, "owner")["exports_own_rows"] is False
+    assert meta(plain, "member")["exports_own_rows"] is False
 
 
 @pytest.mark.e2e

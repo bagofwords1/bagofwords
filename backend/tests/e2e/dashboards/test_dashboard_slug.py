@@ -5,8 +5,9 @@ The owner names a dashboard in its settings; `/d/{name}` then opens it as
 lowercase English letters, digits and hyphens, 3 to 80 long, unique in the
 installation, never shaped like an id, and not one of a few reserved words.
 Renaming keeps the old name leading to the same dashboard, and no other
-dashboard can take it (artifact_slug_history); removing the name stops
-every name of the dashboard. A fork has no name.
+dashboard can take it (artifact_slug_history); removing the name does the
+same -- a link already sent never stops working (who may open it is the
+dashboard's sharing). A fork has no name.
 """
 
 import pytest
@@ -81,7 +82,7 @@ def test_a_renamed_dashboards_old_name_keeps_leading_to_it(corpus, corpus_rows, 
 
 
 @pytest.mark.e2e
-def test_removing_the_name_stops_every_name_link(corpus, corpus_rows, test_client):
+def test_removing_the_name_keeps_every_name_link_working(corpus, corpus_rows, test_client):
     sales = _published(corpus, corpus_rows, test_client)
     stock = _published(corpus, corpus_rows, test_client, STOCK)
     for slug in ("sales-2026", "sales"):
@@ -89,9 +90,14 @@ def test_removing_the_name_stops_every_name_link(corpus, corpus_rows, test_clien
     resp = _name(test_client, corpus, sales, "")
     assert resp.status_code == 200 and resp.json()["slug"] is None
     for ref in ("sales-2026", "sales"):
-        assert _open(test_client, corpus, ref).status_code == 404, ref
+        opened = _open(test_client, corpus, ref)
+        assert opened.status_code == 200 and opened.json()["id"] == sales, ref
+        assert opened.json()["slug"] is None
         assert _name(test_client, corpus, stock, ref).json()["error_code"] == "dashboard.slug_taken"
     assert _open(test_client, corpus, sales).status_code == 200
+    # The owner may take a name back afterwards.
+    assert _name(test_client, corpus, sales, "sales").status_code == 200
+    assert _open(test_client, corpus, "sales").json()["slug"] == "sales"
 
 
 @pytest.mark.e2e

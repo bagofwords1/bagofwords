@@ -754,15 +754,27 @@ its name.
 - **The name in the link** (`artifacts.slug`, `artifact_slug_history` --
   dashfc06, `services/dashboard_slug.py`): lowercase English letters, digits
   and hyphens, 3 to 80, not shaped like an id, not reserved; unique in the
-  installation, also against other dashboards' old names. Renaming keeps the
-  old name leading to the same dashboard; removing the name stops every name
-  link (they stay taken). Set through `settings.slug`; a fork has none.
+  installation, also against other dashboards' old names. Renaming or
+  removing the name keeps the old name leading to the same dashboard (a link
+  already sent never stops working; who may open it is the sharing). Set
+  through `settings.slug`; a fork has none.
 - **Share email**: `POST /api/dashboards/{id}/notify` builds the /d link
   itself (never the page's), and attaches the release's PDF as any reader
   would export it (none when withheld; the file is removed once sent).
 - **Fork from /d** records `reports.forked_from_artifact_id` (dashfc07), so
   the editor shows the conversation Fork's banner (linking to /d) and waits
   for hydration the same way.
+- **Fork of a conversation** (found in manual testing) copies every dashboard
+  in it -- page, slides or doc -- each from its newest completed version, as
+  an unpublished dashboard of the forker's; it used to copy only the
+  conversation's newest page/slides version, whatever its status. Old versions
+  with no tie to their dashboard (same id) count as one per mode, its newest.
+- **Exports of a personal dashboard** (found in manual testing): with the
+  snapshot withheld from a reader, a page or doc export holds the reader's own
+  run's rows (`ReleaseRender.rows_for`), as the page shows them; with no run of
+  their own yet it is refused (`dashboard.export_needs_run`). A deck stays
+  refused (drawn once, from the owner's rows), and so does the share email's
+  PDF. The /d meta's `exports_own_rows` lets the page hide the deck's button.
 - **Delete dialogs** name the never-published dashboards that go with the
   conversation (`delete_preview`).
 - **Dashboards page**: `GET /api/dashboards`, one card per dashboard, the

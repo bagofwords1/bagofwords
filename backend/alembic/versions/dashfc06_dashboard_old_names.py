@@ -7,9 +7,8 @@ Create Date: 2026-10-18
 Phase 8 of docs/design/dashboards-first-class.md. The owner names a
 dashboard (`artifacts.slug`, from dashfc01) and `/d/{name}` opens it. A
 renamed dashboard keeps its old names: each row is a name it had, unique
-in the installation like the current names, leading to the dashboard
-until the owner removes the name (`released_at`) -- and never taken by
-another dashboard.
+in the installation like the current names, leading to the dashboard --
+renamed or with its name removed -- and never taken by another dashboard.
 
 The downgrade drops the table: old names stop leading anywhere.
 """
@@ -33,7 +32,6 @@ def upgrade() -> None:
         sa.Column("id", S36, nullable=False),
         sa.Column("slug", sa.String(length=255), nullable=False),
         sa.Column("artifact_id", S36, nullable=False),
-        sa.Column("released_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=True),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.Column("deleted_at", sa.DateTime(), nullable=True),

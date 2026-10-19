@@ -90,7 +90,7 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
     """resolve_step_data for a release copy: the owner's snapshot, else the
     reader's own run, else the snapshot unless it is one identity's."""
     from app.models.step_user_result import StepUserResult
-    from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+    from app.services.access_errors import viewer_error_code
     from app.services.bow_source_access import can_read
     from app.services.dashboard_access import counts_as_owner
     from app.services.identity_taint import step_identity_scope
@@ -113,8 +113,7 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
             viewer_result = {
                 "status": row.status,
                 "status_reason": row.status_reason,
-                "error_code": (NO_ACCESS_CODE if row.status == "error" and row.status_reason == NO_ACCESS_REASON
-                               else None),
+                "error_code": viewer_error_code(row.status, row.status_reason),
                 "executed_as": row.executed_as,
                 "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
             }

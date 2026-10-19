@@ -3929,7 +3929,7 @@
     "chatModelReportPlain": "Same as report",
     "chatModelUnavailable": "Unavailable model — using default",
     "linkNameEdit": "Edit link name",
-    "linkNameRemove": "Without a name, links that use it stop working; the link with the id keeps working."
+    "linkNameRemove": "Links that already use a name keep working; the link with the id keeps working too."
   },
   "publish": {
     "published": "Published",
@@ -3961,6 +3961,7 @@
     "dashboard.share_requires_publish": "Publish the dashboard before sharing it.",
     "dashboard.rls_requires_viewer": "This dashboard uses row-level security, so viewers always run under their own identity. \"Run on my behalf\" is not available.",
     "dashboard.export_withheld": "This dashboard shows each viewer their own data, so it can't be exported.",
+    "dashboard.export_needs_run": "Run the dashboard first to export your data.",
     "dashboard.export_unavailable": "This export isn't available for this dashboard.",
     "dashboard.publish_in_progress": "This dashboard is already being published.",
     "dashboard.version_not_publishable": "Only a version that finished successfully can be published.",
@@ -5959,5 +5960,11 @@
     "failed": "Unable to load artifact data",
     "newest": "Newest first",
     "oldest": "Oldest first"
+  },
+  "integrationConnection": {
+    "noConnection": "This agent has no connection yet.",
+    "notFound": "This connection could not be found.",
+    "forbidden": "You don't have access to this connection.",
+    "loadFailed": "Failed to load the connection. Try again later."
   }
 }

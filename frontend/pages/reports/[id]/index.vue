@@ -77,6 +77,7 @@
 						:artifacts="reportArtifacts"
 						:latest-artifact="latestArtifact"
 						:requested-artifact-id="requestedArtifactId"
+						:requested-dashboard-id="requestedDashboardId"
 						@close="mobileView = 'chat'"
 						class="h-full"
 					/>
@@ -923,6 +924,7 @@
 				:artifacts="reportArtifacts"
 				:latest-artifact="latestArtifact"
 				:requested-artifact-id="requestedArtifactId"
+				:requested-dashboard-id="requestedDashboardId"
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
@@ -1626,6 +1628,9 @@ const latestArtifact = ref<any | null>(null)
 // the request in page state instead of a transient event makes it survive the
 // remount, so the pane opens what was clicked rather than the newest artifact.
 const requestedArtifactId = ref<string | null>(null)
+// Edit from a dashboard's draft page names the dashboard (`?dashboard=`): the
+// pane opens on its newest version rather than the conversation's newest.
+const requestedDashboardId = computed(() => typeof route.query.dashboard === 'string' ? route.query.dashboard : null)
 // Keep the shared ids in sync when ArtifactFrame changes selection.
 function handleArtifactVizIdsBroadcast(ev: Event) {
 	const ids = (ev as CustomEvent).detail?.visualization_ids

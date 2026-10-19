@@ -13,7 +13,12 @@ connection's own error.
 
 
 class ConnectionUnavailableError(Exception):
-    """Raised when step code queries a connection that could not be built."""
+    """Raised when step code queries a connection that could not be built.
+    `cause` is the connection's own error (e.g. the reader must sign in)."""
+
+    def __init__(self, message: str, cause: Exception | None = None):
+        super().__init__(message)
+        self.cause = cause
 
 
 class UnavailableConnectionClient:
@@ -22,7 +27,7 @@ class UnavailableConnectionClient:
 
     def _raise_unavailable(self, *args, **kwargs):
         error = self._bow_unavailable_error
-        raise ConnectionUnavailableError(str(getattr(error, "detail", None) or error))
+        raise ConnectionUnavailableError(str(getattr(error, "detail", None) or error), cause=error)
 
     execute_query = _raise_unavailable
     query = _raise_unavailable

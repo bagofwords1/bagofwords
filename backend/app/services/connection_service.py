@@ -2006,7 +2006,9 @@ class ConnectionService:
                     return connection.decrypt_credentials() or {}
                 except Exception:
                     pass
-            raise HTTPException(status_code=403, detail="User credentials required")
+            from app.services.access_errors import CredentialsRequiredError
+
+            raise CredentialsRequiredError("User credentials required")
 
         from app.services.connection_identity import (
             supports_user_token,
@@ -2051,12 +2053,13 @@ class ConnectionService:
             if row is None:
                 from app.services.obo_recovery_service import schedule_stored_login_recovery
                 schedule_stored_login_recovery(str(current_user.id), connection)
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Connect required: this connection runs queries with your own "
-                    "credentials. Connect your account or switch to the service account."
-                ),
+            # Typed: a reader who has access and must sign in (the viewer
+            # gate's "connect" state), not a refusal or a broken connection.
+            from app.services.access_errors import CredentialsRequiredError
+
+            raise CredentialsRequiredError(
+                "Connect required: this connection runs queries with your own "
+                "credentials. Connect your account or switch to the service account."
             )
 
         # --- Kerberos SSO (per-user constrained delegation) ---

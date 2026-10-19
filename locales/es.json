@@ -3867,7 +3867,7 @@
     "chatModelReportPlain": "Igual que el informe",
     "chatModelUnavailable": "Modelo no disponible: se usa el predeterminado",
     "linkNameEdit": "Editar nombre del enlace",
-    "linkNameRemove": "Sin nombre, los enlaces que lo usan dejan de funcionar; el enlace con el id sigue funcionando."
+    "linkNameRemove": "Los enlaces que ya usan un nombre siguen funcionando; el enlace con el id también."
   },
   "publish": {
     "published": "Publicado",
@@ -3899,6 +3899,7 @@
     "dashboard.share_requires_publish": "Publica el panel antes de compartirlo.",
     "dashboard.rls_requires_viewer": "Este panel usa seguridad a nivel de fila, por lo que los espectadores siempre se ejecutan con su propia identidad. \"Ejecutar en mi nombre\" no está disponible.",
     "dashboard.export_withheld": "Este panel muestra a cada espectador sus propios datos, por lo que no se puede exportar.",
+    "dashboard.export_needs_run": "Ejecuta primero el panel para exportar tus datos.",
     "dashboard.export_unavailable": "Esta exportación no está disponible para este panel.",
     "dashboard.publish_in_progress": "Este panel ya se está publicando.",
     "dashboard.version_not_publishable": "Solo se puede publicar una versión que terminó correctamente.",
@@ -5930,5 +5931,11 @@
     "failed": "No se pudieron cargar los datos",
     "newest": "Más recientes primero",
     "oldest": "Más antiguos primero"
+  },
+  "integrationConnection": {
+    "noConnection": "Este agente aún no tiene ninguna conexión.",
+    "notFound": "No se encontró esta conexión.",
+    "forbidden": "No tienes acceso a esta conexión.",
+    "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde."
   }
 }

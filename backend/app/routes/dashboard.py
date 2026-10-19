@@ -78,6 +78,8 @@ async def get_published_dashboard(
         is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
         fork_eligibility=await fork_eligibility(db, artifact, release, user),
         refresh_on_view=bool(artifact.refresh_on_view), data_sources=sources,
+        exports_own_rows=await _withheld_from(db, artifact, release, user,
+                                              baked=(artifact.mode or "page") == "slides"),
     )
 
 
@@ -362,6 +364,23 @@ async def _withheld_from(db, artifact, release, user, *, baked: bool = False) ->
     return baked and await any_copy_tainted(db, release)
 
 
+async def _has_own_run(db, release, user) -> bool:
+    """Whether `user` holds a successful run of their own of any query of the
+    release -- what a withheld export then holds instead of the snapshot."""
+    from app.models.query import Query
+    from app.models.step import Step
+    from app.models.step_user_result import StepUserResult
+
+    if user is None:
+        return False
+    return (await db.execute(
+        select(StepUserResult.id).join(Step, Step.id == StepUserResult.step_id)
+        .join(Query, Query.id == Step.query_id)
+        .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
+               StepUserResult.status == "success").limit(1)
+    )).scalar_one_or_none() is not None
+
+
 async def _release_pdf(db, artifact, release, user) -> str | None:
     """The release's PDF as `user` (None: any reader) would export it from
     /d; the caller has checked it is not withheld. Raises TimeoutError."""
@@ -585,8 +604,15 @@ async def export_published_dashboard(
     if (fmt == "html" and mode != "page") or (fmt == "pptx" and mode != "slides"):
         raise AppError.conflict(ErrorCode.DASHBOARD_EXPORT_UNAVAILABLE, f"This {mode} cannot be exported as {fmt}")
     if await _withheld_from(db, artifact, release, user, baked=mode == "slides"):
-        raise AppError.conflict(ErrorCode.DASHBOARD_EXPORT_WITHHELD,
-                                "This dashboard shows each viewer their own data, so it cannot be exported.")
+        # A page or doc is drawn for this request, from the rows this reader
+        # sees: with the snapshot withheld, their own run's (ReleaseRender's
+        # rows_for). A deck was drawn once, from the owner's rows.
+        if mode == "slides" or user is None:
+            raise AppError.conflict(ErrorCode.DASHBOARD_EXPORT_WITHHELD,
+                                    "This dashboard shows each viewer their own data, so it cannot be exported.")
+        if not await _has_own_run(db, release, user):
+            raise AppError.conflict(ErrorCode.DASHBOARD_EXPORT_NEEDS_RUN,
+                                    "Run the dashboard first to export your data.")
     render = dashboard_data.ReleaseRender.build(artifact, release, user)
     title = (artifact.title or "").strip() or "dashboard"
 

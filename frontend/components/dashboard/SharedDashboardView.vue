@@ -294,6 +294,7 @@ import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { exportsHidden } from '~/utils/dashboardExportsHidden';
 import { sharedDashboardApi, type SharedDashboardSource } from '~/utils/sharedDashboardApi';
 
 // The shared dashboard page: a conversation's /r/{id}, a published
@@ -301,6 +302,7 @@ import { sharedDashboardApi, type SharedDashboardSource } from '~/utils/sharedDa
 // same page over each one's endpoints (utils/sharedDashboardApi).
 const props = defineProps<{ source: SharedDashboardSource; id: string }>();
 const api = sharedDashboardApi(props.source, props.id);
+const route = useRoute();
 const { data: currentUser } = useAuth();
 
 const report = ref<any>({
@@ -344,7 +346,11 @@ const isOwner = computed(() => {
 const draftReportId = ref<string | null>(null);
 const editPath = computed(() => {
     if (props.source === 'report') return `/reports/${props.id}`;
-    if (props.source === 'draft' && draftReportId.value) return `/reports/${draftReportId.value}`;
+    // The editor opens on this dashboard, not on the conversation's newest.
+    if (props.source === 'draft' && draftReportId.value) {
+        const dashboard = dashboardMeta.value?.id;
+        return `/reports/${draftReportId.value}${dashboard ? `?dashboard=${encodeURIComponent(dashboard)}` : ''}`;
+    }
     return null;
 });
 const isOpeningEditor = ref(false);
@@ -401,6 +407,11 @@ const withheldCharts = ref<Array<{ title: string; noAccess: boolean }>>([]);
 const allWithheld = ref(false);
 // Some own run was refused by the provider (server-classified 'no_access').
 const viewerRunNoAccess = ref(false);
+// Some own run stopped because the viewer must sign in to a connection
+// first (server-classified 'credentials_required') -- they HAVE access.
+const viewerRunNeedsConnect = ref(false);
+// Some chart holds a successful run of the viewer's own.
+const viewerHasOwnSuccess = ref(false);
 // True when any step already carries a per-viewer result row for this user —
 // auto-run only fires for a first-time viewer (no row at all); a failed
 // earlier run becomes an explicit fallback state instead of a retry loop.
@@ -410,10 +421,10 @@ const viewerRunFailedReason = ref<string | null>(null);
 // Data sources whose viewer client couldn't be built on the last run
 // (e.g. a user_required source the viewer hasn't connected yet)
 const dataSourceErrors = ref<Array<{ data_source: string; data_source_id?: string; code?: string; error: string }>>([]);
-// What the gate's error state shows: the viewer's failed run reason, or the
-// first data-source failure when the run itself never produced results.
+// What the gate's error state shows: the data source that could not be
+// built names the cause; else the viewer's failed run reason.
 const gateErrorMessage = computed(() =>
-    viewerRunFailedReason.value || dataSourceErrors.value[0]?.error || null);
+    dataSourceErrors.value[0]?.error || viewerRunFailedReason.value || null);
 
 // Brand icon type for the gate's sign-in state: the report's identity-scoped
 // connection (user_required) if any, else its first connection.
@@ -450,7 +461,7 @@ const gateState = computed<'loading' | 'signin' | 'connect' | 'no_access' | 'err
     if (isRunning.value) return 'loading';
     if (!canRun.value) return 'signin';
     const errs = dataSourceErrors.value;
-    if (errs.some((e) => e.code === 'credentials_required')) return 'connect';
+    if (errs.some((e) => e.code === 'credentials_required') || viewerRunNeedsConnect.value) return 'connect';
     // Refused for the whole source (no client) or for one dataset at query
     // time — both are "no access", never the provider's HTTP status.
     if (errs.some((e) => e.code === 'no_access') || viewerRunNoAccess.value) return 'no_access';
@@ -489,8 +500,17 @@ async function handleRun() {
 // the button only shows for page/slides artifacts with a visible snapshot.
 const isExportingPdf = ref(false);
 const exportPdfError = ref<string | null>(null);
+// The export button shows whenever the server would hand this reader a file
+// (utils/dashboardExportsHidden.ts): on /d that file holds what they see.
+const exportsWithheld = computed(() => exportsHidden({
+    source: props.source,
+    mode: artifact.value?.mode || 'page',
+    snapshotWithheld: snapshotWithheld.value,
+    exportsOwnRows: !!dashboardMeta.value?.exports_own_rows,
+    hasOwnSuccess: viewerHasOwnSuccess.value,
+}));
 const { availableExports } = useArtifactExports(artifact, {
-    snapshotWithheld,
+    snapshotWithheld: exportsWithheld,
     enabled: computed(() => !!api.exportUrl && reportLoaded.value && hasArtifacts.value),
 });
 
@@ -747,9 +767,18 @@ async function loadReport() {
         const { data, error: fetchError } = await useMyFetch(api.meta);
         if (fetchError.value) {
             const status = (fetchError.value as any)?.statusCode || (fetchError.value as any)?.status;
-            // Not published yet: its editors see the draft instead.
-            if (props.source === 'dashboard' && (fetchError.value as any)?.data?.error_code === 'dashboard.not_published') {
+            // Not published yet: its editors see the draft instead -- unless
+            // the draft just sent us here (it would bounce back and forth).
+            const fromDraft = route.query.from === 'draft';
+            if (props.source === 'dashboard' && !fromDraft
+                && (fetchError.value as any)?.data?.error_code === 'dashboard.not_published') {
                 navigateTo(`/d/${props.id}/draft`, { replace: true });
+                return;
+            }
+            // The draft is its editors' only (or its conversation is gone):
+            // anyone else gets the published page, which applies its own check.
+            if (props.source === 'draft' && status === 404) {
+                navigateTo(`/d/${props.id}?from=draft`, { replace: true });
                 return;
             }
             if (status === 401) {
@@ -878,6 +907,8 @@ async function loadVisualizationData(artifactId?: string) {
         const nextWithheldCharts: Array<{ title: string; noAccess: boolean }> = [];
         let visibleQueries = 0;
         let anyNoAccess = false;
+        let anyNeedsConnect = false;
+        let anyOwnSuccess = false;
         for (let qi = 0; qi < queries.length; qi++) {
             const query = queries[qi];
             // Public step endpoint - returns PublicStepSchema directly
@@ -905,6 +936,8 @@ async function loadVisualizationData(artifactId?: string) {
                 anyOwnResult = true;
                 if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
                 if (vr.status === 'error' && vr.error_code === 'no_access') anyNoAccess = true;
+                if (vr.status === 'error' && vr.error_code === 'credentials_required') anyNeedsConnect = true;
+                if (vr.status === 'success') anyOwnSuccess = true;
             }
             const viewerRun = vr?.last_run_at;
             if (viewerRun) {
@@ -967,6 +1000,8 @@ async function loadVisualizationData(artifactId?: string) {
         withheldCharts.value = nextWithheldCharts;
         allWithheld.value = queries.length > 0 && visibleQueries === 0;
         viewerRunNoAccess.value = anyNoAccess;
+        viewerRunNeedsConnect.value = anyNeedsConnect;
+        viewerHasOwnSuccess.value = anyOwnSuccess;
         hasOwnResult.value = anyOwnResult;
         viewerRunFailedReason.value = failedReason;
     } catch (e) {
@@ -1363,6 +1398,19 @@ function syncLastRefreshed() {
 // single-flight claim, answering 200 with skipped=true when it declines. So the
 // page can simply ask on every open — the local flag check below only avoids a
 // pointless round trip for the reports that never opted in.
+// Withheld dashboard, signed-in viewer, and either no result of their own or a
+// last run that stopped on a missing sign-in (only a run names the connection
+// to connect, and they may have connected since): run for them, once per page
+// load -- a viewer whose run failed otherwise gets the explicit fallback state
+// instead of a retry loop.
+async function autoRunForViewer() {
+    if (!snapshotWithheld.value || !canRun.value || isRunning.value || autoRunTried.value) return;
+    const needsRun = !hasOwnResult.value || (viewerRunNeedsConnect.value && dataSourceErrors.value.length === 0);
+    if (!needsRun) return;
+    autoRunTried.value = true;
+    await handleRun();
+}
+
 async function refreshOnView() {
     if (!report.value?.refresh_on_view || !api.refreshOnView) return;
 
@@ -1380,6 +1428,11 @@ async function refreshOnView() {
         deliverArtifactData();
         report.value.last_run_at = run.last_run_at;
         syncLastRefreshed();
+        // A refresh drops every reader's own results. A reader looking at a
+        // withheld dashboard would be left with nothing of theirs: run again
+        // for them, as on a first open (one more run, whatever ran before).
+        autoRunTried.value = false;
+        await autoRunForViewer();
     } catch (e) {
         // A failed refresh must never take down a dashboard that already
         // rendered — the viewer keeps the data the page loaded with.
@@ -1450,10 +1503,7 @@ onMounted(async () => {
     // failed gets the explicit fallback state instead of a retry loop.
     // Results are cached per viewer (step_user_results), so later opens
     // render immediately without re-running.
-    if (snapshotWithheld.value && canRun.value && !hasOwnResult.value && !autoRunTried.value) {
-        autoRunTried.value = true;
-        await handleRun();
-    }
+    await autoRunForViewer();
 
     // Paint first, refresh second: the viewer sees the dashboard immediately and
     // fresh numbers replace the cached ones when the rerun lands, rather than
