@@ -109,13 +109,14 @@ import ListEditor from '~/components/lists/ListEditor.vue'
 import ListRowsView from '~/components/lists/ListRowsView.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import type { AgentList } from '~/components/lists/types'
-import { sharedWithLabel } from '~/components/lists/shared'
+import { resolveListAgent, sharedWithLabel } from '~/components/lists/shared'
 
 const props = defineProps<{ dsId: string; listId?: string | null; rowId?: string | null; canManage?: boolean }>()
 const emit = defineEmits<{
   (e: 'open', listId: string | null): void
   (e: 'row', rowId: string | null): void
   (e: 'changed'): void
+  (e: 'relocate', p: { dsId: string; listId: string; rowId: string | null }): void
 }>()
 
 const lists = ref<AgentList[]>([])
@@ -129,9 +130,19 @@ async function load() {
   try {
     const { data } = await useMyFetch<AgentList[]>(`/api/data_sources/${props.dsId}/lists`, { method: 'GET' })
     lists.value = (data.value || []) as AgentList[]
+    await relocateIfMoved()
   } finally {
     loading.value = false
   }
+}
+
+// An old link (a chat card) can name an agent the list has left: open it on
+// the agent it lives on now, when the viewer can see one.
+async function relocateIfMoved() {
+  const id = props.listId
+  if (!id || lists.value.some(l => l.id === id)) return
+  const dsId = await resolveListAgent(id)
+  if (dsId && dsId !== props.dsId) emit('relocate', { dsId, listId: id, rowId: props.rowId || null })
 }
 
 function onSaved(saved: AgentList) {

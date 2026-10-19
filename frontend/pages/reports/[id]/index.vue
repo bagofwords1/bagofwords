@@ -2749,9 +2749,14 @@ async function openListPanel(payload: { listId: string; dsId: string; name?: str
 	if (!payload?.listId || !payload?.dsId) return
 	if (panelList.value?.listId !== payload.listId) {
 		panelList.value = { listId: payload.listId, dsId: payload.dsId, name: payload.name || '', list: null }
-		const { data } = await useMyFetch<any>(`/api/data_sources/${payload.dsId}/lists/${payload.listId}`, { method: 'GET' })
+		let { data } = await useMyFetch<any>(`/api/data_sources/${payload.dsId}/lists/${payload.listId}`, { method: 'GET' })
+		if (!data.value) {
+			// The list may have left the agent this card remembers: reach it by id.
+			({ data } = await useMyFetch<any>(`/api/agent_lists/${payload.listId}`, { method: 'GET' }))
+		}
 		if (panelList.value?.listId !== payload.listId) return
 		if (!data.value) { closeListPanel(); return }
+		panelList.value.dsId = data.value.data_source_id || payload.dsId
 		panelList.value.list = data.value
 	}
 	if (isMobile.value) return

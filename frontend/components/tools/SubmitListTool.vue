@@ -108,6 +108,7 @@
 </template>
 
 <script setup lang="ts">
+import { resolveListAgent } from '~/components/lists/shared'
 import { computed, ref, watch } from 'vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 
@@ -238,9 +239,15 @@ const actionCls = (a?: string) => a === 'updated' ? 'bg-blue-50 text-blue-700 da
 
 async function downloadCsv() {
   if (!dsId.value || !listId.value || !reportId.value) return
-  const { data } = await useMyFetch<Blob>(
-    `/api/data_sources/${dsId.value}/lists/${listId.value}/rows.csv?report_id=${encodeURIComponent(reportId.value)}`,
+  const csvFrom = (agent: string) => useMyFetch<Blob>(
+    `/api/data_sources/${agent}/lists/${listId.value}/rows.csv?report_id=${encodeURIComponent(reportId.value)}`,
     { method: 'GET', responseType: 'blob' as any })
+  let { data } = await csvFrom(dsId.value)
+  if (!data.value) {
+    // The list may have left the agent this card remembers.
+    const now = await resolveListAgent(listId.value)
+    if (now && now !== dsId.value) ({ data } = await csvFrom(now))
+  }
   if (!data.value) return
   const url = URL.createObjectURL(data.value as Blob)
   const a = document.createElement('a')
