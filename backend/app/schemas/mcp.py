@@ -274,6 +274,121 @@ class MCPDeleteInstructionOutput(BaseModel):
     error_message: Optional[str] = None
 
 
+# === read_instruction / edit_instruction ===
+
+class MCPReadInstructionInput(BaseModel):
+    """Input for read_instruction MCP tool."""
+    instruction_id: str = Field(..., description="ID of the instruction (from list_instructions)")
+
+
+class MCPInstructionAgentRef(BaseModel):
+    id: str
+    name: Optional[str] = None
+
+
+class MCPInstructionDetail(BaseModel):
+    id: str
+    title: Optional[str] = None
+    text: str
+    category: Optional[str] = None
+    status: Optional[str] = None
+    load_mode: Optional[str] = None
+    kind: Optional[str] = None
+    agents: List[MCPInstructionAgentRef] = Field(
+        default_factory=list, description="Agents this applies to. Empty means global (every agent).",
+    )
+    pending_review: bool = Field(default=False, description="True while a change waits for admin review")
+    can_edit: bool = Field(default=False, description="Whether the caller may edit or delete it")
+
+
+class MCPReadInstructionOutput(BaseModel):
+    success: bool
+    instruction: Optional[MCPInstructionDetail] = None
+    error_message: Optional[str] = None
+
+
+class MCPEditInstructionInput(BaseModel):
+    """Input for edit_instruction MCP tool. Omitted fields stay unchanged."""
+    instruction_id: str = Field(..., description="ID of the instruction to edit")
+    text: Optional[str] = Field(default=None, description="New full text (replaces the current text)")
+    title: Optional[str] = Field(default=None, description="New title")
+    category: Optional[str] = Field(default=None, description="code_gen, data_modeling, general, dashboard, visualization")
+    load_mode: Optional[str] = Field(default=None, description="always or intelligent")
+    status: Optional[str] = Field(default=None, description="published, draft or archived")
+    data_source_ids: Optional[List[str]] = Field(
+        default=None,
+        description="New agent scope (replaces it). [] makes it global, which needs org-level instruction admin.",
+    )
+
+
+class MCPEditInstructionOutput(BaseModel):
+    success: bool
+    instruction_id: Optional[str] = None
+    build_status: Optional[str] = Field(default=None, description="approved (live) or pending_approval")
+    requires_approval: bool = False
+    instruction: Optional[MCPInstructionDetail] = None
+    error_message: Optional[str] = None
+
+
+# === describe_tables / edit_schema ===
+
+class MCPDescribeTablesInput(BaseModel):
+    """Input for describe_tables MCP tool."""
+    data_source_id: str = Field(..., description="Agent (data source) ID")
+    search: Optional[str] = Field(default=None, description="Filter tables by name")
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=200)
+    include_columns: bool = Field(default=True, description="Include column names and types")
+
+
+class MCPTableColumn(BaseModel):
+    name: str
+    dtype: Optional[str] = None
+    description: Optional[str] = None
+
+
+class MCPTableItem(BaseModel):
+    id: Optional[str] = None
+    name: str
+    is_active: bool
+    rows: Optional[int] = None
+    connection_name: Optional[str] = None
+    columns: Optional[List[MCPTableColumn]] = None
+    excluded_columns: Optional[List[str]] = None
+
+
+class MCPDescribeTablesOutput(BaseModel):
+    success: bool
+    data_source_id: Optional[str] = None
+    can_edit_schema: bool = False
+    tables: List[MCPTableItem] = Field(default_factory=list)
+    total: int = 0
+    selected_count: int = 0
+    page: int = 1
+    has_more: bool = False
+    error_message: Optional[str] = None
+
+
+class MCPEditSchemaInput(BaseModel):
+    """Input for edit_schema MCP tool."""
+    data_source_id: str = Field(..., description="Agent (data source) ID")
+    activate: List[str] = Field(default_factory=list, description="Table names (or ids) the agent should use")
+    deactivate: List[str] = Field(default_factory=list, description="Table names (or ids) the agent should stop using")
+    excluded_columns: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="Table id → COMPLETE list of column names to hide from the agent (replaces; [] shows all)",
+    )
+
+
+class MCPEditSchemaOutput(BaseModel):
+    success: bool
+    activated_count: int = 0
+    deactivated_count: int = 0
+    columns_updated_count: int = 0
+    selected_count: Optional[int] = None
+    error_message: Optional[str] = None
+
+
 # === create_artifact ===
 
 class MCPCreateArtifactInput(BaseModel):

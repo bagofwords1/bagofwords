@@ -1,8 +1,11 @@
-"""MCP Tools: Instructions - List, create, and delete instructions with permission-aware build integration.
+"""MCP Tools: Instructions — list, read, create, edit and delete.
 
-These tools allow external LLM clients (Claude, Cursor, etc.) to manage instructions.
-- Non-admins can suggest instructions (builds go to pending_approval for admin review)
-- Admins get auto-approved builds that go live immediately
+External LLM clients (Claude, Cursor, ...) get the same rules as the web app:
+authority to change an instruction comes from ``manage_instructions`` on every
+agent it's attached to (org-level for global rules) — see
+``app/services/instruction_authority.py``, shared with the REST routes.
+Org admins and agent managers publish directly on what they manage; a global
+rule written by an agent-level manager lands as a suggestion for admin review.
 
 Instructions are organizational knowledge that guide AI behavior when generating code
 and analyzing data.
@@ -10,7 +13,6 @@ and analyzing data.
 
 from typing import Dict, Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
@@ -18,7 +20,14 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.permission_resolver import resolve_permissions
 from app.services.instruction_service import InstructionService
-from app.schemas.instruction_schema import InstructionCreate
+from fastapi import HTTPException
+
+from app.services.instruction_authority import (
+    require_delete_authority,
+    require_instruction_authority,
+    require_scope_authority,
+)
+from app.schemas.instruction_schema import InstructionCreate, InstructionUpdate
 from app.schemas.mcp import (
     MCPListInstructionsInput,
     MCPListInstructionsOutput,
@@ -27,6 +36,12 @@ from app.schemas.mcp import (
     MCPCreateInstructionOutput,
     MCPDeleteInstructionInput,
     MCPDeleteInstructionOutput,
+    MCPReadInstructionInput,
+    MCPReadInstructionOutput,
+    MCPInstructionDetail,
+    MCPInstructionAgentRef,
+    MCPEditInstructionInput,
+    MCPEditInstructionOutput,
 )
 
 import logging
@@ -47,6 +62,53 @@ async def get_user_permissions(
 def is_admin(permissions: set) -> bool:
     """MVP: instruction admin = org-level manage_instructions or full_admin_access."""
     return 'manage_instructions' in permissions or 'full_admin_access' in permissions
+
+
+# One answer for "missing", "another org's" and "not yours": telling them apart
+# would let a caller probe which ids exist.
+NOT_FOUND = "Instruction not found, or you don't have permission to change it."
+
+VALID_STATUSES = {"published", "draft", "archived"}
+# 'disabled' is not offered: it reads as "off" but used to widen loading.
+# Turning a rule off is status='archived'.
+VALID_LOAD_MODES = {"always", "intelligent"}
+
+
+def _refusal(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        return f"Permission denied: {detail}" if exc.status_code == 403 else detail
+    return str(exc)[:500]
+
+
+async def _can(check) -> bool:
+    try:
+        await check
+        return True
+    except HTTPException:
+        return False
+
+
+def _pending(schema) -> bool:
+    return getattr(schema, "current_build_status", None) == "pending_approval"
+
+
+def _detail(schema, *, can_edit: bool) -> MCPInstructionDetail:
+    return MCPInstructionDetail(
+        id=str(schema.id),
+        title=getattr(schema, "title", None),
+        text=getattr(schema, "text", "") or "",
+        category=getattr(schema, "category", None),
+        status=getattr(schema, "status", None),
+        load_mode=getattr(schema, "load_mode", None),
+        kind=getattr(schema, "kind", None),
+        agents=[
+            MCPInstructionAgentRef(id=str(ds.id), name=getattr(ds, "name", None))
+            for ds in (getattr(schema, "data_sources", None) or [])
+        ],
+        pending_review=_pending(schema),
+        can_edit=can_edit,
+    )
 
 
 class ListInstructionsMCPTool(MCPTool):
@@ -120,21 +182,41 @@ class ListInstructionsMCPTool(MCPTool):
         ).model_dump()
 
 
-class CreateInstructionMCPTool(MCPTool):
-    """Create an instruction with automatic build integration.
+class ReadInstructionMCPTool(MCPTool):
+    """Read one instruction in full, with its agent scope and review state."""
 
-    Creates a new instruction that guides AI behavior. The instruction is
-    automatically added to a build:
-    - For admins: Build is auto-approved and goes live immediately
-    - For non-admins: Build is submitted for admin approval (pending_approval status)
-    """
+    name = "read_instruction"
+    description = (
+        "Read one instruction in full: text, category, load mode, the agents it applies to "
+        "(empty = global), whether a change is pending admin review, and whether you can edit it. "
+        "list_instructions truncates text — read the full text here before editing."
+    )
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return MCPReadInstructionInput.model_json_schema()
+
+    async def execute(self, args, db, user, organization):
+        data = MCPReadInstructionInput(**args)
+        svc = InstructionService()
+        schema = await svc.get_instruction(db, data.instruction_id, organization, user)
+        # Same visibility as GET /instructions/{id}: rows on agents the caller
+        # can't see stay hidden, even for admins who aren't members.
+        if schema is None or not await svc.user_can_view_instruction(db, schema, user, organization):
+            return MCPReadInstructionOutput(success=False, error_message="Instruction not found").model_dump()
+        can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
+        return MCPReadInstructionOutput(success=True, instruction=_detail(schema, can_edit=can_edit)).model_dump()
+
+
+class CreateInstructionMCPTool(MCPTool):
+    """Create an instruction, scoped to agents the caller manages instructions on."""
 
     name = "create_instruction"
     description = (
         "Create a new instruction that guides AI behavior when generating code and analyzing data. "
-        "Instructions are automatically versioned and added to a build. "
-        "For admins: instruction goes live immediately. "
-        "For non-admins: instruction is submitted for admin approval."
+        "Pass data_source_ids to scope it to agents you manage instructions on; it goes live at once. "
+        "Without data_source_ids it is global (every agent): org instruction admins publish it, "
+        "anyone else's global rule is submitted for admin approval."
     )
 
     @property
@@ -144,144 +226,176 @@ class CreateInstructionMCPTool(MCPTool):
     @property
     def input_schema(self) -> Dict[str, Any]:
         return MCPCreateInstructionInput.model_json_schema()
-    
-    async def execute(
-        self, 
-        args: Dict[str, Any], 
-        db: AsyncSession,
-        user: User,
-        organization: Organization,
-    ) -> Dict[str, Any]:
-        """Execute create_instruction with build integration."""
-        
-        input_data = MCPCreateInstructionInput(**args)
-        permissions = await get_user_permissions(db, user, organization)
-        
-        # Any authenticated user can create: admins go live, others go to pending_approval.
 
-        instruction_service = InstructionService()
-        
-        # Build instruction create payload
+    async def execute(self, args, db, user, organization):
+        input_data = MCPCreateInstructionInput(**args)
+        ds_ids = [str(i) for i in (input_data.data_source_ids or [])]
+
+        # Agent-scoped rules need manage_instructions on every listed agent —
+        # the POST /instructions gate. Global rules stay open to anyone who
+        # manages instructions somewhere (the call gate), but only org admins'
+        # go live; the build layer routes the rest to review.
+        if ds_ids:
+            try:
+                await require_scope_authority(db, user, organization, ds_ids)
+            except HTTPException as e:
+                return MCPCreateInstructionOutput(
+                    success=False, requires_approval=False, error_message=_refusal(e),
+                ).model_dump()
+
+        svc = InstructionService()
         instruction_data = InstructionCreate(
             text=input_data.text,
             title=input_data.title,
             category=input_data.category,
             load_mode=input_data.load_mode,
-            data_source_ids=input_data.data_source_ids or [],
-            status="published",  # Always published - build handles approval workflow
+            data_source_ids=ds_ids,
+            status="published",  # the build decides whether it goes live
         )
-        
         try:
-            # InstructionService.create_instruction handles:
-            # 1. Create instruction record
-            # 2. Create version snapshot
-            # 3. Add version to build  
-            # 4. Auto-finalize based on permissions:
-            #    - Admin: approve + promote to main (live immediately)
-            #    - Non-admin: submit for approval (pending_approval)
-            result = await instruction_service.create_instruction(
-                db=db,
-                instruction_data=instruction_data,
-                current_user=user,
-                organization=organization,
-                force_global=True,  # All instructions go through builds
+            result = await svc.create_instruction(
+                db=db, instruction_data=instruction_data, current_user=user,
+                organization=organization, force_global=True,
             )
-            
-            # Determine approval status based on user role
-            user_is_admin = is_admin(permissions)
-            
-            logger.info(
-                f"create_instruction: created {result.id} by user {user.id}, "
-                f"admin={user_is_admin}, requires_approval={not user_is_admin}"
-            )
-            
-            return MCPCreateInstructionOutput(
-                success=True,
-                instruction_id=str(result.id),
-                build_status="approved" if user_is_admin else "pending_approval",
-                requires_approval=not user_is_admin,
-            ).model_dump()
-            
         except Exception as e:
             logger.exception(f"create_instruction failed for user {user.id}: {e}")
             return MCPCreateInstructionOutput(
-                success=False,
-                requires_approval=False,
-                error_message=str(e)[:500],
+                success=False, requires_approval=False, error_message=_refusal(e),
             ).model_dump()
 
+        # Report what actually happened, not a guess from org-level perms:
+        # agent managers publish on their own agents.
+        fresh = await svc.get_instruction(db, str(result.id), organization, user)
+        pending = _pending(fresh) if fresh is not None else True
+        logger.info("create_instruction: %s by user %s pending=%s", result.id, user.id, pending)
+        return MCPCreateInstructionOutput(
+            success=True,
+            instruction_id=str(result.id),
+            build_status="pending_approval" if pending else "approved",
+            requires_approval=pending,
+        ).model_dump()
 
-class DeleteInstructionMCPTool(MCPTool):
-    """Delete an instruction with automatic build update.
 
-    Soft-deletes an instruction and removes it from the current build.
-    - Admins can delete any instruction
-    - Non-admins can only delete their own instructions
-    """
+class EditInstructionMCPTool(MCPTool):
+    """Edit an existing instruction — same rules as the web app's edit."""
 
-    name = "delete_instruction"
+    name = "edit_instruction"
     description = (
-        "Delete an instruction (soft delete). "
-        "The instruction is removed from the current build. "
-        "Admins can delete any instruction. Non-admins can only delete their own."
+        "Edit an existing instruction. Omitted fields stay unchanged; `text` replaces the whole text, "
+        "so read_instruction first and send the complete new text. data_source_ids replaces the agent "
+        "scope ([] = global). You need instruction-management rights on every agent the instruction "
+        "applies to (and on the new scope); global instructions need org-level instruction admin. "
+        "To turn an instruction off, set status='archived'."
     )
 
     @property
     def required_ds_permission(self):
         return "manage_instructions"
-    
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return MCPEditInstructionInput.model_json_schema()
+
+    async def execute(self, args, db, user, organization):
+        data = MCPEditInstructionInput(**args)
+        fail = lambda msg: MCPEditInstructionOutput(  # noqa: E731
+            success=False, instruction_id=data.instruction_id, error_message=msg,
+        ).model_dump()
+
+        if data.status is not None and data.status not in VALID_STATUSES:
+            return fail(f"Invalid status '{data.status}'. Use one of: {', '.join(sorted(VALID_STATUSES))}.")
+        if data.load_mode is not None and data.load_mode not in VALID_LOAD_MODES:
+            return fail(
+                f"Invalid load_mode '{data.load_mode}'. Use one of: {', '.join(sorted(VALID_LOAD_MODES))}. "
+                "To turn an instruction off, set status='archived'."
+            )
+        if data.text is not None and not data.text.strip():
+            return fail("text cannot be empty.")
+        changes = data.model_dump(exclude_none=True, exclude={"instruction_id"})
+        if not changes:
+            return fail("Nothing to change: pass at least one field.")
+
+        svc = InstructionService()
+        existing = await svc.get_instruction(db, data.instruction_id, organization, user)
+        if existing is None:
+            return fail(NOT_FOUND)
+        # Same order as PUT /instructions/{id}: authority over the row as it is,
+        # then over the scope it's being moved to.
+        try:
+            await require_instruction_authority(db, user, organization, existing, allow_owner=True)
+        except HTTPException:
+            if await svc.user_can_view_instruction(db, existing, user, organization):
+                return fail("Permission denied: you can read this instruction but not change it. "
+                            "Changing it needs instruction-management rights on every agent it applies to.")
+            return fail(NOT_FOUND)
+        try:
+            await require_scope_authority(db, user, organization, data.data_source_ids)
+        except HTTPException as e:
+            return fail(_refusal(e))
+
+        update = InstructionUpdate(**changes)
+        try:
+            updated = await svc.update_instruction(db, data.instruction_id, update, organization, user)
+        except HTTPException as e:
+            logger.info("edit_instruction %s by %s refused: %s", data.instruction_id, user.id, e.detail)
+            return fail(_refusal(e))
+        except Exception as e:
+            logger.exception("edit_instruction %s by %s failed: %s", data.instruction_id, user.id, e)
+            return fail(_refusal(e))
+        if updated is None:
+            return fail(NOT_FOUND)
+
+        fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
+        pending = _pending(fresh)
+        logger.info("edit_instruction: %s by user %s fields=%s pending=%s",
+                    data.instruction_id, user.id, sorted(changes), pending)
+        return MCPEditInstructionOutput(
+            success=True,
+            instruction_id=data.instruction_id,
+            build_status="pending_approval" if pending else "approved",
+            requires_approval=pending,
+            instruction=_detail(fresh, can_edit=True),
+        ).model_dump()
+
+
+class DeleteInstructionMCPTool(MCPTool):
+    """Delete an instruction — same rules as the web app's delete."""
+
+    name = "delete_instruction"
+    description = (
+        "Delete an instruction (soft delete); it's removed from the live build. "
+        "You need instruction-management rights on every agent it applies to; global "
+        "instructions need org-level instruction admin. You can always delete your own "
+        "unpublished suggestion or your own global instruction."
+    )
+
+    @property
+    def required_ds_permission(self):
+        return "manage_instructions"
+
     @property
     def input_schema(self) -> Dict[str, Any]:
         return MCPDeleteInstructionInput.model_json_schema()
-    
-    async def execute(
-        self, 
-        args: Dict[str, Any], 
-        db: AsyncSession,
-        user: User,
-        organization: Organization,
-    ) -> Dict[str, Any]:
-        """Execute delete_instruction with build update."""
-        
-        input_data = MCPDeleteInstructionInput(**args)
-        permissions = await get_user_permissions(db, user, organization)
-        
-        # Check delete permission (service additionally enforces ownership for non-admins)
-        can_delete = 'manage_instructions' in permissions
 
-        if not can_delete:
-            logger.warning(f"User {user.id} lacks permission to delete instructions")
-            return MCPDeleteInstructionOutput(
-                success=False,
-                error_message="Permission denied: cannot delete instructions."
-            ).model_dump()
-        
-        instruction_service = InstructionService()
-        
+    async def execute(self, args, db, user, organization):
+        input_data = MCPDeleteInstructionInput(**args)
+        svc = InstructionService()
+        existing = await svc.get_instruction_access_view(db, input_data.instruction_id, organization)
+        if existing is None:
+            return MCPDeleteInstructionOutput(success=False, error_message=NOT_FOUND).model_dump()
+        # The service trusts its caller on authority (the REST decorator +
+        # route checks); this tool is that caller.
         try:
-            # InstructionService.delete_instruction handles:
-            # 1. Soft delete the instruction (set deleted_at)
-            # 2. Remove from build
-            # 3. Auto-finalize build
-            # For non-admins, the service verifies ownership
-            success = await instruction_service.delete_instruction(
-                db=db,
-                instruction_id=input_data.instruction_id,
-                organization=organization,
-                current_user=user,
+            await require_delete_authority(db, user, organization, existing)
+        except HTTPException:
+            return MCPDeleteInstructionOutput(success=False, error_message=NOT_FOUND).model_dump()
+        try:
+            success = await svc.delete_instruction(
+                db=db, instruction_id=input_data.instruction_id,
+                organization=organization, current_user=user,
             )
-            
-            logger.info(f"delete_instruction: deleted {input_data.instruction_id} by user {user.id}")
-            
-            return MCPDeleteInstructionOutput(
-                success=success,
-            ).model_dump()
-            
         except Exception as e:
             logger.exception(f"delete_instruction failed for {input_data.instruction_id}: {e}")
-            return MCPDeleteInstructionOutput(
-                success=False,
-                error_message=str(e)[:500],
-            ).model_dump()
-
-
+            return MCPDeleteInstructionOutput(success=False, error_message=_refusal(e)).model_dump()
+        logger.info("delete_instruction: %s by user %s", input_data.instruction_id, user.id)
+        return MCPDeleteInstructionOutput(success=bool(success)).model_dump()

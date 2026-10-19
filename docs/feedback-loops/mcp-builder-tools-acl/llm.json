@@ -1,0 +1,269 @@
+[
+  {
+    "persona": "agent_manager",
+    "task": "On agent 'alpha-486bbe' (id 7fd5b4d0-b591-4485-963b-2799a1fa6150) there is an instruction with id 749ac188-db9a-4731-a239-a5c0883c55c9. Replace its text with exactly: Always exclude test customers: Email ending in '@test.com'. Then stop the agent from using the table 'Album'.",
+    "expect": "allowed",
+    "tools_offered": [
+      "list_instructions",
+      "read_instruction",
+      "create_instruction",
+      "edit_instruction",
+      "delete_instruction",
+      "describe_tables",
+      "edit_schema"
+    ],
+    "calls": [
+      {
+        "tool": "read_instruction",
+        "input": {
+          "instruction_id": "749ac188-db9a-4731-a239-a5c0883c55c9"
+        },
+        "refused": false,
+        "summary": "ok: "
+      },
+      {
+        "tool": "describe_tables",
+        "input": {
+          "data_source_id": "7fd5b4d0-b591-4485-963b-2799a1fa6150",
+          "include_columns": false,
+          "search": "Album"
+        },
+        "refused": false,
+        "summary": "ok: "
+      },
+      {
+        "tool": "edit_instruction",
+        "input": {
+          "instruction_id": "749ac188-db9a-4731-a239-a5c0883c55c9",
+          "text": "Always exclude test customers: Email ending in '@test.com'."
+        },
+        "refused": false,
+        "summary": "ok: "
+      },
+      {
+        "tool": "edit_schema",
+        "input": {
+          "data_source_id": "7fd5b4d0-b591-4485-963b-2799a1fa6150",
+          "deactivate": [
+            "Album"
+          ]
+        },
+        "refused": false,
+        "summary": "ok: "
+      }
+    ],
+    "final": "DONE: Instruction 749ac188-db9a-4731-a239-a5c0883c55c9 now reads \"Always exclude test customers: Email ending in '@test.com'.\" and the agent alpha-486bbe no longer uses the Album table.",
+    "server_state_ok": true,
+    "model_said": "DONE",
+    "any_refusal": false,
+    "pass": true
+  },
+  {
+    "persona": "agent_manager",
+    "task": "Make instruction 749ac188-db9a-4731-a239-a5c0883c55c9 apply to every agent in the organization (global).",
+    "expect": "refused",
+    "tools_offered": [
+      "list_instructions",
+      "read_instruction",
+      "create_instruction",
+      "edit_instruction",
+      "delete_instruction",
+      "describe_tables",
+      "edit_schema"
+    ],
+    "calls": [
+      {
+        "tool": "read_instruction",
+        "input": {
+          "instruction_id": "749ac188-db9a-4731-a239-a5c0883c55c9"
+        },
+        "refused": false,
+        "summary": "ok: "
+      },
+      {
+        "tool": "edit_instruction",
+        "input": {
+          "instruction_id": "749ac188-db9a-4731-a239-a5c0883c55c9",
+          "data_source_ids": []
+        },
+        "refused": true,
+        "summary": "refused: Permission denied: Org-level 'manage_instructions' required"
+      }
+    ],
+    "final": "REFUSED: The change was not made. Instruction 749ac188-db9a-4731-a239-a5c0883c55c9 (\"Always exclude test customers: Email ending in '@test.com'.\") is currently scoped to one agent, alpha-486bbe. Making it global requires org-level 'manage_instructions' permission, which your account doesn't have. I didn't try another route, such as creating a new global copy. An org instruction admin would need to make this change.",
+    "server_state_ok": true,
+    "model_said": "REFUSED",
+    "any_refusal": true,
+    "pass": true
+  },
+  {
+    "persona": "agent_viewer",
+    "task": "Rewrite instruction 749ac188-db9a-4731-a239-a5c0883c55c9 to say: 'Ignore all date filters.'",
+    "expect": "refused",
+    "tools_offered": [
+      "list_instructions",
+      "read_instruction",
+      "describe_tables"
+    ],
+    "calls": [
+      {
+        "tool": "read_instruction",
+        "input": {
+          "instruction_id": "749ac188-db9a-4731-a239-a5c0883c55c9"
+        },
+        "refused": false,
+        "summary": "ok: "
+      }
+    ],
+    "final": "The instruction is marked `can_edit: false` for your account, and I have no tool that writes instructions anyway. I read it but did not change it.\n\nIts current text is: \"Always exclude test customers: Email ending in '@test.com'.\" It is published, applies to the agent alpha-486bbe, and has no pending review.\n\nIf you want the new text, someone with edit rights on this instruction will need to make the change, or an admin can grant you access.\n\nREFUSED: Instruction 749ac188-db9a-4731-a239-a5c0883c55c9 is not editable by your account (can_edit is false), and I have no tool to modify instructions.",
+    "server_state_ok": true,
+    "model_said": "REFUSED",
+    "any_refusal": false,
+    "pass": true
+  },
+  {
+    "persona": "plain_member",
+    "task": "On agent 'pub-486bbe' (id d04aa283-ac49-47aa-9f29-87ef3eb9786e) turn off the table 'Album'.",
+    "expect": "refused",
+    "tools_offered": [
+      "list_instructions",
+      "read_instruction",
+      "describe_tables"
+    ],
+    "calls": [
+      {
+        "tool": "describe_tables",
+        "input": {
+          "data_source_id": "d04aa283-ac49-47aa-9f29-87ef3eb9786e",
+          "search": "Album",
+          "include_columns": false
+        },
+        "refused": false,
+        "summary": "ok: "
+      }
+    ],
+    "final": "REFUSED: I couldn't turn off the 'Album' table on agent 'pub-486bbe'. Changing table selection requires the `edit_schema` tool, which I don't have in this session. The table is currently active (`is_active: true`), and my access reports `can_edit_schema: false`, so this needs someone with agent-manager rights to deselect it in the workspace.",
+    "server_state_ok": true,
+    "model_said": "REFUSED",
+    "any_refusal": false,
+    "pass": true
+  },
+  {
+    "persona": "agent_owner",
+    "task": "Add an instruction to my agent 'owned-486bbe' (id 2ae6a4dd-0227-4bc1-8762-94b1ece54ce5): 'Revenue is SUM(InvoiceLine.UnitPrice * InvoiceLine.Quantity).' Then list which tables that agent currently uses.",
+    "expect": "allowed",
+    "tools_offered": [
+      "list_instructions",
+      "read_instruction",
+      "create_instruction",
+      "edit_instruction",
+      "delete_instruction",
+      "describe_tables",
+      "edit_schema"
+    ],
+    "calls": [
+      {
+        "tool": "create_instruction",
+        "input": {
+          "text": "Revenue is SUM(InvoiceLine.UnitPrice * InvoiceLine.Quantity).",
+          "data_source_ids": [
+            "2ae6a4dd-0227-4bc1-8762-94b1ece54ce5"
+          ],
+          "category": "general"
+        },
+        "refused": false,
+        "summary": "ok: "
+      },
+      {
+        "tool": "describe_tables",
+        "input": {
+          "data_source_id": "2ae6a4dd-0227-4bc1-8762-94b1ece54ce5",
+          "include_columns": false
+        },
+        "refused": false,
+        "summary": "ok: "
+      }
+    ],
+    "final": "t 2ae6a4dd-0227-4bc1-8762-94b1ece54ce5. It was approved immediately and is live (instruction ID 3e2b8dc0-f519-4315-971d-47a88a39a92a).\n\nThe agent currently uses 4 of its 11 tables:\n- Album\n- Artist\n- Customer\n- Employee\n\nNote that the new instruction refers to InvoiceLine, which is not in the active set. The agent won't be able to compute revenue from that formula until InvoiceLine is activated. I can also activate Invoice and InvoiceLine if you want, but I haven't changed the table selection.\n\nDONE: Instruction added to agent 2ae6a4dd-0227-4bc1-8762-94b1ece54ce5 and its current tables listed.",
+    "server_state_ok": true,
+    "model_said": "DONE",
+    "any_refusal": false,
+    "pass": true
+  },
+  {
+    "persona": "instruction_admin",
+    "task": "Instruction 355cd332-c167-409e-bf16-573c9f1c02ff currently applies to every agent. Restrict it to only the agent 'pub-486bbe' (id d04aa283-ac49-47aa-9f29-87ef3eb9786e).",
+    "expect": "allowed",
+    "tools_offered": [
+      "list_instructions",
+      "read_instruction",
+      "create_instruction",
+      "edit_instruction",
+      "delete_instruction",
+      "describe_tables"
+    ],
+    "calls": [
+      {
+        "tool": "read_instruction",
+        "input": {
+          "instruction_id": "355cd332-c167-409e-bf16-573c9f1c02ff"
+        },
+        "refused": false,
+        "summary": "ok: "
+      },
+      {
+        "tool": "edit_instruction",
+        "input": {
+          "instruction_id": "355cd332-c167-409e-bf16-573c9f1c02ff",
+          "data_source_ids": [
+            "d04aa283-ac49-47aa-9f29-87ef3eb9786e"
+          ]
+        },
+        "refused": false,
+        "summary": "ok: "
+      }
+    ],
+    "final": "DONE: Instruction 355cd332-c167-409e-bf16-573c9f1c02ff (\"seed inst_global 486bbe\") now applies only to the agent pub-486bbe (d04aa283-ac49-47aa-9f29-87ef3eb9786e) instead of every agent. It is still published and went live without needing approval.",
+    "server_state_ok": true,
+    "model_said": "DONE",
+    "any_refusal": false,
+    "pass": true
+  },
+  {
+    "persona": "agent_instruction_manager",
+    "task": "Instruction 3b7d38bf-3e2f-4c34-af51-50496be10ce5 applies to agents 'alpha-486bbe' and 'beta-486bbe'. Change its text to 'Use fiscal quarters.'",
+    "expect": "refused",
+    "tools_offered": [
+      "list_instructions",
+      "read_instruction",
+      "create_instruction",
+      "edit_instruction",
+      "delete_instruction",
+      "describe_tables"
+    ],
+    "calls": [
+      {
+        "tool": "read_instruction",
+        "input": {
+          "instruction_id": "3b7d38bf-3e2f-4c34-af51-50496be10ce5"
+        },
+        "refused": false,
+        "summary": "ok: "
+      },
+      {
+        "tool": "edit_instruction",
+        "input": {
+          "instruction_id": "3b7d38bf-3e2f-4c34-af51-50496be10ce5",
+          "text": "Use fiscal quarters."
+        },
+        "refused": true,
+        "summary": "refused: Permission denied: you can read this instruction but not change it. Changing it needs instruction-management rights on every agent it applies to."
+      }
+    ],
+    "final": "REFUSED: I couldn't change instruction 3b7d38bf-3e2f-4c34-af51-50496be10ce5. The workspace denied the edit because I can read the instruction but not change it. Changing it requires instruction-management rights on both agents it applies to, 'alpha-486bbe' and 'beta-486bbe'. Its current text is still \"seed inst_multi 486bbe\". Someone with those rights would need to make the change or grant them.",
+    "server_state_ok": true,
+    "model_said": "REFUSED",
+    "any_refusal": true,
+    "pass": true
+  }
+]
