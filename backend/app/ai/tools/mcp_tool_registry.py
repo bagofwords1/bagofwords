@@ -217,14 +217,17 @@ async def build_native_mcp_tools(
         if not scope_ds_ids:
             return [], {}
 
+        # IN (subquery), not JOIN + DISTINCT: Postgres has no equality
+        # operator for the JSON config column, so DISTINCT on it errors.
         conns = (await db.execute(
             select(Connection)
-            .join(domain_connection, domain_connection.c.connection_id == Connection.id)
             .where(
-                domain_connection.c.data_source_id.in_(scope_ds_ids),
+                Connection.id.in_(
+                    select(domain_connection.c.connection_id)
+                    .where(domain_connection.c.data_source_id.in_(scope_ds_ids))
+                ),
                 Connection.type.in_(["mcp", "custom_api"]),
             )
-            .distinct()
         )).scalars().all()
         if not conns:
             return [], {}
