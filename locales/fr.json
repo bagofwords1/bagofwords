@@ -5874,5 +5874,76 @@
   },
   "trackedChanges": {
     "noChanges": "Aucune modification"
+  },
+  "agentClone": {
+    "menu": "Cloner l'agent",
+    "name": "Nom",
+    "description": "Description",
+    "defaultName": "Copie de {name}",
+    "parts": {
+      "instructions": "Instructions",
+      "saved_queries": "Requêtes enregistrées",
+      "lists": "Listes",
+      "evals": "Évaluations",
+      "files": "Fichiers",
+      "access": "Accès"
+    },
+    "choices": {
+      "copy": "Copier",
+      "link": "Partager",
+      "none": "Rien",
+      "sameAccess": "Mêmes personnes",
+      "onlyMe": "Moi seulement"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Ses propres copies, modifiées séparément",
+        "link": "Mêmes instructions ; les modifications s'appliquent aux deux",
+        "none": "Instructions globales seulement"
+      },
+      "saved_queries": {
+        "copy": "S'exécutent sur le nouvel agent ; sans résultats enregistrés",
+        "none": "Non inclus"
+      },
+      "lists": {
+        "copy": "Mêmes champs, aucune ligne",
+        "link": "Même liste et mêmes lignes pour les deux",
+        "none": "Non inclus"
+      },
+      "evals": {
+        "copy": "Redirigées vers le nouvel agent",
+        "none": "Non inclus"
+      },
+      "files": {
+        "link": "Mêmes fichiers pour les deux",
+        "none": "Non inclus"
+      },
+      "access": {
+        "copy": "Mêmes personnes et droits",
+        "default": "Vous seul, jusqu'au partage"
+      }
+    },
+    "unavailable": {
+      "saved_queries": {
+        "link": "Pas encore disponible"
+      }
+    },
+    "footnote": "Les conversations, les tableaux de bord et la synchronisation Git ne sont pas clonés. Le nouvel agent démarre en entraînement.",
+    "submit": "Cloner",
+    "cloning": "Clonage…",
+    "nameTaken": "Un agent porte déjà ce nom.",
+    "instructionsChanged": "Les instructions ont changé pendant le clonage. Réessayez.",
+    "linkBlocked": "Ces instructions sont aussi utilisées par des agents que vous ne gérez pas, elles ne peuvent donc pas être partagées. Copiez-les, ou demandez à une personne qui gère ces agents.",
+    "done": "{name} créé",
+    "notCopied": "Non copié : {names}",
+    "failed": "Impossible de cloner l'agent",
+    "titleFor": "Cloner {name}",
+    "alwaysIncluded": "Toujours inclus :",
+    "always": {
+      "settings": "Paramètres",
+      "tables": "Tables",
+      "tools": "Outils",
+      "prompts": "Prompts"
+    }
   }
 }

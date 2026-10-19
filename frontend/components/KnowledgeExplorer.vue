@@ -1115,6 +1115,7 @@
     />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
+    <AgentCloneModal v-model="showCloneAgent" :agent="cloneSource" @finished="onCloneFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <AddCustomAPIModal v-model="showAddCustomAPI" :existing-connections="customApiExistingConnections" @created="onConnCreated" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
@@ -1217,6 +1218,7 @@ import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
+import AgentCloneModal from '~/components/AgentCloneModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
@@ -2258,10 +2260,26 @@ const agentLandingActions = computed(() => {
     { label: t('agentsPage.startTraining'), icon: 'i-heroicons-academic-cap', click: () => startTrainingSessionForAgent(id) },
   ])
   if (agentCanUpdate.value) groups.push([
+    // The server also checks the right to build an agent on this agent's connections.
+    ...(canCreateAgent.value ? [{ label: t('agentClone.menu'), icon: 'i-heroicons-document-duplicate', click: () => openCloneAgent(id) }] : []),
     { label: t('agentLanding.download'), icon: 'i-heroicons-arrow-down-tray', disabled: exportingInstructions.value, click: () => exportAgentInstructions(id) },
   ])
   return groups
 })
+const showCloneAgent = ref(false)
+const cloneSource = ref<{ id: string; name: string; description?: string | null } | null>(null)
+// A clone arrives with queries, lists and instructions: refresh the tree
+// counts too, then open it like a new agent.
+const onCloneFinished = async (id: string) => {
+  await Promise.all([fetchQueryCounts(), fetchListCounts(), fetchCounts()])
+  await onNewAgentFinished(id)
+}
+const openCloneAgent = (id: string) => {
+  const a = (agentDetail.value?.id === id ? agentDetail.value : null) || agents.value.find(x => x.id === id)
+  if (!a) return
+  cloneSource.value = { id, name: a.name, description: a.description }
+  showCloneAgent.value = true
+}
 
 // inline-edit state
 const editingDesc = ref(false); const descForm = ref(''); const descInputRef = ref<HTMLInputElement | null>(null)

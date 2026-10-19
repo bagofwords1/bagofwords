@@ -5874,5 +5874,76 @@
   },
   "trackedChanges": {
     "noChanges": "Inga ändringar"
+  },
+  "agentClone": {
+    "menu": "Klona agent",
+    "name": "Namn",
+    "description": "Beskrivning",
+    "defaultName": "Kopia av {name}",
+    "parts": {
+      "instructions": "Instruktioner",
+      "saved_queries": "Sparade frågor",
+      "lists": "Listor",
+      "evals": "Utvärderingar",
+      "files": "Filer",
+      "access": "Åtkomst"
+    },
+    "choices": {
+      "copy": "Kopiera",
+      "link": "Dela",
+      "none": "Inget",
+      "sameAccess": "Samma personer",
+      "onlyMe": "Bara jag"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Egna kopior, redigeras separat",
+        "link": "Samma instruktioner; ändringar syns i båda",
+        "none": "Bara globala instruktioner"
+      },
+      "saved_queries": {
+        "copy": "Körs på den nya agenten; utan sparade resultat",
+        "none": "Inte med"
+      },
+      "lists": {
+        "copy": "Samma fält, inga rader",
+        "link": "Samma lista och rader i båda",
+        "none": "Inte med"
+      },
+      "evals": {
+        "copy": "Riktade mot den nya agenten",
+        "none": "Inte med"
+      },
+      "files": {
+        "link": "Samma filer i båda",
+        "none": "Inte med"
+      },
+      "access": {
+        "copy": "Samma personer och behörigheter",
+        "default": "Bara du, tills du delar den"
+      }
+    },
+    "unavailable": {
+      "saved_queries": {
+        "link": "Inte tillgängligt ännu"
+      }
+    },
+    "footnote": "Konversationer, dashboards och Git-synkronisering klonas inte. Den nya agenten börjar i träning.",
+    "submit": "Klona",
+    "cloning": "Klonar…",
+    "nameTaken": "Det finns redan en agent med det namnet.",
+    "instructionsChanged": "Instruktionerna ändrades under kloningen. Försök igen.",
+    "linkBlocked": "De här instruktionerna används också av agenter som du inte förvaltar, så de kan inte delas. Kopiera dem i stället, eller fråga någon som förvaltar de agenterna.",
+    "done": "{name} skapades",
+    "notCopied": "Kopierades inte: {names}",
+    "failed": "Det gick inte att klona agenten",
+    "titleFor": "Klona {name}",
+    "alwaysIncluded": "Alltid med:",
+    "always": {
+      "settings": "Inställningar",
+      "tables": "Tabeller",
+      "tools": "Verktyg",
+      "prompts": "Prompter"
+    }
   }
 }
