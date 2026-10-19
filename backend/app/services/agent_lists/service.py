@@ -100,7 +100,7 @@ def _check_fits(existing: List[AgentList], name: str, slug: Optional[str] = None
         raise HTTPException(status_code=409, detail="A list with this machine name already exists on this agent.")
 
 
-async def _lock(db, lst: AgentList) -> None:
+async def lock_list(db, lst: AgentList) -> None:
     """Serialize link changes on one list, so two agents removing it at once
     cannot both see the other's link and leave it live with none (row lock on
     Postgres; SQLite serializes writes on its own). Reloads ``lst`` under the
@@ -118,7 +118,7 @@ async def link_list(db, lst: AgentList, ds: DataSource, *, commit: bool = True) 
         raise HTTPException(status_code=404, detail="List not found")
     if str(ds.organization_id) != str(lst.organization_id):
         raise HTTPException(status_code=404, detail="Agent not found")
-    await _lock(db, lst)
+    await lock_list(db, lst)
     existing = await live_lists_for_agents(db, [ds.id])
     if any(str(l.id) == str(lst.id) for l in existing):
         return
@@ -141,7 +141,7 @@ async def _drop_link(db, lst: AgentList, ds_id: str) -> List[str]:
 async def unlink_list(db, lst: AgentList, ds: DataSource) -> None:
     """Remove ``lst`` from one agent. The list and its rows stay on the other
     agents; a list left with no agent is deleted."""
-    await _lock(db, lst)
+    await lock_list(db, lst)
     remaining = await _drop_link(db, lst, str(ds.id))
     if not remaining:
         lst.deleted_at = datetime.utcnow()
@@ -151,29 +151,33 @@ async def unlink_list(db, lst: AgentList, ds: DataSource) -> None:
 async def detach_agent_lists(db, data_source_id: str) -> None:
     """Before an agent is deleted: lists shared with other agents lose only
     this link (and get a new home). Lists on this agent alone are left as they
-    are, for the agent's CASCADE to delete with their rows, so a delete that
-    fails later leaves them intact. Does not commit."""
+    are, for the agent's CASCADE to delete with their rows. Does not commit;
+    delete_data_source commits it with its other clean-ups before the final
+    DELETE, so if that DELETE then fails the agent stays and its single-agent
+    lists are intact, but its shared lists are already off it."""
     mine = select(links.c.list_id).where(links.c.data_source_id == str(data_source_id))
     elsewhere = select(links.c.list_id).where(links.c.data_source_id != str(data_source_id))
     shared = (await db.execute(
         select(AgentList).where(AgentList.id.in_(mine), AgentList.id.in_(elsewhere))
     )).scalars().all()
     for lst in shared:
-        await _lock(db, lst)
+        await lock_list(db, lst)
         await _drop_link(db, lst, str(data_source_id))
     # Write the new homes before the agent row goes, so its CASCADE spares them.
     await db.flush()
 
 
-async def access_for_lists(db, user, organization, lists: Iterable[AgentList]) -> Dict[str, ListAccess]:
-    """``{list_id: ListAccess}`` for ``user``, in a fixed number of queries."""
+async def access_for_lists(db, user, organization, lists: Iterable[AgentList], *, resolved=None) -> Dict[str, ListAccess]:
+    """``{list_id: ListAccess}`` for ``user``, in a fixed number of queries.
+    Pass ``resolved`` (resolved_permissions) when the caller already has it."""
     lists = list(lists)
     ids = await linked_agent_ids(db, [l.id for l in lists])
     all_ids = sorted({i for v in ids.values() for i in v})
     agents = {str(a.id): a for a in (await db.execute(
         select(DataSource).where(DataSource.id.in_(all_ids))
     )).scalars().all()} if all_ids else {}
-    resolved = await resolved_permissions(db, user, organization)
+    if resolved is None:
+        resolved = await resolved_permissions(db, user, organization)
     return {
         str(l.id): access_from(resolved, organization, [agents[i] for i in ids.get(str(l.id), []) if i in agents],
                                home_id=str(l.data_source_id))
@@ -182,7 +186,7 @@ async def access_for_lists(db, user, organization, lists: Iterable[AgentList]) -
 
 
 async def submit_route(db, user, organization, lst: AgentList, report_agent_ids: Iterable[str], *,
-                       resolved=None):
+                       resolved=None, linked: Optional[List[str]] = None, agents: Optional[Dict[str, DataSource]] = None):
     """How a conversation saves to ``lst``: ``(via, here)`` where ``here`` are
     the list's agents among ``report_agent_ids`` that the user can see (by id)
     and ``via`` the first of them the user may save through (or None). Used by
@@ -190,13 +194,32 @@ async def submit_route(db, user, organization, lst: AgentList, report_agent_ids:
     if resolved is None:
         resolved = await resolved_permissions(db, user, organization)
     in_report = {str(i) for i in report_agent_ids}
-    ids = [i for i in (await linked_agent_ids(db, [lst.id])).get(str(lst.id), []) if i in in_report]
-    agents = list((await db.execute(
-        select(DataSource).where(DataSource.id.in_(ids)).order_by(DataSource.id)
-    )).scalars().all()) if ids else []
-    here = access_from(resolved, organization, agents).visible_agents if resolved is not None else []
+    # ``linked`` / ``agents`` let a caller routing many lists prefetch once.
+    if linked is None:
+        linked = (await linked_agent_ids(db, [lst.id])).get(str(lst.id), [])
+    ids = sorted(i for i in linked if i in in_report)
+    if agents is None:
+        agents = {str(a.id): a for a in (await db.execute(
+            select(DataSource).where(DataSource.id.in_(ids))
+        )).scalars().all()} if ids else {}
+    found = [agents[i] for i in ids if i in agents]
+    here = access_from(resolved, organization, found).visible_agents if resolved is not None else []
     via = await first_submittable_agent(db, user, organization, here, lst, resolved=resolved) if here else None
     return via, here
+
+
+async def readable_list(db, user, organization, list_id: str):
+    """``(lst, ds, access)`` for a live list of the organization that ``user``
+    can see through one of its agents (``ds`` names it); 404 otherwise. For
+    links that remember an agent the list has since left (or that was deleted)."""
+    lst = (await db.execute(
+        select(AgentList).where(AgentList.id == str(list_id), AgentList.organization_id == str(organization.id),
+                                AgentList.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    access = (await access_for_lists(db, user, organization, [lst]))[str(lst.id)] if lst is not None else None
+    if access is None or not access.visible_agents:
+        raise HTTPException(status_code=404, detail="List not found")
+    return lst, access.name_agent, access
 
 
 async def can_manage_schema(db, user, organization, lst: AgentList) -> bool:
@@ -222,13 +245,26 @@ def _key_name(lst: AgentList) -> Optional[str]:
     return next((f["name"] for f in (lst.fields or []) if f["id"] == lst.key_field_id), None)
 
 
+def list_table_name(lst: AgentList, access: Optional[ListAccess], fallback: DataSource) -> str:
+    """The one ``bow.<agent>.lists.<slug>`` name a list is shown under, on
+    every surface (REST, schema context, submit tool text, edit_list output):
+    named after ``access.name_agent``, else ``fallback``."""
+    named = (access.name_agent if access else None) or fallback
+    return table_name_for(named.name, str(named.id), lst.slug)
+
+
+def list_table_aliases(lst: AgentList, access: Optional[ListAccess]) -> List[str]:
+    """Every name that resolves to ``lst`` for this user: one per linked agent
+    they can see (resolve_list accepts any of them)."""
+    return [table_name_for(a.name, str(a.id), lst.slug) for a in (access.visible_agents if access else [])]
+
+
 def serialize_list(lst: AgentList, ds: DataSource, access: Optional[ListAccess] = None, *, row_count: int = 0,
                    can_manage: bool = False, change: Optional[str] = None) -> AgentListOut:
     """``ds`` is the agent the list is being looked at from. ``access`` (from
     ``access_for_lists``) says which linked agents the caller may see; without
     it the list is shown as belonging to ``ds`` alone."""
     access = access or ListAccess(visible_agents=[ds], can_manage_schema=can_manage, home_id=str(ds.id))
-    named = access.name_agent or ds
     return AgentListOut(
         id=str(lst.id),
         data_source_id=str(ds.id),
@@ -247,7 +283,7 @@ def serialize_list(lst: AgentList, ds: DataSource, access: Optional[ListAccess] 
         version=int(lst.version or 1),
         row_count=row_count,
         tool_name=tool_name_for(lst.slug, list_id=str(lst.id)),
-        table_name=table_name_for(named.name, str(named.id), lst.slug),
+        table_name=list_table_name(lst, access, ds),
         created_at=lst.created_at,
         updated_at=lst.updated_at,
         can_manage=can_manage,

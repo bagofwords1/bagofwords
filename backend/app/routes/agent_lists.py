@@ -82,6 +82,23 @@ async def agent_list_counts(
     return {"by_agent": {k: v for k, v in counts.items() if k in visible}}
 
 
+@router.get("/agent_lists/{list_id}", response_model=AgentListOut)
+async def get_list_anywhere(
+    list_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """A list by id, through one of its agents the caller can see; 404 when
+    there is none. For links that remember an agent the list has since left
+    (or that was deleted): the answer names the agent to use from now on
+    (``data_source_id``). Read only; writes stay on the agent routes."""
+    lst, ds, access = await svc.readable_list(db, current_user, organization, list_id)
+    counts = await svc.row_counts(db, [lst.id])
+    can_manage = await can_access_agent(db, current_user, organization, ds, "manage")
+    return svc.serialize_list(lst, ds, access, row_count=counts.get(str(lst.id), 0), can_manage=can_manage)
+
+
 @router.get("/data_sources/{data_source_id}/lists", response_model=List[AgentListOut])
 @requires_resource_permission("data_source", "view")
 async def list_agent_lists(
@@ -143,6 +160,9 @@ async def update_agent_list(
 ):
     ds = await svc.get_agent(db, organization, data_source_id)
     lst = await svc.get_list(db, ds, list_id)
+    # Hold the list while checking: a link added meanwhile would otherwise
+    # let this edit through for an agent the caller doesn't manage.
+    await svc.lock_list(db, lst)
     access = await _access(db, current_user, organization, lst)
     _require_schema_authority(access)
     change = await svc.update_list(db, ds, lst, payload)
@@ -167,6 +187,7 @@ async def delete_agent_list(
     if scope == "agent":
         await svc.unlink_list(db, lst, ds)
         return None
+    await svc.lock_list(db, lst)
     _require_schema_authority(await _access(db, current_user, organization, lst))
     await svc.delete_list(db, lst)
     return None

@@ -386,3 +386,57 @@ def test_a_deleted_list_cannot_be_linked(test_client, world):
         _link(world, world["list"]["id"])
     assert exc.value.status_code == 404
     assert world["list"]["id"] not in _lists(test_client, world, "other_agent")
+
+
+def test_a_link_to_an_agent_the_list_left_still_opens_it_for_who_can_see_it(test_client, shared):
+    """Chat cards remember the agent a row was saved through. After the list
+    leaves that agent, the list is still reachable by id through an agent the
+    caller can see, and only then."""
+    w = shared
+    lid = w["list"]["id"]
+    submit(w, [_record(cp="Acme")])
+    assert test_client.delete(f"/api/data_sources/{w['agent']['id']}/lists/{lid}", params={"scope": "agent"},
+                              headers=_h(w["admin"]["token"], w["org_id"])).status_code == 204
+    # The old agent-scoped address is gone…
+    assert test_client.get(f"/api/data_sources/{w['agent']['id']}/lists/{lid}",
+                           headers=_h(w["admin"]["token"], w["org_id"])).status_code == 404
+    # …the list answers by id, naming the agent to use now.
+    r = test_client.get(f"/api/agent_lists/{lid}", headers=_h(w["admin"]["token"], w["org_id"]))
+    assert r.status_code == 200, r.text
+    assert r.json()["data_source_id"] == w["other_agent"]["id"] and r.json()["row_count"] == 1
+    # Someone who could only see the agent the list left can't read it.
+    assert test_client.get(f"/api/agent_lists/{lid}", headers=_h(w["viewer"]["token"], w["org_id"])).status_code == 404
+
+
+def test_a_list_reachable_by_id_after_its_agent_is_deleted(test_client, shared):
+    w = shared
+    lid = w["list"]["id"]
+    assert test_client.delete(f"/api/data_sources/{w['agent']['id']}",
+                              headers=_h(w["admin"]["token"], w["org_id"])).status_code in (200, 204)
+    r = test_client.get(f"/api/agent_lists/{lid}", headers=_h(w["admin"]["token"], w["org_id"]))
+    assert r.status_code == 200 and r.json()["data_source_id"] == w["other_agent"]["id"]
+    assert test_client.get(f"/api/agent_lists/{uuid.uuid4()}", headers=_h(w["admin"]["token"], w["org_id"])).status_code == 404
+
+
+def test_schema_context_finds_a_shared_list_by_any_linked_agents_name(shared):
+    """A request for tables by name (create_data) may use either agent's name."""
+    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+    from app.models.data_source import DataSource
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+    from app.services.agent_lists.naming import table_name_for
+
+    w = shared
+    other_name = table_name_for(w["other_agent"]["name"], w["other_agent"]["id"], w["list"]["slug"])
+
+    async def _fn(db, maker):
+        user = await db.get(User, w["admin"]["user_id"])
+        org = await db.get(Organization, w["org_id"])
+        report = await db.get(Report, w["both"]["id"])
+        agents = [await db.get(DataSource, w["agent"]["id"]), await db.get(DataSource, w["other_agent"]["id"])]
+        b = SchemaContextBuilder(db, agents, org, report, user=user, mode="chat")
+        await b._append_list_tables(sections := [], None, [other_name], None)
+        return sections
+    sections = run_async(_fn)
+    assert sections and [t.name for t in sections[0].tables] == [w["list"]["table_name"]]

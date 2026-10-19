@@ -61,15 +61,17 @@ async def list_tables(db, user, organization, data_source_ids) -> List[Dict[str,
         entry = by_list.setdefault(str(lst.id), {"list": lst, "agents": []})
         entry["agents"].append(ds)
     from app.services.agent_lists.access import resolved_permissions
-    from app.services.agent_lists.service import access_for_lists
+    from app.services.agent_lists.service import access_for_lists, list_table_aliases, list_table_name
     resolved = await resolved_permissions(db, user, organization)
-    access = await access_for_lists(db, user, organization, [e["list"] for e in by_list.values()])
+    access = await access_for_lists(db, user, organization, [e["list"] for e in by_list.values()], resolved=resolved)
     out = []
     for entry in by_list.values():
         lst, agents = entry["list"], entry["agents"]
-        named = access[str(lst.id)].name_agent or agents[0]
         out.append({
-            "name": table_name_for(named.name, str(named.id), lst.slug),
+            "name": list_table_name(lst, access[str(lst.id)], agents[0]),
+            # Every name resolve_list accepts for it, so a filter by name
+            # (create_data's tables) finds it under any of them.
+            "aliases": list_table_aliases(lst, access[str(lst.id)]),
             "list": lst,
             "agent": agents[0],
             "agents": agents,

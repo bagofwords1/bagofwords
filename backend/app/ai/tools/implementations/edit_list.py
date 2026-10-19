@@ -219,10 +219,9 @@ class EditListTool(Tool):
             return
         ds = _here(lst)[0]
         access = (await svc.access_for_lists(db, user, organization, [lst]))[str(lst.id)]
-        named = access.name_agent
 
         def output_for(*a, **kw):  # every output names the table like the rest of the product
-            return _output_for(*a, named=named, **kw)
+            return _output_for(*a, access=access, **kw)
 
         if not access.can_manage_schema:
             yield end_event(
@@ -332,8 +331,10 @@ class EditListTool(Tool):
             async with maker() as s:
                 s_ds = await s.get(_DS, str(ds.id))
                 s_lst = await svc.get_list(s, s_ds, str(lst.id))
-                # Re-check after the review pause: the list may have been
-                # shared further, or a grant revoked, while the card waited.
+                # Re-check after the review pause, holding the list so no link
+                # lands between the check and the save: it may have been shared
+                # further, or a grant revoked, while the card waited.
+                await svc.lock_list(s, s_lst)
                 if not await svc.can_manage_schema(s, user, organization, s_lst):
                     raise HTTPException(status_code=403, detail="This list is now shared with agents you don't manage.")
                 saved_change = await svc.update_list(s, s_ds, s_lst, payload)

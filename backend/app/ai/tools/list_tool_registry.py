@@ -26,7 +26,7 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
     from app.models.report_data_source_association import report_data_source_association
     from app.services.agent_lists.access import viewable_agent_ids
     from app.services.agent_lists.compiler import compile_list_schema, tool_description
-    from app.services.agent_lists.naming import agent_slug, table_name_for, tool_name_for
+    from app.services.agent_lists.naming import agent_slug, tool_name_for
     from app.services.agent_lists.service import live_lists_for_agents
 
     if report is None or user is None or organization is None:
@@ -44,14 +44,21 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
     lists = [l for l in await live_lists_for_agents(db, sorted(allowed))]
     if not lists:
         return [], {}
+    from app.models.data_source import DataSource
     from app.services.agent_lists.access import resolved_permissions
-    from app.services.agent_lists.service import access_for_lists, submit_route
+    from app.services.agent_lists.service import access_for_lists, linked_agent_ids, list_table_name, submit_route
     resolved = await resolved_permissions(db, user, organization)
-    access = await access_for_lists(db, user, organization, lists)
+    access = await access_for_lists(db, user, organization, lists, resolved=resolved)
+    # Prefetched once for every list (submit_route would otherwise query twice per list).
+    links = await linked_agent_ids(db, [l.id for l in lists])
+    agents = {str(a.id): a for a in (await db.execute(
+        select(DataSource).where(DataSource.id.in_(sorted(allowed)))
+    )).scalars().all()}
     # (list, the agent it is routed through, the list's agents in this report)
     routed = []
     for l in lists:
-        via, here = await submit_route(db, user, organization, l, allowed, resolved=resolved)
+        via, here = await submit_route(db, user, organization, l, allowed, resolved=resolved,
+                                       linked=links.get(str(l.id), []), agents=agents)
         if via is not None:
             routed.append((l, via, here))
     if not routed:
@@ -71,11 +78,10 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
         if name in routing:  # hash-suffixed fallback for pathological collisions
             name = tool_name_for(l.slug + "_" + str(l.id)[:6], list_id=str(l.id))
         key_name = next((f["name"] for f in (l.fields or []) if f["id"] == l.key_field_id), None)
-        named = access[str(l.id)].name_agent or ds
         descriptors.append({
             "name": name,
             "description": tool_description(l.name, l.description or "", agent_name, key_name, list_id=str(l.id),
-                                            table_name=table_name_for(named.name, str(named.id), l.slug)),
+                                            table_name=list_table_name(l, access[str(l.id)], ds)),
             "schema": compile_list_schema(l.fields or [], l.description or ""),
             "category": "both",
             "research_accessible": True,

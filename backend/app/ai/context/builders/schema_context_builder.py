@@ -1006,9 +1006,10 @@ class SchemaContextBuilder:
         tables = []
         list_patterns = compile_bounded_all(name_patterns)
         for e in entries:
-            if table_names and e["name"] not in table_names:
+            names = [e["name"], *e.get("aliases", [])]
+            if table_names and not any(n in table_names for n in names):
                 continue
-            if name_patterns and not any(p.search(e["name"]) for p in list_patterns):
+            if name_patterns and not any(p.search(n) for p in list_patterns for n in names):
                 continue
             tables.append(PromptTable(
                 name=e["name"],
