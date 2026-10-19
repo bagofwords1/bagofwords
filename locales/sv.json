@@ -5802,7 +5802,18 @@
     "exitFullscreen": "Avsluta helskärm",
     "searchColumns": "Sök kolumner…",
     "noColumns": "Inga matchande kolumner",
-    "centrality": "Centralitet"
+    "centrality": "Centralitet",
+    "relationships": "Relationer",
+    "relationshipsContextHint": "Avmarkerade relationer utelämnas från agentens kontext. Agenten kan fortfarande koppla ihop tabellerna själv.",
+    "showAllRelationships": "Visa alla",
+    "hideAllRelationships": "Dölj alla",
+    "includeRelationship": "Inkludera {name} i agentens kontext",
+    "relationshipHidden": "dold",
+    "relationshipsHiddenBadge": "Dolda: {count}",
+    "relationshipsHiddenTooltip": "Vissa relationer är dolda från den här agentens kontext",
+    "relationshipTargetNotSelected": "Inte i kontext: {name} är inte vald",
+    "relationshipColumnHidden": "Inte i kontext: en kolumn är dold",
+    "hiddenFromAgent": "Dold för agenten"
   },
   "fork": {
     "preparing": "Förbereder din kopia…",

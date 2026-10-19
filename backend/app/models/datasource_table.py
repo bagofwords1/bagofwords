@@ -34,6 +34,13 @@ class DataSourceTable(BaseSchema):
     # because schema re-sync rewrites that list, while a deny-list survives it
     # and lets newly discovered columns show up by default.
     excluded_columns = Column(JSON, nullable=True)
+
+    # Relationships (foreign-key edges) hidden from this agent's schema
+    # context: a deny-list of {column, references_name, references_column}
+    # entries, one per column pair (NULL or empty = all visible). Same rules
+    # as excluded_columns — curation, not access control; kept apart from
+    # `fks` so a re-sync neither drops the choice nor hides new edges.
+    excluded_fks = Column(JSON, nullable=True)
     
     # Legacy fields - kept for backward compatibility during migration
     # These will be removed after data migration to ConnectionTable
@@ -83,7 +90,7 @@ class DataSourceTable(BaseSchema):
             # Override with domain-specific metadata if present
             if self.metadata_json:
                 table.metadata_json = self.metadata_json
-            return apply_column_exclusions(table, self.excluded_columns)
+            return apply_column_exclusions(table, self.excluded_columns, self.excluded_fks)
         
         # Legacy: use fields on DataSourceTable directly
         columns_data = self.columns or []
@@ -118,4 +125,4 @@ class DataSourceTable(BaseSchema):
             pks=pks,
             fks=fks,
             metadata_json=self.metadata_json
-        ), self.excluded_columns)
+        ), self.excluded_columns, self.excluded_fks)

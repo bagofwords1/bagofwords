@@ -252,6 +252,9 @@ class Table(BaseModel):
     # DataSourceTable.excluded_columns). Carried so late column fills — e.g.
     # describe_tables sampling a thin table live — re-apply the same filter.
     excluded_columns: Optional[list[str]] = None
+    # Relationships hidden from context (DataSourceTable.excluded_fks), so a
+    # management read can show which edges a manager hid next to their fks.
+    excluded_fks: Optional[list[dict]] = None
 
 
 def excluded_column_set(excluded) -> frozenset:
@@ -279,29 +282,74 @@ def filter_columns(columns, excluded) -> list:
     return [c for c in (columns or []) if _col_name(c).lower() not in ex]
 
 
-def filter_fks(fks, excluded) -> list:
-    """Drop foreign keys whose LOCAL column is excluded (dicts or models)."""
+def fk_flat(fk) -> dict | None:
+    """One foreign-key edge as flat names: {column, references_name,
+    references_column}, the shape DataSourceTable.excluded_fks stores.
+
+    Reads every shape an edge comes in — a stored ``fks`` entry (nested
+    ``{"name": ...}`` columns), a ForeignKey model, or an already-flat
+    excluded_fks entry — and returns None for anything incomplete, so callers
+    never index into a shape they didn't expect."""
+    if isinstance(fk, dict):
+        col, ref, ref_col = fk.get("column"), fk.get("references_name"), fk.get("references_column")
+    else:
+        col = getattr(fk, "column", None)
+        ref = getattr(fk, "references_name", None)
+        ref_col = getattr(fk, "references_column", None)
+    col_name = col if isinstance(col, str) else _col_name(col)
+    ref_col_name = ref_col if isinstance(ref_col, str) else _col_name(ref_col)
+    if not (col_name and ref and ref_col_name):
+        return None
+    return {"column": col_name, "references_name": str(ref), "references_column": ref_col_name}
+
+
+def fk_key(fk) -> tuple[str, str, str] | None:
+    """Identity of one foreign-key edge: (local column, target table, target
+    column), lowercased like column names. Accepts any shape fk_flat reads. A
+    composite key arrives as one entry per column pair, so each pair is its
+    own edge."""
+    flat = fk_flat(fk)
+    if flat is None:
+        return None
+    return (flat["column"].lower(), flat["references_name"].lower(), flat["references_column"].lower())
+
+
+def excluded_fk_set(excluded_fks) -> frozenset:
+    """Normalize a DataSourceTable.excluded_fks value to a set of fk_key()s."""
+    if not excluded_fks:
+        return frozenset()
+    return frozenset(k for k in (fk_key(e) for e in excluded_fks if isinstance(e, dict)) if k)
+
+
+def filter_fks(fks, excluded, excluded_fks=None) -> list:
+    """Drop foreign keys whose LOCAL column is excluded, or that the agent
+    manager hid as a relationship (dicts or models)."""
     ex = excluded if isinstance(excluded, frozenset) else excluded_column_set(excluded)
-    if not ex:
+    ex_fks = excluded_fks if isinstance(excluded_fks, frozenset) else excluded_fk_set(excluded_fks)
+    if not ex and not ex_fks:
         return list(fks or [])
     out = []
     for fk in fks or []:
         col = fk.get("column") if isinstance(fk, dict) else getattr(fk, "column", None)
         if _col_name(col).lower() in ex:
             continue
+        if ex_fks and fk_key(fk) in ex_fks:
+            continue
         out.append(fk)
     return out
 
 
-def apply_column_exclusions(table: "Table", excluded) -> "Table":
-    """Return `table` with excluded columns removed from columns/pks/fks."""
+def apply_column_exclusions(table: "Table", excluded, excluded_fks=None) -> "Table":
+    """Return `table` with excluded columns removed from columns/pks/fks and
+    hidden relationships removed from fks."""
     ex = excluded_column_set(excluded)
-    if not ex:
-        return table
-    table.columns = filter_columns(table.columns, ex)
-    table.pks = filter_columns(table.pks, ex)
-    table.fks = filter_fks(table.fks, ex)
-    table.excluded_columns = sorted(ex)
+    ex_fks = excluded_fks if isinstance(excluded_fks, frozenset) else excluded_fk_set(excluded_fks)
+    if ex:
+        table.columns = filter_columns(table.columns, ex)
+        table.pks = filter_columns(table.pks, ex)
+        table.excluded_columns = sorted(ex)
+    if ex or ex_fks:
+        table.fks = filter_fks(table.fks, ex, ex_fks)
     return table
 
 

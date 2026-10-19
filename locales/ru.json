@@ -5802,7 +5802,18 @@
     "exitFullscreen": "Выйти из полноэкранного режима",
     "searchColumns": "Поиск столбцов…",
     "noColumns": "Подходящих столбцов нет",
-    "centrality": "Центральность"
+    "centrality": "Центральность",
+    "relationships": "Связи",
+    "relationshipsContextHint": "Неотмеченные связи не попадают в контекст агента. Агент всё равно может сам соединять эти таблицы.",
+    "showAllRelationships": "Показать все",
+    "hideAllRelationships": "Скрыть все",
+    "includeRelationship": "Включить {name} в контекст агента",
+    "relationshipHidden": "скрыта",
+    "relationshipsHiddenBadge": "Скрыто: {count}",
+    "relationshipsHiddenTooltip": "Некоторые связи скрыты из контекста этого агента",
+    "relationshipTargetNotSelected": "Вне контекста: {name} не выбрана",
+    "relationshipColumnHidden": "Вне контекста: столбец скрыт",
+    "hiddenFromAgent": "Скрыта от агента"
   },
   "fork": {
     "preparing": "Готовим вашу копию…",

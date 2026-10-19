@@ -5998,7 +5998,18 @@
     "showAllColumns": "Mostrar todas",
     "hideAllColumns": "Ocultar todas",
     "includeColumn": "Incluir {name} en el contexto del agente",
-    "columnHidden": "oculta"
+    "columnHidden": "oculta",
+    "relationships": "Relaciones",
+    "relationshipsContextHint": "Las relaciones sin marcar quedan fuera del contexto del agente. El agente aún puede unir estas tablas por su cuenta.",
+    "showAllRelationships": "Mostrar todas",
+    "hideAllRelationships": "Ocultar todas",
+    "includeRelationship": "Incluir {name} en el contexto del agente",
+    "relationshipHidden": "oculta",
+    "relationshipsHiddenBadge": "Ocultas: {count}",
+    "relationshipsHiddenTooltip": "Algunas relaciones están ocultas del contexto de este agente",
+    "relationshipTargetNotSelected": "Fuera de contexto: {name} no está seleccionada",
+    "relationshipColumnHidden": "Fuera de contexto: hay una columna oculta",
+    "hiddenFromAgent": "Oculta al agente"
   },
   "fork": {
     "preparing": "Preparando tu copia…",

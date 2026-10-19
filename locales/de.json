@@ -5802,7 +5802,18 @@
     "exitFullscreen": "Vollbild verlassen",
     "searchColumns": "Spalten suchen…",
     "noColumns": "Keine passenden Spalten",
-    "centrality": "Zentralität"
+    "centrality": "Zentralität",
+    "relationships": "Beziehungen",
+    "relationshipsContextHint": "Nicht markierte Beziehungen werden aus dem Kontext des Agenten ausgelassen. Der Agent kann diese Tabellen trotzdem selbst verknüpfen.",
+    "showAllRelationships": "Alle anzeigen",
+    "hideAllRelationships": "Alle ausblenden",
+    "includeRelationship": "{name} in den Agentenkontext aufnehmen",
+    "relationshipHidden": "ausgeblendet",
+    "relationshipsHiddenBadge": "Ausgeblendet: {count}",
+    "relationshipsHiddenTooltip": "Einige Beziehungen sind im Kontext dieses Agenten ausgeblendet",
+    "relationshipTargetNotSelected": "Nicht im Kontext: {name} ist nicht ausgewählt",
+    "relationshipColumnHidden": "Nicht im Kontext: eine Spalte ist ausgeblendet",
+    "hiddenFromAgent": "Für Agent ausgeblendet"
   },
   "fork": {
     "preparing": "Deine Kopie wird vorbereitet…",

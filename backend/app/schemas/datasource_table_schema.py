@@ -65,6 +65,9 @@ class DataSourceTableSchema(BaseModel):
     metadata_json: Optional[Dict[str, Any]] = None
     # Column names hidden from this agent's schema context (None = none hidden).
     excluded_columns: Optional[List[str]] = None
+    # Relationships hidden from this agent's schema context, one
+    # {column, references_name, references_column} per edge (None = none).
+    excluded_fks: Optional[List[Dict[str, str]]] = None
     # Connection info (for multi-connection support)
     connection_id: Optional[str] = None
     connection_name: Optional[str] = None
@@ -223,6 +226,10 @@ class DeltaUpdateTablesRequest(BaseModel):
     # names to hide from the agent's context (replaces the stored list; an
     # empty list shows every column again). Context curation, not access control.
     excluded_columns: Dict[str, List[str]] = {}
+    # Per-table relationship visibility: table id -> the COMPLETE list of
+    # edges ({column, references_name, references_column}) to hide from the
+    # agent's context, same replace semantics as excluded_columns.
+    excluded_fks: Dict[str, List[Dict[str, str]]] = {}
     
     class Config:
         from_attributes = True
@@ -234,6 +241,7 @@ class DeltaUpdateTablesResponse(BaseModel):
     deactivated_count: int
     total_selected: int  # New total of is_active=True tables
     columns_updated_count: int = 0  # Tables whose excluded_columns changed
+    relationships_updated_count: int = 0  # Tables whose excluded_fks changed
     
     class Config:
         from_attributes = True
