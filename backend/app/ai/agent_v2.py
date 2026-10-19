@@ -3316,6 +3316,14 @@ class AgentV2:
         except Exception:
             pass
 
+    _pending_instruction_usage: Optional[list] = None
+
+    async def _flush_instruction_usage(self) -> None:
+        """Record the instruction usage noted at the start of the turn, once."""
+        items, self._pending_instruction_usage = self._pending_instruction_usage, None
+        if items:
+            await self._record_instruction_usage_background(items)
+
     async def _record_instruction_usage_background(self, instruction_items: list):
         """Record instruction usage events. Routes through _writes_session
         so single-writer mode shares self._writes (no extra session, no
@@ -4776,6 +4784,16 @@ class AgentV2:
             # _start_title_generation so it lands before any tool derives a
             # child context (for_source copies `loop` at derivation time).
             self._bind_usage_context_loop()
+            # Load the usage quota while the context is built, not at the
+            # first model call (its own session, so it runs alongside).
+            _ulc = getattr(self, "usage_limit_context", None)
+            if _ulc is not None and hasattr(_ulc, "prefetch"):
+                self._usage_prefetch_task = asyncio.create_task(_ulc.prefetch(), name="agent.usage_prefetch")
+            # Open the provider connection now, while the context is built,
+            # so the first planner call does not wait for TCP + TLS.
+            _planner_llm = getattr(getattr(self, "planner", None), "llm", None)
+            if _planner_llm is not None and hasattr(_planner_llm, "preconnect"):
+                self._preconnect_task = asyncio.create_task(_planner_llm.preconnect(), name="agent.llm_preconnect")
 
             # Title the report from that prompt right now, in parallel with
             # context priming and planning, instead of after the run (see
@@ -4865,12 +4883,11 @@ class AgentV2:
             # Token metadata update in background (non-blocking)
             asyncio.create_task(self._update_context_token_metadata_background(view))
             
-            # Record instruction usage in background (non-blocking)
+            # Instruction usage is bookkeeping: recorded once the turn is done
+            # (_flush_instruction_usage), not before the first model call,
+            # where the single-writer session made it a ~50 ms wait.
             if view.static.instructions and view.static.instructions.items:
-                if self._use_single_write_session():
-                    await self._record_instruction_usage_background(view.static.instructions.items)
-                else:
-                    asyncio.create_task(self._record_instruction_usage_background(view.static.instructions.items))
+                self._pending_instruction_usage = list(view.static.instructions.items)
                 # Emit instructions.context SSE so frontend knows which instructions were loaded
                 try:
                     seq_inst = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -7602,6 +7619,7 @@ class AgentV2:
                 status = 'error'
             else:
                 status = 'success'
+            await self._flush_instruction_usage()
             await self._stamp_memory_trace()
             await self.project_manager.finish_agent_execution(
                 self.db,
@@ -7719,6 +7737,10 @@ class AgentV2:
             # Handle errors and finish execution with error status
             if self.current_execution:
                 error_payload = {"message": str(e), "type": type(e).__name__}
+                try:
+                    await self._flush_instruction_usage()
+                except Exception:
+                    logger.debug("instruction usage not recorded for a failed turn", exc_info=True)
                 await self._stamp_memory_trace()
                 await self.project_manager.finish_agent_execution(
                     self.db,

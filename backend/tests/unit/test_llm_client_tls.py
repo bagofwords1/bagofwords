@@ -54,11 +54,24 @@ def test_repeated_client_construction_reuses_one_tls_context(build, context_coun
     assert context_count["n"] == before
 
 
+def _inner_transport(t):
+    """The pooled transport behind a shared one (app.core.llm_transport)."""
+    import asyncio
+    from app.core.llm_transport import _SharedAsync, _SharedSync
+    if isinstance(t, _SharedSync):
+        return t.transport()
+    if isinstance(t, _SharedAsync):
+        async def _get():
+            return t.transport()
+        return asyncio.run(_get())
+    return t
+
+
 @pytest.mark.parametrize("build", [_anthropic, _openai, _openai_responses])
 def test_shared_context_still_verifies_certificates(build):
     client = build()
     for http in (client.client._client, client.async_client._client):
-        ctx = http._transport._pool._ssl_context
+        ctx = _inner_transport(http._transport)._pool._ssl_context
         assert ctx.verify_mode == ssl.CERT_REQUIRED
         assert ctx.check_hostname is True
 
