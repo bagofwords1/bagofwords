@@ -103,12 +103,14 @@ class OpenAIResponsesClient(LLMClient):
                 **http_kwargs, **({"event_hooks": sync_hooks} if sync_hooks else {})))
             self.async_client = AsyncOpenAI(**client_kwargs, http_client=httpx.AsyncClient(
                 **http_kwargs, **({"event_hooks": async_hooks} if async_hooks else {})))
-        elif sync_hooks:
-            self.client = OpenAI(**client_kwargs, http_client=DefaultHttpxClient(event_hooks=sync_hooks))
-            self.async_client = AsyncOpenAI(**client_kwargs, http_client=DefaultAsyncHttpxClient(event_hooks=async_hooks))
         else:
-            self.client = OpenAI(**client_kwargs)
-            self.async_client = AsyncOpenAI(**client_kwargs)
+            # Always our own clients, on the process-wide TLS context (app.core.tls).
+            from app.core.tls import shared_ssl_context
+            tls = shared_ssl_context()
+            self.client = OpenAI(**client_kwargs, http_client=DefaultHttpxClient(
+                verify=tls, **({"event_hooks": sync_hooks} if sync_hooks else {})))
+            self.async_client = AsyncOpenAI(**client_kwargs, http_client=DefaultAsyncHttpxClient(
+                verify=tls, **({"event_hooks": async_hooks} if async_hooks else {})))
         self.enable_web_search = enable_web_search
         # Admin-configured override; None keeps each path's historical default
         # (the legacy Chat Completions helpers send 0.3/1.0, the Responses path

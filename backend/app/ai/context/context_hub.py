@@ -641,6 +641,7 @@ class ContextHub:
         )
         # Cache
         self._static_cache["schemas"] = schemas_obj or self._static_cache.get("schemas")
+        self._apply_mcp_catalog()
         self._static_cache["files"] = files_obj or self._static_cache.get("files")
         return snapshot
 
@@ -692,6 +693,57 @@ class ContextHub:
         except Exception:
             ids = []
         return ids or None
+
+    def set_mcp_catalog(self, available, *, gateway: bool = False) -> bool:
+        """Make <mcp_tools> show exactly the MCP tools the run registered.
+
+        ``available``: {(connection_id, tool_name): {"deferred", "policy"}}
+        from the run's tool catalog. Tools not in it are dropped (disabled or
+        denied under the strictest setting, or MCP not offered at all), and
+        the rest take its deferred flag and policy, so the prompt never
+        lists a tool the run cannot call. ``None`` leaves the tools as built.
+        ``gateway``: the catalog could not be built and the run calls MCP
+        tools through execute_mcp, so the block says so and inlines schemas.
+        Re-applied whenever schemas are rebuilt. Returns True when the
+        rendered block changes.
+        """
+        before = self._mcp_render_state()
+        self._mcp_available = available
+        self._mcp_gateway = bool(gateway)
+        self._apply_mcp_catalog()
+        return self._mcp_render_state() != before
+
+    def _mcp_sections(self):
+        schemas = self._static_cache.get("schemas")
+        return [ds for ds in (getattr(schemas, "data_sources", None) or []) if hasattr(ds, "mcp_tools")]
+
+    def _mcp_render_state(self):
+        return [
+            (getattr(ds, "native_mcp", True),
+             [(str(t.connection_id), str(t.name), bool(getattr(t, "deferred", False)), getattr(t, "policy", None))
+              for t in (ds.mcp_tools or [])])
+            for ds in self._mcp_sections()
+        ]
+
+    def _apply_mcp_catalog(self) -> None:
+        available = getattr(self, "_mcp_available", None)
+        gateway = getattr(self, "_mcp_gateway", False)
+        for ds in self._mcp_sections():
+            try:
+                ds.native_mcp = not gateway
+                if available is None:
+                    continue
+                kept = []
+                for t in (ds.mcp_tools or []):
+                    entry = available.get((str(t.connection_id), str(t.name)))
+                    if entry is None:
+                        continue
+                    t.deferred = bool(entry.get("deferred"))
+                    t.policy = entry.get("policy") or t.policy
+                    kept.append(t)
+                ds.mcp_tools = kept
+            except Exception:
+                pass
 
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
@@ -806,6 +858,7 @@ class ContextHub:
 
         # Store results (handle exceptions gracefully)
         self._static_cache["schemas"] = schemas if not isinstance(schemas, Exception) else None
+        self._apply_mcp_catalog()
         self._static_cache["instructions"] = instructions if not isinstance(instructions, Exception) else None
         self._static_cache["code"] = None
         self._static_cache["resources"] = resources if not isinstance(resources, Exception) else None

@@ -125,16 +125,21 @@ def _issued_args(arguments) -> dict:
     return {k: v for k, v in arguments.items() if not str(k).startswith("_")}
 
 
-def nativize_replayed_calls(turns, list_routing: dict, mcp_routing: dict) -> int:
-    """Point rehydrated gateway calls back at the native tool the model used.
+def nativize_replayed_calls(turns, list_routing: dict, mcp_routing: dict, native_names=None) -> int:
+    """Point rehydrated gateway calls back at the tool the model has.
 
     Durable history is rebuilt from ToolExecution rows, which store the
     gateway call (``submit_list``/``execute_mcp``). Replayed under that name
     the model sees a tool it does not have, so it does not recognise its own
-    earlier save. Returns the number of calls remapped.
+    earlier save. An MCP tool in ``native_names`` replays under its native
+    name; one past tools_max (routed, not native) replays as the
+    ``call_tool`` call that reaches it, since its native name is not in the
+    tool list. ``native_names=None`` treats every routed tool as native.
+    Returns the number of calls remapped.
     """
     by_list = {r["list_id"]: name for name, r in (list_routing or {}).items()}
     by_mcp = {(r.get("connection_id"), r.get("tool_name")): name for name, r in (mcp_routing or {}).items()}
+    native = set(by_mcp.values()) if native_names is None else set(native_names)
     n = 0
     for turn in turns:
         for p in turn.parts:
@@ -144,9 +149,13 @@ def nativize_replayed_calls(turns, list_routing: dict, mcp_routing: dict) -> int
                 p.replay_name = by_list[p.args["list_id"]]
                 p.replay_args = {"records": p.args.get("records") or []}
             elif p.tool_name == "execute_mcp" and (p.args.get("connection_id"), p.args.get("tool_name")) in by_mcp:
-                p.replay_name = by_mcp[(p.args["connection_id"], p.args["tool_name"])]
+                name = by_mcp[(p.args["connection_id"], p.args["tool_name"])]
                 inner = p.args.get("arguments")
-                p.replay_args = dict(inner) if isinstance(inner, dict) else {}
+                inner = dict(inner) if isinstance(inner, dict) else {}
+                if name in native:
+                    p.replay_name, p.replay_args = name, inner
+                else:
+                    p.replay_name, p.replay_args = "call_tool", {"name": name, "arguments": inner}
             else:
                 continue
             n += 1
@@ -497,6 +506,19 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 }
 
 
+# Tools that never read the turn's context view or hub; they skip the pre-tool
+# context rebuild. Anything not listed keeps it.
+_CONTEXT_FREE_TOOLS = frozenset({
+    "execute_mcp", "read_mcp_resource", "list_mcp_resources", "search_tools", "call_tool",
+    "read_file", "grep_files", "list_files", "search_files", "web_fetch",
+})
+
+
+def _tool_ignores_turn_context(tool_name) -> bool:
+    name = str(tool_name or "")
+    return name in _CONTEXT_FREE_TOOLS or name.startswith("mcp__")
+
+
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
@@ -754,6 +776,9 @@ class AgentV2:
             self.analysis_files = []
 
         self.sigkill_event = asyncio.Event()
+        # Set once the final answer is saved; a non-streaming caller waits on
+        # it instead of on the whole run (see CompletionService).
+        self.answer_ready: asyncio.Event | None = None
         websocket_manager.add_handler(self._handle_completion_update)
 
         # Vision blocks harvested from tool observations, newest
@@ -2417,7 +2442,8 @@ class AgentV2:
                     tool_execution = _harness_intents.get(_h_action_index)
 
                     tool = self.registry.get(tool_name)
-                    disabled = tool_name in self._disabled_tools
+                    disabled = tool_name in self._disabled_tools or (
+                        tool_name == "execute_mcp" and not self._mcp_offered)
                     if not tool or disabled:
                         logger.warning(f"Knowledge harness: {'disabled' if disabled else 'unknown'} tool '{tool_name}'")
                         observation = {
@@ -2461,6 +2487,8 @@ class AgentV2:
                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                         "settings": self.organization_settings,
                         "report": self.report,
+                        "run_agent_ids": self._run_agent_ids(),
+                        "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
@@ -4058,6 +4086,16 @@ class AgentV2:
             async with self._session_maker() as db:
                 yield db
 
+    async def _drain_then_signal_answer(self):
+        """Drain the answer's background writes, then tell a waiting
+        non-streaming caller the answer is saved (``answer_ready``)."""
+        try:
+            await self._drain_bg_writes()
+        finally:
+            ev = getattr(self, "answer_ready", None)
+            if ev is not None:
+                ev.set()
+
     async def _drain_bg_writes(self, *, timeout_s: float = 10.0):
         """Wait for all scheduled background writes to complete.
 
@@ -5028,6 +5066,14 @@ class AgentV2:
             # they are never stripped by a filter that doesn't know about them,
             # and before routing/fallback so the catalog is final by loop start.
             await self._register_native_mcp_tools()
+            # The schema block was rendered above, before registration knew
+            # which MCP tools the run can call. Render it again when that
+            # changed <mcp_tools> (once, before the first planner call).
+            if getattr(self, "_mcp_context_changed", False):
+                try:
+                    schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+                except Exception:
+                    logger.debug("[agent] schema re-render after MCP registration failed", exc_info=True)
             # Agent Lists: one native submit_<list> tool per list on the report's
             # agents. Registered once, after MCP tools, so the tools block (the
             # first prompt-cache breakpoint) is stable for the whole run.
@@ -5037,6 +5083,7 @@ class AgentV2:
                     self.transcript.turns,
                     getattr(self, "_list_tool_routing", None),
                     getattr(self, "_native_mcp_routing", None),
+                    native_names=getattr(self, "_native_mcp_names", None),
                 )
                 if remapped:
                     logger.info("[transcript] replaying %d rehydrated gateway call(s) under their native names", remapped)
@@ -5104,8 +5151,9 @@ class AgentV2:
                     # Pick up any steering messages sent while the previous step ran
                     # — they flow into this iteration's planner input via
                     # _effective_user_message().
+                    _new_steers = []
                     try:
-                        await self._collect_steering_messages()
+                        _new_steers = await self._collect_steering_messages()
                     except Exception:
                         pass
 
@@ -5123,10 +5171,17 @@ class AgentV2:
                         lambda t: t.cancelled() or t.exception()  # mark retrieved if never awaited
                     )
 
-                    # Refresh warm context (skip on first loop - already done above)
+                    # Refresh warm context (skip on first loop - already done above). When the last
+                    # iteration ended with a post-tool refresh, only the in-memory transcript flush,
+                    # the steering poll and a commit ran since; reuse that view unless a steer arrived.
                     if loop_index > 0:
-                        view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
-                        await self._update_context_token_metadata(view)
+                        _carried = getattr(self, "_carried_warm_view", None)
+                        self._carried_warm_view = None
+                        if _carried is not None and not _new_steers:
+                            view = _carried
+                        else:
+                            view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
+                            await self._update_context_token_metadata(view)
                 
                     # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
                     if loop_index > 0:
@@ -6134,7 +6189,7 @@ class AgentV2:
                                     # until persist_tool/rebuild land, but we don't
                                     # block on them before signalling done.
                                     asyncio.create_task(
-                                        self._drain_bg_writes(),
+                                        self._drain_then_signal_answer(),
                                         name="agent.post_finished_drain",
                                     )
 
@@ -6356,6 +6411,13 @@ class AgentV2:
                                             "summary": f"Tool '{tool_name}' is not available to a sub-agent; use the tools in your catalog and finish with finish_subtask.",
                                             "error": {"code": "resolve_error", "message": "outside sub-agent profile"},
                                         })
+                                if tool_name == "execute_mcp" and not self._mcp_offered:
+                                    # Every MCP call (native, call_tool, execute_mcp) is
+                                    # execute_mcp by now: refused when the run offers none.
+                                    return await _refuse_before_dispatch({
+                                            "summary": "MCP tools are not available in this conversation; continue without them.",
+                                            "error": {"code": "resolve_error", "message": "mcp tools not offered"},
+                                        })
                                 if tool_name in self._disabled_tools:
                                     return await _refuse_before_dispatch({
                                             "summary": f"Tool '{tool_name}' is switched off for this conversation; continue without it and say what you could not do.",
@@ -6498,11 +6560,15 @@ class AgentV2:
                                         }
                                     ))
                         
-                                    # Refresh warm context to include the latest planner decision blocks in messages
-                                    try:
-                                        _view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
-                                    except Exception:
-                                        pass
+                                    # Refresh warm context to include the latest planner decision blocks in messages,
+                                    # for tools that read it. Tools that never touch the context view or hub
+                                    # (MCP calls, file reads, web fetch) keep the loop's view: rebuilding it
+                                    # cost ~25-30 ms per call for a result nothing reads.
+                                    if not _tool_ignores_turn_context(tool_name):
+                                        try:
+                                            _view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
+                                        except Exception:
+                                            pass
                                     # The schema block is NOT rebuilt here. It used
                                     # to be rebuilt before every tool call with
                                     # with_stats=True, which re-read TableStats —
@@ -6527,6 +6593,8 @@ class AgentV2:
                                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                                         "settings": self.organization_settings,
                                         "report": self.report,
+                                        "run_agent_ids": self._run_agent_ids(),
+                        "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
                                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
@@ -7170,7 +7238,7 @@ class AgentV2:
                                             ))
                                         completion_finished_emitted = True
                                         asyncio.create_task(
-                                            self._drain_bg_writes(),
+                                            self._drain_then_signal_answer(),
                                             name="agent.post_finished_drain",
                                         )
 
@@ -7209,6 +7277,9 @@ class AgentV2:
                             # Refresh for next iteration
                             view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
                             await self._update_context_token_metadata(view)
+                            # The next iteration starts from this view unless something can change the
+                            # warm sections first (a steer message, or sub-agents launched below).
+                            self._carried_warm_view = None if self._wave_pending else view
                             if _post_snap_tool_exec_ids:
                                 await self._save_post_tool_snapshots(view, list(_post_snap_tool_exec_ids))
                             # NOTE: schemas_excerpt is deliberately NOT recomputed here.
@@ -7246,6 +7317,10 @@ class AgentV2:
                     if analysis_done:
                         break
                 except Exception as _loop_exc:
+                    # A view carried from before the crash may hold state the
+                    # rollback below discards: the retry rebuilds from what
+                    # was persisted.
+                    self._carried_warm_view = None
                     # ---- Loop-level rescue ------------------------------------------
                     # An unexpected error in one iteration must not kill the whole
                     # run. Roll back the (possibly poisoned) session, then retry the
@@ -7455,8 +7530,10 @@ class AgentV2:
                 except Exception as _checkin_exc:
                     logger.warning(f"[agent] checkin dispatch failed: {_checkin_exc!r}")
 
-            # Save final context snapshot (recompute metadata so counts/tokens are up to date)
-            view = await self._refresh_warm_traced("final_snapshot")
+            # Final context snapshot: the context as last built (what the last
+            # planner call saw). Rebuilding it here re-ran every warm builder
+            # only to add the answer just written — which the transcript holds.
+            view = self.context_hub.get_view()
             await self._update_context_token_metadata(view)
 
             # Save final context snapshot in background (not user-facing).
@@ -7621,7 +7698,7 @@ class AgentV2:
                     await self.event_queue.put(finished_event)
                 completion_finished_emitted = True
                 asyncio.create_task(
-                    self._drain_bg_writes(),
+                    self._drain_then_signal_answer(),
                     name="agent.post_finished_drain",
                 )
 
@@ -8432,7 +8509,25 @@ class AgentV2:
         resolution, which is the correct outcome for a hallucinated name.
         """
         routing = getattr(self, "_native_mcp_routing", None)
-        if not routing or not isinstance(tool_name, str) or not tool_name.startswith("mcp__"):
+        if not routing or not isinstance(tool_name, str):
+            return tool_name, tool_input
+        title = None
+        if tool_name == "call_tool":
+            # A tool found with search_tools: same rewrite, its name and
+            # arguments are nested. Unknown names fall through to call_tool,
+            # which answers with an error.
+            call = tool_input if isinstance(tool_input, dict) else {}
+            target = call.get("name")
+            if isinstance(target, str) and target not in routing:
+                # The short tool name ("find_artist") when it is unambiguous.
+                matches = [n for n, r in routing.items() if r.get("tool_name") == target]
+                target = matches[0] if len(matches) == 1 else target
+            if not isinstance(target, str) or target not in routing:
+                return tool_name, tool_input
+            tool_name = target
+            title = call.get("title") if isinstance(call.get("title"), str) else None
+            tool_input = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+        if not tool_name.startswith("mcp__"):
             return tool_name, tool_input
         route = routing.get(tool_name)
         if not route:
@@ -8449,45 +8544,103 @@ class AgentV2:
             "connection_id": route["connection_id"],
             "tool_name": route["tool_name"],
             "arguments": dict(args),
-            "title": f"Running {route['tool_name']}",
         }
+        # Only a model-written label (call_tool's title). A made-up "Running X"
+        # stayed on screen as the finished call's label.
+        if title:
+            rewritten["title"] = title
         logger.info("[agent] native mcp call %s -> execute_mcp(%s)", tool_name, route["tool_name"])
         return "execute_mcp", rewritten
 
+    def _run_agent_ids(self) -> list:
+        """Ids of the agents this run executes against (its working set).
+
+        Auto resolves to the user's accessible agents, so this is the scope for
+        MCP tools too: an unattached report has no agents of its own.
+        """
+        return [str(ds.id) for ds in (self.data_sources or []) if getattr(ds, "id", None)]
+
+    # The model-facing MCP surface. execute_mcp stays the one execution path
+    # but is never offered: tools are native (mcp__...), and the ones past
+    # tools_max are reached with search_tools + call_tool, offered only then.
+    _MCP_GATEWAY_TOOLS = ("execute_mcp", "search_tools", "call_tool")
+
+    # False when this run does not offer MCP tools (filtered out upstream, or
+    # switched off): dispatch then refuses execute_mcp, the path every MCP
+    # call takes, whatever name the model used.
+    _mcp_offered: bool = True
+
     async def _register_native_mcp_tools(self) -> None:
-        """Add one planner tool per MCP/custom-API tool, when the org allows it.
+        """Register the run's MCP / custom-API tools, capped by ``tools_max``.
 
         Runs in the async post-init phase (``__init__`` is sync and has no DB
-        access), alongside the other catalog adjustments. The org setting is a
-        cheap pre-check; the adaptive size threshold is applied inside
-        ``build_native_mcp_tools``, which is where the effective tool count is
-        known. On failure the catalog is left untouched and the gateway serves.
+        access), after every filter that narrows the catalog. Those filters
+        know only ``execute_mcp``: when one removed it (a shared-artifact
+        viewer chat, a sub-agent profile without MCP, a permission filter),
+        no MCP tool is registered under any name.
         """
-        from app.ai.tools.mcp_tool_registry import build_native_mcp_tools, native_tools_enabled
+        from app.ai.tools.mcp_tool_registry import build_mcp_tool_catalog
 
         self._native_mcp_routing = {}
-        if not self.report or not native_tools_enabled(self.organization_settings):
+        self._native_mcp_names = set()
+        self._deferred_mcp_tools = []
+        catalog_tools = list(self.planner.tool_catalog or [])
+        gateway = {t.name: t for t in catalog_tools if t.name in self._MCP_GATEWAY_TOOLS}
+        self.planner.tool_catalog = [t for t in catalog_tools if t.name not in self._MCP_GATEWAY_TOOLS]
+        try:
+            mcp_on = getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", True)
+        except Exception:
+            mcp_on = True
+        offered = (
+            self.report is not None
+            and "execute_mcp" in gateway
+            and "execute_mcp" not in self._disabled_tools
+            and mcp_on is not False
+        )
+        self._mcp_offered = offered
+        if not offered:
+            self._set_mcp_context({})
             return
-        if "execute_mcp" in self._disabled_tools:
-            return
+        base_catalog = self.planner.tool_catalog
         try:
             user = self.user if hasattr(self, "user") else None
-            descriptors, routing = await build_native_mcp_tools(
+            catalog = await build_mcp_tool_catalog(
                 self.db,
                 self.report,
                 user or getattr(self.head_completion, "user", None),
                 organization_settings=self.organization_settings,
+                data_source_ids=self._run_agent_ids(),
             )
-            if not descriptors:
-                return
-            existing = {t.name for t in (self.planner.tool_catalog or [])}
-            added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
-            self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
-            self._native_mcp_routing = routing
-            logger.info("[agent] registered %d native MCP tool(s)", len(added))
+            if catalog.failed:
+                raise RuntimeError("MCP tool catalog could not be built")
+            existing = {t.name for t in base_catalog}
+            added = [ToolDescriptor(**d) for d in catalog.native if d["name"] not in existing]
         except Exception as e:
-            logger.warning("[agent] native MCP tool registration skipped: %s", e)
-            self._native_mcp_routing = {}
+            # Tools unknown, not absent: keep the gateway, which <mcp_tools>
+            # (connection ids, and schemas when they fit) is enough to call.
+            logger.warning("[agent] MCP tool registration failed, offering execute_mcp: %s", e)
+            self.planner.tool_catalog = base_catalog + [gateway["execute_mcp"]]
+            self._set_mcp_context(None, gateway=True)
+            return
+        if catalog.deferred:
+            added += [gateway[n] for n in ("search_tools", "call_tool") if n in gateway]
+        self.planner.tool_catalog = base_catalog + added
+        self._native_mcp_routing = catalog.routing
+        self._native_mcp_names = {d["name"] for d in catalog.native}
+        self._deferred_mcp_tools = catalog.deferred
+        self._set_mcp_context(catalog.context_view())
+        if catalog.native or catalog.deferred:
+            logger.info("[agent] MCP tools: %d native, %d behind search_tools",
+                        len(catalog.native), len(catalog.deferred))
+
+    def _set_mcp_context(self, available, *, gateway: bool = False) -> None:
+        """Point <mcp_tools> at what was registered; re-render on the next
+        schema render when that changed it."""
+        try:
+            self._mcp_context_changed = self.context_hub.set_mcp_catalog(available, gateway=gateway)
+        except Exception:
+            self._mcp_context_changed = False
+            logger.debug("[agent] could not apply the MCP catalog to the context", exc_info=True)
 
     def _rewrite_list_action(self, tool_name: str, tool_input):
         """Translate a native ``submit_<list>`` call into the submit_list gateway.

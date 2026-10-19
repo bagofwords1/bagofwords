@@ -2958,21 +2958,9 @@
           "name": "MCP- und benutzerdefinierte API-Tools",
           "description": "Erlaubt es, externe MCP-Server und benutzerdefinierte API-Endpunkte als Tool-Anbieter mit Datenquellen zu verbinden"
         },
-        "enable_mcp_native_tools": {
-          "name": "Native Registrierung von MCP-Tools",
-          "description": "Registriert jedes externe MCP- bzw. benutzerdefinierte API-Tool als eigenes, direkt aufrufbares Agenten-Tool, statt jeden Aufruf über das generische Tool execute_mcp zu leiten. Wird erst wirksam, wenn der Tool-Katalog eines Berichts den unten stehenden Schwellenwert erreicht."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Schwellenwert für native MCP-Tools",
-          "description": "Wie viele aktivierte MCP- bzw. benutzerdefinierte API-Tools ein Bericht braucht, bevor die native Registrierung genutzt wird. Darunter ist die native Registrierung messbar gleichwertig zum generischen Weg, daher bleibt der generische Weg bestehen. 0 bedeutet, immer nativ zu registrieren."
-        },
-        "mcp_native_tools_max": {
-          "name": "Maximale Anzahl nativer MCP-Tools",
-          "description": "Obergrenze dafür, wie viele Tools für einen Bericht nativ registriert werden. Tools jenseits der Grenze bleiben auf dem generischen execute_mcp-Weg, damit ein sehr großer Katalog nicht jede Anfrage mit permanenten Tool-Definitionen füllt."
-        },
-        "mcp_result_inline_chars": {
-          "name": "Inline-Größe des MCP-Ergebnisses",
-          "description": "Wie viel vom Ergebnis eines MCP- bzw. benutzerdefinierten API-Tools der Agent direkt in seinem Kontext sieht, in Zeichen. Die vollständige Antwort wird unabhängig von diesem Wert immer in einer Datei gespeichert; diese Einstellung legt nur fest, wie viel das Modell lesen kann, ohne diese Datei zu öffnen. Erhöhen, damit der Agent aus einem vollständigen Ergebnissatz statt aus einer Stichprobe antworten kann; verringern, um pro Aufruf weniger Tokens zu verbrauchen. 0 liefert eine Stichprobe von 3 Datensätzen. Begrenzt auf 0-500000."
+        "tools_max": {
+          "name": "Maximale Anzahl Tools",
+          "description": "Wie viele externe MCP- / Custom-API-Tools der Agent in einem Lauf als eigene Tools erhält. Darüber hinaus werden die meistgenutzten behalten und der Rest bleibt über die Tool-Suche erreichbar, damit ein sehr großer Katalog nicht jede Anfrage mit Tool-Definitionen füllt."
         },
         "mcp_create_data_preview_rows": {
           "name": "MCP-Datenvorschauzeilen",

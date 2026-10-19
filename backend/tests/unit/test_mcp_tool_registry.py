@@ -3,7 +3,7 @@ import pytest
 
 from app.ai.tools.mcp_tool_registry import (
     build_tool_name, normalize_schema, parse_native_tool_name, sanitize,
-    native_tools_enabled, native_tools_budget, native_tools_threshold,
+    tools_max,
 )
 
 MAX = 64
@@ -122,29 +122,7 @@ def test_intercom_shaped_schema_survives_normalization():
     assert out["additionalProperties"] is False
 
 
-# ── flag plumbing ──────────────────────────────────────────────────────────
-
-def test_flag_defaults_off(monkeypatch):
-    monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS", raising=False)
-    assert native_tools_enabled() is False
-
-
-@pytest.mark.parametrize("val", ["1", "true", "TRUE", "yes", "on"])
-def test_flag_accepts_truthy_values(monkeypatch, val):
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS", val)
-    assert native_tools_enabled() is True
-
-
-def test_budget_defaults_and_overrides(monkeypatch):
-    monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS_MAX", raising=False)
-    assert native_tools_budget() == 60
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS_MAX", "12")
-    assert native_tools_budget() == 12
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS_MAX", "not-a-number")
-    assert native_tools_budget() == 60
-
-
-# ── org settings + adaptive threshold ──────────────────────────────────────
+# ── always on, with a deployment escape hatch ───────────────────────────────
 
 class _Setting:
     def __init__(self, value):
@@ -165,103 +143,43 @@ class _FakeSettings:
 
 @pytest.fixture(autouse=True)
 def _no_env_flag(monkeypatch):
-    """These tests are about settings, so keep the deployment override out."""
-    monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS", raising=False)
-    monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS_MAX", raising=False)
+    monkeypatch.delenv("BOW_TOOLS_MAX", raising=False)
 
 
-def test_adaptive_threshold_gates_on_effective_tool_count():
-    s = _FakeSettings(enable_mcp_native_tools=True, mcp_native_tools_threshold=12)
-    # Below the threshold the two paths measure as a wash, so stay on gateway.
-    assert native_tools_enabled(s, 11) is False
-    # At and above it native registration wins.
-    assert native_tools_enabled(s, 12) is True
-    assert native_tools_enabled(s, 60) is True
+def test_tools_max_defaults_and_env_override(monkeypatch):
+    assert tools_max() == 50
+    monkeypatch.setenv("BOW_TOOLS_MAX", "12")
+    assert tools_max() == 12
+    monkeypatch.setenv("BOW_TOOLS_MAX", "not-a-number")
+    assert tools_max() == 50
 
 
-def test_master_switch_off_beats_any_count():
-    s = _FakeSettings(enable_mcp_native_tools=False, mcp_native_tools_threshold=0)
-    assert native_tools_enabled(s, 500) is False
+def test_garbage_setting_falls_back_to_the_default():
+    assert tools_max(_FakeSettings(tools_max="lots")) == 50
 
 
-def test_unknown_count_asks_only_the_master_switch():
-    """The cheap pre-check before doing DB work to count."""
-    assert native_tools_enabled(_FakeSettings(enable_mcp_native_tools=True)) is True
-    assert native_tools_enabled(_FakeSettings(enable_mcp_native_tools=False)) is False
-
-
-def test_zero_threshold_always_registers_natively():
-    s = _FakeSettings(enable_mcp_native_tools=True, mcp_native_tools_threshold=0)
-    assert native_tools_enabled(s, 0) is True
-    assert native_tools_enabled(s, 1) is True
-
-
-def test_no_settings_falls_back_to_gateway():
-    """No settings object (e.g. the external MCP context path) must not flip on."""
-    assert native_tools_enabled(None, 100) is False
-
-
-def test_env_overrides_settings_in_both_directions(monkeypatch):
-    on = _FakeSettings(enable_mcp_native_tools=True, mcp_native_tools_threshold=12)
-    off = _FakeSettings(enable_mcp_native_tools=False)
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS", "0")
-    assert native_tools_enabled(on, 100) is False  # forced off despite settings
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS", "1")
-    assert native_tools_enabled(off, 0) is True    # forced on, threshold ignored
-
-
-def test_budget_and_threshold_read_from_settings():
-    s = _FakeSettings(mcp_native_tools_max=25, mcp_native_tools_threshold=5)
-    assert native_tools_budget(s) == 25
-    assert native_tools_threshold(s) == 5
-
-
-def test_settings_garbage_values_fall_back_to_defaults():
-    s = _FakeSettings(mcp_native_tools_max="lots", mcp_native_tools_threshold=None)
-    assert native_tools_budget(s) == 60
-    assert native_tools_threshold(s) == 12
-
-
-def test_real_org_settings_defaults_are_adaptive():
-    """The shipped defaults, read through the real settings object.
-
-    Native registration ships as a lab feature that is OFF: an org that has
-    never touched the setting stays on the generic execute_mcp path whatever
-    its catalog size. Switching it on (a full FeatureConfig dict, as the
-    settings UI writes) gives the adaptive behavior: the generic path for a
-    small catalog, native registration once it reaches the threshold.
-    """
+def _real_settings(stored):
     import app.models  # noqa: F401  (register every mapper before instantiating)
     from app.models.organization_settings import OrganizationSettings
-
-    s = OrganizationSettings(organization_id="org", config={})
-    assert native_tools_threshold(s) == 12
-    assert native_tools_budget(s) == 60
-    assert native_tools_enabled(s) is False
-    assert native_tools_enabled(s, 12) is False
-
-    on = OrganizationSettings(organization_id="org", config={"ai_features": {
-        "enable_mcp_native_tools": {
-            "name": "Native MCP tool registration", "description": "d", "value": True,
-        }
-    }})
-    assert native_tools_threshold(on) == 12
-    assert native_tools_budget(on) == 60
-    assert native_tools_enabled(on, 11) is False
-    assert native_tools_enabled(on, 12) is True
+    return OrganizationSettings(organization_id="org", config=stored)
 
 
-def test_admin_can_switch_it_off_from_settings():
-    """A toggle written back by the settings UI (a full FeatureConfig dict)."""
-    import app.models  # noqa: F401
-    from app.models.organization_settings import OrganizationSettings
+def _feature(value):
+    return {"name": "n", "description": "d", "value": value}
 
-    s = OrganizationSettings(organization_id="org", config={"ai_features": {
-        "enable_mcp_native_tools": {
-            "name": "Native MCP tool registration", "description": "d", "value": False,
-        }
-    }})
-    assert native_tools_enabled(s, 60) is False
+
+@pytest.mark.parametrize("stored, expected", [
+    ({}, 50),
+    ({"ai_features": {"tools_max": _feature(25)}}, 25),
+    # A cap saved under the old name is kept until the org saves tools_max.
+    ({"ai_features": {"mcp_native_tools_max": _feature(30)}}, 30),
+    ({"ai_features": {"mcp_native_tools_max": _feature(30), "tools_max": _feature(8)}}, 8),
+    # Saved before the on/off switch was removed, with it off.
+    ({"ai_features": {"enable_mcp_native_tools": _feature(False), "mcp_native_tools_threshold": _feature(12)}}, 50),
+])
+def test_real_org_settings(stored, expected):
+    s = _real_settings(stored)
+    assert tools_max(s) == expected
 
 
 # ── dispatch rewrite ───────────────────────────────────────────────────────
@@ -311,3 +229,41 @@ def test_non_native_tool_untouched():
 def test_rewrite_noop_when_routing_absent():
     name, args = _FakeAgent({})._rewrite_native_mcp_action("mcp__conn__issue_create", {"a": 1})
     assert name == "mcp__conn__issue_create"
+
+
+DEFERRED = {"mcp__conn__report_2012": {"connection_id": "c1", "tool_name": "report_2012"}}
+
+
+def test_call_tool_for_a_found_tool_maps_to_execute_mcp():
+    name, args = _FakeAgent(DEFERRED)._rewrite_native_mcp_action(
+        "call_tool", {"name": "mcp__conn__report_2012", "arguments": {"year": 2012}, "title": "Pulling 2012"},
+    )
+    assert name == "execute_mcp"
+    assert args == {"connection_id": "c1", "tool_name": "report_2012",
+                    "arguments": {"year": 2012}, "title": "Pulling 2012"}
+
+
+@pytest.mark.parametrize("call", [
+    {"name": "mcp__conn__not_found", "arguments": {}},
+    {"name": "create_data", "arguments": {}},
+    {"arguments": {}},
+])
+def test_call_tool_for_an_unknown_name_stays_call_tool(call):
+    name, args = _FakeAgent(DEFERRED)._rewrite_native_mcp_action("call_tool", call)
+    assert name == "call_tool" and args == call
+
+
+def test_call_tool_accepts_the_short_name_when_it_is_unambiguous():
+    name, args = _FakeAgent(DEFERRED)._rewrite_native_mcp_action(
+        "call_tool", {"name": "report_2012", "arguments": {"year": 2012}},
+    )
+    assert name == "execute_mcp" and args["tool_name"] == "report_2012"
+
+
+def test_call_tool_refuses_a_short_name_shared_by_two_connections():
+    routing = {
+        "mcp__a__echo": {"connection_id": "a", "tool_name": "echo"},
+        "mcp__b__echo": {"connection_id": "b", "tool_name": "echo"},
+    }
+    name, _ = _FakeAgent(routing)._rewrite_native_mcp_action("call_tool", {"name": "echo", "arguments": {}})
+    assert name == "call_tool"

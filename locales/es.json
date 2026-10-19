@@ -3169,21 +3169,9 @@
           "name": "Herramientas MCP y de API personalizada",
           "description": "Permite conectar servidores MCP externos y puntos finales de API personalizados a las fuentes de datos como proveedores de herramientas"
         },
-        "enable_mcp_native_tools": {
-          "name": "Registro nativo de herramientas MCP",
-          "description": "Registra cada herramienta MCP o de API personalizada como una herramienta de agente propia e invocable directamente, en lugar de enrutar cada llamada a través de la herramienta genérica execute_mcp. Solo surte efecto cuando el catálogo de herramientas de un informe alcanza el umbral indicado abajo."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Umbral de herramientas MCP nativas",
-          "description": "Cuántas herramientas MCP o de API personalizada activas necesita un informe antes de usar el registro nativo. Por debajo de ese umbral, el registro nativo resulta equivalente a la vía genérica, así que se mantiene la vía genérica. Ponlo en 0 para registrar siempre de forma nativa."
-        },
-        "mcp_native_tools_max": {
-          "name": "Máximo de herramientas MCP nativas",
-          "description": "Límite superior de cuántas herramientas se registran de forma nativa para un informe. Las herramientas que superan el tope permanecen en la vía genérica execute_mcp, de modo que un catálogo muy grande no llene cada petición con definiciones de herramientas permanentes."
-        },
-        "mcp_result_inline_chars": {
-          "name": "Tamaño en línea del resultado MCP",
-          "description": "Cuánto del resultado de una herramienta MCP o de API personalizada ve el agente directamente en su contexto, en caracteres. La respuesta completa siempre se guarda en un archivo, sea cual sea este valor; este ajuste solo decide cuánto puede leer el modelo sin abrir ese archivo. Súbelo para que el agente responda a partir de un conjunto de resultados completo en lugar de una muestra; bájalo para gastar menos tokens por llamada. Ponlo en 0 para obtener una muestra de 3 registros. Limitado a 0-500000."
+        "tools_max": {
+          "name": "Máximo de herramientas",
+          "description": "Cuántas herramientas externas de MCP / API personalizada recibe el agente como herramientas propias en una ejecución. Por encima de este número se conservan las más usadas y el resto sigue disponible mediante la búsqueda de herramientas, para que un catálogo muy grande no llene cada solicitud con definiciones de herramientas."
         },
         "mcp_create_data_preview_rows": {
           "name": "Filas de vista previa de datos MCP",

@@ -32,7 +32,7 @@ class ListMcpResourcesTool(Tool):
 List data resources exposed by connected MCP servers (documents, rulebooks, schemas, records, etc.).
 Returns resource URIs with names and descriptions, including parameterized URI templates.
 
-MCP *resources* are different from MCP *tools* (use search_mcps for tools) and from indexed
+MCP *resources* are different from MCP *tools* (those are your mcp__ tools, or search_tools) and from indexed
 metadata (use read_resources for dbt/LookML/docs). Call this first to discover what resources
 exist, then read_mcp_resource to fetch a resource's content by URI.
 
@@ -61,7 +61,7 @@ Use when:
         data = ListMcpResourcesInput(**tool_input)
         organization_settings = runtime_ctx.get("settings")
 
-        # Feature gate — same flag that governs search_mcps/execute_mcp.
+        # Feature gate — same flag that governs the MCP tools.
         if organization_settings:
             enable_mcp = organization_settings.get_config("enable_mcp_tools")
             if enable_mcp and not enable_mcp.value:
@@ -92,7 +92,7 @@ Use when:
 
         # Resolve MCP connections linked to this report's data sources via an
         # explicit join — lazy-loading report.data_sources → ds.connections
-        # silently returns empty in async context (see search_mcps). Resources
+        # silently returns empty in async context (see mcp_tool_registry). Resources
         # are an MCP-only concept, so we filter to type == "mcp".
         from sqlalchemy import select
         from app.models.connection import Connection

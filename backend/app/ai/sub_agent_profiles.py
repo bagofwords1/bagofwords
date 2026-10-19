@@ -36,7 +36,7 @@ _RESEARCH = (
     "describe_tables", "inspect_data", "read_query", "run_query", "describe_entity",
     "read_resources", "read_file", "grep_files", "search_files", "list_files",
     "read_excel_as_csv", "read_excel_range",
-    "list_mcp_resources", "read_mcp_resource", "execute_mcp", "search_mcps",
+    "list_mcp_resources", "read_mcp_resource", "execute_mcp", "search_tools", "call_tool",
     "search_instructions", "read_instruction", "search_agents", "read_report", "search_reports",
     "web_fetch", "web_search",
     "create_note", "edit_note",

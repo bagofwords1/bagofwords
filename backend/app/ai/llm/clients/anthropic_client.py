@@ -103,8 +103,12 @@ class Anthropic(LLMClient):
         # the SDK's own default client.
         sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
         async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
-        sync_http = {"http_client": AnthropicDefaultHttpxClient(event_hooks=sync_hooks)} if sync_hooks else {}
-        async_http = {"http_client": AnthropicDefaultAsyncHttpxClient(event_hooks=async_hooks)} if async_hooks else {}
+        # Always our own clients, on the process-wide TLS context: the SDK's
+        # implicit ones each load the CA bundle (app.core.tls).
+        from app.core.tls import shared_ssl_context
+        tls = shared_ssl_context()
+        sync_http = {"http_client": AnthropicDefaultHttpxClient(verify=tls, **({"event_hooks": sync_hooks} if sync_hooks else {}))}
+        async_http = {"http_client": AnthropicDefaultAsyncHttpxClient(verify=tls, **({"event_hooks": async_hooks} if async_hooks else {}))}
         # base_url was accepted but silently dropped here, so every caller got
         # api.anthropic.com no matter what it asked for. It is a real routing
         # input: Anthropic models hosted on Azure AI Foundry answer the same
@@ -141,9 +145,11 @@ class Anthropic(LLMClient):
                 from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
 
                 self.client = AnthropicAPI(**client_kwargs, http_client=AnthropicDefaultHttpxClient(
-                    transport=PinnedTransport(Policy.ADMIN), **({"event_hooks": sync_hooks} if sync_hooks else {})))
+                    transport=PinnedTransport(Policy.ADMIN, verify=tls), verify=tls,
+                    **({"event_hooks": sync_hooks} if sync_hooks else {})))
                 self.async_client = AsyncAnthropic(**client_kwargs, http_client=AnthropicDefaultAsyncHttpxClient(
-                    transport=AsyncPinnedTransport(Policy.ADMIN), **({"event_hooks": async_hooks} if async_hooks else {})))
+                    transport=AsyncPinnedTransport(Policy.ADMIN, verify=tls), verify=tls,
+                    **({"event_hooks": async_hooks} if async_hooks else {})))
             else:
                 self.client = AnthropicAPI(**client_kwargs, **sync_http)
                 self.async_client = AsyncAnthropic(**client_kwargs, **async_http)

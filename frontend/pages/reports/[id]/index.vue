@@ -2904,6 +2904,9 @@ function getToolComponent(toolName: string) {
 	// Native per-list tools (submit_<list>) stream under their own name
 	// before the gateway rewrite to submit_list.
 	if (toolName?.startsWith('submit_')) return SubmitListTool
+	// Native MCP tools (mcp__<connection>__<tool>) and call_tool stream under
+	// their own name before the rewrite to execute_mcp.
+	if (toolName?.startsWith('mcp__')) return MCPTool
 	switch (toolName) {
     // 'create_data_model' removed
 		case 'create_widget':
@@ -2957,6 +2960,8 @@ function getToolComponent(toolName: string) {
 		case 'inspect_data':
 			return InspectDataTool
 		case 'search_mcps':
+		case 'search_tools':
+		case 'call_tool':
 		case 'execute_mcp':
 			return MCPTool
 		case 'write_csv':
@@ -3865,7 +3870,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'inspect_data' && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
-						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps') && payload.arguments) {
+						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps' || payload.tool_name === 'search_tools' || payload.tool_name === 'call_tool' || payload.tool_name?.startsWith('mcp__')) && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
 						if ((payload.tool_name === 'create_instruction' || payload.tool_name === 'edit_instruction') && payload.arguments) {

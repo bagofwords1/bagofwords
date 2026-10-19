@@ -5,7 +5,7 @@
       {{ heading }}
     </div>
 
-    <!-- Suggestions list (hairline dividers between rows, OpenWebUI-style) -->
+    <!-- Suggestions list (hairline dividers between rows) -->
     <ul class="divide-y divide-gray-100 dark:divide-gray-800/70">
       <li v-for="(q, idx) in items" :key="idx" class="group">
         <button

@@ -35,7 +35,7 @@ TOOL_SWITCHES: Dict[str, Tuple[str, ...]] = {
     "generate_image": ("generate_image",),
     "inspect_data": ("inspect_data",),
     # Also drops the native mcp__ tools and the <mcp_tools> schema block.
-    "mcp": ("execute_mcp", "search_mcps", "list_mcp_resources", "read_mcp_resource"),
+    "mcp": ("execute_mcp", "search_tools", "call_tool", "list_mcp_resources", "read_mcp_resource"),
     # Also drops the native submit_<list> tools.
     "lists": ("submit_list",),
 }

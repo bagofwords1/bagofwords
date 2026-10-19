@@ -2958,21 +2958,9 @@
           "name": "Strumenti MCP e API personalizzate",
           "description": "Consente di collegare server MCP esterni ed endpoint API personalizzati alle sorgenti dati come fornitori di strumenti"
         },
-        "enable_mcp_native_tools": {
-          "name": "Registrazione nativa degli strumenti MCP",
-          "description": "Registra ogni strumento MCP o API personalizzata come strumento dell'agente a sé stante, richiamabile direttamente, anziché instradare ogni chiamata attraverso lo strumento generico execute_mcp. Ha effetto solo quando il catalogo di strumenti di un report raggiunge la soglia indicata sotto."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Soglia per gli strumenti MCP nativi",
-          "description": "Quanti strumenti MCP o API personalizzate attivi servono a un report prima di usare la registrazione nativa. Al di sotto, la registrazione nativa risulta equivalente al percorso generico, quindi viene mantenuto quest'ultimo. Imposta 0 per registrare sempre in modo nativo."
-        },
-        "mcp_native_tools_max": {
-          "name": "Numero massimo di strumenti MCP nativi",
-          "description": "Limite superiore al numero di strumenti registrati in modo nativo per un report. Gli strumenti oltre il tetto restano sul percorso generico execute_mcp, così un catalogo molto ampio non riempie ogni richiesta con definizioni di strumenti permanenti."
-        },
-        "mcp_result_inline_chars": {
-          "name": "Dimensione inline del risultato MCP",
-          "description": "Quanta parte del risultato di uno strumento MCP o API personalizzata l'agente vede direttamente nel proprio contesto, in caratteri. La risposta completa viene sempre salvata su file qualunque sia questo valore; l'impostazione decide solo quanto il modello può leggere senza aprire quel file. Aumentalo perché l'agente risponda a partire da un intero insieme di risultati anziché da un campione; riducilo per consumare meno token per chiamata. Imposta 0 per un campione di 3 record. Limitato a 0-500000."
+        "tools_max": {
+          "name": "Numero massimo di strumenti",
+          "description": "Quanti strumenti esterni MCP / API personalizzate l'agente riceve come strumenti propri in un'esecuzione. Oltre questo numero si mantengono i più usati e gli altri restano raggiungibili tramite la ricerca strumenti, così un catalogo molto grande non riempie ogni richiesta di definizioni."
         },
         "mcp_create_data_preview_rows": {
           "name": "Righe di anteprima dati MCP",

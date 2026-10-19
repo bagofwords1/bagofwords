@@ -1,12 +1,11 @@
-"""Where an MCP tool's argument schema lives must be decided exactly once.
+"""<mcp_tools> shows exactly the MCP tools the run can call, and how.
 
-Native registration puts each tool's schema in the request's ``tools`` array;
-the ``<mcp_tools>`` block inlines it instead when the gateway path serves. The
-two must never both skip it — that strands the agent on a ``search_mcps`` round
-trip — and ideally never both carry it, which pays for the same bytes twice.
-
-The renderer therefore reads a decision the builder resolved report-wide,
-rather than recomputing one from its own per-agent view.
+Native tools carry their schema in the request's tools array, so the block is
+an index. When the run could not build its MCP catalog it falls back to
+execute_mcp: the block then inlines schemas and says to call execute_mcp.
+The context hub applies the run's catalog to the block, so a tool the
+registry left out (disabled or denied under the strictest setting across the
+run's agents, or MCP not offered at all) is never listed, and policies match.
 """
 import pytest
 
@@ -40,87 +39,81 @@ def _section(tool_count, *, native_mcp):
     )
 
 
-def test_gateway_path_inlines_the_schema():
-    xml = _section(3, native_mcp=False)._render_mcp_tools_xml()
-    assert "contract_id" in xml, "gateway path must carry the schema inline"
+def _hub(*sections):
+    from app.ai.context.context_hub import ContextHub
+
+    hub = ContextHub.__new__(ContextHub)
+    hub._static_cache = {"schemas": TablesSchemaContext(data_sources=list(sections))}
+    return hub
 
 
 def test_native_path_omits_the_inline_schema():
     """Native registration already sends the schema; inlining would duplicate it."""
     xml = _section(3, native_mcp=True)._render_mcp_tools_xml()
     assert "contract_id" not in xml
-    # The tools themselves are still advertised, just without argument shapes.
     assert "get_thing_0" in xml
+    assert "execute_mcp" not in xml
 
 
-def test_tools_are_always_listed_under_either_path():
-    for native in (True, False):
-        xml = _section(3, native_mcp=native)._render_mcp_tools_xml()
-        for i in range(3):
-            assert f"get_thing_{i}" in xml, f"tool missing (native={native})"
-
-
-def test_default_is_the_safe_direction():
-    """A section built without the flag inlines — a schema present, never absent."""
+def test_sections_default_to_native_tools():
     section = TablesSchemaContext.DataSource(
         info=DataSourceSummarySchema(id="ds-1", name="SampleAgent", type="mcp"),
         mcp_tools=[_tool("get_thing")],
     )
-    assert section.native_mcp is False
-    assert "contract_id" in section._render_mcp_tools_xml()
+    assert section.native_mcp is True
 
 
-def _builder(organization_settings=None):
-    import app.models  # noqa: F401  (register mappers before touching models)
-    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
-
-    return SchemaContextBuilder(
-        db=None, data_sources=[], organization=None, report=None,
-        organization_settings=organization_settings,
-    )
-
-
-def test_builder_counts_across_every_agent_in_the_report(monkeypatch):
-    """Two agents of 8 tools each is a 16-tool report: over the 12 threshold.
-
-    Counting per agent would see 8, stay on the gateway, and disagree with the
-    planner — which registers natively across every agent the report has.
-    """
-    monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS", raising=False)
-    seen = {}
-
-    def _fake_enabled(settings, count):
-        seen["count"] = count
-        return count >= 12
-
-    monkeypatch.setattr(
-        "app.ai.tools.mcp_tool_registry.native_tools_enabled", _fake_enabled
-    )
-
-    sections = [_section(8, native_mcp=False), _section(8, native_mcp=False)]
-    assert _builder(object())._apply_native_mcp_decision(sections) is True
-    assert seen["count"] == 16
-    assert all(s.native_mcp is True for s in sections)
+def test_catalog_failure_falls_back_to_execute_mcp_with_inline_schemas():
+    section = _section(3, native_mcp=True)
+    assert _hub(section).set_mcp_catalog(None, gateway=True) is True
+    xml = section._render_mcp_tools_xml()
+    assert "execute_mcp" in xml and 'id="conn-1"' in xml
+    assert "contract_id" in xml, "the fallback has no other copy of the schema"
+    assert "in your tool list as mcp__" not in xml
 
 
-def test_builder_stays_on_gateway_below_the_threshold(monkeypatch):
-    monkeypatch.delenv("BOW_MCP_NATIVE_TOOLS", raising=False)
-    sections = [_section(4, native_mcp=True)]  # seeded wrong on purpose
-    # Real settings, real defaults: 4 tools is under the threshold of 12.
-    import app.models  # noqa: F401
-    from app.models.organization_settings import OrganizationSettings
+def test_tools_past_the_cap_are_marked_and_the_note_says_to_search_for_them():
+    """A tool past tools_max is not in the request's tool list. Listed without a
+    marker, the model called it by a guessed mcp__ name with guessed arguments."""
+    section = _section(3, native_mcp=True)
+    hub = _hub(section)
+    hub.set_mcp_catalog({
+        ("conn-1", "get_thing_0"): {"deferred": False, "policy": "allow"},
+        ("conn-1", "get_thing_1"): {"deferred": False, "policy": "allow"},
+        ("conn-1", "get_thing_2"): {"deferred": True, "policy": "allow"},
+    })
 
-    settings = OrganizationSettings(organization_id="org", config={})
-    assert _builder(settings)._apply_native_mcp_decision(sections) is False
-    assert sections[0].native_mcp is False
-    assert "contract_id" in sections[0]._render_mcp_tools_xml()
+    xml = section._render_mcp_tools_xml()
+    assert '<tool name="get_thing_2" deferred="true"' in xml
+    assert '<tool name="get_thing_0">' in xml
+    assert "search_tools" in xml and "call_tool" in xml
 
 
-def test_builder_falls_back_to_inline_when_resolution_raises(monkeypatch):
-    def _boom(*a, **kw):
-        raise RuntimeError("settings unavailable")
+def test_the_block_lists_only_what_the_registry_registered_with_its_policy():
+    """Two agents share a connection; one disables get_thing_1 and the other
+    asks before get_thing_0. Each agent's own view would list get_thing_1 as
+    callable; the registry (strictest across agents) did not register it."""
+    a, b = _section(3, native_mcp=True), _section(3, native_mcp=True)
+    _hub(a, b).set_mcp_catalog({
+        ("conn-1", "get_thing_0"): {"deferred": False, "policy": "ask"},
+        ("conn-1", "get_thing_2"): {"deferred": False, "policy": "allow"},
+    })
+    for section in (a, b):
+        xml = section._render_mcp_tools_xml()
+        assert "get_thing_1" not in xml
+        assert '<tool name="get_thing_0" policy="ask">' in xml
+        assert '<tool name="get_thing_2">' in xml
 
-    monkeypatch.setattr("app.ai.tools.mcp_tool_registry.native_tools_enabled", _boom)
-    sections = [_section(30, native_mcp=True)]
-    assert _builder(object())._apply_native_mcp_decision(sections) is False
-    assert "contract_id" in sections[0]._render_mcp_tools_xml()
+
+def test_mcp_not_offered_hides_every_tool():
+    section = _section(3, native_mcp=True)
+    assert _hub(section).set_mcp_catalog({}) is True
+    assert section.mcp_tools == []
+
+
+def test_applying_the_same_catalog_again_reports_no_change():
+    section = _section(2, native_mcp=True)
+    hub = _hub(section)
+    view = {("conn-1", f"get_thing_{i}"): {"deferred": False, "policy": "allow"} for i in range(2)}
+    assert hub.set_mcp_catalog(view) is False
+    assert hub.set_mcp_catalog(view) is False
