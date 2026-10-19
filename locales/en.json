@@ -6248,5 +6248,77 @@
     "notFound": "This connection could not be found.",
     "forbidden": "You don't have access to this connection.",
     "loadFailed": "Failed to load the connection. Try again later."
+  },
+  "agentClone": {
+    "menu": "Clone agent",
+    "name": "Name",
+    "description": "Description",
+    "defaultName": "Copy of {name}",
+    "parts": {
+      "instructions": "Instructions",
+      "saved_queries": "Saved queries",
+      "lists": "Lists",
+      "evals": "Evals",
+      "files": "Files",
+      "access": "Access"
+    },
+    "choices": {
+      "copy": "Copy",
+      "link": "Share",
+      "none": "None",
+      "sameAccess": "Same people",
+      "onlyMe": "Only me"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Its own copies, edited separately",
+        "link": "Same instructions; edits show on both",
+        "none": "Global instructions only"
+      },
+      "saved_queries": {
+        "copy": "Run on the new agent; saved results not copied",
+        "none": "Not included"
+      },
+      "lists": {
+        "copy": "Same fields, no rows",
+        "link": "Same list and rows on both",
+        "none": "Not included"
+      },
+      "evals": {
+        "copy": "Re-pointed at the new agent",
+        "none": "Not included"
+      },
+      "files": {
+        "link": "Same files on both",
+        "none": "Not included"
+      },
+      "access": {
+        "copy": "Same people and permissions",
+        "default": "Only you, until you share it"
+      }
+    },
+    "unavailable": {
+      "saved_queries": {
+        "link": "Not available yet"
+      }
+    },
+    "footnote": "Conversations, dashboards and Git sync aren't cloned. The new agent starts in Training.",
+    "submit": "Clone",
+    "cloning": "Cloning…",
+    "nameTaken": "An agent with this name already exists.",
+    "instructionsChanged": "Instructions changed while cloning. Try again.",
+    "linkBlocked": "These instructions are also used by agents you don't manage, so they can't be shared. Copy them instead, or ask someone who manages those agents.",
+    "linkPending": "These instructions have changes waiting for approval, so they can't be shared yet. Approve or reject those changes first, or copy the instructions instead.",
+    "done": "Created {name}",
+    "notCopied": "Not copied: {names}",
+    "failed": "Couldn't clone the agent",
+    "titleFor": "Clone {name}",
+    "alwaysIncluded": "Always included:",
+    "always": {
+      "settings": "Settings",
+      "tables": "Tables",
+      "tools": "Tools",
+      "prompts": "Prompts"
+    }
   }
 }

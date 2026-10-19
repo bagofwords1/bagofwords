@@ -5874,5 +5874,77 @@
   },
   "trackedChanges": {
     "noChanges": "Keine Änderungen"
+  },
+  "agentClone": {
+    "menu": "Agent klonen",
+    "name": "Name",
+    "description": "Beschreibung",
+    "defaultName": "Kopie von {name}",
+    "parts": {
+      "instructions": "Anweisungen",
+      "saved_queries": "Gespeicherte Abfragen",
+      "lists": "Listen",
+      "evals": "Evals",
+      "files": "Dateien",
+      "access": "Zugriff"
+    },
+    "choices": {
+      "copy": "Kopieren",
+      "link": "Teilen",
+      "none": "Nichts",
+      "sameAccess": "Dieselben Personen",
+      "onlyMe": "Nur ich"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Eigene Kopien, getrennt bearbeitet",
+        "link": "Dieselben Anweisungen; Änderungen wirken auf beide",
+        "none": "Nur globale Anweisungen"
+      },
+      "saved_queries": {
+        "copy": "Laufen auf dem neuen Agenten; ohne gespeicherte Ergebnisse",
+        "none": "Nicht dabei"
+      },
+      "lists": {
+        "copy": "Gleiche Felder, keine Zeilen",
+        "link": "Dieselbe Liste und Zeilen in beiden",
+        "none": "Nicht dabei"
+      },
+      "evals": {
+        "copy": "Auf den neuen Agenten ausgerichtet",
+        "none": "Nicht dabei"
+      },
+      "files": {
+        "link": "Dieselben Dateien in beiden",
+        "none": "Nicht dabei"
+      },
+      "access": {
+        "copy": "Dieselben Personen und Rechte",
+        "default": "Nur du, bis du ihn teilst"
+      }
+    },
+    "unavailable": {
+      "saved_queries": {
+        "link": "Noch nicht verfügbar"
+      }
+    },
+    "footnote": "Unterhaltungen, Dashboards und die Git-Synchronisierung werden nicht geklont. Der neue Agent startet im Training.",
+    "submit": "Klonen",
+    "cloning": "Wird geklont…",
+    "nameTaken": "Ein Agent mit diesem Namen existiert bereits.",
+    "instructionsChanged": "Die Anweisungen haben sich beim Klonen geändert. Versuche es noch einmal.",
+    "linkBlocked": "Diese Anweisungen werden auch von Agenten genutzt, die du nicht verwaltest, daher können sie nicht geteilt werden. Kopiere sie stattdessen oder frage jemanden, der diese Agenten verwaltet.",
+    "linkPending": "Für diese Anweisungen warten Änderungen auf Freigabe, daher können sie noch nicht geteilt werden. Gib diese Änderungen zuerst frei oder lehne sie ab, oder kopiere die Anweisungen stattdessen.",
+    "done": "{name} erstellt",
+    "notCopied": "Nicht kopiert: {names}",
+    "failed": "Der Agent konnte nicht geklont werden",
+    "titleFor": "{name} klonen",
+    "alwaysIncluded": "Immer dabei:",
+    "always": {
+      "settings": "Einstellungen",
+      "tables": "Tabellen",
+      "tools": "Tools",
+      "prompts": "Prompts"
+    }
   }
 }

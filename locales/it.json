@@ -5874,5 +5874,77 @@
   },
   "trackedChanges": {
     "noChanges": "Nessuna modifica"
+  },
+  "agentClone": {
+    "menu": "Clona agente",
+    "name": "Nome",
+    "description": "Descrizione",
+    "defaultName": "Copia di {name}",
+    "parts": {
+      "instructions": "Istruzioni",
+      "saved_queries": "Query salvate",
+      "lists": "Liste",
+      "evals": "Valutazioni",
+      "files": "File",
+      "access": "Accesso"
+    },
+    "choices": {
+      "copy": "Copia",
+      "link": "Condividi",
+      "none": "Niente",
+      "sameAccess": "Stesse persone",
+      "onlyMe": "Solo io"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Copie proprie, modificate separatamente",
+        "link": "Stesse istruzioni; le modifiche valgono per entrambi",
+        "none": "Solo istruzioni globali"
+      },
+      "saved_queries": {
+        "copy": "Eseguite sul nuovo agente; senza risultati salvati",
+        "none": "Non incluso"
+      },
+      "lists": {
+        "copy": "Stessi campi, nessuna riga",
+        "link": "Stessa lista e righe in entrambi",
+        "none": "Non incluso"
+      },
+      "evals": {
+        "copy": "Puntate al nuovo agente",
+        "none": "Non incluso"
+      },
+      "files": {
+        "link": "Stessi file in entrambi",
+        "none": "Non incluso"
+      },
+      "access": {
+        "copy": "Stesse persone e permessi",
+        "default": "Solo tu, finché non lo condividi"
+      }
+    },
+    "unavailable": {
+      "saved_queries": {
+        "link": "Non ancora disponibile"
+      }
+    },
+    "footnote": "Conversazioni, dashboard e sincronizzazione Git non vengono clonate. Il nuovo agente parte in addestramento.",
+    "submit": "Clona",
+    "cloning": "Clonazione…",
+    "nameTaken": "Esiste già un agente con questo nome.",
+    "instructionsChanged": "Le istruzioni sono cambiate durante la clonazione. Riprova.",
+    "linkBlocked": "Queste istruzioni sono usate anche da agenti che non gestisci, quindi non possono essere condivise. Copiale, oppure chiedi a chi gestisce quegli agenti.",
+    "linkPending": "Queste istruzioni hanno modifiche in attesa di approvazione, quindi non possono ancora essere condivise. Approva o rifiuta prima quelle modifiche, oppure copia le istruzioni.",
+    "done": "{name} creato",
+    "notCopied": "Non copiato: {names}",
+    "failed": "Impossibile clonare l'agente",
+    "titleFor": "Clona {name}",
+    "alwaysIncluded": "Sempre incluso:",
+    "always": {
+      "settings": "Impostazioni",
+      "tables": "Tabelle",
+      "tools": "Strumenti",
+      "prompts": "Prompt"
+    }
   }
 }
