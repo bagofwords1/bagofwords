@@ -21,11 +21,12 @@ would ride along) and no service that commits.
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Dict, List, Tuple
 
 from fastapi import HTTPException
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 
 from app.core.main_build import main_build_select
 from app.models.build_content import BuildContent
@@ -107,27 +108,76 @@ async def check_link_authority(db, organization, user, source_id: str, items: Li
         )
 
 
+# Builds that are neither live nor finished: an edit waiting there was written
+# against the version the clone is about to replace.
+_OPEN_BUILD_STATUSES = ("draft", "pending_approval")
+
+
+async def check_no_pending_changes(db, organization, items: List[Item]) -> None:
+    """Linking gives each instruction a new version. A change already waiting
+    in an open build was based on the old one, so promoting it later would
+    drop the clone from the instruction (its agents and table references live
+    on the version). Refuse up front, naming the instructions, instead."""
+    ids = [str(i.id) for i, _ in items]
+    if not ids:
+        return
+    waiting = set((await db.execute(
+        select(BuildContent.instruction_id)
+        .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+        .where(
+            InstructionBuild.organization_id == str(organization.id),
+            InstructionBuild.status.in_(_OPEN_BUILD_STATUSES),
+            InstructionBuild.deleted_at.is_(None),
+            BuildContent.is_change.is_(True),
+            BuildContent.instruction_id.in_(ids),
+        )
+    )).scalars().all())
+    blocked = [i.title or (i.text or "")[:60] for i, _ in items if str(i.id) in {str(w) for w in waiting}]
+    if blocked:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "instructions_pending",
+                "message": "Some instructions have changes waiting for approval, so they can't be shared with the "
+                           "new agent yet. Approve or reject those changes first, or copy the instructions.",
+                "instructions": blocked,
+            },
+        )
+
+
 def _version_row(instruction_id: str, number: int, v: InstructionVersion, *, user_id: str,
                  data_source_ids: List[str], references_json, label_ids) -> InstructionVersion:
+    """A version with ``v``'s content and the given agents/references/labels.
+    The hash is computed from the very fields stored, so they can't drift."""
     from app.services.instruction_version_service import InstructionVersionService
 
     data = {
         "text": v.text, "title": v.title, "description": v.description,
         "structured_data": v.structured_data, "formatted_content": v.formatted_content,
-        "status": v.status, "load_mode": v.load_mode,
+        "status": v.status, "load_mode": v.load_mode or "always",
         "applicable_modes": v.applicable_modes, "applicable_channels": v.applicable_channels,
         "references_json": references_json, "data_source_ids": data_source_ids,
         "label_ids": label_ids, "category_ids": v.category_ids,
     }
     return InstructionVersion(
-        instruction_id=instruction_id, version_number=number,
-        text=v.text, title=v.title, description=v.description, structured_data=v.structured_data,
-        formatted_content=v.formatted_content, status=v.status, load_mode=v.load_mode or "always",
-        applicable_modes=v.applicable_modes, applicable_channels=v.applicable_channels,
-        references_json=references_json, data_source_ids=data_source_ids, label_ids=label_ids,
-        category_ids=v.category_ids, content_hash=InstructionVersionService().compute_content_hash(data),
-        created_by_user_id=user_id,
+        instruction_id=instruction_id, version_number=number, created_by_user_id=user_id,
+        content_hash=InstructionVersionService().compute_content_hash(data), **data,
     )
+
+
+def _row_sync(v: InstructionVersion) -> dict:
+    """The row fields promote_build syncs from a newly live version, so the
+    row and its current version agree (loaders that read the row see the same
+    text the agent context reads from the version)."""
+    values = {"text": v.text, "title": v.title, "description": v.description, "load_mode": v.load_mode,
+              "applicable_modes": v.applicable_modes, "applicable_channels": v.applicable_channels}
+    values = {k: val for k, val in values.items()
+              if val is not None or k in ("description", "applicable_modes", "applicable_channels")}
+    if v.category_ids:
+        values["category"] = v.category_ids[0] if isinstance(v.category_ids, list) else v.category_ids
+    if v.status == "published":
+        values["status"] = "published"
+    return values
 
 
 def _remap_refs(refs, ctx) -> list:
@@ -162,23 +212,21 @@ async def _mirror_directories(ctx) -> Dict[str, str]:
     while queue:  # parents before children
         parent = queue.pop(0)
         for d in sorted(by_parent.get(parent, []), key=lambda x: (x.position or 0, x.name)):
-            copy = InstructionDirectory(
-                organization_id=str(ctx.organization.id), data_source_id=ctx.clone_id,
+            dir_map[str(d.id)] = str(uuid.uuid4())
+            ctx.db.add(InstructionDirectory(
+                id=dir_map[str(d.id)], organization_id=str(ctx.organization.id), data_source_id=ctx.clone_id,
                 parent_id=dir_map.get(parent) if parent else None, name=d.name, position=d.position,
                 created_by_user_id=str(ctx.user.id),
-            )
-            ctx.db.add(copy)
-            await ctx.db.flush()
-            dir_map[str(d.id)] = str(copy.id)
+            ))
             queue.append(str(d.id))
+    if dir_map:
+        await ctx.db.flush()
     return dir_map
 
 
 async def clone_instructions(ctx) -> None:
     from app.services.build_service import BuildService, MainBuildChangedError, _generate_build_title
     from app.services.instruction_service import InstructionService
-    from app.services.instruction_version_service import InstructionVersionService
-
     mode = ctx.opts.instructions
     part = ctx.part("instructions")
     if mode == "none":
@@ -195,6 +243,7 @@ async def clone_instructions(ctx) -> None:
         return
     if mode == "link":
         await check_link_authority(db, ctx.organization, ctx.user, ctx.source_id, items)
+        await check_no_pending_changes(db, ctx.organization, items)
     build = InstructionBuild(
         build_number=await bs._get_next_build_number(db, org_id), status="draft", source="user",
         is_main=False, base_build_id=str(main_id) if main_id else None,
@@ -204,50 +253,58 @@ async def clone_instructions(ctx) -> None:
     await db.flush()
     build.total_instructions = await bs._copy_contents_bulk(db, str(main_id), str(build.id), False) if main_id else 0
 
+    current: List[dict] = []  # instruction id -> its new version, set after one flush
     if mode == "copy":
-        # Rows first, so references to another copied instruction can follow.
+        # Ids first, so references to another copied instruction can follow.
         for inst, _ in items:
-            copy = Instruction(
-                text=inst.text, title=inst.title, description=inst.description,
-                structured_data=inst.structured_data, formatted_content=inst.formatted_content,
-                status=inst.status, category=inst.category, kind=inst.kind, load_mode=inst.load_mode,
-                applicable_modes=inst.applicable_modes, applicable_channels=inst.applicable_channels,
-                is_seen=inst.is_seen, can_user_toggle=inst.can_user_toggle,
-                organization_id=org_id, user_id=user_id, source_type="user",
-            )
-            db.add(copy)
-            await db.flush()
-            ctx.instruction_map[str(inst.id)] = str(copy.id)
+            ctx.instruction_map[str(inst.id)] = str(uuid.uuid4())
+        assoc, labels = [], []
         for inst, v in items:
             new_id = ctx.instruction_map[str(inst.id)]
-            await db.execute(insert(ids_assoc).values(instruction_id=new_id, data_source_id=ctx.clone_id))
-            for label_id in v.label_ids or []:
-                await db.execute(insert(instruction_label_association).values(instruction_id=new_id, label_id=label_id))
+            # The version is the content: the row mirrors it, as after a promote.
+            db.add(Instruction(
+                id=new_id, text=v.text, title=v.title, description=v.description,
+                structured_data=v.structured_data, formatted_content=v.formatted_content,
+                status=v.status, category=inst.category, kind=inst.kind, load_mode=v.load_mode or "always",
+                applicable_modes=v.applicable_modes, applicable_channels=v.applicable_channels,
+                is_seen=inst.is_seen, can_user_toggle=inst.can_user_toggle,
+                organization_id=org_id, user_id=user_id, source_type="user",
+            ))
+            assoc.append({"instruction_id": new_id, "data_source_id": ctx.clone_id})
+            labels += [{"instruction_id": new_id, "label_id": l} for l in v.label_ids or []]
             refs = _remap_refs(v.references_json, ctx)
             for r in refs:
                 db.add(InstructionReference(instruction_id=new_id, object_type=r["object_type"], object_id=r["object_id"],
                                             column_name=r.get("column_name"), display_text=r.get("display_text")))
             version = _version_row(new_id, 1, v, user_id=user_id, data_source_ids=[ctx.clone_id],
                                    references_json=refs or None, label_ids=v.label_ids)
+            version.id = str(uuid.uuid4())
             db.add(version)
-            await db.flush()
-            # The version is the content: the row mirrors it, as after a promote.
-            await db.execute(update(Instruction).where(Instruction.id == new_id).values(
-                current_version_id=str(version.id), text=v.text, title=v.title, description=v.description,
-                structured_data=v.structured_data, formatted_content=v.formatted_content, status=v.status,
-                load_mode=v.load_mode or "always", applicable_modes=v.applicable_modes,
-                applicable_channels=v.applicable_channels))
+            current.append({"id": new_id, "current_version_id": version.id})
             db.add(BuildContent(build_id=str(build.id), instruction_id=new_id,
-                                instruction_version_id=str(version.id), is_change=True))
+                                instruction_version_id=version.id, is_change=True))
+        await db.flush()
+        await db.execute(insert(ids_assoc), assoc)
+        if labels:
+            await db.execute(insert(instruction_label_association), labels)
         build.added_count = len(items)
         build.total_instructions = (build.total_instructions or 0) + len(items)
         part.copied = len(items)
     else:
-        agents = await _agents_by_instruction(db, [str(i.id) for i, _ in items])
-        vs = InstructionVersionService()
+        ids = [str(i.id) for i, _ in items]
+        agents = await _agents_by_instruction(db, ids)
+        last = {str(k): n for k, n in (await db.execute(
+            select(InstructionVersion.instruction_id, func.max(InstructionVersion.version_number))
+            .where(InstructionVersion.instruction_id.in_(ids))
+            .group_by(InstructionVersion.instruction_id)
+        )).all()}
+        contents = {str(iid): str(cid) for cid, iid in (await db.execute(
+            select(BuildContent.id, BuildContent.instruction_id)
+            .where(BuildContent.build_id == str(build.id), BuildContent.instruction_id.in_(ids))
+        )).all()}
+        content_updates = []
         for inst, v in items:
             iid = str(inst.id)
-            await db.execute(insert(ids_assoc).values(instruction_id=iid, data_source_id=ctx.clone_id))
             added = []
             for r in v.references_json or []:
                 if r.get("object_type") == "datasource_table" and str(r.get("object_id")) in ctx.table_map:
@@ -256,19 +313,22 @@ async def clone_instructions(ctx) -> None:
                 db.add(InstructionReference(instruction_id=iid, object_type=r["object_type"], object_id=r["object_id"],
                                             column_name=r.get("column_name"), display_text=r.get("display_text")))
             version = _version_row(
-                iid, await vs.get_next_version_number(db, iid), v, user_id=user_id,
+                iid, (last.get(iid) or 0) + 1, v, user_id=user_id,
                 data_source_ids=sorted(set(agents.get(iid, [])) | {ctx.clone_id}),
                 references_json=(list(v.references_json or []) + added) or None, label_ids=v.label_ids,
             )
+            version.id = str(uuid.uuid4())
             db.add(version)
-            await db.flush()
-            await db.execute(update(Instruction).where(Instruction.id == iid).values(current_version_id=str(version.id)))
-            await db.execute(update(BuildContent).where(
-                BuildContent.build_id == str(build.id), BuildContent.instruction_id == iid,
-            ).values(instruction_version_id=str(version.id), is_change=True, base_version_id=str(v.id)))
+            current.append({"id": iid, "current_version_id": version.id, **_row_sync(version)})
+            content_updates.append({"id": contents[iid], "instruction_version_id": version.id,
+                                    "is_change": True, "base_version_id": str(v.id)})
             ctx.instruction_map[iid] = iid
+        await db.execute(insert(ids_assoc), [{"instruction_id": i, "data_source_id": ctx.clone_id} for i in ids])
+        await db.flush()
+        await db.execute(update(BuildContent), content_updates)
         build.modified_count = len(items)
         part.linked = len(items)
+    await db.execute(update(Instruction), current)
 
     # Folders and placements, mirrored onto the clone.
     dir_map = await _mirror_directories(ctx)

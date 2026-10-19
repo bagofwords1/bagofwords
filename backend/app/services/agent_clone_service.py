@@ -85,6 +85,8 @@ class CloneContext:
     promoted_build_id: Optional[str] = None
     # (old, new) bow table names of copied lists, for saved-query code.
     list_names: List[tuple] = field(default_factory=list)
+    # Names an @mention can resolve to (load_mention_matcher).
+    mention_matcher: Any = None
 
     def part(self, name: str) -> CloneComponent:
         return self.summary.setdefault(name, CloneComponent())
@@ -117,12 +119,13 @@ def remap_mentions(value: Any, ctx: CloneContext) -> Any:
     if kind == "data_source" and str(out.get("id")) == src:
         out["id"] = dst
         out["name"] = ctx.clone.name
-    elif kind == "datasource_table":
+    elif kind == "datasource_table" and str(out.get("id")) in ctx.table_map:
+        # A table the clone doesn't have (a user-discovered one) stays on the
+        # source: pointing it at the clone would name a table that isn't there.
+        out["id"] = ctx.table_map[str(out["id"])]
         if str(out.get("datasource_id")) == src:
             out["datasource_id"] = dst
             out["data_source_name"] = ctx.clone.name
-        if str(out.get("id")) in ctx.table_map:
-            out["id"] = ctx.table_map[str(out["id"])]
     elif kind == "entity":
         if str(out.get("id")) in ctx.entity_map:
             out["id"] = ctx.entity_map[str(out["id"])]
@@ -133,20 +136,39 @@ def remap_mentions(value: Any, ctx: CloneContext) -> Any:
     return out
 
 
-def remap_mention_text(text: Optional[str], ctx: CloneContext) -> Optional[str]:
-    """``@<source name>`` (bare or quoted) becomes the clone's mention in text a
-    user wrote, so it resolves to the clone (utils/mentions.py). A longer name
-    that merely starts with the source's (``@SalesOps`` for ``Sales``) is left
-    alone."""
-    import re
+async def load_mention_matcher(ctx: CloneContext) -> None:
+    """The names an ``@`` in the source's text can resolve to: the org's agents
+    and the source's tables. Parsing against them (longest match wins, as when
+    the text is used) is what tells ``@Sales`` from ``@Sales Orders``."""
+    from app.utils.mentions import MentionMatcher
 
-    from app.utils.mentions import format_mention
+    agents = (await ctx.db.execute(
+        select(DataSource.name).where(DataSource.organization_id == str(ctx.organization.id))
+    )).scalars().all()
+    tables = (await ctx.db.execute(
+        select(DataSourceTable.name).where(
+            DataSourceTable.datasource_id == ctx.source_id, DataSourceTable.deleted_at.is_(None)
+        )
+    )).scalars().all()
+    ctx.mention_matcher = MentionMatcher([ctx.source.name, *agents, *tables])
+
+
+def remap_mention_text(text: Optional[str], ctx: CloneContext) -> Optional[str]:
+    """Mentions of the source agent in text a user wrote become mentions of
+    the clone. The text is split by the same parser that resolves it
+    (utils/mentions.py), so only an ``@`` that resolves to the source changes:
+    ``@"Sales"`` and ``@Sales`` do, ``@Sales Orders`` (another name) doesn't."""
+    from app.utils.mentions import format_mention, parse_mention_segments
 
     if not text:
         return text
-    old = ctx.source.name
-    pattern = re.compile(r'@"' + re.escape(old.replace('"', '')) + r'"|@' + re.escape(old) + r'(?![A-Za-z0-9_])')
-    return pattern.sub(lambda _m: format_mention(ctx.clone.name), text)
+    old = ctx.source.name.replace('"', "").casefold()
+    return "".join(
+        format_mention(ctx.clone.name)
+        if seg.label is not None and seg.label.replace('"', "").casefold() == old
+        else seg.text
+        for seg in parse_mention_segments(text, ctx.mention_matcher)
+    )
 
 
 # ── preconditions ──────────────────────────────────────────────────────────
@@ -165,23 +187,11 @@ async def _load_source(db, organization, data_source_id: str) -> DataSource:
 
 
 async def _check_license(db, organization, source: DataSource) -> None:
-    # Same caps as DataSourceService.create_data_source.
-    from app.ee.license import get_max_agents, is_datasource_allowed
+    from app.services.data_source_service import DataSourceService
 
-    max_agents = get_max_agents()
-    if max_agents >= 0:
-        count = (await db.execute(
-            select(func.count(DataSource.id)).where(DataSource.organization_id == organization.id)
-        )).scalar() or 0
-        if count >= max_agents:
-            raise HTTPException(
-                status_code=402,
-                detail=f"Agent limit reached for your license ({max_agents}). "
-                       "Contact sales to increase your agent count.",
-            )
-    for conn in source.connections or []:
-        if not is_datasource_allowed(conn.type):
-            raise HTTPException(status_code=402, detail=f"The {conn.type} connector requires an enterprise license.")
+    svc = DataSourceService()
+    await svc.enforce_agent_cap(db, organization)
+    svc.enforce_connector_license([conn.type for conn in source.connections or []])
 
 
 def _name_taken(name: str) -> HTTPException:
@@ -231,8 +241,9 @@ async def _create_agent(ctx: CloneContext) -> None:
     except IntegrityError:
         raise _name_taken(o.name)
     ctx.clone = clone
-    for conn in s.connections or []:
-        await ctx.db.execute(insert(domain_connection).values(data_source_id=ctx.clone_id, connection_id=str(conn.id)))
+    if s.connections:
+        await ctx.db.execute(insert(domain_connection),
+                             [{"data_source_id": ctx.clone_id, "connection_id": str(c.id)} for c in s.connections])
 
 
 async def _copy_tables(ctx: CloneContext) -> None:
@@ -272,14 +283,18 @@ async def _copy_prompts(ctx: CloneContext) -> None:
         .join(prompt_data_source_association, prompt_data_source_association.c.prompt_id == Prompt.id)
         .where(prompt_data_source_association.c.data_source_id == ctx.source_id, Prompt.deleted_at.is_(None))
     )).scalars().unique().all()
+    if not rows:
+        return
+    links = []
     for p in rows:
         # On the clone only: also keeping the original's other agents would
         # show those agents the same prompt twice.
         new_id = str(uuid.uuid4())
         ctx.db.add(Prompt(id=new_id, **copy_columns(p, mentions=remap_mentions(p.mentions, ctx),
                                                     text=remap_mention_text(p.text, ctx))))
-        await ctx.db.flush()
-        await ctx.db.execute(insert(prompt_data_source_association).values(prompt_id=new_id, data_source_id=ctx.clone_id))
+        links.append({"prompt_id": new_id, "data_source_id": ctx.clone_id})
+    await ctx.db.flush()
+    await ctx.db.execute(insert(prompt_data_source_association), links)
     ctx.part("prompts").copied = len(rows)
 
 
@@ -291,8 +306,9 @@ async def _link_files(ctx: CloneContext) -> None:
         select(data_source_file_association.c.file_id)
         .where(data_source_file_association.c.data_source_id == ctx.source_id)
     )).scalars().all()})
-    for fid in file_ids:
-        await ctx.db.execute(insert(data_source_file_association).values(data_source_id=ctx.clone_id, file_id=fid))
+    if file_ids:
+        await ctx.db.execute(insert(data_source_file_association),
+                             [{"data_source_id": ctx.clone_id, "file_id": fid} for fid in file_ids])
     part.linked = len(file_ids)
 
 
@@ -340,7 +356,9 @@ async def clone_agent(db, organization, user, source_id: str, opts: AgentCloneIn
     from app.ee.audit.service import audit_service
 
     from app.services.agent_clone_data import clone_evals, clone_lists, clone_saved_queries
-    from app.services.agent_clone_instructions import check_link_authority, clone_instructions, live_instructions
+    from app.services.agent_clone_instructions import (
+        check_link_authority, check_no_pending_changes, clone_instructions, live_instructions,
+    )
 
     source = await _load_source(db, organization, source_id)
     await _check_license(db, organization, source)
@@ -348,12 +366,14 @@ async def clone_agent(db, organization, user, source_id: str, opts: AgentCloneIn
     ctx = CloneContext(db=db, organization=organization, user=user, source=source, opts=opts)
     if opts.instructions == "link":
         # Fail before writing anything; re-checked under the lock later.
-        await check_link_authority(db, organization, user, str(source.id),
-                                   await live_instructions(db, str(organization.id), str(source.id)))
+        live = await live_instructions(db, str(organization.id), str(source.id))
+        await check_link_authority(db, organization, user, str(source.id), live)
+        await check_no_pending_changes(db, organization, live)
 
     try:
         await _create_agent(ctx)
         await _copy_tables(ctx)
+        await load_mention_matcher(ctx)
         await _copy_tool_policies(ctx)
         await _set_access(ctx)
         # Later steps check the cloner's authority on the clone.

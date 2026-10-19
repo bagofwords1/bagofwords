@@ -11,6 +11,7 @@ Contracts:
   instruction follows.
 - Linking an instruction that is also shared with an agent the cloner doesn't
   manage is refused up front, and nothing is created; copying it is allowed.
+  So is linking an instruction with a change waiting in an open build.
 """
 import asyncio
 import uuid
@@ -85,14 +86,42 @@ def test_copy_gives_the_clone_its_own_instructions(test_client, with_instruction
     clone_table = _tables(test_client, w, clone["id"])[w["target"]]["id"]
     assert [ref["object_id"] for ref in copy["references"] if ref["object_type"] == "datasource_table"] == [clone_table]
     assert [d["id"] for d in copy["data_sources"]] == [clone["id"]]
+    # The row points at its own first version, as after a promote.
+    v = test_client.get(f"/api/instructions/{copy_id}/versions/{copy['current_version_id']}",
+                        headers=_h(w["admin"]["token"], w["org_id"]))
+    assert v.status_code == 200, v.text
+    assert v.json()["version_number"] == 1 and v.json()["data_source_ids"] == [clone["id"]]
 
     # Independent from now on.
     _edit(test_client, w, copy_id, "Changed on the clone only")
     assert _get(test_client, w, w["ref_instr"]["id"])["text"] == w["ref_instr"]["text"]
 
 
+def _main_base_version(instruction_id):
+    """What main's change to the instruction was written against (the
+    reviewer's diff baseline). Not exposed by the API."""
+    from sqlalchemy import select
+
+    from app.dependencies import async_session_maker
+    from app.models.build_content import BuildContent
+    from app.models.instruction_build import InstructionBuild
+
+    async def _read():
+        async with async_session_maker() as db:
+            return (await db.execute(
+                select(BuildContent.base_version_id)
+                .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+                .where(InstructionBuild.is_main.is_(True), BuildContent.instruction_id == instruction_id)
+            )).scalar()
+    return asyncio.run(_read())
+
+
 def test_link_shares_the_same_instructions_with_the_clone(test_client, with_instructions):
     w = with_instructions
+    h = _h(w["admin"]["token"], w["org_id"])
+    old_version_id = _get(test_client, w, w["ref_instr"]["id"])["current_version_id"]
+    old_number = test_client.get(f"/api/instructions/{w['ref_instr']['id']}/versions/{old_version_id}",
+                                 headers=h).json()["version_number"]
     r = _clone(test_client, w, {"instructions": "link"})
     assert r.status_code == 201, r.text
     clone = r.json()["data_source"]
@@ -111,6 +140,8 @@ def test_link_shares_the_same_instructions_with_the_clone(test_client, with_inst
                         headers=_h(w["admin"]["token"], w["org_id"]))
     assert v.status_code == 200, v.text
     assert clone["id"] in v.json()["data_source_ids"]
+    assert v.json()["version_number"] == old_number + 1
+    assert _main_base_version(shared["id"]) == old_version_id
     assert _tables(test_client, w, clone["id"])[w["target"]]["id"] in {
         ref["object_id"] for ref in v.json()["references_json"] or []}
 
@@ -145,6 +176,30 @@ def test_an_unapproved_edit_does_not_travel_with_the_copy(test_client, with_inst
     clone = _clone(test_client, w, {"instructions": "copy"}).json()["data_source"]
     texts = {i["text"] for i in _list(test_client, w, clone["id"]).values()}
     assert w["plain_instr"]["text"] in texts and "NOT APPROVED YET" not in texts
+
+
+def test_linking_syncs_the_row_to_the_live_version_like_a_promote(test_client, with_instructions):
+    """Link gives the instruction a new live version; the row follows it, as
+    promote_build does, so readers of the row and of the version agree."""
+    from sqlalchemy import update
+
+    from app.dependencies import async_session_maker
+    from app.models.instruction import Instruction
+
+    w = with_instructions
+
+    async def _drift():
+        async with async_session_maker() as db:
+            await db.execute(update(Instruction).where(Instruction.id == w["plain_instr"]["id"])
+                             .values(text="ROW ONLY", title="ROW ONLY"))
+            await db.commit()
+    asyncio.run(_drift())
+    assert _clone(test_client, w, {"instructions": "link"}).status_code == 201
+    row = _get(test_client, w, w["plain_instr"]["id"])
+    v = test_client.get(f"/api/instructions/{row['id']}/versions/{row['current_version_id']}",
+                        headers=_h(w["admin"]["token"], w["org_id"])).json()
+    assert row["text"] == v["text"] == w["plain_instr"]["text"]
+    assert row["title"] == v["title"] == w["plain_instr"]["title"]
 
 
 def test_folders_and_the_primary_instruction_follow_the_clone(test_client, with_instructions):
@@ -201,3 +256,31 @@ def test_linking_an_instruction_shared_with_an_agent_you_dont_manage_is_refused(
     r = _clone(test_client, w, {"instructions": "copy"}, actor="manager")
     assert r.status_code == 201, r.text
     assert r.json()["summary"]["instructions"]["copied"] == 3
+
+
+@pytest.mark.parametrize("submitted", [False, True])
+def test_linking_an_instruction_with_a_change_waiting_in_a_build_is_refused(test_client, with_instructions, submitted):
+    """Linking gives the instruction a new version; a waiting change was made on
+    the old one and would drop the clone when promoted. Refused up front, by
+    name, and nothing is created; copying is still allowed."""
+    w = with_instructions
+    h = _h(w["admin"]["token"], w["org_id"])
+    build = test_client.post("/api/builds", json={"source": "user"}, headers=h)
+    assert build.status_code == 200, build.text
+    build_id = build.json()["id"]
+    r = test_client.put(f"/api/instructions/{w['plain_instr']['id']}",
+                        json={"text": "Answer in a long table", "target_build_id": build_id}, headers=h)
+    assert r.status_code == 200, r.text
+    if submitted:
+        assert test_client.post(f"/api/builds/{build_id}/submit", headers=h).status_code == 200
+    before = {d["id"] for d in test_client.get("/api/data_sources", headers=h).json()}
+
+    r = _clone(test_client, w, {"instructions": "link"})
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert detail["code"] == "instructions_pending"
+    assert detail["instructions"] == [w["plain_instr"]["title"]]
+    assert {d["id"] for d in test_client.get("/api/data_sources", headers=h).json()} == before
+
+    r = _clone(test_client, w, {"instructions": "copy"})
+    assert r.status_code == 201, r.text

@@ -167,12 +167,12 @@ async function submit() {
       const status = (error.value as any)?.statusCode ?? (error.value as any)?.status
       const detail = (error.value as any)?.data?.detail
       if (status === 409 && detail?.code === 'instructions_changed') throw new Error(t('agentClone.instructionsChanged'))
-      if (status === 409) { nameError.value = t('agentClone.nameTaken'); return }
       if (detail && typeof detail === 'object' && Array.isArray(detail.instructions)) {
         blocked.value = detail.instructions
-        blockedMessage.value = t('agentClone.linkBlocked')
+        blockedMessage.value = t(detail.code === 'instructions_pending' ? 'agentClone.linkPending' : 'agentClone.linkBlocked')
         return
       }
+      if (status === 409) { nameError.value = t('agentClone.nameTaken'); return }
       throw new Error(typeof detail === 'string' ? detail : t('agentClone.failed'))
     }
     const skipped = skippedNames(data.value?.summary)

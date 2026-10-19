@@ -5934,6 +5934,7 @@
     "nameTaken": "Ein Agent mit diesem Namen existiert bereits.",
     "instructionsChanged": "Die Anweisungen haben sich beim Klonen geändert. Versuche es noch einmal.",
     "linkBlocked": "Diese Anweisungen werden auch von Agenten genutzt, die du nicht verwaltest, daher können sie nicht geteilt werden. Kopiere sie stattdessen oder frage jemanden, der diese Agenten verwaltet.",
+    "linkPending": "Für diese Anweisungen warten Änderungen auf Freigabe, daher können sie noch nicht geteilt werden. Gib diese Änderungen zuerst frei oder lehne sie ab, oder kopiere die Anweisungen stattdessen.",
     "done": "{name} erstellt",
     "notCopied": "Nicht kopiert: {names}",
     "failed": "Der Agent konnte nicht geklont werden",

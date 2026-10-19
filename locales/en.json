@@ -6308,6 +6308,7 @@
     "nameTaken": "An agent with this name already exists.",
     "instructionsChanged": "Instructions changed while cloning. Try again.",
     "linkBlocked": "These instructions are also used by agents you don't manage, so they can't be shared. Copy them instead, or ask someone who manages those agents.",
+    "linkPending": "These instructions have changes waiting for approval, so they can't be shared yet. Approve or reject those changes first, or copy the instructions instead.",
     "done": "Created {name}",
     "notCopied": "Not copied: {names}",
     "failed": "Couldn't clone the agent",

@@ -8,7 +8,10 @@ Contracts:
   a way that can't be renamed is left out and reported. With copied lists,
   list ids in the code follow the copies.
 - Evals: suites homed on the source come along, re-pointed at the clone;
-  archived cases and cases with no agent stay behind.
+  archived cases, cases with no agent and cases that don't run on the source
+  stay behind; a suite left empty isn't created.
+- Mentions: only an @ that resolves to the source (longest name wins) moves
+  to the clone; a mention of a table the clone doesn't have stays put.
 """
 import uuid
 
@@ -64,17 +67,25 @@ def test_only_the_source_connections_keys_are_renamed(key):
         'ds_clients["Sales copy:pg::fast"]'
 
 
-@pytest.mark.parametrize("text,after", [
-    ("ask @Sales now", 'ask @"Sales copy" now'),
-    ('ask @"Sales" now', 'ask @"Sales copy" now'),
-    ("compare @SalesOps", "compare @SalesOps"),   # another agent whose name starts the same
-    ("email sales@Salesforce.com", "email sales@Salesforce.com"),
+@pytest.mark.parametrize("source,clone,text,after", [
+    ("Sales", "Sales copy", "ask @Sales now", 'ask @"Sales copy" now'),
+    ("Sales", "Sales copy", 'ask @"Sales" now', 'ask @"Sales copy" now'),
+    ("Sales", "Sales copy", "compare @SalesOps", "compare @SalesOps"),   # another agent whose name starts the same
+    ("Sales", "Sales copy", "email sales@Salesforce.com", "email sales@Salesforce.com"),
+    # Another agent's longer name wins, as when the text is used.
+    ("Sales", "Sales copy", "see @Sales Orders", "see @Sales Orders"),
+    ("מכירות", "מכירות 2", "שאל את @מכירות היום", 'שאל את @"מכירות 2" היום'),
+    ("מכירות", "מכירות 2", "השווה עם @מכירות צפון", "השווה עם @מכירות צפון"),
+    ("מכירות", "מכירות 2", "השווה עם @מכירותצפון", "השווה עם @מכירותצפון"),
 ])
-def test_mentions_of_the_source_in_text_point_at_the_clone(text, after):
+def test_mentions_of_the_source_in_text_point_at_the_clone(source, clone, text, after):
     from types import SimpleNamespace
 
     from app.services.agent_clone_service import remap_mention_text
-    ctx = SimpleNamespace(source=SimpleNamespace(name="Sales"), clone=SimpleNamespace(name="Sales copy"))
+    from app.utils.mentions import MentionMatcher
+    others = ["SalesOps", "Sales Orders", "מכירות צפון", "מכירותצפון"]
+    ctx = SimpleNamespace(source=SimpleNamespace(name=source), clone=SimpleNamespace(name=clone),
+                          mention_matcher=MentionMatcher([source, *others]))
     assert remap_mention_text(text, ctx) == after
 
 
@@ -155,6 +166,44 @@ def test_a_copied_saved_query_runs_on_the_clone(test_client, world):
     assert ran.json()["data"]["rows"][0]["n"] > 0
     # The source is untouched.
     assert test_client.get(f"/api/entities/{src['id']}", headers=h).json()["code"] == code
+
+
+def test_copied_saved_queries_get_slugs_of_their_own(test_client, world):
+    """Slugs are kept unique per organization (EntityService._unique_slug),
+    but the column isn't: older rows can share one. Copies never collide with
+    each other or with what exists."""
+    import asyncio
+
+    from sqlalchemy import update
+
+    from app.dependencies import async_session_maker
+    from app.models.entity import Entity
+
+    w = world
+    h = _h(w["admin"]["token"], w["org_id"])
+    base = f"rev-{uuid.uuid4().hex[:6]}"
+    srcs = []
+    for slug in (base, f"{base}-x"):
+        r = test_client.post("/api/entities", json={
+            "type": "model", "title": "Revenue", "slug": slug, "code": "x = 1", "data": {},
+            "status": "published", "data_source_ids": [w["agent"]["id"]],
+        }, headers=h)
+        assert r.status_code == 200, r.text
+        srcs.append(r.json())
+
+    async def _same_slug():
+        async with async_session_maker() as db:
+            await db.execute(update(Entity).where(Entity.id == srcs[1]["id"]).values(slug=base))
+            await db.commit()
+    asyncio.run(_same_slug())
+    srcs[1]["slug"] = base
+    clone = _clone(test_client, w, {"saved_queries": "copy"}).json()["data_source"]
+    copies = [e for e in test_client.get("/api/entities", params={"data_source_ids": clone["id"]}, headers=h).json()
+              if e["id"] not in {s["id"] for s in srcs}]
+    slugs = sorted(e["slug"] for e in copies)
+    assert len(slugs) == 2 and len(set(slugs)) == 2
+    assert not set(slugs) & {s["slug"] for s in srcs}
+    assert all(s.startswith(base) for s in slugs)
 
 
 def test_a_saved_query_that_cannot_be_renamed_is_left_out_and_reported(test_client, world):
@@ -258,10 +307,56 @@ def test_follow_up_turns_of_an_eval_point_at_the_clone():
     from types import SimpleNamespace
 
     from app.services.agent_clone_data import _remap_turn
+    from app.utils.mentions import MentionMatcher
     ctx = SimpleNamespace(source=SimpleNamespace(name="Sales"), clone=SimpleNamespace(name="Sales copy"),
-                          source_id="src", clone_id="dst", table_map={}, entity_map={})
+                          source_id="src", clone_id="dst", table_map={}, entity_map={},
+                          mention_matcher=MentionMatcher(["Sales"]))
     turn = {"prompt": {"content": "now ask @Sales for Q2", "step_id": "s1", "widget_id": "w1",
                        "mentions": [{"type": "data_source", "id": "src", "name": "Sales"}]}, "expectations": {}}
     out = _remap_turn(turn, ctx)["prompt"]
     assert out["content"] == 'now ask @"Sales copy" for Q2'
     assert out["mentions"][0]["id"] == "dst" and out["step_id"] is None and out["widget_id"] is None
+
+
+def test_eval_cases_that_dont_run_on_the_source_stay_behind(test_client, world, sqlite_data_source):
+    """A case pinned to other agents only would run exactly as the original
+    does: copying it is a duplicate. A suite left with no case isn't created."""
+    w = world
+    h = _h(w["admin"]["token"], w["org_id"])
+    other = sqlite_data_source(name=f"Legal {uuid.uuid4().hex[:4]}", user_token=w["admin"]["token"], org_id=w["org_id"])
+    spec = {"spec_version": 1, "rules": [], "order_mode": "flexible"}
+
+    def _suite(name, cases):
+        s = test_client.post("/api/tests/suites", json={"name": name, "data_source_id": w["agent"]["id"]},
+                             headers=h).json()
+        for case_name, ds_ids in cases:
+            r = test_client.post(f"/api/tests/suites/{s['id']}/cases", json={
+                "name": case_name, "prompt_json": {"content": "How many artists?", "mentions": []},
+                "expectations_json": spec, "data_source_ids_json": ds_ids,
+            }, headers=h)
+            assert r.status_code == 200, r.text
+        return s
+    _suite("Mixed", [("Both", [w["agent"]["id"], other["id"]]), ("Legal only", [other["id"]])])
+    _suite("Legal checks", [("Legal again", [other["id"]])])
+
+    body = _clone(test_client, w, {"evals": "copy"}).json()
+    clone = body["data_source"]
+    suites = {s["name"]: s for s in test_client.get("/api/tests/suites", params={"data_source_id": clone["id"]},
+                                                    headers=h).json() if s["data_source_id"] == clone["id"]}
+    assert set(suites) == {"Mixed"}
+    cases = test_client.get(f"/api/tests/suites/{suites['Mixed']['id']}/cases", headers=h).json()
+    assert [(c["name"], sorted(c["data_source_ids_json"])) for c in cases] == [("Both", sorted([clone["id"], other["id"]]))]
+    assert {s["name"] for s in body["summary"]["evals"]["skipped"]} == {"Legal only", "Legal again", "Legal checks"}
+
+
+def test_a_mention_of_a_table_the_clone_doesnt_have_stays_on_the_source():
+    from types import SimpleNamespace
+
+    from app.services.agent_clone_service import remap_mentions
+    ctx = SimpleNamespace(source_id="src", clone_id="dst", clone=SimpleNamespace(name="Sales copy"),
+                          table_map={"t1": "t1-copy"}, entity_map={})
+    copied = {"type": "datasource_table", "id": "t1", "datasource_id": "src", "data_source_name": "Sales"}
+    users = {"type": "datasource_table", "id": "t-user", "datasource_id": "src", "data_source_name": "Sales"}
+    assert remap_mentions(copied, ctx) == {**copied, "id": "t1-copy", "datasource_id": "dst",
+                                           "data_source_name": "Sales copy"}
+    assert remap_mentions(users, ctx) == users

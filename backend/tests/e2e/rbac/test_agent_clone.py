@@ -151,6 +151,33 @@ def test_a_taken_name_is_a_conflict_and_creates_nothing(test_client, world):
     assert _agent_ids(test_client, world) == before
 
 
+def test_the_license_agent_cap_applies_to_a_clone(test_client, world):
+    """Same cap as creating an agent (DataSourceService.enforce_agent_cap)."""
+    from tests.e2e.test_license_limits import _license
+
+    h = _h(world["admin"]["token"], world["org_id"])
+    with _license(max_agents=-1):
+        current = test_client.get("/api/license/usage", headers=h).json()["current_agents"]
+    before = _agent_ids(test_client, world)
+    with _license(max_agents=current):
+        r = _clone(test_client, world)
+    assert r.status_code == 402, r.text
+    assert _agent_ids(test_client, world) == before
+    with _license(max_agents=current + 1):
+        assert _clone(test_client, world).status_code == 201
+
+
+def test_a_connector_the_license_doesnt_cover_blocks_the_clone(test_client, world, monkeypatch):
+    """Same connector check as creating an agent (enforce_connector_license)."""
+    import app.ee.license as license_mod
+
+    before = _agent_ids(test_client, world)
+    monkeypatch.setattr(license_mod, "is_datasource_allowed", lambda t: t != "sqlite")
+    r = _clone(test_client, world)
+    assert r.status_code == 402 and "sqlite" in r.text
+    assert _agent_ids(test_client, world) == before
+
+
 def test_linking_saved_queries_is_refused_until_per_agent_runs_exist(test_client, world):
     assert _clone(test_client, world, {"saved_queries": "link"}).status_code == 422
 

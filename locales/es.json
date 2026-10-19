@@ -6279,6 +6279,7 @@
     "nameTaken": "Ya existe un agente con este nombre.",
     "instructionsChanged": "Las instrucciones cambiaron durante la clonación. Inténtalo de nuevo.",
     "linkBlocked": "Estas instrucciones también las usan agentes que no administras, así que no se pueden compartir. Cópialas, o pide ayuda a quien administre esos agentes.",
+    "linkPending": "Estas instrucciones tienen cambios pendientes de aprobación, así que todavía no se pueden compartir. Aprueba o rechaza esos cambios primero, o copia las instrucciones.",
     "done": "Se creó {name}",
     "notCopied": "No se copió: {names}",
     "failed": "No se pudo clonar el agente",

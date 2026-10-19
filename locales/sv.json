@@ -5934,6 +5934,7 @@
     "nameTaken": "Det finns redan en agent med det namnet.",
     "instructionsChanged": "Instruktionerna ändrades under kloningen. Försök igen.",
     "linkBlocked": "De här instruktionerna används också av agenter som du inte förvaltar, så de kan inte delas. Kopiera dem i stället, eller fråga någon som förvaltar de agenterna.",
+    "linkPending": "De här instruktionerna har ändringar som väntar på godkännande, så de kan inte delas än. Godkänn eller avvisa ändringarna först, eller kopiera instruktionerna i stället.",
     "done": "{name} skapades",
     "notCopied": "Kopierades inte: {names}",
     "failed": "Det gick inte att klona agenten",
