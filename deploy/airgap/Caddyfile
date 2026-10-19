@@ -3,7 +3,14 @@
 # certificate directly into Caddy.
 http://{$DOMAIN:localhost} {
     reverse_proxy app:3000
-    encode gzip zstd
+    # Compress everything except live streams (chat tokens, activity feed).
+    # A compressed event stream makes content-inspecting proxies (TLS
+    # inspection, antivirus/DLP gateways) hold the whole answer until it ends,
+    # so users see it appear all at once. The streaming fetches always send
+    # Accept: text/event-stream; the app also marks those responses
+    # Content-Encoding: identity, which Caddy leaves alone.
+    @compressible not header Accept *text/event-stream*
+    encode @compressible gzip zstd
 
     header {
         X-Content-Type-Options "nosniff"

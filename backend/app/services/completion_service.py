@@ -60,6 +60,7 @@ from app.services.data_source_service import DataSourceService
 from app.services.sub_agent_locks import lock_report
 
 from app.streaming.completion_event_bus import websocket_manager
+from app.streaming.delivery import NO_BUFFER_HEADERS
 from app.settings.database import create_async_session_factory
 
 # Per-worker cap on concurrently *executing* agent runs. Excess streaming
@@ -2845,10 +2846,9 @@ class CompletionService:
                 completion_stream_generator(),
                 media_type="text/event-stream",
                 headers={
-                    "Cache-Control": "no-cache",
+                    **NO_BUFFER_HEADERS,
                     "Connection": "keep-alive",
                     "Transfer-Encoding": "chunked",
-                    "X-Accel-Buffering": "no",  # Disable nginx/ingress buffering
                     "X-Content-Type-Options": "nosniff",
                 }
             )
@@ -3031,10 +3031,9 @@ class CompletionService:
             watch_stream_generator(),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                **NO_BUFFER_HEADERS,
                 "Connection": "keep-alive",
                 "Transfer-Encoding": "chunked",
-                "X-Accel-Buffering": "no",  # Disable nginx/ingress buffering
                 "X-Content-Type-Options": "nosniff",
             },
         )

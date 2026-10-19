@@ -19,6 +19,7 @@ from typing import Any, Optional, Union, Tuple
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.responses import StreamingResponse
+from app.streaming.delivery import NO_BUFFER_HEADERS
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
@@ -431,7 +432,7 @@ async def mcp_endpoint(
         return StreamingResponse(
             _sse_tool_stream(),
             media_type="text/event-stream",
-            headers={"MCP-Protocol-Version": MCP_PROTOCOL_VERSION, "Cache-Control": "no-cache"},
+            headers={**NO_BUFFER_HEADERS, "MCP-Protocol-Version": MCP_PROTOCOL_VERSION},
         )
 
     elif request.method == "resources/list":
