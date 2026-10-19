@@ -363,19 +363,19 @@ class TablesSchemaContext(ContextSection):
         # and, worse, unaware of WHICH URLs are in scope (so it guesses wrong ones).
         browser_scope: Optional[Dict[str, Any]] = None
 
-        # True when the planner registers this report's MCP tools natively, so
-        # each one already carries its schema in the request's tools array.
-        # Resolved report-wide by the builder — never recomputed here, or the two
-        # sides could disagree about where the schema lives.
-        native_mcp: bool = False
+        # MCP tools are registered natively, each carrying its schema in the
+        # request's tools array. False only when the run could not build its
+        # MCP catalog and falls back to execute_mcp (set by the context hub):
+        # the block then inlines schemas and points at execute_mcp.
+        native_mcp: bool = True
 
         # Below this many files, list them inline (cheap + lets the agent pick
         # directly); above it, emit only scope + sample + topics.
         _FILE_INLINE_THRESHOLD: ClassVar[int] = 15
 
-        # Below this many MCP/custom-API tools, inline each tool's argument
-        # schema in <mcp_tools>; above it the block would dominate the prompt
-        # every turn, so those connections keep a discovery hop.
+        # On the execute_mcp fallback, below this many MCP/custom-API tools,
+        # inline each tool's argument schema in <mcp_tools>; above it the
+        # block would dominate the prompt every turn.
         _MCP_INLINE_SCHEMA_MAX: ClassVar[int] = 40
 
         # Short, human-readable explanations of each agent (data source)
@@ -598,14 +598,10 @@ class TablesSchemaContext(ContextSection):
                 key = tool.connection_id or 'default'
                 groups[key].append(tool)
 
-            # Inline argument schemas when the catalog is small enough to
-            # afford it. Above the threshold the block would dominate the
-            # prompt every turn, so those fall back to discovery.
-            #
-            # When native registration is on, each tool already carries its
-            # schema in the request's tools array. Inlining here as well would
-            # pay for the same bytes twice, every turn, so the block degrades to
-            # an index and the note points at the real tools.
+            # Native tools carry their schema in the request's tools array,
+            # so the block is an index. On the execute_mcp fallback there is
+            # no other copy: inline the schemas when the catalog is small
+            # enough to afford it.
             total_tools = sum(len(v) for v in groups.values())
             inline_schemas = (not self.native_mcp) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
 
@@ -642,17 +638,26 @@ class TablesSchemaContext(ContextSection):
             # MCP tools are the model's own tools (mcp__<connection>__<tool>),
             # each with its schema, up to tools_max; the rest are reached via
             # search_tools + call_tool. This block is the index of all of them.
-            conn_parts.append(
-                "<note>Each tool above is in your tool list as mcp__&lt;connection&gt;__&lt;tool&gt;, "
-                "carrying its own argument schema: call it directly.</note>"
-                if not any(getattr(t, "deferred", False) for t in (self.mcp_tools or [])) else
-                "<note>Tools above without deferred=\"true\" are in your tool list as "
-                "mcp__&lt;connection&gt;__&lt;tool&gt;, each with its own argument schema: call them "
-                "directly. Tools marked deferred=\"true\" are NOT in your tool list and their "
-                "arguments are not shown: call search_tools to get the exact name and input schema, "
-                "then call_tool(name=&lt;that exact name&gt;, arguments=...). Do not guess their "
-                "arguments.</note>"
-            )
+            if not self.native_mcp:
+                note = (
+                    "<note>Call these tools with execute_mcp(connection_id=&lt;the connection id above&gt;, "
+                    "tool_name=&lt;the tool name&gt;, arguments={...}).</note>"
+                )
+            elif not any(getattr(t, "deferred", False) for t in (self.mcp_tools or [])):
+                note = (
+                    "<note>Each tool above is in your tool list as mcp__&lt;connection&gt;__&lt;tool&gt;, "
+                    "carrying its own argument schema: call it directly.</note>"
+                )
+            else:
+                note = (
+                    "<note>Tools above without deferred=\"true\" are in your tool list as "
+                    "mcp__&lt;connection&gt;__&lt;tool&gt;, each with its own argument schema: call them "
+                    "directly. Tools marked deferred=\"true\" are NOT in your tool list and their "
+                    "arguments are not shown: call search_tools to get the exact name and input schema, "
+                    "then call_tool(name=&lt;that exact name&gt;, arguments=...). Do not guess their "
+                    "arguments.</note>"
+                )
+            conn_parts.append(note)
             if has_gated:
                 conn_parts.append(
                     '<note>Tools marked policy="ask" pause the run for the user to approve the call '

@@ -12,6 +12,7 @@ messages it receives, so the assertions are about what crosses the wire:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import socket
 import threading
@@ -167,3 +168,62 @@ def test_pool_size_zero_opens_a_session_per_call(mcp_server, monkeypatch):
 
     _run(go())
     assert _count(mcp_server["seen"], "initialize") == 3
+
+
+# --- Races, with a fake transport (no server) -------------------------------
+
+class _FakeSession:
+    async def send_ping(self):
+        return None
+
+
+def _fake_opener(closing: "asyncio.Event | None" = None, close_delay: float = 0.0):
+    @contextlib.asynccontextmanager
+    async def opener():
+        try:
+            yield _FakeSession()
+        finally:
+            # A streamable-http close sends DELETE: closing takes a round trip.
+            if closing is not None:
+                closing.set()
+            if close_delay:
+                await asyncio.sleep(close_delay)
+    return opener
+
+
+def test_a_session_being_closed_for_idleness_is_not_handed_out(monkeypatch):
+    from app.data_sources.clients.mcp_session_pool import McpSessionPool
+
+    monkeypatch.setenv("BOW_MCP_POOL_IDLE_S", "1")
+
+    async def go():
+        pool = McpSessionPool()
+        closing = asyncio.Event()
+        opener = _fake_opener(closing, close_delay=0.5)
+        async with pool.session(("t", "u", "k"), opener) as first:
+            pass
+        await asyncio.wait_for(closing.wait(), timeout=5)
+        # The idle close is in progress: a new call must get a new session.
+        async with pool.session(("t", "u", "k"), opener) as second:
+            assert second is not first
+        await pool.aclose_all()
+
+    asyncio.run(go())
+
+
+def test_the_cap_never_closes_the_session_a_call_just_opened(monkeypatch):
+    from app.data_sources.clients.mcp_session_pool import McpSessionPool
+
+    monkeypatch.setenv("BOW_MCP_POOL_SIZE", "1")
+
+    async def go():
+        pool = McpSessionPool()
+        opener = _fake_opener()
+        async with pool.session(("t", "u", "busy"), opener):
+            # Every other session is in flight: the new one goes over the
+            # soft cap instead of being evicted before it is used.
+            async with pool.session(("t", "u", "new"), opener) as s:
+                assert isinstance(s, _FakeSession)
+        await pool.aclose_all()
+
+    asyncio.run(go())

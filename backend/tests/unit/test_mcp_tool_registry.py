@@ -3,7 +3,7 @@ import pytest
 
 from app.ai.tools.mcp_tool_registry import (
     build_tool_name, normalize_schema, parse_native_tool_name, sanitize,
-    native_tools_enabled, tools_max,
+    tools_max,
 )
 
 MAX = 64
@@ -146,22 +146,6 @@ def _no_env_flag(monkeypatch):
     monkeypatch.delenv("BOW_TOOLS_MAX", raising=False)
 
 
-@pytest.mark.parametrize("settings", [
-    None,
-    _FakeSettings(),
-    # Orgs store their whole config, so old saved values must not turn it off.
-    _FakeSettings(enable_mcp_native_tools=False, mcp_native_tools_threshold=12),
-])
-@pytest.mark.parametrize("count", [None, 0, 1, 5, 500])
-def test_native_registration_is_on_for_any_org_and_any_catalog_size(settings, count):
-    assert native_tools_enabled(settings, count) is True
-
-
-def test_the_old_deployment_switch_no_longer_turns_tools_off(monkeypatch):
-    monkeypatch.setenv("BOW_MCP_NATIVE_TOOLS", "0")
-    assert native_tools_enabled(_FakeSettings(), 100) is True
-
-
 def test_tools_max_defaults_and_env_override(monkeypatch):
     assert tools_max() == 50
     monkeypatch.setenv("BOW_TOOLS_MAX", "12")
@@ -196,7 +180,6 @@ def _feature(value):
 def test_real_org_settings(stored, expected):
     s = _real_settings(stored)
     assert tools_max(s) == expected
-    assert native_tools_enabled(s) is True
 
 
 # ── dispatch rewrite ───────────────────────────────────────────────────────

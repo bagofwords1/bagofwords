@@ -326,9 +326,15 @@ class CompletionService:
     RETURN_ON_ANSWER_ENABLED = True
 
     @staticmethod
-    def _caller_wants_follow_ups(completion_data, report) -> bool:
+    def _caller_wants_tail(completion_data, report) -> bool:
+        """True when the caller explicitly asked for something the post-answer
+        tail produces (follow-ups, instruction suggestions), on the prompt or
+        on the conversation: their response waits for the whole run."""
         prompt = getattr(completion_data, "prompt", None)
-        return getattr(prompt, "follow_ups", None) is True or getattr(report, "follow_ups", None) is True
+        return any(
+            getattr(prompt, key, None) is True or getattr(report, key, None) is True
+            for key in ("follow_ups", "suggest_instructions")
+        )
 
     async def _respond_when_answer_ready(self, run_task, answer_ready, run_outcome, *, report_id, head_completion_id):
         """Wait for the run's answer to be saved (or the run to end), then
@@ -342,14 +348,17 @@ class CompletionService:
             e = run_outcome["error"]
             raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
         async with create_async_session_factory()() as s:
-            res = await s.execute(
-                select(Completion.id)
-                .where(Completion.parent_id == head_completion_id)
-                .where(Completion.report_id == report_id)
-                .order_by(Completion.created_at.asc())
-            )
-            ids = list(res.scalars().all())
-            v2_list = await self._assemble_v2_for_completion_ids(s, ids)
+            return await self._build_v2_response(s, head_completion_id=head_completion_id, report_id=report_id)
+
+    async def _build_v2_response(self, db, *, head_completion_id, report_id) -> CompletionsV2Response:
+        """The response for one message: the head completion's children, with totals."""
+        res = await db.execute(
+            select(Completion.id)
+            .where(Completion.parent_id == head_completion_id)
+            .where(Completion.report_id == report_id)
+            .order_by(Completion.created_at.asc())
+        )
+        v2_list = await self._assemble_v2_for_completion_ids(db, list(res.scalars().all()))
         total_widgets = total_steps = 0
         for c in v2_list:
             for b in (c.completion_blocks or []):
@@ -927,12 +936,13 @@ class CompletionService:
             # answer is saved; the post-answer work (instruction-suggestion
             # check + knowledge harness, follow-ups, final context snapshot,
             # late scoring) finishes on the run's own session afterwards.
-            # A caller that explicitly asked for follow-ups waits for them.
+            # A caller that explicitly asked for follow-ups or instruction
+            # suggestions waits for them.
             defer_tail = (
                 not background
                 and return_on_answer
                 and self.RETURN_ON_ANSWER_ENABLED
-                and not self._caller_wants_follow_ups(completion_data, report)
+                and not self._caller_wants_tail(completion_data, report)
             )
             if background or defer_tail:
                 logging.info("CompletionService: Scheduling background agent (non-stream API)")
@@ -1102,35 +1112,9 @@ class CompletionService:
 
                     # Assemble v2 for the new message pair (user + system children)
                     with tracer.start_as_current_span("completion.assemble_v2_response"):
-                        response_completions = await self._get_response_completions(db, head_completion, current_user, organization)
-                        ids = [c.id for c in response_completions]
-                        v2_list = await self._assemble_v2_for_completion_ids(db, ids)
-
-                    # Compute aggregates similar to get_completions_v2 but for this set
-                    earliest = min((c.created_at for c in v2_list), default=None)
-                    latest = max((c.updated_at for c in v2_list), default=None)
-                    total_blocks = sum(len(c.completion_blocks or []) for c in v2_list)
-                    # Best-effort counts from tool_execution created artifacts
-                    total_widgets = 0
-                    total_steps = 0
-                    for c in v2_list:
-                        for b in (c.completion_blocks or []):
-                            te = getattr(b, 'tool_execution', None)
-                            if te and getattr(te, 'created_widget', None):
-                                total_widgets += 1
-                            if te and getattr(te, 'created_step', None):
-                                total_steps += 1
-
-                    return CompletionsV2Response(
-                        report_id=report.id,
-                        completions=v2_list,
-                        total_completions=len(v2_list),
-                        total_blocks=total_blocks,
-                        total_widgets_created=total_widgets,
-                        total_steps_created=total_steps,
-                        earliest_completion=earliest,
-                        latest_completion=latest,
-                    )
+                        return await self._build_v2_response(
+                            db, head_completion_id=head_completion.id, report_id=report.id,
+                        )
                 except Exception as e:
                     # str(e) alone can be empty (e.g. bare Exception subclasses) —
                     # keep the traceback, it's the only record of what killed the run.
@@ -3110,16 +3094,6 @@ class CompletionService:
             },
         )
 
-    async def _get_response_completions(self, db: AsyncSession, head_completion: Completion, current_user: User, organization: Organization):
-        response_completions = await db.execute(
-            select(Completion)
-            .where(Completion.parent_id == head_completion.id)
-            .where(Completion.report_id == head_completion.report_id)
-            .order_by(Completion.created_at.asc())
-        )
-        response_completions = response_completions.scalars().all()
-        return response_completions
-    
     async def submit_tool_result(
         self,
         db: AsyncSession,

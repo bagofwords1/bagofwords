@@ -128,10 +128,36 @@ def org(test_client, bootstrap_admin, invite_user_to_org, create_llm_provider_an
     return {"admin": admin, "member": member, "org_id": org_id, "agents": agents, "h": h}
 
 
-def _ask(test_client, user, org_id, data_sources, constructed=None):
+def _set_report_type(report_id, report_type):
+    """Direct write: artifact_chat reports are made by ArtifactChatService from a
+    published artifact; only the report_type matters to these contracts."""
+    import asyncio
+    import os
+    from sqlalchemy import update
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from app.models.report import Report
+
+    url = (os.environ["TEST_DATABASE_URL"]
+           .replace("sqlite://", "sqlite+aiosqlite://", 1)
+           .replace("postgresql://", "postgresql+asyncpg://", 1))
+
+    async def _run():
+        engine = create_async_engine(url)
+        try:
+            async with async_sessionmaker(engine)() as db:
+                await db.execute(update(Report).where(Report.id == report_id).values(report_type=report_type))
+                await db.commit()
+        finally:
+            await engine.dispose()
+    asyncio.run(_run())
+
+
+def _ask(test_client, user, org_id, data_sources, constructed=None, report_type=None):
     h = {"Authorization": f"Bearer {user['token']}", "X-Organization-Id": str(org_id)}
     r = test_client.post("/api/reports", headers=h, json={"title": "cap", "files": [], "data_sources": data_sources})
     assert r.status_code == 200, r.text
+    if report_type:
+        _set_report_type(r.json()["id"], report_type)
     with _provider(constructed) as client:
         r = test_client.post(f"/api/reports/{r.json()['id']}/completions", headers=h,
                              params={"background": False}, json={"prompt": {"content": "Use the tools."}})
@@ -255,6 +281,11 @@ def test_a_shared_tool_takes_the_strictest_setting_across_the_runs_agents(
     assert _name(slug, "search_docs") in offered
     assert client._call_log == [], "a call to the denied tool must not reach the server"
     assert "denied" in planner.results[-1].lower(), planner.results
+    # <mcp_tools> agrees with the tool list: each agent's own view would list
+    # get_records (agent b enables it) and echo, which the run cannot call.
+    context = planner.texts[0].replace('\\"', '"')
+    assert '<tool name="search_docs"' in context
+    assert '<tool name="get_records"' not in context and '<tool name="echo"' not in context, context
 
 
 def test_strictest_setting_unit_rules():
@@ -277,3 +308,38 @@ def test_no_mcp_tool_is_offered_when_the_org_switches_mcp_tools_off(
     _ask(test_client, org["admin"], org["org_id"], [org["agents"]["shared"]["ds_id"]])
     offered = planner.requests[0]
     assert planner.mcp_tools() == [] and not {"search_tools", "call_tool", "execute_mcp"} & set(offered), offered
+
+
+def test_a_shared_artifact_viewer_chat_gets_no_mcp_tool_under_any_name(test_client, org, planner):
+    """The viewer chat's allowlist has no MCP tool: none may be registered
+    natively, listed in <mcp_tools>, or run when the model calls one anyway."""
+    shared = org["agents"]["shared"]
+    planner.queue = [
+        (_name(shared["slug"], "echo"), {"message": "hi"}),
+        ("execute_mcp", {"connection_id": shared["conn_id"], "tool_name": "echo", "arguments": {"message": "hi"}}),
+    ]
+    client = _ask(test_client, org["admin"], org["org_id"], [shared["ds_id"]], report_type="artifact_chat")
+    offered = planner.requests[0]
+    assert planner.mcp_tools() == [] and not {"search_tools", "call_tool", "execute_mcp"} & set(offered), offered
+    assert "<mcp_tools>" not in planner.texts[0]
+    assert client._call_log == [], "no MCP call may reach the server from a viewer chat"
+
+
+def test_when_the_catalog_cannot_be_built_the_run_falls_back_to_execute_mcp(
+        test_client, org, planner, monkeypatch):
+    from app.ai.tools import mcp_tool_registry
+
+    async def failed(*a, **k):
+        return mcp_tool_registry.McpToolCatalog(failed=True)
+
+    monkeypatch.setattr(mcp_tool_registry, "build_mcp_tool_catalog", failed)
+    shared = org["agents"]["shared"]
+    planner.queue = [("execute_mcp", {"connection_id": shared["conn_id"], "tool_name": "echo",
+                                      "arguments": {"message": "hi"}, "title": "Echo"})]
+    client = _ask(test_client, org["admin"], org["org_id"], [shared["ds_id"]])
+    offered = planner.requests[0]
+    assert "execute_mcp" in offered and planner.mcp_tools() == [], offered
+    context = planner.texts[0]
+    assert "Call these tools with execute_mcp" in context
+    assert "in your tool list as mcp__" not in context
+    assert client._call_log == [{"tool_name": "echo", "arguments": {"message": "hi"}}]

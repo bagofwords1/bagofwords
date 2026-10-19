@@ -81,12 +81,6 @@ def tools_max(organization_settings=None) -> int:
         return _DEFAULT_TOOLS_MAX
 
 
-def native_tools_enabled(organization_settings=None, tool_count: Optional[int] = None) -> bool:
-    """MCP tools are always native up to ``tools_max``. Kept so the
-    ``<mcp_tools>`` renderer and the planner keep asking the same question."""
-    return True
-
-
 def sanitize(value: str) -> str:
     """Reduce a name to the character set every provider accepts."""
     return re.sub(r"[^a-zA-Z0-9_-]", "_", value or "")
@@ -175,6 +169,17 @@ class McpToolCatalog:
     native: List[Dict[str, Any]] = field(default_factory=list)
     deferred: List[Dict[str, Any]] = field(default_factory=list)
     routing: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    # Effective policy per (connection_id, tool_name), for every tool above.
+    policies: Dict[Tuple[str, str], str] = field(default_factory=dict)
+    # True when building it failed: the tools are unknown, not absent.
+    failed: bool = False
+
+    def context_view(self) -> Dict[Tuple[str, str], Dict[str, Any]]:
+        """What ``<mcp_tools>`` must show: each callable tool, whether it is
+        deferred, and its policy. The context renders from this so the prompt
+        and the tool list always agree."""
+        deferred = {(d["connection_id"], d["tool_name"]) for d in self.deferred}
+        return {k: {"deferred": k in deferred, "policy": p} for k, p in self.policies.items()}
 
 
 # How long a usage ranking is reused. Recomputing it at most once a day keeps
@@ -248,8 +253,8 @@ async def build_mcp_tool_catalog(
     sorted by connection and tool name, so usage only decides what makes the
     cut, never the order.
 
-    Returns an empty catalog on any failure; dispatch still works for a
-    tool already in the conversation.
+    On any failure returns an empty catalog with ``failed`` set, so the
+    caller can keep the ``execute_mcp`` gateway instead of offering nothing.
     """
     from sqlalchemy import select
     from app.models.connection import Connection
@@ -387,6 +392,7 @@ async def build_mcp_tool_catalog(
                 )
             schema = normalize_schema(visible)
             catalog.routing[name] = {"connection_id": cid, "tool_name": t.name}
+            catalog.policies[(cid, t.name)] = effective
             if str(t.id) in native_ids:
                 catalog.native.append({
                     "name": name,
@@ -414,8 +420,8 @@ async def build_mcp_tool_catalog(
         return catalog
 
     except Exception as e:
-        logger.warning("mcp tool catalog failed; no MCP tools registered: %s", e)
-        return McpToolCatalog()
+        logger.warning("mcp tool catalog failed; falling back to execute_mcp: %s", e)
+        return McpToolCatalog(failed=True)
 
 
 async def build_native_mcp_tools(

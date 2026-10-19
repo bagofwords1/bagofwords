@@ -84,6 +84,10 @@ class _Entry:
                         await asyncio.wait_for(self._close.wait(), timeout=min(idle_ttl(), 30.0))
                     except asyncio.TimeoutError:
                         if self.in_flight == 0 and time.monotonic() - self.last_used >= idle_ttl():
+                            # Dead before the close starts: closing can take a
+                            # round trip (streamable-http DELETE), and session()
+                            # must not hand this session out meanwhile.
+                            self.dead = True
                             break
         except BaseException as e:  # opening failed or the transport died
             self._error = e
@@ -140,11 +144,15 @@ class McpSessionPool:
             if entry is not None and entry.dead:
                 self._entries.pop(loop_key, None)
                 entry = None
-            if entry is None:
+            created = entry is None
+            if created:
                 entry = _Entry(opener)
                 self._entries[loop_key] = entry
-                self._evict_over_cap(pool_size())
+            # Counted as busy before evicting, so the cap never closes the
+            # entry this call is about to use (it goes over the soft cap instead).
             entry.in_flight += 1
+            if created:
+                self._evict_over_cap(pool_size())
         try:
             try:
                 session = await entry.wait_ready()

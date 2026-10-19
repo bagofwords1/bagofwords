@@ -161,3 +161,18 @@ def test_a_tool_that_reads_the_context_keeps_its_pre_tool_rebuild(test_client, e
 
 def test_a_turn_without_tools_rebuilds_once(test_client, env, planner, rebuilds):
     assert _rebuilds_for(test_client, env, planner, rebuilds) == 1
+
+
+def test_a_rescued_iteration_rebuilds_instead_of_reusing_the_carried_view(test_client, env, planner, rebuilds, monkeypatch):
+    # The step after a tool reuses the post-tool view. When that iteration
+    # crashes and is rescued (the session may be rolled back), the retry must
+    # rebuild from persisted context, not reuse the view from before the crash.
+    import app.ai.agent_v2 as agent_v2
+
+    tool = (f"mcp__{env['slug']}__echo", {"message": "hi"})
+    without_crash = _rebuilds_for(test_client, env, planner, rebuilds, tool)
+    monkeypatch.setattr(agent_v2, "_LOOP_FAULT_BUDGET", 1)
+    monkeypatch.setattr(agent_v2, "_LOOP_FAULT_MIN_INDEX", 1)
+    with_crash = _rebuilds_for(test_client, env, planner, rebuilds, tool)
+    assert agent_v2._LOOP_FAULT_BUDGET == 0, "the fault did not fire"
+    assert with_crash == without_crash + 1, (without_crash, with_crash)

@@ -6,7 +6,8 @@ Contract:
     follow-ups, final snapshot, late scoring — is still going. That tail used
     to hold the HTTP response for a median 1.4 s after the answer;
   * the tail still runs to the end afterwards: the agent execution finishes;
-  * a caller that explicitly asks for follow-ups (prompt.follow_ups=true)
+  * a caller that explicitly asks for follow-ups or instruction suggestions
+    (prompt.follow_ups=true / prompt.suggest_instructions=true)
     still gets the response only after the whole run.
 
 The LLM boundary is stubbed; routes, services and the agent loop run real.
@@ -137,6 +138,15 @@ def test_response_returns_with_the_answer_before_the_tail_finishes(live_client, 
 
 def test_explicitly_requested_follow_ups_keep_the_response_waiting(live_client, env, llm, tail_gate):
     _, body = _post(live_client, env, {"content": "Tell me something about the data, please.", "follow_ups": True})
+    assert tail_gate["entered"].is_set()
+    assert tail_gate["open"].is_set(), "the response returned before the run finished"
+    assert _system(body)["status"] == "success"
+
+
+def test_explicitly_requested_instruction_suggestions_keep_the_response_waiting(live_client, env, llm, tail_gate):
+    # instruction_suggestions are produced by the tail: a caller that asked
+    # for them must get a response that can carry them.
+    _, body = _post(live_client, env, {"content": "Tell me something about the data, please.", "suggest_instructions": True})
     assert tail_gate["entered"].is_set()
     assert tail_gate["open"].is_set(), "the response returned before the run finished"
     assert _system(body)["status"] == "success"
