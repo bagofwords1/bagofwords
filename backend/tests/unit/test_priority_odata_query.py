@@ -184,6 +184,22 @@ def test_since_goes_to_the_top_level_form():
     assert levels[0]["$since"] == "2026-01-01T00:00:00Z"
 
 
+@pytest.mark.parametrize("orderby,parent_orderby,ties", [
+    ("CURDATE desc", [("CURDATE", True)], False),
+    ("CURDATE desc,KLINE", [("CURDATE", True)], True),
+    ("CURDATE desc,ORDNAME desc,KLINE", [("CURDATE", True), ("ORDNAME", True)], False),
+    ("ORDERS_STATDES,PRICE desc", [("STATDES", False)], True),
+    ("PRICE desc,CURDATE", None, False),
+])
+def test_parents_are_sorted_by_the_leading_parent_columns(orderby, parent_orderby, ties):
+    """Priority can sort the parents by the columns the sort starts with; a
+    line column after them only orders lines among parents tied on those
+    columns, which cannot happen once the parent's key is among them."""
+    _, _, post, _ = _request(_route(), f"$orderby={orderby}&$top=5")
+    assert post.parent_orderby == parent_orderby
+    assert post.parent_ties is ties
+
+
 @pytest.mark.parametrize("qs", [
     "$expand=ORDERITEMSTEXT_SUBFORM",
     "$apply=groupby((PARTNAME))",
@@ -318,3 +334,17 @@ def test_explicit_expand_never_overwrites_a_value_on_name_collision():
     # a form expanding into itself: both levels' values survive
     row = flatten_expand([{"K": "g", "X_SUBFORM": [{"K": "p"}]}], "X", ["X_SUBFORM"])[0]
     assert sorted(row.values()) == ["g", "p"] and row["K"] == "p"
+
+
+def test_explicit_expand_reports_which_form_each_column_came_from():
+    """A bare name can come from either level: the parent keeps it when the
+    child did not return the same column. Only the flattener knows which."""
+    rows = [{"ORDNAME": "A", "STATDES": "Open", "ORDERITEMS_SUBFORM": [{"KLINE": 1}]}]
+    origins = {}
+    flatten_expand(rows, "ORDERS", ["ORDERITEMS_SUBFORM"], origins=origins)
+    assert origins == {"KLINE": ("ORDERITEMS", "KLINE"), "ORDNAME": ("ORDERS", "ORDNAME"),
+                       "STATDES": ("ORDERS", "STATDES")}
+    origins = {}
+    flatten_expand(_RESPONSE, "ORDERS", ["ORDERITEMS_SUBFORM"], origins=origins)
+    assert origins["STATDES"] == ("ORDERITEMS", "STATDES")
+    assert origins["ORDERS_STATDES"] == ("ORDERS", "STATDES")

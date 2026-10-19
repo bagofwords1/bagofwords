@@ -1923,7 +1923,8 @@
         "failed": "failed",
         "timed_out": "timed out",
         "interrupted": "stopped",
-        "refused": "not started"
+        "refused": "not started",
+        "waiting": "Waiting for parent"
       },
       "outcomes": {
         "supported": "supported",
@@ -1948,6 +1949,21 @@
     "stopSubAgent": {
       "stopping": "Stopping sub-agent…",
       "stopped": "Stopped sub-agent '{title}'"
+    },
+    "messageSubAgent": {
+      "sending": "Sending message…",
+      "sent": "Sent message to {title}",
+      "failed": "Could not send message to {title}",
+      "parent": "Parent agent",
+      "agent": "Sub-agent",
+      "sentHint": "Saved for delivery before the next planning step. This does not confirm it was acted on.",
+      "failedHint": "The message was not sent.",
+      "messages": "Messages",
+      "states": {
+        "sent": "Sent",
+        "delivered": "Delivered to agent context",
+        "undelivered": "Not delivered"
+      }
     }
   },
   "entityCreate": {
@@ -4453,7 +4469,8 @@
     "menuData": "Data"
   },
   "toolbar": {
-    "polishDashboard": "Polish Dashboard"
+    "polishDashboard": "Polish Dashboard",
+    "polishRequestLabel": "Polish"
   },
   "artifactFrame": {
     "dataAddQuery": "Add query",
@@ -5788,6 +5805,7 @@
     "bulkFailed": "Bulk update failed"
   },
   "events": {
+    "subAgentQuestion": "A sub-agent asked a question",
     "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
     "waitResumed": "Wait elapsed — resuming: {reason}",
     "checkin": {
@@ -5848,6 +5866,7 @@
     "untitledInstruction": "Untitled instruction",
     "pending": "Pending",
     "accepted": "Accepted",
+    "rejected": "Rejected",
     "webhooks": "Webhooks",
     "configureWebhook": "Configure webhook",
     "subAgents": "Sub-agents"

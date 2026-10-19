@@ -1785,6 +1785,26 @@
       "sendFeedback": "Отправить отзыв",
       "expired": "Срок проверки истёк.",
       "respondFailed": "Не удалось отправить ответ — попробуйте ещё раз."
+    },
+    "messageSubAgent": {
+      "sending": "Отправка сообщения…",
+      "sent": "Сообщение отправлено агенту {title}",
+      "failed": "Не удалось отправить сообщение агенту {title}",
+      "parent": "Главный агент",
+      "agent": "Субагент",
+      "sentHint": "Сохранено для доставки перед следующим шагом планирования. Это не подтверждает выполнение.",
+      "failedHint": "Сообщение не отправлено.",
+      "messages": "Сообщения",
+      "states": {
+        "sent": "Отправлено",
+        "delivered": "Доставлено в контекст агента",
+        "undelivered": "Не доставлено"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "Ожидание главного агента"
+      }
     }
   },
   "entityCreate": {
@@ -4111,7 +4131,8 @@
     "menuData": "Данные"
   },
   "toolbar": {
-    "polishDashboard": "Доработать дашборд"
+    "polishDashboard": "Доработать дашборд",
+    "polishRequestLabel": "Доработка"
   },
   "artifactFrame": {
     "dataAddQuery": "Добавить запрос",
@@ -5436,6 +5457,7 @@
     "bulkFailed": "Массовое обновление не удалось"
   },
   "events": {
+    "subAgentQuestion": "Субагент задал вопрос",
     "evalRunFinished": "Запуск проверки '{title}' завершён — {passed}/{total} пройдено ({status})",
     "waitResumed": "Ожидание истекло — продолжение: {reason}",
     "checkin": {
@@ -5460,6 +5482,7 @@
     "untitledInstruction": "Инструкция без названия",
     "pending": "Ожидает",
     "accepted": "Принята",
+    "rejected": "Отклонена",
     "webhooks": "Вебхуки",
     "configureWebhook": "Настроить вебхук"
   },

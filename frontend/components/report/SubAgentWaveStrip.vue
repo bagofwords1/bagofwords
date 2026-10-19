@@ -36,7 +36,7 @@ const props = defineProps<{ wave: any; waveNumber: number; readonly?: boolean; s
 const emit = defineEmits<{ (e: 'stopWave', waveId: string): void }>()
 
 const isLive = computed(() => ['collecting', 'running', 'firing'].includes(props.wave?.status))
-const runningCount = computed(() => (props.wave?.sub_agents || []).filter((r: any) => r.status === 'running' || r.status === 'pending').length)
+const runningCount = computed(() => (props.wave?.sub_agents || []).filter((r: any) => r.status === 'running' || r.status === 'pending' || r.status === 'waiting').length)
 const outcomeSummary = computed(() => {
   const counts: Record<string, number> = {}
   for (const r of props.wave?.sub_agents || []) {

@@ -1785,6 +1785,26 @@
       "sendFeedback": "Invia feedback",
       "expired": "Questa revisione è scaduta.",
       "respondFailed": "Impossibile inviare la risposta — riprova."
+    },
+    "messageSubAgent": {
+      "sending": "Invio del messaggio…",
+      "sent": "Messaggio inviato a {title}",
+      "failed": "Impossibile inviare il messaggio a {title}",
+      "parent": "Agente principale",
+      "agent": "Sottoagente",
+      "sentHint": "Salvato per la consegna prima del prossimo passo di pianificazione. Non conferma che sia stato applicato.",
+      "failedHint": "Il messaggio non è stato inviato.",
+      "messages": "Messaggi",
+      "states": {
+        "sent": "Inviato",
+        "delivered": "Consegnato al contesto dell’agente",
+        "undelivered": "Non consegnato"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "In attesa dell’agente principale"
+      }
     }
   },
   "entityCreate": {
@@ -4111,7 +4131,8 @@
     "menuData": "Dati"
   },
   "toolbar": {
-    "polishDashboard": "Rifinisci dashboard"
+    "polishDashboard": "Rifinisci dashboard",
+    "polishRequestLabel": "Rifinisci"
   },
   "artifactFrame": {
     "dataAddQuery": "Aggiungi query",
@@ -5436,6 +5457,7 @@
     "bulkFailed": "Aggiornamento in blocco non riuscito"
   },
   "events": {
+    "subAgentQuestion": "Un sottoagente ha posto una domanda",
     "evalRunFinished": "L'esecuzione di valutazione '{title}' è terminata — {passed}/{total} superati ({status})",
     "waitResumed": "Attesa trascorsa — ripresa: {reason}",
     "checkin": {
@@ -5460,6 +5482,7 @@
     "untitledInstruction": "Istruzione senza titolo",
     "pending": "In attesa",
     "accepted": "Accettata",
+    "rejected": "Rifiutata",
     "webhooks": "Webhook",
     "configureWebhook": "Configura webhook"
   },

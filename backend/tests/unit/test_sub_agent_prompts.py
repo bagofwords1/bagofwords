@@ -67,8 +67,9 @@ def test_sub_agents_context_rides_in_the_parent_turn_head():
     assert '<delegation posture="proactive">' not in head
 
 
-def test_proactive_reminder_rides_in_the_turn_head_until_a_wave_exists():
-    fresh = PromptBuilderV3._build_turn_head(_parent(sub_agents_enabled=True, sub_agent_posture="proactive"))
+@pytest.mark.parametrize("empty_context", [None, "", "\n", "  "])
+def test_proactive_reminder_rides_in_the_turn_head_until_a_wave_exists(empty_context):
+    fresh = PromptBuilderV3._build_turn_head(_parent(sub_agents_enabled=True, sub_agent_posture="proactive", sub_agents_context=empty_context))
     assert '<delegation posture="proactive">' in fresh and "END YOUR TURN" in fresh
     for pi in (
         _parent(sub_agents_enabled=True, sub_agent_posture="explicit"),
@@ -89,10 +90,15 @@ def test_profiles_never_include_blocked_or_parent_only_tools(key):
         assert "finish_subtask" in tools
         assert not (tools & BLOCKED_IN_SUB_AGENTS), tools & BLOCKED_IN_SUB_AGENTS
         assert "delegate" not in tools and "clarify" not in tools
+        # The list gateway is never blocked outright: a child writes into the
+        # parent's lists on the same switch as create_data; defining a list is not.
+        assert "create_list" not in tools and "edit_list" not in tools
         if key == "investigate":
             assert ("create_data" in tools) is allow_cd
+            assert ("submit_list" in tools) is allow_cd
         if key == "validate":
             assert "create_data" in tools
+            assert "submit_list" in tools
 
 
 def test_sqlite_runs_children_one_at_a_time():

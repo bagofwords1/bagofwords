@@ -1785,6 +1785,26 @@
       "sendFeedback": "Enviar feedback",
       "expired": "Esta revisão expirou.",
       "respondFailed": "Não foi possível enviar sua resposta — tente novamente."
+    },
+    "messageSubAgent": {
+      "sending": "Enviando mensagem…",
+      "sent": "Mensagem enviada para {title}",
+      "failed": "Não foi possível enviar a mensagem para {title}",
+      "parent": "Agente principal",
+      "agent": "Subagente",
+      "sentHint": "Salva para entrega antes da próxima etapa de planejamento. Isso não confirma sua execução.",
+      "failedHint": "A mensagem não foi enviada.",
+      "messages": "Mensagens",
+      "states": {
+        "sent": "Enviada",
+        "delivered": "Entregue ao contexto do agente",
+        "undelivered": "Não entregue"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "Aguardando agente principal"
+      }
     }
   },
   "entityCreate": {
@@ -4111,7 +4131,8 @@
     "menuData": "Dados"
   },
   "toolbar": {
-    "polishDashboard": "Aprimorar painel"
+    "polishDashboard": "Aprimorar painel",
+    "polishRequestLabel": "Aprimorar"
   },
   "artifactFrame": {
     "dataAddQuery": "Adicionar consulta",
@@ -5436,6 +5457,7 @@
     "bulkFailed": "Falha na atualização em massa"
   },
   "events": {
+    "subAgentQuestion": "Um subagente fez uma pergunta",
     "evalRunFinished": "Execução de avaliação '{title}' terminou — {passed}/{total} aprovadas ({status})",
     "waitResumed": "Espera concluída — retomando: {reason}",
     "checkin": {
@@ -5460,6 +5482,7 @@
     "untitledInstruction": "Instrução sem título",
     "pending": "Pendente",
     "accepted": "Aceita",
+    "rejected": "Rejeitada",
     "webhooks": "Webhooks",
     "configureWebhook": "Configurar webhook"
   },

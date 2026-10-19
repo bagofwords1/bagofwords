@@ -83,8 +83,12 @@ jobs:
       #
       # --durations=50: list the slowest tests in every run, so the next
       # regression in per-test cost shows up in the log instead of the timeout.
+      #
+      # tests/e2e: every e2e-marked test lives there. Without the path the
+      # controller and each worker imported all ~11.5k tests (unit, ai, evals …)
+      # only to deselect them — ~110s of collection per process instead of ~15s.
       run: |
-        uv run pytest -n 4 -m e2e --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread
+        uv run pytest tests/e2e -n 4 -m e2e --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread
 
   # tests/unit carries no pytest marker, so the -m e2e / -m ai steps above never
   # touched it and nothing else ran it either — two MS Fabric OAuth assertions

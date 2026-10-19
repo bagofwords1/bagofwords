@@ -426,7 +426,7 @@ def test_subform_table_carries_its_ancestors_columns(client):
     assert {"ORDNAME", "CURDATE", "CDES", "CUSTNAME"} <= set(cols)  # its parent's
     # both forms have STATDES: the line keeps the name, the parent's is prefixed
     assert cols["STATDES"].description == "Line Status"
-    assert cols["ORDERS_STATDES"].description == "Order Stage"
+    assert cols["ORDERS_STATDES"].description == "Order Stage (Customer Orders)"
     # a line is identified by its order plus its own key
     assert [p.name for p in items.pks] == ["ORDNAME", "KLINE"]
 
@@ -564,6 +564,61 @@ def test_orderby_mixes_parent_and_own_columns(client):
 def test_skip_applies_after_ordering(client):
     df = client.execute_query("ORDERITEMS?$orderby=PRICE desc&$skip=1&$top=2&$select=PRICE")
     assert list(df["PRICE"]) == [1200.0, 1150.0]
+
+
+def test_trailing_line_sort_still_reads_a_sample(client):
+    """"The latest lines" sorts on the order date, then the line number. The
+    orders are paged in date order and the read stops once there are enough
+    lines, rather than reading every order because KLINE is in the sort."""
+    df = client.execute_query("ORDERITEMS?$orderby=CURDATE desc,KLINE&$top=1&$select=ORDNAME,KLINE")
+    assert _rows(df, "ORDNAME", "KLINE") == [("SO25003", 1)]
+    sent = df.attrs["bow_sent_request"]
+    assert "$orderby=CURDATE desc,ORDNAME" in sent and "$top=1" in sent
+
+
+@pytest.fixture
+def tied_order(mock_module, monkeypatch):
+    """A second order on SO25003's date, so the two tie on CURDATE."""
+    monkeypatch.setitem(mock_module.ROWS, "ORDERS", mock_module.ROWS["ORDERS"] + [
+        {"ORDNAME": "SO25005", "CUSTNAME": "1012", "CDES": "Initech", "CURDATE": "2026-03-21T00:00:00Z",
+         "TOTPRICE": 90.0, "ORDSTATUSDES": "Approved", "STATDES": "Open"}])
+    monkeypatch.setitem(mock_module.ROWS, "ORDERITEMS", mock_module.ROWS["ORDERITEMS"] + [
+        {"_p": ("SO25005",), "KLINE": 1, "PARTNAME": "P-100", "PDES": "Widget", "TQUANT": 1,
+         "PRICE": 90.0, "STATDES": "Pending"}])
+
+
+def test_sample_reads_every_order_tied_with_the_last_one(client, tied_order):
+    """SO25003 and SO25005 share a date, so by date then line number the first
+    two lines are line 1 of each. SO25003 alone already has two lines; the
+    read must still go on to SO25005."""
+    df = client.execute_query("ORDERITEMS?$orderby=CURDATE desc,KLINE&$top=2&$select=ORDNAME,KLINE")
+    assert sorted(_rows(df, "ORDNAME", "KLINE")) == [("SO25003", 1), ("SO25005", 1)]
+
+
+def test_sample_stops_once_past_the_tied_orders(client, tied_order, mock_module, monkeypatch):
+    """Ten older orders follow. Once a page reaches an order dated after the
+    tie, nothing later can belong in the result and the read ends there."""
+    older = [{"ORDNAME": f"SO24{n:03d}", "CUSTNAME": "1011", "CDES": "Globex",
+              "CURDATE": f"2025-12-{n + 1:02d}T00:00:00Z", "TOTPRICE": 10.0,
+              "ORDSTATUSDES": "Closed", "STATDES": "Final"} for n in range(10)]
+    monkeypatch.setitem(mock_module.ROWS, "ORDERS", mock_module.ROWS["ORDERS"] + older)
+    monkeypatch.setitem(mock_module.ROWS, "ORDERITEMS", mock_module.ROWS["ORDERITEMS"] + [
+        {"_p": (o["ORDNAME"],), "KLINE": 1, "PARTNAME": "P-100", "PDES": "Widget", "TQUANT": 1,
+         "PRICE": 10.0, "STATDES": "Pending"} for o in older])
+    df = client.execute_query("ORDERITEMS?$orderby=CURDATE desc,KLINE&$top=2&$select=ORDNAME,KLINE")
+    assert sorted(_rows(df, "ORDNAME", "KLINE")) == [("SO25003", 1), ("SO25005", 1)]
+    # page 1: SO25004 (no lines), SO25003 — enough lines, tied on its date;
+    # page 2: SO25005, SO25002, SO25001, SO24009 — past the tie, so it stops
+    assert "2 pages, 6 ORDERS rows read" in df.attrs["bow_notice"]
+
+
+def test_sample_with_the_order_key_in_the_sort_stops_at_once(client, tied_order):
+    """With ORDNAME before KLINE no two orders tie, so the first page that has
+    enough lines ends the read."""
+    df = client.execute_query(
+        "ORDERITEMS?$orderby=CURDATE desc,ORDNAME,KLINE&$top=2&$select=ORDNAME,KLINE")
+    assert _rows(df, "ORDNAME", "KLINE") == [("SO25003", 1), ("SO25003", 2)]
+    assert "pages" not in df.attrs["bow_notice"]
 
 
 def test_max_rows_caps_the_flattened_rows(client):
@@ -760,3 +815,89 @@ def test_subform_result_carries_the_bare_sent_request(client):
     assert sent and sent.startswith("ORDERS?") and "$expand=ORDERITEMS_SUBFORM(" in sent
     assert sent in df.attrs["bow_notice"]
     assert "bow_sent_request" not in client.execute_query("ORDERS?$top=1").attrs
+
+
+# ── titles: what users call forms and columns ─────────────────────────────
+# Priority names everything twice: a technical name (PORDERS, SUPNAME) that the
+# API and queries use, and a title ("Purchase Orders", "Supplier Number" — Hebrew
+# on an Israeli tenant) that users see. The agent must know both, and answers
+# should show titles.
+
+def test_form_title_is_recorded_and_reaches_the_agent(client):
+    from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+    from app.schemas.data_source_schema import DataSourceSummarySchema
+
+    tables = {t.name: t for t in client.get_schemas()}
+    assert tables["ORDERS"].metadata_json["priority_erp"]["title"] == "Customer Orders"
+    assert tables["PART"].metadata_json["priority_erp"]["title"] == "פריטים"
+    ctx = TablesSchemaContext(data_sources=[TablesSchemaContext.DataSource(
+        info=DataSourceSummarySchema(id="1", name="Priority", type="priority_erp"),
+        tables=list(tables.values()),
+    )])
+    out = ctx.render_combined(top_k_per_ds=len(tables), index_limit=200)
+    assert 'title="Customer Orders"' in out and 'title="פריטים"' in out
+
+
+def test_agent_is_told_to_answer_with_titles_once_per_source(client):
+    from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+    from app.schemas.data_source_schema import DataSourceSummarySchema
+    from app.ai.prompt_formatters import Table, TableColumn
+
+    other = Table(name="sales", columns=[TableColumn(name="id", dtype="int")], pks=[], fks=[])
+    ctx = TablesSchemaContext(data_sources=[
+        TablesSchemaContext.DataSource(
+            info=DataSourceSummarySchema(id="1", name="Priority", type="priority_erp"),
+            tables=client.get_schemas()),
+        TablesSchemaContext.DataSource(
+            info=DataSourceSummarySchema(id="2", name="Warehouse", type="postgresql"),
+            tables=[other]),
+    ])
+    for out in (ctx.render_combined(top_k_per_ds=10, index_limit=200), ctx.render()):
+        assert out.count("<presentation_note>") == 1
+        note_at = out.index("<presentation_note>")
+        assert out.rfind('name="Priority"', 0, note_at) > out.rfind('name="Warehouse"', 0, note_at)
+
+
+def test_column_titles_are_stored_for_query_time_headers(client):
+    tables = {t.name: t for t in client.get_schemas()}
+    assert tables["ORDERS"].metadata_json["priority_erp"]["column_titles"]["ORDNAME"] == "Order Number"
+    items = tables["ORDERITEMS"].metadata_json["priority_erp"]["column_titles"]
+    assert items["PRICE"] == "Unit Price" and items["CURDATE"] == "Order Date"
+    assert items["STATDES"] == "Line Status"
+    # a renamed (colliding) parent column says whose it is
+    assert items["ORDERS_STATDES"] == "Order Stage (Customer Orders)"
+    # the label also travels as structured column metadata (per-user schemas)
+    ordname = next(c for c in tables["ORDERS"].columns if c.name == "ORDNAME")
+    assert ordname.metadata["title"] == "Order Number"
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("ORDERS?$select=ORDNAME,CDES", {"ORDNAME": "Order Number", "CDES": "Customer Name"}),
+    ("ORDERITEMS?$select=ORDNAME,PRICE,STATDES,ORDERS_STATDES",
+     {"ORDNAME": "Order Number", "PRICE": "Unit Price", "STATDES": "Line Status",
+      "ORDERS_STATDES": "Order Stage (Customer Orders)"}),
+    # both levels return STATDES: the line keeps the name, the order's is prefixed
+    ("ORDERS?$filter=ORDNAME eq 'SO25001'&$select=ORDNAME,STATDES&$expand=ORDERITEMS_SUBFORM($select=KLINE,STATDES)",
+     {"ORDNAME": "Order Number", "KLINE": "Line Number", "STATDES": "Line Status",
+      "ORDERS_STATDES": "Order Stage"}),
+    # only the order returns STATDES: the bare name is the order's, and so is its title
+    ("ORDERS?$filter=ORDNAME eq 'SO25001'&$select=ORDNAME,STATDES&$expand=ORDERITEMS_SUBFORM($select=KLINE)",
+     {"ORDNAME": "Order Number", "KLINE": "Line Number", "STATDES": "Order Stage"}),
+    # a navigation path reads the subform's own rows
+    ("ORDERS('SO25001')/ORDERITEMS_SUBFORM?$select=KLINE,STATDES",
+     {"KLINE": "Line Number", "STATDES": "Line Status"}),
+])
+def test_results_carry_the_titles_of_their_columns(client, query, expected):
+    client.get_schemas()  # in production the indexed catalog is attached instead
+    df = client.execute_query(query)
+    assert df.attrs.get("bow_column_titles") == expected
+
+
+def test_attached_catalog_supplies_titles_without_a_metadata_crawl(priority_root, mock_module):
+    catalog = PriorityErpClient(service_root=priority_root, pat="DEMOTOKEN").get_schemas()
+    fresh = PriorityErpClient(service_root=priority_root, pat="DEMOTOKEN")
+    fresh.attach_table_metadata([{"name": t.name, "metadata_json": t.metadata_json} for t in catalog])
+    mock_module.REQUEST_LOG.clear()
+    df = fresh.execute_query("CUSTOMERS?$select=CUSTNAME,CUSTDES")
+    assert df.attrs["bow_column_titles"] == {"CUSTNAME": "Customer Number", "CUSTDES": "Customer Name"}
+    assert not any("metadata" in p.lower() for p in mock_module.REQUEST_LOG)

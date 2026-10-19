@@ -151,6 +151,7 @@ async def _rows_referencing(table_ids):
 @pytest.mark.parametrize("removed_index", [0, 1])
 def test_unlinking_a_used_connection_removes_its_dependents_and_keeps_the_rest(
     removed_index, test_client, create_user, login_user, whoami, create_report,
+    wait_for_connection_indexing,
 ):
     user = create_user()
     token = login_user(user["email"], user["password"])
@@ -158,6 +159,10 @@ def test_unlinking_a_used_connection_removes_its_dependents_and_keeps_the_rest(
 
     conns = [_sqlite_connection(test_client, token, org_id, f"wh-{i}-{uuid.uuid4().hex[:4]}") for i in range(2)]
     ds_id = _agent(test_client, token, org_id, conns)
+    # The agent's tables are written by each connection's background indexing
+    # run; read them once those runs are done, not while they race the read.
+    for conn_id in conns:
+        wait_for_connection_indexing(connection_id=conn_id, user_token=token, org_id=org_id)
     tables = _run(_agent_tables(ds_id))
     assert set(tables) == set(conns) and all(tables.values())
     removed, kept = conns[removed_index], conns[1 - removed_index]

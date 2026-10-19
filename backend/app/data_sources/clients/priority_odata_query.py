@@ -261,6 +261,23 @@ class PostOps:
     orderby: List[Tuple[str, bool]] = field(default_factory=list)  # (column, descending)
     top: Optional[int] = None
     skip: Optional[int] = None
+    # The leading $orderby columns that belong to the top-level form, as its
+    # own columns: Priority can then sort and page the parents itself, and
+    # whole parents taken in that order give the lines in the right order.
+    # None when the sort starts with a column of a lower level.
+    parent_orderby: Optional[List[Tuple[str, bool]]] = None
+    # True when the sort goes on past `parent_orderby` (KLINE in
+    # `CURDATE desc,KLINE`) and it can tie: lines of parents with equal
+    # `parent_orderby` values are ordered by the later columns, so a read that
+    # stops early must first take every parent tied with the last one.
+    parent_ties: bool = False
+    # A $filter clause on the top-level form, or $since: what keeps a read of
+    # every matching parent from being a read of the whole form.
+    parent_bounded: bool = False
+    # The top-level form's own conditions (and `$since`), for a request that
+    # counts matching parents without their lines.
+    parent_filter: Optional[str] = None
+    since: Optional[str] = None
 
 
 # Characters that keep their meaning in the request we build. Everything else
@@ -337,6 +354,19 @@ def build_subform_request(route: SubformRoute, query_string: str) -> Tuple[str, 
     )
     if opts.get("$select"):
         post.select = split_top_level(opts["$select"], ",")
+    post.parent_bounded = bool(filters[0]) or bool(opts.get("$since"))
+    post.parent_filter = " and ".join(filters[0]) or None
+    post.since = opts.get("$since") or None
+    resolved = [(route.resolve(c), desc) for c, desc in post.orderby]
+    lead = 0
+    while lead < len(resolved) and resolved[lead][0][0] == 0:
+        lead += 1
+    if lead or not resolved:
+        post.parent_orderby = [(original, desc) for (_, original), desc in resolved[:lead]]
+        # The parent's keys among the leading columns make every parent's
+        # values distinct, so there is nothing to tie.
+        sorted_on = {c for c, _ in post.parent_orderby}
+        post.parent_ties = lead < len(resolved) and not set(route.levels[0].keys) <= sorted_on
 
     # Columns each level must return: what $select and $orderby name, plus
     # every non-target level's keys (Priority requires parent keys in $select,
@@ -373,6 +403,35 @@ def build_subform_request(route: SubformRoute, query_string: str) -> Tuple[str, 
         top.append(f"$since={opts['$since']}")
     query = "&".join(quote(p, safe=_SAFE) for p in top)
     return f"{route.levels[0].form}?{query}", post
+
+
+def with_parent_page(request_path: str, orderby: List[Tuple[str, bool]],
+                     top: int, skip: int) -> str:
+    """Add paging of the top-level form to a request from
+    `build_subform_request`: these options sit at the top level, outside any
+    `$expand`, so they order and limit the parents, never lines within one."""
+    parts = []
+    if orderby:
+        parts.append("$orderby=" + ",".join(f"{c} desc" if d else c for c, d in orderby))
+    parts.append(f"$top={int(top)}")
+    if skip:
+        parts.append(f"$skip={int(skip)}")
+    extra = "&".join(quote(p, safe=_SAFE) for p in parts)
+    path, _, query = request_path.partition("?")
+    return f"{path}?{query}&{extra}" if query else f"{path}?{extra}"
+
+
+def parent_probe_path(route: SubformRoute, post: PostOps, skip: int) -> str:
+    """A request that answers "do more than `skip` parents match?" cheaply:
+    the parent's own conditions, its key only, no lines, one row."""
+    parts = []
+    if post.parent_filter:
+        parts.append("$filter=" + post.parent_filter)
+    parts.append("$select=" + ",".join(route.levels[0].keys))
+    parts += ["$top=1", f"$skip={int(skip)}"]
+    if post.since:
+        parts.append(f"$since={post.since}")
+    return f"{route.levels[0].form}?" + "&".join(quote(p, safe=_SAFE) for p in parts)
 
 
 # ── flattening ──────────────────────────────────────────────────────────────
@@ -414,7 +473,7 @@ def flatten_subform(rows: List[dict], route: SubformRoute) -> List[dict]:
     return out
 
 
-def _nav_form(nav: str) -> str:
+def nav_form(nav: str) -> str:
     # Priority names a subform navigation property <FORM>_SUBFORM.
     return nav[: -len("_SUBFORM")] if nav.endswith("_SUBFORM") else nav
 
@@ -443,15 +502,21 @@ def expand_chain(expand: str) -> List[str]:
     return chain
 
 
-def flatten_expand(rows: List[dict], root_form: str, chain: List[str]) -> List[dict]:
+def flatten_expand(rows: List[dict], root_form: str, chain: List[str],
+                   origins: Optional[Dict[str, Tuple[str, str]]] = None) -> List[dict]:
     """Flatten an explicit `$expand` chain: one row per deepest entity. The
     deepest level keeps its column names; an ancestor column whose name is
     already taken is prefixed with its form (`ORDERS_STATDES`).
 
     The query was asked of the parent, so a parent with no children is kept
     as one row with the child columns empty — dropping it would read as "this
-    order does not exist"."""
-    forms = [root_form] + [_nav_form(n) for n in chain]
+    order does not exist".
+
+    `origins`, when given, is filled with {output column: (form, column)} —
+    which form each column came from. A bare name can come from either level
+    (the parent keeps it when the child did not select the same column), so
+    only the flattener can say."""
+    forms = [root_form] + [nav_form(n) for n in chain]
     out: List[dict] = []
 
     def walk(level: int, row: dict, acc: List[Tuple[int, str, str, object]]):
@@ -459,7 +524,7 @@ def flatten_expand(rows: List[dict], root_form: str, chain: List[str]) -> List[d
         here = acc + [(level, forms[level], k, v) for k, v in _scalars(row, [nav] if nav else []).items()]
         kids = _children(row.get(nav)) if nav else []
         if not kids:
-            out.append(_name_columns(here))
+            out.append(_name_columns(here, origins))
             return
         for child in kids:
             walk(level + 1, child, here)
@@ -482,12 +547,16 @@ def unique_name(col: str, form: str, level: int, taken) -> str:
     return f"{form}{level}_{col}_{n}"
 
 
-def _name_columns(cells: List[Tuple[int, str, str, object]]) -> dict:
+def _name_columns(cells: List[Tuple[int, str, str, object]],
+                  origins: Optional[Dict[str, Tuple[str, str]]] = None) -> dict:
     """Deepest level first, then nearest ancestor: the first claim on a name
     wins and later ones get a prefixed name."""
     named: Dict[str, object] = {}
     for level, form, col, value in sorted(cells, key=lambda c: -c[0]):
-        named[unique_name(col, form, level, named)] = value
+        name = unique_name(col, form, level, named)
+        named[name] = value
+        if origins is not None:
+            origins.setdefault(name, (form, col))
     return named
 
 

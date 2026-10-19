@@ -1785,6 +1785,26 @@
       "sendFeedback": "Envoyer le retour",
       "expired": "Cette vérification a expiré.",
       "respondFailed": "Impossible d'envoyer votre réponse — réessayez."
+    },
+    "messageSubAgent": {
+      "sending": "Envoi du message…",
+      "sent": "Message envoyé à {title}",
+      "failed": "Impossible d’envoyer le message à {title}",
+      "parent": "Agent principal",
+      "agent": "Sous-agent",
+      "sentHint": "Enregistré pour transmission avant la prochaine étape de planification. Cela ne confirme pas son application.",
+      "failedHint": "Le message n’a pas été envoyé.",
+      "messages": "Messages",
+      "states": {
+        "sent": "Envoyé",
+        "delivered": "Transmis au contexte de l’agent",
+        "undelivered": "Non transmis"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "En attente de l’agent principal"
+      }
     }
   },
   "entityCreate": {
@@ -4111,7 +4131,8 @@
     "menuData": "Données"
   },
   "toolbar": {
-    "polishDashboard": "Peaufiner le tableau de bord"
+    "polishDashboard": "Peaufiner le tableau de bord",
+    "polishRequestLabel": "Peaufiner"
   },
   "artifactFrame": {
     "dataAddQuery": "Ajouter une requête",
@@ -5436,6 +5457,7 @@
     "bulkFailed": "Échec de la mise à jour groupée"
   },
   "events": {
+    "subAgentQuestion": "Un sous-agent a posé une question",
     "evalRunFinished": "L'exécution d'évaluation '{title}' est terminée — {passed}/{total} réussies ({status})",
     "waitResumed": "Attente écoulée — reprise : {reason}",
     "checkin": {
@@ -5460,6 +5482,7 @@
     "untitledInstruction": "Instruction sans titre",
     "pending": "En attente",
     "accepted": "Acceptée",
+    "rejected": "Rejetée",
     "webhooks": "Webhooks",
     "configureWebhook": "Configurer un webhook"
   },

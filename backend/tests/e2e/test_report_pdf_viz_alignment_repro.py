@@ -63,6 +63,8 @@ from app.models.step import Step
 from app.models.widget import Widget
 from app.services.report_pdf_service import ReportPdfService
 
+pytestmark = pytest.mark.e2e
+
 
 def _run(coro):
     return asyncio.run(coro)

@@ -13,6 +13,10 @@ from typing import Dict, FrozenSet, Optional
 
 # Tools every child loses, whatever the profile: anything that asks the user,
 # builds a user-facing deliverable, writes outside the report, or delegates.
+# Agent Lists are the exception on purpose: a child writes rows into the
+# parent's lists through ``submit_<slug>`` (the ``submit_list`` gateway), the
+# typed sink a fan-out extraction exists for. Defining or reshaping a list
+# (create_list / edit_list) stays with the parent and its review card.
 BLOCKED_IN_SUB_AGENTS: FrozenSet[str] = frozenset({
     "delegate", "read_sub_agent", "stop_sub_agent",
     "clarify", "wait", "cancel_wait",
@@ -25,7 +29,7 @@ BLOCKED_IN_SUB_AGENTS: FrozenSet[str] = frozenset({
     "create_eval", "edit_eval", "run_eval", "stop_eval_run",
     "create_agent", "set_report_agents", "create_demo_dataset",
     "route_model", "generate_image", "write_officejs_code", "write_to_excel",
-    "submit_list",
+    "create_list", "edit_list",
 })
 
 _RESEARCH = (
@@ -36,7 +40,7 @@ _RESEARCH = (
     "search_instructions", "read_instruction", "search_agents", "read_report", "search_reports",
     "web_fetch", "web_search",
     "create_note", "edit_note",
-    "finish_subtask",
+    "finish_subtask", "message_sub_agent",
 )
 
 
@@ -65,17 +69,21 @@ PROFILES: Dict[str, SubAgentProfile] = {
             "targeted queries over one big one. Keep ONE note: create it once with create_note, then "
             "edit_note as you learn more; never create a second note with the same title. Decide, then finish."
         ),
-        with_create_data=frozenset({"create_data", "write_csv"}),
+        # Writing rows into the parent's lists rides the same org switch as
+        # create_data: both are the child persisting its own output.
+        with_create_data=frozenset({"create_data", "write_csv", "submit_list"}),
     ),
     "validate": SubAgentProfile(
         key="validate",
         title="Validate",
-        tools=frozenset(_RESEARCH) | frozenset({"create_data", "write_csv"}),
+        tools=frozenset(_RESEARCH) | frozenset({"create_data", "write_csv", "submit_list"}),
         model_pref="default",
         addendum=(
             "PROFILE: validate. You produce tracked evidence: build the query or table that settles the "
             "goal with create_data, check the numbers with inspect_data, and return the step/query/viz "
-            "ids as evidence. A validation without a tracked query is incomplete."
+            "ids as evidence. A validation without a tracked query is incomplete. When the goal is to "
+            "extract records into a list and a submit_<list> tool is offered, write the rows with it "
+            "and report the saved row count in the summary."
         ),
     ),
 }

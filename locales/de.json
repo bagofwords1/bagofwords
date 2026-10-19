@@ -1785,6 +1785,26 @@
       "sendFeedback": "Feedback senden",
       "expired": "Diese Prüfung ist abgelaufen.",
       "respondFailed": "Antwort konnte nicht gesendet werden – bitte erneut versuchen."
+    },
+    "messageSubAgent": {
+      "sending": "Nachricht wird gesendet…",
+      "sent": "Nachricht an {title} gesendet",
+      "failed": "Nachricht an {title} konnte nicht gesendet werden",
+      "parent": "Hauptagent",
+      "agent": "Unteragent",
+      "sentHint": "Zur Zustellung vor dem nächsten Planungsschritt gespeichert. Dies bestätigt keine Umsetzung.",
+      "failedHint": "Die Nachricht wurde nicht gesendet.",
+      "messages": "Nachrichten",
+      "states": {
+        "sent": "Gesendet",
+        "delivered": "An den Agentenkontext übermittelt",
+        "undelivered": "Nicht zugestellt"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "Wartet auf Hauptagent"
+      }
     }
   },
   "entityCreate": {
@@ -4111,7 +4131,8 @@
     "menuData": "Daten"
   },
   "toolbar": {
-    "polishDashboard": "Dashboard verfeinern"
+    "polishDashboard": "Dashboard verfeinern",
+    "polishRequestLabel": "Verfeinern"
   },
   "artifactFrame": {
     "dataAddQuery": "Abfrage hinzufügen",
@@ -5436,6 +5457,7 @@
     "bulkFailed": "Massenaktualisierung fehlgeschlagen"
   },
   "events": {
+    "subAgentQuestion": "Ein Unteragent hat eine Frage gestellt",
     "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
     "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}",
     "checkin": {
@@ -5460,6 +5482,7 @@
     "untitledInstruction": "Unbenannte Anweisung",
     "pending": "Ausstehend",
     "accepted": "Akzeptiert",
+    "rejected": "Abgelehnt",
     "webhooks": "Webhooks",
     "configureWebhook": "Webhook einrichten"
   },

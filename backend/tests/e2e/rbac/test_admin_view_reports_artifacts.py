@@ -200,3 +200,122 @@ def test_admin_of_another_org_cannot_view(
 
     resp = test_client.get(f"/api/artifacts/report/{report['id']}", headers=headers)
     assert resp.status_code == 404, resp.json()
+
+
+# --- Public share surface (/r/{id}) -----------------------------------------
+# The /r/ page and its companions go through report visibility, not the
+# decorator, so the admin view bypass must hold there too.
+
+def _set_visibility(test_client, report_id, share_type, owner_token, org_id, **body):
+    resp = test_client.put(
+        f"/api/reports/{report_id}/visibility/{share_type}",
+        json=body,
+        headers=_headers(owner_token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    return resp.json()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("visibility", ["none", "shared"])
+def test_org_admin_can_view_any_report_on_share_page(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, visibility,
+):
+    """Private reports, and reports shared with someone else, open for an admin."""
+    admin = bootstrap_admin()
+    owner = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    other = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    report, artifact = _create_private_report_with_artifact(
+        test_client, create_report, owner["token"], admin["org_id"]
+    )
+    if visibility == "shared":
+        _set_visibility(
+            test_client, report["id"], "artifact", owner["token"], admin["org_id"],
+            visibility="shared", shared_user_ids=[other["user_id"]],
+        )
+    headers = _headers(admin["token"], admin["org_id"])
+
+    resp = test_client.get(f"/api/r/{report['id']}", headers=headers)
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["id"] == report["id"]
+
+    resp = test_client.get(f"/api/r/{report['id']}/artifacts", headers=headers)
+    assert resp.status_code == 200, resp.json()
+    assert artifact["id"] in {a["id"] for a in resp.json()}
+
+    resp = test_client.get(f"/api/r/{report['id']}/artifacts/{artifact['id']}", headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+    resp = test_client.get(f"/api/r/{report['id']}/queries", headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("visibility", ["none", "shared"])
+def test_non_admin_member_still_denied_on_share_page(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, visibility,
+):
+    admin = bootstrap_admin()
+    owner = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    other = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    bystander = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    report, artifact = _create_private_report_with_artifact(
+        test_client, create_report, owner["token"], admin["org_id"]
+    )
+    if visibility == "shared":
+        _set_visibility(
+            test_client, report["id"], "artifact", owner["token"], admin["org_id"],
+            visibility="shared", shared_user_ids=[other["user_id"]],
+        )
+    headers = _headers(bystander["token"], admin["org_id"])
+
+    for path in (
+        f"/api/r/{report['id']}",
+        f"/api/r/{report['id']}/artifacts",
+        f"/api/r/{report['id']}/artifacts/{artifact['id']}",
+    ):
+        resp = test_client.get(path, headers=headers)
+        assert resp.status_code in (403, 404), (path, resp.json())
+
+
+@pytest.mark.e2e
+def test_admin_of_another_org_cannot_view_share_page(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    admin = bootstrap_admin()
+    owner = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    report, _ = _create_private_report_with_artifact(
+        test_client, create_report, owner["token"], admin["org_id"]
+    )
+
+    outsider = bootstrap_admin("outsider")
+    resp = test_client.get(
+        f"/api/r/{report['id']}", headers=_headers(outsider["token"], outsider["org_id"])
+    )
+    assert resp.status_code in (403, 404), resp.json()
+
+
+@pytest.mark.e2e
+def test_admin_share_page_bypass_does_not_open_shared_conversation(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The bypass covers the artifact surface only; a conversation shared with
+    specific people stays closed to an admin who is not among them."""
+    admin = bootstrap_admin()
+    owner = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    other = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    report, _ = _create_private_report_with_artifact(
+        test_client, create_report, owner["token"], admin["org_id"]
+    )
+    shared = _set_visibility(
+        test_client, report["id"], "conversation", owner["token"], admin["org_id"],
+        visibility="shared", shared_user_ids=[other["user_id"]],
+    )
+    token = shared["conversation_share_token"]
+    assert token
+
+    resp = test_client.get(f"/api/c/{token}", headers=_headers(other["token"], admin["org_id"]))
+    assert resp.status_code == 200, resp.json()
+
+    resp = test_client.get(f"/api/c/{token}", headers=_headers(admin["token"], admin["org_id"]))
+    assert resp.status_code == 403, resp.json()

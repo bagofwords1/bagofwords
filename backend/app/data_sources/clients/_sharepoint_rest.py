@@ -6,7 +6,7 @@ from urllib.parse import unquote, urlsplit
 
 from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
 from app.data_sources.clients._sharepoint_api import SharepointAPI
-from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _literal, _safe_path
+from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _literal, _safe_path, unresolved_path_error
 from app.data_sources.clients.progress import make_reporter
 
 
@@ -73,6 +73,9 @@ class SharepointRestAPI(SharepointAPI):
                 raise GlobScopeError("Library is outside the configured site.")
             result.append((lib["Title"], root + ("/" + self.client.folder_path if self.client.folder_path else "")))
         return result
+
+    def library_scopes(self):
+        return list(self.libraries())
 
     def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, *, page_size=None):
         cap = min(max(0, int(limit)) if limit is not None else self.client.max_catalog_objects, self.client.max_catalog_objects)
@@ -150,7 +153,7 @@ class SharepointRestAPI(SharepointAPI):
         if not candidates and scope_error:
             raise scope_error
         if len(candidates) != 1:
-            raise ValueError("File path is missing or ambiguous. Use the id returned by list_files/search_files.")
+            raise unresolved_path_error(value, candidates)
         return candidates[0]
 
     def read_raw_bytes(self, file_id, *, max_bytes=None):

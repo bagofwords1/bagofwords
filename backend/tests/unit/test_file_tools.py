@@ -465,3 +465,33 @@ async def test_search_files_happy_path():
     assert out["success"] is True
     assert out["file_count"] == 1
     assert out["files"][0]["name"] == "pipeline.xlsx"
+
+
+@pytest.mark.asyncio
+async def test_folder_walk_is_not_told_it_already_enumerated():
+    """Walking a library folder by folder lists each folder once. The
+    repeat-enumeration note ("already enumerated — stop re-listing") is for a
+    rephrased re-listing of the WHOLE connection; on the second folder it
+    steered the model away from the walk it was asked to do."""
+    client = MagicMock()
+    client.cheap_live_listing = True
+    client.alist_files = AsyncMock(return_value=[
+        {"id": "A/1.pdf", "name": "1.pdf", "path": "A/1.pdf"},
+        {"id": "B/2.pdf", "name": "2.pdf", "path": "B/2.pdf"},
+    ])
+    runtime_ctx: Dict[str, Any] = {}
+
+    async def _summary(inp):
+        with patch("app.ai.tools.implementations.list_files.resolve_file_client",
+                   new=AsyncMock(return_value=(client, None))):
+            events = await _collect(ListFilesTool().run_stream({"connection_id": "C1", **inp}, runtime_ctx))
+        return events[-1].payload["observation"]["summary"]
+
+    for folder in ("Case-100", "Case-200", "Case-300/sub"):
+        assert "already enumerated" not in await _summary({"folder_id": folder})
+    # A whole-connection listing after a folder walk is the first full
+    # enumeration — and a repeat of it is still flagged.
+    assert "already enumerated" not in await _summary({})
+    assert "already enumerated" in await _summary({"name_pattern": "*.pdf"})
+    # Root is the whole connection, not a folder.
+    assert "already enumerated" in await _summary({"folder_id": "/"})

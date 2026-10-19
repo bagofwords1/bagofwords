@@ -35,6 +35,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.e2e
+
 HARNESS_MARKER = "running the Knowledge Harness"
 FOLLOW_UPS = ["Break revenue down by region", "Compare with the same month last year"]
 ANSWER = "Revenue grew 12% month over month, led by the enterprise plan."
@@ -338,7 +340,8 @@ def test_disabled_tools_are_not_offered_and_are_named_in_the_prompt(test_client,
     since = len(llm.calls)
     _ask(test_client, env["new_report"](tools={"clarify": False, "delegate": False})["id"], h, QUESTION)
     call = _main_calls(llm.calls, since)[0]
-    gone = {"clarify", "delegate", "read_sub_agent", "stop_sub_agent"}
+    # Switching off delegate also hides the tools that only act on sub-agents.
+    gone = {"clarify", "delegate", "read_sub_agent", "stop_sub_agent", "message_sub_agent"}
     assert not (gone & call["tools"])
     assert control["tools"] - gone <= call["tools"], "nothing else was taken away"
     assert "<disabled_tools>" in call["text"] and "clarify" in call["text"]

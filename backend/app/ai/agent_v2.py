@@ -72,6 +72,51 @@ def repeated_call_final_answer(tool_name: str, times: int) -> str:
     )
 
 
+# Consecutive failed saves to one list before the agent is told to stop
+# retrying, and before the turn is ended. A fix-and-retry usually lands on the
+# first or second retry; a run seen live looped on one error for 30+ minutes.
+LIST_SAVE_WARN_AT = 3
+LIST_SAVE_STOP_AT = 5
+
+
+def list_save_failure_action(streaks: dict, list_id, failed: bool) -> Optional[str]:
+    """Per-list streak of failed submit_list calls in this run.
+
+    Returns 'warn' on the LIST_SAVE_WARN_AT-th consecutive failure, 'stop' from
+    LIST_SAVE_STOP_AT on, else None. A successful save to the list resets it;
+    lists are counted independently."""
+    key = str(list_id or "")
+    if not failed:
+        streaks.pop(key, None)
+        return None
+    n = streaks.get(key, 0) + 1
+    streaks[key] = n
+    if n >= LIST_SAVE_STOP_AT:
+        return "stop"
+    if n == LIST_SAVE_WARN_AT:
+        return "warn"
+    return None
+
+
+def list_save_failure_note(times: int) -> str:
+    return (
+        f"NOTE: saving to this list has now failed {times} times in a row. Read the errors above "
+        "and fix exactly those fields, sending every record in full. If you cannot fix them, stop "
+        "saving and tell the user which records or fields are blocking and why."
+    )
+
+
+def list_save_failure_final_answer(list_name, errors) -> str:
+    name = f"'{list_name}'" if list_name else "the list"
+    last = "; ".join(str(e) for e in (errors or [])[:3])
+    return (
+        f"Stopping: saving to {name} failed {LIST_SAVE_STOP_AT} times in a row, so nothing more was "
+        "saved in this step. Rows saved earlier are kept."
+        + (f" Last error: {last}." if last else "")
+        + " Tell me how to proceed, or ask me to retry with fewer records."
+    )
+
+
 def _issued_args(arguments) -> dict:
     """A tool call's arguments as the model issued them, minus server-side
     annotations (``_progress`` and friends are added after the call)."""
@@ -175,18 +220,21 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # every write_csv in a session renders the same stale widget preview.
 _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
 
-# How many planner iterations a tool-supplied image (a rendered page, a
-# screenshot, a picture read with read_file) stays attached as a vision block.
+# How long a tool-supplied image (a rendered page, a screenshot, a picture
+# read with read_file) stays attached as a vision block on the legacy
+# (non-transcript) channel.
 #
-# It used to be exactly one: the image was extracted from the observation and
-# deleted, so the turn AFTER the read was the only turn that could see it. A
-# task needing the picture *and* something else — "does the screenshot match
-# what this query returns?" — could then never hold both at once, because each
-# fact expired before the other arrived. The model's only escape was to read
-# the image again, one full step per look. Images are the expensive payload
-# (~1-2k tokens each, re-sent on every call), so the window is short — but it
-# must be longer than one, or evidence can never be combined.
-_VISION_IMAGE_RETENTION_LOOPS = 3
+# It used to be exactly one iteration: the image was extracted from the
+# observation and deleted, so the turn AFTER the read was the only turn that
+# could see it. A task needing the picture *and* something else — "does the
+# screenshot match what this query returns?" — could then never hold both at
+# once. Now the newest MAX_RETAINED_IMAGES stay, whole steps at a time, newest
+# first — the same rule the native transcript applies to its tool results (see
+# transcript.retained_prefix), so both paths keep the same pictures.
+from app.ai.context.transcript import (  # noqa: E402
+    MAX_RETAINED_IMAGES as _MAX_RETAINED_IMAGES,
+    retained_prefix as _retained_prefix,
+)
 
 # Uploaded images to attach when the CURRENT completion has none of its own —
 # a follow-up question ("?", "why?") about a picture uploaded a turn ago. Only
@@ -315,6 +363,15 @@ _CONTEXT_OVERFLOW_PATTERNS = (
         r"input token count\s*\((\d[\d,]*)\)\s*exceeds the maximum number of tokens allowed\s*\((\d[\d,]*)\)",
         _re_mod.IGNORECASE,
     ), 1, 2),
+    # OpenAI Chat Completions (current wording, observed on gpt-6-luna):
+    #   "Input tokens exceed the configured limit of 922000 tokens. Your
+    #    messages resulted in 1200007 tokens."                  (limit, actual)
+    # The Responses API says only "Your input exceeds the context window of
+    # this model" — no numbers, so it takes the geometric fallback.
+    (_re_mod.compile(
+        r"configured limit of\s+(\d[\d,]*)\s+tokens?.{0,200}?resulted in\s+(\d[\d,]*)",
+        _re_mod.IGNORECASE | _re_mod.DOTALL,
+    ), 2, 1),
 )
 
 
@@ -383,6 +440,8 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
+from app.services.sub_agent_locks import lock_report, lock_wave
+
 from sqlalchemy import select, func, update as sa_update, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
@@ -668,7 +727,7 @@ class AgentV2:
             # so a picture the agent happened to read or produce once would
             # ride along as a user attachment on every later turn.
             # Tool-supplied images already reach the model through
-            # _collect_vision_images, bounded by _VISION_IMAGE_RETENTION_LOOPS.
+            # _collect_vision_images, bounded by _MAX_RETAINED_IMAGES.
             # They stay in analysis_files, which is what the code sandbox
             # reads by path.
             def _is_agent_file(f) -> bool:
@@ -697,8 +756,8 @@ class AgentV2:
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
 
-        # Vision blocks harvested from tool observations, kept for
-        # _VISION_IMAGE_RETENTION_LOOPS iterations: [{"loop_index", "images"}].
+        # Vision blocks harvested from tool observations, newest
+        # _MAX_RETAINED_IMAGES kept: [{"loop_index", "images"}].
         # Held here rather than left on the observation so the base64 never
         # reaches the JSON-serialized <past_observations> / <last_observation>
         # prompt text — retention and serialization stay independent.
@@ -937,6 +996,9 @@ class AgentV2:
         )
         if not self._sub_agents_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_agent', 'stop_sub_agent')]
+
+        if not (self._sub_agents_enabled or (self._is_sub_agent and _sub_agents_enabled(self.organization_settings))):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'message_sub_agent']
 
         # Tools the conversation switched off (report.tools; resolved above,
         # before the feature gates that also drive prompt directives). Hidden
@@ -1553,7 +1615,12 @@ class AgentV2:
             # Render the union: persisted focus + this run's working set (agents
             # a search already surfaced) — search results never decay mid-run.
             focus_set = {str(x) for x in (focus_ids or [])} | _loaded
-            sections = [s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set]
+            # The built-in BOW section (Agent Lists, training history) is not an
+            # agent and is never in the roster, so focus would always drop it —
+            # leaving the submit_* tools with no way to read their lists back.
+            from app.schemas.bow_source_schema import SOURCE_ID as _BOW_ID
+            sections = [s for s in schemas_ctx.data_sources
+                        if str(s.info.id) in focus_set or str(s.info.id) == _BOW_ID]
             # Focused agents attached AFTER the run-start schema cache was
             # primed have no cached section — build theirs fresh.
             missing = focus_set - {str(s.info.id) for s in sections}
@@ -1831,8 +1898,9 @@ class AgentV2:
 
     def _collect_vision_images(self, observation, loop_index: int) -> list[ImageInput]:
         """Vision blocks for this planner call: any image the current
-        observation carries, plus images from the last
-        _VISION_IMAGE_RETENTION_LOOPS iterations that haven't aged out.
+        observation carries, plus earlier steps' images while the newest
+        _MAX_RETAINED_IMAGES still hold them (whole steps, newest first, the
+        newest step always kept — transcript.retained_prefix).
 
         The images are moved OFF the observation (replaced with the
         `images_provided_as_vision` marker) so the base64 never reaches the
@@ -1857,12 +1925,33 @@ class AgentV2:
                     {"loop_index": loop_index, "images": fresh}
                 )
 
-        cutoff = loop_index - _VISION_IMAGE_RETENTION_LOOPS
-        self._recent_vision_images = [
-            entry for entry in self._recent_vision_images
-            if entry["loop_index"] > cutoff
-        ]
+        newest_first = list(reversed(self._recent_vision_images))
+        keep = _retained_prefix([len(e["images"]) for e in newest_first], protected=1)
+        self._recent_vision_images = list(reversed(newest_first[:keep]))
         return [img for entry in self._recent_vision_images for img in entry["images"]]
+
+    def _planner_images(self, planner_input, user_images: list, tool_images: list) -> Optional[list]:
+        """The side-channel images (``planner_input.images``) for one request.
+
+        One channel per image. When the request renders the native transcript
+        (PlannerV3 with the transcript path on), tool images already ride the
+        transcript's own tool results, bounded by Transcript's retention —
+        adding them here too sent the last steps' pages twice per request. The
+        legacy planner / non-transcript prompt have no other channel, so they
+        keep both. User uploads only ever ride this channel.
+        """
+        rides_transcript = False
+        if tool_images:
+            try:
+                from app.ai.agents.planner import transcript_bridge
+                rides_transcript = (
+                    isinstance(self.planner, PlannerV3)
+                    and transcript_bridge.enabled(planner_input)
+                )
+            except Exception:
+                rides_transcript = False
+        images = list(user_images or []) + ([] if rides_transcript else list(tool_images or []))
+        return images or None
 
     async def estimate_prompt_tokens(self) -> dict:
         """Approximate the total planner prompt tokens without executing tools."""
@@ -2878,11 +2967,12 @@ class AgentV2:
                 * self._context_budget_factor
             )
             stats = self.transcript.fit_to_budget(max(budget, 1))
-            if stats.get("digested") or stats.get("dropped"):
+            if stats.get("digested") or stats.get("dropped") or stats.get("images_released"):
                 logger.info(
                     "[agent] context overflow: transcript %d->%d tokens "
-                    "(digested=%d dropped=%d)",
+                    "(digested=%d dropped=%d images_released=%d)",
                     stats["before"], stats["after"], stats["digested"], stats["dropped"],
+                    stats.get("images_released", 0),
                 )
         except Exception:
             logger.warning("[agent] overflow transcript decay failed", exc_info=True)
@@ -3332,7 +3422,7 @@ class AgentV2:
         items = "\n".join(f"    - {t}" for t in self._steering_texts)
         return (
             "<steering_updates>\n"
-            "    PRIORITY — the user interrupted with these instructions WHILE you were "
+            "PRIORITY — the user interrupted with these instructions WHILE you were "
             "working. They override <original_user_prompt> and your current plan/notes "
             "where they conflict. Re-evaluate your plan against them in THIS decision — "
             "do not simply continue the previous plan. If you keep a plan note, update "
@@ -5091,8 +5181,7 @@ class AgentV2:
                         user_images = list(self._user_images_cache)
 
                         # Tool-supplied images (rendered pages, screenshots),
-                        # retained for a few iterations — see
-                        # _VISION_IMAGE_RETENTION_LOOPS.
+                        # newest _MAX_RETAINED_IMAGES retained.
                         observation_images = self._collect_vision_images(observation, loop_index)
 
                         # Combine user images + observation images
@@ -5198,6 +5287,11 @@ class AgentV2:
                             routing_state=self._routing_prompt_state()[1],
                         )
                         await self._apply_sub_agent_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
+                        if self.sigkill_event.is_set():
+                            break
+                        planner_input.images = self._planner_images(
+                            planner_input, user_images, observation_images
+                        )
                         # Trim context if it exceeds the model's token budget. After a
                         # context_length rejection the run's shrink factor tightens the
                         # window (see _handle_context_overflow) so the retry provably
@@ -6478,6 +6572,11 @@ class AgentV2:
                                         "verification_group_id": tool_input.get("_verification_group_id"),
                                         "planner_phase": "main",
                                         "planner_round_index": loop_index,
+                                        "sub_agent_can_review_messages": (
+                                            loop_index + 1 < step_limit and
+                                            (self._sub_agent_tokens_exhausted_at is None or
+                                             loop_index < self._sub_agent_tokens_exhausted_at + 1)
+                                        ),
                                         "pending_officejs_registry": pending_officejs_registry,
                                     }
 
@@ -6934,6 +7033,25 @@ class AgentV2:
                                     self._sub_agent_finished = True
                                 if _tn == "delegate" and isinstance(_obs, dict) and _obs.get("sub_agent_id"):
                                     self._wave_pending = True
+                                if _tn == "submit_list" and isinstance(_obs, dict):
+                                    if not hasattr(self, "_list_save_failures"):
+                                        self._list_save_failures = {}
+                                    _lsa = list_save_failure_action(
+                                        self._list_save_failures,
+                                        _ti_args.get("list_id") if isinstance(_ti_args, dict) else None,
+                                        _observation_failed(_obs),
+                                    )
+                                    if _lsa == "warn":
+                                        _obs["repeat_warning"] = list_save_failure_note(LIST_SAVE_WARN_AT)
+                                    elif _lsa == "stop":
+                                        _lerr = _obs.get("error")
+                                        _obs.update({
+                                            "analysis_complete": True,
+                                            "final_answer": list_save_failure_final_answer(
+                                                _obs.get("list_name"),
+                                                _lerr.get("errors") if isinstance(_lerr, dict) else None,
+                                            ),
+                                        })
                                 if not _observation_failed(_obs):
                                     action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
                                     successful_tool_actions.append(action_signature)
@@ -7684,7 +7802,30 @@ class AgentV2:
         posture; a child loses conversation-level context and gets its goal,
         profile addendum and remaining budget."""
         from app.services.sub_agent_service import sub_agent_posture, sub_agent_service
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        await self._release_db_between_steps()
         if self._is_sub_agent:
+            await self._await_sub_agent_answer()
+        if self.sigkill_event.is_set():
+            return
+        from app.dependencies import async_session_maker
+        agent_messages = []
+        delegation_context = ""
+        if not self._is_sub_agent and self._sub_agents_enabled and self.report is not None:
+            try:
+                delegation_context = await sub_agent_service.context_block(self.db, str(self.report_id))
+            except Exception:
+                logger.debug("[agent] sub_agents context block failed", exc_info=True)
+            await self._release_db_between_steps()
+        if self._is_sub_agent or delegation_context:
+            async with (self._session_maker or async_session_maker)() as mailbox_db:
+                agent_messages = await sub_agent_message_service.receive(
+                    mailbox_db, organization_id=str(self.organization.id), report_id=str(self.report_id),
+                    recipient=str(self._sub_agent_id) if self._is_sub_agent else 'parent',
+                )
+        mailbox_context = sub_agent_message_service.render(agent_messages)
+        if self._is_sub_agent:
+            planner_input.sub_agents_context = mailbox_context
             planner_input.messages_context = ""
             planner_input.history_summary = None
             planner_input.steering_context = None
@@ -7712,10 +7853,50 @@ class AgentV2:
         planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
         planner_input.sub_agent_posture = sub_agent_posture(self.organization_settings)
         if planner_input.sub_agents_enabled and self.report is not None:
+            planner_input.sub_agents_context = "\n".join(part for part in (delegation_context, mailbox_context) if part)
+
+    async def _await_sub_agent_answer(self) -> None:
+        """Suspend without holding a session or slot; bounded cross-worker polling.
+        Stop events interrupt the backoff immediately."""
+        from sqlalchemy import update
+        from app.models.sub_agent import SubAgentRun, TERMINAL_RUN_STATUSES
+        from app.services.sub_agent_service import has_free_child_slot
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        from app.dependencies import async_session_maker
+        if not self._sub_agent_id:
+            return
+        delay = 0.5
+        while not self.sigkill_event.is_set():
+            async with (self._session_maker or async_session_maker)() as db:
+                row = await db.get(SubAgentRun, str(self._sub_agent_id))
+                if row is None or row.status in TERMINAL_RUN_STATUSES:
+                    self.sigkill_event.set()
+                    return
+                question = await sub_agent_message_service.waiting_question(db, str(row.id))
+                if question:
+                    if row.status == 'running':
+                        await db.execute(update(SubAgentRun).where(
+                            SubAgentRun.id == row.id, SubAgentRun.status == 'running',
+                        ).values(status='waiting'))
+                        await db.commit()
+                elif row.status != 'waiting':
+                    return
+                elif await has_free_child_slot(db, row.report_id, settings=self.organization_settings):
+                    # Avoid a write lock while the slot is known to be occupied.
+                    # Recheck under the same report/wave locks used by launch.
+                    await lock_report(db, row.report_id)
+                    await lock_wave(db, row.wave_id)
+                    if await has_free_child_slot(db, row.report_id, settings=self.organization_settings):
+                        resumed = await db.execute(update(SubAgentRun).where(
+                            SubAgentRun.id == row.id, SubAgentRun.status == 'waiting',
+                        ).values(status='running'))
+                        await db.commit()
+                        if resumed.rowcount == 1:
+                            return
             try:
-                planner_input.sub_agents_context = await sub_agent_service.context_block(self.db, str(self.report_id))
-            except Exception:
-                logger.debug("[agent] sub_agents context block failed", exc_info=True)
+                await asyncio.wait_for(self.sigkill_event.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                delay = min(delay * 2, 5.0)
 
     async def _launch_pending_sub_agents(self) -> None:
         """After a batch holding delegate calls: close the wave and start its children."""
@@ -8323,6 +8504,15 @@ class AgentV2:
         if not route:
             return tool_name, tool_input
         args = tool_input if isinstance(tool_input, dict) else {}
+        from app.ai.llm.toolcall_args import UNPARSABLE_KEY
+        if args.get(UNPARSABLE_KEY):
+            # Broken JSON the parser could not salvage (e.g. cut off). Keep
+            # the parser's marker so the tool runner reports the real error
+            # and applies its attempt cap. Defaulting records to [] here hid
+            # both: the model was told "records: [] should be non-empty" and
+            # looped on a call it never made.
+            logger.info("[agent] list tool %s -> submit_list(%s): unparsable arguments", tool_name, route["list_id"])
+            return "submit_list", {**args, "list_id": route["list_id"]}
         records = args.get("records")
         rewritten = {"list_id": route["list_id"], "records": records if isinstance(records, list) else []}
         logger.info("[agent] list tool %s -> submit_list(%s)", tool_name, route["list_id"])
@@ -8343,6 +8533,14 @@ class AgentV2:
         self._list_tool_routing = {}
         if not self.report or "submit_list" in self._disabled_tools:
             return
+        # A child's profile is applied before this point (_bind_sub_agent) and
+        # the dispatch check runs on the rewritten gateway name: only offer the
+        # submit_<slug> tools to a child whose profile holds submit_list, so the
+        # catalog never advertises a call the loop would refuse.
+        if self._is_sub_agent:
+            allowed = getattr(self, "_sub_agent_allowed_tools", None)
+            if allowed is not None and "submit_list" not in allowed:
+                return
         try:
             user = getattr(self, "user", None) or (getattr(self.head_completion, "user", None) if self.head_completion else None)
             descriptors, routing = await build_list_tools(self.db, self.report, user, self.organization)

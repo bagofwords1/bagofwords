@@ -9,6 +9,7 @@ import base64
 import binascii
 import mimetypes
 import re
+import time
 from collections import deque
 from urllib.parse import quote
 from xml.etree import ElementTree as ET
@@ -17,10 +18,11 @@ from threading import Lock
 from defusedxml.ElementTree import fromstring
 from defusedxml.common import DefusedXmlException
 
-from app.data_sources.clients._file_source_common import INDEX_CONTENT, FileTooLargeError, GlobScopeError
+from app.data_sources.clients._file_source_common import INDEX_CONTENT, INDEX_NONE, FileTooLargeError, GlobScopeError
 from app.data_sources.clients._sharepoint_api import SharepointAPI
+from app.data_sources.clients.base import SearchStopped
 from app.data_sources.clients.progress import make_reporter
-from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _safe_path
+from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError, _safe_path, unresolved_path_error
 
 SOAP = 'http://schemas.xmlsoap.org/soap/envelope/'
 SP = 'http://schemas.microsoft.com/sharepoint/soap/'
@@ -39,6 +41,9 @@ def _text(node, name, value):
 
 class Sharepoint2010API(SharepointAPI):
     page_size = 200  # The read-only smoke tool can lower this to exercise paging.
+    # A live name search is one SOAP request per folder per page. Bound how
+    # many folders one search may visit; the catalog answers name searches.
+    search_folder_limit = 500
 
     def __init__(self, client):
         super().__init__(client)
@@ -147,9 +152,14 @@ class Sharepoint2010API(SharepointAPI):
     def _scopes(libraries):
         return [(lib['title'], lib['scope']) for lib in libraries]
 
-    def _items(self, lib, folder, *, leaf=None, page_size=None):
+    def library_scopes(self):
+        return self._scopes(self._libraries())
+
+    def _items(self, lib, folder, *, leaf=None, page_size=None, should_stop=None):
         token, seen = None, set()
         for _ in range(1000):
+            if token and should_stop is not None:
+                should_stop()
             def fill(command):
                 ET.SubElement(command, f'{{{SP}}}listName').text = lib['id']
                 query = ET.SubElement(ET.SubElement(command, f'{{{SP}}}query'), 'Query')
@@ -211,7 +221,16 @@ class Sharepoint2010API(SharepointAPI):
             raise SharePointHTTPError(404)
         return found
 
-    def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, *, page_size=None):
+    def iter_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, *, page_size=None,
+                   should_stop=None, max_folders=None):
+        """Walk the libraries breadth-first, one GetListItems page at a time.
+
+        `should_stop` is called before every folder and every follow-up page;
+        it raises (e.g. SearchStopped) to end the walk, so an interactive
+        caller can stop a crawl it no longer waits for. `max_folders` stops
+        the walk with SearchStopped('folder_limit') instead of the hard error
+        used by full indexing.
+        """
         c = self.client
         cap = min(max(0, int(limit)) if limit is not None else c.max_catalog_objects, c.max_catalog_objects)
         if not cap:
@@ -235,13 +254,17 @@ class Sharepoint2010API(SharepointAPI):
             lib, folder = queue.popleft()
             if folder.casefold() in seen:
                 continue
+            if should_stop is not None:
+                should_stop()
+            if max_folders is not None and len(seen) >= max_folders:
+                raise SearchStopped('folder_limit')
             seen.add(folder.casefold())
             if len(seen) > c.max_catalog_objects:
                 raise ValueError('Folder traversal limit exceeded; narrow the folder scope.')
             if reporter:
                 reporter.set_total(len(seen) + len(queue))
                 reporter.item(folder, done=len(seen) - 1)
-            for meta in self._items(lib, folder, page_size=page_size):
+            for meta in self._items(lib, folder, page_size=page_size, should_stop=should_stop):
                 if meta['folder']:
                     if recurse and meta['Name'] != 'Forms':
                         queue.append((lib, meta['ServerRelativeUrl']))
@@ -282,7 +305,7 @@ class Sharepoint2010API(SharepointAPI):
         if not candidates and scope_error:
             raise scope_error
         if len(candidates) != 1:
-            raise ValueError('File path is missing or ambiguous. Use the id returned by list_files/search_files.')
+            raise unresolved_path_error(value, [m['ServerRelativeUrl'] for m in candidates])
         meta = candidates[0]
         limit = min(c._max_bytes, max_bytes) if max_bytes is not None else c._max_bytes
         if limit < 1 or meta['Length'] > limit:
@@ -305,27 +328,55 @@ class Sharepoint2010API(SharepointAPI):
     @property
     def description(self):
         c = self.client
-        search = ("search_files matches filenames, paths and indexed document keywords "
-                  "from the content index; a live fallback matches filenames and paths only."
-                  if c.index_mode == INDEX_CONTENT else
-                  "search_files matches filenames and paths within the configured enumeration "
-                  "limit; it does not search document contents.")
+        if c.index_mode == INDEX_CONTENT:
+            search = ("search_files matches filenames, paths and indexed document keywords "
+                      "from the content index; a live fallback matches filenames and paths only.")
+        elif c.index_mode == INDEX_NONE:
+            search = ("search_files matches filenames and paths with a time-limited live scan "
+                      "(no catalog is kept); it does not search document contents.")
+        else:
+            search = ("search_files matches filenames and paths from the indexed catalog "
+                      "(instant; as fresh as the last index run); deep=true adds a time-limited "
+                      "live scan for newer files. It does not search document contents.")
         return ("Read-only SharePoint 2010 document libraries. Use list_files and read_file "
                 f"with returned file ids or scoped paths. {search} "
                 "CSV/Excel reads return DataFrames; PDF/DOCX/PPTX return document text.")
 
-    def search_files(self, query, limit=100, **_):
+    def search_files(self, query, limit=100, *, deadline=None, cancel_check=None, **_):
+        """Live filename/path match: a full SOAP walk, so it is bounded.
+
+        Stops at `deadline` (time.monotonic()), when `cancel_check()` turns
+        true, after `search_folder_limit` folders, or after the connection's
+        Max files cap. A stop raises SearchStopped carrying the matches so
+        far; a full walk returns a plain list.
+        """
         if not str(query).strip():
             return []
         cap = min(max(0, int(limit)), self.client.max_catalog_objects, 500)
         if not cap:
             return []
-        found = []
-        for entry in self.iter_files():
-            if str(query).casefold() in entry['path'].casefold():
-                found.append(entry)
-                if len(found) >= cap:
-                    break
+
+        def should_stop():
+            if cancel_check is not None and cancel_check():
+                raise SearchStopped('cancelled')
+            if deadline is not None and time.monotonic() >= deadline:
+                raise SearchStopped('deadline')
+
+        needle = str(query).casefold()
+        found, scanned = [], 0
+        try:
+            folders = min(self.search_folder_limit, self.client.max_catalog_objects)
+            for entry in self.iter_files(should_stop=should_stop, max_folders=folders):
+                scanned += 1
+                if needle in entry['path'].casefold():
+                    found.append(entry)
+                    if len(found) >= cap:
+                        return found
+        except SearchStopped as stop:
+            stop.files = found
+            raise
+        if scanned >= self.client.max_catalog_objects:
+            raise SearchStopped('catalog_limit', found)
         return found
 
     def test_connection(self):

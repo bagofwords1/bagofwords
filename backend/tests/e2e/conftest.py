@@ -19,10 +19,28 @@ test_rbac.py::test_create_custom_role_enterprise_gate) still work — the
 ``if is_enterprise_licensed()`` branches just always pick the licensed
 arm, which is the more thorough one.
 """
+import pathlib
+
 import pytest
 
 from app.ee import license as ee_license
 from app.services import connection_indexing_service as _cis
+
+_E2E_DIR = pathlib.Path(__file__).parent
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Everything under tests/e2e is an e2e test.
+
+    CI selects this suite with ``-m e2e``, so a test that forgot the marker was
+    deselected without a trace — 135 tests (12 whole files) had never run in CI,
+    and one of those files only passed on sqlite. Marking here, before the
+    ``-m`` filter runs, means a missing decorator can no longer hide a test.
+    """
+    for item in items:
+        if _E2E_DIR in pathlib.Path(str(item.path)).parents:
+            item.add_marker(pytest.mark.e2e)
 
 
 @pytest.fixture(scope="session", autouse=True)

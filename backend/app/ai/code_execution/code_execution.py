@@ -69,6 +69,37 @@ QUERY_NOTICE_ATTR = "bow_notice"
 SENT_REQUEST_ATTR = "bow_sent_request"
 SENT_REQUEST_MAX_CHARS = 1000
 
+# A client whose catalog knows human titles for its columns (Priority:
+# ORDNAME -> "Order Number" / "מספר הזמנה") labels its result with
+# {column: title}. The query wrappers of one execution collect these into one
+# map; execute_code stamps it on the frame generate_df returned (the sandbox
+# returns that frame without attrs), and format_df_for_widget uses it as each
+# column's `headerName`. `field` stays the column name, so code, filters and
+# dashboards are untouched. A name labelled differently by two queries is left
+# unlabelled rather than guessed.
+COLUMN_TITLES_ATTR = "bow_column_titles"
+_TITLE_CONFLICT = object()
+
+
+def merge_column_titles(into: Dict[str, Any], result) -> None:
+    """Fold a query result's column titles into an execution's map."""
+    attrs = getattr(result, "attrs", None)
+    titles = attrs.get(COLUMN_TITLES_ATTR) if isinstance(attrs, dict) else None
+    if not isinstance(titles, dict):
+        return
+    for col, title in titles.items():
+        if not isinstance(title, str) or not title.strip():
+            continue
+        seen = into.get(col)
+        if seen is None:
+            into[col] = title
+        elif seen is not _TITLE_CONFLICT and seen != title:
+            into[col] = _TITLE_CONFLICT
+
+
+def resolved_column_titles(titles: Dict[str, Any]) -> Dict[str, str]:
+    return {c: t for c, t in titles.items() if t is not _TITLE_CONFLICT}
+
 
 def query_notice(result) -> Optional[str]:
     """The client's note on a query result, if it attached one."""
@@ -782,10 +813,12 @@ class QueryCapturingClientWrapper:
         client_key: Optional[str] = None,
         query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
         max_concurrent_queries: Optional[int] = None,
+        captured_column_titles: Optional[Dict[str, Any]] = None,
     ):
         self._original = original_client
         self._captured_queries = captured_queries
         self._captured_timings = captured_timings
+        self._captured_column_titles = captured_column_titles
         self._usage_context = usage_context
         self._client_key = client_key
         self._query_timeout_seconds = (
@@ -894,6 +927,8 @@ class QueryCapturingClientWrapper:
                 if isinstance(sent, str) and sent.strip():
                     timing["sent_request"] = sent[:SENT_REQUEST_MAX_CHARS]
                 self._captured_timings.append(timing)
+                if self._captured_column_titles is not None:
+                    merge_column_titles(self._captured_column_titles, result)
                 # In process, this thread is the code-exec worker and its
                 # stdout is the run output. Sandboxed, it is a parent-side
                 # handler with nothing bound, and the child prints the note.
@@ -1149,6 +1184,7 @@ def wrap_clients_for_capture(
     captured_timings: List[dict],
     usage_context: Optional[UsageLimitContext] = None,
     organization_settings: Optional[OrganizationSettingsConfig] = None,
+    captured_column_titles: Optional[Dict[str, Any]] = None,
 ) -> Dict:
     """Wrap all database clients to capture queries and per-query timing.
 
@@ -1184,6 +1220,7 @@ def wrap_clients_for_capture(
                 client_key=str(key),
                 query_timeout_seconds=timeout,
                 max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
+                captured_column_titles=captured_column_titles,
             )
         else:
             wrapped[key] = client
@@ -1286,12 +1323,14 @@ class StreamingCodeExecutor:
             _timings: List[dict] = captured_timings if captured_timings is not None else []
 
             # Wrap clients to capture all queries passed to execute_query
+            _column_titles: Dict[str, Any] = {}
             wrapped_clients = wrap_clients_for_capture(
                 ds_clients,
                 executed_queries,
                 _timings,
                 self.usage_context,
                 organization_settings=self.organization_settings,
+                captured_column_titles=_column_titles,
             )
 
             # Inject a sync HTTP client when the org has web fetch enabled. The
@@ -1328,6 +1367,13 @@ class StreamingCodeExecutor:
                                        for frame in group.values() if isinstance(frame, pd.DataFrame) and frame.attrs.get("bow_source")), None)
                 if bow_access:
                     df.attrs["bow_source"] = bow_access
+                # Always overwrite: in process the frame may still carry one
+                # client's own labels, which a conflict must not let through.
+                titles = resolved_column_titles(_column_titles)
+                if titles:
+                    df.attrs[COLUMN_TITLES_ATTR] = titles
+                else:
+                    df.attrs.pop(COLUMN_TITLES_ATTR, None)
             return df, output_log, executed_queries
 
     def _execute_sandboxed(self, code: str, wrapped_clients: Dict, excel_files: List,
@@ -1713,7 +1759,16 @@ class StreamingCodeExecutor:
             if len(df) > MAX_ROWS:
                 raise ValueError("BOW output exceeds 10,000 rows; narrow or aggregate before saving")
             row_limit_disabled = True  # materialize the complete bounded result
-        columns = [{"headerName": str(col), "field": str(col)} for col in df.columns]
+        titles = df.attrs.get(COLUMN_TITLES_ATTR) if isinstance(df.attrs, dict) else None
+        titles = titles if isinstance(titles, dict) else {}
+        columns, used = [], set()
+        for col in df.columns:
+            header = str(titles.get(col) or col)
+            if header in used:
+                # Two columns must never read the same; the name tells them apart.
+                header = f"{header} ({col})"
+            used.add(header)
+            columns.append({"headerName": header, "field": str(col)})
         if df.empty:
             rows = []
             df_info = {

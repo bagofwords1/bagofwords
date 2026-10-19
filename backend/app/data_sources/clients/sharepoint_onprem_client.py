@@ -27,7 +27,7 @@ from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT, INDEX_MODES, INDEX_NONE,
     DocumentText, FileTooLargeError, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
 )
-from app.data_sources.clients._keywords import extract_keywords
+from app.data_sources.clients._keywords import extract_file_keywords
 from app.data_sources.clients.graph_drive_client import (
     TEXT_EXTS, _ext, _extract_pdf_pages_from_bytes, _trim_to_data,
 )
@@ -44,6 +44,28 @@ class SharePointHTTPError(ValueError):
             429: "SharePoint throttled the request. Retry later or narrow the scope.",
         }.get(status, "SharePoint request failed.")
         super().__init__(f"SharePoint Server HTTP {status}: {hint}")
+
+
+def unresolved_path_error(value: str, matches: list) -> ValueError:
+    """Error for a read-by-path that did not resolve to exactly one file.
+
+    A relative path is tried in every visible library. Saying "missing or
+    ambiguous" for both outcomes left the agent guessing which one it hit;
+    name the outcome, and for several matches list them by id (the full
+    server path), which is directly readable.
+    """
+    if not matches:
+        return ValueError(
+            f"File not found: {value!r} does not exist in the connected document libraries. "
+            "Use the id returned by list_files/search_files (the full path starting with '/')."
+        )
+    shown = sorted(matches)[:10]
+    more = f" (and {len(matches) - len(shown)} more)" if len(matches) > len(shown) else ""
+    return ValueError(
+        f"Ambiguous path: {value!r} matches {len(matches)} files in different document libraries: "
+        + "; ".join(shown) + more
+        + ". Read one of them by that full path; it is the file id."
+    )
 
 
 def _safe_path(value: str) -> str:
@@ -217,11 +239,27 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
                 "mime_type": mimetypes.guess_type(meta["Name"])[0], "is_folder": False,
                 "web_url": self._origin_url + quote(path, safe="/")}
 
+    def _folder_server_path(self, folder_id):
+        """Accept a catalog-relative folder ("Finance/2026", or "Library/Finance"
+        when every library is in scope) as well as a server-relative URL, so the
+        same folder id works for catalog and live listings."""
+        if not folder_id or str(folder_id).startswith("/"):
+            return folder_id
+        rel = "/".join(part for part in _safe_path(str(folder_id)).split("/") if part)
+        scopes = self._adapter.library_scopes()
+        if self.drive_name == "*":
+            head, _, rest = rel.partition("/")
+            for title, scope in scopes:
+                if title.casefold() == head.casefold():
+                    return scope + ("/" + rest if rest else "")
+            raise GlobScopeError("Folder must start with a document library name (or pass the server-relative URL).")
+        return scopes[0][1] + ("/" + rel if rel else "")
+
     def _iter_listing_files(self, folder_id, recursive, page_size):
-        return self._adapter.iter_files(folder_id, recursive, page_size=page_size)
+        return self._adapter.iter_files(self._folder_server_path(folder_id), recursive, page_size=page_size)
 
     def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
-        return self._adapter.list_files(folder_id, recursive, limit, progress_callback)
+        return self._adapter.list_files(self._folder_server_path(folder_id), recursive, limit, progress_callback)
 
 
     def read_raw_bytes(self, file_id, *, max_bytes=None):
@@ -334,7 +372,7 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
                     text = self._file_text(f)
                     # Index the relative path too: a case folder (`6044534/…`)
                     # is how people find these files.
-                    meta["keywords"] = extract_keywords(text or "", f["path"], self.max_keywords)
+                    meta["keywords"] = extract_file_keywords(text or "", f["path"], self.max_keywords)
                     meta["content_hash"] = hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
                     meta["indexed"] = text is not None
                 if meta["keywords"]:

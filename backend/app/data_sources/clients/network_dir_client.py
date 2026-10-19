@@ -39,6 +39,7 @@ from app.data_sources.clients._document_text import (
     extract_document_text,
     extract_pdf_pages_text,
 )
+from app.data_sources.clients._email_text import EMAIL_EXTS
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_METADATA,
@@ -47,14 +48,16 @@ from app.data_sources.clients._file_source_common import (
     GlobScopeError,
     NamedBytes,
     ScopeEscapeError,
+    UTF8_SLACK,
     byte_limit,
+    byte_window,
     globs_from_str,
     legacy_fs_candidates,
     normalize_index_mode,
     path_matches_globs,
     recover_filename,
 )
-from app.data_sources.clients._keywords import extract_keywords
+from app.data_sources.clients._keywords import extract_file_keywords
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 
@@ -148,6 +151,32 @@ class NetworkDirClient(DataSourceClient):
     # Local FS walk is cheap → list files live, per-connection (see base).
     cheap_live_listing = True
 
+    # Root-policy exemption for app-owned directories (see
+    # ``for_app_owned_dir``). Deliberately NOT an ``__init__`` parameter:
+    # connection configs are splatted into the constructor
+    # (``Connection.get_client`` → ``ClientClass(**config)``), so any keyword
+    # here would be reachable from a user-saved network_dir connection.
+    _root_policy_exempt = False
+
+    @classmethod
+    def for_app_owned_dir(cls, root_path: str, **kwargs) -> NetworkDirClient:
+        """Internal constructor for a client over one of the app's OWN
+        directories (``uploads/files`` under the backend checkout), skipping
+        ``check_network_dir_root``.
+
+        That check exists so a user-configured network_dir connection cannot
+        point at the app's code, db or uploads. The session-file shim
+        (``SessionFileClient``) is not user input: it serves the single upload
+        row the report owns from the directory the app wrote it to — which is
+        exactly the directory the policy refuses on a default install. Root
+        confinement in ``_resolve`` still applies. Never call this with a path
+        taken from a connection config.
+        """
+        self = cls.__new__(cls)
+        self._root_policy_exempt = True
+        self.__init__(root_path=root_path, **kwargs)
+        return self
+
     def __init__(
         self,
         root_path: Optional[str] = None,
@@ -165,7 +194,7 @@ class NetworkDirClient(DataSourceClient):
         super().__init__()
         self.root_path = (root_path or "").strip()
         if self.root_path:
-            check_network_dir_root(self.root_path)
+            self._checked_root()
         self.allowed_extensions = self._parse_exts(allowed_extensions)
         # Include-globs scope the connection to matching files AND act as an
         # access boundary enforced in `_resolve` (a read of a real-but-off-glob
@@ -208,10 +237,17 @@ class NetworkDirClient(DataSourceClient):
             return True
         return _ext(name) in self.allowed_extensions
 
+    def _checked_root(self) -> Path:
+        """Resolve ``root_path`` through the connection-root policy, or only
+        through the filesystem for an app-owned root (``for_app_owned_dir``)."""
+        if self._root_policy_exempt:
+            return Path(self.root_path).expanduser().resolve()
+        return check_network_dir_root(self.root_path)
+
     def _root(self) -> Path:
         if not self.root_path:
             raise ValueError("root_path is required for a network directory connection")
-        root = check_network_dir_root(self.root_path)
+        root = self._checked_root()
         if not root.exists():
             raise ValueError(f"Directory does not exist: {self.root_path}")
         if not root.is_dir():
@@ -480,8 +516,9 @@ class NetworkDirClient(DataSourceClient):
 
         # Windowed (ranged) read — same contract as S3's _read_window: a raw
         # byte window plus a cursor (next_cursor/total_size/eof) to page through
-        # arbitrarily large files. No parsing, no attachment. Text windows snap
-        # to the last complete newline so paging never splits a line.
+        # arbitrarily large files. No parsing, no attachment. The requested
+        # range, adjusted by at most 3 bytes at an edge so a multi-byte
+        # character is never split (see byte_window).
         if offset is not None:
             return self._read_window(path, int(offset), length)
 
@@ -544,54 +581,19 @@ class NetworkDirClient(DataSourceClient):
     def _read_window(self, path: Path, offset: int, length: Optional[int]) -> Dict[str, Any]:
         """Ranged byte read of a local file → a window plus a cursor to page
         forward. Mirrors S3Client._read_window so the agent sees ONE contract
-        across file sources: text windows snap back to the last complete newline
-        (unless at EOF or the window has no newline); binary windows are base64.
+        across file sources (byte_window): the requested byte range, widened by
+        at most 3 bytes at the end / narrowed by at most 3 at the start so a
+        multi-byte character is never split, with `next_cursor` at the first
+        byte not returned; binary windows are base64.
         """
-        import base64 as _b64
-
         if offset < 0:
             raise ValueError("offset must be >= 0")
         window = int(length) if length else DEFAULT_WINDOW_BYTES
         total = path.stat().st_size
         with open(path, "rb") as fh:
             fh.seek(offset)
-            data = fh.read(window)
-
-        raw_end = offset + len(data)
-        eof = raw_end >= total
-
-        try:
-            text = data.decode("utf-8")
-            is_text = True
-        except UnicodeDecodeError:
-            is_text = False
-
-        if is_text:
-            content = text
-            next_cursor = raw_end
-            if not eof:
-                nl = text.rfind("\n")
-                if nl != -1 and nl + 1 < len(text):
-                    content = text[: nl + 1]
-                    next_cursor = offset + len(content.encode("utf-8"))
-            return {
-                "content": content,
-                "encoding": "text",
-                "offset": offset,
-                "length": len(content.encode("utf-8")),
-                "next_cursor": None if eof else next_cursor,
-                "total_size": total,
-                "eof": eof,
-            }
-        return {
-            "content": _b64.b64encode(data).decode("ascii"),
-            "encoding": "base64",
-            "offset": offset,
-            "length": len(data),
-            "next_cursor": None if eof else raw_end,
-            "total_size": total,
-            "eof": eof,
-        }
+            data = fh.read(window + UTF8_SLACK)
+        return byte_window(data, offset, total, window)
 
     def _file_text(self, path: Path, max_chars: int = 200_000) -> str:
         """Extract plain text from a greppable file (doc/csv/tsv/text) for
@@ -743,7 +745,14 @@ class NetworkDirClient(DataSourceClient):
                 candidates.append({"id": rel, "path": rel, "size": size})
 
         def _read(entry: Dict[str, Any]) -> bytes:
-            return self._resolve(entry["id"], must_exist=True).read_bytes()
+            path = self._resolve(entry["id"], must_exist=True)
+            # Email files grep over their RENDERED text (headers, body,
+            # attachment text): the raw MIME is quoted-printable/base64 for
+            # anything non-ASCII and .msg is binary, so a raw-bytes grep would
+            # miss nearly every real term and sniff the Outlook file as binary.
+            if _ext(path.name) in EMAIL_EXTS:
+                return (self._file_text(path, max_chars=byte_cap) or "").encode("utf-8")
+            return path.read_bytes()
 
         scope_key = "|".join([
             "network_dir", self.root_path, str(folder_id or ""), str(name_pattern or ""),
@@ -925,7 +934,7 @@ class NetworkDirClient(DataSourceClient):
                         text = self._file_text(path)
                         # Index the RELATIVE PATH, not just the basename: a case
                         # folder (`6044534/…`) is how people find these files.
-                        meta["keywords"] = extract_keywords(text, name, self.max_keywords)
+                        meta["keywords"] = extract_file_keywords(text, name, self.max_keywords)
                         meta["content_hash"] = hashlib.sha1(
                             (text or "").encode("utf-8", "ignore")
                         ).hexdigest() if text else None

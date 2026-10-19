@@ -73,6 +73,16 @@ class ReportService:
         from app.models.membership import Membership
         from app.models.report_share import ReportShare
 
+        # Org admins (full_admin_access) may view any report artifact in their
+        # own org, matching the in-app GET /reports/{id} admin view bypass.
+        # Artifact surface only — a private conversation stays owner/share-gated.
+        if (
+            user is not None
+            and visibility_field == 'artifact_visibility'
+            and await self._is_report_org_admin(db, user, report)
+        ):
+            return
+
         # Project membership grants read access to both surfaces (a project is
         # a sharing boundary): anyone who can view the containing project can
         # view its reports, regardless of per-report visibility settings.
@@ -133,6 +143,20 @@ class ReportService:
             if not result.scalar_one_or_none():
                 raise HTTPException(status_code=403, detail="Access denied")
             return
+
+    @staticmethod
+    async def _is_report_org_admin(db: AsyncSession, user, report: Report) -> bool:
+        """True if the user holds full_admin_access in the report's own org."""
+        from app.core.permission_resolver import (
+            resolve_permissions,
+            principal_belongs_to_org,
+            FULL_ADMIN,
+        )
+        org_id = str(report.organization_id)
+        if not await principal_belongs_to_org(db, user, org_id):
+            return False
+        resolved = await resolve_permissions(db, str(user.id), org_id)
+        return FULL_ADMIN in resolved.org_permissions
 
     @staticmethod
     def _user_group_ids_subquery(user_id, organization_id):
@@ -3839,7 +3863,7 @@ class ReportService:
         }
 
     async def get_report_summary(
-        self, db: AsyncSession, report_id: str
+        self, db: AsyncSession, report_id: str, organization, current_user=None,
     ) -> dict:
         """Return all query tool executions and instruction mutations for a report,
         independent of completion pagination."""
@@ -4001,6 +4025,8 @@ class ReportService:
 
         instructions: list[SummaryInstructionItem] = []
         seen_instr_ids: dict[str, int] = {}  # instruction_id -> index in list
+        created_here: set[str] = set()  # instructions this conversation created
+        builds_of: dict[str, set[str]] = {}  # instruction_id -> this conversation's builds
         for row in instr_rows:
             te = row.ToolExecution
             completion_id = row.completion_id
@@ -4022,6 +4048,10 @@ class ReportService:
             text = rj.get("new_text") or rj.get("text") or args.get("text") or ""
             instr_id = rj["instruction_id"]
             is_edit = te.tool_name == "edit_instruction"
+            if not is_edit:
+                created_here.add(instr_id)
+            if rj.get("build_id"):
+                builds_of.setdefault(instr_id, set()).add(str(rj["build_id"]))
 
             existing_idx = seen_instr_ids.get(instr_id)
             prev = instructions[existing_idx] if existing_idx is not None else None
@@ -4052,7 +4082,6 @@ class ReportService:
         from app.models.build_content import BuildContent
         from app.schemas.report_summary_schema import PendingTrainingBuildSchema
         pending_build = None
-        staged_instruction_ids: set[str] = set()
         build_ids = [i.build_id for i in instructions if i.build_id]
         if build_ids:
             build_res = await db.execute(
@@ -4082,7 +4111,6 @@ class ReportService:
                 content_ids = {str(cid) for (cid,) in content_res.all()}
                 if not content_ids:
                     continue
-                staged_instruction_ids = content_ids
                 pending_build = PendingTrainingBuildSchema(
                     id=str(build_obj.id),
                     status=build_obj.status,
@@ -4090,19 +4118,14 @@ class ReportService:
                 )
                 break
 
-        # Restrict the instructions list to the current pending build so the
-        # session pill only shows truly-pending changes. Without this, edits
-        # whose builds were already published earlier in the session leak in, and
-        # instructions already accepted out of the shared draft (still carrying
-        # its build_id in their tool-call result) would linger. Match on both the
-        # build id and the set of instructions still staged in that build.
-        if pending_build:
-            instructions = [
-                i for i in instructions
-                if i.build_id == pending_build.id and i.instruction_id in staged_instruction_ids
-            ]
-        else:
-            instructions = []
+        # Review state per row, read from the instruction itself — the same
+        # sources the chat cards and the agent's Instructions page use. Membership
+        # in the newest draft says nothing here: every training message gets its
+        # own draft, each draft is a copy of ALL of main, and accepting publishes
+        # a NEW build while the draft keeps its rows.
+        instructions = await self._summary_instruction_states(
+            db, organization, current_user, instructions, created_here, builds_of,
+        )
 
         # 7) Agent Lists this conversation wrote to (submit_<list> calls run as
         # the submit_list gateway). One item per list; the chat card keeps the
@@ -4180,3 +4203,98 @@ class ReportService:
             "sub_agents": sub_agents,
             "pending_training_build": pending_build.model_dump() if pending_build else None,
         }
+
+    async def _summary_instruction_states(
+        self, db: AsyncSession, organization, current_user, instructions,
+        created_here: set, builds_of: dict,
+    ) -> list:
+        """Set ``state`` on each summary row and drop rows with nothing to say.
+
+        - pending: a create from this conversation that still exists and never
+          went live, or an instruction with a live review change — the same
+          sweep that puts the dot on the agent's Instructions page. (The sweep
+          alone misses a create in an org that has no main build yet, i.e. one
+          whose first instructions come from this training session.)
+        - rejected: a create whose instruction was deleted before it ever went
+          live (rejecting a create deletes it), or an edit whose only recorded
+          verdicts on this conversation's builds are rejects.
+        - accepted: everything else that is still around.
+
+        A deleted instruction that was live at some point (accepted, then
+        deleted later — or an existing one this conversation only edited) is
+        dropped: whatever happened to it, it was not this conversation's verdict.
+        """
+        if not instructions:
+            return instructions
+        from app.models.instruction import Instruction
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
+        from app.services.instruction_service import (
+            InstructionService, SETTLED_HUNK_KEY, VOIDED_HUNK_KEY,
+        )
+
+        ids = [i.instruction_id for i in instructions]
+        rows = {
+            str(r.id): r for r in (await db.execute(
+                select(Instruction.id, Instruction.title, Instruction.category, Instruction.deleted_at)
+                .where(Instruction.id.in_(ids), Instruction.organization_id == str(organization.id))
+            )).all()
+        }
+        live_ids = [iid for iid, r in rows.items() if r.deleted_at is None]
+        gone_ids = [iid for iid in ids if iid not in live_ids]
+
+        pending_ids: set = set()
+        if live_ids:
+            pending_ids = {str(i) for i in await InstructionService().get_pending_change_instruction_ids(
+                db, organization, current_user, candidate_ids=live_ids, verify=False,
+            )}
+
+        # Ever published = carried by a build that went live.
+        created_ids = [iid for iid in ids if iid in created_here]
+        was_live: set = set()
+        if created_ids:
+            was_live = {str(i) for (i,) in (await db.execute(
+                select(BuildContent.instruction_id).distinct()
+                .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+                .where(
+                    BuildContent.instruction_id.in_(created_ids),
+                    InstructionBuild.organization_id == str(organization.id),
+                    or_(InstructionBuild.is_main.is_(True), InstructionBuild.status == "approved"),
+                )
+            )).all()}
+
+        # Per-hunk verdicts recorded on this conversation's builds (the rows of
+        # build.rejected_hunks carry `action` — see InstructionService.build_verdict).
+        verdict_build_ids = {b for iid in live_ids if iid not in pending_ids for b in builds_of.get(iid, ())}
+        hunk_rows: dict = {}
+        if verdict_build_ids:
+            for bid, rejected_hunks in (await db.execute(
+                select(InstructionBuild.id, InstructionBuild.rejected_hunks)
+                .where(InstructionBuild.id.in_(list(verdict_build_ids)))
+            )).all():
+                hunk_rows[str(bid)] = rejected_hunks or []
+
+        out = []
+        for item in instructions:
+            iid = item.instruction_id
+            row = rows.get(iid)
+            if iid in gone_ids:
+                if iid not in created_here or iid in was_live:
+                    continue
+                item.state = "rejected"
+            elif iid in pending_ids or (iid in created_here and iid not in was_live):
+                item.state = "pending"
+            else:
+                actions = {
+                    r.get("action")
+                    for bid in builds_of.get(iid, ())
+                    for r in hunk_rows.get(bid, [])
+                    if r.get("instruction_id") == iid
+                    and r.get("key") not in (SETTLED_HUNK_KEY, VOIDED_HUNK_KEY)
+                }
+                item.state = "rejected" if "reject" in actions and "accept" not in actions else "accepted"
+            if row is not None:
+                item.title = row.title or item.title
+                item.category = row.category or item.category
+            out.append(item)
+        return out

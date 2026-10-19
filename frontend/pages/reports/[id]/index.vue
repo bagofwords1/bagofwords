@@ -50,8 +50,6 @@
 							:listSubmissions="summaryLists"
 							:subAgents="summarySubAgents"
 							:trainingInstructions="summaryInstructions"
-							:reportInstructions="reportInstructions"
-							:pendingBuildId="pendingTrainingBuild?.id || null"
 							:pendingTrainingBuild="pendingTrainingBuild"
 							:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 							@approveTrainingBuild="onApproveTrainingBuild"
@@ -264,7 +262,9 @@
 										<div class="flex-1 flex justify-end">
 											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
+													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
 													<InstructionText
+														v-else
 														:text="m.prompt.content"
 														:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 														:prose="true"
@@ -920,8 +920,6 @@
 						:listSubmissions="summaryLists"
 						:subAgents="summarySubAgents"
 						:trainingInstructions="summaryInstructions"
-						:reportInstructions="reportInstructions"
-						:pendingBuildId="pendingTrainingBuild?.id || null"
 						:pendingTrainingBuild="pendingTrainingBuild"
 						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 						@approveTrainingBuild="onApproveTrainingBuild"
@@ -1092,6 +1090,7 @@ import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
 import DelegateTool from '~/components/tools/DelegateTool.vue'
 import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import MessageSubAgentTool from '~/components/tools/MessageSubAgentTool.vue'
 import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
 import SubAgentWaveStrip from '~/components/report/SubAgentWaveStrip.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
@@ -1136,6 +1135,8 @@ import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
 
@@ -1795,10 +1796,6 @@ const summaryLists = ref<any[]>([])
 // Sub-agents (delegated background investigations) of this report, for the
 // Summary tab (GET /reports/{id}/summary → sub_agents).
 const summarySubAgents = ref<any[]>([])
-// Historical list of instructions created during this report's agent runs.
-// Separate from summaryInstructions (which is pending-only) so the Summary
-// tab can keep showing accepted instructions after the build is approved.
-const reportInstructions = ref<any[]>([])
 // Fold boundary of rolling context compaction: the transcript divider renders
 // right after this completion. State-derived (from the completions payload,
 // the context.compacted SSE, and manual compaction responses).
@@ -1915,10 +1912,8 @@ async function onDiscardTrainingInstruction(payload: { buildId: string; instruct
 // Listen for resolutions originating elsewhere (modal tracked-changes panel,
 // tool cards) so the pill state stays in sync without prop drilling.
 function onInstructionResolved(_e: Event) {
-    // Re-fetch both: summary drives the pending pill; reportInstructions
-    // drives the historical "Instructions" section in ChatSummary.
+    // The summary carries each instruction's review state.
     loadReportSummary().catch(() => {})
-    loadReportInstructions().catch(() => {})
 }
 onMounted(() => {
     loadLlmModels()
@@ -2188,6 +2183,7 @@ function webhookSourceIcon(source?: string): string {
 function machineEventLabel(m: any): string {
 	const meta = m?.prompt?.meta
 	const src = (m as any)?.trigger_source
+	if (src === 'sub_agent_message') return t('events.subAgentQuestion')
 	if (meta && src === 'eval_run') {
 		return t('events.evalRunFinished', {
 			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
@@ -2363,6 +2359,7 @@ async function loadReportSummary() {
             lineCount: i.line_count,
             messageId: i.message_id,
             buildId: i.build_id,
+            state: i.state,
         }))
         pendingTrainingBuild.value = res?.pending_training_build || null
         await loadPendingBuildDiff()
@@ -2372,21 +2369,6 @@ async function loadReportSummary() {
         summaryInstructions.value = []
         pendingTrainingBuild.value = null
         pendingTrainingBuildDiff.value = null
-    }
-}
-
-async function loadReportInstructions() {
-    try {
-        const { data, error } = await useMyFetch(`/reports/${report_id}/instructions`)
-        if (error.value) {
-            console.warn('[reportInstructions] fetch error:', error.value)
-        }
-        const res = data.value as any
-        reportInstructions.value = Array.isArray(res) ? res : []
-        console.debug('[reportInstructions] loaded', reportInstructions.value.length, 'items')
-    } catch (e) {
-        console.warn('[reportInstructions] threw:', e)
-        reportInstructions.value = []
     }
 }
 
@@ -3021,6 +3003,8 @@ function getToolComponent(toolName: string) {
 			return WaitTool
 		case 'delegate':
 			return DelegateTool
+		case 'message_sub_agent':
+			return MessageSubAgentTool
 		case 'read_sub_agent':
 			return ReadSubAgentTool
 		case 'stop_sub_agent':
@@ -3844,6 +3828,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					// Reset result_json for fresh run to avoid stale shared references
 					lastBlock.tool_execution.result_json = {}
+					// Every tool card may read its inputs while running (e.g. the
+					// search query). The per-tool branches below may still override.
+					if (payload.arguments && !(lastBlock.tool_execution as any).arguments_json) {
+						;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+					}
 					// For describe_tables, stash the query so the UI can show it
 					try {
 						if (payload.tool_name === 'describe_tables' && payload.arguments) {
@@ -4550,8 +4539,13 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		// viewport and jump the reader. Keep the messages older than the first
 		// one the fresh page overlaps, and keep their pagination cursor.
 		const freshIds = new Set(list.map((c: any) => String(c.id)))
-		const overlapIdx = messages.value.findIndex(m => freshIds.has(String(m.id)))
-		const olderKept = overlapIdx > 0 ? messages.value.slice(0, overlapIdx) : []
+		const overlapIdx = messages.value.findIndex(m => freshIds.has(String(m.id)) || freshIds.has(String((m as any).system_completion_id)))
+		// A steering/fan-in row can be the first canonical overlap while the
+		// preceding turn still has client ids. Replace that whole optimistic
+		// pair, rather than preserving it as supposedly older history.
+		const overlapStart = overlapIdx > 0 && String(messages.value[overlapIdx]?.id).startsWith('system-')
+			&& String(messages.value[overlapIdx - 1]?.id).startsWith('user-') ? overlapIdx - 1 : overlapIdx
+		const olderKept = overlapStart > 0 ? messages.value.slice(0, overlapStart) : []
 		const freshMessages = list.map((c: any) => {
 			// Override status if sigkill timestamp exists - this means it was stopped
 			let status = c.status as ChatStatus
@@ -5469,6 +5463,11 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
+function createSystemPlaceholder(id: string, model?: string): ChatMessage {
+	return { id, role: 'system', status: 'in_progress', model: model || undefined,
+		created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [] }
+}
+
 function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
@@ -5488,17 +5487,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 	// Append placeholder system message for streaming
 	const sysId = `system-${Date.now()}`
-	const sysMsg: ChatMessage = {
-		id: sysId,
-		role: 'system',
-		status: 'in_progress',
-		model: data.model_id || undefined,
-		// Naive-UTC, matching the server's shape. Anchors the footer's run
-		// duration (and its timestamp) on the live path, where no server row
-		// has been merged into this placeholder yet.
-		created_at: new Date().toISOString().replace('Z', ''),
-		completion_blocks: []
-	}
+	const sysMsg = createSystemPlaceholder(sysId, data.model_id)
 	messages.value.push(sysMsg)
 	pinTurnToTop(userMsg.id)
 
@@ -5552,7 +5541,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 		const options: any = {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(requestBody),
+			body: JSON.stringify({ ...requestBody, queue_if_busy: true }),
 			signal: controller?.signal,
 			stream: true
 		}
@@ -5560,6 +5549,34 @@ async function startStreaming(requestBody: any, sysId: string) {
 		const res: Response = (raw?.data?.value ?? raw?.data) as unknown as Response
 
 		if (!res?.ok || !res?.body) throw new Error(`Stream HTTP error: ${res?.status}`)
+
+		if (res.headers.get('content-type')?.includes('application/json')) {
+			const queued = await res.json()
+			if (!ownsStream()) return
+			const created = queued?.completions?.find((c: any) => c.role === 'user')
+			if (created?.id) queuedFromHere.add(String(created.id))
+			const idx = ensureSys()
+			if (idx >= 0) {
+				if (idx > 0 && String(messages.value[idx - 1].id).startsWith('user-')) messages.value.splice(idx - 1, 2)
+				else messages.value.splice(idx, 1)
+			}
+			stopKickoffWatchdog()
+			isStreaming.value = false
+			currentController = null
+			const busyId = queued?.busy_completion_id
+			if (busyId && !messages.value.some(m => m.id === busyId || m.system_completion_id === busyId)) {
+				messages.value.push({ ...createSystemPlaceholder(busyId), system_completion_id: busyId })
+			}
+			if (created?.id && !messages.value.some(m => m.id === created.id)) {
+				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })
+			}
+			// The receipt identifies the server turn even when history refresh is
+			// slow or unavailable. Transfer busy-state ownership to its watcher.
+			isCompletionInProgress.value = Boolean(busyId)
+			if (busyId) startWatchStream(String(busyId))
+			try { await loadCompletions() } catch (error) { console.error('Failed to refresh queued prompt:', error) }
+			return
+		}
 
 		const reader = res.body!.getReader()
 		const decoder = new TextDecoder()
@@ -6088,10 +6105,10 @@ onMounted(async () => {
 			|| (report.value as any)?.instruction_count > 0
 			|| (report.value as any)?.has_scheduled_prompts)
 	if (opensSummary) {
-		await Promise.all([loadReportSummary(), loadReportInstructions()])
+		await loadReportSummary()
 	} else {
 		window.setTimeout(() => {
-			void Promise.all([loadReportSummary(), loadReportInstructions()])
+			void loadReportSummary()
 		}, 250)
 	}
 

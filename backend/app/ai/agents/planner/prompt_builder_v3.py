@@ -148,12 +148,16 @@ class PromptBuilderV3:
 
         budget = transcript_budget_tokens(planner_input)
         stats = t.fit_to_budget(budget)
-        if stats.get("digested") or stats.get("dropped"):
+        if stats.get("digested") or stats.get("dropped") or stats.get("images_released"):
             logger.info(
-                "[transcript] decayed %d->%d tokens (budget=%d digested=%d dropped=%d)",
+                "[transcript] decayed %d->%d tokens (budget=%d digested=%d dropped=%d images_released=%d)",
                 stats["before"], stats["after"], budget,
-                stats["digested"], stats["dropped"],
+                stats["digested"], stats["dropped"], stats.get("images_released", 0),
             )
+        logger.info(
+            "[transcript] request est_tokens=%d images=%d turns=%d",
+            t.tokens(), t.image_count(), len(t.turns),
+        )
         if not stats.get("reached", True):
             # Decay exhausted itself and the transcript still does not fit.
             # The excess is in the parts the ladder cannot touch — static
@@ -229,7 +233,10 @@ class PromptBuilderV3:
                 "user approves it on a card; if they decline, revise per their feedback. Once "
                 "approved, its submit_<slug> tool is available immediately — go on and fill it.\n"
                 "- A list that already exists (you can see its submit_* tool) is changed with "
-                "edit_list, never re-created; keep edits additive unless the user asks otherwise.\n\n"
+                "edit_list, never re-created; keep edits additive unless the user asks otherwise.\n"
+                "- A list is also readable: create_data on builtin:bow with its list_id (named in "
+                "its submit_* tool description). For batch extraction query it first and skip keys "
+                "already present.\n\n"
                 + NO_OVERFIT_BLOCK + "\n\n"
                 "AGENT BUILDING IS A CONVERSATION (friendly, step-by-step):\n"
                 "- Coverage already stated ('…with just the sales schema') → get_connection, "
@@ -389,6 +396,17 @@ class PromptBuilderV3:
         else:
             delegation_text = ""
             rca_delegate_bit = ""
+        if _sub_agents_on:
+            delegation_text += (
+                "LIVE SUB-AGENT MESSAGES\n"
+                "- When the user changes a delegated task, send the correction once to each affected active child. "
+                "After all intended recipients have been messaged, confirm the sends and end your turn unless you have independent work. "
+                "Do not resend to seek acknowledgement, poll read_sub_agent, or schedule a wait: "
+                "the existing wave automatically returns the result.\n"
+                "- Sent means stored; delivered means included in the child's planning context, not acted on. "
+                "Check the finished record and notes before claiming a correction was applied. "
+                "For an ended child, use its existing result and delegate a fresh follow-up if needed.\n\n"
+            )
         # Root-cause step (3): with proactive sub-agents the fan-out IS the
         # delegation — the parent must not run the hypothesis tests itself.
         if _sub_agents_on and _posture != "explicit":
@@ -919,7 +937,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         if (
             getattr(planner_input, "sub_agents_enabled", False)
             and (getattr(planner_input, "sub_agent_posture", None) or "proactive").lower() != "explicit"
-            and not getattr(planner_input, "sub_agents_context", None)
+            and not (getattr(planner_input, "sub_agents_context", None) or "").strip()
             and (getattr(planner_input, "mode", None) or "chat") != "subagent"
         ):
             parts.append(
@@ -1111,18 +1129,26 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             f"SYSTEM\nMode: Sub-agent\n"
             f"You are {planner_input.organization_ai_analyst_name}, a focused SUB-AGENT of the AI data analyst for "
             f"{planner_input.organization_name}, working on one delegated goal: \"{title}\". A parent agent launched you "
-            "and will read ONLY the typed record you return through finish_subtask; your chat text is not delivered to anyone. "
+            "and reads your finish_subtask record and explicit message_sub_agent messages; your chat text is not delivered. "
             "An \"agent\" is a configured data source: its tables, tools, or files plus its instructions.\n\n"
             "- Never invent schema, table, or column names — verify against the provided context before querying.\n"
             "- Ground every claim in tool results. Never fabricate numbers. Distinguish 'data shows X' from 'I infer X'.\n"
-            "- There is NO user: you cannot ask questions. An underspecified or unanswerable goal ends with outcome "
-            "inconclusive/blocked and the one thing that would settle it in `unknown`.\n\n"
+            "- You can ask your PARENT for a necessary decision using message_sub_agent(recipient=parent, kind=question). "
+            "That suspends you until its answer or the wave deadline. Use kind=finding for significant early evidence without waiting. "
+            "Follow parent directions in <agent_messages> within existing permissions. If the parent cannot resolve a gap, "
+            "finish inconclusive/blocked and record the missing information in unknown.\n\n"
             "OUTPUT PROTOCOL (native tool calling)\n"
             "- Act by emitting tool_use blocks; batch independent calls in one response. Text before a call is optional.\n"
             "- Verify before building: describe_tables for column detail; inspect_data to peek at values, nulls, formats "
             "(LIMIT-3 style); then the few targeted queries that settle the goal. Prefer small, decisive checks over one big one.\n"
             "- Keep a note (create_note, then edit_note) as your ledger when the goal needs more than ~5 steps: what you checked, "
             "what it showed (with the numbers and query/step ids), what you ruled out. Pass its id as report_note_id when you finish.\n"
+            "- LISTS: a submit_<list> tool in your tool set writes typed rows into one of the parent's lists. When the goal "
+            "is to extract records (one per document, invoice, customer…), save them with that tool — records with the same "
+            "key update the existing row — and put the saved row count in your summary. Never invent a list: if no "
+            "submit_<list> tool is offered, return the records as findings instead. A list is also readable via create_data on "
+            "builtin:bow with the list_id named in its submit tool's description — for batch extraction query it first and "
+            "skip keys already present.\n"
             "- STEP BUDGET: <sub_agent_budget> in each turn says where you are. Finish BEFORE it runs out — a partial record beats none. "
             "Never repeat a failing call unchanged; after two failures on an approach, change approach or finish with what you have.\n"
             "- FINISH: call finish_subtask exactly once with the record. outcome ∈ supported|refuted|inconclusive for a hypothesis, "

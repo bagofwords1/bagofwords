@@ -309,7 +309,6 @@ def test_valid_submission_creates_rows_with_provenance(test_client, world):
     ({"currency": _env("GBP")}, "records.0.fields.currency"),
     ({"renewal_date": _env("31/01/2027")}, "records.0.fields.renewal_date"),
     ({"annual_value": _env(None, "found")}, "records.0.fields.annual_value.status"),
-    ({"annual_value": _env(10, "not_found")}, "records.0.fields.annual_value.status"),
     ({"counterparty": None}, "records.0.fields.counterparty.value"),
 ])
 def test_invalid_submission_writes_nothing_and_names_the_path(test_client, world, bad, path):
@@ -317,6 +316,19 @@ def test_invalid_submission_writes_nothing_and_names_the_path(test_client, world
     assert out["output"]["success"] is False
     assert any(e.startswith(path) for e in out["output"]["errors"]), out["output"]["errors"]
     assert _rows(test_client, world)["total"] == 0
+
+
+@pytest.mark.parametrize("leftover", [10, "not found", "לא נמצא"])
+def test_not_found_with_a_leftover_value_is_saved_as_not_found(test_client, world, leftover):
+    # Live: an agent marked a field not_found but left text in the value. The
+    # rule rejected the whole batch (calls are atomic), so one slip in one
+    # record lost every row. not_found is the claim; the leftover is noise.
+    out = submit(world, [_record(annual_value=_env(leftover, "not_found")), _record(cp="Valid Co")])
+    assert out["output"]["success"] is True, out["output"]["errors"]
+    assert out["output"]["inserted"] == 2
+    acme = next(r for r in _rows(test_client, world)["rows"] if r["key_value"] == "acme ltd")
+    env = acme["values"][_fid(world, "annual_value")]
+    assert env["status"] == "not_found" and env["value"] is None
 
 
 def test_same_key_updates_and_keyless_lists_append(test_client, world):
@@ -369,6 +381,71 @@ def test_row_id_update_is_partial_and_scoped_to_the_list(test_client, world):
                                                           "currency": None, "renewal_date": None,
                                                           "auto_renew": None}}], list_id=other["id"])
     assert out["output"]["success"] is False and any("row_id" in e for e in out["output"]["errors"])
+
+
+@pytest.mark.parametrize("name,env,expected", [
+    ("renewal_date", _env("2029-06-30"), "2029-06-30"),
+    ("annual_value", _env(9999), 9999),
+    ("auto_renew", _env(False), False),
+])
+def test_row_id_update_with_only_the_changed_field_saves(test_client, world, name, env, expected):
+    # Live: a batch of updates each sending one field returned an error per
+    # omitted field. Omitted fields mean "unchanged", like an explicit null.
+    submit(world, [_record()])
+    row = _rows(test_client, world)["rows"][0]
+    before = row["values"]
+    out = submit(world, [{"row_id": row["id"], "fields": {name: env}}])
+    assert out["output"]["success"] is True, out["output"]["errors"]
+    assert out["output"]["updated"] == 1
+    after = _rows(test_client, world)["rows"][0]["values"]
+    assert after[_fid(world, name)]["value"] == expected
+    for other in ("counterparty", "annual_value", "currency", "renewal_date", "auto_renew"):
+        if other != name:
+            assert after[_fid(world, other)] == before[_fid(world, other)]
+
+
+def test_flat_records_without_a_fields_wrapper_are_saved(test_client, world):
+    # Live: records sent as {"row_id": ..., "<field>": ...} lost the whole batch.
+    out = submit(world, [
+        {"row_id": None, "counterparty": "Initech", "annual_value": 4200, "currency": _env("ILS")},
+        {"counterparty": "Umbrella", "auto_renew": None},
+    ])
+    assert out["output"]["success"] is True, out["output"]["errors"]
+    assert out["output"]["inserted"] == 2
+    rows = {r["key_value"]: r for r in _rows(test_client, world)["rows"]}
+    initech = rows["initech"]["values"]
+    assert initech[_fid(world, "annual_value")]["value"] == 4200
+    assert initech[_fid(world, "currency")]["value"] == "ILS"
+
+    out = submit(world, [{"row_id": rows["umbrella"]["id"], "annual_value": 15}])
+    assert out["output"]["success"] is True, out["output"]["errors"]
+    assert out["output"]["updated"] == 1
+    umbrella = next(r for r in _rows(test_client, world)["rows"] if r["key_value"] == "umbrella")["values"]
+    assert umbrella[_fid(world, "annual_value")]["value"] == 15
+    assert umbrella[_fid(world, "counterparty")]["value"] == "Umbrella"
+
+
+@pytest.mark.parametrize("record", [
+    {"row_id": None, "fields": {"annual_value": _env(10)}},
+    {"row_id": None, "annual_value": 10},
+])
+def test_new_row_missing_a_required_field_is_rejected(test_client, world, record):
+    out = submit(world, [record])
+    assert out["output"]["success"] is False
+    assert any(e.startswith("records.0.fields.counterparty.value") for e in out["output"]["errors"]), \
+        out["output"]["errors"]
+    assert _rows(test_client, world)["total"] == 0
+
+
+@pytest.mark.parametrize("record", [
+    {"row_id": None, "counterparty": "Hooli", "made_up": 1},
+    {"row_id": None, "fields": {"counterparty": _env("Hooli"), "made_up": _env(1)}},
+])
+def test_unknown_field_keys_are_rejected(test_client, world, record):
+    out = submit(world, [record])
+    assert out["output"]["success"] is False
+    assert any(e.startswith("records.0") for e in out["output"]["errors"]), out["output"]["errors"]
+    assert _rows(test_client, world)["total"] == 0
 
 
 def test_require_evidence_rejects_extracted_values_without_quotes(test_client, world):
@@ -971,3 +1048,118 @@ def test_summary_shows_the_lists_current_name_and_drops_deleted_lists(test_clien
 
     assert test_client.delete(_url(world, f"/{world['list']['id']}"), headers=h).status_code == 204
     assert _summary_lists(test_client, world) == []
+
+
+# ── Read-back: a list the agent fills must be readable by the same agent ────
+# A batch extraction (one record per folder, hundreds of folders) only resumes
+# if the agent can find the list's rows again. The read path takes the list's
+# UUID and nothing else, so the id has to reach the model on every surface it
+# might look: the submit tool itself, and the schema context — including for a
+# files-only agent and for a connection-scoped rebuild.
+
+def test_each_submit_tool_names_its_own_list_id_and_how_to_read_it(test_client, world, create_report):
+    h = _h(world["admin"]["token"], world["org_id"])
+    r = test_client.post(f"/api/data_sources/{world['other_agent']['id']}/lists",
+                         json=_schema(name="Invoices", key="counterparty"), headers=h)
+    assert r.status_code == 201, r.text
+    world["both"] = create_report(title="Both", user_token=world["admin"]["token"], org_id=world["org_id"],
+                                  data_sources=[world["agent"]["id"], world["other_agent"]["id"]])
+    descriptors, routing = _build(world, report_key="both")
+    assert len(descriptors) == 2
+    table_of = {world["list"]["id"]: world["list"]["table_name"], r.json()["id"]: r.json()["table_name"]}
+    all_ids = {v["list_id"] for v in routing.values()}
+    assert all_ids == set(table_of)
+    for d in descriptors:
+        own = routing[d["name"]]["list_id"]
+        assert own in d["description"]
+        # create_data drops a tables_by_source group with no table names, so
+        # the recipe must name the table the schema context advertises.
+        assert table_of[own] in d["description"]
+        assert not (all_ids - {own}) & set(d["description"].split()), "a tool must not name another list's id"
+        assert "builtin:bow" in d["description"]
+
+
+@pytest.fixture
+def files_world(tmp_path, bootstrap_admin, invite_user_to_org, create_data_source, grant_resource,
+                create_report, test_client):
+    (tmp_path / "folder_a").mkdir()
+    (tmp_path / "folder_a" / "contract.txt").write_text("Acme renews 2027-01-31")
+    admin = bootstrap_admin("admin")
+    org_id = admin["org_id"]
+    h = _h(admin["token"], org_id)
+    agent = create_data_source(name=f"Share {uuid.uuid4().hex[:4]}", type="network_dir",
+                               config={"root_path": str(tmp_path)}, credentials={"auth_type": "none"},
+                               user_token=admin["token"], org_id=org_id)
+    viewer = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    r = grant_resource(resource_type="data_source", resource_id=agent["id"], principal_type="user",
+                       principal_id=viewer["user_id"], permissions=["view"], user_token=admin["token"], org_id=org_id)
+    assert r.status_code in (200, 201), r.text
+    resp = test_client.post(f"/api/data_sources/{agent['id']}/lists", json=_schema(name="Folders"), headers=h)
+    assert resp.status_code == 201, resp.text
+    conns = test_client.get(f"/api/data_sources/{agent['id']}/connections", headers=h).json()
+    assert conns and all(c.get("data_shape") == "files" for c in conns)
+    report = create_report(title="Folders", user_token=admin["token"], org_id=org_id, data_sources=[agent["id"]])
+    return {"org_id": org_id, "admin": admin, "viewer": viewer, "agent": agent, "list": resp.json(),
+            "report": report, "connection_ids": [c["id"] for c in conns]}
+
+
+@pytest.mark.parametrize("actor", ["admin", "viewer"])
+@pytest.mark.parametrize("connection_scoped", [False, True])
+def test_files_only_agent_schema_context_carries_its_list_and_list_id(files_world, actor, connection_scoped):
+    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+    from app.models.data_source import DataSource
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+
+    w = files_world
+
+    async def _fn(db, maker):
+        user = await db.get(User, w[actor]["user_id"])
+        org = await db.get(Organization, w["org_id"])
+        report = await db.get(Report, w["report"]["id"])
+        ds = await db.get(DataSource, w["agent"]["id"])
+        ctx = await SchemaContextBuilder(db, [ds], org, report, user=user, mode="chat").build(
+            with_stats=False, connection_ids=w["connection_ids"] if connection_scoped else None)
+        return ctx
+    ctx = run_async(_fn)
+    bow = [s for s in ctx.data_sources if s.info.id == "builtin:bow"]
+    assert len(bow) == 1
+    assert [t.name for t in bow[0].tables] == [w["list"]["table_name"]]
+    # What the planner actually reads names the id the read path needs.
+    assert w["list"]["id"] in ctx.render_combined(top_k_per_ds=20, index_limit=0, include_index=False)
+
+
+@pytest.mark.parametrize("actor", ["admin", "viewer"])
+def test_files_only_report_reads_its_saved_rows_back_through_the_bow_source(files_world, actor):
+    """What create_data does for tables_by_source=[builtin:bow, <list table>] on
+    a report whose only agent is a file source: the table resolves and the
+    run's ``bow`` client returns the rows already saved — so a batch can skip
+    them."""
+    import re
+    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+    from app.data_sources.clients.bow_client import install_bow_client
+    from app.models.data_source import DataSource
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+
+    w = files_world
+    submit(w, [_record(cp="folder_a"), _record(cp="folder_b")])
+
+    async def _fn(db, maker):
+        user = await db.get(User, w[actor]["user_id"])
+        org = await db.get(Organization, w["org_id"])
+        report = await db.get(Report, w["report"]["id"])
+        ds = await db.get(DataSource, w["agent"]["id"])
+        ctx = await SchemaContextBuilder(db, [ds], org, report, user=user, mode="chat").build(
+            with_stats=False, data_source_ids=["builtin:bow"],
+            name_patterns=[f"(?i)(?:^|[./]){re.escape(w['list']['table_name'])}$"])
+        resolved = [t.name for s in ctx.data_sources for t in s.tables]
+        clients = {}
+        await install_bow_client(db, org, user, report, clients, mode="chat", allow_saved=False)
+        df = await asyncio.to_thread(clients["bow"].execute_query, {"dataset": "list", "list_id": w["list"]["id"]})
+        return resolved, sorted(df["counterparty"])
+    resolved, keys = run_async(_fn)
+    assert resolved == [w["list"]["table_name"]]
+    assert keys == ["folder_a", "folder_b"]

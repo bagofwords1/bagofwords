@@ -181,7 +181,7 @@
         </div>
       </section>
 
-      <!-- Instructions (historical: created in this report, regardless of accept state) -->
+      <!-- Instructions (historical: created or edited in this report, any review state) -->
       <section v-if="instructionsList.length > 0">
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.instructions') }}</h3>
         <ul class="space-y-1.5">
@@ -204,6 +204,13 @@
                 >
                   <span class="w-1.5 h-1.5 rounded-full bg-amber-400" />
                   {{ $t('chatSummary.pending') }}
+                </span>
+                <span
+                  v-else-if="inst.state === 'rejected'"
+                  class="inline-flex items-center gap-1 text-[11px] text-gray-400"
+                >
+                  <Icon name="heroicons:x-circle" class="w-3 h-3" />
+                  {{ $t('chatSummary.rejected') }}
                 </span>
                 <span
                   v-else
@@ -283,14 +290,9 @@ const props = defineProps<{
   listSubmissions?: any[]
   // Delegated sub-agents (GET /reports/{id}/summary → sub_agents).
   subAgents?: any[]
-  // Pending-only: drives session-pill state. Kept for backwards compat with
-  // existing callers but no longer rendered directly in the Instructions
-  // section — we use reportInstructions for that.
+  // Instructions this conversation created or edited, each with its review
+  // state (GET /reports/{id}/summary → instructions).
   trainingInstructions: any[]
-  // Historical list of instructions created in this report (all states).
-  reportInstructions?: any[]
-  // The current pending build id, used to mark items as Pending vs Accepted.
-  pendingBuildId?: string | null
   showClose?: boolean
   // Report id — enables the Webhooks section + Configure webhook modal.
   reportId?: string
@@ -444,35 +446,18 @@ const emit = defineEmits([
   'close',
 ])
 
-// Render-ready instruction list: prefer the historical list (so accepted
-// instructions don't disappear after approval). Pending state is derived
-// from membership in the current pending training build, looked up via the
-// `trainingInstructions` (pending-only) list passed alongside.
-const pendingIdSet = computed(() => {
-  const set = new Set<string>()
-  for (const t of (props.trainingInstructions || [])) {
-    if (t?.instructionId) set.add(String(t.instructionId))
-  }
-  return set
-})
-const instructionsList = computed(() => {
-  const raw = Array.isArray(props.reportInstructions) ? props.reportInstructions : []
-  const seen = new Set<string>()
-  const out: { id: string; title: string; category: string; state: string }[] = []
-  for (const i of raw) {
-    if (!i || !i.id) continue
-    const id = String(i.id)
-    if (seen.has(id)) continue
-    seen.add(id)
-    out.push({
-      id,
+// Every instruction this conversation created or edited, with its review state
+// as the server reports it (pending | accepted | rejected).
+const instructionsList = computed(() =>
+  (props.trainingInstructions || [])
+    .filter((i: any) => i?.instructionId)
+    .map((i: any) => ({
+      id: String(i.instructionId),
       title: i.title || '',
       category: i.category || '',
-      state: pendingIdSet.value.has(id) ? 'pending' : 'accepted',
-    })
-  }
-  return out
-})
+      state: i.state || 'pending',
+    })),
+)
 
 // ---- Sub-agents ----
 const subAgentItems = computed<any[]>(() => props.subAgents || [])

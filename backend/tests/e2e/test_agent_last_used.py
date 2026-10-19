@@ -21,6 +21,8 @@ import uuid
 import asyncio
 from datetime import datetime, timedelta
 
+import pytest
+
 from sqlalchemy import select
 
 from app.dependencies import async_session_maker
@@ -33,6 +35,8 @@ from app.models.report import Report
 from app.models.report_data_source_association import report_data_source_association
 from app.models.completion import Completion
 from app.services.data_source_service import DataSourceService
+
+pytestmark = pytest.mark.e2e
 
 
 def _run(coro):
