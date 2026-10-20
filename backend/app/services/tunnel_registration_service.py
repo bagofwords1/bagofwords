@@ -25,17 +25,29 @@ from app.models.organization import Organization
 logger = logging.getLogger(__name__)
 
 
-def _connection_config(conn: dict) -> dict:
+def _connection_config(conn: dict, index_timeout_seconds=None) -> dict:
     """Non-secret config carried by a tunneled Connection row.
 
     Only the advertised, non-credential fields — the whole point of a tunnel is
-    that Bow never holds the login (D1).
+    that Bow never holds the login (D1). This is what TunneledClient reads its
+    budgets and capabilities from (B1), so:
+
+    - `catalog_identity_available` is stored as a real bool. An agent that does
+      not advertise it gets True — the only safe reading of "no information",
+      and the same default TunneledClient applies — never a stored None that
+      downstream code would read as False and use to discard a catalog.
+    - `index_timeout_seconds` is agent-level in the advertisement but
+      per-connection on the row, because the row is all the proxy sees.
     """
-    return {
+    identity = conn.get("catalog_identity_available")
+    cfg = {
         "label": conn.get("label"),
         "query_timeout_seconds": conn.get("query_timeout_seconds"),
-        "catalog_identity_available": conn.get("catalog_identity_available"),
+        "catalog_identity_available": True if identity is None else bool(identity),
     }
+    if index_timeout_seconds is not None:
+        cfg["index_timeout_seconds"] = index_timeout_seconds
+    return cfg
 
 
 async def register_advertisement(org_id: str, payload: dict) -> None:
@@ -46,6 +58,7 @@ async def register_advertisement(org_id: str, payload: dict) -> None:
         return
 
     advertised = payload.get("connections", []) or []
+    index_timeout_seconds = payload.get("index_timeout_seconds")
     now = datetime.utcnow()
 
     async with async_session_maker() as db:
@@ -78,7 +91,7 @@ async def register_advertisement(org_id: str, payload: dict) -> None:
                     Connection(
                         name=name,
                         type=conn.get("type", "unknown"),
-                        config=_connection_config(conn),
+                        config=_connection_config(conn, index_timeout_seconds),
                         credentials=None,  # never for a tunneled connection (D1)
                         tunnel_mode=True,
                         edge_agent_id=edge_agent_id,
@@ -91,7 +104,7 @@ async def register_advertisement(org_id: str, payload: dict) -> None:
             elif existing.tunnel_mode and existing.edge_agent_id == edge_agent_id:
                 # Same agent re-advertising: update in place and reactivate.
                 existing.type = conn.get("type", existing.type)
-                existing.config = _connection_config(conn)
+                existing.config = _connection_config(conn, index_timeout_seconds)
                 existing.is_active = True
                 outcomes.append({**_outcome(conn), "status": "registered"})
                 registered_names.append(name)
@@ -144,7 +157,12 @@ async def register_advertisement(org_id: str, payload: dict) -> None:
             )
             db.add(agent)
         agent.status = "online"
-        agent.label = payload.get("edge_agent_name")
+        # The label is Bow's name for the agent. An admin who named it in the
+        # install wizard keeps that name; the advertised edge_agent_name only
+        # fills in when there is none (an agent registered without the wizard).
+        # The advertised name itself is always visible in last_advertisement.
+        if not agent.label:
+            agent.label = payload.get("edge_agent_name")
         agent.client_version = payload.get("version")
         agent.last_advertisement = stored
         agent.last_advertised_at = now
@@ -190,17 +208,27 @@ async def record_heartbeat(org_id: str, edge_agent_id: str) -> None:
         await db.commit()
 
 
-async def sweep_stale_agents(stale_after_s: int = 45, offline_after_s: int = 120) -> None:
+async def sweep_stale_agents(stale_after_s: int = 45, offline_after_s: int = 120,
+                             org_id: str | None = None) -> None:
     """Flip agent status by heartbeat age, and deactivate an offline agent's
     connections (design A10/B4).
 
     is_active is a cached reachability flag, so writing it from a missed
     heartbeat is consistent with what the column already means. A returning
     agent's advertisement reactivates it. Leader-gated by the caller.
+
+    `org_id` bounds the sweep to the org this worker listens for. The worker is
+    a per-org identity (its heartbeat subscription is tunnel.<org>.*.heartbeat),
+    so it only ever *sees* liveness for that org; sweeping every row would mark
+    other orgs' agents offline purely because their heartbeats go elsewhere.
+    None sweeps everything — for a single-org deployment or tests.
     """
     now = datetime.utcnow()
     async with async_session_maker() as db:
-        agents = (await db.execute(select(DataEdgeAgent))).scalars().all()
+        query = select(DataEdgeAgent)
+        if org_id is not None:
+            query = query.filter(DataEdgeAgent.organization_id == org_id)
+        agents = (await db.execute(query)).scalars().all()
         for a in agents:
             last = a.last_heartbeat_at or a.last_advertised_at
             if last is None:

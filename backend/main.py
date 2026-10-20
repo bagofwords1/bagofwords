@@ -846,6 +846,9 @@ async def startup_event():
                         sweep_stale_agents,
                         trigger="interval",
                         seconds=30,
+                        # Only this worker's org: it receives no other org's
+                        # heartbeats, so it must not judge their liveness.
+                        kwargs={"org_id": tunnel_cfg.org_id},
                         id="tunnel_agent_liveness_sweep",
                         replace_existing=True,
                         coalesce=True,

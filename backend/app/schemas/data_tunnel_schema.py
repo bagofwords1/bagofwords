@@ -32,6 +32,7 @@ class ProvisioningCapabilities(BaseModel):
 
     enabled: bool = False
     agent_url: Optional[str] = None
+    agent_image: Optional[str] = None
 
 
 class CreateAgentRequest(BaseModel):

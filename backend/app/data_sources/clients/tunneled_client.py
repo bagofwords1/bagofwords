@@ -35,7 +35,7 @@ class TunneledClient(DataSourceClient):
         cfg = connection.config or {}
         self._bow_connection_query_timeout = cfg.get("query_timeout_seconds")
         self._query_budget = self._bow_connection_query_timeout or TUNNEL_FALLBACK_TIMEOUT_SECONDS
-        self._index_budget = cfg.get("index_timeout_seconds", TUNNEL_FALLBACK_INDEX_SECONDS)
+        self._index_budget = cfg.get("index_timeout_seconds") or TUNNEL_FALLBACK_INDEX_SECONDS
         self._last_index_stats: dict = {}
 
     # -- attribute surface ---------------------------------------------------
@@ -57,7 +57,11 @@ class TunneledClient(DataSourceClient):
 
     @property
     def catalog_identity_available(self) -> bool:
-        return (self._connection.config or {}).get("catalog_identity_available", True)
+        # Absent *or* None means "not advertised", and the safe reading of no
+        # information is True (the agent's own default); only an explicit
+        # False means the crawl must not be treated as authoritative.
+        value = (self._connection.config or {}).get("catalog_identity_available")
+        return True if value is None else bool(value)
 
     def index_stats(self) -> dict:
         # Never a round trip: populated from the last get_schemas/warm_all reply,

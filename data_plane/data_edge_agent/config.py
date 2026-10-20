@@ -68,18 +68,32 @@ class ConnectionConfig(BaseModel):
         """Config + credentials, merged for the client constructor."""
         return {**self.config, **self.credentials}
 
-    def advertised(self, default_query_timeout: int) -> dict[str, Any]:
+    def effective_query_timeout(self, default_query_timeout: int) -> int:
+        """The query budget this connection is served under (A5/C3).
+
+        One function for both the advertisement and the dispatcher, so what
+        the control plane is told is exactly what the agent enforces.
+        """
+        return self.query_timeout_seconds or default_query_timeout
+
+    def advertised(self, default_query_timeout: int,
+                   catalog_identity_available: bool = True) -> dict[str, Any]:
         """What the control plane is told about this connection.
 
         Built from an explicit allowlist rather than by removing `credentials`
         from a dump: a subtractive version silently starts leaking the moment a
         new secret-bearing field is added to the model.
+
+        `catalog_identity_available` is the client's own answer (see
+        data_sources/base.py); the control plane treats a missing value as
+        True, so it is always sent explicitly.
         """
         return {
             "name": self.name,
             "type": self.type,
             "label": self.label,
-            "query_timeout_seconds": self.query_timeout_seconds or default_query_timeout,
+            "query_timeout_seconds": self.effective_query_timeout(default_query_timeout),
+            "catalog_identity_available": bool(catalog_identity_available),
         }
 
     @field_validator("name")
