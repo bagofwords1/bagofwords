@@ -10,10 +10,13 @@
  * Cron conventions produced/parsed here:
  *   minutes   -> `*​/N * * * *`
  *   hours     -> `0 *​/N * * *`
- *   weekdays  -> `0 H * * 1-5`
- *   week      -> `0 H * * d1,d2,...`   (0=Sun .. 6=Sat)
- *   month     -> `0 H DOM * *`
- *   day       -> `0 H * * *`
+ *   weekdays  -> `M H * * 1-5`
+ *   week      -> `M H * * d1,d2,...`   (0=Sun .. 6=Sat)
+ *   month     -> `M H DOM * *`
+ *   day       -> `M H * * *`
+ *
+ * `M` is the minute of the fixed time; it is optional and defaults to 0, so a
+ * UI that only offers whole hours keeps producing `0 H ...`.
  */
 
 export type RecurInterval = 'minutes' | 'hours' | 'day' | 'weekdays' | 'week' | 'month'
@@ -22,25 +25,27 @@ export interface RecurringSchedule {
   interval: RecurInterval
   everyN: number
   hour: number
+  minute?: number
   days: number[]
   dayOfMonth: number
 }
 
 export function defaultRecurringSchedule(): RecurringSchedule {
-  return { interval: 'day', everyN: 15, hour: 8, days: [1], dayOfMonth: 1 }
+  return { interval: 'day', everyN: 15, hour: 8, minute: 0, days: [1], dayOfMonth: 1 }
 }
 
 /** Build a 5-field cron string from structured recurring inputs. */
 export function buildRecurringCron(s: RecurringSchedule): string {
   if (s.interval === 'minutes') return `*/${s.everyN} * * * *`
   if (s.interval === 'hours') return `0 */${s.everyN} * * *`
-  if (s.interval === 'weekdays') return `0 ${s.hour} * * 1-5`
+  const m = s.minute ?? 0
+  if (s.interval === 'weekdays') return `${m} ${s.hour} * * 1-5`
   if (s.interval === 'week') {
     const days = [...s.days].sort((a, b) => a - b)
-    return `0 ${s.hour} * * ${(days.length > 0 ? days : [1]).join(',')}`
+    return `${m} ${s.hour} * * ${(days.length > 0 ? days : [1]).join(',')}`
   }
-  if (s.interval === 'month') return `0 ${s.hour} ${s.dayOfMonth} * *`
-  return `0 ${s.hour} * * *`
+  if (s.interval === 'month') return `${m} ${s.hour} ${s.dayOfMonth} * *`
+  return `${m} ${s.hour} * * *`
 }
 
 /**
@@ -60,11 +65,12 @@ export function parseRecurringCron(cron?: string): Partial<RecurringSchedule> | 
   if (hour.startsWith('*/')) {
     return { interval: 'hours', everyN: parseInt(hour.slice(2)) || 1 }
   }
+  const minute = parseInt(min) || 0
   if (dow === '1-5') {
-    return { interval: 'weekdays', hour: parseInt(hour) || 0 }
+    return { interval: 'weekdays', hour: parseInt(hour) || 0, minute }
   }
   if (dom !== '*' && dow === '*') {
-    return { interval: 'month', hour: parseInt(hour) || 0, dayOfMonth: parseInt(dom) || 1 }
+    return { interval: 'month', hour: parseInt(hour) || 0, minute, dayOfMonth: parseInt(dom) || 1 }
   }
   if (dow !== '*') {
     // Comma list of days ("1,3,5" -> [1,3,5]). Keep 0 (Sunday); fall back to Mon.
@@ -74,8 +80,9 @@ export function parseRecurringCron(cron?: string): Partial<RecurringSchedule> | 
     return {
       interval: 'week',
       hour: parseInt(hour) || 0,
+      minute,
       days: parsedDays.length > 0 ? [...new Set(parsedDays)].sort((a, b) => a - b) : [1],
     }
   }
-  return { interval: 'day', hour: parseInt(hour) || 0 }
+  return { interval: 'day', hour: parseInt(hour) || 0, minute }
 }
