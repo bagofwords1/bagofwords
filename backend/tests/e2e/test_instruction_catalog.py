@@ -1,14 +1,13 @@
-"""E2E tests: intelligent instructions are relevance-gated, overflow to a catalog.
+"""E2E tests: intelligent instructions are catalog-first, like skills.
 
 InstructionContextBuilder.build() must:
-  - LOAD only intelligent instructions that MATCH the query (keyword score > 0)
-    when a query is present; zero-score ones are advertised, not force-loaded to
-    pad the context (this is what stops a trivial turn from dragging in every
-    intelligent instruction),
-  - with NO query keywords to judge, fall back to filling capacity by usage
-    rank (load_reason='fill') — a query-less build has nothing to gate on,
-  - advertise every non-loaded intelligent instruction (zero-score matches and
-    over-capacity ones) in section.available_instructions instead of dropping it,
+  - INLINE an intelligent instruction's full text only on a STRONG match — a
+    query keyword hits its title, labels or referenced table names. A match
+    in the body alone does not inline it,
+  - with NO query keywords, inline no intelligent instruction at all,
+  - advertise every non-inlined intelligent instruction (weak/zero matches and
+    over-capacity ones) in section.available_instructions instead of dropping
+    it, with its description and non-table references,
   - render the catalog as <available_instructions> ONLY when
     render(include_catalog=True) is passed (the planner path) — tool-less
     consumers (coder/answer) keep the default render without it.
@@ -76,26 +75,136 @@ async def test_zero_score_intelligent_goes_to_catalog_not_loaded(create_user, lo
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_no_query_fills_intelligent_by_usage(create_user, login_user, whoami, test_client):
-    """A query-less build has nothing to gate on, so it still fills remaining
-    capacity with intelligent instructions (load_reason='fill')."""
+async def test_no_query_inlines_no_intelligent_instructions(create_user, login_user, whoami, test_client):
+    """A query-less build has nothing to judge relevance against, so every
+    intelligent instruction is advertised in the catalog, none inlined.
+    'always' instructions still load in full."""
     from app.dependencies import async_session_maker
     from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 
     token, org_id = _new_admin(create_user, login_user, whoami)
-    inst = _create(
-        test_client, token, org_id,
-        text="Fiscal year starts in February.", title="Fiscal year",
-        load_mode="intelligent",
+    smart = [
+        _create(
+            test_client, token, org_id,
+            text=f"Smart rule {i}: {uuid.uuid4().hex}", title=f"Smart rule {i}",
+            load_mode="intelligent",
+        )
+        for i in range(3)
+    ]
+    always = _create(
+        test_client, token, org_id, text="Always answer in USD.", title="Currency",
+        load_mode="always",
     )
 
     async with async_session_maker() as db:
         builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
         section = await builder.build(query=None)
 
-    loaded = {it.id: it for it in section.items}
-    assert inst["id"] in loaded, "query-less build should still fill from intelligent"
-    assert loaded[inst["id"]].load_reason == "fill"
+    loaded_ids = {it.id for it in section.items}
+    catalog_ids = {c.id for c in section.available_instructions}
+    smart_ids = {s["id"] for s in smart}
+    assert always["id"] in loaded_ids
+    assert not (smart_ids & loaded_ids), "query-less build must not inline intelligent rules"
+    assert smart_ids <= catalog_ids, "intelligent rules must stay reachable via the catalog"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["refunds this quarter", "show refunded orders"])
+async def test_body_only_match_is_advertised_not_inlined(
+    create_user, login_user, whoami, test_client, query
+):
+    """A keyword that appears only in the body (not title / labels / tables)
+    is a weak match: the instruction is advertised, ranked, but not inlined."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    weak = _create(
+        test_client, token, org_id,
+        # Catalog descriptions fall back to the body's first line, so the
+        # detail that must stay out of the prompt is on the second.
+        text="Net figures rule.\nAlways exclude refunds and chargebacks.",
+        title="Net figures", load_mode="intelligent",
+    )
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
+        section = await builder.build(query=query)
+
+    assert weak["id"] not in {it.id for it in section.items}
+    assert weak["id"] in {c.id for c in section.available_instructions}
+    rendered = section.render(include_catalog=True)
+    assert "chargebacks" not in rendered, "catalog must not carry the full body"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_label_match_inlines_full_text(create_user, login_user, whoami, test_client):
+    """A query keyword hitting one of the instruction's labels is a strong match."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    label_name = f"churn{uuid.uuid4().hex[:4]}"
+    resp = test_client.post(
+        "/api/instructions/labels", json={"name": label_name}, headers=_auth(token, org_id)
+    )
+    assert resp.status_code == 200, resp.json()
+    inst = _create(
+        test_client, token, org_id,
+        text="A customer is inactive after 60 days without an order.",
+        title="Inactivity window", load_mode="intelligent",
+        label_ids=[resp.json()["id"]],
+    )
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
+        section = await builder.build(query=f"{label_name} rate by cohort")
+
+    item = next((it for it in section.items if it.id == inst["id"]), None)
+    assert item is not None, "label match must inline the instruction"
+    assert "60 days" in section.render()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_catalog_entry_carries_description_and_references(
+    create_user, login_user, whoami, test_client
+):
+    """Catalog entries show the description and non-table references
+    (e.g. linked instructions) so the agent can decide what to open."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    target = _create(
+        test_client, token, org_id, text="Revenue excludes refunds.",
+        title="Revenue definition", load_mode="always",
+    )
+    linked = _create(
+        test_client, token, org_id,
+        text="Gross margin is revenue minus cost of goods sold.",
+        title="Gross margin", description="How gross margin is computed",
+        load_mode="intelligent",
+        references=[{
+            "object_type": "instruction",
+            "object_id": target["id"],
+            "display_text": "Revenue definition",
+            "relation_type": "scope",
+        }],
+    )
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
+        section = await builder.build(query="weekly active users")
+
+    entry = next((c for c in section.available_instructions if c.id == linked["id"]), None)
+    assert entry is not None
+    assert entry.description == "How gross margin is computed"
+    assert "instruction:Revenue definition" in entry.other_refs
+    rendered = section.render(include_catalog=True)
+    assert 'refs="instruction:Revenue definition"' in rendered
 
 
 @pytest.mark.e2e

@@ -5302,7 +5302,11 @@ class AgentV2:
                                     data_source_ids=_instr_scope,
                                     mode=self._instruction_mode,
                                 )
-                                instructions = (await _ib.build(query=None)).render(include_catalog=True)
+                                # Same query as the run-start build, so strong
+                                # matches stay inlined after the re-scope.
+                                instructions = (await _ib.build(
+                                    query=getattr(self.context_hub, "last_instruction_query", None),
+                                )).render(include_catalog=True)
                                 # Also re-scope the shared hub builder: create_data
                                 # builds its viz-instruction slice through it per
                                 # call, so without this a mid-run added agent's
@@ -8076,7 +8080,11 @@ class AgentV2:
         if view is None:
             view = self.context_hub.get_view()
 
-        instructions_section = await self.context_hub.instruction_builder.build()
+        # Reuse the query-aware section from prime_static() so the estimate
+        # matches the real planner prompt; fall back to a query-less build.
+        instructions_section = getattr(getattr(view, "static", None), "instructions", None)
+        if instructions_section is None:
+            instructions_section = await self.context_hub.instruction_builder.build()
         instructions = instructions_section.render(include_catalog=True)
 
         history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())

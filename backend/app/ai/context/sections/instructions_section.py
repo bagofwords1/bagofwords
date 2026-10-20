@@ -59,6 +59,10 @@ class SkillCatalogItem(BaseModel):
     description: Optional[str] = None
     # Display names of tables the entry is scoped to (helps the agent pick).
     table_refs: List[str] = []
+    # Non-table references as "kind:name" (e.g. "instruction:Revenue rule",
+    # "resource:orders_model"), so the agent can judge relevance without
+    # opening the entry.
+    other_refs: List[str] = []
     # Aggregated org-wide usage (InstructionStats), used for ordering.
     usage_count: Optional[int] = None
 
@@ -69,8 +73,8 @@ class InstructionsSection(ContextSection):
     items: List[InstructionItem] = []
     # Skills advertised (not force-loaded) — rendered as <available_skills>.
     skills: List[SkillCatalogItem] = []
-    # Intelligent instructions beyond the load capacity — advertised (not
-    # force-loaded), rendered as <available_instructions> for agents that can
+    # Intelligent instructions not inlined (no strong match, or over
+    # capacity) — advertised (not force-loaded), rendered as <available_instructions> for agents that can
     # call read_instruction (the planner). Excluded from render() by default so
     # tool-less consumers (coder/answer) don't see references they can't open.
     available_instructions: List[SkillCatalogItem] = []
@@ -121,8 +125,8 @@ class InstructionsSection(ContextSection):
         if include_catalog and self.available_instructions:
             cat_parts: List[str] = [
                 "More organization instructions exist beyond the ones loaded above. "
-                "Each entry lists a short id and title (and the tables it is scoped "
-                "to) — the full text is NOT shown here. If an entry looks relevant "
+                "Each entry lists a short id and title (and the tables and other "
+                "objects it references) — the full text is NOT shown here. If an entry looks relevant "
                 "to the user's request, call read_instruction with its short_id to "
                 "load the full text BEFORE acting. If you suspect a rule exists but "
                 "nothing here matches, call search_instructions."
@@ -131,6 +135,8 @@ class InstructionsSection(ContextSection):
                 attrs = {"short_id": ref.short_id, "title": ref.title}
                 if ref.table_refs:
                     attrs["tables"] = self._tables_attr(ref.table_refs)
+                if ref.other_refs:
+                    attrs["refs"] = self._tables_attr(ref.other_refs)
                 body = xml_escape((ref.description or "").strip())
                 cat_parts.append(xml_tag("instruction_ref", body, attrs))
             rendered.append(xml_tag("available_instructions", "\n".join(cat_parts)))

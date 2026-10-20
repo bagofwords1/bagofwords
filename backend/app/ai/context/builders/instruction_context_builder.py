@@ -36,11 +36,14 @@ class InstructionContextBuilder:
 
     Load behavior:
     1. Load ALL 'always' instructions first
-    2. Fill remaining capacity with 'intelligent' instructions that MATCH the
-       query (keyword score > 0). Non-matching intelligent instructions are
-       advertised in the catalog, not force-loaded (a query-less build has
-       nothing to judge, so it fills by usage rank instead).
-    3. Skip 'disabled' instructions
+    2. Inline the full text of an 'intelligent' instruction only on a STRONG
+       match: a query keyword hits its title, labels or referenced table
+       names. A body-only match just ranks it higher in the catalog.
+    3. Everything else intelligent is advertised in the catalog (short id,
+       title, description, references) and read on demand, like skills. A
+       query-less build has nothing to judge, so it inlines no intelligent
+       instructions at all — catalog only.
+    4. Skip 'disabled' instructions
 
     The max_instructions_in_context setting (default 50) controls total capacity.
     'Always' instructions take priority and can exceed the limit.
@@ -495,7 +498,8 @@ class InstructionContextBuilder:
 
         Load behavior:
         1. Load ALL 'always' instructions (they always take priority)
-        2. Fill remaining capacity with 'intelligent' instructions matched by keywords
+        2. Inline 'intelligent' instructions only on a strong match (title /
+           labels / table names); advertise the rest in the catalog
         3. Skip 'disabled' instructions
 
         Parameters
@@ -775,11 +779,10 @@ class InstructionContextBuilder:
 
         Load behavior:
         1. Load ALL 'always' instructions (they take priority)
-        2. Fill remaining capacity with 'intelligent' instructions that MATCH
-           the query (score > 0), ranked by score then usage. With no query
-           keywords to judge, fall back to filling by usage rank.
-        3. Advertise non-loaded intelligent instructions (zero-score matches and
-           over-capacity ones) as catalog entries
+        2. Inline 'intelligent' instructions that STRONGLY match the query
+           (title / labels / table names), ranked by score then usage. With
+           no query keywords, inline none.
+        3. Advertise every other intelligent instruction as a catalog entry
         4. Skip 'disabled' instructions
 
         Returns (loaded_items, catalog_entries), or None if no build is
@@ -935,15 +938,19 @@ class InstructionContextBuilder:
         # then aggregated usage. Zero-score candidates rank last but are kept.
         keywords = self._extract_keywords(query) if query else set()
         ranked: List[Tuple[InstructionItem, float, InstructionVersion]] = []
+        strong_ids: Set[str] = set()
         for content, instruction, version in intelligent_contents:
             inst_id = str(instruction.id)
             refs = _table_refs_for(inst_id, version)
             label_names = " ".join(
                 l.name for l in (self._extract_labels(instruction) or []) if l.name
             )
+            extra_text = " ".join(refs) + " " + label_names
             score = self._score_instruction_version(
-                version, keywords, extra_text=" ".join(refs) + " " + label_names,
+                version, keywords, extra_text=extra_text,
             )
+            if self._is_strong_match(f"{version.title or ''} {extra_text}", keywords):
+                strong_ids.add(inst_id)
             item = InstructionItem(
                 id=inst_id,
                 category=instruction.category,
@@ -971,16 +978,10 @@ class InstructionContextBuilder:
         ranked = [entry for entry in ranked if entry[0].id in accessible_ids]
 
         remaining_slots = max(0, max_instructions - len(always_items))
-        # Relevance gate: when we have query keywords to judge against, only
-        # LOAD intelligent instructions that actually matched (score > 0). The
-        # rest are advertised in <available_instructions> and pulled on demand
-        # via search_instructions/read_instruction — they are NOT force-loaded to
-        # pad the context. Without a query (a query-less context build) there is
-        # nothing to judge, so fall back to filling slots by usage rank.
-        if keywords:
-            loadable = [entry for entry in ranked if entry[1] > 0][:remaining_slots]
-        else:
-            loadable = ranked[:remaining_slots]
+        # Relevance gate: inline only STRONG matches (title / labels / table
+        # names). The rest are advertised in <available_instructions> and read
+        # on demand via read_instruction. A query-less build inlines none.
+        loadable = [entry for entry in ranked if entry[0].id in strong_ids][:remaining_slots]
         intelligent_items = [it for it, _, _ in loadable]
 
         # Everything not loaded — zero-score matches AND over-capacity ones — is
@@ -994,6 +995,7 @@ class InstructionContextBuilder:
                 structured_data=version.structured_data,
                 text=it.text,
                 table_refs=it.table_refs,
+                other_refs=self._version_other_refs(version),
                 usage_count=it.usage_count,
             )
             for it, _, version in ranked
@@ -1036,7 +1038,7 @@ class InstructionContextBuilder:
 
         Load behavior:
         1. Load ALL 'always' instructions (they take priority)
-        2. Fill remaining capacity with 'intelligent' instructions (keyword-matched)
+        2. Inline 'intelligent' instructions on a strong match only (see build())
         """
         # Load always instructions
         always_instructions = await self.load_always_instructions(
@@ -1048,11 +1050,9 @@ class InstructionContextBuilder:
         # Calculate remaining slots for intelligent instructions
         remaining_slots = max(0, max_instructions - len(always_instructions))
 
-        # Rank intelligent instructions. When we have query keywords to judge,
-        # only LOAD those that matched (score > 0); the rest are advertised as
-        # catalog entries (reachable via search_instructions), not force-loaded
-        # to pad the context. With no query keywords, fall back to filling by
-        # usage rank.
+        # Rank intelligent instructions, then inline only STRONG matches
+        # (title / labels / table names). The rest are advertised as catalog
+        # entries and read on demand. With no query keywords, inline none.
         keywords = self._extract_keywords(query) if query else set()
         intelligent_ranked: List[Tuple[Instruction, float]] = await self.search_instructions(
             query or "",
@@ -1061,14 +1061,6 @@ class InstructionContextBuilder:
             category=category,
             categories=categories,
         )
-        if keywords:
-            intelligent_results = [(i, s) for i, s in intelligent_ranked if s > 0][:remaining_slots]
-        else:
-            intelligent_results = intelligent_ranked[:remaining_slots]
-        loaded_intelligent_ids = {str(i.id) for i, _ in intelligent_results}
-        catalog_candidates = [
-            (i, s) for i, s in intelligent_ranked if str(i.id) not in loaded_intelligent_ids
-        ]
 
         # Collect all instruction IDs for batch stats loading
         all_instruction_ids = [str(inst.id) for inst in always_instructions]
@@ -1077,6 +1069,23 @@ class InstructionContextBuilder:
         # Batch-load usage stats and table references
         usage_counts = await self._batch_load_usage_counts(all_instruction_ids)
         table_refs = await self._batch_load_table_refs(all_instruction_ids)
+
+        def _legacy_priority_text(inst: Instruction) -> str:
+            labels = " ".join(l.name for l in (self._extract_labels(inst) or []) if l.name)
+            refs = " ".join(table_refs.get(str(inst.id), []))
+            return f"{inst.title or ''} {labels} {refs}"
+
+        intelligent_results = [
+            (i, s) for i, s in intelligent_ranked
+            if self._is_strong_match(_legacy_priority_text(i), keywords)
+        ][:remaining_slots]
+        loaded_intelligent_ids = {str(i.id) for i, _ in intelligent_results}
+        catalog_candidates = [
+            (i, s) for i, s in intelligent_ranked if str(i.id) not in loaded_intelligent_ids
+        ]
+        other_refs = await self._batch_load_other_refs(
+            [str(i.id) for i, _ in catalog_candidates]
+        )
 
         # Deduplicate and build items with tracking
         seen_ids: Set[str] = set()
@@ -1127,6 +1136,7 @@ class InstructionContextBuilder:
                 structured_data=inst.structured_data,
                 text=inst.text or "",
                 table_refs=table_refs.get(str(inst.id), []),
+                other_refs=other_refs.get(str(inst.id), []),
                 usage_count=usage_counts.get(str(inst.id)),
             )
             for inst, _ in catalog_candidates
@@ -1396,6 +1406,67 @@ class InstructionContextBuilder:
                     refs.append(ref)
         return refs
 
+    # Short labels for non-table references in catalog entries.
+    _OTHER_REF_KINDS = {
+        "instruction": "instruction",
+        "metadata_resource": "resource",
+        "memory": "memory",
+        "connection_tool": "tool",
+    }
+
+    @classmethod
+    def _format_other_ref(cls, object_type: Optional[str], display_text: Optional[str]) -> Optional[str]:
+        kind = cls._OTHER_REF_KINDS.get(object_type or "")
+        name = (display_text or "").strip()
+        if not kind or not name:
+            return None
+        return f"{kind}:{name}"
+
+    @classmethod
+    def _version_other_refs(cls, version: InstructionVersion) -> List[str]:
+        """Non-table references (linked instructions, resources, ...) from a
+        version's references_json, as "kind:name" labels."""
+        refs: List[str] = []
+        rj = getattr(version, "references_json", None) or []
+        if isinstance(rj, list):
+            for r in rj:
+                if not isinstance(r, dict):
+                    continue
+                ref = cls._format_other_ref(r.get("object_type"), r.get("display_text"))
+                if ref and ref not in refs:
+                    refs.append(ref)
+        return refs
+
+    async def _batch_load_other_refs(self, instruction_ids: List[str]) -> Dict[str, List[str]]:
+        """Live-row counterpart of _version_other_refs (legacy path)."""
+        if not instruction_ids:
+            return {}
+        try:
+            result = await self.db.execute(
+                select(
+                    InstructionReference.instruction_id,
+                    InstructionReference.object_type,
+                    InstructionReference.display_text,
+                ).where(
+                    and_(
+                        InstructionReference.instruction_id.in_(instruction_ids),
+                        InstructionReference.object_type.in_(list(self._OTHER_REF_KINDS)),
+                    )
+                )
+            )
+            refs: Dict[str, List[str]] = {}
+            for inst_id, object_type, display_text in result.all():
+                ref = self._format_other_ref(object_type, display_text)
+                if not ref:
+                    continue
+                bucket = refs.setdefault(str(inst_id), [])
+                if ref not in bucket:
+                    bucket.append(ref)
+            return refs
+        except Exception as e:
+            logger.warning(f"Failed to load other refs: {e}")
+            return {}
+
     def _catalog_entry(
         self,
         *,
@@ -1406,6 +1477,7 @@ class InstructionContextBuilder:
         text: str,
         table_refs: List[str],
         usage_count: Optional[int],
+        other_refs: Optional[List[str]] = None,
     ) -> SkillCatalogItem:
         """Build an <available_instructions> catalog entry.
 
@@ -1431,6 +1503,7 @@ class InstructionContextBuilder:
                 title=title.strip(),
                 description=desc,
                 table_refs=table_refs,
+                other_refs=other_refs or [],
                 usage_count=usage_count,
             )
 
@@ -1443,6 +1516,7 @@ class InstructionContextBuilder:
             title=snippet or inst_id[:8],
             description=None,
             table_refs=table_refs,
+            other_refs=other_refs or [],
             usage_count=usage_count,
         )
     
@@ -1674,6 +1748,14 @@ class InstructionContextBuilder:
         if extra_text:
             priority_parts.append(extra_text)
         return self._combined_score(" ".join(parts), " ".join(priority_parts), keywords)
+
+    def _is_strong_match(self, priority: str, keywords: Set[str]) -> bool:
+        """True when a query keyword hits the priority text (title, labels,
+        referenced table names). Only strong matches get inlined in full;
+        body-only matches stay in the catalog."""
+        if not keywords or not (priority or "").strip():
+            return False
+        return self._score_text(priority, keywords) > 0
 
     def _combined_score(self, body: str, priority: str, keywords: Set[str]) -> float:
         """Coverage score over the body, boosted by matches in priority text

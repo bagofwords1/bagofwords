@@ -306,6 +306,8 @@ class ContextHub:
         self.prompt_content = head_completion.prompt if head_completion else ""
         # Build system: specific instruction build to use (None = main build)
         self.build_id = build_id
+        # Query the last prime_static() matched instructions against.
+        self.last_instruction_query = None
         
         # Initialize metadata
         self.metadata = ContextMetadata(
@@ -813,6 +815,8 @@ class ContextHub:
         # report so follow-ups ("now break it down by month") keep matching the
         # instructions the opening message matched.
         instr_query = await self._instruction_query(query)
+        # Kept so mid-run instruction rebuilds match the same query.
+        self.last_instruction_query = instr_query
 
         # Same identity component as the schema cache: instructions are filtered
         # by per-user table accessibility, so they must not cross users either.
