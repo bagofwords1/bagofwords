@@ -95,7 +95,13 @@ dependencies = [
     "rapidfuzz>=3.14.5,<3.15",
     "partialjson>=0.0.9,<0.1",
     "pathspec>=1.1.1,<1.2",
-    "gitpython>=3.1.57,<3.2",
+    # gitpython < 3.2.0 is affected by SNYK-PYTHON-GITPYTHON-21246264 (Critical,
+    # Arbitrary Argument Injection), SNYK-PYTHON-GITPYTHON-21246263 (High,
+    # Exposure of Sensitive Information Through Environment Variables) and
+    # SNYK-PYTHON-GITPYTHON-21246267 (High, Improper Validation of Specified
+    # Type of Input), all fixed in 3.2.0. gitpython is a direct dependency
+    # (app/services/git_service.py).
+    "gitpython>=3.2.0,<3.3",
     "ipython>=8.39.0,<8.40",
     "fastapi-mail>=1.6.5,<1.7",
     "posthog>=6.9.3,<6.10",
