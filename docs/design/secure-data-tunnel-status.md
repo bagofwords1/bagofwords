@@ -117,7 +117,7 @@ against the design doc.
 - Audit log lacks a `cancelled` outcome and does not record "per-user auth used".
 
 ### Broker deployment (E1–E3)
-- No `nats.conf`, no NATS service in root `docker-compose.yaml`, no NATS in `k8s/chart/`, no Caddy `tunnel.*` site. `deploy-nats.sh` (which set `max_payload=64MB` and websocket 9443) was deleted in `ad8003471`; nothing in-repo now sets `max_payload`. The broker (`nats` namespace, Issuer `nats-ca`, ConfigMap `nats-accounts`, `verify_and_map`) exists only out-of-repo and is described in `.claude/skills/data-edge-agent-sandbox/SKILL.md`. Note `tools/openshell/k8s/helm-chart*` is NVIDIA OpenShell sandbox tooling, not NATS.
+- No `nats.conf`, no NATS service in root `docker-compose.yaml`, no NATS in `k8s/chart/`, no Caddy `tunnel.*` site. `deploy-nats.sh` (which set `max_payload=64MB` and websocket 9443) was deleted in `ad8003471`; nothing in-repo now sets `max_payload`. The broker (`nats` namespace, Issuer `nats-ca`, ConfigMap `nats-accounts`, `verify_and_map`) exists only out-of-repo and is described in `.claude/skills/data-edge-agent-sandbox/SKILL.md`.
 - Under mTLS-only, A1/E3's `no_tls` websocket with TLS terminated at Caddy/ingress cannot carry the client cert; needs TLS passthrough or a TLS websocket listener — neither configured in-repo.
 - Worker (per-org) cert + NATS user are hand-provisioned; no automation.
 - No cert renewal push to agents (one-year cert renews in-cluster only); no CRL — revocation relies solely on removing the ConfigMap user.
