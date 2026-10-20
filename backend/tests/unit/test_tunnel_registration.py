@@ -10,6 +10,8 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
 from app.dependencies import async_session_maker
 from app.models.organization import Organization
 from app.models.connection import Connection

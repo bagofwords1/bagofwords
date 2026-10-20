@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision: str = "tunnel01"
-down_revision: Union[str, None] = "durctx01"
+down_revision: Union[str, None] = "submsg02"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
