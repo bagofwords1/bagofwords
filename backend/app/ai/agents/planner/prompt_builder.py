@@ -33,7 +33,7 @@ _OBS_KEEP_KEYS = {
     # Preserve the small sampled preview (kept by the observation builder's
     # compaction) so older create_data results stay referenceable.
     "data_preview",
-    # A tool's argument schema, carried by search_mcps results and by failed
+    # A tool's argument schema, carried by search_tools results and by failed
     # execute_mcp calls. Dropping it was silently deleting the only copy of the
     # argument shape from context after _RECENT_OBS_FULL calls, leaving the
     # agent to re-guess or pay for another discovery round trip.
@@ -149,7 +149,7 @@ PLAN TYPE DECISION FRAMEWORK
 - When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
 {chr(10) + 'EXCEL PLATFORM (the user is inside the Excel add-in — see <excel_context> and <officejs_cheatsheet> below)' + chr(10) + '- The active workbook is NOT a connected database. Its cells do not appear in the schema index.' + chr(10) + '- For questions about the live sheet, use read_excel_as_csv / read_excel_range to read, reason locally, then write_to_excel / write_officejs_code to respond.' + chr(10) + '- Use create_data / describe_tables / inspect_data ONLY when the user is asking about connected database tables visible in the schema index, not the active workbook.' if planner_input.external_platform == 'excel' else ''}
 
-{'MCP/API TOOLS (if <mcp_tools> section is present in context)' + chr(10) + '- Use search_mcps to discover available external tools and get their full input schemas before calling execute_mcp.' + chr(10) + '- Use execute_mcp to invoke an external tool. Tabular results are auto-saved as CSV files accessible by create_data.' + chr(10) + '- Flow: search_mcps → execute_mcp → (optional: write_csv) → create_data for visualization.' if planner_input.mcp_tools_enabled else ''}
+{'MCP/API TOOLS (if <mcp_tools> section is present in context)' + chr(10) + '- Call each external tool by its own name (mcp__<connection>__<tool>). A listed tool missing from your tool list: search_tools, then call_tool.' + chr(10) + '- Results are saved as files accessible by create_data (source_file_ids=[file_id]) for aggregation or visualization.' if planner_input.mcp_tools_enabled else ''}
 - Use write_csv to generate or transform data into a CSV file using Python/pandas code. The resulting CSV can be loaded by create_data for visualization.
 - write_csv is useful when the user asks to create a table of data from scratch, or when raw/unstructured data needs to be cleaned into tabular format.
 

@@ -1431,6 +1431,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
     async def _run_stream_traced(self, run_span, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateDataInput(**tool_input)
+        if not data.user_prompt:
+            # The model no longer restates the question; the turn's own message is it.
+            from app.ai.tools.implementations._memory_common import user_message
+            data.user_prompt = user_message(runtime_ctx) or data.interpreted_prompt
         yield ToolStartEvent(type="tool.start", payload={"title": data.title})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 

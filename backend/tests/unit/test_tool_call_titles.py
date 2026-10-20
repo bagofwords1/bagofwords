@@ -20,7 +20,8 @@ new connection tool that forgets `title` should fail this test.
 import pytest
 
 from app.ai.tools.implementations.execute_mcp import ExecuteMCPTool
-from app.ai.tools.implementations.search_mcps import SearchMCPsTool
+from app.ai.tools.implementations.search_tools import SearchToolsTool
+from app.ai.tools.implementations.call_tool import CallToolTool
 from app.ai.tools.implementations.list_files import ListFilesTool
 from app.ai.tools.implementations.read_file import ReadFileTool
 from app.ai.tools.implementations.search_files import SearchFilesTool
@@ -32,7 +33,8 @@ from app.ai.tools.implementations.web_fetch import WebFetchTool
 # and therefore benefit from a plain-language label in the chat UI.
 CONNECTION_TOOLS = [
     ExecuteMCPTool,
-    SearchMCPsTool,
+    SearchToolsTool,
+    CallToolTool,
     ListFilesTool,
     ReadFileTool,
     SearchFilesTool,
@@ -92,7 +94,8 @@ def test_title_survives_into_persisted_arguments(tool_cls):
     # Minimal required args per tool, plus the title.
     base = {
         "ExecuteMCPTool": {"connection_id": "c1", "tool_name": "notion_search"},
-        "SearchMCPsTool": {},
+        "SearchToolsTool": {},
+        "CallToolTool": {"name": "mcp__conn__notion_search"},
         "ListFilesTool": {"connection_id": "c1"},
         "ReadFileTool": {"connection_id": "c1", "file_id": "f1"},
         "SearchFilesTool": {"connection_id": "c1", "query": "contract"},
@@ -112,7 +115,8 @@ def test_title_is_optional_at_construction(tool_cls):
     input_model = tool_cls().input_model
     base = {
         "ExecuteMCPTool": {"connection_id": "c1", "tool_name": "notion_search"},
-        "SearchMCPsTool": {},
+        "SearchToolsTool": {},
+        "CallToolTool": {"name": "mcp__conn__notion_search"},
         "ListFilesTool": {"connection_id": "c1"},
         "ReadFileTool": {"connection_id": "c1", "file_id": "f1"},
         "SearchFilesTool": {"connection_id": "c1", "query": "contract"},

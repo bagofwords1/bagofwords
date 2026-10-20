@@ -41,16 +41,26 @@ def pinned_openai_http_clients(http_kwargs: dict[str, Any], sync_hooks=None, asy
     import openai
     from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
 
+    from app.core.tls import shared_ssl_context
+
     kw = dict(http_kwargs)
-    transport_kw = {"verify": kw.pop("verify")} if "verify" in kw else {}
     if http_kwargs:
         sync_cls, async_cls = httpx.Client, httpx.AsyncClient
     else:
         sync_cls, async_cls = openai.DefaultHttpxClient, openai.DefaultAsyncHttpxClient
+    # verify=False stays off; otherwise the process-wide context (app.core.tls).
+    verify = kw.pop("verify") if "verify" in kw else shared_ssl_context()
+    if verify is shared_ssl_context():
+        # Shared, process-wide pinned pool (app.core.llm_transport).
+        from app.core.llm_transport import shared_transports
+        sync_t, async_t = shared_transports(pinned=True)
+    else:
+        sync_t = PinnedTransport(Policy.ADMIN, verify=verify)
+        async_t = AsyncPinnedTransport(Policy.ADMIN, verify=verify)
     return (
-        sync_cls(transport=PinnedTransport(Policy.ADMIN, **transport_kw), **kw,
+        sync_cls(transport=sync_t, verify=verify, **kw,
                  **({"event_hooks": sync_hooks} if sync_hooks else {})),
-        async_cls(transport=AsyncPinnedTransport(Policy.ADMIN, **transport_kw), **kw,
+        async_cls(transport=async_t, verify=verify, **kw,
                   **({"event_hooks": async_hooks} if async_hooks else {})),
     )
 
@@ -121,13 +131,19 @@ class OpenAi(LLMClient):
             kwargs["http_client"], async_kwargs["http_client"] = pinned_openai_http_clients(
                 http_kwargs, sync_hooks, async_hooks)
         elif http_kwargs:
-            kwargs["http_client"] = httpx.Client(**http_kwargs, **({"event_hooks": sync_hooks} if sync_hooks else {}))
-            async_kwargs["http_client"] = httpx.AsyncClient(**http_kwargs, **({"event_hooks": async_hooks} if async_hooks else {}))
+            from app.core.tls import shared_ssl_context
+            plain = {"verify": shared_ssl_context(), **http_kwargs}
+            kwargs["http_client"] = httpx.Client(**plain, **({"event_hooks": sync_hooks} if sync_hooks else {}))
+            async_kwargs["http_client"] = httpx.AsyncClient(**plain, **({"event_hooks": async_hooks} if async_hooks else {}))
         else:
-            if sync_hooks:
-                kwargs["http_client"] = DefaultHttpxClient(event_hooks=sync_hooks)
-            if async_hooks:
-                async_kwargs["http_client"] = DefaultAsyncHttpxClient(event_hooks=async_hooks)
+            # Always our own clients, on the process-wide TLS context: the SDK's
+            # implicit ones each load the CA bundle (app.core.tls).
+            from app.core.tls import shared_ssl_context
+            from app.core.llm_transport import shared_transports
+            tls = shared_ssl_context()
+            sync_t, async_t = shared_transports(pinned=False)
+            kwargs["http_client"] = DefaultHttpxClient(transport=sync_t, verify=tls, **({"event_hooks": sync_hooks} if sync_hooks else {}))
+            async_kwargs["http_client"] = DefaultAsyncHttpxClient(transport=async_t, verify=tls, **({"event_hooks": async_hooks} if async_hooks else {}))
         self.client = OpenAI(**kwargs)
         self.async_client = AsyncOpenAI(**async_kwargs)
 

@@ -4104,10 +4104,16 @@ class InstructionService:
         )
 
     async def _get_instruction_by_id(self, db: AsyncSession, instruction_id: str, organization: Organization) -> Instruction:
-        """Get instruction by ID with proper error handling"""
+        """Get instruction by ID with proper error handling.
+
+        Eager-loads ``data_sources``: the edit-tier decision reads them, and an
+        async session can't lazy-load. It used to work only when the caller had
+        already loaded the row in the same session (the REST route does; an
+        MCP caller whose session was committed in between did not).
+        """
         
         result = await db.execute(
-            select(Instruction).where(
+            select(Instruction).options(selectinload(Instruction.data_sources)).where(
                 and_(
                     Instruction.id == instruction_id,
                     Instruction.organization_id == organization.id,

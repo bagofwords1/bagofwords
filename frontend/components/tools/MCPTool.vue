@@ -294,8 +294,27 @@ const autoPolicy = computed(() => {
   }
   return null
 })
-const toolName = computed(() => props.toolExecution?.tool_name || '')
-const args = computed(() => props.toolExecution?.arguments_json || {})
+// The raw name: execute_mcp after the server's rewrite, but a native
+// mcp__<connection>__<tool> or call_tool while it streams. All three render
+// as execute_mcp, with the arguments mapped to its shape.
+const rawToolName = computed(() => props.toolExecution?.tool_name || '')
+const toolName = computed(() => {
+  const n = rawToolName.value
+  if (n.startsWith('mcp__') || n === 'call_tool') return 'execute_mcp'
+  if (n === 'search_tools') return 'search_mcps'
+  return n
+})
+const nativeToolPart = (name: string) => {
+  const parts = (name || '').split('__')
+  return parts.length >= 3 ? parts.slice(2).join('__') : name
+}
+const args = computed(() => {
+  const a = (props.toolExecution?.arguments_json || {}) as any
+  const n = rawToolName.value
+  if (n.startsWith('mcp__')) return { tool_name: nativeToolPart(n), arguments: a }
+  if (n === 'call_tool') return { tool_name: nativeToolPart(a.name || ''), arguments: a.arguments || {}, title: a.title }
+  return a
+})
 const resultJson = computed(() => props.toolExecution?.result_json || {})
 
 const isExecuteMcp = computed(() => toolName.value === 'execute_mcp')
@@ -346,8 +365,7 @@ const runningLabel = computed(() => {
   if (modelTitle.value) return modelTitle.value
   if (toolName.value === 'search_mcps') return t('tools.mcp.searching')
   if (toolName.value === 'execute_mcp') {
-    const connName = resultJson.value.connection_name
-    const label = connName || args.value.tool_name || 'MCP tool'
+    const label = args.value.tool_name || resultJson.value.connection_name || 'MCP tool'
     return t('tools.mcp.callingTool', { name: label })
   }
   if (toolName.value === 'write_csv') return t('tools.mcp.writingCsv')
@@ -375,9 +393,10 @@ const doneLabel = computed(() => {
       return t('tools.mcp.failed', { name: connName })
     }
     if (modelTitle.value) return modelTitle.value
-    const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
-    if (resultJson.value.file_id) return t('tools.mcp.csvSuccess', { name: connName })
-    return `${connName}`
+    // The tool that ran, with its connection: "find_artist · music-store".
+    const called = args.value.tool_name
+    const connName = resultJson.value.connection_name
+    return [called, connName].filter(Boolean).join(' · ') || 'MCP tool'
   }
   if (modelTitle.value) return modelTitle.value
   if (toolName.value === 'write_csv') {

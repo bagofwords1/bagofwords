@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import base64
 import json
 
@@ -70,8 +71,40 @@ def _http_config(**overrides) -> Config:
     return Config(
         read_timeout=_READ_TIMEOUT_S,
         connect_timeout=_CONNECT_TIMEOUT_S,
+        # One session (connection pool) serves every Bedrock client in the
+        # process (_share_http_session), so allow concurrent runs to keep
+        # their connections instead of discarding them.
+        max_pool_connections=50,
         **overrides,
     )
+
+
+_shared_http_session = None
+_shared_http_session_lock = threading.Lock()
+
+
+def _share_http_session(client) -> None:
+    """Point ``client`` at the process-wide botocore HTTP session.
+
+    A boto3 client is built per message; each brought its own urllib3 pool,
+    so every message opened a new TLS connection to Bedrock. The session is
+    only the connection pool: signing, the Bearer key and custom headers are
+    per-client event hooks and stay with each client. Thread-safe (urllib3).
+    """
+    global _shared_http_session
+    try:
+        endpoint = client._endpoint
+    except AttributeError:
+        return
+    with _shared_http_session_lock:
+        if _shared_http_session is None:
+            _shared_http_session = endpoint.http_session
+            return
+        own, endpoint.http_session = endpoint.http_session, _shared_http_session
+    try:
+        own.close()
+    except Exception:
+        pass
 
 
 # Map MIME types to Bedrock image format strings
@@ -221,6 +254,7 @@ class BedrockClient(LLMClient):
                 "request-created.bedrock-runtime.*", _add_extra_headers
             )
 
+        _share_http_session(self.client)
         self._region = region
         self._auth_mode = auth_mode
 

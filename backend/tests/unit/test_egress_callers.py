@@ -329,9 +329,13 @@ def test_llm_admin_base_url_uses_pinned_transport(provider_type, cfg):
     from app.ai.llm.llm import LLM
     from tests.unit.test_llm_provider_headers import make_model
 
+    from tests.unit.test_llm_client_tls import _inner_transport
+
     llm = LLM(make_model(provider_type, cfg))
     for sdk in (llm.client.client, llm.client.async_client):
-        assert isinstance(sdk._client._transport, (egress.PinnedTransport, egress.AsyncPinnedTransport))
+        # Shared pools (app.core.llm_transport) wrap the pinned transport.
+        inner = _inner_transport(sdk._client._transport)
+        assert isinstance(inner, (egress.PinnedTransport, egress.AsyncPinnedTransport))
 
 
 # ── 6. Audit streams ────────────────────────────────────────────────────────

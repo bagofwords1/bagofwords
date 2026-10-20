@@ -214,3 +214,26 @@ def test_rehydrated_gateway_calls_are_nativized():
     assert calls[1].replay_args == {"title": "x"}
     # idempotent
     assert nativize_replayed_calls(t.turns, {"submit_contracts": {"list_id": "L1"}}, {}) == 0
+
+
+def test_a_call_to_a_tool_past_tools_max_replays_as_call_tool():
+    """Its native name is not in the request's tools: replayed under it, the
+    model would learn to call a tool it does not have."""
+    from app.ai.agent_v2 import nativize_replayed_calls
+
+    t = _transcript(Outcome.SUCCESS)
+    t.add_assistant_step(calls=[
+        ToolCallPart(id="c4", tool_name="execute_mcp",
+                     args={"connection_id": "K", "tool_name": "find_artist", "arguments": {"q": "x"}}),
+        ToolCallPart(id="c5", tool_name="execute_mcp",
+                     args={"connection_id": "K", "tool_name": "get_albums", "arguments": {"artist_id": 9}}),
+    ])
+    routing = {
+        "mcp__k__find_artist": {"connection_id": "K", "tool_name": "find_artist"},
+        "mcp__k__get_albums": {"connection_id": "K", "tool_name": "get_albums"},
+    }
+    assert nativize_replayed_calls(t.turns, {}, routing, native_names={"mcp__k__find_artist"}) == 2
+    native, deferred = [p for turn in t.turns for p in turn.parts if isinstance(p, ToolCallPart)][-2:]
+    assert (native.replay_name, native.replay_args) == ("mcp__k__find_artist", {"q": "x"})
+    assert (deferred.replay_name, deferred.replay_args) == (
+        "call_tool", {"name": "mcp__k__get_albums", "arguments": {"artist_id": 9}})

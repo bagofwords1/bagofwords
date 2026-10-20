@@ -3249,21 +3249,9 @@
           "name": "MCP & Custom API Tools",
           "description": "Allow connecting external MCP servers and custom API endpoints to data sources as tool providers"
         },
-        "enable_mcp_native_tools": {
-          "name": "Native MCP tool registration",
-          "description": "Register each external MCP / custom API tool as its own directly callable agent tool, instead of routing every call through the generic execute_mcp tool. Only takes effect once a report's tool catalog reaches the threshold below."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Native MCP tools threshold",
-          "description": "How many enabled MCP / custom API tools a report needs before native registration is used. Below this, native registration measures as a wash against the generic path, so the generic path is kept. Set to 0 to always register natively."
-        },
-        "mcp_native_tools_max": {
-          "name": "Max native MCP tools",
-          "description": "Upper bound on how many tools are registered natively for one report. Tools past the cap stay on the generic execute_mcp path, so a very large catalog cannot fill every request with permanent tool definitions."
-        },
-        "mcp_result_inline_chars": {
-          "name": "MCP result inline size",
-          "description": "How much of an MCP / custom API tool result the agent sees directly in its context, in characters. The complete response is always saved to a file whatever this is set to; this only decides how much the model can read without opening that file. Raise it so the agent can answer from a whole result set instead of a sample; lower it to spend fewer tokens per call. Set to 0 for a 3-record sample. Clamped to 0-500000."
+        "tools_max": {
+          "name": "Tools max",
+          "description": "How many external MCP / custom API tools are given to the agent as its own tools in one run. Past this number, the most used tools are kept and the rest stay reachable through tool search, so a very large catalog cannot fill every request with tool definitions."
         },
         "mcp_create_data_preview_rows": {
           "name": "MCP data preview rows",
