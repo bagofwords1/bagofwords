@@ -224,6 +224,33 @@ ignore:
           thrift only as a client via the Databricks connector, so the path is not
           reached. Re-review when the databricks cap relaxes.
         expires: 2026-12-21T00:00:00.000Z
+  # Regular Expression Denial of Service (ReDoS) in picomatch (High, CVSS 8.7).
+  # Reached ONLY through build-time glob/auto-import tooling in the frontend
+  # (Nuxt), never the shipped browser bundle or the production .output server.
+  # All 47 introduction paths run picomatch inside Nuxt build/dev machinery, e.g.:
+  #   nuxt > unimport > picomatch                 (build-time auto-imports)
+  #   nuxt > unplugin-vue-router > picomatch       (build-time route generation)
+  #   @nuxt/ui|nuxt-echarts|... > @nuxt/kit > tinyglobby > picomatch
+  #                                                (build-time file globbing)
+  #   @nuxt/ui > @nuxt/icon > picomatch            (build-time icon resolution)
+  # The ReDoS is driven by adversarial glob patterns; the only inputs picomatch
+  # sees here are the project's own globs / module paths during `nuxt build`,
+  # never attacker-controlled runtime request data, and picomatch does not run
+  # in the production .output server. picomatch 4.0.4 is the latest release and
+  # every version is flagged (fixedIn: []), so no upgrade remediates it; the
+  # upgradable paths require major bumps (nuxt 4.x / nuxt-tiptap-editor 3.x) and
+  # are resolved by the Nuxt 4 upgrade. Mirrors the frontend/.snyk entry.
+  # Time-boxed for re-review.
+  SNYK-JS-PICOMATCH-21248802:
+    - '*':
+        reason: >-
+          Build-time-only transitive (Nuxt auto-imports / route generation /
+          file globbing via unimport, unplugin-vue-router, tinyglobby and
+          @nuxt/icon); not in the production .output runtime request path. No
+          fixed picomatch version exists (4.0.4 is latest, all versions
+          affected). Re-review on expiry or when the Nuxt 4 upgrade drops the
+          chain.
+        expires: 2026-12-21T00:00:00.000Z
 exclude:
   code:
     - 'backend/tests'
