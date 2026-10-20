@@ -11,6 +11,8 @@ Contract:
     sorted by name, never by usage;
   * ``search_tools`` only returns tools the running user can reach, and
     ``call_tool`` refuses any other name — for members as well as admins;
+  * custom API connections take the same path: native tools, search past
+    the cap, and the call reaches the API through its real client;
   * a tool on two of the run's agents with different settings gets the
     strictest one, in the tool list and when it is called.
 
@@ -343,3 +345,75 @@ def test_when_the_catalog_cannot_be_built_the_run_falls_back_to_execute_mcp(
     assert "Call these tools with execute_mcp" in context
     assert "in your tool list as mcp__" not in context
     assert client._call_log == [{"tool_name": "echo", "arguments": {"message": "hi"}}]
+
+
+# ── Custom API connections take the same path ────────────────────────────
+
+@pytest.fixture
+def items_api():
+    """A real HTTP server for a custom API connection; records each request."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    seen: list = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.path)
+            body = json.dumps({"items": [{"id": 1, "name": "widget"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), Handler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    yield {"url": f"http://127.0.0.1:{srv.server_address[1]}", "seen": seen}
+    srv.shutdown()
+
+
+@pytest.fixture
+def custom_api_agent(test_client, org, items_api, create_custom_api_connection, create_domain_from_connection):
+    token, org_id = org["admin"]["token"], org["org_id"]
+    slug = f"items{uuid.uuid4().hex[:4]}"
+    conn = create_custom_api_connection(name=slug, base_url=items_api["url"], user_token=token, org_id=org_id)
+    r = test_client.post(f"/api/connections/{conn['id']}/refresh-tools", headers=org["h"])
+    assert r.status_code == 200, r.text
+    ds = create_domain_from_connection(name=f"{slug} agent", connection_id=conn["id"], user_token=token, org_id=org_id)
+    return {"slug": slug, "ds_id": str(ds["id"])}
+
+
+def _ask_real(test_client, user, org_id, data_sources):
+    """Like _ask, but the connection's real client makes the HTTP call."""
+    h = {"Authorization": f"Bearer {user['token']}", "X-Organization-Id": str(org_id)}
+    r = test_client.post("/api/reports", headers=h, json={"title": "api", "files": [], "data_sources": data_sources})
+    assert r.status_code == 200, r.text
+    r = test_client.post(f"/api/reports/{r.json()['id']}/completions", headers=h,
+                         params={"background": False}, json={"prompt": {"content": "Use the tools."}})
+    assert r.status_code == 200, r.text
+
+
+def test_a_custom_api_tool_is_native_and_its_call_reaches_the_api(test_client, org, planner, items_api, custom_api_agent):
+    name = _name(custom_api_agent["slug"], "get_items")
+    planner.queue = [(name, {"limit": 3})]
+    _ask_real(test_client, org["admin"], org["org_id"], [custom_api_agent["ds_id"]])
+    assert planner.mcp_tools(0) == [name], planner.requests[0]
+    assert "execute_mcp" not in planner.requests[0]
+    assert items_api["seen"] == ["/items?limit=3"], items_api["seen"]
+    assert "widget" in planner.results[-1], planner.results
+
+
+def test_a_custom_api_tool_past_the_cap_is_found_and_called(test_client, org, planner, monkeypatch, items_api, custom_api_agent):
+    monkeypatch.setenv("BOW_TOOLS_MAX", "0")
+    name = _name(custom_api_agent["slug"], "get_items")
+    planner.queue = [("search_tools", {"query": "items"}),
+                     ("call_tool", {"name": name, "arguments": {"limit": 2}})]
+    _ask_real(test_client, org["admin"], org["org_id"], [custom_api_agent["ds_id"]])
+    assert planner.mcp_tools(0) == [] and {"search_tools", "call_tool"} <= set(planner.requests[0])
+    assert name in planner.results[0], planner.results
+    assert items_api["seen"] == ["/items?limit=2"], items_api["seen"]
