@@ -38,6 +38,23 @@ logger = logging.getLogger(__name__)
 _STATIC_DIR = Path(__file__).parent / "static"
 _ICONS_DIR = _STATIC_DIR / "data_sources_icons"
 _ICON_MANIFEST = _STATIC_DIR / "type_icons.json"
+# Only meaningful in a source checkout: <repo>/frontend/public holds the
+# canonical icons the bundle is built from. Absent in the image.
+_REPO_FRONTEND_PUBLIC = Path(__file__).resolve().parents[3] / "frontend" / "public"
+_TYPE_SPECS = Path(__file__).resolve().parent.parent / "data_sources" / "type_specs.json"
+
+
+def _bundle_icons_from_checkout() -> None:
+    """Dev-checkout fallback: build the icon bundle from the repo's frontend
+    assets. A no-op outside a checkout; never fails app setup."""
+    if not _REPO_FRONTEND_PUBLIC.is_dir():
+        return
+    try:
+        from . import icons
+        manifest = icons.bundle(_REPO_FRONTEND_PUBLIC, _TYPE_SPECS, _ICONS_DIR, _ICON_MANIFEST)
+        logger.info("admin.icons.bundled_from_checkout", extra={"count": len(manifest)})
+    except Exception as e:  # pragma: no cover - environment dependent
+        logger.warning("admin.icons.bundle_failed", extra={"error": str(e)})
 # Credential entry never has a legitimate reason to be large; cap the body so a
 # loopback client can't wedge the agent with a giant payload.
 _MAX_BODY_BYTES = 256 * 1024
@@ -89,9 +106,13 @@ class AdminServer:
             web.get("/", self._index),
             web.get("/index.html", self._index),
         ])
-        # Brand icons for the type picker + connection cards (bundled). Guarded:
-        # a stripped image without the icons still serves the UI (monogram
-        # fallback), rather than failing app setup.
+        # Brand icons for the type picker + connection cards. They are a build
+        # artifact (admin/icons.py): the Docker build bundles them, and a dev
+        # checkout bundles them here from the frontend's assets on first start.
+        # Guarded: a stripped image without the icons still serves the UI
+        # (monogram fallback), rather than failing app setup.
+        if not _ICONS_DIR.is_dir():
+            _bundle_icons_from_checkout()
         if _ICONS_DIR.is_dir():
             app.router.add_static("/data_sources_icons/", path=str(_ICONS_DIR))
         return app
