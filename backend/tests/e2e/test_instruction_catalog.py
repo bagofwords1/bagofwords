@@ -8,6 +8,9 @@ InstructionContextBuilder.build() must:
   - advertise every non-inlined intelligent instruction (weak/zero matches and
     over-capacity ones) in section.available_instructions instead of dropping
     it, with its description and non-table references,
+  - never inline an intelligent instruction longer than
+    max_inline_instruction_tokens, even on a strong match: it is advertised
+    first in the catalog, flagged with what matched and its size,
   - render the catalog as <available_instructions> ONLY when
     render(include_catalog=True) is passed (the planner path) — tool-less
     consumers (coder/answer) keep the default render without it.
@@ -38,13 +41,21 @@ def _create(test_client, token, org_id, **fields):
     return resp.json()
 
 
-def _settings(max_instructions: int):
-    """Minimal organization_settings stand-in for max_instructions_in_context."""
+def _settings(max_instructions: int = 50, max_inline_tokens: int | None = None):
+    """Minimal organization_settings stand-in for the instruction limits."""
     def get_config(key):
         if key == "max_instructions_in_context":
             return SimpleNamespace(value=max_instructions)
+        if key == "max_inline_instruction_tokens" and max_inline_tokens is not None:
+            return SimpleNamespace(value=max_inline_tokens)
         return None
     return SimpleNamespace(get_config=get_config)
+
+
+def _long_body(marker: str, words: int) -> str:
+    """A body of roughly `words` words: first line short, marker deep inside."""
+    filler = " ".join(f"step{i}" for i in range(words))
+    return f"Detailed procedure.\n{filler} {marker} {filler}"
 
 
 @pytest.mark.e2e
@@ -351,3 +362,114 @@ async def test_table_scoped_instruction_matches_table_name_and_renders_tables_at
     )
     assert item.table_refs == ["Invoice"]
     assert 'tables="Invoice"' in section.render()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit,words", [(None, 900), (120, 200)])
+async def test_long_strong_match_is_advertised_not_inlined(
+    create_user, login_user, whoami, test_client, limit, words
+):
+    """A title match on an instruction over the size limit (default or a
+    custom org value) is NOT inlined; it is listed first in the catalog with
+    matched= and tokens= so the agent knows to read it."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    marker = f"LONG{uuid.uuid4().hex[:8]}"
+    long_inst = _create(
+        test_client, token, org_id, title="Revenue playbook", load_mode="intelligent",
+        text=_long_body(marker, words),
+    )
+    short_inst = _create(
+        test_client, token, org_id, title="Revenue rounding", load_mode="intelligent",
+        text="Round revenue to whole dollars.",
+    )
+    for i in range(3):
+        _create(
+            test_client, token, org_id, title=f"Ops rule {i}", load_mode="intelligent",
+            text=f"Unrelated logistics rule {i}.",
+        )
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(
+            db, SimpleNamespace(id=org_id), organization_settings=_settings(max_inline_tokens=limit)
+        )
+        section = await builder.build(query="revenue last quarter")
+
+    loaded_ids = {it.id for it in section.items}
+    assert short_inst["id"] in loaded_ids, "short strong match still inlines"
+    assert long_inst["id"] not in loaded_ids, "long strong match must not inline"
+    assert section.available_instructions[0].id == long_inst["id"], "matched entries list first"
+    entry = section.available_instructions[0]
+    assert entry.matched == "title"
+    assert entry.tokens and entry.tokens > (limit or InstructionContextBuilder.DEFAULT_MAX_INLINE_TOKENS)
+    rendered = section.render(include_catalog=True)
+    assert marker not in rendered
+    assert 'matched="title"' in rendered
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_zero_size_limit_inlines_long_strong_match(create_user, login_user, whoami, test_client):
+    """max_inline_instruction_tokens = 0 removes the size limit."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    marker = f"LONG{uuid.uuid4().hex[:8]}"
+    inst = _create(
+        test_client, token, org_id, title="Revenue playbook", load_mode="intelligent",
+        text=_long_body(marker, 900),
+    )
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(
+            db, SimpleNamespace(id=org_id), organization_settings=_settings(max_inline_tokens=0)
+        )
+        section = await builder.build(query="revenue last quarter")
+
+    assert inst["id"] in {it.id for it in section.items}
+    assert marker in section.render()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_long_smart_instruction_not_pulled_in_by_reference(
+    create_user, login_user, whoami, test_client
+):
+    """An inlined instruction that references a long smart instruction does
+    not drag its full text in; short referenced ones still come along."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    marker = f"LONG{uuid.uuid4().hex[:8]}"
+    long_dep = _create(
+        test_client, token, org_id, title="Close process", load_mode="intelligent",
+        text=_long_body(marker, 900),
+    )
+    short_dep = _create(
+        test_client, token, org_id, title="Fiscal calendar", load_mode="intelligent",
+        text="Fiscal year starts in February.",
+    )
+    _create(
+        test_client, token, org_id, title="Finance basics", load_mode="always",
+        text="Follow the finance rules.",
+        references=[
+            {"object_type": "instruction", "object_id": d["id"], "display_text": d["title"],
+             "relation_type": "scope"}
+            for d in (long_dep, short_dep)
+        ],
+    )
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
+        section = await builder.build(query="weekly active users")
+
+    loaded_ids = {it.id for it in section.items}
+    assert short_dep["id"] in loaded_ids
+    assert long_dep["id"] not in loaded_ids
+    assert marker not in section.render()
+    assert long_dep["id"] in {c.id for c in section.available_instructions}

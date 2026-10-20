@@ -101,6 +101,43 @@ Wider regression run: 258 passed for all instruction / skill / catalog /
 focus / roster / sub-agent e2e files, and 139 passed for the related unit
 tests.
 
+## Follow-up — long smart instructions are never inlined
+
+Even a strong match on a long smart instruction (for example a 3,000-word
+playbook whose title matches) should not land in the prompt. The agent sees
+it in the catalog and reads it with `read_instruction` when it needs it.
+
+- New org setting `max_inline_instruction_tokens` (default **500**; **0**
+  removes the limit). It appears on AI Settings → Limits, with strings in all
+  10 locales.
+- `instruction_context_builder.py`
+  - Strong matches over the limit go to the catalog instead of being inlined.
+    Size uses `count_tokens`, the same counter as the rest of the context.
+  - Matched entries are listed **first**, with `matched="title|labels|tables"`
+    and `tokens="N"`. The catalog intro tells the agent to read entries marked
+    `matched=`.
+  - Long smart instructions are also no longer pulled in when an inlined
+    instruction references them.
+- Unchanged: `always` instructions (any length) and `describe_tables`.
+
+Loop A additions (`test_instruction_catalog.py`, planner-prompt test):
+
+```
+# on the previous commit (rule absent)
+FAILED test_long_strong_match_is_advertised_not_inlined[None-900]   long strong match must not inline
+FAILED test_long_strong_match_is_advertised_not_inlined[120-200]    long strong match must not inline
+FAILED test_long_smart_instruction_not_pulled_in_by_reference
+FAILED test_planner_prompt_inlines_strong_matches_and_advertises_the_rest   long instruction must not be inlined
+4 failed, 10 passed
+
+# with the change
+14 passed
+```
+
+Wider run: 301 passed (instruction / skill / catalog / focus / roster /
+sub-agent / settings e2e). In a live stack, `PUT /api/organization/settings`
+saves the value and `GET` reads it back (500 → 300 → 500).
+
 ## What this proves / regression notes
 
 - The planner prompt carries the full text of title-, label- or table-matched

@@ -63,6 +63,11 @@ class SkillCatalogItem(BaseModel):
     # "resource:orders_model"), so the agent can judge relevance without
     # opening the entry.
     other_refs: List[str] = []
+    # Which field the user's message strongly matched ('title' | 'labels' |
+    # 'tables'), set when a matching instruction was too long to inline.
+    matched: Optional[str] = None
+    # Approximate size of the full text, so the agent knows what a read costs.
+    tokens: Optional[int] = None
     # Aggregated org-wide usage (InstructionStats), used for ordering.
     usage_count: Optional[int] = None
 
@@ -128,7 +133,9 @@ class InstructionsSection(ContextSection):
                 "Each entry lists a short id and title (and the tables and other "
                 "objects it references) — the full text is NOT shown here. If an entry looks relevant "
                 "to the user's request, call read_instruction with its short_id to "
-                "load the full text BEFORE acting. If you suspect a rule exists but "
+                "load the full text BEFORE acting. Entries marked matched=... "
+                "matched the user's request but are too long to show inline — "
+                "read them. If you suspect a rule exists but "
                 "nothing here matches, call search_instructions."
             ]
             for ref in self.available_instructions:
@@ -137,6 +144,10 @@ class InstructionsSection(ContextSection):
                     attrs["tables"] = self._tables_attr(ref.table_refs)
                 if ref.other_refs:
                     attrs["refs"] = self._tables_attr(ref.other_refs)
+                if ref.matched:
+                    attrs["matched"] = ref.matched
+                if ref.tokens:
+                    attrs["tokens"] = str(ref.tokens)
                 body = xml_escape((ref.description or "").strip())
                 cat_parts.append(xml_tag("instruction_ref", body, attrs))
             rendered.append(xml_tag("available_instructions", "\n".join(cat_parts)))

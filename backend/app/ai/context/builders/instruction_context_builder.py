@@ -2,6 +2,7 @@ from typing import List, Optional, Set, Tuple, Dict
 import re
 
 from app.ai.context import keyword_match as _km
+from app.ai.utils.token_counter import count_tokens
 import logging
 
 from sqlalchemy import select, and_, or_, func, exists
@@ -43,7 +44,10 @@ class InstructionContextBuilder:
        title, description, references) and read on demand, like skills. A
        query-less build has nothing to judge, so it inlines no intelligent
        instructions at all — catalog only.
-    4. Skip 'disabled' instructions
+    4. A LONG intelligent instruction (over max_inline_instruction_tokens) is
+       never inlined, even on a strong match: it is advertised (flagged
+       matched=... when it matched) and read on demand via read_instruction.
+    5. Skip 'disabled' instructions
 
     The max_instructions_in_context setting (default 50) controls total capacity.
     'Always' instructions take priority and can exceed the limit.
@@ -62,6 +66,10 @@ class InstructionContextBuilder:
     
     # Default max instructions in context
     DEFAULT_MAX_INSTRUCTIONS = 50
+
+    # Intelligent instructions longer than this (tokens) are never inlined;
+    # the agent reads them on demand. 0 disables the size limit.
+    DEFAULT_MAX_INLINE_TOKENS = 500
 
     # Max advertised (not force-loaded) intelligent instructions in the
     # <available_instructions> catalog.
@@ -111,6 +119,23 @@ class InstructionContextBuilder:
             except Exception:
                 pass
         return self.DEFAULT_MAX_INSTRUCTIONS
+
+    def _get_max_inline_tokens(self) -> int:
+        """Size cap (tokens) for inlining an intelligent instruction; 0 = no cap."""
+        if self.organization_settings:
+            try:
+                config = self.organization_settings.get_config("max_inline_instruction_tokens")
+                if config and config.value is not None:
+                    return max(0, int(config.value))
+            except Exception:
+                pass
+        return self.DEFAULT_MAX_INLINE_TOKENS
+
+    def _is_too_long_to_inline(self, text: Optional[str], tokens: Optional[int] = None) -> bool:
+        limit = self._get_max_inline_tokens()
+        if limit <= 0:
+            return False
+        return (tokens if tokens is not None else count_tokens(text or "")) > limit
 
     async def load_instructions(
         self,
@@ -938,7 +963,7 @@ class InstructionContextBuilder:
         # then aggregated usage. Zero-score candidates rank last but are kept.
         keywords = self._extract_keywords(query) if query else set()
         ranked: List[Tuple[InstructionItem, float, InstructionVersion]] = []
-        strong_ids: Set[str] = set()
+        matched_by: Dict[str, str] = {}
         for content, instruction, version in intelligent_contents:
             inst_id = str(instruction.id)
             refs = _table_refs_for(inst_id, version)
@@ -949,8 +974,9 @@ class InstructionContextBuilder:
             score = self._score_instruction_version(
                 version, keywords, extra_text=extra_text,
             )
-            if self._is_strong_match(f"{version.title or ''} {extra_text}", keywords):
-                strong_ids.add(inst_id)
+            hit = self._strong_match_field(version.title, label_names, " ".join(refs), keywords)
+            if hit:
+                matched_by[inst_id] = hit
             item = InstructionItem(
                 id=inst_id,
                 category=instruction.category,
@@ -979,9 +1005,15 @@ class InstructionContextBuilder:
 
         remaining_slots = max(0, max_instructions - len(always_items))
         # Relevance gate: inline only STRONG matches (title / labels / table
-        # names). The rest are advertised in <available_instructions> and read
-        # on demand via read_instruction. A query-less build inlines none.
-        loadable = [entry for entry in ranked if entry[0].id in strong_ids][:remaining_slots]
+        # names) that are short enough. The rest are advertised in
+        # <available_instructions> and read on demand via read_instruction.
+        # A query-less build inlines none.
+        token_sizes = {it.id: count_tokens(it.text or "") for it, _, _ in ranked}
+        loadable = [
+            entry for entry in ranked
+            if entry[0].id in matched_by
+            and not self._is_too_long_to_inline(entry[0].text, token_sizes[entry[0].id])
+        ][:remaining_slots]
         intelligent_items = [it for it, _, _ in loadable]
 
         # Everything not loaded — zero-score matches AND over-capacity ones — is
@@ -997,8 +1029,10 @@ class InstructionContextBuilder:
                 table_refs=it.table_refs,
                 other_refs=self._version_other_refs(version),
                 usage_count=it.usage_count,
+                matched=matched_by.get(it.id),
+                tokens=token_sizes.get(it.id),
             )
-            for it, _, version in ranked
+            for it, _, version in self._matched_first(ranked, matched_by)
             if it.id not in loaded_intelligent_ids
         ][: self.CATALOG_LIMIT]
 
@@ -1070,18 +1104,25 @@ class InstructionContextBuilder:
         usage_counts = await self._batch_load_usage_counts(all_instruction_ids)
         table_refs = await self._batch_load_table_refs(all_instruction_ids)
 
-        def _legacy_priority_text(inst: Instruction) -> str:
+        matched_by: Dict[str, str] = {}
+        token_sizes: Dict[str, int] = {}
+        for inst, _ in intelligent_ranked:
             labels = " ".join(l.name for l in (self._extract_labels(inst) or []) if l.name)
             refs = " ".join(table_refs.get(str(inst.id), []))
-            return f"{inst.title or ''} {labels} {refs}"
+            hit = self._strong_match_field(inst.title, labels, refs, keywords)
+            if hit:
+                matched_by[str(inst.id)] = hit
+            token_sizes[str(inst.id)] = count_tokens(inst.text or "")
 
         intelligent_results = [
             (i, s) for i, s in intelligent_ranked
-            if self._is_strong_match(_legacy_priority_text(i), keywords)
+            if str(i.id) in matched_by
+            and not self._is_too_long_to_inline(i.text, token_sizes[str(i.id)])
         ][:remaining_slots]
         loaded_intelligent_ids = {str(i.id) for i, _ in intelligent_results}
         catalog_candidates = [
-            (i, s) for i, s in intelligent_ranked if str(i.id) not in loaded_intelligent_ids
+            (i, s) for i, s in self._matched_first(intelligent_ranked, matched_by)
+            if str(i.id) not in loaded_intelligent_ids
         ]
         other_refs = await self._batch_load_other_refs(
             [str(i.id) for i, _ in catalog_candidates]
@@ -1138,6 +1179,8 @@ class InstructionContextBuilder:
                 table_refs=table_refs.get(str(inst.id), []),
                 other_refs=other_refs.get(str(inst.id), []),
                 usage_count=usage_counts.get(str(inst.id)),
+                matched=matched_by.get(str(inst.id)),
+                tokens=token_sizes.get(str(inst.id)),
             )
             for inst, _ in catalog_candidates
             if str(inst.id) not in seen_ids
@@ -1229,6 +1272,10 @@ class InstructionContextBuilder:
                     continue
                 if version.load_mode == "disabled":
                     continue
+                # Long smart instructions are read on demand, never pulled in
+                # through a reference.
+                if version.load_mode == "intelligent" and self._is_too_long_to_inline(version.text):
+                    continue
 
                 inst_id = str(instruction.id)
                 dep_items.append(InstructionItem(
@@ -1267,6 +1314,8 @@ class InstructionContextBuilder:
             usage_counts = await self._batch_load_usage_counts(list(missing_ids))
 
             for inst in instructions:
+                if inst.load_mode == "intelligent" and self._is_too_long_to_inline(inst.text):
+                    continue
                 inst_id = str(inst.id)
                 dep_items.append(InstructionItem(
                     id=inst_id,
@@ -1478,6 +1527,8 @@ class InstructionContextBuilder:
         table_refs: List[str],
         usage_count: Optional[int],
         other_refs: Optional[List[str]] = None,
+        matched: Optional[str] = None,
+        tokens: Optional[int] = None,
     ) -> SkillCatalogItem:
         """Build an <available_instructions> catalog entry.
 
@@ -1505,6 +1556,8 @@ class InstructionContextBuilder:
                 table_refs=table_refs,
                 other_refs=other_refs or [],
                 usage_count=usage_count,
+                matched=matched,
+                tokens=tokens,
             )
 
         snippet = " ".join((text or "").split())
@@ -1518,6 +1571,8 @@ class InstructionContextBuilder:
             table_refs=table_refs,
             other_refs=other_refs or [],
             usage_count=usage_count,
+            matched=matched,
+            tokens=tokens,
         )
     
     async def _get_user_inaccessible_table_ids(self, candidate_ids: Set[str]) -> Set[str]:
@@ -1748,6 +1803,24 @@ class InstructionContextBuilder:
         if extra_text:
             priority_parts.append(extra_text)
         return self._combined_score(" ".join(parts), " ".join(priority_parts), keywords)
+
+    def _strong_match_field(
+        self, title: Optional[str], labels: str, tables: str, keywords: Set[str]
+    ) -> Optional[str]:
+        """Which priority field a query keyword hit: 'title', 'labels' or
+        'tables' (first hit wins), or None for no strong match."""
+        for name, text in (("title", title or ""), ("labels", labels), ("tables", tables)):
+            if self._is_strong_match(text, keywords):
+                return name
+        return None
+
+    @staticmethod
+    def _matched_first(ranked: list, matched_by: Dict[str, str]) -> list:
+        """Stable reorder putting strong matches (e.g. long ones that were not
+        inlined) at the top of the catalog."""
+        def _id(entry) -> str:
+            return str(entry[0].id)
+        return [e for e in ranked if _id(e) in matched_by] + [e for e in ranked if _id(e) not in matched_by]
 
     def _is_strong_match(self, priority: str, keywords: Set[str]) -> bool:
         """True when a query keyword hits the priority text (title, labels,

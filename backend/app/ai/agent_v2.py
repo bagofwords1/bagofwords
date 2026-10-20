@@ -5299,6 +5299,7 @@ class AgentV2:
                                 _ib = InstructionContextBuilder(
                                     self.db, self.organization,
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
+                                    organization_settings=self.organization_settings,
                                     data_source_ids=_instr_scope,
                                     mode=self._instruction_mode,
                                 )

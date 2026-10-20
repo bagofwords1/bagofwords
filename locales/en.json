@@ -3297,6 +3297,10 @@
           "name": "Max instructions in context",
           "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots."
         },
+        "max_inline_instruction_tokens": {
+          "name": "Max smart instruction size in context (tokens)",
+          "description": "Smart instructions longer than this are never added to the AI context in full. The agent sees their title and reads them only when it needs them. 0 removes the limit."
+        },
         "allow_report_webhooks": {
           "name": "Report Webhooks",
           "description": "Allow external systems (GitHub, Jira, generic services) to send events to reports via inbound webhooks. Master switch for the whole feature."

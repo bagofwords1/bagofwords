@@ -3006,6 +3006,10 @@
           "name": "Máximo de instruções no contexto",
           "description": "Número máximo de instruções a incluir no contexto da IA. As instruções do tipo 'sempre' são carregadas primeiro e depois as 'inteligentes' preenchem as vagas restantes."
         },
+        "max_inline_instruction_tokens": {
+          "name": "Tamanho máximo de instrução inteligente no contexto (tokens)",
+          "description": "Instruções inteligentes maiores que isto nunca são adicionadas por completo ao contexto da IA. O agente vê o título e só as lê quando precisa. 0 remove o limite."
+        },
         "allow_report_webhooks": {
           "name": "Webhooks de relatório",
           "description": "Permite que sistemas externos (GitHub, Jira, serviços genéricos) enviem eventos para relatórios por meio de webhooks de entrada. Chave mestra de todo o recurso."

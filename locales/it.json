@@ -3006,6 +3006,10 @@
           "name": "Numero massimo di istruzioni nel contesto",
           "description": "Numero massimo di istruzioni da includere nel contesto dell'IA. Le istruzioni di tipo 'sempre' vengono caricate per prime, poi quelle 'intelligenti' occupano i posti rimanenti."
         },
+        "max_inline_instruction_tokens": {
+          "name": "Dimensione massima istruzione smart nel contesto (token)",
+          "description": "Le istruzioni smart più lunghe di questo valore non vengono mai aggiunte per intero al contesto dell'IA. L'agente ne vede il titolo e le legge solo quando servono. 0 rimuove il limite."
+        },
         "allow_report_webhooks": {
           "name": "Webhook dei report",
           "description": "Consente a sistemi esterni (GitHub, Jira, servizi generici) di inviare eventi ai report tramite webhook in ingresso. Interruttore principale dell'intera funzionalità."

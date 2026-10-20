@@ -5,6 +5,8 @@ Contract, checked on the prompt a real completion run sends to the LLM:
     (a keyword hits its title / labels / table names) is inlined in full,
   * one that matches only in its body is advertised in
     <available_instructions> (short id + title), its body NOT in the prompt,
+  * a strong match that is LONG (over the size limit) is advertised with
+    matched=..., never inlined,
   * 'always' instructions are inlined regardless.
 
 The LLM boundary is stubbed and records every prompt; routes, services,
@@ -82,6 +84,13 @@ def test_planner_prompt_inlines_strong_matches_and_advertises_the_rest(test_clie
         # marker sits on the second line, which only an inline load carries.
         text=f"Net figures rule.\nNet revenue always excludes refunds. {weak_marker}",
     )
+    # Strong (title) match, but over the default size limit: listed, not inlined.
+    long_marker = f"LONG{uuid.uuid4().hex[:8]}"
+    filler = " ".join(f"step{i}" for i in range(900))
+    long = _instruction(
+        test_client, env, title="Revenue playbook", load_mode="intelligent",
+        text=f"Detailed procedure.\n{filler} {long_marker} {filler}",
+    )
     _instruction(
         test_client, env, title="Currency", load_mode="always",
         text=f"Answer in USD. {always_marker}",
@@ -112,3 +121,6 @@ def test_planner_prompt_inlines_strong_matches_and_advertises_the_rest(test_clie
     catalog = blocks[-1]
     assert f'short_id="{weak["id"][:8]}"' in catalog, "body-only match must be advertised"
     assert f'short_id="{strong["id"][:8]}"' not in catalog, "inlined match must not be advertised too"
+    assert long_marker not in prompt, "long instruction must not be inlined"
+    long_ref = re.search(rf'<instruction_ref[^>]*short_id="{long["id"][:8]}"[^>]*>', catalog)
+    assert long_ref and 'matched="title"' in long_ref.group(0), "long match must be flagged"
