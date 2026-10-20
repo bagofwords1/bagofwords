@@ -4,7 +4,7 @@
 - Added instruction and table-selection tools to the BOW MCP server for agent managers (#1427) — `read_instruction`, `edit_instruction`, `describe_tables`, `edit_schema`
 - Added a cap on MCP tools offered to the agent, with tool search for the rest (#1426) — `tools_max` in AI Settings → Tools & MCP (default 50)
 - Added Priority form and column titles to the agent's context and to result headers (#1396)
-- Changed agent replies to arrive faster: pooled MCP sessions, fewer context rebuilds, and earlier non-streaming API responses (#1426)
+- Changed agent replies to arrive faster: shared LLM and MCP connections, fewer context rebuilds, and earlier non-streaming API responses (#1426)
 - Changed MCP tools to follow the agents a run uses, in Auto and pinned agents (#1426)
 - Fixed MCP instruction tools ignoring agent permissions: members could attach rules to agents they can't see, and owners couldn't delete them (#1427)
 - Fixed users without a grant getting a restricted model when the org has no default model (#1430)
