@@ -34,6 +34,17 @@ COPY data_plane/pyproject.toml data_plane/uv.lock ./
 # wheel, so we only need its locked dependencies here. --no-dev keeps pytest out.
 RUN uv sync --frozen --no-dev --no-install-project
 
+# Admin-UI brand icons, bundled from the frontend's canonical assets at build
+# time (they are not tracked in git — see data_edge_agent/admin/icons.py).
+# Done here so the runtime image carries only the bundle, never the full set.
+COPY frontend/public/data_sources_icons /build/frontend/public/data_sources_icons
+COPY frontend/public/icons /build/frontend/public/icons
+COPY data_plane/data_edge_agent/data_sources/type_specs.json /build/type_specs.json
+COPY data_plane/data_edge_agent/admin/icons.py /build/icons.py
+RUN python /build/icons.py --frontend-public /build/frontend/public \
+        --specs /build/type_specs.json --out /build/static/data_sources_icons \
+        --manifest /build/static/type_icons.json
+
 # ── runtime ─────────────────────────────────────────────────────────────────
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -65,6 +76,7 @@ COPY --from=builder /opt/venv /opt/venv
 # Agent source, then the reused backend clients. Copied as two layers so a
 # backend-client change does not bust the agent-source layer and vice versa.
 COPY data_plane/data_edge_agent /opt/bow/data_plane/data_edge_agent
+COPY --from=builder /build/static /opt/bow/data_plane/data_edge_agent/admin/static
 COPY data_plane/pyproject.toml /opt/bow/data_plane/pyproject.toml
 COPY backend/app /opt/bow/backend/app
 
