@@ -158,7 +158,10 @@ dev = [
 # mako < 1.4.2 is affected by SNYK-PYTHON-MAKO-20510290 (High, Directory
 # Traversal), fixed in 1.4.2. mako is pulled in transitively via alembic, which
 # requires "Mako" with no upper bound, so constraining to >= 1.4.2 is safe.
-constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0", "mako>=1.4.2"]
+# aiohttp < 3.14.4 is affected by CVE-2026-111064 (High, no initial request/header
+# timeout) and GHSA-2g87-pp6c-29x5 (High, unbounded memory/CPU use), both fixed
+# in 3.14.4. aiohttp is pulled in transitively (e.g. via SDK clients).
+constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0", "mako>=1.4.2", "aiohttp>=3.14.4"]
 # Security override: force cryptography >= 50.0.0 to fix the PKCS#7 EnvelopedData
 # Bleichenbacher oracle (GHSA-g6cj-pr64-35w5 / SNYK-PYTHON-CRYPTOGRAPHY-18516621,
 # High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail
