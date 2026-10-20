@@ -109,8 +109,8 @@ def _req(operation, **kwargs):
 
 @pytest.mark.asyncio
 async def test_handle_request_records_an_audit_entry_on_unknown_connection():
-    # No such connection -> _NotImplemented -> outcome "not_implemented",
-    # and an audit line is still written (every terminal path records).
+    # No such connection -> its own error (not "method not found"), and an
+    # audit line is still written (every terminal path records).
     audit = AuditLog(None)
     cfg = AgentConfig(org_id="cust-b", edge_agent_id="nyc-01", connections=[])
     t = EdgeAgentTunnel(cfg, audit=audit)
@@ -119,9 +119,11 @@ async def test_handle_request_records_an_audit_entry_on_unknown_connection():
     assert len(audit) == 1
     e = audit.recent()[0]
     assert e["operation"] == "execute_query"
-    assert e["outcome"] == "not_implemented"
+    assert e["outcome"] == "error"
     assert e["request_id"] == "q_1"
     assert "duration_ms" in e
+    reply = json.loads(msg.responses[0])
+    assert reply["error"]["data"]["kind"] == "unknown_connection"
 
 
 @pytest.mark.asyncio

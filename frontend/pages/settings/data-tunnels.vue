@@ -389,7 +389,7 @@ const sections = computed(() => [
 const selectedKey = ref<'connect' | 'agents'>('connect')
 
 // ── Provisioning capabilities ────────────────────────────────────────────
-interface Caps { enabled: boolean; agent_url: string | null }
+interface Caps { enabled: boolean; agent_url: string | null; agent_image?: string | null }
 const caps = ref<Caps | null>(null)
 
 const loadCaps = async () => {
@@ -498,6 +498,9 @@ const extractCmdFor = (id?: string | null) => {
 // Wizard step 3 uses the agent just created.
 const extractCmd = computed(() => extractCmdFor(createdAgent.value?.edge_agent_id || agentId.value))
 
+// The image comes from the server (data_tunnel.agent_image) so an air-gapped
+// or pinned deployment can point the snippet at its own registry.
+const DEFAULT_AGENT_IMAGE = 'bagofwords/data-edge-agent:latest'
 const runCmd = computed(() => [
   '# From the extracted bundle directory:',
   'docker run -d --name bow-data-edge-agent --restart unless-stopped \\',
@@ -508,7 +511,7 @@ const runCmd = computed(() => [
   '  -e BOW_EDGE_AGENT_ADMIN_HOST=0.0.0.0 \\',
   '  -v bow-edge-data:/data \\',
   '  -p 127.0.0.1:9191:9191 \\',
-  '  bow/data-edge-agent:latest',
+  `  ${caps.value?.agent_image || DEFAULT_AGENT_IMAGE}`,
 ].join('\n'))
 
 // ── Bundle download (any agent) ───────────────────────────────────────────

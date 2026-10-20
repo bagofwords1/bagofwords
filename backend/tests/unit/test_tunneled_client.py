@@ -129,16 +129,19 @@ class _StubTunnel:
         self._loop = asyncio.get_event_loop()
         self._result = result
         self.calls = []
+        self.timeouts = []  # the budget each call was given, in call order
 
     async def invoke(self, connection, operation, kwargs, *, timeout=60.0,
                      user_credentials=None):
         self.calls.append((operation, kwargs))
+        self.timeouts.append(timeout)
         return self._result
 
     async def invoke_streaming(self, connection, operation, kwargs, *, timeout,
                                progress_callback=None, cancel_check=None,
                                user_credentials=None):
         self.calls.append((operation, kwargs))
+        self.timeouts.append(timeout)
         return self._result
 
 
@@ -157,6 +160,33 @@ async def test_proxy_is_instantiable_and_holds_no_creds():
     assert c._user_credentials is None
     assert "lego-pg" in c.description
     assert c.catalog_identity_available is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored, expected", [
+    (None, True),      # agent did not say: the safe reading of no information
+    (True, True),
+    (False, False),    # only an explicit False turns the crawl non-authoritative
+])
+async def test_proxy_catalog_identity_follows_the_row_with_true_as_the_default(stored, expected):
+    config = {} if stored is None else {"catalog_identity_available": stored}
+    c = _tunneled({"value": [], "index_stats": {}}, config=config)
+    assert c.catalog_identity_available is expected
+    # a stored None (older rows) must read as the default too, never as False
+    c2 = _tunneled({"value": [], "index_stats": {}}, config={"catalog_identity_available": None})
+    assert c2.catalog_identity_available is True
+
+
+@pytest.mark.asyncio
+async def test_proxy_index_budget_comes_from_the_row_when_advertised():
+    from app.data_sources.clients.tunneled_client import TUNNEL_FALLBACK_INDEX_SECONDS
+    advertised = _tunneled({"value": [], "index_stats": {}}, config={"index_timeout_seconds": 1234})
+    await advertised.aget_schemas()
+    assert advertised._tunnel.timeouts[-1] == 1234
+
+    unadvertised = _tunneled({"value": [], "index_stats": {}}, config={"index_timeout_seconds": None})
+    await unadvertised.aget_schemas()
+    assert unadvertised._tunnel.timeouts[-1] == TUNNEL_FALLBACK_INDEX_SECONDS
 
 
 @pytest.mark.asyncio

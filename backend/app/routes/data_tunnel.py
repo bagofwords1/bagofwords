@@ -73,6 +73,7 @@ async def get_provisioning_capabilities(
     return ProvisioningCapabilities(
         enabled=await prov.is_available(),
         agent_url=settings.bow_config.data_tunnel.agent_url,
+        agent_image=settings.bow_config.data_tunnel.agent_image,
     )
 
 
@@ -118,9 +119,21 @@ async def create_data_edge_agent(
         await prov.create_certificate(organization.id, body.edge_agent_id)
         await prov.ensure_account_user(organization.id, body.edge_agent_id)
     except prov.ProvisioningError as e:
-        # Roll back the pre-registration so the wizard can be retried cleanly.
-        await service.delete_agent(db, organization, agent)
+        # Roll back everything so the wizard can be retried cleanly: the row,
+        # and whatever cluster objects the partial run created (a Certificate
+        # that is left behind would make the retry's create a silent 409
+        # "reuse" of a cert the admin never saw issued). Cluster cleanup is
+        # best-effort — the cluster is what just failed.
         logger.exception("tunnel.provisioning.failed", extra={"edge_agent_id": body.edge_agent_id})
+        try:
+            await prov.remove_account_user(organization.id, body.edge_agent_id)
+            await prov.delete_certificate(organization.id, body.edge_agent_id)
+        except prov.ProvisioningError:
+            logger.warning(
+                "tunnel.provisioning.rollback_failed",
+                extra={"edge_agent_id": body.edge_agent_id}, exc_info=True,
+            )
+        await service.delete_agent(db, organization, agent)
         raise HTTPException(status_code=502, detail=f"Provisioning failed: {e}")
 
     return _to_schema(agent)

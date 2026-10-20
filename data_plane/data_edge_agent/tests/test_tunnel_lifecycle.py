@@ -77,14 +77,17 @@ async def test_apply_existing_replaces_without_new_sub_and_drops_client_cache():
                                "config": {"host": "old"}}]))
     t._nc = StubNC()
     await t.subscribe()
-    t._clients["prod-pg"] = object()                # pretend a pooled client
+    stale = object()
+    t._clients["prod-pg"] = stale                   # pretend a pooled client
     subs_before = len(t._nc.subs)
 
     updated = ConnectionConfig(name="prod-pg", type="postgresql", config={"host": "new"})
     await t.apply_connection(updated)
 
     assert t.get_connection("prod-pg").config["host"] == "new"
-    assert "prod-pg" not in t._clients              # stale client dropped
+    # Stale client dropped. (Re-advertising may lazily rebuild one from the
+    # new config to read its capabilities; it must not be the old object.)
+    assert t._clients.get("prod-pg") is not stale
     assert len(t._nc.subs) == subs_before           # subject reused, no new sub
     assert _last_advertised(t._nc) == ["prod-pg"]
 

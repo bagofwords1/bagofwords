@@ -176,3 +176,75 @@ async def test_sweep_marks_offline_and_deactivates_connections():
         a = (await db.execute(select(DataEdgeAgent).filter(DataEdgeAgent.organization_id == org_id))).scalar_one()
         assert a.status == "offline"
     assert conns["lego-pg"].is_active is False
+
+
+@pytest.mark.asyncio
+async def test_sweep_is_bounded_to_the_workers_org():
+    """A per-org worker only receives its own org's heartbeats, so a sweep
+    scoped to that org must leave every other org's agents untouched."""
+    import datetime
+    from app.services.tunnel_registration_service import sweep_stale_agents
+    from app.models.data_edge_agent import DataEdgeAgent
+    mine, theirs = await _org(), await _org()
+    await register_advertisement(mine, _ad(edge_agent_id="mine-01"))
+    await register_advertisement(theirs, _ad(edge_agent_id="theirs-01"))
+    old = datetime.datetime.utcnow() - datetime.timedelta(seconds=999)
+    async with async_session_maker() as db:
+        for a in (await db.execute(select(DataEdgeAgent))).scalars().all():
+            if a.organization_id in (mine, theirs):
+                a.last_heartbeat_at = old
+                a.last_advertised_at = old
+        await db.commit()
+
+    await sweep_stale_agents(stale_after_s=45, offline_after_s=120, org_id=mine)
+
+    assert (await _agents(mine))[0].status == "offline"
+    assert (await _agents(theirs))[0].status == "online"       # not this worker's call
+    assert (await _connections(theirs))["lego-pg"].is_active is True
+
+
+@pytest.mark.asyncio
+async def test_wizard_label_survives_the_agents_advertisement():
+    """The label an admin chose in the install wizard is Bow's name for the
+    agent; the advertised edge_agent_name must not overwrite it."""
+    org_id = await _org()
+    svc = TunnelRegistrationService()
+    async with async_session_maker() as db:
+        org = (await db.execute(select(Organization).filter(Organization.id == org_id))).scalar_one()
+        await svc.create_agent(db, org, "nyc-01", "Finance DC")
+
+    await register_advertisement(org_id, _ad(edge_agent_id="nyc-01"))  # advertises "NYC Office"
+
+    agent = (await _agents(org_id))[0]
+    assert agent.label == "Finance DC"
+    assert agent.status == "online"
+    assert agent.last_advertisement["edge_agent_name"] == "NYC Office"  # still visible
+
+
+@pytest.mark.asyncio
+async def test_advertised_name_fills_in_when_no_label_was_chosen():
+    org_id = await _org()
+    await register_advertisement(org_id, _ad())
+    assert (await _agents(org_id))[0].label == "NYC Office"
+
+
+@pytest.mark.asyncio
+async def test_connection_row_carries_the_budgets_and_identity_the_proxy_reads():
+    """TunneledClient reads its budgets and catalog capability off
+    Connection.config, so registration must put them there: the agent-level
+    index budget on every row, and catalog_identity_available as a real bool
+    that defaults to True when the agent does not say."""
+    org_id = await _org()
+    ad = _ad(name_types=(("says-false", "sharepoint"), ("says-nothing", "postgresql")),
+             index_timeout_seconds=1234)
+    ad["connections"][0]["catalog_identity_available"] = False
+    ad["connections"][0]["query_timeout_seconds"] = 77
+
+    await register_advertisement(org_id, ad)
+
+    conns = await _connections(org_id)
+    assert conns["says-false"].config["catalog_identity_available"] is False
+    assert conns["says-nothing"].config["catalog_identity_available"] is True
+    assert conns["says-false"].config["query_timeout_seconds"] == 77
+    for c in conns.values():
+        assert c.config["index_timeout_seconds"] == 1234

@@ -36,6 +36,13 @@ _RPC_ERROR = -32000
 # A query that exceeded its budget. The control plane translates this back into
 # QueryTimeoutError so the codegen retry loop behaves as in direct mode (B3).
 _QUERY_TIMEOUT = -32001
+# The subject named a connection this agent does not serve. Distinct from
+# "method not found": the operation is fine, the target is not, and the control
+# plane must not confuse the two (an unknown connection is a registration
+# mismatch; an unimplemented operation is a version mismatch).
+_UNKNOWN_CONNECTION = -32002
+# An in-flight operation was cancelled through the control subject (A9/C3).
+_CANCELLED = -32003
 
 # Operations the edge agent executes against the real client. Others still get
 # a JSON-RPC "not implemented" so a caller sees an error, not a timeout.
@@ -57,6 +64,18 @@ class _QueryTimeout(Exception):
         super().__init__(f"query exceeded {timeout_s}s")
         self.timeout_s = timeout_s
         self.sql = sql
+
+
+class _UnknownConnection(Exception):
+    """The request addressed a connection this agent does not serve."""
+
+    def __init__(self, connection_name: str):
+        super().__init__(f"unknown connection {connection_name!r}")
+        self.connection_name = connection_name
+
+
+class _Cancelled(Exception):
+    """The operation was cancelled via the control subject before it finished."""
 
 # Shutdown must complete even if the transport will not cooperate.
 _SHUTDOWN_TIMEOUT = 5.0
@@ -261,7 +280,12 @@ class EdgeAgentTunnel:
                 # so the body goes to DEBUG and credentials are stripped.
                 extra={"params": _redact(params)},
             )
-            result = await self._dispatch(connection_name, operation, params, audit_meta)
+            # The JSON-RPC id lives on the envelope, not in params: it is what
+            # the control plane's cancel names (A9), so it is what the
+            # in-flight registry is keyed by.
+            result = await self._dispatch(
+                connection_name, operation, params, audit_meta, request_id=request_id
+            )
         except json.JSONDecodeError as e:
             logger.warning(
                 "edge_agent.request.malformed",
@@ -283,6 +307,23 @@ class EdgeAgentTunnel:
                 msg, request_id, operation, str(e),
                 code=_QUERY_TIMEOUT,
                 data={"kind": "query_timeout", "timeout_s": e.timeout_s, "sql": e.sql},
+            )
+            return
+        except _UnknownConnection as e:
+            self._audit_record(connection_name, operation, started, "error",
+                               request_id, error=str(e))
+            await self._respond_error(
+                msg, request_id, operation, str(e),
+                code=_UNKNOWN_CONNECTION,
+                data={"kind": "unknown_connection", "connection": e.connection_name},
+            )
+            return
+        except _Cancelled:
+            self._audit_record(connection_name, operation, started, "cancelled",
+                               request_id, sql=sql)
+            await self._respond_error(
+                msg, request_id, operation, "cancelled by control plane",
+                code=_CANCELLED, data={"kind": "cancelled"},
             )
             return
         except Exception as e:  # any failure becomes a JSON-RPC error, never a timeout
@@ -321,11 +362,9 @@ class EdgeAgentTunnel:
         System-credential clients are cached — constructing one opens a pool.
         Per-user credentials are ephemeral: never cached, never stored.
         """
-        conn = next(
-            (c for c in self._config.connections if c.name == connection_name), None
-        )
+        conn = self.get_connection(connection_name)
         if conn is None:
-            raise _NotImplemented(f"unknown connection {connection_name!r}")
+            raise _UnknownConnection(connection_name)
 
         if user_credentials:
             return construct_client(conn.type, {**conn.config, **user_credentials})
@@ -336,8 +375,24 @@ class EdgeAgentTunnel:
             self._clients[connection_name] = client
         return client
 
+    def _budget(self, conn: ConnectionConfig, operation: str, asked_ms) -> float:
+        """Seconds the operation may take (A5/C3).
+
+        get_schemas gets the agent's index budget; everything else the
+        connection's own query budget, falling back to the agent default — the
+        same number the advertisement publishes, so the control plane sizes its
+        wait against what is actually enforced. The caller's timeout_ms may
+        lower the budget, never raise it.
+        """
+        cfg = self._config
+        if operation in ("get_schemas", "warm_all"):
+            effective = cfg.index_timeout_seconds
+        else:
+            effective = conn.effective_query_timeout(cfg.default_query_timeout_seconds)
+        return min(asked_ms / 1000, effective) if asked_ms else effective
+
     async def _dispatch(self, connection_name: str, operation: str, params: dict,
-                        audit_meta: Optional[dict] = None):
+                        audit_meta: Optional[dict] = None, request_id: Any = None):
         """Run one operation against the real client and return its result value.
 
         Blocking work (connect, query, schema crawl) goes through the client's
@@ -346,26 +401,56 @@ class EdgeAgentTunnel:
 
         `audit_meta`, when given, is filled with countable outcomes (row_count)
         for the audit trail — it is an out-parameter, not an input.
+
+        `request_id` is the JSON-RPC envelope id. While the operation runs it is
+        registered in `_in_flight` with a cancel callable, so a cancel on the
+        control subject naming that id (A9/C3) stops the operation: the task is
+        cancelled and, for execute_query, the statement is cancelled on the
+        source as well.
         """
         if audit_meta is None:
             audit_meta = {}
         if operation not in _SUPPORTED_OPERATIONS:
             raise _NotImplemented(operation)
 
+        conn = self.get_connection(connection_name)
+        if conn is None:
+            raise _UnknownConnection(connection_name)
+
         client = await asyncio.to_thread(
             self._get_client, connection_name, params.get("user_credentials")
         )
-        kwargs = params.get("kwargs") or {}
+        budget = self._budget(conn, operation, params.get("timeout_ms"))
 
-        # Budget: caller's timeout_ms may lower the agent's own budget, never
-        # raise it. get_schemas gets the index budget; everything else the query
-        # budget (A5/C3).
-        if operation in ("get_schemas", "warm_all"):
-            effective = self._config.index_timeout_seconds
-        else:
-            effective = self._config.default_query_timeout_seconds
-        asked_ms = params.get("timeout_ms")
-        budget = min(asked_ms / 1000, effective) if asked_ms else effective
+        # Source-side cancel hook, filled by execute_query once it holds a raw
+        # connection; other operations only have the task to cancel.
+        cancel_box: dict = {}
+        task = asyncio.ensure_future(
+            self._run_operation(client, operation, params, budget, audit_meta, cancel_box)
+        )
+        cancelled_by_control = False
+
+        def _cancel() -> None:
+            nonlocal cancelled_by_control
+            cancelled_by_control = True
+            _fire(cancel_box)
+            task.cancel()
+
+        if request_id is not None:
+            self._in_flight[request_id] = _cancel
+        try:
+            return await task
+        except asyncio.CancelledError:
+            if cancelled_by_control:
+                raise _Cancelled(operation)
+            raise  # the handler itself is being torn down; propagate
+        finally:
+            if request_id is not None:
+                self._in_flight.pop(request_id, None)
+
+    async def _run_operation(self, client, operation: str, params: dict, budget: float,
+                             audit_meta: dict, cancel_box: dict):
+        kwargs = params.get("kwargs") or {}
 
         if operation == "get_schemas":
             tables = await asyncio.wait_for(client.aget_schemas(), budget)
@@ -386,10 +471,8 @@ class EdgeAgentTunnel:
         if operation == "execute_query":
             import base64 as _b64
             import io as _io
-            ref_id = params.get("id") or params.get("ref_id")
             sql = kwargs.get("sql")
             qkwargs = {k: v for k, v in kwargs.items() if k != "sql"}
-            cancel_box: dict = {}
 
             def _on_connect(raw):
                 # psycopg2 connection.cancel() is thread-safe: callable from the
@@ -415,24 +498,11 @@ class EdgeAgentTunnel:
                     return client.execute_query(sql, _on_connect=_on_connect, **qkwargs)
                 return client.execute_query(sql, **qkwargs)
 
-            def _cancel():
-                fn = cancel_box.get("cancel")
-                if fn:
-                    try:
-                        fn()
-                    except Exception:
-                        pass
-
-            if ref_id is not None:
-                self._in_flight[ref_id] = _cancel
             try:
                 df = await asyncio.wait_for(asyncio.to_thread(_run), budget)
             except asyncio.TimeoutError:
-                _cancel()  # abandon the wait AND stop the statement on the source
+                _fire(cancel_box)  # abandon the wait AND stop the statement on the source
                 raise _QueryTimeout(budget, sql)
-            finally:
-                if ref_id is not None:
-                    self._in_flight.pop(ref_id, None)
             audit_meta["row_count"] = len(df)  # rows returned
             buf = _io.BytesIO()
             df.to_parquet(buf, index=False)
@@ -492,6 +562,9 @@ class EdgeAgentTunnel:
                 if cancel is not None:
                     cancel()
                     logger.info("edge_agent.control.cancelled", extra={"ref_id": ref_id})
+                else:
+                    logger.info("edge_agent.control.cancel_not_found",
+                                extra={"ref_id": ref_id, "in_flight": len(self._in_flight)})
         except json.JSONDecodeError as e:
             logger.warning(
                 "edge_agent.control.malformed",
@@ -515,11 +588,9 @@ class EdgeAgentTunnel:
             "edge_agent_id": self._config.edge_agent_id,
             "error": {
                 "code": _NOT_IMPLEMENTED,
-                "message": (
-                    f"operation {operation!r} is not implemented yet "
-                    "(data edge agent phase 1: transport only)"
-                ),
-                "data": {"operation": operation, "phase": 1},
+                "message": f"operation {operation!r} is not implemented by this edge agent",
+                "data": {"operation": operation,
+                         "supported": sorted(_SUPPORTED_OPERATIONS)},
             },
         }
         try:
@@ -547,10 +618,32 @@ class EdgeAgentTunnel:
             "version": __version__,
             "index_timeout_seconds": cfg.index_timeout_seconds,
             "connections": [
-                c.advertised(cfg.default_query_timeout_seconds)
+                c.advertised(
+                    cfg.default_query_timeout_seconds,
+                    catalog_identity_available=self._catalog_identity_available(c),
+                )
                 for c in cfg.connections
             ],
         }
+
+    def _catalog_identity_available(self, conn: ConnectionConfig) -> bool:
+        """Ask the connection's client whether it can crawl a catalog.
+
+        Uses the cached system-credential client (constructing one is lazy —
+        no connection is opened until an operation runs). A client that cannot
+        even be constructed is reported as True: the control plane's default,
+        and the advertisement must still go out so the misconfiguration shows
+        up in Bow rather than silently hiding the connection.
+        """
+        try:
+            client = self._get_client(conn.name, None)
+        except Exception as e:
+            logger.debug(
+                "edge_agent.advertise.client_unavailable",
+                extra={"connection": conn.name, "error": str(e)},
+            )
+            return True
+        return bool(getattr(client, "catalog_identity_available", True))
 
     async def advertise(self) -> None:
         """Publish the advertisement.
@@ -776,6 +869,16 @@ class EdgeAgentTunnel:
 
     async def _on_closed(self) -> None:
         logger.info("edge_agent.nats.closed")
+
+
+def _fire(cancel_box: dict) -> None:
+    """Run the source-side cancel hook, if the operation registered one."""
+    fn = cancel_box.get("cancel")
+    if fn:
+        try:
+            fn()
+        except Exception:
+            pass
 
 
 def _redact(params: dict) -> dict:

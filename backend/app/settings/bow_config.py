@@ -375,6 +375,8 @@ class TunnelProvisioning(BaseModel):
     ca_secret: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_CA_SECRET", "nats-ca-keypair"))
     accounts_configmap: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_ACCOUNTS_CM", "nats-accounts"))
     accounts_key: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_ACCOUNTS_KEY", "accounts.conf"))
+    # The NATS account whose `users` array the agent users are added to.
+    account: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_ACCOUNT", "TUNNEL"))
     cert_duration: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_CERT_DURATION", "8760h"))
 
 
@@ -423,6 +425,11 @@ class DataTunnel(BaseModel):
     # what the on-prem edge agent dials (wss://host:443), distinct from the
     # worker's own native-TLS `url` (tls://host:4222).
     agent_url: Optional[str] = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_AGENT_URL"))
+    # Container image the wizard's `docker run` snippet tells the admin to pull.
+    # Overridable for air-gapped registries or a pinned version.
+    agent_image: str = Field(
+        default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_AGENT_IMAGE") or "bagofwords/data-edge-agent:latest"
+    )
     # Cluster/cert-manager settings for the agent-install wizard's provisioning.
     provisioning: TunnelProvisioning = Field(default_factory=TunnelProvisioning)
 

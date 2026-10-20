@@ -237,64 +237,120 @@ def _agent_user_block(org_id: str, edge_agent_id: str) -> str:
     )
 
 
-def _insert_user(content: str, block: str) -> str:
-    # Insert before the TUNNEL users array close (…] } }).
-    close = "    ]\n  }\n}"
-    if content.count(close) != 1:
-        raise ProvisioningError("unexpected nats-accounts structure; refusing to edit")
-    return content.replace(close, block + close)
+def _match_brace(content: str, open_i: int, open_ch: str = "{", close_ch: str = "}") -> int:
+    """Index of the bracket closing the one at `open_i`, or -1."""
+    depth = 0
+    for j in range(open_i, len(content)):
+        ch = content[j]
+        if ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return j
+    return -1
 
 
-def _remove_user(content: str, cn: str) -> str:
+def _users_array_span(content: str, account: str) -> tuple[int, int]:
+    """(open, close) indices of the `users = [...]` array inside `account`.
+
+    Found structurally, not by a fixed indentation string: locate the account
+    block (`<account> {` or `<account>: {`), then the `users` key inside it and
+    the bracket that closes its array. Raises ProvisioningError if either is
+    missing, so an unexpected file is refused rather than guessed at.
+    """
+    m = re.search(rf"(?m)^\s*{re.escape(account)}\s*[:=]?\s*\{{", content)
+    if m is None:
+        raise ProvisioningError(
+            f"nats-accounts has no {account!r} account block; refusing to edit"
+        )
+    block_open = m.end() - 1
+    block_close = _match_brace(content, block_open)
+    if block_close == -1:
+        raise ProvisioningError(f"unterminated {account!r} account block; refusing to edit")
+    users = re.search(r"(?m)^\s*users\s*[:=]?\s*\[", content[block_open:block_close])
+    if users is None:
+        raise ProvisioningError(
+            f"{account!r} account block has no users array; refusing to edit"
+        )
+    arr_open = block_open + users.end() - 1
+    arr_close = _match_brace(content, arr_open, "[", "]")
+    if arr_close == -1:
+        raise ProvisioningError(f"unterminated users array in {account!r}; refusing to edit")
+    return arr_open, arr_close
+
+
+def insert_user_block(content: str, block: str, account: str) -> str:
+    """Append `block` to the users array of `account` (idempotency is the
+    caller's job — it checks for the CN first)."""
+    _, arr_close = _users_array_span(content, account)
+    # Insert at the start of the line holding the closing `]`, so the block
+    # sits inside the array on its own lines whatever the surrounding indent.
+    line_start = content.rfind("\n", 0, arr_close) + 1
+    return content[:line_start] + block + content[line_start:]
+
+
+def remove_user_block(content: str, cn: str) -> str:
+    """Remove the user object whose `user:` is `CN=<cn>`; no-op if absent."""
     marker = f'user: "CN={cn}"'
     i = content.find(marker)
     if i == -1:
         return content
     open_i = content.rfind("{", 0, i)
     line_start = content.rfind("\n", 0, open_i) + 1
-    depth, j = 0, open_i
-    while j < len(content):
-        if content[j] == "{":
-            depth += 1
-        elif content[j] == "}":
-            depth -= 1
-            if depth == 0:
-                break
-        j += 1
+    j = _match_brace(content, open_i)
+    if j == -1:
+        return content
     line_end = content.find("\n", j)
     line_end = len(content) if line_end == -1 else line_end + 1
     return content[:line_start] + content[line_end:]
+
+
+# Concurrent provisions each read-modify-write the same ConfigMap. `replace`
+# with the read's resourceVersion makes the write conditional: a 409 means
+# someone else wrote in between, and the mutation is replayed on a fresh read.
+_CM_WRITE_ATTEMPTS = 5
 
 
 async def _rewrite_accounts(mutate) -> None:
     p = _cfg().provisioning
     async with client.ApiClient() as api:
         core = client.CoreV1Api(api)
-        try:
-            cm = await core.read_namespaced_config_map(
-                p.accounts_configmap, p.namespace, _request_timeout=_K8S_TIMEOUT
-            )
-        except ApiException as e:
-            raise ProvisioningError(
-                f"failed to read ConfigMap {p.accounts_configmap}: {e.reason}"
-            ) from e
-        content = (cm.data or {}).get(p.accounts_key)
-        if content is None:
-            raise ProvisioningError(
-                f"ConfigMap {p.accounts_configmap} has no key {p.accounts_key!r}"
-            )
-        new = mutate(content)
-        if new == content:
-            return  # idempotent no-op
-        try:
-            await core.patch_namespaced_config_map(
-                p.accounts_configmap, p.namespace, {"data": {p.accounts_key: new}},
-                _request_timeout=_K8S_TIMEOUT,
-            )
-        except ApiException as e:
-            raise ProvisioningError(
-                f"failed to patch ConfigMap {p.accounts_configmap}: {e.reason}"
-            ) from e
+        for attempt in range(1, _CM_WRITE_ATTEMPTS + 1):
+            try:
+                cm = await core.read_namespaced_config_map(
+                    p.accounts_configmap, p.namespace, _request_timeout=_K8S_TIMEOUT
+                )
+            except ApiException as e:
+                raise ProvisioningError(
+                    f"failed to read ConfigMap {p.accounts_configmap}: {e.reason}"
+                ) from e
+            content = (cm.data or {}).get(p.accounts_key)
+            if content is None:
+                raise ProvisioningError(
+                    f"ConfigMap {p.accounts_configmap} has no key {p.accounts_key!r}"
+                )
+            new = mutate(content)
+            if new == content:
+                return  # idempotent no-op
+            cm.data[p.accounts_key] = new
+            try:
+                # Full replace, carrying metadata.resourceVersion from the read:
+                # the API server rejects it (409) if the object changed since.
+                await core.replace_namespaced_config_map(
+                    p.accounts_configmap, p.namespace, cm, _request_timeout=_K8S_TIMEOUT,
+                )
+                return
+            except ApiException as e:
+                if e.status == 409 and attempt < _CM_WRITE_ATTEMPTS:
+                    logger.info(
+                        "tunnel.provisioning.accounts_conflict_retry",
+                        extra={"attempt": attempt},
+                    )
+                    continue
+                raise ProvisioningError(
+                    f"failed to update ConfigMap {p.accounts_configmap}: {e.reason}"
+                ) from e
 
 
 async def ensure_account_user(org_id: str, edge_agent_id: str) -> None:
@@ -303,10 +359,12 @@ async def ensure_account_user(org_id: str, edge_agent_id: str) -> None:
     cn = agent_cn(org_id, edge_agent_id)
     block = _agent_user_block(org_id, edge_agent_id)
 
+    account = _cfg().provisioning.account
+
     def mutate(content: str) -> str:
         if f'user: "CN={cn}"' in content:
             return content
-        return _insert_user(content, block)
+        return insert_user_block(content, block, account)
 
     await _rewrite_accounts(mutate)
     logger.info("tunnel.provisioning.account_user_ensured", extra={"cn": cn})
@@ -316,7 +374,7 @@ async def remove_account_user(org_id: str, edge_agent_id: str) -> None:
     """Remove the agent's NATS user from nats-accounts (idempotent)."""
     await _require_config()
     cn = agent_cn(org_id, edge_agent_id)
-    await _rewrite_accounts(lambda content: _remove_user(content, cn))
+    await _rewrite_accounts(lambda content: remove_user_block(content, cn))
     logger.info("tunnel.provisioning.account_user_removed", extra={"cn": cn})
 
 
