@@ -1,11 +1,15 @@
-"""Agent Lists API — typed per-agent record collections.
+"""Agent Lists API — typed record collections, shared by one or more agents.
 
-Access follows the owning agent:
+Every route works from one agent (the one in the path) and only sees lists
+linked to it:
 - read (lists, rows, revisions, CSV): ``data_source`` view
-- write (create/update/delete list, edit/delete/revert rows): ``data_source`` manage
+- write rows (edit/delete/revert), create a list, remove a list from this
+  agent: ``data_source`` manage
+- change a list's schema, clear every row of a shared list, or delete it from
+  every agent: manage on every agent the list is linked to
 """
 from datetime import date
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -29,7 +33,7 @@ from app.schemas.agent_list import (
     RowsPage,
 )
 from app.services.agent_lists import service as svc
-from app.services.agent_lists.access import can_access_agent
+from app.services.agent_lists.access import ListAccess, can_access_agent
 from app.services.agent_lists.naming import agent_slug
 from app.services.agent_lists.records import (
     ListValidationError,
@@ -45,6 +49,18 @@ def _validation_422(exc: ListValidationError) -> HTTPException:
     return HTTPException(status_code=422, detail={"message": "Validation failed", "errors": exc.errors})
 
 
+async def _access(db, user, organization, lst) -> ListAccess:
+    return (await svc.access_for_lists(db, user, organization, [lst]))[str(lst.id)]
+
+
+def _require_schema_authority(access: ListAccess) -> None:
+    if not access.can_manage_schema:
+        raise HTTPException(
+            status_code=403,
+            detail="This list is shared with agents you don't manage. Changing it needs manage on all of them.",
+        )
+
+
 @router.get("/agent_lists/counts")
 async def agent_list_counts(
     db: AsyncSession = Depends(get_async_db),
@@ -52,17 +68,35 @@ async def agent_list_counts(
     current_user: User = Depends(current_user),
 ):
     """Live list count per agent, for the agents the caller can view (tree badges)."""
-    from app.models.agent_list import AgentList
+    from app.models.agent_list import AgentList, agent_list_data_sources as links
     from app.services.agent_lists.access import viewable_agent_ids
 
     rows = (await db.execute(
-        select(AgentList.data_source_id, func.count(AgentList.id))
+        select(links.c.data_source_id, func.count(AgentList.id))
+        .join(AgentList, AgentList.id == links.c.list_id)
         .where(AgentList.organization_id == str(organization.id), AgentList.deleted_at.is_(None))
-        .group_by(AgentList.data_source_id)
+        .group_by(links.c.data_source_id)
     )).all()
     counts = {str(ds): int(n) for ds, n in rows}
     visible = await viewable_agent_ids(db, current_user, organization, counts.keys())
     return {"by_agent": {k: v for k, v in counts.items() if k in visible}}
+
+
+@router.get("/agent_lists/{list_id}", response_model=AgentListOut)
+async def get_list_anywhere(
+    list_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """A list by id, through one of its agents the caller can see; 404 when
+    there is none. For links that remember an agent the list has since left
+    (or that was deleted): the answer names the agent to use from now on
+    (``data_source_id``). Read only; writes stay on the agent routes."""
+    lst, ds, access = await svc.readable_list(db, current_user, organization, list_id)
+    counts = await svc.row_counts(db, [lst.id])
+    can_manage = await can_access_agent(db, current_user, organization, ds, "manage")
+    return svc.serialize_list(lst, ds, access, row_count=counts.get(str(lst.id), 0), can_manage=can_manage)
 
 
 @router.get("/data_sources/{data_source_id}/lists", response_model=List[AgentListOut])
@@ -77,8 +111,10 @@ async def list_agent_lists(
     lists = await svc.live_lists_for_agents(db, [ds.id])
     counts = await svc.row_counts(db, [l.id for l in lists])
     can_manage = await can_access_agent(db, current_user, organization, ds, "manage")
+    access = await svc.access_for_lists(db, current_user, organization, lists)
     lists.sort(key=lambda l: (l.created_at or 0))
-    return [svc.serialize_list(l, ds, row_count=counts.get(str(l.id), 0), can_manage=can_manage) for l in lists]
+    return [svc.serialize_list(l, ds, access[str(l.id)], row_count=counts.get(str(l.id), 0), can_manage=can_manage)
+            for l in lists]
 
 
 @router.post("/data_sources/{data_source_id}/lists", response_model=AgentListOut, status_code=201)
@@ -92,7 +128,7 @@ async def create_agent_list(
 ):
     ds = await svc.get_agent(db, organization, data_source_id)
     lst = await svc.create_list(db, organization, ds, payload, current_user)
-    return svc.serialize_list(lst, ds, can_manage=True)
+    return svc.serialize_list(lst, ds, await _access(db, current_user, organization, lst), can_manage=True)
 
 
 @router.get("/data_sources/{data_source_id}/lists/{list_id}", response_model=AgentListOut)
@@ -108,7 +144,8 @@ async def get_agent_list(
     lst = await svc.get_list(db, ds, list_id)
     counts = await svc.row_counts(db, [lst.id])
     can_manage = await can_access_agent(db, current_user, organization, ds, "manage")
-    return svc.serialize_list(lst, ds, row_count=counts.get(str(lst.id), 0), can_manage=can_manage)
+    return svc.serialize_list(lst, ds, await _access(db, current_user, organization, lst),
+                      row_count=counts.get(str(lst.id), 0), can_manage=can_manage)
 
 
 @router.put("/data_sources/{data_source_id}/lists/{list_id}", response_model=AgentListOut)
@@ -123,9 +160,14 @@ async def update_agent_list(
 ):
     ds = await svc.get_agent(db, organization, data_source_id)
     lst = await svc.get_list(db, ds, list_id)
+    # Hold the list while checking: a link added meanwhile would otherwise
+    # let this edit through for an agent the caller doesn't manage.
+    await svc.lock_list(db, lst)
+    access = await _access(db, current_user, organization, lst)
+    _require_schema_authority(access)
     change = await svc.update_list(db, ds, lst, payload)
     counts = await svc.row_counts(db, [lst.id])
-    return svc.serialize_list(lst, ds, row_count=counts.get(str(lst.id), 0), can_manage=True, change=change)
+    return svc.serialize_list(lst, ds, access, row_count=counts.get(str(lst.id), 0), can_manage=True, change=change)
 
 
 @router.delete("/data_sources/{data_source_id}/lists/{list_id}", status_code=204)
@@ -133,12 +175,20 @@ async def update_agent_list(
 async def delete_agent_list(
     data_source_id: str,
     list_id: str,
+    scope: Literal["agent", "all"] = Query(
+        "all", description="agent: remove the list from this agent only; all: delete it from every agent"
+    ),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
 ):
     ds = await svc.get_agent(db, organization, data_source_id)
     lst = await svc.get_list(db, ds, list_id)
+    if scope == "agent":
+        await svc.unlink_list(db, lst, ds)
+        return None
+    await svc.lock_list(db, lst)
+    _require_schema_authority(await _access(db, current_user, organization, lst))
     await svc.delete_list(db, lst)
     return None
 
@@ -234,6 +284,11 @@ async def delete_list_rows(
     """Delete selected rows, or clear the list (``all``) keeping its schema."""
     ds = await svc.get_agent(db, organization, data_source_id)
     lst = await svc.get_list(db, ds, list_id)
+    if payload.all:
+        # Clearing a shared list wipes what every linked agent saved.
+        access = await _access(db, current_user, organization, lst)
+        if access.shared:
+            _require_schema_authority(access)
     n = await svc.delete_rows(db, lst, None if payload.all else payload.row_ids)
     return RowsDeleteOut(deleted=n)
 

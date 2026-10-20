@@ -5,8 +5,14 @@ agents the user can VIEW, in every mode. Execution goes through the built-in
 ``bow`` client with ``{"dataset": "list", "list_id": "..."}``; the table name
 is display-only, so renaming an agent or list never breaks saved code.
 
+A list shared by several of the report's agents is advertised once, named
+after its home agent (or, if the user cannot see that one, the first linked
+agent by id they can see) wherever it is shown
+(service.serialize_list and the submit tool use the same name); the name of
+any linked agent resolves to it.
+
 Access is re-checked on every execution (including saved-query refresh):
-the executing user must still be able to view the owning agent.
+the executing user must still be able to view one of the list's agents.
 """
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -14,9 +20,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from sqlalchemy import select
 
-from app.models.agent_list import AgentList, AgentListRow
+from app.models.agent_list import AgentList, AgentListRow, agent_list_data_sources as links
 from app.models.data_source import DataSource
-from app.services.agent_lists.access import can_access_agent, can_submit_to_list, viewable_agent_ids
+from app.services.agent_lists.access import first_submittable_agent, viewable_agent_ids
 from app.services.agent_lists.naming import table_name_for
 
 META_COLUMNS = ["_row_id", "_key", "_schema_version", "_report_id", "_created_at", "_updated_at", "_edited_by_human"]
@@ -42,21 +48,38 @@ async def list_tables(db, user, organization, data_source_ids) -> List[Dict[str,
     allowed = await viewable_agent_ids(db, user, organization, data_source_ids)
     if not allowed:
         return []
-    lists = (await db.execute(
+    pairs = (await db.execute(
         select(AgentList, DataSource)
-        .join(DataSource, DataSource.id == AgentList.data_source_id)
-        .where(AgentList.data_source_id.in_(sorted(allowed)), AgentList.deleted_at.is_(None))
-        .order_by(AgentList.data_source_id, AgentList.slug)
+        .join(links, links.c.list_id == AgentList.id)
+        .join(DataSource, DataSource.id == links.c.data_source_id)
+        .where(links.c.data_source_id.in_(sorted(allowed)), AgentList.deleted_at.is_(None))
+        .order_by(DataSource.id, AgentList.slug)
     )).all()
+    # One entry per list; its agents are the linked ones in this report.
+    by_list: Dict[str, Dict[str, Any]] = {}
+    for lst, ds in pairs:
+        entry = by_list.setdefault(str(lst.id), {"list": lst, "agents": []})
+        entry["agents"].append(ds)
+    from app.services.agent_lists.access import resolved_permissions
+    from app.services.agent_lists.service import access_for_lists, list_table_aliases, list_table_name
+    resolved = await resolved_permissions(db, user, organization)
+    access = await access_for_lists(db, user, organization, [e["list"] for e in by_list.values()], resolved=resolved)
     out = []
-    for lst, ds in lists:
+    for entry in by_list.values():
+        lst, agents = entry["list"], entry["agents"]
         out.append({
-            "name": table_name_for(ds.name, str(ds.id), lst.slug),
+            "name": list_table_name(lst, access[str(lst.id)], agents[0]),
+            # Every name resolve_list accepts for it, so a filter by name
+            # (create_data's tables) finds it under any of them.
+            "aliases": list_table_aliases(lst, access[str(lst.id)]),
             "list": lst,
-            "agent": ds,
+            "agent": agents[0],
+            "agents": agents,
             "columns": list_columns(lst),
-            "writable": await can_submit_to_list(db, user, organization, ds, lst),
+            "writable": await first_submittable_agent(db, user, organization, agents, lst,
+                                                      resolved=resolved) is not None,
         })
+    out.sort(key=lambda e: (str(e["agent"].id), e["list"].slug))
     return out
 
 
@@ -66,8 +89,10 @@ def describe_table(entry: Dict[str, Any]) -> str:
         f"{f['name']} ({f.get('type')}{': ' + f['description'] if f.get('description') else ''})"
         for f in (lst.fields or [])
     )
+    agent_names = " and ".join(f"'{a.name}'" for a in entry.get("agents") or [entry["agent"]])
+    owner = f"agents {agent_names} (shared)" if len(entry.get("agents") or []) > 1 else f"agent {agent_names}"
     return (
-        f"Agent List '{lst.name}' of agent '{entry['agent'].name}' — one row per record the agent saved. "
+        f"Agent List '{lst.name}' of {owner} — one row per record the agent saved. "
         + (f"{lst.description.strip()} " if lst.description else "")
         + f"Fields: {fields}. "
         f"Query ONLY via ds_clients[\"bow\"].execute_query({{\"dataset\": \"list\", \"list_id\": \"{lst.id}\"}}) "
@@ -95,7 +120,9 @@ async def resolve_list(db, organization, list_id: Optional[str], list_ref: Optio
         raise ValueError("Pass list_id (preferred) or list as 'bow.<agent>.lists.<list>'")
     agent_part, slug = m.group(1), m.group(2)
     candidates = (await db.execute(
-        select(AgentList, DataSource).join(DataSource, DataSource.id == AgentList.data_source_id)
+        select(AgentList, DataSource)
+        .join(links, links.c.list_id == AgentList.id)
+        .join(DataSource, DataSource.id == links.c.data_source_id)
         .where(AgentList.organization_id == str(organization.id), AgentList.deleted_at.is_(None),
                AgentList.slug == slug)
     )).all()
@@ -153,8 +180,9 @@ def _apply_query(df: pd.DataFrame, query: str) -> pd.DataFrame:
 
 async def query_list(db, organization, user, q) -> pd.DataFrame:
     lst = await resolve_list(db, organization, getattr(q, "list_id", None), getattr(q, "list_name", None))
-    ds = await db.get(DataSource, lst.data_source_id)
-    if not await can_access_agent(db, user, organization, ds, "view"):
+    from app.services.agent_lists.service import linked_agent_ids
+    agent_ids = (await linked_agent_ids(db, [lst.id])).get(str(lst.id), [])
+    if not await viewable_agent_ids(db, user, organization, agent_ids):
         raise PermissionError("You do not have access to this list's agent")
     rows = (await db.execute(
         select(AgentListRow).where(AgentListRow.list_id == lst.id, AgentListRow.deleted_at.is_(None))
@@ -203,7 +231,9 @@ async def report_has_lists(db, report, user, organization) -> bool:
     if not ds_ids:
         return False
     live = (await db.execute(
-        select(AgentList.data_source_id).where(AgentList.data_source_id.in_(ds_ids), AgentList.deleted_at.is_(None))
+        select(links.c.data_source_id)
+        .join(AgentList, AgentList.id == links.c.list_id)
+        .where(links.c.data_source_id.in_(ds_ids), AgentList.deleted_at.is_(None))
     )).scalars().all()
     if not live:
         return False

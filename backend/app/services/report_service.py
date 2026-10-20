@@ -4164,17 +4164,23 @@ class ReportService:
                 )).scalars().all()
             }
             lists = [i for i in lists if i.list_id in live]
+            # A shared list keeps pointing at the agent it was saved through,
+            # while that agent is still linked; otherwise at its home agent.
+            from app.services.agent_lists.service import linked_agent_ids
+            linked = await linked_agent_ids(db, [i.list_id for i in lists])
+            for item in lists:
+                lst = live[item.list_id]
+                item.list_name = lst.name
+                if str(item.data_source_id or "") not in linked.get(item.list_id, []):
+                    item.data_source_id = str(lst.data_source_id)
             agent_names = {
                 str(ds_id): name for ds_id, name in (await db.execute(
                     select(DataSource.id, DataSource.name).where(
-                        DataSource.id.in_([str(live[i.list_id].data_source_id) for i in lists])
+                        DataSource.id.in_([i.data_source_id for i in lists])
                     )
                 )).all()
             }
             for item in lists:
-                lst = live[item.list_id]
-                item.list_name = lst.name
-                item.data_source_id = str(lst.data_source_id)
                 item.agent_name = agent_names.get(item.data_source_id)
 
         # Sub-agents: one row per delegated child across the report's recent waves.

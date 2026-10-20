@@ -56,9 +56,8 @@ class SubmitListTool(Tool):
 
     async def run_stream(self, tool_input: dict[str, Any], runtime_ctx: dict[str, Any]) -> AsyncIterator[ToolEvent]:
         from app.models.agent_list import AgentList
-        from app.models.data_source import DataSource
         from app.models.report_data_source_association import report_data_source_association
-        from app.services.agent_lists.access import can_submit_to_list
+        from app.services.agent_lists.service import submit_route
         from app.services.agent_lists.records import ListValidationError, apply_submission_with_retry
         from app.services.agent_lists.verify import collect_report_texts
 
@@ -91,7 +90,6 @@ class SubmitListTool(Tool):
             if lst is None or organization is None or str(lst.organization_id) != str(organization.id):
                 yield self._fail(data.list_id, None, None, ["list_id: list not found"])
                 return
-            ds = await db.get(DataSource, lst.data_source_id)
             attached = set()
             if report_id:
                 attached = {str(r[0]) for r in (await db.execute(
@@ -99,8 +97,10 @@ class SubmitListTool(Tool):
                     .where(report_data_source_association.c.report_id == report_id)
                 )).all()}
             read_only_chat = getattr(report, "report_type", "regular") == "artifact_chat"
-            if (read_only_chat or str(lst.data_source_id) not in attached
-                    or not await can_submit_to_list(db, user, organization, ds, lst)):
+            # A shared list is saved through the same agent its submit tool
+            # was registered for (service.submit_route).
+            ds = None if read_only_chat else (await submit_route(db, user, organization, lst, attached))[0]
+            if ds is None:
                 yield self._fail(lst.id, lst.name, str(lst.data_source_id),
                                  [f"list '{lst.name}' is not available in this conversation"])
                 return
@@ -115,7 +115,7 @@ class SubmitListTool(Tool):
                     sources=sources,
                 )
             except ListValidationError as exc:
-                yield self._fail(lst.id, lst.name, str(lst.data_source_id), exc.errors)
+                yield self._fail(lst.id, lst.name, str(ds.id), exc.errors)
                 return
 
         parts = []
@@ -133,7 +133,7 @@ class SubmitListTool(Tool):
                         "prefer exact short quotes copied verbatim.")
 
         output = SubmitListOutput(
-            success=True, list_id=str(lst.id), list_name=lst.name, data_source_id=str(lst.data_source_id),
+            success=True, list_id=str(lst.id), list_name=lst.name, data_source_id=str(ds.id),
             inserted=result["inserted"], updated=result["updated"], unchanged=result["unchanged"],
             rows=result["rows"],
             records=result["records"],

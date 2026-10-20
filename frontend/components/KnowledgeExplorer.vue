@@ -628,6 +628,7 @@
               @open="openList"
               @row="(id: string | null) => { listRowView = id }"
               @changed="fetchListCounts"
+              @relocate="relocateList"
             />
             <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" @open-instruction="openInstructionById" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
@@ -1700,6 +1701,13 @@ const openListsPanel = (agentId: string) => {
   openPanel('lists', agentId)
 }
 const openList = (listId: string | null) => { listView.value = listId; listRowView.value = null }
+// The list left the agent in the link: show it on the agent it lives on now.
+const relocateList = (p: { dsId: string; listId: string; rowId: string | null }) => {
+  expand('agent:' + p.dsId, true)
+  openPanel('lists', p.dsId)
+  listView.value = p.listId
+  listRowView.value = p.rowId
+}
 
 // ── Eval suites tree ──────────────────────────────────────
 // Suites render as folders under each agent's Evals group, and test cases as

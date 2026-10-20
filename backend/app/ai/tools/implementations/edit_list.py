@@ -25,7 +25,7 @@ from app.ai.tools.implementations._list_tool_common import (
     end_event,
     manageable_report_agents,
     mark_lists_changed,
-    output_for,
+    output_for as _output_for,
     review,
     session_maker_from,
     validation_errors,
@@ -201,15 +201,35 @@ class EditListTool(Tool):
             return
         by_agent = {str(d.id): d for d in agents}
         lists = await svc.live_lists_for_agents(db, list(by_agent))
+        links = await svc.linked_agent_ids(db, [l.id for l in lists])
+
+        def _here(l):
+            # The list's agents among the ones this user manages in this report.
+            return [by_agent[i] for i in links.get(str(l.id), []) if i in by_agent]
+
         lst = _find_list(lists, data.list_id)
         if lst is None:
-            available = ", ".join(f"'{l.name}' (id {l.id}, agent {by_agent[str(l.data_source_id)].name})" for l in lists) or "none"
+            available = ", ".join(
+                f"'{l.name}' (id {l.id}, agent {', '.join(a.name for a in _here(l))})" for l in lists
+            ) or "none"
             yield end_event(
                 ListToolOutput(success=False, status="list_not_found"),
                 f"No list matching {data.list_id!r} on the agents you manage in this report. Available: {available}.",
             )
             return
-        ds = by_agent[str(lst.data_source_id)]
+        ds = _here(lst)[0]
+        access = (await svc.access_for_lists(db, user, organization, [lst]))[str(lst.id)]
+
+        def output_for(*a, **kw):  # every output names the table like the rest of the product
+            return _output_for(*a, access=access, **kw)
+
+        if not access.can_manage_schema:
+            yield end_event(
+                output_for(lst, ds, status="permission_denied"),
+                f"'{lst.name}' is shared with agents you don't manage, so its schema can't be changed here. "
+                "Ask someone who manages all of them.",
+            )
+            return
         current = [dict(f) for f in (lst.fields or [])]
 
         # ---- Compose + validate the new schema ----
@@ -311,10 +331,17 @@ class EditListTool(Tool):
             async with maker() as s:
                 s_ds = await s.get(_DS, str(ds.id))
                 s_lst = await svc.get_list(s, s_ds, str(lst.id))
+                # Re-check after the review pause, holding the list so no link
+                # lands between the check and the save: it may have been shared
+                # further, or a grant revoked, while the card waited.
+                await svc.lock_list(s, s_lst)
+                if not await svc.can_manage_schema(s, user, organization, s_lst):
+                    raise HTTPException(status_code=403, detail="This list is now shared with agents you don't manage.")
                 saved_change = await svc.update_list(s, s_ds, s_lst, payload)
                 out = output_for(s_lst, s_ds, status="updated", change=saved_change, row_count=row_count)
         except HTTPException as e:
-            status = "duplicate_name" if e.status_code == 409 else "list_not_found" if e.status_code == 404 else "failed"
+            status = ("duplicate_name" if e.status_code == 409 else "list_not_found" if e.status_code == 404
+                      else "permission_denied" if e.status_code == 403 else "failed")
             yield end_event(ListToolOutput(success=False, status=status, list_id=str(lst.id), list_name=lst.name,
                                            agent_id=str(ds.id), agent_name=ds.name),
                             f"Could not save the change: {e.detail}")
