@@ -65,7 +65,7 @@ against the design doc.
 - **Client reuse** `data_sources/registry.py`: 67 type→class map importing backend client modules directly (no `app.settings` pull-in), kwargs narrowed to constructor, bundled `PostgresqlClient` fallback. Per-user credential clients built fresh and never cached (:330-331).
 - **Admin UI** (`admin/server.py`, `admin/static/index.html`): loopback default, no auth, status/types/catalog/icons/connections CRUD/test/audit endpoints, type-picker grid driven by `data_sources/type_specs.json` (65 types, SaaS denylist), brand icons, live apply/remove + re-advertise without restart, server starts before NATS connect.
 - **Store** `store.py`: cleartext JSON, 0600, atomic (encryption deliberately dropped in `ed78987f0`). **Audit** `audit.py`: JSONL + ring, never credentials.
-- **Packaging**: multi-stage `Dockerfile` (backend/app on PYTHONPATH, uid 10001, tini, healthcheck), `docker-entrypoint.sh` (old→new env bridging, config mount, required-env guards), customer-site `docker-compose.yaml` (cap_drop, loopback-published admin UI, read-only TLS mount).
+- **Packaging**: multi-stage `Dockerfile` (backend/app on PYTHONPATH, uid 10001, tini, healthcheck), `docker-entrypoint.sh` (old→new env bridging, config mount, required-env guards). The customer-site run command is the `docker run` snippet the Data Tunnels wizard generates (there is no shipped compose file).
 - **Tests**: 88 tests in 10 files (`data_edge_agent/tests/`).
 
 ### Frontend

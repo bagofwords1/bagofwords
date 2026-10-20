@@ -165,9 +165,9 @@ a type-picker grid → a form rendered from the type's JSON-Schema field spec.
   is reachable during a broker outage (the moment an operator needs it) and the
   container healthcheck reflects process liveness, not broker connectivity. This
   closes the earlier "UI unreachable while NATS is down" follow-up.
-- ✅ **`data_plane/docker-compose.yaml`** — customer-site deployment example:
-  loopback-published admin UI, named volume for `/data`, `cap_drop: ALL`,
-  `no-new-privileges`, required-env guards.
+- ~~`data_plane/docker-compose.yaml`~~ — the customer-site compose example was
+  removed on 2026-10-20; the Data Tunnels wizard's generated `docker run`
+  snippet is the supported way to start the agent.
 - ✅ **Built + run-verified** — `docker build` OK (764 MB). Container: entrypoint
   bridged `AGENT_ID`→`EDGE_AGENT_ID`; admin UI listened **before** NATS connect;
   `/api/status` + `/api/types` (67) answered from the host with NATS down; inside
