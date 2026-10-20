@@ -8,6 +8,35 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-10-20 — full status audit vs design (supersedes "Known gaps" below)
+
+Code-level audit of the whole feature against `secure-data-tunnel-v4-nats.md`
+after the mTLS switch (`ad8003471`) and the install wizard (`d1de3bbc7`).
+Full report with `file:line` evidence:
+[`secure-data-tunnel-status.md`](./secure-data-tunnel-status.md).
+
+Corrections to entries below that are now stale:
+
+- Auth is **mTLS only** (per-agent cert from cert-manager, CN mapped via
+  `verify_and_map`); the "single shared token" A11 gap no longer applies and
+  `tunnel_token` no longer exists.
+- The Connect pane is a **cert-issuing install wizard + zip bundle**, not the
+  live `config.yaml` generator described on 2026-09-04.
+- `deploy-nats.sh`, `mcp-k8s-server.py` and the `deploy-bow-*` skills were
+  deleted; no NATS broker config lives in the repo any more.
+- Cancellation now works (fixed 2026-10-20, status doc bug 1): the agent keys
+  `_in_flight` by the top-level envelope `id`, so a control-subject cancel
+  stops the running task for any operation. What is still missing is the
+  source-side statement cancel for reused backend clients (`MysqlClient`, …):
+  they do not accept the `_on_connect` hook, so the query keeps running on
+  the source after the agent has abandoned it.
+- Still ⛔: D1 read-only enforcement, empty-credentials assertion, payload-size
+  ceiling, dtype coercion, `allowed_schemas`/`denied_tables`, progress
+  streaming, file/MCP/`warm_all` ops, `TunneledToolProviderClient`, es/he
+  locale keys, provisioning tests.
+
+---
+
 ## 2026-09-04 (cont.) — drop at-rest credential encryption + BOW_EDGE_AGENT_STORE_KEY
 
 Per site-owner request: the connection store no longer encrypts credentials at
