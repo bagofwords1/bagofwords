@@ -4,8 +4,9 @@ For every combination of field type × required/optional the compiled
 submit_<list> input schema must:
 - be a valid Draft 2020-12 schema;
 - stay inside the strict subset providers accept (additionalProperties:false
-  and required == all property keys on every object; no numeric/length/pattern
-  keywords);
+  and required == all property keys on every object, except a record's
+  ``fields`` object, where no key is required so an update can send only the
+  fields it changes; no numeric/length/pattern keywords);
 - be deterministic (byte-identical across compiles — the prompt-cache invariant);
 - accept a well-formed record and reject wrong types / missing / extra keys
   with a path-qualified error.
@@ -63,8 +64,12 @@ FIELD_SETS = [[_field(t, r)] for t, r in itertools.product(TYPES, [True, False])
 def test_compiled_schema_is_strict_subset_and_valid(fields):
     schema = compile_list_schema(fields, "desc")
     Draft202012Validator.check_schema(schema)
+    fields_obj = schema["properties"]["records"]["items"]["properties"]["fields"]
+    assert fields_obj["additionalProperties"] is False and not fields_obj.get("required")
     for obj in _all_objects(schema):
         assert obj.get("additionalProperties") is False
+        if obj is fields_obj:
+            continue
         assert sorted(obj.get("required", [])) == sorted(obj.get("properties", {}).keys())
     assert not (set(_all_keys(schema)) & FORBIDDEN)
 
@@ -92,9 +97,9 @@ def test_round_trip_valid_and_invalid(t):
     ok, errs = validate_arguments(bad_type, schema)
     assert not ok and any(e.startswith(f"records.0.fields.{f['name']}") for e in errs), errs
 
-    missing = {"records": [{"row_id": None, "fields": {}}]}
-    ok, errs = validate_arguments(missing, schema)
-    assert not ok and any(e.startswith("records.0.fields") for e in errs), errs
+    no_wrapper = {"records": [{"row_id": None, f["name"]: _env(SAMPLE[t])}]}
+    ok, errs = validate_arguments(no_wrapper, schema)
+    assert not ok and any(e.startswith("records.0") for e in errs), errs
 
     extra = {"records": [{"row_id": None, "fields": {f["name"]: _env(SAMPLE[t]), "nope": None}}]}
     ok, errs = validate_arguments(extra, schema)
@@ -106,3 +111,14 @@ def test_null_field_envelope_is_allowed_for_partial_updates():
     schema = compile_list_schema([f])
     ok, errs = validate_arguments({"records": [{"row_id": "r1", "fields": {f["name"]: None}}]}, schema)
     assert ok, errs
+
+
+@pytest.mark.parametrize("fields", FIELD_SETS)
+def test_any_subset_of_fields_is_schema_valid(fields):
+    # Partial updates send only the fields they change; "required for a new
+    # row" is enforced by the records service, not the schema.
+    schema = compile_list_schema(fields)
+    for k in range(len(fields) + 1):
+        sub = {f["name"]: _env(SAMPLE[f["type"]]) for f in fields[:k]}
+        ok, errs = validate_arguments({"records": [{"row_id": "r1", "fields": sub}]}, schema)
+        assert ok, errs

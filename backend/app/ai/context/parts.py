@@ -21,7 +21,10 @@ Three ideas carry the design:
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal, Optional, Union
@@ -100,11 +103,50 @@ class ToolResultPart:
     tokens: int = 0
     tier: Tier = Tier.FULL
     images: list = field(default_factory=list)
+    # How many of this result's images were taken out of context (retention
+    # window, image cap, or budget decay). Non-zero makes model_text() say so,
+    # so the model reads the gap as "elided, re-read if needed", not as a
+    # failed read.
+    images_released: int = 0
+    # Cached sum of image_tokens() over ``images``; reset whenever the list
+    # changes. The budget is recomputed on every planner call.
+    _image_cost: Optional[int] = field(default=None, repr=False)
     kind: Literal["tool_result"] = "tool_result"
 
     @property
     def is_error(self) -> bool:
         return self.outcome is not Outcome.SUCCESS
+
+    def image_tokens(self) -> int:
+        """Estimated prompt cost of the images this part still carries."""
+        if not self.images:
+            return 0
+        if self._image_cost is None:
+            self._image_cost = sum(image_tokens(img) for img in self.images)
+        return self._image_cost
+
+    def release_images(self, keep: int = 0) -> int:
+        """Take all but the first ``keep`` images out of context, for good.
+
+        The part's text gains a note (see model_text) and its token count is
+        recomputed. Returns how many images were released.
+        """
+        keep = max(int(keep), 0)
+        if len(self.images) <= keep:
+            return 0
+        released = len(self.images) - keep
+        # Reassign rather than slice in place: per-request copies of a part
+        # (copy.copy) share the list object with the live transcript.
+        self.images = list(self.images[:keep])
+        self.images_released += released
+        self._image_cost = None
+        if isinstance(self.metadata, dict) and "images" in self.metadata:
+            # The metadata view holds the same base64. It never reaches the
+            # model, but keeping it would pin the bytes for the whole run.
+            self.metadata = {k: v for k, v in self.metadata.items() if k != "images"}
+            self.metadata["images_released"] = self.images_released
+        self.tokens = estimate_tokens(self.model_text())
+        return released
 
     def model_text(self) -> str:
         """The text the model should see at this part's current tier.
@@ -126,11 +168,29 @@ class ToolResultPart:
             body = self.digest or self._elided()
         else:
             body = self.digest or self._elided()
+        if self.images_released and body:
+            body = f"{body}\n{self._images_released_note()}"
         if self.outcome is Outcome.SUCCESS or not body:
             return body
         # Providers without a native error channel need the failure legible in
         # the text itself, or a retry loop cannot tell success from failure.
         return f"[{self.outcome.value}] {body}"
+
+    def _images_released_note(self) -> str:
+        """Says the pictures were removed on purpose, and how to get them back.
+
+        Without it a read whose pages vanished looks like a read that returned
+        nothing, and the model either reports a failure or guesses.
+        """
+        if self.tool_name == "read_file":
+            how = "call read_file again with the same file_id and page_range"
+        else:
+            how = f"call {self.tool_name} again with the same arguments"
+        return (
+            f"[{self.images_released} page image(s) from this result were removed "
+            f"from context to save space; the call itself completed. To look at "
+            f"them again, {how}.]"
+        )
 
     def _elided(self) -> str:
         """Breadcrumb for a result whose body has aged out of context.
@@ -170,9 +230,9 @@ class Turn:
         total = 0
         for p in self.parts:
             if isinstance(p, ToolResultPart):
-                total += p.tokens
+                total += p.tokens + p.image_tokens()
             elif isinstance(p, (TextPart, ThinkingPart)):
-                total += max(len(p.text) // 4, 0)
+                total += estimate_tokens(p.text)
             elif isinstance(p, ToolCallPart):
                 # The arguments are replayed to the provider on every later
                 # iteration — create_data / edit_artifact code routinely runs
@@ -188,5 +248,101 @@ def estimate_tokens(text: str) -> int:
     Deliberately not the billing number: provider-reported usage stays the
     source of truth for cost and quota. This exists because the ladder has to
     know what a part costs *before* the call, which no provider can tell us.
+
+    Script-aware, because ``len(text) // 4`` is an English ratio. Measured with
+    tiktoken on a Hebrew contract paragraph (188 Hebrew + 77 ASCII chars):
+    cl100k_base 253 tokens, o200k_base 104, against 66 from chars/4 — a Hebrew
+    run was undercounted 1.6-4x, so the ladder decayed far too late. Arabic,
+    Cyrillic and CJK measure in the same band (0.4-1.4 tokens per char).
+    Hence:
+
+    * ASCII: 4 chars per token, unchanged (English prose measures ~4.0).
+    * each non-ASCII char: 1 token. Matches cl100k-class tokenizers, ~2x high
+      for o200k. Over-estimating only decays a little early; under-estimating
+      is what overflows the window.
+    * each ``\\uXXXX`` escape: +2 tokens on top of its 6 ASCII chars. Tool
+      results are ``json.dumps``'d with the default ``ensure_ascii=True``, so
+      Hebrew values reach the model as escapes; they measured ~3.7 tokens
+      apiece on both encodings, which chars/4 alone counts as 1.5.
+
+    C-speed builtins only (``isascii`` / ``encode`` / ``count``): this runs
+    over the whole transcript on every planner call.
     """
-    return len(text) // 4 if text else 0
+    if not text:
+        return 0
+    n = len(text)
+    ascii_chars = n if text.isascii() else len(text.encode("ascii", "ignore"))
+    escapes = text.count("\\u")
+    return ascii_chars // 4 + (n - ascii_chars) + 2 * escapes
+
+
+# -- images --------------------------------------------------------------
+
+# Vision cost per the Anthropic docs: one token per 28x28 px patch, after the
+# provider's downscale to a 1568 px long edge (rendered pages are already
+# capped there by image_utils.VISION_MAX_EDGE_PX). A portrait page at 1568 px
+# is ~2,400 tokens. OpenAI's tile pricing is cheaper for the same image, so
+# this errs high on purpose.
+IMAGE_PATCH_PX = 28
+IMAGE_MAX_EDGE_PX = 1568
+# When an image's size cannot be read (URL source, unknown format): assume the
+# largest image a provider accepts unscaled, ceil(1568/28)^2 = 3,136.
+IMAGE_TOKENS_FALLBACK = math.ceil(IMAGE_MAX_EDGE_PX / IMAGE_PATCH_PX) ** 2
+
+# Enough base64 to reach a JPEG's SOF header past typical EXIF/ICC segments.
+_HEADER_B64_CHARS = 64 * 1024
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _image_b64(img: Any) -> Optional[str]:
+    if not isinstance(img, dict):
+        return None
+    src = img.get("source") if isinstance(img.get("source"), dict) else img
+    if src.get("type") == "url" or src.get("source_type") == "url":
+        return None
+    data = src.get("data")
+    return data if isinstance(data, str) and data else None
+
+
+def image_dimensions(img: Any) -> Optional[tuple]:
+    """(width, height) from a base64 PNG/JPEG header, without decoding the
+    image. None when the source or format is not one we can read."""
+    data = _image_b64(img)
+    if not data:
+        return None
+    chunk = data[:_HEADER_B64_CHARS]
+    chunk = chunk[: len(chunk) - (len(chunk) % 4)]
+    try:
+        head = base64.b64decode(chunk)
+    except (binascii.Error, ValueError):
+        return None
+    if head[:8] == _PNG_MAGIC and len(head) >= 24:
+        return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+    if head[:2] == b"\xff\xd8":
+        i = 2
+        while i + 9 < len(head):
+            if head[i] != 0xFF:
+                return None
+            marker = head[i + 1]
+            if marker == 0xFF:  # fill byte
+                i += 1
+                continue
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                h = int.from_bytes(head[i + 5:i + 7], "big")
+                w = int.from_bytes(head[i + 7:i + 9], "big")
+                return (w, h) if w and h else None
+            i += 2 + int.from_bytes(head[i + 2:i + 4], "big")
+    return None
+
+
+def image_tokens(img: Any) -> int:
+    """Estimated prompt tokens for one image (see IMAGE_PATCH_PX)."""
+    dims = image_dimensions(img)
+    if not dims:
+        return IMAGE_TOKENS_FALLBACK
+    w, h = dims
+    long_edge = max(w, h)
+    if long_edge > IMAGE_MAX_EDGE_PX:
+        scale = IMAGE_MAX_EDGE_PX / long_edge
+        w, h = max(1, round(w * scale)), max(1, round(h * scale))
+    return math.ceil(w / IMAGE_PATCH_PX) * math.ceil(h / IMAGE_PATCH_PX)

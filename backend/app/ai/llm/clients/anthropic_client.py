@@ -10,6 +10,10 @@ from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
 from anthropic import AnthropicVertex as AnthropicVertexAPI, AsyncAnthropicVertex
+from anthropic import DefaultAsyncHttpxClient as AnthropicDefaultAsyncHttpxClient
+from anthropic import DefaultHttpxClient as AnthropicDefaultHttpxClient
+
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.image_utils import normalize_image_input
@@ -91,8 +95,16 @@ def _prefix_cache_control() -> dict[str, Any]:
 
 class Anthropic(LLMClient):
     def __init__(self, api_key: str = None, base_url: str = None, temperature: Optional[float] = None,
-                 default_headers: Optional[dict] = None, vertex: Optional[dict] = None):
+                 default_headers: Optional[dict] = None, vertex: Optional[dict] = None,
+                 pin_egress: bool = False,
+                 identity_headers: Optional[IdentityHeaders] = None):
         super().__init__()
+        # Identity-forwarding headers resolve per request via an httpx hook on
+        # the SDK's own default client.
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+        sync_http = {"http_client": AnthropicDefaultHttpxClient(event_hooks=sync_hooks)} if sync_hooks else {}
+        async_http = {"http_client": AnthropicDefaultAsyncHttpxClient(event_hooks=async_hooks)} if async_hooks else {}
         # base_url was accepted but silently dropped here, so every caller got
         # api.anthropic.com no matter what it asked for. It is a real routing
         # input: Anthropic models hosted on Azure AI Foundry answer the same
@@ -115,16 +127,26 @@ class Anthropic(LLMClient):
                 client_kwargs["base_url"] = base_url
             if default_headers:
                 client_kwargs["default_headers"] = default_headers
-            self.client = AnthropicVertexAPI(**client_kwargs)
-            self.async_client = AsyncAnthropicVertex(**client_kwargs)
+            self.client = AnthropicVertexAPI(**client_kwargs, **sync_http)
+            self.async_client = AsyncAnthropicVertex(**client_kwargs, **async_http)
         else:
             client_kwargs = {"api_key": api_key}
             if base_url:
                 client_kwargs["base_url"] = base_url
             if default_headers:
                 client_kwargs["default_headers"] = default_headers
-            self.client = AnthropicAPI(**client_kwargs)
-            self.async_client = AsyncAnthropic(**client_kwargs)
+            if pin_egress:
+                # Admin-configured base_url (Azure AI Foundry): validate and
+                # pin every request to the checked address (app.core.egress).
+                from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
+
+                self.client = AnthropicAPI(**client_kwargs, http_client=AnthropicDefaultHttpxClient(
+                    transport=PinnedTransport(Policy.ADMIN), **({"event_hooks": sync_hooks} if sync_hooks else {})))
+                self.async_client = AsyncAnthropic(**client_kwargs, http_client=AnthropicDefaultAsyncHttpxClient(
+                    transport=AsyncPinnedTransport(Policy.ADMIN), **({"event_hooks": async_hooks} if async_hooks else {})))
+            else:
+                self.client = AnthropicAPI(**client_kwargs, **sync_http)
+                self.async_client = AsyncAnthropic(**client_kwargs, **async_http)
         self.max_tokens = 32768
         # Admin-configured override, or the historical default. Either way the
         # _accepts_temperature gate stays authoritative: model families that

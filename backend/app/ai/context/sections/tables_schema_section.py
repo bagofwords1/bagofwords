@@ -59,7 +59,8 @@ class FileScopeItem(BaseModel):
     globs: List[str] = []
     index_mode: str = "content"      # none | metadata | content
     file_count: int = 0
-    capped: bool = False
+    capped: bool = False             # catalog hit the connection's Max Files cap
+    indexed_at: Optional[str] = None # last completed shared index run (UTC ISO)
     sample: List[str] = []           # a few representative file ids
     topics: List[str] = []           # aggregate keywords (content mode)
     supports_search: bool = True     # native search API OR index_mode==content
@@ -138,7 +139,42 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
         "modelType", "supportsDax", "preferredDialect",
         "entity_contents", "data_category",
     ),
+    # PriorityErpClient: a subform table (ORDERITEMS) has no address of its
+    # own in Priority; the client answers it through the parent's $expand. The
+    # agent queries it by name like any form, and these say where its rows
+    # come from. `shared_by` marks a subform under several parents, which has
+    # no single path and must be read via the parent the question means.
+    "priority_erp": ("title", "subform_of", "navigation", "shared_by"),
 }
+
+
+# A one-line note for the agent that writes the user-facing answer, keyed by a
+# table-metadata namespace. The connector's query guide reaches only the code
+# writer (`client.description`); how to NAME things in the answer has to be
+# said where the planner reads the schema.
+_PRESENTATION_NOTES: dict[str, str] = {
+    "priority_erp": (
+        "Priority forms and columns have a technical name (ORDNAME, PORDERS) and a "
+        "title (a column's description; the title attribute on a form's priority_erp "
+        "entry). When writing to the user, call forms and columns by their titles, in "
+        "the user's language, never by technical name. Result tables are labelled with "
+        "the titles automatically: keep DataFrame column names technical in code."
+    ),
+}
+
+
+def _presentation_note_xml(tables) -> str:
+    """The presentation note for a data source whose tables carry a namespace
+    listed in `_PRESENTATION_NOTES`, or "" when none applies."""
+    try:
+        for ns, note in _PRESENTATION_NOTES.items():
+            for t in tables or []:
+                meta = getattr(t, "metadata_json", None)
+                if isinstance(meta, dict) and isinstance(meta.get(ns), dict):
+                    return xml_tag("presentation_note", xml_escape(note))
+    except Exception:
+        pass
+    return ""
 
 # Flat (non-namespaced) table metadata worth surfacing, keyed by connector.
 # Prometheus stores these at the top level of metadata_json.
@@ -169,12 +205,16 @@ _FLAT_META_KEYS: tuple[str, ...] = (
 # `relationship_key` marks a column recovered from a relationship rather than
 # from the column listing, so the agent knows it is a join key.
 #
+# `from_form` marks a Priority subform table's column that belongs to a parent
+# form (ORDERITEMS.CURDATE is the order's date), so the agent can tell a line's
+# own fields from its order's.
+#
 # This allowlist is the LAST gate before the prompt: a key absent here never
 # reaches the model no matter what discovery captured or persistence stored.
 _COLUMN_META_KEYS: tuple[str, ...] = (
     "unique_name", "returns", "hidden", "relationship_key",
     "format_string", "data_category", "display_folder", "sort_by_column",
-    "summarize_by", "contents",
+    "summarize_by", "contents", "from_form",
 )
 
 
@@ -656,7 +696,9 @@ class TablesSchemaContext(ContextSection):
             # Index/state (self-closing).
             inner.append(
                 f'<index mode="{xml_escape(fs.index_mode)}" files="{fs.file_count}" '
-                f'capped="{"true" if fs.capped else "false"}"/>'
+                f'capped="{"true" if fs.capped else "false"}"'
+                + (f' indexed_at="{xml_escape(fs.indexed_at)}"' if fs.indexed_at else "")
+                + "/>"
             )
             if fs.topics:
                 inner.append(xml_tag("topics", xml_escape(", ".join(fs.topics[:12]))))
@@ -722,6 +764,9 @@ class TablesSchemaContext(ContextSection):
                 content_parts.append(status_xml)
             if self.info.context:
                 content_parts.append(xml_tag("context", xml_escape(self.info.context)))
+            presentation = _presentation_note_xml(self.tables)
+            if presentation:
+                content_parts.append(presentation)
 
             # Check if we have multi-connection (more than one group, or the group isn't 'default')
             # File connections also count — they render as their own <connection>.
@@ -1191,6 +1236,9 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(roster_xml)
             if getattr(ds.info, 'context', None):
                 inner_parts.append(xml_tag("description", xml_escape(ds.info.context)))
+            presentation = _presentation_note_xml(getattr(ds, 'tables', None))
+            if presentation:
+                inner_parts.append(presentation)
             if sample_xml:
                 inner_parts.append(xml_tag("sample", sample_xml, {"k": str(top_k_per_ds)}))
             if index_xml:

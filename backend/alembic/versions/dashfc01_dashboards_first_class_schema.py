@@ -1,7 +1,7 @@
 """Dashboards as first-class entities: schema only
 
 Revision ID: dashfc01
-Revises: mrgheads07
+Revises: submsg02
 Create Date: 2026-10-11
 
 Phase 1 of docs/design/dashboards-first-class.md. Adds the structure a
@@ -35,7 +35,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "dashfc01"
-down_revision: str | None = "mrgheads07"
+down_revision: str | None = "submsg02"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

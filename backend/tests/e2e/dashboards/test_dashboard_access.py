@@ -19,11 +19,13 @@ READERS = ["owner", "admin", "member", "direct_share", "group_share", "group_rem
            "proj_owner", "proj_viewer", "proj_group", "proj_revoked", "other_org", "anonymous"]
 
 # Published dashboard outside any project. "shared" grants direct_share and
-# the analysts group (group_share, proj_group; group_removed left it).
+# the analysts group (group_share, proj_group; group_removed left it). The
+# organization's full admin opens every published dashboard of it, as /r lets
+# an admin open every conversation's dashboard (main, #1400).
 OUTSIDE_PROJECT = {
-    "none": {**dict.fromkeys(READERS, 404), "owner": 200},
-    "shared": {**dict.fromkeys(READERS, 403), "owner": 200, "direct_share": 200, "group_share": 200,
-               "proj_group": 200, "anonymous": 401},
+    "none": {**dict.fromkeys(READERS, 404), "owner": 200, "admin": 200},
+    "shared": {**dict.fromkeys(READERS, 403), "owner": 200, "admin": 200, "direct_share": 200,
+               "group_share": 200, "proj_group": 200, "anonymous": 401},
     "internal": {**dict.fromkeys(READERS, 200), "other_org": 403, "anonymous": 401},
     "public": dict.fromkeys(READERS, 200),
 }

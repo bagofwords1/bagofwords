@@ -40,12 +40,26 @@ import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from typing import Dict, Generator, List, Optional
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import pandas as pd
 import requests
 
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients.priority_odata_query import (
+    QueryError,
+    SubformRoute,
+    apply_post,
+    unique_name,
+    build_subform_request,
+    expand_chain,
+    flatten_expand,
+    flatten_subform,
+    nav_form,
+    parent_probe_path,
+    parse_query_string,
+    with_parent_page,
+)
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 
 # EDMX namespaces. Priority emits OData v4 CSDL.
@@ -74,9 +88,39 @@ _DEFAULT_FORMS = [
 _METADATA_TIMEOUT = 190
 _QUERY_TIMEOUT = 120
 
+# Wall-clock budget for one execute_query, all its requests included. Replaced
+# by the connection's query timeout (less a margin) via `apply_query_timeout`,
+# so the client stops with an actionable error before the executor gives up on
+# it. A subform read pages through its parent form inside this budget.
+_DEFAULT_QUERY_BUDGET = 90
+# Parents per request when a subform read must go through every matching
+# parent; small pages keep each request well inside Priority's own limits.
+_SCAN_PAGE = 50
+_MAX_PAGE = 200
+# An explicit `$expand` on a form is one request; with no $top, more matching
+# rows than this are refused up front (checked with a one-key request).
+_EXPAND_MAX_ROWS = 500
+
 # Detects a SQL statement handed to `execute_query`. Priority form names are
 # bare identifiers, so a leading SELECT/WITH can only be a dialect mix-up.
 _SQL_PREFIX_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
+
+# A query target that names a form (or subform table) and nothing else — no
+# key segment, no navigation path.
+_BARE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+# Bumped when the catalog gains information queries depend on (2: subform
+# access paths). An attached catalog without it predates that information.
+_CATALOG_VERSION = 2
+
+
+class _NotFound(RuntimeError):
+    """Priority answered 404 for the requested resource."""
+
+
+class _BudgetExceeded(Exception):
+    """The query's time budget ran out before Priority answered."""
 
 
 class _RateLimiter:
@@ -136,6 +180,21 @@ class PriorityErpClient(DataSourceClient):
         self.verify_ssl = bool(verify_ssl)
         self._limiter = _RateLimiter(max_calls_per_minute)
         self._schemas_cache: Optional[List[Table]] = None
+        # Subform tables by upper-cased name -> their `priority_erp` metadata
+        # (access path, column origins). Filled from the indexed catalog via
+        # `attach_table_metadata`, or from `$metadata` once get_schemas runs.
+        self._subforms: Dict[str, dict] = {}
+        # Form (upper-cased) -> {column name: title}, for result headers.
+        self._column_titles: Dict[str, Dict[str, str]] = {}
+        self._catalog_known = False
+        self._query_budget = float(_DEFAULT_QUERY_BUDGET)
+
+    def apply_query_timeout(self, seconds: int) -> None:
+        """Adopt the connection's query timeout as this client's budget, a
+        little under it, so a slow Priority read ends here with a message the
+        agent can act on rather than as a bare executor timeout."""
+        if isinstance(seconds, (int, float)) and seconds > 0:
+            self._query_budget = float(max(5.0, seconds - max(3.0, seconds * 0.1)))
 
     # ── connection ──────────────────────────────────────────────────────────
 
@@ -188,9 +247,11 @@ class PriorityErpClient(DataSourceClient):
                 "has an API licence, and note Basic auth is rejected while External ID is enabled."
             )
         if resp.status_code == 404:
-            raise RuntimeError(
-                f"Priority returned 404 for '{path}'. Check the form name exists in this company "
-                "(form names are case-sensitive in the URL) and that the service root is correct."
+            raise _NotFound(
+                f"Priority returned 404 for '{path}': the form is not addressable at the service "
+                "root. Either it is a subform (reachable only through its parent form with "
+                "$expand), it is not enabled for the API in Priority's Limited Access/API Forms, "
+                "or the name or company is wrong (form names are case-sensitive in the URL)."
             )
         if resp.status_code == 501 or "$apply" in (url or ""):
             # Priority documents no $apply. The agent reaches for aggregation
@@ -250,6 +311,8 @@ class PriorityErpClient(DataSourceClient):
         """Turn an EDMX document into `{form_name: Table}`."""
         root = ET.fromstring(xml_text)
         tables: Dict[str, Table] = {}
+        # child form -> [(parent form, navigation property)], for subform paths
+        parents: Dict[str, List[tuple]] = {}
 
         for entity in discovery_items((node for node in root.iter() if node.tag.endswith('}EntityType')), 'entities', label=lambda entity: entity.get('Name')):
             if not entity.tag.endswith("}EntityType"):
@@ -278,6 +341,10 @@ class PriorityErpClient(DataSourceClient):
                 if is_mandatory:
                     mandatory.append(name)
                 meta: Dict[str, object] = {}
+                if title:
+                    # The form column's label, as structured metadata: unlike a
+                    # free-text description it is carried into per-user schemas.
+                    meta["title"] = title
                 if is_mandatory:
                     meta["mandatory"] = True
                 if prop.get("MaxLength"):
@@ -304,6 +371,7 @@ class PriorityErpClient(DataSourceClient):
                 subforms.append(nav_name)
                 target = (nav.get("Type") or "").replace("Collection(", "").rstrip(")")
                 target = target.rsplit(".", 1)[-1] if target else nav_name
+                parents.setdefault(target, []).append((form, nav_name))
                 anchor = by_name.get(key_names[0]) if key_names else (columns[0] if columns else None)
                 if anchor is not None:
                     fks.append(ForeignKey(
@@ -312,9 +380,10 @@ class PriorityErpClient(DataSourceClient):
                         references_column=anchor,
                     ))
 
+            form_title = self._annotations(entity).get(_TERM_DESCRIPTION)
             tables[form] = Table(
                 name=form,
-                description=self._annotations(entity).get(_TERM_DESCRIPTION),
+                description=form_title,
                 columns=columns,
                 pks=[by_name[k] for k in key_names if k in by_name],
                 fks=fks,
@@ -323,9 +392,123 @@ class PriorityErpClient(DataSourceClient):
                     "subforms": subforms,
                     "mandatory": mandatory,
                     "company": self._company(),
+                    # Catalogs built since subform support carry this; an older
+                    # catalog lacks the access paths and must not be trusted to
+                    # say "not a subform".
+                    "catalog_version": _CATALOG_VERSION,
+                    # The form's title ("Purchase Orders" / "הזמנות רכש") — what
+                    # users call it; rendered to the agent via _TABLE_META_KEYS.
+                    **({"title": form_title} if form_title else {}),
                 }},
             )
+
+        roots = self._entity_set_types(root)
+        if roots:
+            # Without an EntityContainer nothing tells a root from a subform,
+            # so the catalog is left as it always was.
+            self._mark_subforms(tables, roots, parents)
+        # Column name -> title, after subform tables gained their ancestors'
+        # columns, so a result's headers can show titles at query time from the
+        # indexed catalog alone (see `_remember_subforms`, which loads it, and
+        # `_attach_column_titles`, which applies it).
+        for table in tables.values():
+            titles = {c.name: c.description for c in table.columns if c.description}
+            if titles:
+                table.metadata_json["priority_erp"]["column_titles"] = titles
         return tables
+
+    @staticmethod
+    def _entity_set_types(root: ET.Element) -> set:
+        """Entity types addressable at the service root (have an EntitySet)."""
+        out = set()
+        for es in root.iter():
+            if es.tag.endswith("}EntitySet"):
+                etype = (es.get("EntityType") or es.get("Name") or "").rsplit(".", 1)[-1]
+                if etype:
+                    out.add(etype)
+        return out
+
+    @staticmethod
+    def _mark_subforms(tables: Dict[str, Table], roots: set, parents: Dict[str, List[tuple]]) -> None:
+        """Present every subform as a flat table and record how to reach it.
+
+        A subform has an EntityType but no EntitySet, so `GET {root}/<subform>`
+        is a 404; its rows live nested in the parent. Each subform table gains
+        the columns of every form above it (nearest first; a name already taken
+        is prefixed with its form, e.g. ORDERS_STATDES) and a `path` the client
+        uses to rewrite a query into the parent `$expand`. A subform reached
+        from several parents (shared attachments) has no single path and is
+        marked with its parents instead — never guessed.
+        """
+        own_cols = {name: list(t.columns) for name, t in tables.items()}
+        own_keys = {name: [k.name for k in t.pks] for name, t in tables.items()}
+
+        def links(form: str) -> List[tuple]:
+            return list(dict.fromkeys(parents.get(form, [])))
+
+        def path_of(form: str, seen: frozenset) -> Optional[List[tuple]]:
+            if form in roots:
+                return [(form, None)]
+            up = links(form)
+            if len(up) != 1 or form in seen or up[0][0] not in tables:
+                return None
+            parent, nav = up[0]
+            above = path_of(parent, seen | {form})
+            return above + [(form, nav)] if above else None
+
+        for name, table in tables.items():
+            if name in roots:
+                continue
+            meta = table.metadata_json["priority_erp"]
+            up = links(name)
+            if len(up) > 1:
+                meta["parents"] = sorted({p for p, _ in up})
+                meta["shared_by"] = ", ".join(meta["parents"])
+                meta["via"] = [{"form": p, "navigation": n} for p, n in up]
+                continue
+            path = path_of(name, frozenset())
+            if not path:
+                continue
+
+            exposed: Dict[str, List[str]] = {c.name: [name, c.name] for c in own_cols[name]}
+            columns = list(own_cols[name])
+            for form, _ in reversed(path[:-1]):
+                level = next(i for i, (f, _) in enumerate(path) if f == form)
+                form_title = (tables[form].metadata_json.get("priority_erp") or {}).get("title") \
+                    if isinstance(tables[form].metadata_json, dict) else None
+                for c in own_cols[form]:
+                    col_name = unique_name(c.name, form, level, exposed)
+                    exposed[col_name] = [form, c.name]
+                    title = c.description
+                    if col_name != c.name and title:
+                        # A renamed (colliding) parent column would otherwise read
+                        # exactly like the line's own: "Date" twice.
+                        title = f"{title} ({form_title or form})"
+                    metadata = {**(c.metadata or {}), "from_form": form}
+                    if title:
+                        metadata["title"] = title
+                    columns.append(TableColumn(
+                        name=col_name,
+                        dtype=c.dtype,
+                        description=title,
+                        metadata=metadata,
+                    ))
+            by_exposed = {c.name: c for c in columns}
+            origin = {tuple(v): k for k, v in exposed.items()}
+            key_cols = [origin[(form, k)] for form, _ in path for k in own_keys[form]
+                        if (form, k) in origin]
+
+            table.columns = columns
+            table.pks = [by_exposed[k] for k in key_cols]
+            meta.update({
+                "subform_of": path[-2][0],
+                "navigation": path[-1][1],
+                "path": [
+                    {"form": form, "keys": own_keys[form], **({"navigation": nav} if nav else {})}
+                    for form, nav in path
+                ],
+                "columns": exposed,
+            })
 
     def _company(self) -> str:
         """The Priority company is the last segment of the service root."""
@@ -369,7 +552,8 @@ class PriorityErpClient(DataSourceClient):
                         "message": "Connected, but $metadata returned no entity types. "
                                    "Check the company name in the service root.",
                     }
-                forms = len(re.findall(r"<EntityType\b", text))
+                # Count what an admin can open — EntitySets — not subform types.
+                forms = len(re.findall(r"<EntitySet\b", text)) or len(re.findall(r"<EntityType\b", text))
                 return {
                     "success": True,
                     "message": f"Connected to Priority. {forms} form(s) visible in $metadata.",
@@ -393,6 +577,12 @@ class PriorityErpClient(DataSourceClient):
             resp = self._get(session, "$metadata", accept="application/xml",
                              timeout=_METADATA_TIMEOUT)
             parsed = self._parse_metadata(resp.text or "")
+        # Every subform in the tenant, selected or not, so a query can route
+        # even when the caller indexed only part of the catalog.
+        self._remember_subforms(
+            [{"name": n, "metadata_json": t.metadata_json} for n, t in parsed.items()],
+            authoritative=True,
+        )
 
         wanted = self._select_forms(parsed.keys())
         tables = [parsed[name] for name in wanted if name in parsed]
@@ -439,6 +629,281 @@ class PriorityErpClient(DataSourceClient):
                 return table
         raise ValueError(f"Unknown Priority form: {table_name}")
 
+    # ── subforms ────────────────────────────────────────────────────────────
+
+    def attach_table_metadata(self, tables: List[Dict]) -> None:
+        """Receive the indexed catalog (`{"name", "metadata_json"}` rows) at
+        construction, so a subform query routes without regenerating
+        `$metadata` — a request Priority warns can take minutes."""
+        self._remember_subforms(tables, authoritative=False)
+
+    def _remember_subforms(self, tables: List[Dict], authoritative: bool) -> None:
+        """Record subform access paths.
+
+        A live `$metadata` parse is authoritative and replaces what was known.
+        An attached catalog only fills gaps, and settles "this name is not a
+        subform" only when it was indexed with subform support — a catalog
+        from before it (or an empty one) leaves the 404 fallback armed, so an
+        existing install works before its schema is refreshed.
+        """
+        current = False
+        for t in tables or []:
+            meta = ((t or {}).get("metadata_json") or {}).get("priority_erp") or {}
+            name = (t or {}).get("name")
+            current = current or meta.get("catalog_version", 0) >= _CATALOG_VERSION
+            titles = meta.get("column_titles")
+            if name and isinstance(titles, dict) and titles:
+                if authoritative:
+                    self._column_titles[str(name).upper()] = titles
+                else:
+                    self._column_titles.setdefault(str(name).upper(), titles)
+            if name and (meta.get("path") or meta.get("parents")):
+                if authoritative:
+                    self._subforms[str(name).upper()] = meta
+                else:
+                    self._subforms.setdefault(str(name).upper(), meta)
+        if authoritative or current:
+            self._catalog_known = True
+
+    def _query_subform(self, name: str, meta: dict, query_string: str,
+                       max_rows: Optional[int]) -> pd.DataFrame:
+        """Answer a query against a subform table through its parent's
+        `$expand`, flattened to one row per line.
+
+        Priority returns lines only inside their parent, and `$top`/`$orderby`
+        inside an `$expand` act per parent, so the parent form is what gets
+        limited. With a row limit and a sort that starts with parent columns,
+        parents are read in pages (in that parent order, keys breaking ties)
+        until there are enough lines, plus any parents tied with the last one
+        when line columns come later in the sort. Otherwise every matching
+        parent is needed: it is read in pages within the query budget, and
+        when the budget runs out the error says why the read was large and how
+        to narrow it.
+        """
+        route = SubformRoute.from_metadata(name.upper(), meta)
+        if route is None:
+            via = meta.get("via") or []
+            example = f"{via[0]['form']}?$expand={via[0]['navigation']}" if via else "PARENT?$expand=..."
+            raise QueryError(
+                f"{name} is a subform shared by several forms ({', '.join(meta.get('parents') or [])}), "
+                f"so it has no single parent to read it through. Query it via the form you mean, "
+                f"e.g. {example}."
+            )
+        base_path, post = build_subform_request(route, query_string)
+        parent = route.levels[0]
+
+        limit = None
+        if post.top is not None:
+            limit = (post.skip or 0) + post.top
+        elif max_rows:
+            limit = (post.skip or 0) + int(max_rows)
+        # A sample stops once enough lines are in; anything else reads every
+        # matching parent, page by page, until the budget runs out.
+        sample = limit is not None and post.parent_orderby is not None
+
+        order = list(post.parent_orderby or [])
+        order += [(k, False) for k in parent.keys if k not in {c for c, _ in order}]
+
+        deadline = time.monotonic() + self._query_budget
+        rows: List[dict] = []
+        parents_read = requests_sent = 0
+        first_sent = None
+        page = max(1, min(limit, _MAX_PAGE)) if sample else _SCAN_PAGE
+        partial = False
+        # Once a sample has enough lines with `parent_ties`: the leading sort
+        # values of the last parent read, which later parents may still share.
+        tied_on = None
+
+        def sort_values(row: dict) -> tuple:
+            return tuple(row.get(c) for c, _ in post.parent_orderby or [])
+        read_started = time.monotonic()
+        with self.connect() as session:
+            while True:
+                request_path = with_parent_page(base_path, order, page, parents_read)
+                first_sent = first_sent or unquote(request_path)
+                try:
+                    payload = self._get_within(session, request_path, deadline).json()
+                except _BudgetExceeded:
+                    if sample and rows:
+                        partial = True
+                        break
+                    raise QueryError(self._budget_message(route, post, parents_read, requests_sent))
+                requests_sent += 1
+                parents = payload.get("value") or []
+                parents_read += len(parents)
+                rows.extend(flatten_subform(parents, route))
+                if len(parents) < page:
+                    break  # the last page of matching parents
+                if tied_on is not None and sort_values(parents[-1]) != tied_on:
+                    break  # past the parents tied with the last one needed
+                if sample and tied_on is None and len(rows) >= limit:
+                    if not post.parent_ties:
+                        break
+                    tied_on = sort_values(parents[-1])
+                if sample:
+                    page = min(page * 2, _MAX_PAGE)
+                elif requests_sent == 1:
+                    # A full read: having timed one page, check up front that
+                    # the rest fits in the budget instead of finding out at it.
+                    self._check_full_read_fits(session, route, post, parents_read,
+                                               time.monotonic() - read_started, deadline)
+
+        catalog_order = list(route.columns)
+        df = pd.DataFrame(rows)
+        df = df.reindex(columns=catalog_order + [c for c in df.columns if c not in route.columns])
+        df = apply_post(df, post, max_rows)
+        # The agent's code names the subform as a table, which no Priority
+        # endpoint serves; put the request actually sent in the run output so
+        # whoever reads it — a Priority consultant included — sees real OData
+        # they can recognise and replay.
+        notice = f"Priority request ({route.name} is a subform of {parent.form}): {first_sent}"
+        if requests_sent > 1:
+            notice += f" — {requests_sent} pages, {parents_read} {parent.form} rows read"
+        if partial and tied_on is not None:
+            notice += (
+                f". Stopped at the time limit while reading {parent.form} rows with the same "
+                f"{', '.join(c for c, _ in post.parent_orderby)} as the last one; lines of "
+                f"those not read may belong in the result — add {', '.join(parent.keys)} to "
+                f"$orderby after {post.parent_orderby[-1][0]} so it cannot tie"
+            )
+        elif partial:
+            notice += (
+                f". Stopped at the time limit with {len(df)} of the {post.top or max_rows} "
+                f"rows asked for; add a $filter on {parent.form} columns to find the rest faster"
+            )
+        df.attrs["bow_notice"] = notice
+        # The bare request, for the Queries tab (see code_execution.SENT_REQUEST_ATTR).
+        df.attrs["bow_sent_request"] = first_sent
+        # The subform table's catalog entry lists every column under its
+        # exposed name, ancestors' (prefixed) ones included.
+        self._attach_column_titles(df, {c: (route.name, c) for c in df.columns})
+        return df
+
+    @staticmethod
+    def _parent_filter_hint(route: SubformRoute) -> str:
+        parent = route.levels[0].form
+        cols = [name for name, (form, original) in route.columns.items()
+                if form == parent and "DATE" in original.upper()]
+        example = cols[0] if cols else None
+        listed = ", ".join((cols or list(route.levels[0].keys))[:4])
+        # An example cutoff about three months back, from today: a fixed date
+        # would age, and an agent copies the example as given.
+        from datetime import datetime, timedelta, timezone
+        since = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-01T00:00:00Z")
+        filt = (f"$filter={example} ge {since}" if example
+                else f"$filter on {parent} columns")
+        return f"Bound the read with a {filt} (columns of {parent}: {listed}) or $since"
+
+    def _check_full_read_fits(self, session: requests.Session, route: SubformRoute, post,
+                              parents_read: int, elapsed: float, deadline: float) -> None:
+        """Refuse a full read that cannot finish in time, before reading on.
+
+        The first page's pace says how many more parents the remaining budget
+        can take; one request for a single parent key past that point says
+        whether more match. Anything wrong with the probe itself is ignored —
+        the budget still bounds the read."""
+        per_parent = elapsed / max(parents_read, 1)
+        remaining = deadline - time.monotonic()
+        capacity = parents_read + int(0.8 * remaining / per_parent) if per_parent > 0 else 10 ** 9
+        try:
+            probe = self._get_within(session, parent_probe_path(route, post, capacity), deadline)
+            more = bool((probe.json() or {}).get("value"))
+        except Exception:
+            return
+        if more:
+            raise QueryError(self._too_large_message(route, post, capacity))
+
+    def _too_large_message(self, route: SubformRoute, post, capacity: int) -> str:
+        parent = route.levels[0].form
+        why, narrow = self._why_and_narrow(route, post)
+        return (
+            f"Not run to the end: this {route.name} query needs more than {capacity} {parent} "
+            f"rows read with their lines — more than fit in the {int(self._query_budget)}s "
+            f"query limit at this server's speed — because {why}. Do not retry it unchanged. "
+            f"{narrow}, and $select only the columns you need."
+        )
+
+    def _why_and_narrow(self, route: SubformRoute, post):
+        parent = route.levels[0].form
+        if post.parent_bounded:
+            return (f"that many {parent} rows match its $filter",
+                    f"Narrow the $filter on {parent} (e.g. a shorter date range) so fewer "
+                    f"{parent} rows match")
+        if post.top is None:
+            why = f"it has no $top, so it reads every {parent} row with all its lines"
+        elif post.parent_orderby is None:
+            why = (f"it sorts on {post.orderby[0][0]} first, a column of the lines, so it "
+                   f"reads every {parent} row with all its lines")
+        else:
+            why = f"too few of the {parent} rows read had matching lines"
+        why += f" (a filter on line columns does not reduce that: {route.name} is read through {parent})"
+        return why, self._parent_filter_hint(route) + f" to read fewer {parent} rows"
+
+    def _check_expand_size(self, session: requests.Session, path: str, query_string: str,
+                           chain: List[str], deadline: float) -> None:
+        """An explicit `$expand` with no `$top` is answered in one request; if
+        more than `_EXPAND_MAX_ROWS` rows of the form match, refuse it before
+        Priority starts on the lines of all of them."""
+        opts = parse_query_string(query_string)
+        if opts.get("$top") or "(" in path or "/" in path:
+            return
+        probe = ["$top=1", f"$skip={_EXPAND_MAX_ROWS}"]
+        if opts.get("$filter"):
+            probe.insert(0, "$filter=" + opts["$filter"])
+        if opts.get("$since"):
+            probe.append("$since=" + opts["$since"])
+        probe_path = f"{path}?" + "&".join(quote(p, safe="()$,;=:'/@!*-._~") for p in probe)
+        try:
+            more = bool((self._get_within(session, probe_path, deadline).json() or {}).get("value"))
+        except Exception:
+            return  # the budget still bounds the real request
+        if more:
+            child = nav_form(chain[-1])
+            raise QueryError(
+                f"Not sent: more than {_EXPAND_MAX_ROWS} {path} rows match, and $expand="
+                f"{chain[0]} with no $top makes Priority build every one of them with its "
+                f"{child} lines in a single response. Add $top, narrow the $filter (e.g. a "
+                f"date range), or query the {child} table by name, which reads {path} in pages."
+            )
+
+    def _budget_message(self, route: SubformRoute, post, parents_read: int,
+                        requests_sent: int) -> str:
+        parent = route.levels[0].form
+        why, narrow = self._why_and_narrow(route, post)
+        return (
+            f"Priority did not finish this {route.name} query within "
+            f"{int(self._query_budget)}s ({requests_sent} pages, {parents_read} {parent} rows "
+            f"read so far): {why}. Do not retry it unchanged. {narrow}, and $select only "
+            f"the columns you need."
+        )
+
+    def _get_within(self, session: requests.Session, path: str, deadline: float,
+                    params: Optional[dict] = None) -> requests.Response:
+        """`_get` bounded by what is left of the query budget."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 1:
+            raise _BudgetExceeded()
+        try:
+            return self._get(session, path, params=params, timeout=min(_QUERY_TIMEOUT, remaining))
+        except requests.Timeout:
+            raise _BudgetExceeded()
+
+    def _attach_column_titles(self, df: pd.DataFrame, origins: Dict[str, tuple]) -> None:
+        """Label the result's columns with their titles, for display headers
+        (see code_execution.COLUMN_TITLES_ATTR).
+
+        `origins` maps each output column to the (form, column) it came from,
+        so a name both levels share is titled by the form that supplied it.
+        """
+        titles = {}
+        for col in df.columns:
+            form, source = origins.get(col, (None, None))
+            title = (self._column_titles.get(str(form).upper()) or {}).get(source) if form else None
+            if title:
+                titles[col] = title
+        if titles:
+            df.attrs["bow_column_titles"] = titles
+
     def execute_query(
         self,
         query: str,
@@ -451,6 +916,10 @@ class PriorityErpClient(DataSourceClient):
         query options ("ORDERS?$filter=CUSTNAME eq '1011'&$top=10"). Priority
         supports $filter/$select/$expand/$orderby/$top/$skip and its own
         $since; it does NOT document $apply, so aggregation is not pushed down.
+
+        A subform ("ORDERITEMS?$filter=...") is answered through its parent's
+        `$expand` and flattened, and an explicit `$expand` is flattened the
+        same way — one row per line, never a nested list.
         """
         target = (query or table_name or "").strip()
         if not target:
@@ -470,14 +939,50 @@ class PriorityErpClient(DataSourceClient):
             )
 
         path, _, query_string = target.partition("?")
+        bare = bool(_BARE_NAME_RE.match(path))
+        if bare and path.upper() in self._subforms:
+            return self._query_subform(path, self._subforms[path.upper()], query_string, max_rows)
+
+        # An explicit $expand is flattened into line rows; checked up front so
+        # a sibling expand is refused before any request is made.
+        chain = None
+        if "$expand" in unquote(query_string):
+            expand = parse_query_string(query_string).get("$expand")
+            chain = expand_chain(expand) if expand else None
+
         params: Dict[str, str] = {}
         if max_rows and "$top" not in query_string:
             params["$top"] = str(int(max_rows))
 
-        with self.connect() as session:
-            url_path = f"{path}?{query_string}" if query_string else path
-            resp = self._get(session, url_path, params=params or None)
-            payload = resp.json()
+        started = time.monotonic()
+        deadline = started + self._query_budget
+        try:
+            with self.connect() as session:
+                url_path = f"{path}?{query_string}" if query_string else path
+                if chain and not params:
+                    self._check_expand_size(session, path, query_string, chain, deadline)
+                try:
+                    resp = self._get_within(session, url_path, deadline, params=params or None)
+                except _BudgetExceeded:
+                    expanded = (f" and each row's {nav_form(chain[-1])} lines" if chain else "")
+                    raise QueryError(
+                        f"Priority did not answer {path} within {int(time.monotonic() - started)}s: "
+                        f"the request reads {path} rows{expanded} until its $filter/$top stop it. "
+                        f"Do not retry it unchanged: add a $filter (e.g. a date range), a "
+                        f"smaller $top, and $select only the columns you need."
+                    )
+                payload = resp.json()
+        except _NotFound as original:
+            # Without an attached catalog there was no way to know this was a
+            # subform; learn it from $metadata — once, and only on this path.
+            if bare and not self._catalog_known:
+                try:
+                    self.get_schemas()
+                except Exception:
+                    raise original
+                if path.upper() in self._subforms:
+                    return self._query_subform(path, self._subforms[path.upper()], query_string, max_rows)
+            raise
 
         rows = payload.get("value")
         if rows is None:
@@ -485,9 +990,31 @@ class PriorityErpClient(DataSourceClient):
             rows = [] if not isinstance(payload, dict) else [
                 {k: v for k, v in payload.items() if not k.startswith("@odata")}
             ]
-        df = pd.DataFrame(rows)
-        # Subforms arrive as nested lists of dicts; leaving them raw makes the
-        # frame unusable in downstream code, so summarise to a count.
+        # The form the rows belong to: the last path segment, a navigation
+        # property (ORDERS('1')/ORDERITEMS_SUBFORM) naming its subform.
+        queried_form = nav_form(path.split("/")[-1].split("(")[0])
+        if chain:
+            origins: Dict[str, tuple] = {}
+            flat = flatten_expand(rows, queried_form, chain, origins=origins)
+            df = pd.DataFrame(flat) if flat else pd.DataFrame(
+                columns=[k for k in (rows[0] if rows else {}) if k not in chain and not k.startswith("@odata")]
+            )
+            if not flat and rows:
+                origins = {c: (queried_form, c) for c in df.columns}
+        else:
+            df = pd.DataFrame(rows)
+            origins = {c: (queried_form, c) for c in df.columns}
+        self._attach_column_titles(df, origins)
+        if chain:
+            # Models know Priority's raw nested shape and try to unnest it;
+            # say plainly that the connector already did.
+            cols = ", ".join(map(str, list(df.columns)[:20]))
+            df.attrs["bow_notice"] = (
+                f"{path} with $expand={'/'.join(chain)} is already flattened: one row per "
+                f"{nav_form(chain[-1])} line ({len(df)} rows), no nested column. Columns: {cols}"
+            )
+        # Anything still nested (a complex value outside an $expand) would make
+        # the frame unusable downstream, so summarise it.
         for col in df.columns:
             if df[col].apply(lambda v: isinstance(v, (list, dict))).any():
                 df[col] = df[col].apply(
@@ -534,7 +1061,6 @@ options:
 ORDERS
 ORDERS?$filter=CUSTNAME eq '1011'&$top=50
 ORDERS?$select=ORDNAME,CUSTNAME,CURDATE&$orderby=CURDATE desc
-ORDERS?$expand=ORDERITEMS_SUBFORM($select=PARTNAME,PRICE)
 ```
 
 **Always push `$select` and `$top` into the query.** A bare form name
@@ -564,10 +1090,61 @@ in code. Keep `$top` tight: every row crosses the network.
 - Dates are DateTimeOffset: `$filter=CURDATE ge 2026-01-01T00:00:00Z`.
 - **Calculated columns are not stored** and cannot be used in `$filter` or
   `$orderby` — read them from the returned rows instead.
-- Subforms are navigation properties (`ORDERITEMS_SUBFORM`) reached via
-  `$expand`; with composite keys, `$select` must include all parent key fields.
+- A table carrying `<priority_erp subform_of=...>` is a subform; see below.
 - Column *titles* are in each column's description — use them to interpret
   cryptic names like CUSTNAME, and always query by the column **name**.
 - Priority Cloud allows 100 calls/minute; prefer one well-filtered query over
   many small ones.
+
+### Subforms (order lines, invoice lines, …)
+
+A table marked `<priority_erp subform_of="ORDERS" .../>` is a Priority
+**subform**: ORDERITEMS holds the lines of ORDERS. Query it **by its own name,
+exactly like any other table** — one row per line. Its columns include the
+columns of the forms above it (marked `from_form`), so you can filter, select
+and sort on the order's fields too. A parent column whose name the line already
+uses carries the parent's prefix (`ORDERS_STATDES`).
+
+**Cost rule.** Priority serves lines only inside their parent, so every
+subform query is a read of the parent form (ORDERS), with each order's lines
+attached. What makes it fast or slow is **how many parent rows it reads** —
+not how many lines come back:
+
+- A `$filter` on a **parent** column (a date range, the customer, the order
+  number) narrows the read. A filter on a **line** column (PRICE, PARTNAME)
+  does not: every order is still read, then its lines are filtered.
+- `$top` with no `$orderby`, or with `$orderby` that starts with parent
+  columns (line columns only after them, as in `CURDATE desc,ORDNAME desc,KLINE`),
+  reads just enough orders to fill it — a quick sample.
+- `$orderby` that starts with a line column, or no `$top` at all, needs every
+  matching order: include a `$filter` on a parent column (or `$since`).
+  Without one it reads the whole form, which on a large company runs out of
+  time.
+
+```
+ORDERITEMS?$top=5&$select=ORDNAME,PARTNAME,TQUANT,PRICE
+ORDERITEMS?$orderby=CURDATE desc&$top=20&$select=ORDNAME,CURDATE,PARTNAME,PRICE
+ORDERITEMS?$filter=CURDATE ge 2026-07-01T00:00:00Z and PRICE gt 100&$select=ORDNAME,CDES,PARTNAME,PRICE
+ORDERITEMS?$filter=CURDATE ge 2026-01-01T00:00:00Z&$orderby=PRICE desc&$top=10&$select=ORDNAME,PARTNAME,PRICE
+```
+
+- If the question needs no line detail (order counts, order totals per
+  customer or month), query the parent form itself — it is one row per order
+  and much cheaper than its lines.
+- For "the latest lines" sort on the parent's date, not the line's.
+- For totals and rankings over lines, choose the date range the question
+  implies (or a recent one, and say which) and aggregate in pandas.
+- `$orderby`, `$top` and `$skip` apply to all lines together ("the 10 most
+  expensive lines overall").
+- Join conditions on different forms with a top-level `and`. One condition may
+  not mix forms: `CURDATE ge … or PRICE gt 100` and `PRICE gt TOTPRICE` are
+  refused — run one query per side, or compare in pandas.
+- Do not write `$expand` yourself for a subform table. If you do expand a
+  subform from its parent, give the parent a `$top` or `$filter`; the result
+  is already flattened to one row per line (no nested column to unpack) —
+  expand one subform per query.
+- If a query is refused or runs out of time, the message says how to narrow
+  it; change the query accordingly instead of re-running it.
+- A table marked `shared_by` belongs to several forms; read it through the
+  form you mean: `ORDERS?$filter=...&$expand=EXTFILES_SUBFORM`.
 """

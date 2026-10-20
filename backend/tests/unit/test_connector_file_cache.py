@@ -152,7 +152,7 @@ def test_connector_images_are_not_treated_as_user_vision_attachments():
     when a turn uploads none. If a connector-fetched picture were in that set,
     reading it once would attach it to every later turn as though the user had
     uploaded it. Tool images reach the model via _collect_vision_images
-    instead, bounded by _VISION_IMAGE_RETENTION_LOOPS.
+    instead, bounded by _MAX_RETAINED_IMAGES.
     """
     import inspect
     from app.ai import agent_v2

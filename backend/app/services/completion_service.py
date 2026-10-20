@@ -57,8 +57,10 @@ from app.services.widget_service import WidgetService
 from app.services.report_service import ReportService
 from app.services.mention_service import MentionService
 from app.services.data_source_service import DataSourceService
+from app.services.sub_agent_locks import lock_report
 
 from app.streaming.completion_event_bus import websocket_manager
+from app.streaming.delivery import NO_BUFFER_HEADERS
 from app.settings.database import create_async_session_factory
 
 # Per-worker cap on concurrently *executing* agent runs. Excess streaming
@@ -74,6 +76,15 @@ _AGENT_RUN_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BOW_MAX_CONCURRENT_AGENT
 # Cadence of ": ping" SSE comments on quiet streams (kickoff + watch). Keeps
 # proxies from reaping idle connections and lets clients detect dead ones.
 _SSE_HEARTBEAT_SECONDS = float(os.getenv("BOW_SSE_HEARTBEAT_SECONDS", "15"))
+
+# A stale in-progress completion should not make `queue_if_busy` callers wait
+# forever after a worker exits. Refresh updated_at while an execution is alive
+# and treat several missed heartbeats as an abandoned lease. The generous lease
+# tolerates long LLM/tool awaits; the process-local registry protects runs owned
+# by this worker even if the database heartbeat temporarily fails.
+_COMPLETION_HEARTBEAT_SECONDS = float(os.getenv("BOW_COMPLETION_HEARTBEAT_SECONDS", "30"))
+_COMPLETION_STALE_AFTER_SECONDS = float(os.getenv("BOW_COMPLETION_STALE_AFTER_SECONDS", "300"))
+_ACTIVE_COMPLETION_RUNS: set[str] = set()
 
 # DB re-read cadence for the watch endpoint's fallback tail (when the live
 # in-process queue is not available, e.g. another uvicorn worker owns the run).
@@ -243,6 +254,20 @@ def _format_sse_event_traced(event: SSEEvent) -> str:
 logger = logging.getLogger(__name__)
 
 
+
+def _clamp_training_mode(completion_data, report) -> None:
+    """Never run a training turn on a report that isn't in training mode.
+
+    The agent takes its mode from the completion payload before the report's.
+    Training is only gated where the REPORT's mode is set
+    (``ReportService._assert_can_enter_training_mode``, on create and update).
+    So a payload asking for ``training`` on a chat report would get a training
+    turn without that check. Fall back to the report's own mode instead.
+    """
+    prompt = getattr(completion_data, "prompt", None)
+    if prompt is not None and prompt.mode == "training" and getattr(report, "mode", None) != "training":
+        prompt.mode = getattr(report, "mode", None) or "chat"
+
 class CompletionService:
 
     def __init__(self):
@@ -252,6 +277,58 @@ class CompletionService:
         self.mention_service = MentionService()
         self.llm_service = LLMService()
         self.data_source_service = DataSourceService()
+
+    async def _heartbeat_completion(self, completion_id: str) -> None:
+        """Persist a renewable execution lease without sharing the agent session."""
+        session_factory = create_async_session_factory()
+        while True:
+            await asyncio.sleep(_COMPLETION_HEARTBEAT_SECONDS)
+            try:
+                async with session_factory() as db:
+                    touched = await db.execute(
+                        update(Completion)
+                        .where(Completion.id == completion_id, Completion.status == "in_progress")
+                        .values(updated_at=datetime.utcnow())
+                    )
+                    await db.commit()
+                    if touched.rowcount != 1:
+                        return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logging.warning("Completion heartbeat failed for %s", completion_id, exc_info=True)
+
+    def _start_completion_lease(self, completion_id: str) -> asyncio.Task:
+        """Keep a row's lease fresh, including while waiting for an agent slot."""
+        completion_id = str(completion_id)
+        _ACTIVE_COMPLETION_RUNS.add(completion_id)
+        heartbeat = asyncio.create_task(self._heartbeat_completion(completion_id))
+        owner_task = asyncio.current_task()
+        if owner_task is not None:
+            owner_task.add_done_callback(
+                lambda _done: self._cancel_completion_lease(completion_id, heartbeat)
+            )
+        return heartbeat
+
+    @staticmethod
+    def _cancel_completion_lease(completion_id: str, heartbeat: asyncio.Task) -> None:
+        _ACTIVE_COMPLETION_RUNS.discard(str(completion_id))
+        heartbeat.cancel()
+
+    async def _stop_completion_lease(self, completion_id: str, heartbeat: asyncio.Task) -> None:
+        self._cancel_completion_lease(completion_id, heartbeat)
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
+
+    async def _run_agent_with_heartbeat(self, completion_id: str, agent: AgentV2) -> None:
+        """Keep a row's lease fresh across arbitrarily long planner/tool calls."""
+        heartbeat = self._start_completion_lease(completion_id)
+        try:
+            await agent.main_execution()
+        finally:
+            await self._stop_completion_lease(completion_id, heartbeat)
 
     async def _serialize_completion(self, db: AsyncSession, completion: Completion, current_user: User = None, organization: Organization = None) -> CompletionSchema:
         """Serialize a completion model to a schema following get_completions format"""
@@ -642,6 +719,7 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
             self._assert_can_write_to_report(report, current_user)
+            _clamp_training_mode(completion_data, report)
 
             # Validate widget if provided
             if completion_data.prompt and completion_data.prompt.widget_id:
@@ -677,6 +755,23 @@ class CompletionService:
 
             span.set_attribute("llm.model_id", model.model_id)
 
+            # The same lock as question wakes: claiming the parent turn and
+            # inserting its system row must be atomic. Children run separately.
+            if trigger_source != 'sub_agent':
+                await lock_report(db, report_id)
+                # Always retire expired legacy rows for a normal parent submit,
+                # including callers that do not opt into queue-if-busy. Keep
+                # launch detection under the same report lock so recovery and
+                # creation remain serialized with queue dispatch and question
+                # wakes.
+                running = await self._get_running_system_completion(db, report_id)
+                if (completion_data.queue or completion_data.queue_if_busy) and trigger_source is None and external_platform is None:
+                    if running is not None:
+                        return await self.create_queued_completion(
+                            db, report_id, completion_data, current_user, organization,
+                            busy_completion_id=str(running.id),
+                        )
+
             # Create user completion (head)
             prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
@@ -710,37 +805,13 @@ class CompletionService:
                 # piggybacks this commit. The agent turn bumps it again on finish.
                 report.last_activity_at = datetime.utcnow()
                 db.add(report)
-                await db.commit()
-                await db.refresh(head_completion)
+                await db.flush()
             except Exception as e:
                 await db.rollback()
                 raise HTTPException(status_code=500, detail=f"Failed to save user completion: {str(e)}")
 
             span.set_attribute("completion.head_id", str(head_completion.id))
             span.add_event("head_completion_saved")
-
-            # Mark image files with this completion_id (so they show attached to this message)
-            await self._mark_images_with_completion(db, report.id, str(head_completion.id))
-
-            # Store mentions associated with the user head completion (best-effort)
-            try:
-                await self.mention_service.create_completion_mentions(db, head_completion)
-            except Exception as e:
-                logging.error(f"Failed to create mentions for completion {head_completion.id}: {e}")
-
-            # Audit log
-            try:
-                await audit_service.log(
-                    db=db,
-                    organization_id=str(organization.id),
-                    action="completion.created",
-                    user_id=str(current_user.id),
-                    resource_type="completion",
-                    resource_id=str(head_completion.id),
-                    details={"report_id": str(report.id)},
-                )
-            except Exception:
-                pass
 
             # Create system completion to populate with results
             system_completion = Completion(
@@ -775,6 +846,29 @@ class CompletionService:
 
             span.set_attribute("completion.system_id", str(system_completion.id))
             span.add_event("system_completion_saved")
+
+            # Mark image files with this completion_id (so they show attached to this message)
+            await self._mark_images_with_completion(db, report.id, str(head_completion.id))
+
+            # Store mentions associated with the user head completion (best-effort)
+            try:
+                await self.mention_service.create_completion_mentions(db, head_completion)
+            except Exception as e:
+                logging.error(f"Failed to create mentions for completion {head_completion.id}: {e}")
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="completion.created",
+                    user_id=str(current_user.id),
+                    resource_type="completion",
+                    resource_id=str(head_completion.id),
+                    details={"report_id": str(report.id)},
+                )
+            except Exception:
+                pass
 
             org_settings = await organization.get_settings(db)
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
@@ -847,6 +941,9 @@ class CompletionService:
                                 build_id=resolved_build_id,
                                 routing_meta=routing_meta,
                             )
+                            # The outer background task owns the completion
+                            # lease for the full lifecycle, including session
+                            # setup and semaphore waits.
                             await agent.main_execution()
                         except Exception as e:
                             logging.exception("Agent background execution failed")
@@ -866,9 +963,11 @@ class CompletionService:
                                 logging.exception("Failed to mark background completion as errored")
 
                 async def run_agent_task_then_drain_queue():
+                    heartbeat = self._start_completion_lease(_system_completion_id)
                     try:
                         await run_agent_task()
                     finally:
+                        await self._stop_completion_lease(_system_completion_id, heartbeat)
                         await self.start_next_queued_if_idle(str(_report_id), str(_system_completion_id))
 
                 asyncio.create_task(run_agent_task_then_drain_queue())
@@ -920,7 +1019,7 @@ class CompletionService:
                     )
                     span.add_event("agent_execution_started")
                     with tracer.start_as_current_span("completion.agent_execution"):
-                        await agent.main_execution()
+                        await self._run_agent_with_heartbeat(str(system_completion.id), agent)
                     span.add_event("agent_execution_finished")
 
                     # Drain the prompt queue (no-op unless this run succeeded).
@@ -1075,6 +1174,13 @@ class CompletionService:
                 (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
                 & (Completion.role == 'user')
             ),
+            # Sub-agent children (mode=subagent) are hidden completions: the
+            # parent's delegate card is their only surface in the timeline.
+            # NULL-safe: a plain `trigger_source == 'sub_agent'` is NULL for every
+            # ordinary row, and NOT NULL filters those rows out too.
+            (Completion.trigger_source.is_(None))
+            | (Completion.trigger_source != 'sub_agent')
+            | (Completion.role != 'system'),
         )
         if before:
             # Cursor is "<iso timestamp>~<completion id>" (see next_before below).
@@ -2202,6 +2308,7 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
             self._assert_can_write_to_report(report, current_user)
+            _clamp_training_mode(completion_data, report)
             _log("report_fetched")
 
             # Validate widget if provided
@@ -2247,6 +2354,20 @@ class CompletionService:
             _log("small_model_resolved")
 
             span.set_attribute("llm.model_id", model.model_id)
+
+            await lock_report(db, report_id)
+            # Retire stale rows for every regular streaming submit, even when
+            # the client did not opt into queue-if-busy. The lock also prevents
+            # recovery racing with a concurrent parent launch.
+            running = await self._get_running_system_completion(db, report_id)
+            if (completion_data.queue or completion_data.queue_if_busy) and external_platform is None:
+                if running is not None:
+                    # JSON fallback: the browser reconciles the durable queued row
+                    # when an automatic parent wake won the race to start.
+                    return await self.create_queued_completion(
+                        db, report_id, completion_data, current_user, organization,
+                        busy_completion_id=str(running.id),
+                    )
 
             # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()
@@ -2381,6 +2502,7 @@ class CompletionService:
 
             async def run_agent_with_streaming():
                 """Run agent in background and stream events."""
+                heartbeat = self._start_completion_lease(str(system_completion.id))
                 at0 = time.monotonic()
 
                 def _alog(label):
@@ -2615,6 +2737,7 @@ class CompletionService:
                             except Exception:
                                 logger.exception("Failed to mark streaming completion as errored")
                         finally:
+                            await self._stop_completion_lease(str(system_completion.id), heartbeat)
                             if _agent_slot:
                                 _AGENT_RUN_SEMAPHORE.release()
                             phase_trace.end(_sc_id, "released",
@@ -2723,10 +2846,9 @@ class CompletionService:
                 completion_stream_generator(),
                 media_type="text/event-stream",
                 headers={
-                    "Cache-Control": "no-cache",
+                    **NO_BUFFER_HEADERS,
                     "Connection": "keep-alive",
                     "Transfer-Encoding": "chunked",
-                    "X-Accel-Buffering": "no",  # Disable nginx/ingress buffering
                     "X-Content-Type-Options": "nosniff",
                 }
             )
@@ -2909,10 +3031,9 @@ class CompletionService:
             watch_stream_generator(),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                **NO_BUFFER_HEADERS,
                 "Connection": "keep-alive",
                 "Transfer-Encoding": "chunked",
-                "X-Accel-Buffering": "no",  # Disable nginx/ingress buffering
                 "X-Content-Type-Options": "nosniff",
             },
         )
@@ -3231,17 +3352,57 @@ class CompletionService:
     # ------------------------------------------------------------------
 
     async def _get_running_system_completion(self, db: AsyncSession, report_id: str) -> Completion | None:
+        # Sub-agent children run in the background of the report and never count
+        # as "the running turn": a user message starts normally while they run
+        # and the prompt queue drains past them.
         res = await db.execute(
             select(Completion)
             .where(
                 Completion.report_id == report_id,
                 Completion.role == 'system',
                 Completion.status == 'in_progress',
+                (Completion.trigger_source.is_(None)) | (Completion.trigger_source != 'sub_agent'),
             )
             .order_by(Completion.created_at.desc())
-            .limit(1)
+            .with_for_update()
         )
-        return res.scalars().first()
+        now = datetime.utcnow()
+        live: list[Completion] = []
+        stale: list[Completion] = []
+        for candidate in res.scalars().all():
+            if str(candidate.id) in _ACTIVE_COMPLETION_RUNS:
+                live.append(candidate)
+                continue
+            heartbeat = candidate.updated_at or candidate.created_at
+            if heartbeat is None:
+                # Missing timestamps are ambiguous. Preserve the conservative
+                # behavior and do not replace a potentially live execution.
+                live.append(candidate)
+                continue
+            if heartbeat.tzinfo is not None:
+                heartbeat = heartbeat.replace(tzinfo=None)
+            age = (now - heartbeat).total_seconds()
+            if age <= _COMPLETION_STALE_AFTER_SECONDS:
+                live.append(candidate)
+            else:
+                stale.append(candidate)
+
+        # A legacy report can contain multiple in-progress rows from before
+        # report-level launch serialization. Do not let the newest stale row
+        # hide an older live execution; retire every expired row, then honor
+        # any still-live parent execution.
+        for candidate in stale:
+            # Called under the report lock from either the submit path or queue
+            # dispatcher. Leave the transition in the caller transaction so
+            # replacement or queue claim remains atomic with stale recovery.
+            candidate.status = "error"
+            candidate.completion = {
+                "content": "This execution stopped renewing its heartbeat and was marked abandoned.",
+                "error": True,
+                "error_type": "stale_execution",
+            }
+            logging.warning("Marked stale in-progress completion %s as abandoned", candidate.id)
+        return live[0] if live else None
 
     async def create_queued_completion(
         self,
@@ -3250,6 +3411,8 @@ class CompletionService:
         completion_data: CompletionCreate,
         current_user: User,
         organization: Organization,
+        *,
+        busy_completion_id: str | None = None,
     ):
         """Persist the prompt as a queued user completion instead of starting a
         second concurrent agent run. The dispatcher starts it once the running
@@ -3305,7 +3468,7 @@ class CompletionService:
         asyncio.create_task(self.start_next_queued_if_idle(str(report.id)))
 
         v2_list = await self._assemble_v2_for_completion_ids(db, [queued.id])
-        return CompletionsV2Response(
+        response = CompletionsV2Response(
             report_id=report.id,
             completions=v2_list,
             total_completions=len(v2_list),
@@ -3315,17 +3478,13 @@ class CompletionService:
             earliest_completion=min((c.created_at for c in v2_list), default=None),
             latest_completion=max((c.updated_at for c in v2_list), default=None),
         )
+        response.busy_completion_id = busy_completion_id
+        return response
 
     async def delete_queued_completion(self, db: AsyncSession, completion_id: str, current_user: User, organization: Organization):
         """Remove a prompt from the queue. Only valid for role='user' rows still
         in status='queued' (a dispatched row is a normal turn and stays)."""
-        res = await db.execute(select(Completion).where(Completion.id == completion_id))
-        completion = res.scalars().first()
-        if not completion:
-            raise HTTPException(status_code=404, detail="Completion not found")
-        report = await db.get(Report, completion.report_id)
-        if not report or str(report.organization_id) != str(organization.id):
-            raise HTTPException(status_code=404, detail="Completion not found")
+        completion = await self._get_completion_for_run_owner(db, completion_id, current_user, organization)
         if completion.role != 'user' or completion.status != 'queued':
             raise HTTPException(status_code=409, detail="Completion is not queued")
 
@@ -3354,13 +3513,9 @@ class CompletionService:
 
         If the run already finished, falls back to enqueueing and says so.
         """
-        res = await db.execute(select(Completion).where(Completion.id == completion_id))
-        target = res.scalars().first()
-        if not target:
-            raise HTTPException(status_code=404, detail="Completion not found")
-        report = await db.get(Report, target.report_id)
-        if not report or str(report.organization_id) != str(organization.id):
-            raise HTTPException(status_code=404, detail="Completion not found")
+        # Only the run's owner may steer it (same rule as sigkill); a shared
+        # viewer or another member must not inject turns into someone's run.
+        target = await self._get_completion_for_run_owner(db, completion_id, current_user, organization)
         if target.role != 'system':
             raise HTTPException(status_code=400, detail="Steer target must be the running system completion")
 
@@ -3440,9 +3595,10 @@ class CompletionService:
         """Queue dispatcher. Called after every agent run finishes (and after
         enqueueing, to cover the nothing-was-running race).
 
-        Only drains on success: when ``prev_system_completion_id`` is given and
-        that run ended in error/stopped, the queue stays paused so a broken or
-        deliberately-stopped conversation doesn't burn through queued prompts.
+        Drains after success or an authorization preflight failure (skip only
+        that invalid queue head). Runtime errors and explicit stops keep the
+        queue paused so a broken or deliberately-stopped conversation doesn't
+        burn through queued prompts.
         The claim is a conditional UPDATE so two finishing runs (or two workers)
         can't double-start the same queued prompt.
         """
@@ -3450,14 +3606,36 @@ class CompletionService:
         async with session_factory() as db:
             try:
                 if prev_system_completion_id:
-                    prev_status = (await db.execute(
-                        select(Completion.status).where(Completion.id == prev_system_completion_id)
-                    )).scalar_one_or_none()
-                    if prev_status != 'success':
+                    prev = await db.get(Completion, prev_system_completion_id)
+                    if prev is None:
                         return
+                    auth_failure = (
+                        prev.status == 'error'
+                        and isinstance(prev.completion, dict)
+                        and prev.completion.get('error_type') == 'authorization'
+                    )
+                    if prev.status != 'success' and not auth_failure:
+                        return
+                # Serialize queue claims and system-row creation on the report.
+                # A child question can arrive from another worker at any time.
+                await lock_report(db, report_id)
                 running = await self._get_running_system_completion(db, report_id)
                 if running is not None:
+                    # _get_running_system_completion may have retired older
+                    # stale rows before finding this still-live run. Persist
+                    # those retirements before returning; otherwise closing
+                    # this transaction rolls the recovery back on every idle
+                    # dispatch that encounters a live run.
+                    await db.commit()
                     return
+                # Discard question wakes already answered by an intervening user
+                # turn. They are durable queue entries, never additional tasks.
+                from app.services.sub_agent_message_service import sub_agent_message_service
+                if not await sub_agent_message_service.has_open_questions(db, report_id):
+                    await db.execute(update(Completion).where(
+                        Completion.report_id == report_id, Completion.role == 'user',
+                        Completion.status == 'queued', Completion.trigger_source == 'sub_agent_message',
+                    ).values(status='cancelled'))
                 next_id = (await db.execute(
                     select(Completion.id)
                     .where(
@@ -3469,6 +3647,7 @@ class CompletionService:
                     .limit(1)
                 )).scalar_one_or_none()
                 if not next_id:
+                    await db.commit()
                     return
                 claim = await db.execute(
                     update(Completion)
@@ -3476,7 +3655,6 @@ class CompletionService:
                     .values(status='success')
                     .execution_options(synchronize_session=False)
                 )
-                await db.commit()
                 if getattr(claim, "rowcount", 0) != 1:
                     return
 
@@ -3485,6 +3663,8 @@ class CompletionService:
                     prompt=None,
                     completion={"content": ""},
                     model=head.model,
+                    user_id=head.user_id,
+                    trigger_source=head.trigger_source,
                     widget_id=(head.prompt or {}).get('widget_id'),
                     report_id=head.report_id,
                     parent_id=head.id,
@@ -3513,10 +3693,13 @@ class CompletionService:
         Chains the dispatcher again in ``finally`` to drain the rest of the
         queue.
         """
+        heartbeat = self._start_completion_lease(system_id)
         event_queue = CompletionEventQueue()
         register_stream(system_id, event_queue)
         session_factory = create_async_session_factory()
         _agent_slot = False
+        authorization_preflight_failure = False
+        head = None
         try:
             async with session_factory() as session:
                 try:
@@ -3530,6 +3713,21 @@ class CompletionService:
                         raise RuntimeError("Dispatched agent init failed: missing objects")
                     organization = await session.get(Organization, report.organization_id)
                     user = await session.get(User, head.user_id) if head.user_id else None
+                    from app.core.permission_resolver import assert_principal_belongs_to_org
+                    if user is None:
+                        # Machine-generated queue heads may outlive the user
+                        # that submitted the wave. Never substitute the report
+                        # owner here: fail this head as an authorization error
+                        # so the dispatcher can safely continue to later work.
+                        authorization_preflight_failure = True
+                        raise HTTPException(status_code=403, detail="Queued completion has no valid principal")
+                    try:
+                        await assert_principal_belongs_to_org(session, user, organization.id)
+                        self._assert_can_write_to_report(report, user)
+                    except HTTPException as auth_error:
+                        if auth_error.status_code == 403:
+                            authorization_preflight_failure = True
+                        raise
                     org_settings = await organization.get_settings(session)
 
                     prompt = head.prompt or {}
@@ -3574,10 +3772,25 @@ class CompletionService:
                         routing_meta=routing_meta,
                     )
                     await agent.main_execution()
+                    # AgentV2 handles several provider/runtime failures inside
+                    # main_execution and persists an error result instead of
+                    # raising it to this dispatcher. A machine question wake
+                    # must still release its blocked children in that path.
+                    await session.refresh(system_completion)
+                    if (system_completion.status == "error" and head.trigger_source == "sub_agent_message"):
+                        failure = system_completion.completion if isinstance(system_completion.completion, dict) else {}
+                        failure_text = failure.get("content") or failure.get("error") or "The parent agent turn failed."
+                        from app.services.sub_agent_service import sub_agent_service
+                        await sub_agent_service.fail_waiting_children_for_parent(
+                            session,
+                            report_id=str(report_id),
+                            user_id=head.user_id,
+                            reason=f"The parent question wake failed before it could respond. The agent error was: {failure_text}",
+                        )
                     await event_queue.put(SSEEvent(
                         event="completion.finished",
                         completion_id=system_id,
-                        data={"status": "success"}
+                        data={"status": system_completion.status}
                     ))
                 except Exception as e:
                     logger.exception(f"[queue] dispatched agent failed for completion {system_id}")
@@ -3591,15 +3804,30 @@ class CompletionService:
                         pass
                     try:
                         async with session_factory() as recovery_session:
+                            failure_content = {'content': f"Agent failed: {str(e)}", 'error': True}
+                            if authorization_preflight_failure:
+                                failure_content['error_type'] = 'authorization'
                             await recovery_session.execute(
                                 update(Completion)
                                 .where(Completion.id == system_id)
-                                .values(status='error', completion={'content': f"Agent failed: {str(e)}", 'error': True})
+                                .values(status='error', completion=failure_content)
                             )
                             await recovery_session.commit()
+                            if (head is not None and head.trigger_source == 'sub_agent_message'):
+                                from app.services.sub_agent_service import sub_agent_service
+                                await sub_agent_service.fail_waiting_children_for_parent(
+                                    recovery_session,
+                                    report_id=str(report_id),
+                                    user_id=head.user_id,
+                                    reason=(
+                                        "The parent question wake failed before it could respond. "
+                                        f"The agent error was: {e}"
+                                    ),
+                                )
                     except Exception:
                         logger.exception("[queue] failed to mark dispatched completion as errored")
         finally:
+            await self._stop_completion_lease(system_id, heartbeat)
             if _agent_slot:
                 _AGENT_RUN_SEMAPHORE.release()
             event_queue.finish()

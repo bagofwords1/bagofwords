@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, List, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # PostgreSQL
@@ -138,6 +138,22 @@ class SapDatasphereConfig(BaseModel):
         description="Verify the server TLS certificate. Disable only for test endpoints with self-signed certificates.",
         json_schema_extra={"ui:type": "boolean"},
     )
+
+    @field_validator("authorization_url")
+    @classmethod
+    def _authorization_url_is_http(cls, v):
+        return _require_http_url(v, "authorization_url")
+
+
+def _require_http_url(v, field: str):
+    """Browser-navigation URLs (OAuth authorize endpoints) must be absolute
+    http(s); a javascript: value would execute when the user clicks Sign in."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return v
+    from app.core.url_safety import is_safe_http_url
+    if not is_safe_http_url(v.strip()):
+        raise ValueError(f"{field} must be an absolute http(s) URL")
+    return v
 
 
 class SapDatasphereCredentials(BaseModel):
@@ -1654,6 +1670,73 @@ class ElasticsearchConfig(BaseModel):
         json_schema_extra={"ui:type": "string"},
     )
 
+    # ---- Query guardrails (admin-set; enforced on every agent query) ---- #
+    block_all_indices_search: bool = Field(
+        True,
+        title="Block All-Index Searches",
+        description=(
+            "Reject queries that target every index at once (`_all`, `*`, or a "
+            "target made only of wildcards) — the equivalent of GET /_search. "
+            "Applies to DSL, SQL and ES|QL queries."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    allowed_index_patterns: Optional[str] = Field(
+        None,
+        title="Allowed Query Targets",
+        description=(
+            "Optional comma-separated index names or globs queries may target "
+            "(e.g. logs-*,metrics-*). Every index a query names must fall under "
+            "one of them. Empty: any index the credentials can read."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    max_result_size: Optional[int] = Field(
+        None,
+        ge=1,
+        le=10_000,
+        title="Max Documents per Query",
+        description=(
+            "Upper bound on documents one query may return (size + from for DSL; "
+            "row cap for SQL and ES|QL). Empty: 10,000 (the engine's limit)."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_aggregations: Optional[int] = Field(
+        None,
+        ge=1,
+        title="Max Aggregations per Query",
+        description="Upper bound on the number of aggregations in one DSL query (all nesting levels). Empty: no limit.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_aggregation_depth: Optional[int] = Field(
+        None,
+        ge=1,
+        title="Max Aggregation Nesting Depth",
+        description="Upper bound on how deeply aggregations may nest in one DSL query. Empty: no limit.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_aggregation_buckets: Optional[int] = Field(
+        None,
+        ge=1,
+        title="Max Aggregation Buckets",
+        description=(
+            "Upper bound on the buckets one DSL query may request: a single "
+            "terms/composite size, and the sizes multiplied down nested levels. "
+            "Empty: no limit (the cluster's search.max_buckets still applies)."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    aggregation_limits_observe_only: bool = Field(
+        False,
+        title="Aggregation Limits: Log Only",
+        description=(
+            "Log queries that exceed the aggregation limits instead of rejecting "
+            "them — use to measure real queries before enforcing."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
 
 # Azure Data Explorer (Kusto)
 class AzureDataExplorerCredentials(BaseModel):
@@ -2201,12 +2284,60 @@ class SharePointConfig(BaseModel):
     )
 
 
-# SharePoint Server uses Windows auth and its own REST API, not Graph.
+# SharePoint Server uses Windows auth with modern REST or legacy SOAP APIs.
 class SharePointOnpremConfig(SharePointConfig):
+    drive_name: Optional[str] = Field(
+        "*", title="Document Library",
+        description="Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only.",
+        json_schema_extra={"ui:type": "string", "ui:descriptionKey": "data.sharepointApi.libraryDescription"},
+    )
+    # Graph-only tuning is inherited for stored-config compatibility, but unused.
+    walk_concurrency: int = Field(4, ge=1, le=16, json_schema_extra={"ui:hidden": True})
+    api_mode: Literal["modern", "2010"] = Field(
+        "modern", title="SharePoint API",
+        description="SharePoint 2010 uses legacy services; live search matches filenames only. Enter a library name or *; do not leave the library blank.",
+        json_schema_extra={"ui:type": "select", "ui:order": -1, "ui:titleKey": "data.sharepointApi.title",
+                           "ui:descriptionKey": "data.sharepointApi.description",
+                           "ui:enumLabels": {"modern": "Modern REST", "2010": "SharePoint 2010"},
+                           "ui:enumLabelKeys": {"modern": "data.sharepointApi.modern", "2010": "data.sharepointApi.legacy"}},
+    )
+
+    @model_validator(mode="after")
+    def legacy_library_required(self):
+        if self.drive_name is not None:
+            self.drive_name = self.drive_name.strip()
+        if self.api_mode == "2010" and not (self.drive_name or "").strip():
+            raise ValueError("SharePoint 2010 requires a document library name or * for all libraries.")
+        return self
+
     site_url: str = Field(..., title="Site URL", description="SharePoint Server site URL, including /sites/name. Not the Central Administration URL.", json_schema_extra={"ui:type": "string"})
     allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
     max_file_size_mb: int = Field(50, ge=1, le=250, title="Max file size (MB)", description="Reject oversized downloads before parsing; files are never silently truncated.", json_schema_extra={"ui:type": "number"})
     max_catalog_objects: int = Field(5000, ge=1, le=50000, title="Max Files", json_schema_extra={"ui:type": "number"})
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much to cache from the library. 'none' → nothing cached; the "
+            "agent lists and reads live every time. 'metadata' → cache the file "
+            "list on a schedule. 'content' → also extract keywords from "
+            "PDF/Word/PowerPoint/Excel/CSV/text/email (.eml/.msg) files so "
+            "search_files can find files by topic without crawling the "
+            "library; unchanged files are "
+            "not downloaded again on later runs. The keyword catalog is only "
+            "used for service-account (system) connections; per-user "
+            "connections always search live. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata", "content"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+                "content": "Contents (searchable)",
+            },
+        },
+    )
 
 
 class SharePointOnpremNtlmCredentials(BaseModel):
@@ -2673,8 +2804,8 @@ class NetworkDirConfig(BaseModel):
             "agent lists/reads live every time (freshest, best for volatile or "
             "huge dirs). 'metadata' → cache the file list on a schedule "
             "(fast listing, no content search). 'content' → also extract "
-            "keywords from PDF/Word/PowerPoint/Excel/CSV so the agent can find "
-            "files by topic. Reads are always live regardless."
+            "keywords from PDF/Word/PowerPoint/Excel/CSV/email (.eml/.msg) so "
+            "the agent can find files by topic. Reads are always live regardless."
         ),
         json_schema_extra={
             "ui:type": "select",
@@ -3003,7 +3134,9 @@ class QlikSenseOnPremCertCredentials(BaseModel):
             "Directory of the account Qlik should act as, e.g. an AD domain name. "
             "Defaults to INTERNAL."
         ),
-        json_schema_extra={"ui:type": "string"},
+        # Under "Require user authentication" the admin can bind this to a
+        # member attribute instead (services/member_identity.py).
+        json_schema_extra={"ui:type": "string", "ui:memberBindable": True},
     )
     user_id: Optional[str] = Field(
         None,
@@ -3013,34 +3146,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
             "which sees the whole site. Set it to a real user to have Qlik apply that user's "
             "app permissions and Section Access rules."
         ),
-        json_schema_extra={"ui:type": "string"},
-    )
-
-
-class QlikSenseOnPremUserIdentityCredentials(BaseModel):
-    """Per-user identity for a connection that requires user authentication.
-
-    Deliberately holds NO certificate material: the admin's client certificate
-    stays on the connection's system credentials, and this identity is merged
-    over it at query time (the variant is marked ``overlay`` in the registry).
-    The user only states who Qlik should evaluate their queries as — Qlik then
-    applies that account's stream access and Section Access rules.
-    """
-
-    user_directory: str = Field(
-        ...,
-        title="User Directory",
-        description=(
-            "Your Qlik user directory, e.g. your AD domain name — the part before the "
-            "backslash in DOMAIN\\user in the Qlik hub."
-        ),
-        json_schema_extra={"ui:type": "string"},
-    )
-    user_id: str = Field(
-        ...,
-        title="User ID",
-        description="Your Qlik user id — queries run with your stream access and Section Access rules.",
-        json_schema_extra={"ui:type": "string"},
+        json_schema_extra={"ui:type": "string", "ui:memberBindable": True},
     )
 
 
@@ -3599,7 +3705,11 @@ class MCPConfig(BaseModel):
             "Inject the user's identity into a metadata object on every tool call. "
             "Shape: {argument_key='custom_metadata', fields:[{name, source, mode, on_missing}]}. "
             "mode 'locked' hides the field from the model and always overrides; "
-            "'ai' surfaces it as a default the model may set."
+            "'ai' surfaces it as a default the model may set. Optional "
+            "dynamic_params_enabled + dynamic_params {key: default}: allow-list of "
+            "per-question values the caller sends as prompt.metadata; a listed key "
+            "takes the sent value, else its default (null = omit); unlisted keys are "
+            "dropped; a field of the same name wins."
         ),
         json_schema_extra={"ui:type": "json"}
     )
@@ -3665,6 +3775,11 @@ class MCPOAuthAppCredentials(BaseModel):
         description="OAuth authorization endpoint (e.g. https://idp.example.com/oauth/authorize)",
         json_schema_extra={"ui:type": "string"}
     )
+
+    @field_validator("authorize_url")
+    @classmethod
+    def _authorize_url_is_http(cls, v):
+        return _require_http_url(v, "authorize_url")
     token_url: str = Field(
         ...,
         title="Token URL",

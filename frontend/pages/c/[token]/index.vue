@@ -99,7 +99,9 @@
                                     <div class="flex-1 flex justify-end">
                                         <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
+                                                <PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
                                                 <InstructionText
+                                                    v-else
                                                     :text="m.prompt.content"
                                                     :references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
                                                     :prose="true"
@@ -270,11 +272,13 @@ import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
+import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
+import AddParameterTool from '~/components/tools/AddParameterTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -324,6 +328,10 @@ import RunEvalTool from '~/components/tools/RunEvalTool.vue'
 import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
+import DelegateTool from '~/components/tools/DelegateTool.vue'
+import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import MessageSubAgentTool from '~/components/tools/MessageSubAgentTool.vue'
+import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
 import MemoryTool from '~/components/tools/MemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
@@ -340,6 +348,8 @@ import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
 
 // A shared conversation never names the org's agents, but the tool cards do
@@ -582,6 +592,8 @@ function getToolComponent(toolName: string) {
             return ReadQueryTool
         case 'run_query':
             return RunQueryTool
+        case 'add_parameter':
+            return AddParameterTool
         case 'read_resources':
             return ReadResourcesTool
         case 'inspect_data':
@@ -688,6 +700,13 @@ function getToolComponent(toolName: string) {
         // transcript exactly as it happened.
         case 'clarify':
             return ClarifyTool
+        case 'delegate':
+            return DelegateTool
+        case 'message_sub_agent': return MessageSubAgentTool
+        case 'read_sub_agent':
+            return ReadSubAgentTool
+        case 'stop_sub_agent':
+            return StopSubAgentTool
         case 'wait':
             return WaitTool
         case 'create_memory':
@@ -723,6 +742,11 @@ function getToolComponent(toolName: string) {
         // mode drops the review controls and the links into the workspace.
         case 'create_demo_dataset':
             return CreateDemoDatasetTool
+        // Same contract: the proposed/saved schema from the run's own record,
+        // review controls and the workspace link dropped in readonly mode.
+        case 'create_list':
+        case 'edit_list':
+            return ListSchemaTool
         // Deliberately NOT mapped here — these two stay owner-view-only, and
         // not merely for effort. suggest_instructions is a review queue over
         // UNREVIEWED draft instructions, and create_agent builds its body by

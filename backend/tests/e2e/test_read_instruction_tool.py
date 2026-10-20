@@ -67,6 +67,7 @@ async def _run(tool_input, *, user_id, org_id, scope_ds_ids=None, with_report=Tr
         return end.payload["output"]
 
 
+@pytest.mark.e2e
 def test_read_instruction_is_available_where_editing_happens():
     """edit_instruction runs in training/knowledge and its anchors must match
     text the agent has read — a chat-only read tool made that impossible."""

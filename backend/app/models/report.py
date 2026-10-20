@@ -36,6 +36,14 @@ class Report(BaseSchema):
     # stored beside it. null = Default (the model's own default / trigger
     # words). Each turn also records its effort on completion.prompt.
     reasoning_effort = Column(String(16), nullable=True)
+    # Per-conversation opt-outs for API integrations (see
+    # app.schemas.report_api_settings). null / missing = the org setting
+    # decides; False = off for every turn on this report, including the turns
+    # the agent continues on its own (sub-agents, fan-in, wait wakes, steers,
+    # eval wakes, check-ins). They can only switch things off.
+    follow_ups = Column(Boolean, nullable=True)
+    suggest_instructions = Column(Boolean, nullable=True)
+    tools = Column(JSON, nullable=True)  # {public tool key: false}
     
     # Sharing visibility: 'none' | 'shared' | 'internal' | 'public'
     # 'none' = only owner, 'shared' = specific users, 'internal' = org, 'public' = anyone

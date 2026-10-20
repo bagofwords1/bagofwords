@@ -153,15 +153,19 @@ class StepService:
         if not step:
             raise ValueError(f"Step {step_id} not found")
 
-        data = step.data
+        return self.data_to_dataframe(step.data), step
+
+    @staticmethod
+    def data_to_dataframe(data: Optional[dict]) -> pd.DataFrame:
+        """A step payload ({rows, columns}) as the export DataFrame."""
         if not data or 'rows' not in data or 'columns' not in data:
-            return pd.DataFrame(), step
+            return pd.DataFrame()
 
         rows = data.get('rows', [])
         columns = data.get('columns', [])
 
         if not rows or not columns:
-            return pd.DataFrame(), step
+            return pd.DataFrame()
 
         headers = [col.get('headerName', col.get('field', '')) for col in columns if 'field' in col]
         fields = [col['field'] for col in columns if 'field' in col]
@@ -170,8 +174,7 @@ class StepService:
         for row in rows:
             data_for_df.append([row.get(field) for field in fields])
 
-        df = pd.DataFrame(data_for_df, columns=headers)
-        return df, step
+        return pd.DataFrame(data_for_df, columns=headers)
 
     async def create_step(self, db: AsyncSession, widget_id: str, completion_id: str) -> StepSchema:
 

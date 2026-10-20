@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -110,7 +110,22 @@ class EditInstructionInput(BaseModel):
         description=(
             "Updated load mode: "
             "'always' (always include - use for critical business rules), "
-            "'intelligent' (include when referenced tables/columns are relevant)"
+            "'intelligent' (include when referenced tables/columns are relevant). "
+            "Not an off switch — to take an instruction out of use, set `status`."
+        ),
+    )
+
+    status: Optional[Literal["active", "inactive"]] = Field(
+        None,
+        description=(
+            "Turn the instruction on or off. 'inactive' takes it out of use entirely — it "
+            "is no longer loaded into any agent's context or returned by search — while "
+            "keeping its text for later; 'active' puts an inactive instruction back. "
+            "Staged as a suggestion like any edit: nothing changes until a reviewer accepts. "
+            "Only when the user asks to stop using / turn off / disable an instruction (or to "
+            "re-enable one), or it is confirmed wrong and should not be fixed instead. Never "
+            "as a way to drop wording you would rather rewrite. OMIT to leave it unchanged — "
+            "a text edit never changes it. Rejected in knowledge mode."
         ),
     )
 
@@ -170,4 +185,14 @@ class EditInstructionOutput(BaseModel):
     new_text: Optional[str] = Field(
         None,
         description="The instruction text after this edit, when the text field was updated."
+    )
+
+    previous_status: Optional[str] = Field(
+        None,
+        description="'active' or 'inactive' before this edit, when it changes the status."
+    )
+
+    new_status: Optional[str] = Field(
+        None,
+        description="'active' or 'inactive' proposed by this edit, when it changes the status."
     )

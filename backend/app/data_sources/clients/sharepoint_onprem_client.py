@@ -1,16 +1,16 @@
-"""Read-only SharePoint Server REST connector (NTLM or Kerberos).
+"""Read-only SharePoint Server connector (NTLM or Kerberos).
 
 No Graph/Entra dependency. Paths are decoded server-relative ResourcePaths;
 credentials never follow redirects. Scope is enforced again on every read.
 """
 from __future__ import annotations
-from app.data_sources.clients.progress import discovery_progress, discovery_items
+from app.data_sources.clients.progress import IndexingCancelled, discovery_progress, discovery_items
 
+import hashlib
 import io
 import json
 import mimetypes
 import threading
-from collections import deque
 from urllib.parse import quote, unquote, urlsplit
 
 import pandas as pd
@@ -19,16 +19,18 @@ from requests_ntlm import HttpNtlmAuth
 
 from app.ai.prompt_formatters import Table
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 from app.data_sources.clients._document_text import (
-    DOC_EXTS, doc_text_is_usable, extract_document_text_from_bytes,
+    DOC_EXTS, doc_text_is_usable, doc_text_looks_garbled, extract_document_text_from_bytes,
 )
 from app.data_sources.clients._file_source_common import (
+    INDEX_CONTENT, INDEX_MODES, INDEX_NONE,
     DocumentText, FileTooLargeError, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
 )
+from app.data_sources.clients._keywords import extract_file_keywords
 from app.data_sources.clients.graph_drive_client import (
     TEXT_EXTS, _ext, _extract_pdf_pages_from_bytes, _trim_to_data,
 )
-from app.data_sources.clients.progress import make_reporter
 
 
 class SharePointHTTPError(ValueError):
@@ -42,6 +44,28 @@ class SharePointHTTPError(ValueError):
             429: "SharePoint throttled the request. Retry later or narrow the scope.",
         }.get(status, "SharePoint request failed.")
         super().__init__(f"SharePoint Server HTTP {status}: {hint}")
+
+
+def unresolved_path_error(value: str, matches: list) -> ValueError:
+    """Error for a read-by-path that did not resolve to exactly one file.
+
+    A relative path is tried in every visible library. Saying "missing or
+    ambiguous" for both outcomes left the agent guessing which one it hit;
+    name the outcome, and for several matches list them by id (the full
+    server path), which is directly readable.
+    """
+    if not matches:
+        return ValueError(
+            f"File not found: {value!r} does not exist in the connected document libraries. "
+            "Use the id returned by list_files/search_files (the full path starting with '/')."
+        )
+    shown = sorted(matches)[:10]
+    more = f" (and {len(matches) - len(shown)} more)" if len(matches) > len(shown) else ""
+    return ValueError(
+        f"Ambiguous path: {value!r} matches {len(matches)} files in different document libraries: "
+        + "; ".join(shown) + more
+        + ". Read one of them by that full path; it is the file id."
+    )
 
 
 def _safe_path(value: str) -> str:
@@ -63,7 +87,7 @@ def _literal(value: str) -> str:
     return "'" + quote(value.replace("'", "''"), safe="/") + "'"
 
 
-class SharepointOnpremClient(DataSourceClient):
+class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
     capabilities = {Capability.LIST_FILES, Capability.READ_FILE, Capability.SEARCH_FILES}
     # Always list with the caller's identity: a shared metadata catalog must
     # not leak the service account's inventory to a user-required connection.
@@ -77,7 +101,13 @@ class SharepointOnpremClient(DataSourceClient):
                  allowed_extensions: str | None = None, recursive: bool = False,
                  index_mode: str = "metadata", max_catalog_objects: int = 5000,
                  allow_http: bool = False, max_file_size_mb: int = 50,
+                 api_mode: str = "modern", max_keywords: int = 50,
                  **kwargs):
+        if api_mode not in ("modern", "2010"):
+            raise ValueError("API mode must be modern or 2010.")
+        if api_mode == "2010" and not (drive_name or "").strip():
+            raise ValueError("SharePoint 2010 requires a document library name or * for all libraries.")
+        self.api_mode = api_mode
         self.site_url = site_url.rstrip("/")
         parsed = urlsplit(self.site_url)
         if (parsed.scheme not in ("http", "https") or not parsed.hostname
@@ -89,15 +119,15 @@ class SharepointOnpremClient(DataSourceClient):
         self._origin = (parsed.scheme.lower(), parsed.netloc.lower())
         self._origin_url = f"{parsed.scheme}://{parsed.netloc}"
         self._site_path = unquote(parsed.path).rstrip("/")
-        self._api = self.site_url + "/_api/"
-        self.drive_name = drive_name or ""
-        self.folder_path = _safe_path((folder_path or "").strip("/"))
+        self.drive_name = (drive_name or "").strip()
+        self.folder_path = "/".join(part for part in _safe_path(folder_path or "").split("/") if part)
         self.include_globs = globs_from_str(include_globs)
         self.allowed_extensions = {e.strip().lower().lstrip(".") for e in (allowed_extensions or "").split(",") if e.strip()}
         self.recursive = recursive
-        if index_mode not in ("none", "metadata"):
-            raise ValueError("Indexing must be none or metadata.")
+        if index_mode not in INDEX_MODES:
+            raise ValueError("Indexing must be none, metadata, or content.")
         self.index_mode = index_mode
+        self.max_keywords = int(max_keywords) if max_keywords else 50
         if not 1 <= int(max_catalog_objects) <= 50000 or not 1 <= int(max_file_size_mb) <= 250:
             raise ValueError("Max files must be 1–50000; max file size must be 1–250 MB.")
         self.max_catalog_objects = int(max_catalog_objects)
@@ -107,16 +137,14 @@ class SharepointOnpremClient(DataSourceClient):
         if not kerberos and (not username or not password):
             raise ValueError("NTLM requires a domain username and password.")
         self._local = threading.local()
+        from app.data_sources.clients._sharepoint_2010 import Sharepoint2010API
+        from app.data_sources.clients._sharepoint_rest import SharepointRestAPI
+        adapter_class = Sharepoint2010API if api_mode == "2010" else SharepointRestAPI
+        self._adapter = adapter_class(self)
 
     @property
     def description(self):
-        return (
-            "Read-only SharePoint Server document libraries. Use list_files, search_files, "
-            "and read_file with the returned server-relative file id or scoped path. "
-            "Search uses the SharePoint content index and live filename matches; newly "
-            "uploaded document contents require a SharePoint search crawl. CSV/Excel "
-            "reads return DataFrames. PDF/DOCX/PPTX reads return document text."
-        )
+        return self._adapter.description
 
     def _session(self):
         # requests.Session is not thread-safe. Each worker gets its own auth
@@ -152,13 +180,34 @@ class SharepointOnpremClient(DataSourceClient):
             self._local.session = session
         return self._local.session
 
-    def _request(self, path, *, params=None, binary=False, byte_limit=None):
-        # A stale IIS keep-alive connection can fail midway through a streamed
-        # GET. Retry once on a fresh authenticated session; never return partial
-        # bytes or retry a TLS trust failure. This connector makes no writes.
+    def _request_bytes(self, method, url, *, byte_limit, file_content=False, accepted_statuses=(200,), **kwargs):
+        """Bounded read-only HTTP shared by REST and SOAP, with one fresh-session retry.
+
+        Adapters validate their endpoints before reaching this transport. A SOAP
+        HTTP 500 body is parsed by the adapter to distinguish a fault from HTML.
+        """
         for attempt in range(2):
             try:
-                return self._request_once(path, params=params, binary=binary, byte_limit=byte_limit)
+                send = getattr(self._session(), method)
+                with send(url, timeout=(10, 45), allow_redirects=False, stream=True, **kwargs) as response:
+                    status = response.status_code
+                    if 300 <= status < 400:
+                        raise ValueError("SharePoint redirected the request. Use the site's configured public URL (alternate access mapping).")
+                    if status not in accepted_statuses:
+                        raise SharePointHTTPError(status)
+                    def too_large():
+                        if file_content:
+                            raise FileTooLargeError("File exceeds the configured byte limit; increase it explicitly to read this file.")
+                        raise ValueError("SharePoint metadata response exceeds the 8 MiB limit; narrow the library or folder scope.")
+                    if int(response.headers.get("Content-Length", "0")) > byte_limit:
+                        too_large()
+                    chunks, size = [], 0
+                    for chunk in response.iter_content(65536):
+                        size += len(chunk)
+                        if size > byte_limit:
+                            too_large()
+                        chunks.append(chunk)
+                    return status, b"".join(chunks)
             except requests.exceptions.SSLError as exc:
                 raise ValueError("SharePoint TLS verification failed. Install the issuing CA in the backend trust store.") from exc
             except requests.RequestException as exc:
@@ -167,76 +216,6 @@ class SharepointOnpremClient(DataSourceClient):
                     del self._local.session
                 if attempt:
                     raise ValueError("Cannot reach SharePoint. Check DNS, network access, and server availability.") from exc
-
-    def _request_once(self, path, *, params=None, binary=False, byte_limit=None):
-        url = path if path.startswith(("http://", "https://")) else self._api + path
-        p = urlsplit(url)
-        if ((p.scheme.lower(), p.netloc.lower()) != self._origin
-                or not unquote(p.path).startswith(self._site_path + "/_api/")
-                or p.username or p.password or p.fragment):
-            raise ValueError("Refusing a SharePoint API link outside the configured site.")
-        _safe_path(unquote(p.path))
-        try:
-            with self._session().get(url, params=params, timeout=(10, 45),
-                                     allow_redirects=False, stream=True) as response:
-                if 300 <= response.status_code < 400:
-                    raise ValueError("SharePoint redirected the request. Use the site's configured public URL (alternate access mapping).")
-                if response.status_code != 200:
-                    raise SharePointHTTPError(response.status_code)
-                limit = byte_limit if binary else 8 * 1024 * 1024
-                limit = min(limit or self._max_bytes, self._max_bytes) if binary else limit
-                if int(response.headers.get("Content-Length", "0")) > limit:
-                    raise ValueError("SharePoint response exceeds the configured byte limit.")
-                chunks, size = [], 0
-                for chunk in response.iter_content(65536):
-                    size += len(chunk)
-                    if size > limit:
-                        raise ValueError("SharePoint response exceeds the configured byte limit.")
-                    chunks.append(chunk)
-                content = b"".join(chunks)
-                if binary:
-                    return content
-                data = json.loads(content)
-                return data.get("d", data)  # verbose and JSON-light OData
-        except requests.RequestException:
-            raise
-
-    def _pages(self, path, params=None):
-        visited = set()
-        for _ in range(1000):
-            if path in visited:
-                raise ValueError("SharePoint returned a pagination cycle.")
-            visited.add(path)
-            data = self._request(path, params=params)
-            for row in data.get("value", data.get("results", [])):
-                yield row
-            path = data.get("odata.nextLink") or data.get("@odata.nextLink") or data.get("__next")
-            params = None
-            if not path:
-                return
-        raise ValueError("SharePoint pagination limit exceeded; narrow the connection scope.")
-
-    def _libraries(self):
-        libs = list(self._pages("web/lists", {
-            "$filter": "BaseTemplate eq 101 and Hidden eq false",
-            "$select": "Id,Title,RootFolder/ServerRelativeUrl", "$expand": "RootFolder", "$top": 200,
-        }))
-        if self.drive_name == "*":
-            chosen = libs
-        elif self.drive_name:
-            chosen = [lib for lib in libs if lib["Title"].casefold() == self.drive_name.casefold()]
-        else:
-            default = self._request("web/DefaultDocumentLibrary", params={"$select": "Id"})
-            chosen = [lib for lib in libs if lib["Id"] == default["Id"]]
-        if not chosen:
-            raise ValueError("No matching document library is accessible on this site.")
-        result = []
-        for lib in chosen:
-            root = _safe_path(lib["RootFolder"]["ServerRelativeUrl"].rstrip("/"))
-            if not root.casefold().startswith((self._site_path + "/").casefold()):
-                raise GlobScopeError("Library is outside the configured site.")
-            result.append((lib["Title"], root + ("/" + self.folder_path if self.folder_path else "")))
-        return result
 
     def _scope(self, path, libraries, *, folder=False):
         _safe_path(path)
@@ -256,96 +235,35 @@ class SharepointOnpremClient(DataSourceClient):
         path = meta["ServerRelativeUrl"]
         return {"id": path, "name": meta["Name"], "path": self._scope(path, libraries),
                 "size": int(meta.get("Length") or 0), "modified_at": meta.get("TimeLastModified"),
+                "created_at": meta.get("TimeCreated"),
                 "mime_type": mimetypes.guess_type(meta["Name"])[0], "is_folder": False,
                 "web_url": self._origin_url + quote(path, safe="/")}
 
-    def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
-        cap = min(max(0, int(limit)) if limit is not None else self.max_catalog_objects, self.max_catalog_objects)
-        if cap == 0:
-            return []
-        libraries = self._libraries()
-        roots = [folder_id] if folder_id else [root for _, root in libraries]
-        if folder_id:
-            self._scope(folder_id, libraries, folder=True)
-        queue, seen, files = deque(roots), set(), []
-        recurse = self.recursive if recursive is None else recursive
-        reporter = make_reporter(progress_callback) if progress_callback else None
-        if reporter:
-            reporter.phase("listing SharePoint libraries", total=len(roots))
-        while queue:
-            root = queue.popleft()
-            self._scope(root, libraries, folder=True)
-            if root.casefold() in seen:
-                continue
-            seen.add(root.casefold())
-            if reporter:
-                reporter.set_total(len(seen) + len(queue))
-                reporter.item(root, done=len(seen) - 1)
-            if len(seen) > self.max_catalog_objects:
-                raise ValueError("Folder traversal limit exceeded; narrow the folder scope.")
-            endpoint = f"web/GetFolderByServerRelativePath(decodedurl={_literal(root)})"
-            try:
-                for meta in self._pages(endpoint + "/Files", {"$select": "Name,ServerRelativeUrl,Length,TimeLastModified", "$top": min(cap, 200)}):
-                    try:
-                        files.append(self._entry(meta, libraries))
-                    except GlobScopeError:
-                        continue
-                    if len(files) >= cap:
-                        return files
-                if recurse:
-                    for child in self._pages(endpoint + "/Folders", {"$select": "Name,ServerRelativeUrl", "$top": 200}):
-                        if child["Name"] != "Forms":
-                            queue.append(child["ServerRelativeUrl"])
-            except SharePointHTTPError as exc:
-                # Missing scoped folder across * libraries is normal; access
-                # failures are NOT silently turned into an empty catalog.
-                if exc.status == 404 and root in roots and self.drive_name == "*" and self.folder_path:
-                    continue
-                raise
-        return files
+    def _folder_server_path(self, folder_id):
+        """Accept a catalog-relative folder ("Finance/2026", or "Library/Finance"
+        when every library is in scope) as well as a server-relative URL, so the
+        same folder id works for catalog and live listings."""
+        if not folder_id or str(folder_id).startswith("/"):
+            return folder_id
+        rel = "/".join(part for part in _safe_path(str(folder_id)).split("/") if part)
+        scopes = self._adapter.library_scopes()
+        if self.drive_name == "*":
+            head, _, rest = rel.partition("/")
+            for title, scope in scopes:
+                if title.casefold() == head.casefold():
+                    return scope + ("/" + rest if rest else "")
+            raise GlobScopeError("Folder must start with a document library name (or pass the server-relative URL).")
+        return scopes[0][1] + ("/" + rel if rel else "")
 
-    def _resolve(self, file_id, libraries):
-        value = str(file_id)
-        if value.startswith("/"):
-            self._scope(value, libraries)
-            return value
-        _safe_path(value)
-        candidates = []
-        qualified = [(name, root) for name, root in libraries
-                     if self.drive_name == "*" and value.startswith(name + "/")]
-        scope_error = None
-        for name, root in qualified or libraries:
-            rel = value
-            if self.drive_name == "*" and value.startswith(name + "/"):
-                rel = value[len(name) + 1:]
-            candidate = root + "/" + rel
-            try:
-                self._scope(candidate, libraries)
-                meta = self._request(f"web/GetFileByServerRelativePath(decodedurl={_literal(candidate)})", params={"$select": "ServerRelativeUrl"})
-                self._scope(meta["ServerRelativeUrl"], libraries)
-                candidates.append(meta["ServerRelativeUrl"])
-            except GlobScopeError as exc:
-                scope_error = exc
-            except SharePointHTTPError as exc:
-                if exc.status != 404:
-                    raise
-        if not candidates and scope_error:
-            raise scope_error
-        if len(candidates) != 1:
-            raise ValueError("File path is missing or ambiguous. Use the id returned by list_files/search_files.")
-        return candidates[0]
+    def _iter_listing_files(self, folder_id, recursive, page_size):
+        return self._adapter.iter_files(self._folder_server_path(folder_id), recursive, page_size=page_size)
+
+    def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
+        return self._adapter.list_files(self._folder_server_path(folder_id), recursive, limit, progress_callback)
+
 
     def read_raw_bytes(self, file_id, *, max_bytes=None):
-        libraries = self._libraries()
-        path = self._resolve(file_id, libraries)
-        endpoint = f"web/GetFileByServerRelativePath(decodedurl={_literal(path)})"
-        meta = self._request(endpoint, params={"$select": "Name,ServerRelativeUrl,Length,TimeLastModified"})
-        self._scope(meta["ServerRelativeUrl"], libraries)
-        limit = min(self._max_bytes, max_bytes) if max_bytes is not None else self._max_bytes
-        if limit < 1 or int(meta.get("Length") or 0) > limit:
-            raise FileTooLargeError("File exceeds the configured byte limit; increase it explicitly to read this file.")
-        content = self._request(endpoint + "/$value", binary=True, byte_limit=limit)
-        return content, meta["Name"], mimetypes.guess_type(meta["Name"])[0]
+        return self._adapter.read_raw_bytes(file_id, max_bytes=max_bytes)
 
     def read_file(self, file_id, sheet=None, max_bytes=None, page_range=None, **_):
         content, name, mime = self.read_raw_bytes(file_id, max_bytes=max_bytes)
@@ -371,71 +289,97 @@ class SharepointOnpremClient(DataSourceClient):
             return content.decode("utf-8-sig", errors="replace")
         return NamedBytes(content, name=name, mime=mime)
 
-    def search_files(self, query, limit=100, **_):
-        if not str(query).strip():
-            return []
-        cap = min(max(0, int(limit)), self.max_catalog_objects, 500)
-        if not cap:
-            return []
-        libraries = self._libraries()
-        # Quoted literal query: do not let model-generated KQL escape scope.
-        term = str(query).replace('"', ' ').replace("\\", " ").strip()
-        kql = f'"{term}" AND IsDocument:True AND Path:"{self.site_url}/"'
-        data = self._request("search/query", params={
-            "querytext": "'" + kql.replace("'", "''") + "'",
-            "rowlimit": cap, "trimduplicates": "false", "selectproperties": "'Path,Title'",
-        })
-        table = data.get("PrimaryQueryResult", {}).get("RelevantResults", {}).get("Table", {})
-        rows = table.get("Rows", [])
-        rows = rows.get("results", []) if isinstance(rows, dict) else rows
-        found = {}
-        for row in rows:
-            cells = row.get("Cells", [])
-            cells = cells.get("results", []) if isinstance(cells, dict) else cells
-            values = {cell["Key"]: cell.get("Value") for cell in cells}
-            url = urlsplit(values.get("Path") or "")
-            if (url.scheme.lower(), url.netloc.lower()) != self._origin:
-                continue
-            path = unquote(url.path)
-            try:
-                self._scope(path, libraries)
-                meta = self._request(f"web/GetFileByServerRelativePath(decodedurl={_literal(path)})", params={"$select": "Name,ServerRelativeUrl,Length,TimeLastModified"})
-                entry = self._entry(meta, libraries)
-                found[entry["id"]] = entry
-            except GlobScopeError:
-                continue
-            except SharePointHTTPError as exc:
-                if exc.status not in (403, 404):
-                    raise
-        # Indexing is asynchronous on Server: supplement indexed content hits
-        # with live filename matches (never pretend to search uncrawled content).
-        for entry in self.list_files():
-            if str(query).casefold() in entry["path"].casefold():
-                found[entry["id"]] = entry
-            if len(found) >= cap:
-                break
-        return list(found.values())[:cap]
+    def search_files(self, query, limit=100, **kwargs):
+        return self._adapter.search_files(query, limit=limit, **kwargs)
 
     def test_connection(self):
+        return self._adapter.test_connection()
+
+    # Extensions whose text is extracted for the keyword index. Everything else
+    # is indexed by filename/path only (never downloaded during indexing).
+    _INDEXABLE_EXTS = DOC_EXTS | {"csv", "tsv", "xls", "xlsx"} | TEXT_EXTS
+
+    def _file_text(self, entry, max_chars=200_000):
+        """Plain text of one catalog file for keyword extraction.
+
+        Returns "" when the file is not indexable (binary, oversized, or its
+        content cannot be parsed) — such a row is indexed by name only and not
+        downloaded again until it changes. Returns None when the download
+        itself failed (throttling, a transient server error, a per-item denial)
+        so the row is recorded as not indexed and retried on the next run.
+        A rejected login (401) propagates: nothing from that crawl is trusted.
+        """
+        ext = _ext(entry["name"])
+        if ext not in self._INDEXABLE_EXTS or int(entry.get("size") or 0) > self._max_bytes:
+            return ""
         try:
-            web = self._request("web", params={"$select": "Title,Url"})
-            user = self._request("web/currentuser", params={"$select": "LoginName"})
-            self.list_files(limit=1, recursive=False)
-            return {"success": True, "message": "Connected to SharePoint Server.",
-                    "details": {"site": web.get("Title"), "identity": user.get("LoginName"),
-                                "auth_method": "kerberos" if self.kerberos else "ntlm"}}
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
+            content, name, _ = self.read_raw_bytes(entry["id"])
+        except FileTooLargeError:
+            return ""
+        except IndexingCancelled:
+            raise
+        except SharePointHTTPError as exc:
+            if exc.status == 401:
+                raise
+            return None
+        except ValueError:
+            # Transport failure or an unreadable SOAP/REST payload for one item.
+            return None
+        try:
+            if ext in DOC_EXTS:
+                text = extract_document_text_from_bytes(content, name, max_chars=max_chars)
+                return "" if doc_text_looks_garbled(text) else text
+            if ext in ("xls", "xlsx"):
+                frames = pd.read_excel(io.BytesIO(content), sheet_name=None, header=None)
+                return "\n".join(f"{sheet}\n{df.to_csv(index=False, header=False)}"
+                                 for sheet, df in frames.items())[:max_chars]
+            return content.decode("utf-8-sig", errors="ignore")[:max_chars]
+        except Exception:
+            return ""
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None):
-        if self.index_mode == "none":
+    def get_schemas(self, progress_callback=None, prior_catalog=None):
+        """Catalog rows per index tier: `none` → nothing; `metadata` → one row
+        per file (name/size/timestamps); `content` → also keywords extracted
+        from each document so search_files can match by topic without a live
+        crawl. `prior_catalog` ({table_name: metadata_json} from the previous
+        run) makes content indexing incremental: a file whose size and
+        modified time are unchanged reuses its stored keywords instead of being
+        downloaded again, so a scheduled reindex of a stable library is a
+        listing-only pass."""
+        if self.index_mode == INDEX_NONE:
             return []
-        return [Table(name=f["path"], description=f"SharePoint Server file ({_ext(f['name'])})",
-                      columns=[], pks=[], fks=[], metadata_json={"sharepoint_onprem": {
-                          "file_id": f["id"], "mime_type": f["mime_type"], "size": f["size"],
-                          "modified_at": f["modified_at"], "web_url": f["web_url"],
-                      }}) for f in discovery_items(self.list_files(progress_callback=progress_callback), "files", label=lambda f: f["path"])]
+        files = discovery_items(self.list_files(progress_callback=progress_callback), "files",
+                                label=lambda f: f["path"])
+        if self.index_mode == INDEX_CONTENT:
+            files = discovery_items(list(files), "indexing files", label=lambda f: f["path"])
+        tables = []
+        for f in files:
+            meta = {"file_id": f["id"], "mime_type": f["mime_type"], "size": f["size"],
+                    "modified_at": f["modified_at"], "created_at": f.get("created_at"),
+                    "web_url": f["web_url"]}
+            description = f"SharePoint Server file ({_ext(f['name'])})"
+            if self.index_mode == INDEX_CONTENT:
+                prior = (prior_catalog or {}).get(f["path"]) or {}
+                prior = prior.get("sharepoint_onprem") if isinstance(prior, dict) else None
+                prior = prior if isinstance(prior, dict) else {}
+                if (prior.get("indexed") and prior.get("size") == f["size"]
+                        and prior.get("modified_at") == f["modified_at"]):
+                    meta["keywords"] = prior.get("keywords") or []
+                    meta["content_hash"] = prior.get("content_hash")
+                    meta["indexed"] = True
+                else:
+                    text = self._file_text(f)
+                    # Index the relative path too: a case folder (`6044534/…`)
+                    # is how people find these files.
+                    meta["keywords"] = extract_file_keywords(text or "", f["path"], self.max_keywords)
+                    meta["content_hash"] = hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
+                    meta["indexed"] = text is not None
+                if meta["keywords"]:
+                    description += ". Keywords: " + ", ".join(meta["keywords"][:15]) + "."
+            tables.append(Table(name=f["path"], description=description, columns=[], pks=[], fks=[],
+                                metadata_json={"sharepoint_onprem": meta}))
+        return tables
 
     def get_schema(self, table_name):
         return next((t for t in self.get_schemas() if t.name == table_name), None)

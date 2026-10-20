@@ -90,7 +90,10 @@ def test_only_the_live_releases_copies_are_served(corpus, corpus_rows, test_clie
         for path in (f"/api/d/{aid}/queries/{qid}/step", f"/api/d/{aid}/queries/{qid}/export"):
             resp = _get(test_client, corpus, path)
             assert resp.status_code == 404, (qid, path)
-            assert resp.json()["error_code"] == "artifact.not_found", (qid, path)
+            # A malformed id is answered by main's guard before the route, with a
+            # plain 404 that names nothing; a well-formed one by the route.
+            if qid != "not-an-id":
+                assert resp.json()["error_code"] == "artifact.not_found", (qid, path)
     assert {q["id"] for q in _get(test_client, corpus, f"/api/d/{aid}/queries").json()} == {new_copy}
 
 

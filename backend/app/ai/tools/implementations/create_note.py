@@ -94,6 +94,34 @@ class CreateNoteTool(Tool):
             else runtime_ctx.get("agent_execution_id")
         )
 
+        # Inside a sub-agent run a note is the child's one scratchpad
+        # (docs/design/sub-agents.md): a second create_note with the same
+        # title is the model re-saving its plan, and the duplicate both
+        # litters the report and trips the repeated-call breaker. Hand back
+        # the existing note and point at edit_note.
+        if runtime_ctx.get("sub_agent_id") and data.title and report is not None and agent_execution_id:
+            from sqlalchemy import select as _select
+            existing = (await db.execute(
+                _select(Note).where(
+                    Note.report_id == str(report.id),
+                    Note.agent_execution_id == str(agent_execution_id),
+                    Note.title == data.title,
+                ).order_by(Note.created_at.asc()).limit(1)
+            )).scalars().first()
+            if existing is not None:
+                output = {"success": True, "note_id": str(existing.id), "title": existing.title, "existing": True}
+                observation = {
+                    "summary": (
+                        f"Note \"{existing.title}\" already exists (note_id: {existing.id}); not created again. "
+                        "Update it with edit_note instead of creating another."
+                    ),
+                    "note_id": str(existing.id),
+                    "title": existing.title,
+                    "existing": True,
+                }
+                yield ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
+                return
+
         note = Note(
             report_id=str(report.id) if report else None,
             organization_id=str(organization.id) if organization else None,

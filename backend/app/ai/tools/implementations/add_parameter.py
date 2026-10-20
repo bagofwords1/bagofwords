@@ -34,6 +34,7 @@ from app.ai.tools.schemas.add_parameter import AddParameterInput, AddParameterOu
 from app.dependencies import async_session_maker
 from app.models.query import Query
 from app.models.step import Step
+from app.models.visualization import Visualization
 from app.schemas.query_schema import QueryRunRequest
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,36 @@ class AddParameterTool(Tool):
     def _end(self, output: Dict[str, Any], observation: Dict[str, Any]) -> ToolEndEvent:
         return ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
 
+    async def _resolve_query(self, db, organization, report, requested_id: str):
+        """Resolve a query id OR a visualization id to the query, scoped to
+        this report and organization.
+
+        The report context lists each query with its visualizations, both
+        titled alike, and the planner was observed passing the viz id — the
+        same trap run_query already resolves, so both handles work here too.
+        """
+        scope = []
+        if report is not None:
+            scope.append(Query.report_id == str(report.id))
+        if organization is not None:
+            scope.append(Query.organization_id == str(organization.id))
+
+        q = (await db.execute(
+            select(Query).where(Query.id == requested_id, *scope)
+        )).scalar_one_or_none()
+        if q is not None:
+            return q
+
+        viz_scope = [Visualization.report_id == str(report.id)] if report is not None else []
+        viz = (await db.execute(
+            select(Visualization).where(Visualization.id == requested_id, *viz_scope)
+        )).scalar_one_or_none()
+        if viz is None:
+            return None
+        return (await db.execute(
+            select(Query).where(Query.id == str(viz.query_id), *scope)
+        )).scalar_one_or_none()
+
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = AddParameterInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": f"Add parameter '{data.parameter.name}'"})
@@ -132,9 +163,9 @@ class AddParameterTool(Tool):
         user = runtime_ctx.get("user")
         organization = runtime_ctx.get("organization")
 
-        res = await db.execute(select(Query).where(Query.id == str(data.query_id)))
-        q = res.scalar_one_or_none()
-        if q is None or q.artifact_release_id or (report is not None and str(q.report_id) != str(report.id)):
+        q = await self._resolve_query(db, organization, report, str(data.query_id))
+        # A published dashboard's copy belongs to its release, not to this report.
+        if q is None or q.artifact_release_id:
             yield self._end(
                 {"success": False, "query_id": data.query_id, "error": "Query not found in this report"},
                 {"summary": f"add_parameter failed: query {data.query_id} not found in this report.",

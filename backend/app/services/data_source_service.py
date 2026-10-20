@@ -2,11 +2,14 @@ import asyncio
 import logging
 import os
 
+from app.models.connection import RUNTIME_CONFIG_KEYS
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
 from app.models.organization import Organization
 from app.models.data_source import DataSource
+from app.errors.redact import redact_error
+from app.core.egress import acheck_connection_params as _acheck_connection_destination
 from app.schemas.data_source_registry import (
     list_available_data_sources,
     config_schema_for,
@@ -670,6 +673,7 @@ class DataSourceService:
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         channel_availability = data_source_dict.pop("channel_availability", None)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
+        member_bindings = data_source_dict.pop("member_bindings", None)
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
         # Check if linking to existing connection(s)
@@ -759,6 +763,10 @@ class DataSourceService:
             
             # Extract connection-related fields
             ds_type = data_source_dict.pop("type", None)
+            # Save-time guards (the validation above is skipped for user_required).
+            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys
+            _check_network_dir_root(ds_type, config)
+            _reject_unsafe_google_keys(credentials)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
 
             # Default allowed_user_auth_modes for user_required connections —
@@ -768,6 +776,13 @@ class DataSourceService:
             if auth_policy == "user_required" and not allowed_user_auth_modes:
                 from app.services.connection_service import default_user_auth_modes
                 allowed_user_auth_modes = default_user_auth_modes(ds_type, config, credentials)
+
+            from app.services.connection_service import _check_mcp_forwarding
+            _check_mcp_forwarding(ds_type, config)
+            from app.services.connection_service import check_member_bindings
+            member_bindings = check_member_bindings(
+                ds_type, config, auth_policy, allowed_user_auth_modes, member_bindings
+            )
 
             # Check enterprise license for restricted data sources
             from app.ee.license import is_datasource_allowed
@@ -797,6 +812,7 @@ class DataSourceService:
                 is_active=True,
                 auth_policy=auth_policy,
                 allowed_user_auth_modes=allowed_user_auth_modes,
+                member_bindings=member_bindings or None,
             )
             
             # Encrypt and store credentials on connection
@@ -1030,6 +1046,8 @@ class DataSourceService:
         # get data source by id
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
 
         model = await organization.get_default_llm_model(db)
         if not model:
@@ -1252,7 +1270,9 @@ class DataSourceService:
 
         return result
 
-    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None) -> DataSourceSchema:
+    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None, include_config: bool = True) -> DataSourceSchema:
+        # include_config=False: view-level callers. Connection config carries
+        # internal topology that belongs on manage-gated surfaces only.
         # lazyload("*") suppresses the model-level lazy="selectin" cascade
         # (reports → widgets/queries/completions/…). The detail schema does
         # surface git_repository and memberships, so keep those eager. We
@@ -1300,6 +1320,7 @@ class DataSourceService:
             indexing_by_conn=indexing_by_conn,
             table_count_by_conn=table_count_by_conn,
             legacy_count_by_ds=legacy_count_by_ds,
+            include_config=include_config,
         )
 
         # Get first connection for legacy fields
@@ -1307,7 +1328,7 @@ class DataSourceService:
 
         # Parse config from connection (may be stored as JSON string)
         conn_config = None
-        if conn and conn.config:
+        if include_config and conn and conn.config:
             conn_config = json.loads(conn.config) if isinstance(conn.config, str) else conn.config
 
         # Serialize primary_instruction if present
@@ -2430,7 +2451,9 @@ class DataSourceService:
         await db.commit()
         return {"message": "Data source tables deleted successfully"}
     
-    async def test_data_source_connection(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+    async def test_data_source_connection(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User, persist: bool = True):
+        """``persist=False`` (view-level callers) returns the probe result
+        without writing connection status or the agent's ``is_active``."""
         from datetime import datetime, timezone
         from sqlalchemy.orm import selectinload
         from app.services.connection_service import ConnectionService
@@ -2463,6 +2486,7 @@ class DataSourceService:
                         connection_id=str(conn.id),
                         organization=organization,
                         current_user=current_user,
+                        persist=persist,
                     )
                     success = bool(last_status.get("success")) if isinstance(last_status, dict) else bool(last_status)
                     if not success:
@@ -2472,14 +2496,14 @@ class DataSourceService:
                     last_status = {"success": False, "message": str(e)}
 
             # Reflect connectivity on org-wide flag only for system creds
-            if getattr(data_source, "auth_policy", "system_only") == "system_only":
+            if persist and getattr(data_source, "auth_policy", "system_only") == "system_only":
                 if not all_success:
                     data_source.is_active = False
                 elif data_source.is_active == False:
                     data_source.is_active = True
                 await db.commit()
+                await db.refresh(data_source)
 
-            await db.refresh(data_source)
             connection_status = last_status or {"success": all_success}
 
         except Exception as e:
@@ -2500,6 +2524,20 @@ class DataSourceService:
             data_source_type = payload.get("type")
             config = payload.get("config") or {}
             credentials = payload.get("credentials") or {}
+
+            # SSRF guard for MCP / custom API URLs (the clients' pinned
+            # transport guards the connect itself, rebinding included).
+            from app.services.connection_service import (
+                _check_network_dir_root,
+                _check_tool_provider_url,
+                _reject_unsafe_google_keys,
+            )
+            try:
+                _check_tool_provider_url(data_source_type, config)
+                _check_network_dir_root(data_source_type, config)
+                _reject_unsafe_google_keys(credentials)
+            except HTTPException as e:
+                return {"success": False, "message": e.detail}
 
             # Instantiate client by type using same naming convention as DataSource.get_client
             client = self._resolve_client_by_type(
@@ -2635,6 +2673,11 @@ class DataSourceService:
             from app.services.access_errors import CredentialsRequiredError
 
             raise CredentialsRequiredError("User credentials required")
+        from app.services.member_identity import member_mapped
+        if member_mapped(conn):
+            # Admin-mapped identity: stored per-user rows never apply.
+            from app.services.connection_service import ConnectionService
+            return await ConnectionService().resolve_credentials(db, conn, current_user)
         row = await db.execute(
             select(UserDataSourceCredentials)
             .where(
@@ -2675,7 +2718,7 @@ class DataSourceService:
         creds = await self.resolve_credentials(db=db, data_source=data_source, current_user=current_user)
         params = {**(config or {}), **(creds or {})}
         # Strip meta keys and oauth override keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
         # Narrow to constructor signature — same VAR_KEYWORD-aware logic as
         # ConnectionService.construct_client. Forwarder subclasses (e.g.
@@ -2695,6 +2738,7 @@ class DataSourceService:
                 allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             allowed = params
+        await _acheck_connection_destination(conn.type, params)
         return ClientClass(**allowed)
 
     @staticmethod
@@ -2951,7 +2995,7 @@ class DataSourceService:
         ]
 
         clients: Dict[str, Any] = {}
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         failed: list = []
 
         for conn in active_connections:
@@ -2991,6 +3035,7 @@ class DataSourceService:
                 except Exception:
                     allowed = params
 
+                await _acheck_connection_destination(conn.type, params)
                 client = ClientClass(**allowed)
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
@@ -3258,6 +3303,11 @@ class DataSourceService:
         auth_policy = connection.auth_policy or "system_only"
 
         # For user_required, resolve per-user credentials.
+        from app.services.member_identity import member_mapped
+        if auth_policy == "user_required" and current_user and member_mapped(connection):
+            # Admin-mapped identity: stored per-user rows never apply.
+            from app.services.connection_service import ConnectionService
+            return await ConnectionService().resolve_credentials(db, connection, current_user)
         if auth_policy == "user_required" and current_user:
             # Data-source-level per-user creds (legacy user/pass keyed on the DS).
             from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
@@ -3299,9 +3349,11 @@ class DataSourceService:
                 client_params.update(credentials)
 
             # Strip meta keys, empty values, and oauth override keys (not part of client signatures)
-            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
             client_params = {k: v for k, v in (client_params or {}).items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
 
+            from app.core.egress import check_connection_params
+            check_connection_params(data_source_type, client_params)
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load data source client for {data_source_type}: {str(e)}")
@@ -3327,7 +3379,28 @@ class DataSourceService:
         connection_fields = {'config', 'credentials', 'auth_policy'}
         connection_updates = {k: update_data.pop(k) for k in list(update_data.keys()) if k in connection_fields}
         connection_changed = bool(connection_updates)
-        
+
+        # Rewriting config/credentials/auth_policy mutates the underlying
+        # (possibly shared) Connection, so it needs the same authorization as
+        # PUT /connections/{id}: `manage_connection` on that connection.
+        # `manage` on the data source alone is not enough.
+        if connection_changed and data_source_db.connections:
+            from app.core.permissions_decorator import check_resource_permissions
+            try:
+                await check_resource_permissions(
+                    db,
+                    str(current_user.id),
+                    str(organization.id),
+                    "connection",
+                    [str(c.id) for c in data_source_db.connections[:1]],
+                    "manage_connection",
+                )
+            except HTTPException:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You don't have permission to modify this connection",
+                )
+
         # Handle membership updates
         newly_added_member_ids: List[str] = []
         if 'member_user_ids' in update_data:
@@ -3452,7 +3525,7 @@ class DataSourceService:
             )
         except Exception as e:
             await db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to update data source: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to update data source: {redact_error(e)}")
 
     def _extract_fields_from_schema(self, schema: BaseModel):
         main_model_schema = schema.model_json_schema()  # (1)!
@@ -3487,7 +3560,7 @@ class DataSourceService:
             raise
         except Exception as e:
             print(f"Error getting data source schema: {e}")
-            raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
+            raise HTTPException(status_code=500, detail=f"Error getting data source schema: {redact_error(e)}")
     
     async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None, with_stats: bool = False):
         result = await db.execute(
@@ -4396,17 +4469,29 @@ class DataSourceService:
                     conn_name = conn.name
                     conn_type = conn.type
 
+            # Column hiding is a manager's curation; readers get the same
+            # stripped view the non-paginated path (to_prompt_table) serves.
+            # Managers keep every column so the selector can toggle them.
+            if restrict_to_active and table.excluded_columns:
+                from app.ai.prompt_formatters import filter_columns, filter_fks
+                _cols = filter_columns(table.columns, table.excluded_columns)
+                _pks = filter_columns(table.pks, table.excluded_columns)
+                _fks = filter_fks(table.fks, table.excluded_columns)
+                _excluded = None
+            else:
+                _cols, _pks, _fks = table.columns or [], table.pks or [], table.fks or []
+                _excluded = table.excluded_columns or None
             table_schema = DataSourceTableSchema(
                 id=str(table.id),
                 name=table.name,
-                columns=table.columns or [],
+                columns=_cols,
                 no_rows=table.no_rows or 0,
                 datasource_id=str(table.datasource_id),
-                pks=table.pks or [],
-                fks=table.fks or [],
+                pks=_pks,
+                fks=_fks,
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
-                excluded_columns=table.excluded_columns or None,
+                excluded_columns=_excluded,
                 # Connection info
                 connection_id=conn_id,
                 connection_name=conn_name,
@@ -4893,7 +4978,7 @@ class DataSourceService:
             db=db, connection=connection, data_source=data_source, current_user=user
         )
         params = {**(config or {}), **(creds or {})}
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {
             k: v for k, v in (params or {}).items()
             if v is not None and k not in meta_keys and not k.startswith("oauth_")
@@ -4908,6 +4993,7 @@ class DataSourceService:
             }
         except Exception:
             allowed = params
+        await _acheck_connection_destination(connection.type, params)
         return ClientClass(**allowed)
 
     async def get_user_data_source_schema(
@@ -5715,7 +5801,7 @@ class DataSourceService:
 
         except Exception as e:
             print(f"Error saving tables: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to save database tables: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save database tables: {redact_error(e)}")
 
         # Return full schema including inactive for downstream context
         schemas = await data_source.get_schemas(db=db, include_inactive=True)
@@ -6391,6 +6477,7 @@ class DataSourceService:
         credentials = data_source_dict.pop("credentials", {})
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
+        member_bindings = data_source_dict.pop("member_bindings", None)
         
         # Extract domain-specific fields
         name = data_source_dict.get("name")
@@ -6412,6 +6499,7 @@ class DataSourceService:
             credentials=credentials,
             auth_policy=auth_policy,
             allowed_user_auth_modes=allowed_user_auth_modes,
+            member_bindings=member_bindings,
         )
         
         # Create the DataSource (Domain) - connection fields are now on Connection model

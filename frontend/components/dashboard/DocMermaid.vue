@@ -45,6 +45,9 @@ async function render() {
     const isDark = document.documentElement.classList.contains('dark')
     mermaid.initialize({
       startOnLoad: false,
+      // Without this, Mermaid appends its "Syntax error" bomb SVG to <body> on
+      // every failed parse and never removes it; we show our own fallback.
+      suppressErrorRendering: true,
       securityLevel: 'strict',
       theme: isDark ? 'dark' : 'neutral',
       fontFamily: 'ui-sans-serif, system-ui, sans-serif',

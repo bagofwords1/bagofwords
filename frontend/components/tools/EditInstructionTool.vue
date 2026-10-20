@@ -27,6 +27,19 @@
                (instruction, build) run; the count streams up in real time as
                later calls land, like other actions' live counters. -->
           <span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-[10px] shrink-0">{{ $t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span>
+          <!-- A status change is the edit's whole point more often than not
+               (no text, so no +/- counts) — name it in the header. -->
+          <span
+            v-if="statusChange"
+            class="ms-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0"
+            :class="statusChange === 'inactive'
+              ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
+              : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'"
+            data-testid="edit-instruction-status-chip"
+          >
+            <Icon name="heroicons-power" class="w-2.5 h-2.5" />
+            {{ statusChange === 'inactive' ? $t('tools.editInstruction.turnOff') : $t('tools.editInstruction.turnOn') }}
+          </span>
           <span v-if="linesAdded > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
           <span v-if="linesRemoved > 0" class="ms-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
         </span>
@@ -486,6 +499,13 @@ const updatedLoadMode = computed(() => {
   return args.load_mode || null
 })
 
+// 'active' | 'inactive' when this edit switches the instruction on or off —
+// from the RESULT, which reports it only when it actually changes the status.
+const statusChange = computed<'active' | 'inactive' | null>(() => {
+  const v = props.toolExecution?.result_json?.new_status
+  return v === 'active' || v === 'inactive' ? v : null
+})
+
 const updatedTableNames = computed(() => {
   const args = props.toolExecution?.arguments_json || {}
   return args.table_names || null
@@ -677,6 +697,7 @@ const metadataChanges = computed(() => {
   if (updatedCategory.value) changes.push(t('tools.editInstruction.changeCategory', { value: updatedCategory.value }))
   if (updatedConfidence.value !== null) changes.push(t('tools.editInstruction.changeConfidence', { value: Math.round(updatedConfidence.value * 100) }))
   if (updatedLoadMode.value) changes.push(t('tools.editInstruction.changeLoadMode', { value: updatedLoadMode.value }))
+  if (statusChange.value) changes.push(t('tools.editInstruction.changeStatus', { value: statusChange.value === 'inactive' ? t('agentsPage.optStatusInactive') : t('agentsPage.optStatusActive') }))
   if (updatedTableNames.value) changes.push(t('tools.editInstruction.changeTables'))
   if (updatedEvidence.value) changes.push(t('tools.editInstruction.changeEvidence'))
   return changes

@@ -55,6 +55,8 @@ from app.models.user_data_source_overlay import (
 )
 from app.services.data_source_service import DataSourceService, _WARM_ATTEMPTS
 
+pytestmark = pytest.mark.e2e
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -92,7 +94,9 @@ async def _seed(n_delegated=1):
     """One agent: a system_only warehouse plus `n_delegated` OBO Power BI
     connections, one signed-in user."""
     suffix = uuid.uuid4().hex[:8]
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # Naive UTC, like the models' TIMESTAMP columns: an aware value is
+    # rejected by asyncpg on Postgres (sqlite silently accepts it).
+    base = datetime(2026, 1, 1)
     async with async_session_maker() as db:
         org = Organization(name=f"Review Org {suffix}")
         db.add(org)
@@ -153,7 +157,7 @@ async def _seed(n_delegated=1):
                     connection_id=str(pbi.id), user_id=str(u.id),
                     organization_id=str(org.id), auth_mode="oauth",
                     is_active=True, is_primary=True,
-                    last_used_at=datetime.now(timezone.utc),
+                    last_used_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
                 cred.encrypt_credentials({"access_token": "delegated-token"})
                 db.add(cred)

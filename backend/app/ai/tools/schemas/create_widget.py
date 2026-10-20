@@ -1,7 +1,8 @@
 from typing import Dict, Any, Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .create_data_model import DataModel
+from ._coerce import coerce_json_list
 
 
 class TablesBySource(BaseModel):
@@ -45,6 +46,11 @@ class CreateWidgetInput(BaseModel):
         le=100,
         description="Max tables to include per data source when rendering the schema excerpt.",
     )
+
+    @field_validator("tables_by_source", mode="before")
+    @classmethod
+    def _coerce_list_arguments(cls, value):
+        return coerce_json_list(value)
 
 
 class CreateWidgetOutput(BaseModel):

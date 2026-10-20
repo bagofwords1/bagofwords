@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import AsyncIterator, Dict, Any, Type
+from typing import AsyncIterator, Dict, Any, Optional, Type
 from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
@@ -198,6 +198,69 @@ def _upload_path(filename: str) -> str:
 
     os.makedirs(_UPLOAD_DIR, exist_ok=True)
     return os.path.join(_UPLOAD_DIR, filename)
+
+
+async def save_text_artifact(runtime_ctx: dict, filename: str, text: str, *, content_type: str = "text/plain",
+                             source_ref: Optional[str] = None):
+    """Save `text` as a tool-produced File on the current report.
+
+    The one persistence path for agent-tool artifacts (execute_mcp results,
+    list_files persisted listings): bytes under uploads/files, a File owned by
+    the acting user with source_kind="artifact", linked to the report, and
+    registered for the tools that run later in the same turn — so
+    create_data / inspect_data / read_file can load it by file_id right away
+    and later turns find it in the report's files.
+    """
+    from uuid import uuid4
+    from app.models.file import File
+
+    db = runtime_ctx.get("db")
+    report = runtime_ctx.get("report")
+    organization = runtime_ctx.get("organization")
+    # The agent loop puts the acting user under "user"; only some callers set
+    # "current_user" (files.user_id is NOT NULL).
+    user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
+
+    path = _upload_path(f"{uuid4()}_{filename}")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+    file = File(
+        filename=filename,
+        path=path,
+        content_type=content_type,
+        # A tool product, not a user attachment: keeps it off the prompt
+        # box's pending-attachment chips (see File.source_kind).
+        source_kind="artifact",
+        # Optional producer tag (e.g. list_files' listing fingerprint) so the
+        # producer can find and reuse its own earlier artifact.
+        source_ref=source_ref,
+        user_id=str(user.id) if user else None,
+        organization_id=str(organization.id) if organization else None,
+    )
+
+    try:
+        from app.services.file_preview import generate_file_preview
+        file.preview = generate_file_preview(file)
+    except Exception:
+        pass
+
+    async with db.begin_nested():
+        db.add(file)
+        await db.flush()
+
+        if report:
+            from app.models.report_file_association import report_file_association
+            from sqlalchemy import insert
+            await db.execute(
+                insert(report_file_association).values(
+                    report_id=str(report.id),
+                    file_id=str(file.id),
+                )
+            )
+
+    _register_same_turn(file, runtime_ctx, report)
+    return file
 
 
 def _record_shape(rows: list) -> Dict[str, Any]:
@@ -549,9 +612,14 @@ Do not use when:
             resolve_mcp_context,
             apply_metadata_injection,
         )
+        from app.utils.request_metadata import completion_request_metadata
         forward_ctx = None
         try:
-            forward_ctx = await resolve_mcp_context(db, connection, user, organization)
+            # The question's prompt.metadata feeds the connection's Dynamic params.
+            forward_ctx = await resolve_mcp_context(
+                db, connection, user, organization,
+                request_metadata=completion_request_metadata(runtime_ctx.get("head_completion")),
+            )
         except Exception as e:
             logger.warning(f"execute_mcp: context forwarding resolve failed: {e}")
         if forward_ctx is not None:
@@ -1338,54 +1406,10 @@ Do not use when:
         floor. A long log, transcript or report is exactly the kind of result a
         follow-up tool needs in full, so it goes to disk like everything else.
         """
-        from uuid import uuid4
-        from app.models.file import File
-
-        db = runtime_ctx.get("db")
-        report = runtime_ctx.get("report")
-        organization = runtime_ctx.get("organization")
-        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
-
         safe_name = tool_name.replace("/", "_").replace(" ", "_")
-        unique_name = f"{uuid4()}_{safe_name}.{extension}"
-        path = _upload_path(unique_name)
-
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
-
-        file = File(
-            filename=f"{safe_name}.{extension}",
-            path=path,
-            content_type=content_type,
-            # A tool product, not a user attachment: keeps it off the prompt
-            # box's pending-attachment chips (see File.source_kind).
-            source_kind="artifact",
-            user_id=str(user.id) if user else None,
-            organization_id=str(organization.id) if organization else None,
+        return await save_text_artifact(
+            runtime_ctx, f"{safe_name}.{extension}", text, content_type=content_type,
         )
-
-        try:
-            from app.services.file_preview import generate_file_preview
-            file.preview = generate_file_preview(file)
-        except Exception:
-            pass
-
-        async with db.begin_nested():
-            db.add(file)
-            await db.flush()
-
-            if report:
-                from app.models.report_file_association import report_file_association
-                from sqlalchemy import insert
-                await db.execute(
-                    insert(report_file_association).values(
-                        report_id=str(report.id),
-                        file_id=str(file.id),
-                    )
-                )
-
-        _register_same_turn(file, runtime_ctx, report)
-        return file
 
     async def _materialize_to_json(self, data: Any, tool_name: str, runtime_ctx: dict):
         """Save a JSON result as a file so write_csv / create_data can read it."""

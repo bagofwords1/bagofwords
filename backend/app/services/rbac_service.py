@@ -16,7 +16,7 @@ from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
 from app.models.user import User
 from app.models.membership import Membership
-from app.core.permission_resolver import assert_full_admin_exists, FULL_ADMIN
+from app.core.permission_resolver import assert_full_admin_exists, resolve_permissions, FULL_ADMIN
 from app.errors import AppError, ErrorCode
 from app.schemas.rbac_schema import (
     RoleCreate, RoleUpdate, RoleSchema, RoleResourceGrantInput, RoleResourceGrantOutput,
@@ -29,6 +29,87 @@ logger = logging.getLogger(__name__)
 
 
 class RBACService:
+
+    # ── Escalation guard ─────────────────────────────────────────────────
+
+    async def _assert_can_grant(
+        self, db: AsyncSession, org_id: str, actor_id: Optional[str], *,
+        permissions=(), resource_grants=(), action: str,
+    ) -> None:
+        """Deny granting anything the acting user does not already hold.
+
+        ``manage_members`` lets a delegate manage people, not mint privileges:
+        a non-full-admin may only grant org permissions and resource grants
+        that are a subset of their own effective permissions. ``actor_id=None``
+        means an internal/system caller and skips the check.
+        """
+        if actor_id is None:
+            return
+        resolved = await resolve_permissions(db, actor_id, org_id)
+        if FULL_ADMIN in resolved.org_permissions:
+            return
+        missing = sorted({p for p in permissions if not resolved.has_org_permission(p)})
+        for g in resource_grants:
+            for p in g.permissions or []:
+                if not resolved.has_resource_permission(g.resource_type, g.resource_id, p):
+                    missing.append(f"{g.resource_type}:{g.resource_id}:{p}")
+        if missing:
+            await self._deny(db, org_id, actor_id, action, {"missing_permissions": missing})
+            raise HTTPException(
+                status_code=403,
+                detail="You cannot grant permissions you do not hold",
+            )
+
+    async def _assert_not_self(
+        self, db: AsyncSession, org_id: str, actor_id: Optional[str], target_user_id: Optional[str],
+        *, action: str,
+    ) -> None:
+        """Non-full-admins may not change their own roles or group memberships."""
+        if actor_id is None or target_user_id != actor_id:
+            return
+        resolved = await resolve_permissions(db, actor_id, org_id)
+        if FULL_ADMIN in resolved.org_permissions:
+            return
+        await self._deny(db, org_id, actor_id, action, {"reason": "self_grant"})
+        raise HTTPException(status_code=403, detail="You cannot change your own access")
+
+    async def _deny(self, db: AsyncSession, org_id: str, actor_id: str, action: str, details: dict) -> None:
+        try:
+            from app.ee.audit.service import audit_service
+            await audit_service.log(
+                db=db, organization_id=org_id, action=f"{action}.denied",
+                user_id=actor_id, resource_type="rbac", details=details,
+            )
+        except Exception:
+            logger.debug("Failed to audit denied RBAC grant", exc_info=True)
+
+    async def _group_role_permissions(self, db: AsyncSession, org_id: str, group_id: str) -> set:
+        result = await db.execute(
+            select(Role.permissions)
+            .join(RoleAssignment, RoleAssignment.role_id == Role.id)
+            .where(
+                RoleAssignment.organization_id == org_id,
+                RoleAssignment.principal_type == "group",
+                RoleAssignment.principal_id == group_id,
+                RoleAssignment.deleted_at.is_(None),
+                Role.deleted_at.is_(None),
+            )
+        )
+        perms: set = set()
+        for row in result.scalars().all():
+            perms.update(row or [])
+        return perms
+
+    async def _group_resource_grants(self, db: AsyncSession, org_id: str, group_id: str) -> list:
+        result = await db.execute(
+            select(ResourceGrant).where(
+                ResourceGrant.organization_id == org_id,
+                ResourceGrant.principal_type == "group",
+                ResourceGrant.principal_id == group_id,
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )
+        return list(result.scalars().all())
 
     # ── Roles ────────────────────────────────────────────────────────────
 
@@ -70,7 +151,13 @@ class RBACService:
             )
         return perms
 
-    async def create_role(self, db: AsyncSession, org_id: str, data: RoleCreate) -> RoleSchema:
+    async def create_role(
+        self, db: AsyncSession, org_id: str, data: RoleCreate, actor_id: Optional[str] = None,
+    ) -> RoleSchema:
+        await self._assert_can_grant(
+            db, org_id, actor_id, permissions=data.permissions or [],
+            resource_grants=data.resource_grants or [], action="role.create",
+        )
         role = Role(
             organization_id=org_id,
             name=data.name,
@@ -86,10 +173,18 @@ class RBACService:
         grants = (await self._fetch_role_grants(db, [role.id])).get(role.id, [])
         return self._role_to_schema(role, grants)
 
-    async def update_role(self, db: AsyncSession, org_id: str, role_id: str, data: RoleUpdate) -> RoleSchema:
+    async def update_role(
+        self, db: AsyncSession, org_id: str, role_id: str, data: RoleUpdate,
+        actor_id: Optional[str] = None,
+    ) -> RoleSchema:
         role = await self._get_role(db, org_id, role_id)
         if role.is_system:
             raise HTTPException(status_code=403, detail="Cannot modify system roles")
+
+        await self._assert_can_grant(
+            db, org_id, actor_id, permissions=data.permissions or [],
+            resource_grants=data.resource_grants or [], action="role.update",
+        )
 
         # Reject unknown strings before the lockout check reasons about them.
         if data.permissions is not None:
@@ -315,15 +410,33 @@ class RBACService:
     async def add_group_member(
         self, db: AsyncSession, org_id: str, group_id: str,
         user_id: Optional[str] = None, membership_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
     ) -> None:
         await self._get_editable_group(db, org_id, group_id)
+
+        # Joining a group confers its roles and grants — same rule as assigning them.
+        await self._assert_not_self(db, org_id, actor_id, user_id, action="group.member_add")
+        if actor_id is not None:
+            await self._assert_can_grant(
+                db, org_id, actor_id,
+                permissions=await self._group_role_permissions(db, org_id, group_id),
+                resource_grants=await self._group_resource_grants(db, org_id, group_id),
+                action="group.member_add",
+            )
 
         if bool(user_id) == bool(membership_id):
             raise HTTPException(status_code=400, detail="Provide exactly one of user_id or membership_id")
 
         if user_id:
-            user = await db.execute(select(User).where(User.id == user_id))
-            if not user.scalar_one_or_none():
+            # Only users with a membership in this org may join its groups.
+            member = await db.execute(
+                select(Membership.id).where(
+                    Membership.organization_id == org_id,
+                    Membership.user_id == user_id,
+                    Membership.deleted_at.is_(None),
+                )
+            )
+            if member.first() is None:
                 raise HTTPException(status_code=404, detail="User not found")
             existing = await db.execute(
                 select(GroupMembership).where(
@@ -448,10 +561,19 @@ class RBACService:
         ]
 
     async def create_role_assignment(
-        self, db: AsyncSession, org_id: str, data: RoleAssignmentCreate
+        self, db: AsyncSession, org_id: str, data: RoleAssignmentCreate,
+        actor_id: Optional[str] = None,
     ) -> RoleAssignmentSchema:
         # Verify role exists
-        await self._get_role(db, org_id, data.role_id)
+        role = await self._get_role(db, org_id, data.role_id)
+
+        if data.principal_type == "user":
+            await self._assert_not_self(db, org_id, actor_id, data.principal_id, action="role.assign")
+        role_grants = (await self._fetch_role_grants(db, [role.id])).get(role.id, [])
+        await self._assert_can_grant(
+            db, org_id, actor_id, permissions=role.permissions or [],
+            resource_grants=role_grants, action="role.assign",
+        )
 
         if data.principal_type not in ("user", "group", "membership"):
             raise HTTPException(status_code=400, detail="Invalid principal_type")

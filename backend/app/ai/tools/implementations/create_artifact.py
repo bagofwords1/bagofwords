@@ -114,13 +114,24 @@ class CreateArtifactTool(Tool):
 
         try:
             import tempfile, os
-            async with async_playwright() as p:
+            from app.core.render_guard import RenderEgressProxy, RendererPolicy, guard_page_requests
+
+            # Model-authored code runs here on the server: the same egress
+            # guard as PDF export / thumbnails (only the temp file itself and
+            # RENDER_ASSET_HOSTS load).
+            policy = RendererPolicy()
+            page_url: dict = {}
+            async with RenderEgressProxy(policy.decide, label="artifact preview") as egress, async_playwright() as p:
                 # Optional executable override for deployments where the
                 # Playwright-managed browser download is unavailable but a
                 # compatible Chromium exists on disk.
                 _exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
-                browser = await p.chromium.launch(headless=True, executable_path=_exe)
+                browser = await p.chromium.launch(headless=True, executable_path=_exe, **egress.launch_kwargs())
                 page = await browser.new_page(viewport={"width": 1280, "height": 900})
+                await guard_page_requests(
+                    page, lambda u: u == page_url.get("url") or policy.allows_url(u),
+                    allows_image=policy.allows_image, label="artifact preview"
+                )
 
                 # Capture JS errors during render. Both channels matter:
                 # pageerror catches thrown/uncaught exceptions (incl. Babel
@@ -154,7 +165,8 @@ class CreateArtifactTool(Tool):
                 try:
                     tmp.write(html_content)
                     tmp.close()
-                    await page.goto(f"file://{tmp.name}", wait_until="networkidle")
+                    page_url["url"] = f"file://{tmp.name}"
+                    await page.goto(page_url["url"], wait_until="networkidle")
 
                     # Wait for React to mount and charts to render (short timeout)
                     try:
@@ -523,7 +535,7 @@ Current code:
 {code}
 ```
 
-Fix ONLY what the error requires — do not redesign, restyle, or restructure anything else. Common causes: passing a non-string (e.g. a column dict) to a text property, indexing a row with the wrong key, referencing an undefined name, wrong python-pptx API usage.
+Fix ONLY what the error requires — do not redesign, restyle, or restructure anything else. Common causes: passing a non-string (e.g. a column dict) to a text property, indexing a row with the wrong key, referencing an undefined name, wrong python-pptx API usage. A "Forbidden attribute access" error means the code touched a `_`-prefixed internal (e.g. `_element`, `fill._xPr`): rewrite that part with the public python-pptx API, dropping the effect if no public API exists.
 
 Output the FULL corrected code in a ```python code block. No explanations, no diff markers."""
 
@@ -551,18 +563,26 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         Keeps the frames inside the generated code (reported as <string>) and
         the final exception line — the sandbox internals above them are noise
-        the repair model can't act on.
+        the repair model can't act on. Code run in the sandbox raised in the
+        child process; its traceback (with the <string> frames) arrives as
+        `traceback_text`, while `exc.__traceback__` only covers the runner.
         """
         import traceback as _tb
 
-        lines = _tb.format_exception(type(exc), exc, exc.__traceback__)
-        flat = "".join(lines).splitlines()
+        child_tb = getattr(exc, "traceback_text", "") or ""
+        if child_tb:
+            flat = child_tb.splitlines()
+        else:
+            lines = _tb.format_exception(type(exc), exc, exc.__traceback__)
+            flat = "".join(lines).splitlines()
         kept = [l for l in flat if '<string>' in l]
         # Final line always carries the exception type + message
         if flat:
             kept.append(flat[-1])
         text = "\n".join(kept[-12:]) if kept else str(exc)
-        return text[:2000]
+        # This text reaches the model and the user: no server paths in it.
+        from app.errors.redact import redact_paths
+        return redact_paths(text)[:2000]
 
     @staticmethod
     def _first_preview_base64(preview_images: List[str]) -> Optional[str]:
@@ -2085,9 +2105,13 @@ Images (only present when the user attached or generated some):
                                    width=Inches(13.333))
   Cover the slide for a hero/background, or inset it in a content column.
   There is no filesystem access — `image()` is the only way to place art.
-  When an image sits behind text, draw a translucent scrim rectangle between
-  them or the text becomes unreadable; send the picture to the back by
-  inserting it first.{embeddable_images}
+  When an image sits behind text, put the text on a solid-color band or panel
+  drawn over the picture or the text becomes unreadable; send the picture to
+  the back by inserting it first.{embeddable_images}
+
+Use the public python-pptx API only. Never touch `_`-prefixed internals
+(`_element`, `_spTree`, `fill._xPr`, raw lxml): the sandbox rejects any
+private or dunder attribute and the deck fails to build.
 
 Output:
 - _pptx_output_path: str — path to save the presentation to

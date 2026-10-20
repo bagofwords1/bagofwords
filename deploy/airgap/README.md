@@ -42,6 +42,24 @@ the site address in `Caddyfile` with:
 Expose port 443 and mount the certificate directory read-only in
 `docker-compose.yaml` before starting the deployment.
 
+## Live answers through proxies
+
+Chat answers stream to the browser as they are written. Any proxy between the
+browser and Bag of Words must pass those responses through instead of holding
+them until they end, or users see each answer appear all at once:
+
+- Do not compress `text/event-stream` responses. The included Caddyfile already
+  skips them.
+- Turn off response buffering for this host on your own reverse proxy or load
+  balancer (nginx `proxy_buffering off`, Apache `flushpackets=on`, IIS ARR
+  `responseBufferLimit=0`, F5 without a compression or buffering profile).
+- Exempt this host from content scanning on corporate web proxies and TLS
+  inspection, or bypass the proxy for it in the browser's proxy/PAC settings.
+
+When a browser receives an answer that was held back, the server logs a
+`sse.delivery_buffered` warning naming the proxy (`Via`) and how long the
+answer was held.
+
 ## Scan
 
 The archive checksum verifies the download. Security tools that scan a Docker

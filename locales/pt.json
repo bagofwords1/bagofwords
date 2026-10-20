@@ -249,6 +249,10 @@
     "optLoadAlways": "Sempre",
     "optLoadSmart": "Inteligente",
     "optLoadOff": "Desligado",
+    "fieldStatus": "Status",
+    "fieldLoadMode": "Modo de carregamento",
+    "fieldDeactivateHint": "Os agentes deixarão de usar esta instrução. O texto é mantido e ela pode ser reativada.",
+    "fieldActivateHint": "Os agentes voltarão a usar esta instrução.",
     "optSourceUser": "Usuário",
     "optSourceAi": "AI",
     "optSourceGit": "Git",
@@ -313,7 +317,11 @@
     "tipRunSuite": "Executar esta suíte",
     "runSuiteFailed": "Falha ao executar a suíte",
     "exportInstructions": "Exportar pacote do agente — instruções, configuração e avaliações (.zip)",
-    "sharedManagedElsewhere": "Compartilhada com agentes que você não gerencia — editável apenas por alguém com autoridade sobre todos eles."
+    "sharedManagedElsewhere": "Compartilhada com agentes que você não gerencia — editável apenas por alguém com autoridade sobre todos eles.",
+    "unchangedLineOne": "{n} linha inalterada",
+    "unchangedLineMany": "{n} linhas inalteradas",
+    "loadPendingFailed": "Não foi possível carregar as alterações pendentes.",
+    "allPendingResolved": "Sem alterações pendentes — tudo resolvido."
   },
   "smoke": {
     "hello": "Olá",
@@ -446,6 +454,10 @@
       "trigger_run": {
         "title": "⚡ \"{name}\" foi acionado — {summary}",
         "body": "A investigação foi concluída — abra a sessão para ver os resultados."
+      },
+      "delivery_skipped": {
+        "title": "Alguns destinatários não receberam \"{report}\"",
+        "body": "{count} destinatário(s) não receberam este relatório porque ele contém dados específicos de cada usuário: {recipients}"
       }
     },
     "checkin": {
@@ -1132,6 +1144,16 @@
       "needsValues": "Aguardando valores para:",
       "cachedHint": "Servido do seu resultado em cache para esses valores; a fonte não foi consultada novamente"
     },
+    "addParameter": {
+      "adding": "Adicionando o filtro \"{name}\"…",
+      "added": "Filtro \"{name}\" adicionado a \"{query}\"",
+      "addedNoQuery": "Filtro \"{name}\" adicionado",
+      "failed": "Não foi possível adicionar o filtro \"{name}\"",
+      "type": "Tipo: {type}",
+      "default": "Padrão: {value}",
+      "defaultAll": "todos",
+      "column": "Coluna: {column}"
+    },
     "createArtifact": {
       "creating": "Criando artefato",
       "created": "Artefato criado",
@@ -1239,7 +1261,16 @@
       "toastFailedPublish": "Falha ao publicar instrução",
       "toastDeletedDesc": "Instrução excluída",
       "toastFailedDelete": "Falha ao excluir instrução",
-      "toastSaved": "Instrução salva"
+      "toastSaved": "Instrução salva",
+      "accept": "Aceitar",
+      "reject": "Rejeitar",
+      "accepted": "Aceita",
+      "rejectedLabel": "Rejeitada",
+      "stagedInBuild": "Preparada no build em rascunho",
+      "acceptedToast": "Alteração aceita",
+      "acceptFailed": "Falha ao aceitar",
+      "rejectedToast": "Alteração rejeitada",
+      "rejectFailed": "Falha ao rejeitar"
     },
     "editInstruction": {
       "rejected": "Edição rejeitada",
@@ -1255,6 +1286,7 @@
       "changeCategory": "categoria → {value}",
       "changeConfidence": "confiança → {value}%",
       "changeLoadMode": "modo de carregamento → {value}",
+      "changeStatus": "status → {value}",
       "changeTables": "tabelas atualizadas",
       "changeEvidence": "evidências atualizadas",
       "confidence": "Confiança:",
@@ -1276,7 +1308,16 @@
       "toastFailedDelete": "Falha ao excluir instrução",
       "toastSaved": "Instrução salva",
       "editCount": "{n} edições",
-      "editLabel": "Editar instrução"
+      "editLabel": "Editar instrução",
+      "turnOff": "Desativar",
+      "turnOn": "Ativar",
+      "accepted": "Aceita",
+      "rejectedLabel": "Rejeitada",
+      "stagedInBuild": "Preparada no build em rascunho",
+      "acceptedToast": "Alteração aceita",
+      "acceptFailed": "Falha ao aceitar",
+      "rejectedToast": "Alteração rejeitada",
+      "rejectFailed": "Falha ao rejeitar"
     },
     "inspectData": {
       "inspecting": "Inspecionando",
@@ -1406,6 +1447,7 @@
       "tabCode": "Código",
       "toggleQueries": "Consultas",
       "toggleFullCode": "Código completo",
+      "sentRequest": "Enviado à fonte de dados",
       "attempts": "Tentativas ({count})",
       "addToSpreadsheet": "Adicionar à planilha",
       "addToSpreadsheetTitle": "Adicionar dados à planilha do Excel",
@@ -1744,6 +1786,26 @@
       "sendFeedback": "Enviar feedback",
       "expired": "Esta revisão expirou.",
       "respondFailed": "Não foi possível enviar sua resposta — tente novamente."
+    },
+    "messageSubAgent": {
+      "sending": "Enviando mensagem…",
+      "sent": "Mensagem enviada para {title}",
+      "failed": "Não foi possível enviar a mensagem para {title}",
+      "parent": "Agente principal",
+      "agent": "Subagente",
+      "sentHint": "Salva para entrega antes da próxima etapa de planejamento. Isso não confirma sua execução.",
+      "failedHint": "A mensagem não foi enviada.",
+      "messages": "Mensagens",
+      "states": {
+        "sent": "Enviada",
+        "delivered": "Entregue ao contexto do agente",
+        "undelivered": "Não entregue"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "Aguardando agente principal"
+      }
     }
   },
   "entityCreate": {
@@ -2485,7 +2547,25 @@
       "linkCopied": "Link de convite copiado",
       "failedToCopyLink": "Não foi possível copiar o link",
       "linkRegenerated": "Link de convite atualizado e copiado",
-      "moreGroups": "grupos"
+      "moreGroups": "grupos",
+      "colAttributes": "Atributos",
+      "colAttributesHint": "Valores definidos por um administrador que identificam o membro em outros sistemas (ex.: qlik_user_id). Os membros não podem editá-los.",
+      "editAttributes": "Editar atributos",
+      "attributeAdd": "Adicionar atributo",
+      "attributeKey": "Nome do atributo",
+      "attributeValue": "Valor",
+      "attributeKeyPlaceholder": "nome, ex.: qlik_user_id",
+      "attributeValuePlaceholder": "valor, ex.: dana",
+      "attributeRemove": "Remover atributo",
+      "attributeKeyRequired": "O nome é obrigatório",
+      "attributeKeyInvalid": "Apenas letras, dígitos, _ . -; começa com uma letra",
+      "attributeKeyDuplicate": "Nome duplicado",
+      "attributesTitle": "Atributos do membro",
+      "attributesHint": "Valores que identificam este membro em outros sistemas, ex.: seu usuário do Qlik ou matrícula. Apenas administradores podem vê-los ou alterá-los.",
+      "attributesInviteHint": "Opcional. Identifica este membro em outros sistemas, ex.: seu usuário do Qlik ou papel no banco de dados.",
+      "attributesSaved": "Atributos salvos",
+      "attributesSaveFailed": "Falha ao salvar os atributos",
+      "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado."
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",
@@ -3586,6 +3666,10 @@
     "mcpModeAiTip": "A IA pode defini-lo; o servidor preenche se vazio",
     "mcpModeLockedTip": "O valor do admin sempre prevalece; oculto da IA",
     "mcpAddMetaField": "+ Adicionar campo de metadados",
+    "mcpDynamicParams": "Parâmetros dinâmicos",
+    "mcpDynamicParamsHint": "Quais valores o app chamador pode enviar com cada pergunta, cada um com um valor padrão (null = só se enviado). Eles vão para {key}, ocultos da IA; um campo acima com o mesmo nome tem prioridade. O app os envia em",
+    "mcpDynamicParamsInvalid": "JSON inválido.",
+    "mcpDynamicParamsNotObject": "Deve ser um objeto JSON (pares chave-valor).",
     "verify": "Verificar",
     "autoReindex": "Reindexação automática do esquema",
     "autoReindexAt": "Reindexar diariamente às",
@@ -3644,6 +3728,16 @@
     "rateLimitReqHour": "req/hora",
     "rateLimitReqMin": "req/min",
     "rateLimitSaveFailed": "Falha ao salvar as configurações de limite de requisições",
+    "queryLimits": "Limites de consulta",
+    "queryLimitsHint": "Substitui os padrões da organização para esta conexão. Deixe em branco para usar o padrão.",
+    "queryTimeout": "Tempo limite da consulta",
+    "queryTimeoutUnit": "segundos",
+    "maxConcurrentQueries": "Consultas simultâneas",
+    "maxConcurrentQueriesUnit": "ao mesmo tempo",
+    "queryLimitDefault": "Padrão ({value})",
+    "queryLimitsInherited": "Padrões da organização",
+    "queryLimitsCustom": "Personalizado",
+    "queryLimitsSaveFailed": "Falha ao salvar os limites de consulta",
     "refreshing": "Atualizando…",
     "reloadMyTables": "Recarregar minhas tabelas",
     "runQueriesAs": "Executar consultas como",
@@ -3698,7 +3792,33 @@
     "refreshAccess": "Atualizar acesso",
     "yourAccount": "Sua conta",
     "managementOrganizationHint": "Os testes e as atualizações do esquema usam as credenciais salvas da organização.",
-    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta."
+    "managementPersonalHint": "Este conector exige seu login. Os testes e as atualizações usam sua conta.",
+    "memberIdentity": {
+      "title": "Identidade por membro",
+      "hint": "Cada membro atua com a própria conta. Escolha quais campos vêm de um atributo de membro que os administradores definem em Configurações → Membros; os demais usam o valor acima para todos. Os valores acima continuam sendo usados para indexar o catálogo compartilhado.",
+      "sourceFor": "Origem de {field}",
+      "attributeFor": "Atributo de membro para {field}",
+      "sameForEveryone": "Igual para todos",
+      "fromAttribute": "Do atributo de membro",
+      "attributePlaceholder": "ex.: qlik_user_id",
+      "usesValue": "Todos usam {value}",
+      "usesValueAbove": "Todos usam o valor acima (ou o padrão dele)",
+      "attributeRequired": "Informe o nome do atributo de membro.",
+      "attributeInvalid": "Use letras, dígitos, _ . - e comece com uma letra.",
+      "needOne": "Associe pelo menos um campo a um atributo de membro ou desative a autenticação de usuário.",
+      "previewTitle": "Quem atua como quem",
+      "previewCounts": "{ok} prontos · {blocked} bloqueados",
+      "blocked": "Bloqueado: falta {attributes}",
+      "test": "Testar",
+      "testOk": "Conectado como este membro"
+    },
+    "sharepointApi": {
+      "title": "API do SharePoint",
+      "description": "O SharePoint 2010 usa serviços legados e pesquisa apenas nomes de arquivos. Informe uma biblioteca ou *; não deixe a biblioteca vazia.",
+      "modern": "REST moderno",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Nome da biblioteca de documentos ou * para todas as bibliotecas visíveis. O campo vazio seleciona a biblioteca padrão apenas no modo REST moderno."
+    }
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -3769,6 +3889,9 @@
   "errors": {
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
+    "invitation_required": "O cadastro está desativado. Peça um convite ao seu administrador.",
+    "oauth_email_missing": "Não foi possível obter seu e-mail do provedor de login. Peça ao seu administrador para verificar o escopo de e-mail do provedor.",
+    "oauth_login_failed": "Falha no login. Tente novamente ou contate seu administrador.",
     "generic": "Algo deu errado. Tente novamente.",
     "network": "Erro de rede. Verifique sua conexão.",
     "unauthorized": "Você não tem autorização para fazer isso.",
@@ -3799,6 +3922,7 @@
     "organization.required": "Cabeçalho de ID da organização ausente",
     "api_key.invalid": "Chave de API inválida ou expirada",
     "mcp.disabled": "A integração MCP não está ativada para esta organização",
+    "mcp.dynamic_params_invalid": "Os parâmetros dinâmicos devem ser um objeto JSON de no máximo 8 KB, sem chaves vazias.",
     "feature.locked": "O recurso não pode ser modificado",
     "license.enterprise_required": "Este recurso requer uma licença enterprise.",
     "locale.invalid": "O idioma não está ativado",
@@ -3852,7 +3976,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Recurso indisponível",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Solicitação interrompida",
     "ARTIFACT_RESOURCE_ABORTED": "Solicitação cancelada",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Versão do SDK não compatível",
+    "member_attributes.invalid": "Atributos de membro inválidos.",
+    "member_identity.invalid": "Mapeamento de identidade por membro inválido.",
+    "member_identity.not_configured": "Um administrador ainda não escolheu qual atributo de membro identifica os membros nesta conexão.",
+    "member_identity.unresolved": "Sua conta nesta conexão ainda não está configurada. Peça a um administrador para definir seus atributos de membro ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -3961,6 +4089,8 @@
     "dailyAt": "Diariamente às {time}",
     "daysAt": "{days} às {time}",
     "monthlyOn": "Mensalmente no dia {day} às {time}",
+    "onceAt": "Uma vez · {date}",
+    "onceSpent": "Já foi executada — edite para escolher um novo horário",
     "daySun": "Dom",
     "dayMon": "Seg",
     "dayTue": "Ter",
@@ -4017,7 +4147,8 @@
     "menuData": "Dados"
   },
   "toolbar": {
-    "polishDashboard": "Aprimorar painel"
+    "polishDashboard": "Aprimorar painel",
+    "polishRequestLabel": "Aprimorar"
   },
   "artifactFrame": {
     "dataAddQuery": "Adicionar consulta",
@@ -4430,6 +4561,9 @@
       "runSuite": "Executar {name}",
       "runningCount": "Executando {done}/{total}",
       "title": "Avaliações desta alteração"
+    },
+    "runEvals": {
+      "notRun": "{n} caso em rascunho ou arquivado não incluído | {n} casos em rascunho ou arquivados não incluídos"
     }
   },
   "monitoring": {
@@ -4493,6 +4627,7 @@
       "colFeedback": "Feedback",
       "expandRow": "Mostrar chamadas de ferramentas",
       "pivotReport": "Mostrar esta conversa",
+      "openReport": "Abrir relatório",
       "turnOf": "turno {n} de {m}",
       "nFailed": "{n} com falha",
       "feedbackPositive": "Positivo",
@@ -4871,6 +5006,7 @@
     "scheduleOff": "Desativado",
     "scheduleOn": "Ativado",
     "runIn": "Executar em",
+    "changeTime": "Alterar",
     "unitMinutes": "min",
     "unitHours": "h",
     "unitDays": "dias",
@@ -5344,6 +5480,7 @@
     "bulkFailed": "Falha na atualização em massa"
   },
   "events": {
+    "subAgentQuestion": "Um subagente fez uma pergunta",
     "evalRunFinished": "Execução de avaliação '{title}' terminou — {passed}/{total} aprovadas ({status})",
     "waitResumed": "Espera concluída — retomando: {reason}",
     "checkin": {
@@ -5368,6 +5505,7 @@
     "untitledInstruction": "Instrução sem título",
     "pending": "Pendente",
     "accepted": "Aceita",
+    "rejected": "Rejeitada",
     "webhooks": "Webhooks",
     "configureWebhook": "Configurar webhook"
   },
@@ -5763,5 +5901,8 @@
     "notFound": "Esta conexão não foi encontrada.",
     "forbidden": "Você não tem acesso a esta conexão.",
     "loadFailed": "Não foi possível carregar a conexão. Tente novamente mais tarde."
+  },
+  "trackedChanges": {
+    "noChanges": "Sem alterações"
   }
 }

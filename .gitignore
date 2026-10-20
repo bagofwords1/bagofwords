@@ -84,3 +84,7 @@ audit/**/state.json
 audit/**/screenshots/
 audit/**/routes/
 audit/**/*.json
+tools/agent/node_modules
+
+# Audit-log spill files written at runtime (and by test runs)
+backend/data/audit-spill/

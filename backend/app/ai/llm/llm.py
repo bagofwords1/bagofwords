@@ -25,11 +25,12 @@ from .types import (
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.ai.llm import trace as llm_trace
+from app.core.url_safety import check_admin_url
 from app.ai.llm.pii.loader import load_redactor_for_org
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
-from app.ai.llm.header_injection import build_provider_headers
+from app.ai.llm.header_injection import identity_header_resolver, static_provider_headers
 from app.ai.llm.reasoning import needs_responses_for_tools, reasoning_mode, reasoning_params, _effort_to_thinking_config
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
@@ -320,6 +321,10 @@ class LLM:
         self._usage_session_maker = usage_session_maker
         self._usage_limit_context = usage_context
         additional_config = self.model.provider.additional_config or {}
+        # Admin-configured endpoints must never reach cloud metadata (SSRF).
+        for url_key in ("base_url", "endpoint_url"):
+            if additional_config.get(url_key):
+                check_admin_url(additional_config[url_key])
         enable_web_search = bool(additional_config.get("enable_web_search", False))
         # Optional explicit sampling temperature. Model-level config (set via
         # POST /llm/models/{id}/set_temperature, stored on LLMModel.config) wins
@@ -332,17 +337,19 @@ class LLM:
         configured_temperature = _parse_temperature(model_config.get("temperature"))
         if configured_temperature is None:
             configured_temperature = _parse_temperature(additional_config.get("temperature"))
-        # Custom outbound headers: static admin-configured headers plus per-user
-        # identity forwarding rules resolved against the ambient identity (see
-        # app.ai.llm.header_injection). LLM instances are constructed per run /
-        # per call site, inside the identity scope AgentV2 stamps, so resolving
-        # here keeps every client and both sync/async paths covered.
-        custom_headers = build_provider_headers(additional_config) or None
+        # Custom outbound headers: static admin-configured headers ride on the
+        # client; identity forwarding rules (user.email, agent.name …) resolve
+        # per request against the ambient identity AgentV2 stamps (see
+        # app.ai.llm.header_injection), so a value that changes mid-run — the
+        # question's agent after a tool — reaches every call of every client.
+        custom_headers = static_provider_headers(additional_config) or None
+        identity_headers = identity_header_resolver(additional_config)
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
             if base_url and not needs_responses_for_tools(self._capability_model_id()) and not additional_config.get("use_responses_api"):
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
-                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers)
+                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers, identity_headers=identity_headers,
+                                     pin_egress=True)
             else:
                 # Native OpenAI, GPT-6 and GPT-5.6 (including gateways) use
                 # Responses: their tool calling on Chat Completions only works
@@ -352,12 +359,15 @@ class LLM:
                     base_url=base_url,
                     enable_web_search=enable_web_search,
                     temperature=configured_temperature,
-                    default_headers=custom_headers,
+                    default_headers=custom_headers, identity_headers=identity_headers,
+                    # Pin only an admin-supplied gateway; api.openai.com keeps
+                    # the SDK's stock client.
+                    pin_egress=bool(base_url),
                 )
         elif self.provider == "anthropic":
-            self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers)
+            self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers, identity_headers=identity_headers)
         elif self.provider == "google":
-            self.client = Google(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers)
+            self.client = Google(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers, identity_headers=identity_headers)
         elif self.provider == "azure":
             endpoint_url = additional_config.get("endpoint_url")
             if not endpoint_url:
@@ -385,7 +395,8 @@ class LLM:
                     api_key=self.api_key,
                     base_url=_azure_foundry_anthropic_base_url(endpoint_url),
                     temperature=configured_temperature,
-                    default_headers=custom_headers,
+                    default_headers=custom_headers, identity_headers=identity_headers,
+                    pin_egress=True,
                 )
             else:
                 # Default to Chat Completions — works in every region. Admins opt
@@ -418,7 +429,8 @@ class LLM:
                         base_url=self._azure_v1_base_url(endpoint_url),
                         enable_web_search=enable_web_search,
                         temperature=configured_temperature,
-                        default_headers=custom_headers,
+                        default_headers=custom_headers, identity_headers=identity_headers,
+                        pin_egress=True,
                     )
                 elif _is_azure_foundry_endpoint(endpoint_url) and azure_ad_token_provider is None:
                     # Foundry: OpenAI-compatible Chat Completions under /openai/v1,
@@ -428,14 +440,15 @@ class LLM:
                         api_key=self.api_key,
                         base_url=self._azure_v1_base_url(endpoint_url),
                         temperature=configured_temperature,
-                        default_headers=custom_headers,
+                        default_headers=custom_headers, identity_headers=identity_headers,
+                        pin_egress=True,
                     )
                 else:
                     self.client = AzureClient(
                         api_key=self.api_key,
                         endpoint_url=endpoint_url,
                         temperature=configured_temperature,
-                        default_headers=custom_headers,
+                        default_headers=custom_headers, identity_headers=identity_headers,
                         azure_ad_token_provider=azure_ad_token_provider,
                     )
         elif self.provider == "custom":
@@ -448,8 +461,8 @@ class LLM:
             if additional_config.get("use_responses_api"):
                 self.client = OpenAIResponsesClient(
                     api_key=api_key, base_url=base_url,
-                    temperature=configured_temperature, default_headers=custom_headers,
-                    verify_ssl=verify_ssl,
+                    temperature=configured_temperature, default_headers=custom_headers, identity_headers=identity_headers,
+                    verify_ssl=verify_ssl, pin_egress=True,
                 )
             else:
                 # Claude behind the gateway caches only what the request marks;
@@ -457,7 +470,8 @@ class LLM:
                 cache_markers = (_is_anthropic_model_id(self.model_id)
                                  and additional_config.get("prompt_cache_markers", True) is not False)
                 self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature,
-                                     default_headers=custom_headers, prompt_cache_markers=cache_markers)
+                                     default_headers=custom_headers, identity_headers=identity_headers, prompt_cache_markers=cache_markers,
+                                     pin_egress=True)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")
@@ -467,7 +481,7 @@ class LLM:
             if auth_mode == "api_key" and not self.api_key:
                 raise ValueError("Bedrock provider with auth_mode 'api_key' requires provider credentials")
 
-            bedrock_kwargs: dict = {"region": region, "auth_mode": auth_mode, "extra_headers": custom_headers}
+            bedrock_kwargs: dict = {"region": region, "auth_mode": auth_mode, "extra_headers": custom_headers, "identity_headers": identity_headers}
             if auth_mode == "api_key":
                 bedrock_kwargs["api_key"] = self.api_key
             elif auth_mode == "access_keys":
@@ -481,7 +495,7 @@ class LLM:
                 bedrock_kwargs["aws_secret_access_key"] = secret_key
             self.client = BedrockClient(**bedrock_kwargs)
         elif self.provider == "vertex":
-            self.client = self._build_vertex_client(additional_config, configured_temperature, custom_headers)
+            self.client = self._build_vertex_client(additional_config, configured_temperature, custom_headers, identity_headers)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 
@@ -496,7 +510,7 @@ class LLM:
         self.client.reasoning_mode = _mode
         self.client.reasoning_params = reasoning_params(model_config)
 
-    def _build_vertex_client(self, additional_config: dict, configured_temperature, custom_headers):
+    def _build_vertex_client(self, additional_config: dict, configured_temperature, custom_headers, identity_headers=None):
         """Pick the transport for a Vertex model and build its client.
 
         Vertex fronts three different wire protocols, each already implemented
@@ -529,7 +543,7 @@ class LLM:
                 },
                 base_url=vertex_auth.anthropic_base_url(location),
                 temperature=configured_temperature,
-                default_headers=custom_headers,
+                default_headers=custom_headers, identity_headers=identity_headers,
             )
 
         if _is_gemini_model_id(self.model_id):
@@ -540,7 +554,7 @@ class LLM:
                     "credentials": credentials,
                 },
                 temperature=configured_temperature,
-                default_headers=custom_headers,
+                default_headers=custom_headers, identity_headers=identity_headers,
             )
 
         # Everything else is a third-party MaaS model on the OpenAI-compatible
@@ -562,7 +576,7 @@ class LLM:
             api_key=vertex_auth.OPENAI_PLACEHOLDER_API_KEY,
             base_url=vertex_auth.openai_base_url(project_id, vertex_auth.MAAS_LOCATION),
             temperature=configured_temperature,
-            default_headers=custom_headers,
+            default_headers=custom_headers, identity_headers=identity_headers,
             auth=vertex_auth.GoogleBearerAuth(vertex_auth.token_provider(credentials)),
             timeout=_vertex_timeout(),
         )

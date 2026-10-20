@@ -20,7 +20,7 @@ from sqlalchemy import create_engine
 from alembic import command
 from tests.fixtures.dashboard_corpus.rows import sync_test_url
 
-MAIN_BASE_REVISION = "mrgheads07"
+MAIN_BASE_REVISION = "submsg02"
 
 # The last revision of release 0.0.560 (commit 052d73926). Customers skip
 # releases; the oldest-upgrade test starts here.

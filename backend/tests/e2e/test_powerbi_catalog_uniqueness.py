@@ -16,6 +16,8 @@ from app.services.connection_service import ConnectionService
 from tests.e2e.test_powerbi_refresh_identity import meta, seed_legacy
 from tests.unit.test_powerbi_schema_refresh import Tenant
 
+pytestmark = pytest.mark.e2e
+
 
 @pytest.mark.parametrize("different_part", [None, "workspaceId", "datasetId", "tableName"])
 def test_database_enforces_identity_independent_of_label(create_user, login_user, whoami, different_part):

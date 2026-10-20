@@ -45,9 +45,17 @@ export function isIndexingFailed(idx?: ConnectionIndexing | null): boolean {
   return !!idx && idx.status === 'failed'
 }
 
+// Admin-mapped identity (Qlik): members act as the account an admin mapped to
+// them, so there is nothing for them to sign in to — a missing mapping is for
+// an admin to fix, not a Connect prompt.
+export function isAdminMappedIdentity(conn: any): boolean {
+  return conn?.user_status?.auth_mode === 'member_mapped'
+}
+
 // Shared predicate for sign-in actions; service-account fallback already has access.
 export function needsConnectionSignIn(conn: any): boolean {
   return conn?.auth_policy === 'user_required'
+    && !isAdminMappedIdentity(conn)
     && !conn?.user_status?.has_user_credentials
     && conn?.user_status?.effective_auth !== 'system'
 }
@@ -56,7 +64,7 @@ export function getEffectiveStatus(conn: any): ConnectionEffectiveStatus {
   // The API explicitly distinguishes missing personal access from a failed
   // test. Do not let shared health/indexing imply this viewer is connected.
   const user = conn?.user_status
-  if (user?.effective_auth === 'none' && user?.has_user_credentials === false
+  if (user?.effective_auth === 'none' && user?.has_user_credentials === false && !isAdminMappedIdentity(conn)
       && ['offline', 'not_connected', 'unknown', ''].includes(String(user.connection || '').toLowerCase())) {
     return 'sign_in_required'
   }

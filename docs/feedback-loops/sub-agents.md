@@ -1,0 +1,521 @@
+# Feedback Loop — sub-agents (delegated agent runs with wave fan-in)
+
+**Status: plan, approved, not started.** Implementation begins when the
+Anthropic key is provided; nothing in this doc runs before that. Loops below
+are executed as each phase of `docs/design/sub-agents.md` lands; observed
+output sections are empty until then.
+
+**Model for every live leg: Anthropic Claude Haiku 5.5 (`claude-haiku-5-5`),
+as both the org default and the small model.** It is the cheapest model
+that runs the native tool-use planner, so a wave of five children costs
+little, and it is the weakest model we expect the posture and the
+`finish_subtask` contract to hold on; if they hold on Haiku they hold on the
+larger tiers. A second provider is added only at phase 3 exit. The key is
+read from the environment only (`ANTHROPIC_API_KEY` for a booted stack,
+`ANTHROPIC_API_KEY_TEST` for the eval harness) and is never written to the
+repo, a doc, a log, or command output. Design decisions are not repeated here; this doc is the runnable
+proof that they hold, on one root-cause-analysis (RCA) use case.
+
+Claim being validated: when a user asks *why* a metric moved, the agent
+launches one sub-agent per candidate cause in a single response, ends its
+turn, each sub-agent investigates on its own and finishes with a typed record,
+one fan-in turn wakes the agent with all records, and the agent names the
+real cause with cited evidence, rules out the decoys, and never fabricates a
+sub-agent result. Tokens, steps and cost per sub-agent are visible on the card
+and the summary tab, and everything survives a reload.
+
+---
+
+## The RCA use case and its dataset
+
+A planted incident, generated deterministically so every loop sees the same
+numbers. Script `tools/agent/seed_rca_incident.py` writes
+`backend/demo-datasources/rca_incident.sqlite` (committed, like
+`chinook.sqlite`) and registers it as the **"Checkout Ops"** demo source
+with one agent; the eval YAML references it by slug.
+
+Tables (daily grain, 2026-08-01 → 2026-09-30, seeded RNG):
+
+| Table | Columns | Role |
+|---|---|---|
+| `orders` | date, region, platform, app_version, payment_provider, status (paid/failed), amount | the metric: paid orders and checkout failure rate |
+| `sessions` | date, region, platform, app_version, sessions | denominator for conversion; carries the traffic decoy |
+| `deploys` | date, service, version, notes | the real cause's timeline |
+| `payment_provider_status` | provider, region, date, incident (bool) | a decoy that looks causal |
+| `price_changes` | date, sku_group, old_price, new_price | a decoy with no effect |
+| `campaigns` | start, end, region, channel, spend | a decoy that moves sessions, not conversion |
+
+Planted truth: from **2026-09-14** checkout failures jump from ~3 % to ~18 %
+**only** for `platform = ios` **and** `app_version = 5.2.0` **and**
+`payment_provider = PayFlow`; `deploys` shows `checkout-service 5.2.0`
+shipped 2026-09-14 06:00 UTC. Decoys: a price change on 09-10 (no effect on
+either series), an APAC campaign 09-12 → 09-20 (sessions up 40 %, conversion
+flat), a `PayFlow` incident flag on 09-15 in `us-east` only (fails there for
+six hours, recovers), and the ordinary weekly seasonality. Five candidate
+causes, one true, each separable by one or two queries. That is what makes
+the case a sub-agent case: the hypotheses are independent and each needs
+several steps.
+
+Prompt used in every loop:
+
+> Paid orders dropped about 15 % since mid-September. Why? Test the likely
+> causes separately and tell me which one it is, with evidence, and which
+> ones you ruled out.
+
+---
+
+## Harness changes the loops depend on
+
+Two gaps in `TestRunService` / `TestEvaluationService`, both small, both
+needed before any eval below can pass:
+
+1. **Wave-aware terminal state.** A run is not finished while a
+   `sub_agent_waves` row for the report is `running` or `firing`, nor until the
+   fan-in machine turn's system completion is terminal. Today the finalizer
+   treats the first system completion ending as the end of the case.
+2. **Children in the snapshot.** `build_final_snapshot` includes tool
+   executions from child executions (via `parent_agent_execution_id`) tagged
+   with `phase = subagent` and `sub_agent_id`, so `tool.calls` rules can count
+   `finish_subtask` and a `phase` rule can scope assertions to children or to
+   the fan-in turn. The parent's final text for `text.*` rules is the fan-in
+   turn's reply.
+
+---
+
+## Loop A — deterministic (stub LLM, no external services)
+
+Proves the mechanics independent of any model: wave creation, child
+bootstrap, `finish_subtask` record, write-back, fan-in machine turn,
+`read_sub_agent` while running, digest, settings gating, agent and model
+override validation, reload hydration. Extends `tools/agent/stub_llm.py`
+with a scripted `delegate` phase (`STUB_PHASES=delegate`):
+
+- parent round 1 (no observations in prompt, chat mode): N `delegate` calls,
+  one per hypothesis in `STUB_HYPOTHESES`, then text "Testing N causes."
+- child rounds (system prompt carries the `subagent` marker): `inspect_data`
+  → `create_data` → `finish_subtask` with a fixed record per hypothesis
+  (`supported` for the one whose goal mentions "5.2.0", `refuted` otherwise);
+  one hypothesis ("seasonality") deliberately never calls `finish_subtask`,
+  to exercise the forced-finish turn and the synthesized `partial` record.
+- fan-in round (prompt carries `<sub_agent_results>`): text answer naming the
+  supported hypothesis.
+
+```bash
+cd backend
+export BOW_DATABASE_URL="sqlite:///db/app.db"
+uv run python ../tools/agent/seed_rca_incident.py --out demo-datasources/rca_incident.sqlite
+uv run pytest tests/e2e/test_sub_agents.py -v
+```
+
+`tests/e2e/test_sub_agents.py` (to be written with phase 1–2; assert the
+invariant, not the scenario — `backend/tests/AGENTS.md`):
+
+| Test | Invariant |
+|---|---|
+| `test_delegate_batch_forms_one_wave` | N `delegate` calls in one decision → one `sub_agent_waves` row with `remaining = N`; each receipt carries `sub_agent_id`, `wave_id`, resolved `agents`, `model` |
+| `test_child_is_hidden_completion_with_parent_links` | child completions have `trigger_source = sub_agent`, are absent from `get_completions_v2`, and the child `AgentExecution` has both parent ids |
+| `test_child_mode_switches_off_parent_only_behaviour` | child catalog ⊆ profile allow-list; no `clarify`, no artifact tools, no `delegate`; no title/follow-up/harness/check-in rows for the child |
+| `test_finish_subtask_writes_record_and_ends_run` | record row + envelope `exit_reason = finish_call`; child completion terminal right after the call |
+| `test_missing_finish_gets_forced_turn_then_partial` | the never-finishing child gets exactly one forced turn, then a synthesized `partial` record with `exit_reason = no_finish_call`; the wave still fires |
+| `test_wave_fires_exactly_once_under_concurrent_finishes` | N children finishing concurrently → one `firing` transition, one fan-in machine turn (`trigger_source = sub_agent`, visible `external` event + hidden trigger) |
+| `test_deadline_times_out_running_children` | with `sub_agent_deadline_minutes` tiny and one child stalled, the deadline job marks it `timed_out`, stops it, synthesizes its record and fires the fan-in |
+| `test_write_back_to_delegate_tool_execution` | after a child finishes, the parent's `delegate` `result_json` holds receipt + record; `_digest_sub_agent_tool` renders the one-line digest |
+| `test_read_sub_agent_while_running_and_after` | running → progress snapshot shape; finished → record; `include_report` returns the note body |
+| `test_fan_in_prompt_carries_records_in_launch_order` | the hidden trigger lists all N records in the order launched, each paired with its goal |
+| `test_children_do_not_block_report_queue` | a user completion created mid-wave runs (not queued) while children are `in_progress`; the fan-in turn queues behind it |
+| `test_created_queries_are_report_scoped_without_widgets` | child `create_data` → query + step on the report, no widget auto-placed, `via_sub_agent` provenance resolvable |
+| `test_agent_ids_default_and_override` | no `agent_ids` → the parent's attached agents; an id the user cannot use → refused receipt; a narrowed set → child roster narrowed |
+| `test_model_override_validated` | allowed `<provider>/<model>` → child runs on it and the envelope says so; disallowed → refused receipt; `sub_agent_allow_model_override = off` → ignored with a note in the receipt |
+| `test_settings_gate_and_caps` | `enable_sub_agents = off` hides `delegate` and the DELEGATION block; `sub_agent_max_per_wave` refuses the excess; `sub_agent_concurrency` queues children inside the wave |
+| `test_stop_wave_cascades_and_skips_fan_in` | sigkill on the launching completion mid-launch, or `stop_wave`, sigkills every child, cancels the deadline job, marks the wave `stopped`, flips delegate blocks to `stopped`, and no fan-in machine turn is created |
+| `test_stop_one_child_keeps_wave_alive` | sigkill on one child's completion → `interrupted` record with `exit_reason = stopped`; the other children finish and the fan-in fires with N records |
+| `test_stop_sub_agent_tool_and_route_share_path` | the parent's `stop_sub_agent` tool, the card's stop route and the deadline job all leave identical row state |
+| `test_summary_and_reload_endpoints` | `GET /reports/{id}/summary` has `sub_agents`; `GET /reports/{id}/sub-agents/{id}` returns row + envelope + child tool executions |
+
+Observed (phases 1–2, stub LLM, SQLite, `uv run pytest tests/e2e/test_sub_agents.py
+tests/unit/test_sub_agent_prompts.py tests/unit/test_tool_runner_validation.py
+tests/e2e/test_agent_notes.py -q --db=sqlite`):
+
+```
+phase 1: 5 unit tests (prompt contract, profiles) pass
+phase 2: 4 e2e + 7 unit + 6 runner + notes suites pass (24 tests, ~70 s)
+         - test_wave_fans_out_runs_children_hidden_and_fans_in also pins
+           history isolation: no parent planner call carries a child goal
+         - test_stop_one_child_keeps_wave_alive_and_stop_wave_skips_fan_in
+           tolerates a never-started child: on SQLite the wave runs its
+           children one at a time (effective_concurrency), so a wave stop can
+           reach the second child while it is still pending
+```
+
+The table above is the designed set; the shipped file folds it into four
+e2e tests (wave fan-out → hidden children → forced finish → fan-in; stop one
+child + stop wave; setting off hides `delegate`; `sub_agent_max_per_wave`
+refuses the excess) plus the prompt and runner unit tests. Scenarios not
+covered by a dedicated test: deadline timeout (exercised by the stub's
+never-finishing child through the forced-finish path, not the APScheduler
+job), `agent_ids`/model override validation (unit-level only via
+`_resolve_model`), queue behaviour of a mid-wave prompt (live only).
+
+Regression leg, unchanged suites that touch the same seams:
+
+```bash
+uv run pytest tests/unit/test_prompt_builder_v3_user_profile.py tests/unit/test_tool_runner_*.py \
+  tests/e2e/test_agent_notes.py tests/e2e/test_eval.py -q
+```
+
+---
+
+## Loop B — live (real LLM; keys via env only)
+
+Runs the RCA case through the in-product eval harness with a real model
+matrix (`EVAL_LLMS`, same selection as `tests/evals/test_evals.py`).
+
+```bash
+cd backend
+export BOW_DATABASE_URL="sqlite:///db/app.db"
+# key is already in the environment as ANTHROPIC_API_KEY_TEST; never echo it
+EVAL_LLMS=anthropic:claude-haiku-5-5 uv run pytest tests/evals/test_evals.py -k sub_agents_rca -m evals -v
+```
+
+Live stack for UI evidence and manual runs (same model):
+
+```bash
+tools/agent/boot_stack.sh
+cd backend && uv run python ../tools/agent/seed_org.py --demo
+HAIKU_MODEL_ID=claude-haiku-5-5 uv run python ../tools/agent/setup_haiku_llm.py   # reads ANTHROPIC_API_KEY
+uv run python ../tools/agent/seed_rca_incident.py --install   # registers "Checkout Ops" through the API
+```
+
+`setup_haiku_llm.py` registers Haiku as the default; the plan also sets it
+as the small default so children on the `investigate` profile and the
+judge bill to the same model (one line in the script, `is_small_default`).
+
+Suite `backend/tests/evals/suites/sanity_sub_agents_rca.yaml` (lands with
+phase 2; draft):
+
+```yaml
+name: Sanity · Sub-agents RCA
+description: >
+  A "why did it drop" ask on the planted Checkout Ops incident must fan out
+  to one sub-agent per candidate cause in a single response, end the turn,
+  and conclude in the fan-in turn with the planted cause, cited evidence,
+  and the decoys ruled out. Pins the DELEGATION posture, the finish_subtask
+  contract and the wave fan-in.
+
+tags: [sub_agents, rca]
+
+data_source_slugs:
+  - Checkout Ops
+
+fixtures:
+  org_settings:
+    enable_sub_agents: true
+    sub_agent_posture: proactive
+    sub_agent_allow_create_data: true
+
+cases:
+  - name: rca_fans_out_and_concludes
+    prompt:
+      content: >
+        Paid orders dropped about 15% since mid-September. Why? Test the
+        likely causes separately and tell me which one it is, with evidence,
+        and which ones you ruled out.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # fan-out: at least three hypotheses, all in one decision
+        - type: tool.calls
+          tool: delegate
+          min_calls: 3
+          max_calls: 6
+          same_decision: true          # new flag, see harness change 2
+        # the parent ends its turn after launching: no analysis tools in turn 1
+        - type: phase
+          phase: parent_turn_1
+          rules:
+            - { type: tool.calls, tool: create_data, max_calls: 0 }
+            - { type: tool.calls, tool: inspect_data, max_calls: 0 }
+        # every child finishes through the contract
+        - type: phase
+          phase: subagent
+          rules:
+            - { type: tool.calls, tool: finish_subtask, min_calls: 3 }
+            - { type: tool.calls, tool: clarify, max_calls: 0 }
+            - { type: tool.calls, tool: create_artifact, max_calls: 0 }
+        # the fan-in turn exists and concludes
+        - type: phase
+          phase: fan_in
+          rules:
+            - type: field
+              category: sub_agents
+              field: outcomes
+              matcher: list.contains_any
+              value: [supported]
+            - type: field
+              category: final_answer
+              field: text
+              matcher: text.regex
+              value: "(?i)5\\.2\\.0|checkout-service"
+            - type: field
+              category: final_answer
+              field: text
+              matcher: text.regex
+              value: "(?i)ruled out|not the cause|refuted"
+            - type: field
+              category: final_answer
+              field: text
+              matcher: text.not_contains
+              value: "sr_"            # no raw sub-agent ids in user-facing text
+        - type: judge
+          rubric: >
+            The answer names the iOS 5.2.0 checkout release on PayFlow as the
+            cause, cites at least one query or chart per claim, explicitly
+            rules out the price change, the APAC campaign and the us-east
+            PayFlow blip as not explaining the drop, and does not present any
+            number that no sub-agent produced. Score 1-5; pass ≥ 4.
+
+  - name: simple_ask_does_not_delegate
+    prompt:
+      content: How many paid orders did we have in September?
+    expectations:
+      spec_version: 1
+      rules:
+        - { type: tool.calls, tool: delegate, max_calls: 0 }
+        - { type: tool.calls, tool: create_data, min_calls: 1 }
+
+  - name: explicit_posture_waits_to_be_asked
+    fixtures:
+      org_settings:
+        sub_agent_posture: explicit
+    prompt:
+      content: >
+        Paid orders dropped about 15% since mid-September. Why?
+    expectations:
+      spec_version: 1
+      rules:
+        - { type: tool.calls, tool: delegate, max_calls: 0 }
+
+  - name: follow_up_reads_record_on_demand
+    turns:
+      - prompt:
+          content: >
+            Paid orders dropped about 15% since mid-September. Why? Test the
+            likely causes separately.
+      - prompt:
+          content: What exactly did the pricing investigation check?
+    expectations:
+      spec_version: 1
+      rules:
+        - type: phase
+          phase: turn_2
+          rules:
+            - { type: tool.calls, tool: read_sub_agent, min_calls: 1 }
+            - { type: tool.calls, tool: delegate, max_calls: 0 }
+```
+
+What each case pins: the proactive posture fires on a *why* and not on a
+*how many*; the explicit posture stays quiet; the parent does not do the
+investigation itself in turn 1; every child honours the contract and never
+reaches for parent-only tools; the fan-in turn concludes with the planted
+cause and the decoys; a later turn reaches for the record instead of
+re-running the work.
+
+Observed (Haiku 5.5; second provider not run — only one key was provided):
+
+```
+phase 2, claude-haiku-5-5, live stack through the UI (tools/agent/verify_sub_agents.mjs):
+  run 1  SQLite: no delegation — the planner ran 5 create_data in one batch
+         and answered inline ("quick queries"). Fix: proactive posture made
+         the explicit RCA path (rca_step3/4) + a per-turn <delegation>
+         reminder in the turn head until a wave exists.
+  run 2  SQLite: 4 delegate calls, wave launched; three children crashed
+         out of their loops on "database is locked" (four agent runs each
+         holding a transaction across an LLM call on one writer). Fix: the
+         live stack moved to Postgres (what production runs); on SQLite the
+         launcher now runs children one at a time.
+  run 3  Postgres: wave of 4; 3 records came back blocked/inconclusive in
+         3 steps each — create_data refused with "not available in
+         'subagent' mode" (the runner's mode gate checked the literal mode
+         against allowed_modes; the profile is enforced before dispatch).
+         Fix: the gate treats a sub-agent as chat. Also found: the parent's
+         second turn read the children's in-flight tool calls from its own
+         history as outcome_unknown. Fix: every history query in the message
+         context builder excludes trigger_source='sub_agent' rows.
+  run 4  Postgres: wave of 3 (payment-provider incident · app release ·
+         traffic/pricing/campaign) → refuted 0.8 / supported 0.7 / partial
+         0.4, 6/8/12 steps, 59k tokens; fan-in strip "3 sub-agents finished ·
+         1 refuted · 1 supported · 1 partial"; synthesis names iOS 5.2.0 /
+         checkout-service deploy 2026-09-14 with the 36.7% iOS failure rate,
+         refutes the provider incident, and lists what stayed unresolved.
+         Mid-wave question answered from <sub_agents> while 3 tasks ran.
+phase 2, claude-haiku-5-5, eval harness (tests/evals, Postgres, BOW_EVAL_CASE_TIMEOUT_S=1500):
+  attempt 1  suite refused on import: the judge rule is `prompt`, not `rubric`.
+  attempt 2  parent never delegated: AgentV2 hid the sub-agent tools on eval
+             runs. Fix: eval runs keep them; the watcher is wave-aware.
+  attempt 3  parent delegated 4; the case was graded the moment turn 1
+             ended (the streaming eval path evaluated before the wave fanned
+             in). Fix: _execute_result_agent holds evaluation while
+             _sub_agent_waves_pending.
+  attempt 4  PASS (234 s for the suite; the RCA case 208 s): create_data →
+             delegate ×4 (deploy timing · payment-provider incident · price
+             change · traffic and campaign); finish_subtask ×4 in the
+             subagent phase; no clarify, no create_artifact; the judge passed
+             on the fan-in reply, which names the checkout-service 5.2.0
+             release of 2026-09-14 breaking iOS payments through PayFlow,
+             cites the paid-orders delta and the iOS PayFlow failure rate,
+             and rules out the other deploys, the provider outage, demand,
+             the 09-10 price increase and the apac campaign. Children ran on
+             the eval org's defaults (sub_agent_allow_create_data off), so
+             their evidence came from inspect_data.
+  simple_ask_does_not_delegate: pass on every attempt (create_data only).
+phase 3, second provider: not run (no second key).
+rename pass (sub_run → sub_agent identifiers, Postgres, Haiku 5.5):
+  - eval suite: both cases pass on the renamed schema (RCA case 196 s).
+  - live run 1 after the rename: every child ended blocked — create_data
+    received tables_by_source as the JSON text of the list and validation
+    refused it on every retry. Fix: the data tools' input models parse that
+    one shape (app/ai/tools/schemas/_coerce.py); eval children were
+    unaffected because they ran research-only (inspect_data).
+  - live run 2: wave of 4 → supported 0.8 / supported 0.8 / supported 0.4 /
+    refuted 0.85, 5/4/7/3 steps; the strip reads "4 sub-agents finished ·
+    3 supported · 1 refuted"; the synthesis names the 5.2.0 iOS release on
+    PayFlow from 2026-09-14 and the model's own text says sub-agent.
+  - two rename casualties caught by the run, both fixed: the wave payload
+    key and settings section id had been rewritten as the table name
+    (sub_agent_runs instead of sub_agents), and a commit captured the demo
+    SQLite file mid-regeneration (schema, no rows).
+```
+
+---
+
+## UI evidence (ui-evidence skill; mandatory for phase 3)
+
+Captured with `tools/agent/verify_sub_agents.mjs` (a Playwright flow that signs
+in, asks the planted RCA question on Checkout Ops, and shoots each stage)
+against the live stack on Postgres, into `media/pr/sub-agents/`:
+
+| # | File | What it shows |
+|---|---|---|
+| 01 | `01-settings-sub-agents-section.png` | org settings: the Sub-agents section with its nine settings |
+| 02 | `02-wave-launched-cards-running.png` | turn 1: symptom query, then the wave launched; composer free |
+| 03 | `03-background-tasks-indicator.png` | status row: "4 background tasks" while the parent is idle |
+| 04 | `04-background-tasks-popover.png` | hover popover: per sub-agent title, live duration, steps, stop; Stop all |
+| 05 | `05-delegate-card-expanded-live.png` | a delegate card expanded: goal + the child's live tool rows; the parent's one-line message |
+| 06 | `06-mid-wave-question-working-plus-tasks.png` | "Thinking 3s · 3 background tasks" side by side during a mid-wave question |
+| 07 | `07-mid-wave-answer.png` | the mid-wave answer written from `<sub_agents>` |
+| 08 | `08-fan-in-strip.png` | the fan-in event strip with outcome counts |
+| 09 | `09-fan-in-synthesis.png` | the synthesis: cause, numbers, ruled-out decoys |
+| 10 | `10-delegate-cards-finished.png` | a finished card's record: findings, ruled out, caveats, unknown, evidence ids, exit, model |
+| 11 | `11-summary-tab-sub-agents.png` | Summary tab: Sub-agents section (outcome badges, steps, tokens) and "via sub-agent" tags on queries |
+| 12 | `12-after-reload.png` | the same report after a reload, hydrated from the rows |
+
+Not captured: the trace modal with the child execution and the cost console
+rollup (items 5 and 7 of the original list) — neither was built in this
+pass; the delegate card's step rows and the Summary tokens cover the
+per-child view.
+
+Original list (kept for the evidence contract):
+
+1. Turn 1: five delegate cards in one block, each with its own spinner and
+   step counter, wave strip "Wave 1 · 5 sub-agents · 5 running", the parent's
+   one-line message, composer free.
+2. Mid-wave: a card expanded showing live step rows; a `read_sub_agent` card
+   from a mid-wave user question.
+3. Fan-in: the `sub_agent` event strip with outcome counts, then the synthesis
+   reply with embedded evidence charts.
+4. Summary tab: "Sub-agents" section with outcome badges, steps, tokens;
+   header strip; "via sub-agent" tags in Queries.
+5. Trace modal: delegate row expanded to the child execution.
+6. Reload of the same report: identical cards hydrated from rows (before/after
+   pair).
+7. Cost console: parent run with own + children + total.
+8. Background-tasks indicator: idle parent with `3 background tasks`, then
+   `Working for 12s · 3 background tasks` during a mid-wave question; the
+   popover with live durations, a per-row stop and "Stop all"; the row
+   flipping to stopped after a per-row stop.
+
+Video: the full turn from prompt to fan-in reply, for the PR.
+
+---
+
+## How the live stack was actually run
+
+Deviations from the commands above, all because of the sandbox:
+
+- The backend ran without uvicorn's reloader (`uv run uvicorn main:app`):
+  a hot reload hung in "waiting for background tasks" while SSE streams
+  were open.
+- `BOW_ENCRYPTION_KEY` must be stable across restarts or every stored
+  provider key becomes undecryptable (the first restart lost the Haiku key).
+- The live DB is Postgres 16 (`TEST_DATABASE_URL=postgresql://…/bow_agent`,
+  migrated with `alembic upgrade head`); the evals use a second database on
+  the same server with `--db=postgres`. SQLite cannot host a wave: see run 2.
+- The eval env installs Checkout Ops next to Chinook (`EXTRA_DEMO_DBS` in
+  `tests/evals/conftest.py`); the per-case wait is `BOW_EVAL_CASE_TIMEOUT_S`.
+
+## Start order (when the key arrives)
+
+1. Export the key in the shell only; confirm `tools/agent/setup_haiku_llm.py`
+   can register `claude-haiku-5-5` against a booted stack (smoke, no
+   sub-agents code yet). Record the model badge screenshot as evidence 0.
+2. Commit `seed_rca_incident.py` and the generated SQLite, with a unit test
+   that the planted series are where the doc says (failure rate per
+   platform/version/provider before and after 09-14; decoys flat).
+3. Phase 1 on the stub LLM only (Loop A tests 3–5, 8–9). No live calls.
+4. Phase 2: Loop A complete, harness changes 1–2, then Loop B case
+   `rca_fans_out_and_concludes` on Haiku. The first live run is a manual
+   one through the UI with the agent in `proactive` posture, watched end to
+   end, before the eval is trusted.
+5. Phase 3 with UI evidence; then the second provider.
+
+Budget guard for the live legs: `sub_agent_max_steps = 40`,
+`sub_agent_concurrency = 3`, `sub_agent_deadline_minutes = 15` as designed, and
+the eval suite's `fixtures.org_settings` pins them so a runaway wave cannot
+exceed roughly 200 Haiku planner calls per case.
+
+## Phase exit criteria
+
+| Phase | Done when |
+|---|---|
+| 1 `subagent` mode, `finish_subtask`, tables, profile | Loop A tests 3–5, 8–9 pass with a hand-built child run (no `delegate`); seed script committed |
+| 2 `delegate`, wave tracker, fan-in, `read_sub_agent`, settings | all Loop A tests pass; harness changes 1–2 landed; Loop B `rca_fans_out_and_concludes` passes on Haiku 5.5 |
+| 3 live cards, wave strip, summary, trace, rollup | UI evidence 0–8 captured on Haiku 5.5; Loop B passes on Haiku and one second provider |
+| 4 `create_data` in children | evidence viz ids appear in the fan-in reply's `create_doc`; `test_created_queries_are_report_scoped_without_widgets` holds with widgets off |
+| 5 profiles via catalog, resume, steering | separate loop doc |
+
+## What this will prove / notes
+
+- Wave mechanics are provider-independent (Loop A) and the posture and
+  contract hold on real models (Loop B).
+- The planted dataset makes "fabricated result" detectable: any number in
+  the answer that no child produced is a judge fail, and the decoys give the
+  judge something concrete to check for in the ruled-out list.
+- Pre-existing quirks to verify-before-blaming when they show up: the eval
+  finalizer's reliance on the first system completion (harness change 1) will
+  make every sub-agent case look like a pass-with-no-answer until it lands.
+
+## Robustness pass (from a real Haiku trace)
+
+A production trace of the first sub-agent loop showed four failure modes that
+the stub tests had not covered. Each now has a fix and a regression test:
+
+| Observed | Fix | Test |
+|---|---|---|
+| A child hit the repeated-identical-call breaker and its "Stopping: …" text became the record summary the parent reasoned over | inside a child the breaker first nudges toward `finish_subtask`; the synthesized record says the child stopped without concluding and points at its note | `test_synthesized_record_never_carries_the_repeat_guard_text`, e2e wave test asserts no summary starts with "Stopping" |
+| A child created the same note three times while refining it | `create_note` in sub-agent mode returns the existing note on a duplicate title; the investigate profile says keep ONE note and `edit_note` it | e2e wave test: a stub child calls `create_note` twice with identical args, exactly one note per hypothesis results |
+| A failed tool call flipped the whole turn to `error` in the console | derived turn status follows the agent execution status; tool failure counts are still reported | console query |
+| `write_csv` wrote a file the same turn could not read back by id | the new file is registered in the turn's runtime context and on the report | `test_write_csv_same_turn_file.py` |
+
+Two further changes came out of the same analysis: the share page filters
+`trigger_source='sub_agent'` completions (NULL-safe) so child system rows do
+not render for viewers, and `sub_agent_max_tokens` (default 400,000) bounds
+cost the way `sub_agent_max_steps` bounds time; when it is spent the child
+gets one more step for its record and is then stopped with `exit_reason =
+max_tokens`.
+
+Live re-verification after the pass (Postgres, Haiku 5.5, Checkout Ops):
+the settings page shows the token cap; a 5-child wave fanned out and in; all
+five children exited via `finish_call`; three wrote exactly one note each
+and two wrote none; no record carried breaker text. Screenshots in
+`media/pr/sub-agents/01…12` are from this run.

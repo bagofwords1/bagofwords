@@ -138,8 +138,8 @@ _FAMILIES: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
     (("o1-mini", "o1-preview"), ()),
     (("o1", "o3", "o4"), ("low", "medium", "high")),
     (("gpt-4", "gpt-3.5", "gpt-image"), ()),
-    # Google — thinking_level (3.x) / thinking_budget (2.5)
-    (("gemini-3",), ("low", "medium", "high")),
+    # Google — thinking_level (3.x, 4) / thinking_budget (2.5)
+    (("gemini-4", "gemini-3"), ("low", "medium", "high")),
     (("gemini-2.5",), _BUDGET),
     (("gemini-",), ()),
 )

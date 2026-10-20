@@ -1,5 +1,71 @@
 # Release Notes
 
+## Version 0.0.592 (October 17, 2026)
+- Added paging through long files with `offset`/`length` on every file connection and on chat uploads (#1401)
+- Added reading and searching .eml and Outlook .msg emails, including their attachments, on every file connection (#1402)
+- Added sub-agents saving rows into the parent conversation's lists (#1394)
+- Added messages between agents and their sub-agents, with send receipts and questions that pause the sub-agent until answered (#1406)
+- Added listing every folder of a file connection in one call (#1410) — `group_by="folder"` on `list_files`
+- Added saving a whole file or folder listing as a CSV the agent can query, so large libraries need one call instead of hundreds (#1415) — `persist=true` on `list_files`
+- Added a compact card in chat for Polish requests from the dashboard element picker, instead of the raw prompt (#1413)
+- Fixed long runs over scanned PDFs stopping with "Conversation too long for this model" (#1414)
+- Fixed the agent failing to read files uploaded to a conversation (#1403)
+- Fixed paged reads of text files on Files & Directories and S3 skipping text between pages (#1405)
+- Fixed SharePoint 2010 file search running slow live crawls instead of answering from the index (#1409)
+- Fixed agents being unable to read back the lists they fill (#1408)
+- Fixed list saves rejecting partial updates and flat records (#1407)
+- Fixed SharePoint Server deep search missing matches inside file contents (#1387)
+- Fixed org admins being denied private or selectively shared reports on the share page (#1400)
+- Fixed SharePoint Server file reads giving one error for both a missing and an ambiguous path (#1399)
+- Fixed the dashboard breaking when the ⓘ icon is clicked in Polish mode (#1393)
+- Fixed agents looping on empty saves while filling a list (#1398)
+- Fixed Priority subforms failing when queried as tables (#1391)
+- Changed the chat submit arrow to point up (#1412)
+
+## Version 0.0.591 (October 15, 2026)
+- Added keyword search and full-library browsing with paging, sorting and date filters for SharePoint Server connections (#1387) — `content` indexing option
+- Added opening a saved list beside the chat, with rows updating live as the agent saves them (#1388)
+- Added per-conversation API settings on reports (#1378) — `follow_ups`, `suggest_instructions`, `tools` on `POST`/`PUT /api/reports`
+- Added list creation and editing by the agent in training mode, approved on a review card (#1390)
+- Fixed one-time scheduled tasks running more than once or at the wrong time (#1386)
+- Fixed removed table references reappearing on instructions (#1379)
+- Fixed Git repository connections failing for SSH-style repo URLs with an access token (#1385)
+- Fixed slow SharePoint file listing on large libraries (#1384)
+
+## Version 0.0.590 (October 14, 2026)
+- Bug fixes and security hardening (#1304)
+
+## Version 0.0.589 (October 14, 2026)
+- Fixed missing custom document libraries in on-prem SharePoint connections (#1380)
+
+## Version 0.0.588 (October 13, 2026)
+- Added read-only SharePoint 2010 connections (#1368)
+- Added Elasticsearch query guardrails and per-connection query limits (#1372)
+- Added a token cap for sub-agents (#1374) — `sub_agent_max_tokens` org setting (default 400,000)
+- Added AI suggestions that turn an instruction on or off (#1375)
+- Added `agent.name` as an LLM identity header, for per-agent usage in gateways such as LiteLLM (#1366)
+- Added completions API opt-outs for follow-ups and instruction suggestions (#1365) — `follow_ups: false`, `suggest_instructions: false`
+- Added an "Open report" link to Diagnosis runs for full admins (#1369)
+- Fixed sub-agents reporting internal stop messages as findings, writing duplicate notes, and showing on shared pages (#1374)
+- Fixed LLM calls failing on non-ASCII identity header values (#1366)
+- Fixed "New report" from an agent page falling back to Auto (#1371)
+- Fixed chart previews flickering while a report runs (#1373)
+- Fixed Aria Operations alert definitions failing with 403 (#1367)
+- Fixed Mermaid syntax errors leaving error graphics on the page (#1364)
+- Fixed agent search freezing the server on certain queries (#1323)
+
+## Version 0.0.587 (October 13, 2026)
+- Added sub-agents: the agent delegates independent sub-questions (one hypothesis each in a root-cause analysis) to bounded background runs that report back in one fan-in turn (#1362) — controlled by the `enable_sub_agents` org setting and its `sub_agent_*` limits
+- Added delegate cards with live progress, a background-tasks indicator with per-run stop, a Sub-agents section in the report Summary, and a Checkout Ops demo dataset for root-cause analysis (#1362)
+- Added dynamic params for MCP connections (#1359) — values sent per question in `prompt.metadata`, limited to an admin allow-list
+- Added admin-set member attributes in Settings → Members (#1361) — key/value pairs set on invite, edit or members import (`attr.<key>` columns)
+- Added per-member identity for Qlik on-prem connections with per-user auth, taken from admin-set member attributes (#1363)
+- Fixed adding a filter to a chart failing when the agent passed the chart's id (#1347)
+- Added a chat card for added filters, showing the filter, query and errors (#1348)
+- Fixed Run evals including draft and archived cases and following the Tests search (#1352)
+- Fixed untranslated Accept/Reject buttons and statuses on training-mode review cards (#1346)
+- Fixed Reload not refreshing the schema of shared connections (#1358)
+
 ## Version 0.0.586 (October 10, 2026)
 - Bug fixes and UI improvements (#1291)
 

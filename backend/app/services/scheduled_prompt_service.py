@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from sqlalchemy import select, update
@@ -20,6 +20,36 @@ from app.core.telemetry import telemetry
 from apscheduler.jobstores.base import JobLookupError
 
 logger = logging.getLogger(__name__)
+
+# cron_schedule of a one-time task (the column is NOT NULL). Not a valid cron,
+# so nothing can register it as a recurring job by mistake.
+ONE_TIME_CRON = "@once"
+# A one-time run missed while the server was down still runs when it comes
+# back within this window; past it the task is deactivated without running.
+ONE_TIME_MISFIRE_GRACE = timedelta(hours=24)
+# Clock skew tolerated between the browser that picked the time and the server.
+_ONE_TIME_PAST_TOLERANCE = timedelta(minutes=1)
+
+
+def _apply_schedule(sp: ScheduledPrompt, cron_schedule: Optional[str], run_once_at: Optional[datetime]) -> None:
+    """Set the task's schedule from exactly one of a cron or a one-time instant."""
+    if cron_schedule is not None and run_once_at is not None:
+        raise HTTPException(status_code=400, detail="Provide either cron_schedule or run_once_at, not both")
+    if run_once_at is not None:
+        sp.run_once_at = run_once_at
+        sp.cron_schedule = ONE_TIME_CRON
+    elif cron_schedule is not None:
+        if _parse_cron_expression(cron_schedule) is None:
+            raise HTTPException(status_code=400, detail="Invalid cron schedule")
+        sp.cron_schedule = cron_schedule
+        sp.run_once_at = None
+
+
+def _ensure_one_time_not_past(sp: ScheduledPrompt, tolerance: timedelta = _ONE_TIME_PAST_TOLERANCE) -> None:
+    """An active one-time task must still be ahead of us, or it would never fire."""
+    if sp.is_active and sp.run_once_at is not None \
+            and sp.run_once_at < datetime.utcnow() - tolerance:
+        raise HTTPException(status_code=400, detail="run_once_at is in the past")
 
 
 def _org_timezone_for_report(report_id) -> Optional[str]:
@@ -75,6 +105,42 @@ class ScheduledPromptService:
     def _job_id(self, sp_id: str) -> str:
         return f"scheduled_prompt_{sp_id}"
 
+    async def ensure_can_manage(
+        self,
+        db: AsyncSession,
+        report: Report,
+        current_user: User,
+        organization: Organization,
+    ) -> None:
+        """Authorize creating/editing a scheduled task on ``report``.
+
+        Mirrors the REST routes' ``@requires_permission('update_reports',
+        model=Report, owner_only=True)`` so every caller of the service —
+        HTTP routes AND the agent tools (create/edit_scheduled_task) — goes
+        through one control: the report must belong to the org, the caller
+        must own it, and must hold ``update_reports``. Raises 403/404.
+        """
+        from app.core.permission_resolver import resolve_permissions
+
+        if report is None or str(report.organization_id) != str(organization.id):
+            raise HTTPException(status_code=404, detail="Report not found")
+        if str(report.user_id) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Only the report owner can manage its scheduled tasks")
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if not resolved.has_org_permission("update_reports"):
+            raise HTTPException(
+                status_code=403,
+                detail="You need the update_reports permission to manage scheduled tasks",
+            )
+
+    async def _ensure_can_manage_prompt(
+        self, db: AsyncSession, sp: ScheduledPrompt, current_user: User, organization: Organization,
+    ) -> None:
+        """ensure_can_manage against the schedule's HOST report (sp.report_id),
+        wherever the caller is acting from (host report or a spawned run report)."""
+        report = (await db.execute(select(Report).filter(Report.id == sp.report_id))).scalar_one_or_none()
+        await self.ensure_can_manage(db, report, current_user, organization)
+
     async def create_scheduled_prompt(
         self,
         db: AsyncSession,
@@ -88,11 +154,7 @@ class ScheduledPromptService:
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-
-        # Parse cron to validate early
-        cron_params = _parse_cron_expression(data.cron_schedule)
-        if cron_params is None:
-            raise HTTPException(status_code=400, detail="Invalid cron schedule")
+        await self.ensure_can_manage(db, report, current_user, organization)
 
         subscribers = [s.model_dump() for s in data.notification_subscribers] if data.notification_subscribers else None
 
@@ -101,13 +163,16 @@ class ScheduledPromptService:
             user_id=current_user.id,
             title=(data.title or "").strip() or None,
             prompt=data.prompt,
-            cron_schedule=data.cron_schedule,
             # Honor the requested state: the schema has always advertised
             # is_active on create, but it was pinned to True here.
             is_active=True if data.is_active is None else bool(data.is_active),
             spawn_new_report=bool(data.spawn_new_report),
             notification_subscribers=subscribers,
         )
+        if data.cron_schedule is None and data.run_once_at is None:
+            raise HTTPException(status_code=400, detail="Provide cron_schedule or run_once_at")
+        _apply_schedule(sp, data.cron_schedule, data.run_once_at)
+        _ensure_one_time_not_past(sp)
         db.add(sp)
         await db.commit()
         await db.refresh(sp)
@@ -144,19 +209,25 @@ class ScheduledPromptService:
         organization: Organization,
     ) -> ScheduledPrompt:
         sp = await self._get_or_404(db, scheduled_prompt_id)
+        await self._ensure_can_manage_prompt(db, sp, current_user, organization)
 
         if data.prompt is not None:
             sp.prompt = data.prompt
         if data.title is not None:
             # An explicit empty string clears the title (falls back to report title).
             sp.title = data.title.strip() or None
-        if data.cron_schedule is not None:
-            cron_params = _parse_cron_expression(data.cron_schedule)
-            if cron_params is None:
-                raise HTTPException(status_code=400, detail="Invalid cron schedule")
-            sp.cron_schedule = data.cron_schedule
+        _apply_schedule(sp, data.cron_schedule, data.run_once_at)
+        reactivated = data.is_active is True and not sp.is_active
         if data.is_active is not None:
             sp.is_active = data.is_active
+        # Only when this update moves the run time or resumes the task: editing
+        # the title of a task whose run is in flight must not fail. Resuming
+        # gets no clock-skew tolerance — a task whose instant has passed has
+        # already run (or been dropped), and re-arming it would run it again.
+        if data.run_once_at is not None:
+            _ensure_one_time_not_past(sp)
+        elif reactivated:
+            _ensure_one_time_not_past(sp, tolerance=timedelta(0))
         if data.spawn_new_report is not None:
             sp.spawn_new_report = data.spawn_new_report
         if data.notification_subscribers is not None:
@@ -181,6 +252,7 @@ class ScheduledPromptService:
         organization: Organization,
     ) -> None:
         sp = await self._get_or_404(db, scheduled_prompt_id)
+        await self._ensure_can_manage_prompt(db, sp, current_user, organization)
         sp.deleted_at = datetime.utcnow()
         await db.commit()
         self._remove_job(sp.id)
@@ -425,6 +497,22 @@ class ScheduledPromptService:
             if not sp or sp.deleted_at or (not sp.is_active and not force):
                 return
 
+            # A one-time task is consumed by its first run, scheduled or "Run
+            # now": deactivate it before running so it never fires again. The
+            # conditional UPDATE lets exactly one fire win when several workers
+            # (or a fire and a manual run) race for it.
+            if sp.run_once_at is not None:
+                consumed = await db.execute(
+                    update(ScheduledPrompt)
+                    .where(ScheduledPrompt.id == sp.id, ScheduledPrompt.is_active == True)  # noqa: E712
+                    .values(is_active=False)
+                )
+                await db.commit()
+                self._remove_job(sp.id)
+                if consumed.rowcount == 0 and not force:
+                    return
+                sp.is_active = False
+
             user = await db.get(User, sp.user_id)
             if not user:
                 logger.error(f"Scheduled prompt {sp.id}: user {sp.user_id} not found")
@@ -444,11 +532,11 @@ class ScheduledPromptService:
             # schedule as them. If the owner is no longer bound to the org
             # (removed directly or via LDAP/OIDC/SCIM sync), deactivate the
             # schedule and drop its cron job instead of firing it.
-            from app.core.permission_resolver import principal_belongs_to_org
-            if not await principal_belongs_to_org(db, user, str(organization.id)):
+            from app.core.permission_resolver import principal_can_act_in_org
+            if not await principal_can_act_in_org(db, user, str(organization.id)):
                 logger.warning(
-                    f"Scheduled prompt {sp.id}: owner {sp.user_id} is no longer a "
-                    f"member of org {organization.id}; deactivating schedule."
+                    f"Scheduled prompt {sp.id}: owner {sp.user_id} is deactivated or no "
+                    f"longer a member of org {organization.id}; deactivating schedule."
                 )
                 sp.is_active = False
                 await db.commit()
@@ -653,6 +741,18 @@ class ScheduledPromptService:
             )
             prompts = result.scalars().all()
 
+            # A one-time run missed for longer than the grace window is dropped,
+            # not run late: deactivate it so it stops being re-registered.
+            cutoff = datetime.utcnow() - ONE_TIME_MISFIRE_GRACE
+            expired = [sp for sp in prompts if sp.run_once_at is not None and sp.run_once_at < cutoff]
+            for sp in expired:
+                sp.is_active = False
+                self._remove_job(sp.id)
+                logger.warning(f"Scheduled prompt {sp.id}: one-time run at {sp.run_once_at} was missed; deactivating")
+            if expired:
+                await db.commit()
+                prompts = [sp for sp in prompts if sp not in expired]
+
             for sp in prompts:
                 try:
                     self._register_job(sp)
@@ -665,6 +765,18 @@ class ScheduledPromptService:
     # ---- Internal helpers ----
 
     def _register_job(self, sp: ScheduledPrompt):
+        if sp.run_once_at is not None:
+            # An absolute instant, so no org timezone is involved.
+            scheduler.add_job(
+                func=self.scheduled_run_prompt,
+                trigger='date',
+                run_date=sp.run_once_at.replace(tzinfo=timezone.utc),
+                id=self._job_id(sp.id),
+                args=[sp.id],
+                replace_existing=True,
+                misfire_grace_time=int(ONE_TIME_MISFIRE_GRACE.total_seconds()),
+            )
+            return
         cron_params = _parse_cron_expression(sp.cron_schedule)
         if cron_params is None:
             return

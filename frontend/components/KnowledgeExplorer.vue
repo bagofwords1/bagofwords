@@ -906,7 +906,7 @@
 
             <!-- Details: compact horizontal pills (inline-editable for admins) -->
             <div v-if="bottomTab === 'details'" class="px-4 sm:px-8 py-3 w-full overflow-y-auto" style="max-height:34vh">
-              <div class="max-w-4xl flex flex-wrap items-center gap-1.5">
+              <div class="max-w-4xl flex flex-wrap items-center gap-1.5" :class="{ 'pointer-events-none': !metaHydrated }">
                 <!-- Status -->
                 <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
                 <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.getStatusLabel(visibleInstructionState(detail)) }}</span>
@@ -961,7 +961,7 @@
                   {{ $t('agentsPage.advanced') }}
                   <span v-if="advancedHasValues && !showAdvanced" class="ms-1 w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500"></span>
                 </button>
-                <div v-show="showAdvanced" class="mt-2 flex flex-col gap-2">
+                <div v-show="showAdvanced" class="mt-2 flex flex-col gap-2" :class="{ 'pointer-events-none': !metaHydrated }">
                   <!-- Modes (empty = all modes) -->
                   <div class="flex items-center gap-2">
                     <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.modes') }}</span>
@@ -3706,6 +3706,10 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
+  // Reopening the instruction a save is pending on (a second click on its row,
+  // approve/discard) would re-seed the draft from a GET taken before the save
+  // landed, and put the old values back on screen.
+  if (detail.value?.id === ins.id) await settleMeta()
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); closeQuery(); creating.value = false; bottomTab.value = 'details'
   // Clear every draft-derived value before swapping rows. Without this, an
   // in-flight manager request can briefly render its hunks/history after the
@@ -3741,18 +3745,25 @@ const openInstruction = async (ins: Instruction) => {
   // approved text from the detail response and never requests either endpoint.
   if (canEditDetail.value) await Promise.all([loadPending(ins.id), loadVersions(ins.id)])
 }
+// The metadata half of the draft — what the bottom chips edit and autosave.
+const META_FIELDS = ['kind', 'load_mode', 'status', 'category', 'data_source_ids', 'label_ids', 'references', 'applicable_modes', 'applicable_channels'] as const
+type MetaField = typeof META_FIELDS[number]
+const draftMetaFrom = (ins: Instruction): Pick<typeof draft, MetaField> => ({
+  kind: (ins as any).kind || 'instruction',
+  load_mode: ins.load_mode || 'always',
+  status: ins.status || 'published',
+  category: ins.category || 'general',
+  data_source_ids: (ins.data_sources || []).map(d => d.id),
+  label_ids: (ins.labels || []).map((l: any) => l.id),
+  references: (ins.references || []).map((r: any) => ({ object_type: r.object_type, object_id: String(r.object_id), relation_type: r.relation_type || 'scope', display_text: r.display_text || r.object?.name || String(r.object_id), column_name: r.column_name || null })),
+  applicable_modes: sanitizeModes((ins as any).applicable_modes),
+  applicable_channels: ((ins as any).applicable_channels) || [],
+})
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.description = (ins as any).description || ''; draft.text = ins.text || ''
-  draft.kind = (ins as any).kind || 'instruction'
-  draft.load_mode = ins.load_mode || 'always'; draft.status = ins.status || 'published'
-  draft.category = ins.category || 'general'
-  draft.applicable_modes = sanitizeModes((ins as any).applicable_modes)
-  draft.applicable_channels = ((ins as any).applicable_channels) || []
+  Object.assign(draft, draftMetaFrom(ins))
   // Surface the Advanced section when this instruction is already scoped.
   showAdvanced.value = draft.applicable_modes.length > 0 || draft.applicable_channels.length > 0
-  draft.data_source_ids = (ins.data_sources || []).map(d => d.id)
-  draft.label_ids = (ins.labels || []).map((l: any) => l.id)
-  draft.references = (ins.references || []).map((r: any) => ({ object_type: r.object_type, object_id: String(r.object_id), relation_type: r.relation_type || 'scope', display_text: r.display_text || r.object?.name || String(r.object_id), column_name: r.column_name || null }))
   draft.data_source_ids.forEach(id => loadAgentMeta(id))
 }
 // The agent the user is "sitting on" when they hit a context-free New button:
@@ -3774,7 +3785,17 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
   draft.data_source_ids.forEach(id => loadAgentMeta(id))
 }
-const startEdit = () => { if (detail.value && canEditDetail.value) { syncDraft(detail.value); editing.value = true } }
+// Let any metadata autosave land first: syncing from `detail` while one is
+// pending or in flight would drop that change from the edit draft, and the
+// full save would then write it away.
+const startEdit = async () => {
+  if (!detail.value || !canEditDetail.value) return
+  const id = detail.value.id
+  // Chips stay live while this waits, so a change made meanwhile must land too.
+  await settleMeta()
+  if (detail.value?.id !== id) return
+  syncDraft(detail.value); editing.value = true
+}
 const cancelEdit = () => { if (creating.value) { creating.value = false; editing.value = false; draft.references = [] } else { if (detail.value) syncDraft(detail.value); editing.value = false } }
 const deleteInstruction = async () => {
   if (!detail.value || creating.value) return
@@ -3827,6 +3848,7 @@ const save = async () => {
         await refreshLists()
       }
     } else if (detail.value) {
+      await settleMeta()
       const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
       if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
       toast.add({ title: t('agentsPage.toastSaved'), color: 'green' }); editing.value = false
@@ -3859,33 +3881,108 @@ const advancedHasValues = computed(() => (draft.applicable_modes?.length || 0) >
 const canEditInstr = computed(() => canEditDetail.value)
 // Editable controls also show while creating (the new instruction is authored here).
 const metaEditable = computed(() => canEditInstr.value || creating.value)
+// The pane opens on the tree's light row, which carries no references (the full
+// row always does). A chip changed before GET /instructions/{id} lands would
+// snapshot `references: []` and the save would detach every table.
+const metaHydrated = computed(() => creating.value || Array.isArray((detail.value as any)?.references))
 const savingMeta = ref(false)
+// Metadata autosave, on the same lines as the agent-scope save in useAgent:
+// each change snapshots { id, body } when it happens, so a save always goes to
+// the instruction it was made on (even after switching away). The body holds
+// only the fields that change touched — never the text, which a late autosave
+// would otherwise write back over a newer full save, and never a field another
+// save owns, so one failing value can't sink an unrelated change queued behind
+// it. Saves run one after another: references are replaced wholesale, and two
+// overlapping PUTs can commit in either order.
+type MetaBody = Partial<Pick<typeof draft, MetaField>>
 let metaTimer: any = null
-const saveMeta = async () => {
-  if (!detail.value || creating.value || editing.value) return
+let metaPending: { id: string; body: MetaBody } | null = null
+let metaChain: Promise<void> = Promise.resolve()
+// Fields sent but not yet confirmed, per instruction — what the server will
+// hold once the queued saves land, so the next change is measured against it.
+const metaInFlight: Record<string, MetaBody> = {}
+// Compare as the server does: id lists and references are sets (the picker
+// appends a re-ticked table at the end, and builds it without column_name).
+const metaKey = (v: any) => Array.isArray(v)
+  ? JSON.stringify(v.map(x => typeof x === 'object' && x ? `${x.object_type}:${x.object_id}:${x.column_name || ''}` : String(x)).sort())
+  : JSON.stringify(v)
+const sameValue = (a: any, b: any) => metaKey(a) === metaKey(b)
+const draftMeta = () => JSON.parse(JSON.stringify(Object.fromEntries(META_FIELDS.map(f => [f, draft[f]])))) as Pick<typeof draft, MetaField>
+// Drop a confirmed (or failed) field from the in-flight overlay, unless a later
+// save has already claimed it with a newer value.
+const settleInFlight = (id: string, body: MetaBody) => {
+  const o = metaInFlight[id]
+  if (!o) return
+  for (const f of Object.keys(body) as MetaField[]) if (sameValue(o[f], body[f])) delete o[f]
+}
+const persistMeta = async ({ id, body }: { id: string; body: MetaBody }) => {
+  const fields = Object.keys(body) as MetaField[]
   savingMeta.value = true
   try {
-    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references, applicable_modes: draft.applicable_modes, applicable_channels: draft.applicable_channels }
-    const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
+    const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${id}`, { method: 'PUT', body })
     // useMyFetch doesn't throw on HTTP errors — surface them so the change isn't silently dropped.
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Save failed')
-    // The PUT response is the full row — the only post-save shape that carries
-    // `text` and `references`. Re-seeding the pane from the refreshed LIST row
-    // instead (what this used to do) silently emptied both: those rows are the
-    // light projection, which drops the body and the references by design. The
-    // draft is what the next autosave sends back, so the clobber didn't just
-    // hide the reference you had just added — the following metadata change
-    // PUT it away again as `references: []` and the body as `text: ""`.
-    if (data.value) {
+    // The PUT response is the full row. Reconcile only this save's fields the
+    // user hasn't changed again since — a newer change is already on its way
+    // and its own response settles it — and never another instruction's pane.
+    if (data.value && detail.value?.id === id) {
       detail.value = { ...detail.value, ...(data.value as any) }
-      if (!editing.value) syncDraft(detail.value)
+      const fresh = draftMetaFrom(detail.value)
+      for (const f of fields) if (sameValue(draft[f], body[f])) (draft as any)[f] = fresh[f]
     }
-    await refreshLists()
     toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastSaveFailed'), description: e?.message, color: 'red' }) } finally { savingMeta.value = false }
+    // Outside the chain: the next save shouldn't wait on the tree reload.
+    refreshLists().catch(() => {})
+  } catch (e: any) {
+    // Put back what the server holds for this save's fields only; changes
+    // queued behind it carry their own fields and still go out.
+    if (detail.value?.id === id && !editing.value) {
+      const server = draftMetaFrom(detail.value)
+      for (const f of fields) if (sameValue(draft[f], body[f])) (draft as any)[f] = server[f]
+    }
+    toast.add({ title: t('agentsPage.toastSaveFailed'), description: e?.message, color: 'red' })
+  } finally {
+    settleInFlight(id, body)
+    savingMeta.value = false
+  }
+}
+// Send the pending change now; resolves once every queued save has landed.
+const flushMeta = (): Promise<void> => {
+  clearTimeout(metaTimer)
+  const pending = metaPending
+  metaPending = null
+  if (pending) {
+    metaInFlight[pending.id] = { ...metaInFlight[pending.id], ...pending.body }
+    metaChain = metaChain.then(() => persistMeta(pending))
+  }
+  return metaChain
+}
+// Wait until no metadata save is pending or queued — including one whose timer
+// fired, or that the user made, while this was already waiting.
+const settleMeta = async () => {
+  let chain: Promise<void>
+  do { chain = flushMeta(); await chain } while (metaPending || chain !== metaChain)
 }
 // Fire after a metadata control changes (user-initiated only — not on load/edit).
-const onMetaChange = () => { if (editing.value || creating.value) return; clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 400) }
+const onMetaChange = () => {
+  if (editing.value || creating.value || !detail.value || !metaHydrated.value) return
+  const id = detail.value.id
+  // A change still waiting on the instruction the user just left goes out now.
+  if (metaPending && metaPending.id !== id) flushMeta()
+  // Everything that differs from what the server will hold once in-flight saves
+  // land — a field ticked back to that value drops out of the save again.
+  const expected = { ...draftMetaFrom(detail.value), ...metaInFlight[id] }
+  const current = draftMeta()
+  const body: MetaBody = {}
+  for (const f of META_FIELDS) if (!sameValue(current[f], expected[f])) (body as any)[f] = current[f]
+  // The server checks references against the agent set it is given, so they
+  // travel with an agents change, as when the whole draft was sent.
+  if ('data_source_ids' in body) body.references = current.references
+  clearTimeout(metaTimer)
+  if (!Object.keys(body).length) { metaPending = null; return }
+  metaPending = { id, body }
+  metaTimer = setTimeout(flushMeta, 400)
+}
 // Skills always use 'intelligent' (smart) retrieval — force it when switching to skill.
 const onKindChange = () => { if (draft.kind === 'skill') draft.load_mode = 'intelligent'; onMetaChange() }
 

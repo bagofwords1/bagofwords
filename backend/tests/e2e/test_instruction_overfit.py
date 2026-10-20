@@ -75,6 +75,7 @@ class _FakeLLM:
 # Critic contract (pure unit tests, fake LLM)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_critic_parses_overfit_and_general_verdicts():
     from app.ai.instruction_quality import check_instruction_generality
@@ -100,6 +101,7 @@ async def test_critic_parses_overfit_and_general_verdicts():
     assert ok is False
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_critic_fails_open_on_garbage_error_and_missing_llm():
     from app.ai.instruction_quality import check_instruction_generality

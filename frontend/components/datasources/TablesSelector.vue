@@ -1690,6 +1690,16 @@ async function onSave() {
 async function onRefresh() {
   if (loading.value || refreshing.value) return
   refreshMenuOpen.value = false
+  // A shared (non-user_required) connection has a single way to refresh its
+  // schema, so Reload runs it: the same background job as the menu's "Shared
+  // schema" entry. user_required connections keep the explicit scope choice in
+  // the menu. Started before `refreshing` flips, while the headless
+  // controllers' `disabled` prop is still false.
+  for (const action of refreshActions.value) {
+    if (action.scope === 'org' && action.connection.auth_policy !== 'user_required') {
+      schemaStatusRefs.get(action.connection.id)?.refreshSchema('org')
+    }
+  }
   refreshing.value = true
 
   try {

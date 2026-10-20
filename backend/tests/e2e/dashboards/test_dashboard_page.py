@@ -125,7 +125,9 @@ def test_a_reader_of_the_dashboard_reaches_its_runtime(corpus, corpus_rows, test
     organization."""
     aid = _published(corpus, corpus_rows, test_client)
     codes = {p: _runtime(test_client, corpus, aid, p) for p in ("owner", "member", "other_org", "anonymous")}
-    assert codes == {"owner": 200, "member": 200, "other_org": 403, "anonymous": 401}
+    # Refused like an unknown id (main, #1304: a 401/403 would confirm the
+    # dashboard exists).
+    assert codes == {"owner": 200, "member": 200, "other_org": 404, "anonymous": 404}
 
 
 @pytest.mark.e2e
@@ -187,10 +189,10 @@ def test_an_editor_without_monitoring_access_does_not_reach_the_runtime(corpus, 
     corpus_rows.update("reports", corpus.reports["bow_source"], artifact_visibility="none")
     aid = own(corpus_rows, corpus, "bow_source/dash", owner="bow_scoped", project="private")
     assert test_client.get(f"/api/d/{aid}/draft", headers=as_(corpus, "proj_viewer")).status_code == 403
-    assert _runtime(test_client, corpus, aid, "proj_viewer") == 403
+    assert _runtime(test_client, corpus, aid, "proj_viewer") == 404  # refused like an unknown id (#1304)
     publish(aid)
     assert test_client.get(f"/api/d/{aid}", headers=as_(corpus, "proj_viewer")).status_code == 403
-    assert _runtime(test_client, corpus, aid, "proj_viewer") == 403
+    assert _runtime(test_client, corpus, aid, "proj_viewer") == 404  # refused like an unknown id (#1304)
     assert _runtime(test_client, corpus, aid, "bow_scoped") == 200
 
 

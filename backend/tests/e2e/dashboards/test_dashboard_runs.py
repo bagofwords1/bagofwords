@@ -138,7 +138,11 @@ def test_only_the_live_releases_copies_run(corpus, corpus_rows, test_client):
     draft = corpus.ids["conv_three_dash/q_sales"]
     for qid in (old["id"], draft, str(uuid.uuid4()), "not-an-id"):
         resp = test_client.post(f"/api/d/{aid}/queries/{qid}/run", json={}, headers=as_(corpus, "member"))
-        assert resp.status_code == 404 and resp.json()["error_code"] == "artifact.not_found", qid
+        # A malformed id is answered by main's guard before the route, with a
+        # plain 404 that names nothing; a well-formed one by the route.
+        assert resp.status_code == 404, qid
+        if qid != "not-an-id":
+            assert resp.json()["error_code"] == "artifact.not_found", qid
 
 
 @pytest.mark.e2e

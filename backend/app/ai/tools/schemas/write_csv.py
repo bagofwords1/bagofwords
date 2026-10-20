@@ -1,5 +1,7 @@
 from typing import Optional, List, Dict, Any
-from pydantic import Field, BaseModel, model_validator
+from pydantic import Field, BaseModel, model_validator, field_validator
+
+from ._coerce import coerce_json_list
 
 
 class WriteCsvInput(BaseModel):
@@ -40,6 +42,11 @@ class WriteCsvInput(BaseModel):
             "which attached file you meant."
         ),
     )
+
+    @field_validator("tables_by_source", "source_file_ids", mode="before")
+    @classmethod
+    def _coerce_list_arguments(cls, value):
+        return coerce_json_list(value)
 
 
 class WriteCsvOutput(BaseModel):

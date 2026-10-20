@@ -369,12 +369,19 @@ async def test_summary_pending_build_clears_after_all_accepted():
     report_service = ReportService()
     instruction_service = InstructionService()
 
+    async def _summary():
+        async with async_session_maker() as db:
+            org = await db.get(Organization, org_id)
+            return await report_service.get_report_summary(db, report_id, org)
+
+    def _states(summary):
+        return {i.instruction_id: i.state for i in summary["instructions"]}
+
     # Before accepting anything: the pill is live with all three staged.
-    async with async_session_maker() as db:
-        summary = await report_service.get_report_summary(db, report_id)
+    summary = await _summary()
     assert summary["pending_training_build"] is not None
     assert summary["pending_training_build"]["total_instructions"] == 3
-    assert len(summary["instructions"]) == 3
+    assert _states(summary) == {iid: "pending" for iid in iids}
 
     # Accept two of the three: the pill stays, now scoped to the remaining one.
     for iid in iids[:2]:
@@ -384,11 +391,10 @@ async def test_summary_pending_build_clears_after_all_accepted():
             await instruction_service.accept_staged_instruction(
                 db, iid, build_id=build_id, organization=org, current_user=user,
             )
-    async with async_session_maker() as db:
-        summary = await report_service.get_report_summary(db, report_id)
+    summary = await _summary()
     assert summary["pending_training_build"] is not None
     assert summary["pending_training_build"]["total_instructions"] == 1
-    assert [i.instruction_id for i in summary["instructions"]] == [iids[2]]
+    assert _states(summary) == {iids[0]: "accepted", iids[1]: "accepted", iids[2]: "pending"}
 
     # Accept the last one: the draft is now an empty husk — no more pill.
     async with async_session_maker() as db:
@@ -397,12 +403,11 @@ async def test_summary_pending_build_clears_after_all_accepted():
         await instruction_service.accept_staged_instruction(
             db, iids[2], build_id=build_id, organization=org, current_user=user,
         )
-    async with async_session_maker() as db:
-        summary = await report_service.get_report_summary(db, report_id)
+    summary = await _summary()
     assert summary["pending_training_build"] is None, (
         "pill must retire once every staged instruction has been accepted"
     )
-    assert summary["instructions"] == []
+    assert _states(summary) == {iid: "accepted" for iid in iids}
 
 
 @pytest.mark.e2e
@@ -563,3 +568,57 @@ async def test_promote_does_not_publish_user_drafts():
         assert await _status_of(db, iid) == "draft", (
             "a user draft must not be published as a side effect of promotion"
         )
+
+
+# ---------------------------------------------------------------------------
+# accept-staged must only promote a version that belongs to the instruction
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_accept_staged_refuses_a_pin_to_another_instructions_version():
+    """A shared draft that pins instruction X to instruction Y's version must
+    not promote Y's text as X's live content.
+
+    The build-content API now refuses such a pin (see
+    tests/e2e/rbac/test_build_route_authority.py), so the bad pin is planted
+    with a direct write. That stands in for a build written before the check
+    existed, or one written by any future path that skips it.
+    """
+    from app.models.build_content import BuildContent
+    from app.models.instruction_version import InstructionVersion
+
+    org_id, user_id, build_id, iids = await _seed_training_draft(2)
+    target, foreign = iids
+    service = InstructionService()
+
+    async with async_session_maker() as db:
+        foreign_vid = (await db.execute(
+            select(InstructionVersion.id).where(InstructionVersion.instruction_id == foreign)
+        )).scalars().first()
+        row = (await db.execute(
+            select(BuildContent).where(
+                BuildContent.build_id == build_id, BuildContent.instruction_id == target,
+            )
+        )).scalar_one()
+        row.instruction_version_id = foreign_vid
+        await db.commit()
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        resolved = await service.accept_staged_instruction(
+            db, target, build_id=build_id, organization=org, current_user=user,
+        )
+        assert resolved is None
+
+    async with async_session_maker() as db:
+        assert not await _is_live(db, org_id, target)
+        # The genuine sibling still accepts normally.
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        assert await service.accept_staged_instruction(
+            db, foreign, build_id=build_id, organization=org, current_user=user,
+        ) is not None
+    async with async_session_maker() as db:
+        assert await _is_live(db, org_id, foreign)

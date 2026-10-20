@@ -5,6 +5,11 @@ from cryptography.fernet import Fernet
 from app.settings.config import settings
 import json
 
+# Per-connection runtime query limits stored in `config` but read by the
+# code-execution wrapper (stashed onto the client), never passed to a client
+# constructor.
+RUNTIME_CONFIG_KEYS = frozenset({"query_timeout_seconds", "max_concurrent_queries"})
+
 
 class Connection(BaseSchema):
     """
@@ -31,6 +36,12 @@ class Connection(BaseSchema):
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required
     allowed_user_auth_modes = Column(JSON, nullable=True, default=None)
+    # "member_mapped" per-user auth: {credential_field: member_attribute_key}.
+    # Each bound field takes the member's admin-set attribute at query time
+    # instead of the value saved on the connection (e.g. Qlik user_id ->
+    # qlik_user_id). Fields a type allows are flagged ui:memberBindable in its
+    # credentials schema. See services/member_identity.py.
+    member_bindings = Column(JSON, nullable=True, default=None)
 
     # Scheduled schema auto-reload (enterprise feature `scheduled_reindex`).
     # A background sweeper periodically re-indexes the shared catalog so tables
@@ -191,11 +202,18 @@ class Connection(BaseSchema):
                 del client_params["auth_type"]
             if "demo_id" in client_params:
                 del client_params["demo_id"]
+            # Runtime query limits read by the code-execution wrapper, not
+            # constructor arguments — splatting them would break every client
+            # whose __init__ does not take them.
+            for runtime_key in RUNTIME_CONFIG_KEYS:
+                client_params.pop(runtime_key, None)
             
             import logging
             logger = logging.getLogger(__name__)
             logger.info(f"Client params for {self.type}")
-            
+
+            from app.core.egress import check_connection_params
+            check_connection_params(self.type, client_params)
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load data source client for {self.type}: {str(e)}")

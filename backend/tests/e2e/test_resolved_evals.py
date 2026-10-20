@@ -42,16 +42,24 @@ def _suite(group, name):
 
 
 @pytest.fixture
-def scenario(create_user, login_user, whoami, create_data_source, create_test_suite, create_test_case):
+def scenario(tmp_path, create_user, login_user, whoami, create_data_source, create_test_suite, create_test_case):
     """Two agents, three suites, four cases — one of each awkward shape."""
+    # Each agent gets its own empty directory: creating a network_dir source
+    # lists its root recursively inside the request's transaction, and a
+    # shared /tmp (other workers' clones, fixture DBs, pytest temp dirs) made
+    # that walk outlast the test engine's 60s idle-in-transaction timeout.
+    sales_root = tmp_path / "sales"
+    support_root = tmp_path / "support"
+    sales_root.mkdir()
+    support_root.mkdir()
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
     auth = dict(user_token=token, org_id=org_id)
 
-    sales = create_data_source(name="Sales DB", type="network_dir", config={"root_path": "/tmp"},
+    sales = create_data_source(name="Sales DB", type="network_dir", config={"root_path": str(sales_root)},
                                credentials={"auth_type": "none"}, **auth)
-    support = create_data_source(name="Support DB", type="network_dir", config={"root_path": "/tmp"},
+    support = create_data_source(name="Support DB", type="network_dir", config={"root_path": str(support_root)},
                                  credentials={"auth_type": "none"}, **auth)
 
     core = create_test_suite(name="Core checks", data_source_id=sales["id"], **auth)

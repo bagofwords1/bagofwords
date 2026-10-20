@@ -12,7 +12,7 @@ that.
 | Dir | What belongs there | Run |
 |-----|--------------------|-----|
 | `unit/` | Pure logic, single service/helper, no HTTP. Opens a DB session? Mark it `@pytest.mark.db` (or `pytestmark = pytest.mark.db` for the module) — unmarked unit tests get no database at all | `uv run pytest tests/unit` |
-| `e2e/` | Full API flows through `test_client` (routes → services → DB) | `uv run pytest -m e2e --db=sqlite` |
+| `e2e/` | Full API flows through `test_client` (routes → services → DB). `tests/e2e/conftest.py` marks every test here `e2e` (CI selects with `-m e2e`; before that hook, unmarked tests were silently skipped) | `uv run pytest tests/e2e -m e2e --db=sqlite` |
 | `ai/` | Agent/planner behavior (needs `OPENAI_API_KEY_TEST`) | `uv run pytest -m ai` |
 | `evals/` | LLM quality evals | manual |
 | `integrations/` | Real third-party credentials (`integrations.json`) | manual / CI-gated |
@@ -25,13 +25,24 @@ that.
 - The autouse `run_migrations` fixture gives every e2e/ai test a fresh,
   fully migrated database: the alembic chain runs **once per session** into a
   template (a SQLite file / a `<db>_template` Postgres database) and each test
-  gets a clone (file copy / `CREATE DATABASE … TEMPLATE`). Under xdist each
+  gets a clone (file copy on SQLite). On Postgres each worker clones its
+  database once and then resets it in place before every test — rows deleted,
+  the template's seed rows and sequences restored — because a per-test
+  `DROP DATABASE` forces a server checkpoint that cost seconds per test under
+  load. Tables the app creates at runtime are dropped, and a test that changes
+  the schema (say, by re-running a migration) is caught by a schema
+  fingerprint and gets a full re-clone. Under xdist each
   worker owns its own database on one shared Postgres container; a pre-set
   `TEST_DATABASE_URL` with `--db=postgres` reuses that server instead of
   starting a container. Set `TESTING=true` when running anything by hand.
 - Per-test overhead is what makes this suite slow, not the tests: don't add
   `sleep`s, don't start background loops you don't drain, and never leak a
-  pooled connection across the test boundary.
+  pooled connection across the test boundary. On Postgres the app engine pools
+  connections but only reuses one on the event loop that opened it, and
+  `test_client` releases them at the end of every request — keep that in mind
+  before building a second engine or a long-lived loop in a test.
+- Pass the `tests/e2e` path, not just `-m e2e`: without it pytest imports the
+  whole tree (~11.5k tests) before deselecting, ~110s per xdist process.
 
 ## Anti-overfit rules
 

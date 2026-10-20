@@ -169,14 +169,12 @@ export default defineNuxtConfig({
         signInResponseTokenPointer: '/access_token',
         type: 'Bearer',
         maxAgeInSeconds: 60 * 60 * 24 * 7, // 7 days
-        cookie: {
-          name: 'auth_token',
-          options: {
-            path: '/',
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax'
-          }
-        }
+        // nuxt-auth 0.9 reads these flat keys; the cookie keeps its default
+        // name (auth.token) so existing sessions survive. `Secure` is turned on
+        // at runtime for HTTPS origins by plugins/00.auth-cookie-secure.client.ts,
+        // because one build serves both HTTPS and plain-HTTP self-hosted installs.
+        sameSiteAttribute: 'lax',
+        secureCookieAttribute: false
       },
       sessionDataType: { id: 'integer', name: 'string', email: 'string', is_superuser: 'boolean',
         organizations: '{ name: string, description: string | null, id: string, role: string, roles?: string[], permissions?: string[], resource_permissions?: Record<string, string[]>, is_enterprise?: boolean, usage_quota?: any }[]'
@@ -209,11 +207,39 @@ export default defineNuxtConfig({
   // Allow ngrok domains to access the dev server (for Slack webhooks via frontend proxy)
   vite: {
     server: {
-      allowedHosts: [
-        '.ngrok-free.app'
-      ]
+      // Vite rejects requests whose Host header is not listed here (dev only).
+      // Set BOW_ALLOWED_HOSTS (comma-separated, leading dot = any subdomain) to
+      // allow specific hosts, e.g., ".ngrok-free.app,.sndbx.bagofwords.com".
+      allowedHosts: process.env.BOW_ALLOWED_HOSTS
+        ? process.env.BOW_ALLOWED_HOSTS.split(',').map(h => h.trim()).filter(Boolean)
+        : [],
+      // Dev only. Devboxes keep node_modules outside the checkout (a symlink
+      // to a hard-linked tree on the node's dependency cache). Vite serves
+      // raw ESM from node_modules for the excluded tiptap packages below and
+      // refuses paths outside its allow list, so add that directory.
+      fs: {
+        allow: ['.', ...(process.env.BOW_NODE_MODULES_DIR ? [process.env.BOW_NODE_MODULES_DIR] : [])],
+      },
+      // Dev only. Pre-transform the app's own modules when the dev server
+      // starts instead of on the first browser visit, which otherwise has
+      // Vite compile several hundred files on demand (slow first page, and the
+      // single Node process stops answering health probes meanwhile). Runs in
+      // the background after the server is listening; HMR is unaffected.
+      warmup: {
+        clientFiles: [
+          './layouts/**/*.vue',
+          './pages/**/*.vue',
+          './components/**/*.vue',
+          './composables/**/*.ts',
+        ],
+      },
     },
     optimizeDeps: {
+      // Heavy libraries that only load behind lazy component imports. Listing
+      // them pre-bundles them at startup, so opening the first page that uses
+      // one does not trigger a "new dependencies optimized, reloading" stall.
+      // Must stay out of the exclude list below (not tiptap/prosemirror).
+      entries: ['./pages/**/*.vue'],
       // nuxt-tiptap-editor puts the tiptap packages it registers into
       // build.transpile, which excludes them from Vite's dev pre-bundling —
       // they are served as raw ESM. The app's own tiptap deps
@@ -226,7 +252,14 @@ export default defineNuxtConfig({
       // tiptap/prosemirror family so dev resolves exactly one copy of each
       // module. Production builds are unaffected (single Rollup graph).
       // CJS deps of excluded packages still need prebundling for ESM interop
-      include: ['tiptap-markdown > markdown-it-task-lists'],
+      include: [
+        'tiptap-markdown > markdown-it-task-lists',
+        'monaco-editor',
+        'mermaid',
+        'ag-grid-vue3',
+        '@vue-flow/core',
+        'dagre-d3-es',
+      ],
       exclude: [
         '@tiptap/extension-mention',
         '@tiptap/suggestion',
@@ -262,6 +295,13 @@ export default defineNuxtConfig({
 
   routeRules: {
     '/libs/fonts/**': { headers: { 'Access-Control-Allow-Origin': '*' } },
+    // Artifact/MCP shells must never be framed by URL (an attacker page would
+    // become their parent and feed them artifact code in the app origin).
+    // Mirrors ARTIFACT_SHELL_HEADERS in backend/app/core/spa.py, which serves
+    // these files in production.
+    '/mcp-artifact-app.html': { headers: { 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Frame-Options': 'DENY' } },
+    '/mcp-visualization-app.html': { headers: { 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Frame-Options': 'DENY' } },
+    '/artifact-sandbox.html': { headers: { 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Frame-Options': 'DENY' } },
     '/data': { redirect: '/agents' },
     '/data/**': { redirect: '/agents/**' },
     // The org-wide evals page is gone — evals live in the Agents explorer, under

@@ -42,4 +42,8 @@ def test_an_old_link_to_a_deleted_dashboard_or_unknown_conversation_leads_nowher
     corpus_rows.update("artifacts", aid, deleted_at=corpus_rows.clock())
     for rid in (report, str(uuid.uuid4()), "not-an-id"):
         resp = test_client.get(f"/api/r/{rid}/dashboard")
-        assert resp.status_code == 404 and resp.json()["error_code"] == "artifact.not_found", rid
+        # A malformed id is answered by main's guard before the route, with a
+        # plain 404 that names nothing; a well-formed one by the route.
+        assert resp.status_code == 404, rid
+        if rid != "not-an-id":
+            assert resp.json()["error_code"] == "artifact.not_found", rid

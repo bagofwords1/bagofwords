@@ -29,6 +29,43 @@ from app.ai.context.parts import (
 # just took in full, plus the one before it for continuity.
 PROTECT_LAST_TURNS = 4
 
+# Tool-supplied images (rendered PDF pages, screenshots): only the newest
+# MAX_RETAINED_IMAGES stay in context, counted across the whole run whatever
+# step they came from. Older results keep their text plus a note saying how to
+# re-read the pages. Without a bound every page a run had read was re-sent on
+# every later call: a ~50-scan SharePoint list fill passed 1M tokens inside one
+# turn. 24 is three full 8-page read_file calls (~60k tokens at 1568 px).
+#
+# Counted in images, not steps: an earlier 3-step window released a page as
+# soon as three note/list/submit steps followed it, and a model reading one
+# page per step re-read the same pages over and over (57 reads instead of 24
+# in a live run). Steps that carry no images now cost a page nothing.
+MAX_RETAINED_IMAGES = 24
+
+
+def retained_prefix(sizes: list, *, protected: int, cap: int = MAX_RETAINED_IMAGES) -> int:
+    """How many image-bearing units to keep, given their image counts
+    newest-first. A unit is one tool result (transcript) or one step's images
+    (legacy channel) and is kept whole or not at all — never pages 1-3 of 8.
+
+    The first ``protected`` units (the newest step's) are always kept, even
+    past the cap: the model must see what it just read, or it re-reads it
+    forever. After that, units are kept while they fit under ``cap``, and the
+    first one that does not fit ends the run — strict recency, so the kept set
+    is always "the most recent reads" with no gaps. Skipping a big result to
+    keep a smaller, older one would leave the model holding page images from
+    a read it did *before* one it can no longer see, which is harder to
+    reason about than "everything since X".
+    """
+    total = 0
+    kept = 0
+    for idx, n in enumerate(sizes):
+        if idx >= protected and total + n > cap:
+            break
+        total += n
+        kept += 1
+    return kept
+
 
 def _image_source(img: dict) -> dict:
     """Canonical image-block source: ``{"type": "base64"|"url", ...}``.
@@ -89,6 +126,52 @@ class Transcript:
             parts.append(TextPart(text=head_text))
         if parts:
             self.turns.append(Turn(role="user", parts=parts))
+            self.enforce_image_retention()
+
+    # -- images -------------------------------------------------------
+
+    def enforce_image_retention(self) -> int:
+        """Release tool images beyond the newest MAX_RETAINED_IMAGES.
+
+        See retained_prefix: whole results, newest first, the newest
+        image-bearing step always kept. Results that decayed past FULL lose
+        their images regardless. Released images are gone from the part
+        itself, so no later render can send them again. Returns the number of
+        images released.
+        """
+        newest = self._newest_image_turn()
+        units = []      # FULL results with images, newest first
+        protected = 0
+        released = 0
+        for idx in range(len(self.turns) - 1, -1, -1):
+            for p in reversed(self.turns[idx].parts):
+                if not isinstance(p, ToolResultPart) or not p.images:
+                    continue
+                if p.tier is not Tier.FULL:
+                    released += p.release_images()
+                    continue
+                units.append(p)
+                if idx == newest:
+                    protected += 1
+        keep = retained_prefix([len(p.images) for p in units], protected=protected)
+        for p in units[keep:]:
+            released += p.release_images()
+        return released
+
+    def _newest_image_turn(self) -> int:
+        """Index of the newest turn whose tool results carry images (-1 if none)."""
+        for idx in range(len(self.turns) - 1, -1, -1):
+            if any(isinstance(p, ToolResultPart) and p.images for p in self.turns[idx].parts):
+                return idx
+        return -1
+
+    def image_count(self) -> int:
+        return sum(
+            len(p.images)
+            for t in self.turns
+            for p in t.parts
+            if isinstance(p, ToolResultPart)
+        )
 
     # -- integrity ----------------------------------------------------
 
@@ -136,18 +219,28 @@ class Transcript:
         this matters because a budget below the floor is simply unreachable —
         decay will exhaust itself moving a handful of tokens and the real
         problem is elsewhere (usually an oversized schema block).
+
+        Images are reducible everywhere except on the newest image-bearing
+        step, which the ladder never touches (see fit_to_budget).
         """
-        decayable = self.turns[: max(len(self.turns) - PROTECT_LAST_TURNS, 0)]
+        split = max(len(self.turns) - PROTECT_LAST_TURNS, 0)
+        newest = self._newest_image_turn()
         reducible = 0
-        for turn in decayable:
+        for idx, turn in enumerate(self.turns):
+            if idx == newest:
+                continue
             for p in turn.parts:
-                if isinstance(p, ToolResultPart):
+                if not isinstance(p, ToolResultPart):
+                    continue
+                reducible += p.image_tokens()
+                if idx < split:
                     # What this part could still give back at its floor tier.
                     at_floor = estimate_tokens(
                         ToolResultPart(
                             call_id=p.call_id, tool_name=p.tool_name,
                             outcome=p.outcome, content=p.content,
                             digest=p.digest, tier=Tier.DROPPED,
+                            images_released=p.images_released + len(p.images),
                         ).model_text()
                     )
                     reducible += max(p.tokens - at_floor, 0)
@@ -156,13 +249,20 @@ class Transcript:
     def fit_to_budget(self, budget_tokens: int) -> dict:
         """Decay oldest-first until the transcript fits.
 
-        Tier 1 (digest) costs nothing — it is a field swap. Only when every
-        decayable result is already at DIGEST do we drop bodies entirely; the
-        ids survive, and the results stay re-fetchable through read_query /
-        read_artifact / read_file.
+        Rungs, cheapest information loss first:
 
-        The last PROTECT_LAST_TURNS turns are never touched, so the step the
-        model just took is always present in full.
+        1. images on results outside the protected tail (oldest first) — the
+           heaviest payload, and the model can re-read a page on demand;
+        2. digest (a field swap, no LLM call), then dropped bodies — the ids
+           survive and results stay re-fetchable through read_query /
+           read_artifact / read_file;
+        3. images inside the protected tail, oldest first.
+
+        Text in the last PROTECT_LAST_TURNS turns is never touched, so the step
+        the model just took is always present in full. The newest step that
+        returned images is never touched either — not its images, not its
+        text — even when it has aged out of the tail: the model must always
+        see the pages it last read, or it re-reads them forever.
 
         ``reached`` says whether the budget was actually met. It can be False
         even after decaying everything available, because the floor (static
@@ -170,7 +270,7 @@ class Transcript:
         know that rather than assume the transcript now fits.
         """
         stats = {
-            "digested": 0, "dropped": 0,
+            "digested": 0, "dropped": 0, "images_released": 0,
             "before": self.tokens(), "after": 0,
             "floor": self.floor_tokens(), "reached": True,
         }
@@ -178,23 +278,45 @@ class Transcript:
             stats["after"] = stats["before"]
             return stats
 
-        decayable = self.turns[: max(len(self.turns) - PROTECT_LAST_TURNS, 0)]
+        split = max(len(self.turns) - PROTECT_LAST_TURNS, 0)
+        newest = self._newest_image_turn()
+        decayable = [t for i, t in enumerate(self.turns[:split]) if i != newest]
+        tail_images = [t for i, t in enumerate(self.turns) if i >= split and i != newest]
+
+        def _results(turns):
+            for turn in turns:
+                for p in turn.parts:
+                    if isinstance(p, ToolResultPart):
+                        yield p
+
+        def _done() -> dict:
+            stats["after"] = self.tokens()
+            stats["reached"] = stats["after"] <= budget_tokens
+            return stats
+
+        for p in _results(decayable):
+            if p.images:
+                stats["images_released"] += p.release_images()
+                if self.tokens() <= budget_tokens:
+                    return _done()
 
         for target in (Tier.DIGEST, Tier.DROPPED):
-            for turn in decayable:
-                for p in turn.parts:
-                    if not isinstance(p, ToolResultPart) or p.tier >= target:
-                        continue
-                    p.tier = target
-                    p.tokens = estimate_tokens(p.model_text())
-                    stats["digested" if target is Tier.DIGEST else "dropped"] += 1
-                    if self.tokens() <= budget_tokens:
-                        stats["after"] = self.tokens()
-                        return stats
+            for p in _results(decayable):
+                if p.tier >= target:
+                    continue
+                p.tier = target
+                p.tokens = estimate_tokens(p.model_text())
+                stats["digested" if target is Tier.DIGEST else "dropped"] += 1
+                if self.tokens() <= budget_tokens:
+                    return _done()
 
-        stats["after"] = self.tokens()
-        stats["reached"] = stats["after"] <= budget_tokens
-        return stats
+        for p in _results(tail_images):
+            if p.images:
+                stats["images_released"] += p.release_images()
+                if self.tokens() <= budget_tokens:
+                    return _done()
+
+        return _done()
 
     # -- the seam -----------------------------------------------------
 
@@ -260,8 +382,9 @@ class Transcript:
                         entry["is_error"] = True
                     blocks.append(entry)
                     # Images cannot live inside a tool_result on every provider,
-                    # so hoist them into the same user turn alongside it.
-                    if p.images and supports_images:
+                    # so hoist them into the same user turn alongside it. A
+                    # result past FULL has decayed: its pictures go with it.
+                    if p.images and supports_images and p.tier is Tier.FULL:
                         for img in p.images:
                             hoisted_images.append(
                                 {"type": "image", "source": _image_source(img)}

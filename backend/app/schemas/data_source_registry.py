@@ -133,7 +133,6 @@ from app.schemas.data_sources.configs import (
     # Qlik Sense Enterprise on Windows (on-prem)
     QlikSenseOnPremConfig,
     QlikSenseOnPremCertCredentials,
-    QlikSenseOnPremUserIdentityCredentials,
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
@@ -1368,7 +1367,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description=(
             "Browse, search and read files from a directory — a local folder or "
             "a mounted network share (SMB/NFS). Searches inside PDF, Word, "
-            "PowerPoint, Excel and CSV, and can attach files to a report."
+            "PowerPoint, Excel, CSV and email files (.eml/.msg, including their "
+            "attachments), and can attach files to a report."
         ),
         config_schema=NetworkDirConfig,
         credentials_auth=AuthOptions(
@@ -1395,7 +1395,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Amazon S3",
         description=(
             "Browse and read files from an Amazon S3 bucket. Reads inside PDF, "
-            "Word, PowerPoint, Excel and CSV, and can attach objects to a report. "
+            "Word, PowerPoint, Excel, CSV and email files (.eml/.msg with their "
+            "attachments), and can attach objects to a report. "
             "Large objects can be read in byte-range windows."
         ),
         config_schema=S3Config,
@@ -1540,18 +1541,12 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     schema=QlikSenseOnPremCertCredentials,
                     scopes=["system"],
                 ),
-                # Per-user auth: the user contributes only their Qlik identity;
-                # the admin's certificate is merged underneath at query time
-                # (overlay). Qlik then evaluates their queries with their own
-                # stream access and Section Access rules.
-                "identity": AuthVariant(
-                    title="Qlik Identity (uses the connection's certificate)",
-                    schema=QlikSenseOnPremUserIdentityCredentials,
-                    scopes=["user"],
-                    overlay=True,
-                ),
             },
         ),
+        # Per-user auth is "member_mapped": the admin binds User Directory /
+        # User ID to member attributes on this form, and each member acts as
+        # their own Qlik account with the connection's certificate. Members
+        # never name the account themselves (services/member_identity.py).
         client_path="app.data_sources.clients.qlik_sense_onprem_client.QlikSenseOnPremClient",
         requires_license="enterprise",
     ),
@@ -2486,7 +2481,30 @@ def supports_user_auth(ds_type: str) -> bool:
         variants = get_entry(ds_type).credentials_auth.by_auth or {}
     except ValueError:
         return True
-    return any("user" in (v.scopes or []) for v in variants.values())
+    if any("user" in (v.scopes or []) for v in variants.values()):
+        return True
+    # Admin-mapped identity: per-user auth binds credential fields to member
+    # attributes instead of asking members for credentials.
+    return bool(member_bindable_fields(ds_type))
+
+
+def member_bindable_fields(ds_type: str, auth_type: Optional[str] = None) -> list[str]:
+    """Credential fields an admin may bind to a member attribute under
+    "Require user authentication" (``ui:memberBindable`` in the schema of
+    ``auth_type``, default variant when None). [] for most types."""
+    try:
+        entry = get_entry(ds_type)
+    except ValueError:
+        return []
+    variant = entry.credentials_auth.by_auth.get(auth_type or entry.credentials_auth.default)
+    if variant is None:
+        return []
+    return [
+        name
+        for name, field in variant.schema.model_fields.items()
+        if isinstance(field.json_schema_extra, dict)
+        and field.json_schema_extra.get("ui:memberBindable") is True
+    ]
 
 
 def default_credentials_schema_for(ds_type: str) -> Type[BaseModel]:

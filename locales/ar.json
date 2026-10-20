@@ -249,6 +249,10 @@
     "optLoadAlways": "دائمًا",
     "optLoadSmart": "ذكي",
     "optLoadOff": "معطّل",
+    "fieldStatus": "الحالة",
+    "fieldLoadMode": "وضع التحميل",
+    "fieldDeactivateHint": "سيتوقف الوكلاء عن استخدام هذه التعليمة. يُحتفظ بنصها ويمكن إعادة تفعيلها.",
+    "fieldActivateHint": "سيعود الوكلاء إلى استخدام هذه التعليمة.",
     "optSourceUser": "مستخدم",
     "optSourceAi": "AI",
     "optSourceGit": "Git",
@@ -313,7 +317,11 @@
     "exportInstructions": "تصدير حزمة الوكيل — التعليمات والإعدادات والتقييمات (‎.zip)",
     "runSuiteFailed": "تعذّر تشغيل المجموعة",
     "sharedManagedElsewhere": "مشتركة مع وكلاء لا تديرهم — لا يمكن تعديلها إلا لمن يملك صلاحية عليهم جميعًا.",
-    "tipRunSuite": "تشغيل هذه المجموعة"
+    "tipRunSuite": "تشغيل هذه المجموعة",
+    "unchangedLineOne": "سطر واحد دون تغيير",
+    "unchangedLineMany": "أسطر دون تغيير: {n}",
+    "loadPendingFailed": "تعذّر تحميل التغييرات المعلّقة.",
+    "allPendingResolved": "لا توجد تغييرات معلّقة — تمت معالجة الكل."
   },
   "smoke": {
     "hello": "مرحبًا",
@@ -446,6 +454,10 @@
       "trigger_run": {
         "title": "⚡ تم تفعيل \"{name}\" — {summary}",
         "body": "اكتمل التحقيق — افتح الجلسة للاطلاع على النتائج."
+      },
+      "delivery_skipped": {
+        "title": "لم يتلقَّ بعض المستلمين \"{report}\"",
+        "body": "لم يُرسَل هذا التقرير إلى {count} من المستلمين لأنه يحتوي على بيانات خاصة بكل مشاهد: {recipients}"
       }
     },
     "checkin": {
@@ -1132,6 +1144,16 @@
       "needsValues": "في انتظار قيم لـ:",
       "cachedHint": "تم التقديم من نتيجتك المخزّنة مؤقتًا لهذه القيم — لم يُستعلم المصدر مجددًا"
     },
+    "addParameter": {
+      "adding": "جارٍ إضافة عامل التصفية \"{name}\"…",
+      "added": "تمت إضافة عامل التصفية \"{name}\" إلى \"{query}\"",
+      "addedNoQuery": "تمت إضافة عامل التصفية \"{name}\"",
+      "failed": "تعذّرت إضافة عامل التصفية \"{name}\"",
+      "type": "النوع: {type}",
+      "default": "الافتراضي: {value}",
+      "defaultAll": "الكل",
+      "column": "العمود: {column}"
+    },
     "createArtifact": {
       "creating": "جارٍ إنشاء العنصر",
       "created": "تم إنشاء العنصر",
@@ -1239,7 +1261,16 @@
       "toastFailedPublish": "تعذّر نشر التعليمة",
       "toastDeletedDesc": "تم حذف التعليمة",
       "toastFailedDelete": "تعذّر حذف التعليمة",
-      "toastSaved": "تم حفظ التعليمة"
+      "toastSaved": "تم حفظ التعليمة",
+      "accept": "قبول",
+      "reject": "رفض",
+      "accepted": "مقبولة",
+      "rejectedLabel": "مرفوضة",
+      "stagedInBuild": "مُجهّزة في build المسوّدة",
+      "acceptedToast": "تم قبول التغيير",
+      "acceptFailed": "تعذّر القبول",
+      "rejectedToast": "تم رفض التغيير",
+      "rejectFailed": "تعذّر الرفض"
     },
     "editInstruction": {
       "rejected": "تم رفض التعديل",
@@ -1255,6 +1286,7 @@
       "changeCategory": "الفئة ← {value}",
       "changeConfidence": "الثقة ← {value}%",
       "changeLoadMode": "وضع التحميل ← {value}",
+      "changeStatus": "الحالة ← {value}",
       "changeTables": "تم تحديث الجداول",
       "changeEvidence": "تم تحديث الأدلة",
       "confidence": "الثقة:",
@@ -1276,7 +1308,16 @@
       "toastFailedDelete": "تعذّر حذف التعليمة",
       "toastSaved": "تم حفظ التعليمة",
       "editCount": "{n} تعديلات",
-      "editLabel": "تعديل التعليمة"
+      "editLabel": "تعديل التعليمة",
+      "turnOff": "إيقاف",
+      "turnOn": "تشغيل",
+      "accepted": "مقبولة",
+      "rejectedLabel": "مرفوضة",
+      "stagedInBuild": "مُجهّزة في build المسوّدة",
+      "acceptedToast": "تم قبول التغيير",
+      "acceptFailed": "تعذّر القبول",
+      "rejectedToast": "تم رفض التغيير",
+      "rejectFailed": "تعذّر الرفض"
     },
     "inspectData": {
       "inspecting": "جارٍ الفحص",
@@ -1406,6 +1447,7 @@
       "tabCode": "كود",
       "toggleQueries": "الاستعلامات",
       "toggleFullCode": "الكود الكامل",
+      "sentRequest": "أُرسل إلى مصدر البيانات",
       "attempts": "المحاولات ({count})",
       "addToSpreadsheet": "إضافة إلى جدول البيانات",
       "addToSpreadsheetTitle": "إضافة البيانات إلى جدول Excel",
@@ -1744,6 +1786,26 @@
       "sendFeedback": "إرسال الملاحظات",
       "expired": "انتهت صلاحية هذه المراجعة.",
       "respondFailed": "تعذّر إرسال ردك — حاول مرة أخرى."
+    },
+    "messageSubAgent": {
+      "sending": "جارٍ إرسال الرسالة…",
+      "sent": "تم إرسال رسالة إلى {title}",
+      "failed": "تعذر إرسال رسالة إلى {title}",
+      "parent": "الوكيل الرئيسي",
+      "agent": "وكيل فرعي",
+      "sentHint": "تم الحفظ للتسليم قبل خطوة التخطيط التالية. هذا لا يؤكد تنفيذ التعليمات.",
+      "failedHint": "لم يتم إرسال الرسالة.",
+      "messages": "الرسائل",
+      "states": {
+        "sent": "أُرسلت",
+        "delivered": "سُلّمت إلى سياق الوكيل",
+        "undelivered": "لم تُسلّم"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "بانتظار الوكيل الرئيسي"
+      }
     }
   },
   "entityCreate": {
@@ -2485,7 +2547,25 @@
       "linkCopied": "تم نسخ رابط الدعوة",
       "failedToCopyLink": "تعذّر نسخ الرابط",
       "linkRegenerated": "تم تحديث رابط الدعوة ونسخه",
-      "moreGroups": "مجموعات"
+      "moreGroups": "مجموعات",
+      "colAttributes": "السمات",
+      "colAttributesHint": "قيم يحددها المسؤول لتعريف العضو في أنظمة أخرى (مثل qlik_user_id). لا يمكن للأعضاء تعديلها.",
+      "editAttributes": "تعديل السمات",
+      "attributeAdd": "إضافة سمة",
+      "attributeKey": "اسم السمة",
+      "attributeValue": "القيمة",
+      "attributeKeyPlaceholder": "الاسم، مثل qlik_user_id",
+      "attributeValuePlaceholder": "القيمة، مثل dana",
+      "attributeRemove": "إزالة السمة",
+      "attributeKeyRequired": "الاسم مطلوب",
+      "attributeKeyInvalid": "أحرف وأرقام و_ . - فقط؛ يبدأ بحرف",
+      "attributeKeyDuplicate": "اسم مكرر",
+      "attributesTitle": "سمات العضو",
+      "attributesHint": "قيم تعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو رقم الموظف. يمكن للمسؤولين فقط رؤيتها أو تغييرها.",
+      "attributesInviteHint": "اختياري. يعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو دور قاعدة البيانات.",
+      "attributesSaved": "تم حفظ السمات",
+      "attributesSaveFailed": "تعذّر حفظ السمات",
+      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير."
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",
@@ -3586,6 +3666,10 @@
     "mcpModeAiTip": "يمكن للذكاء الاصطناعي تعيينه؛ ويملؤه الخادم إذا كان فارغًا",
     "mcpModeLockedTip": "قيمة المسؤول لها الأولوية دائمًا؛ مخفية عن الذكاء الاصطناعي",
     "mcpAddMetaField": "+ إضافة حقل بيانات وصفية",
+    "mcpDynamicParams": "معلمات ديناميكية",
+    "mcpDynamicParamsHint": "القيم التي يُسمح للتطبيق المستدعي بإرسالها مع كل سؤال، ولكل منها قيمة افتراضية (null = فقط عند الإرسال). تُضاف إلى {key} وتكون مخفية عن الذكاء الاصطناعي؛ والحقل أعلاه الذي يحمل الاسم نفسه له الأولوية. يرسلها التطبيق في",
+    "mcpDynamicParamsInvalid": "JSON غير صالح.",
+    "mcpDynamicParamsNotObject": "يجب أن يكون كائن JSON (أزواج مفتاح وقيمة).",
     "verify": "تحقق",
     "autoReindex": "إعادة فهرسة المخطط تلقائيًا",
     "autoReindexAt": "إعادة الفهرسة يوميًا عند",
@@ -3644,6 +3728,16 @@
     "rateLimitReqHour": "طلب/ساعة",
     "rateLimitReqMin": "طلب/دقيقة",
     "rateLimitSaveFailed": "تعذّر حفظ إعدادات حد المعدّل",
+    "queryLimits": "حدود الاستعلام",
+    "queryLimitsHint": "تجاوز الإعدادات الافتراضية للمؤسسة لهذا الاتصال. اتركه فارغًا لاستخدام القيمة الافتراضية.",
+    "queryTimeout": "مهلة الاستعلام",
+    "queryTimeoutUnit": "ثانية",
+    "maxConcurrentQueries": "الاستعلامات المتزامنة",
+    "maxConcurrentQueriesUnit": "في وقت واحد",
+    "queryLimitDefault": "الافتراضي ({value})",
+    "queryLimitsInherited": "افتراضيات المؤسسة",
+    "queryLimitsCustom": "مخصص",
+    "queryLimitsSaveFailed": "تعذّر حفظ حدود الاستعلام",
     "refreshing": "جارٍ التحديث…",
     "reloadMyTables": "إعادة تحميل جداولي",
     "runQueriesAs": "تنفيذ الاستعلامات باسم",
@@ -3698,7 +3792,33 @@
     "refreshAccess": "تحديث الوصول",
     "yourAccount": "حسابك",
     "managementOrganizationHint": "تستخدم الاختبارات وتحديثات المخطط بيانات الاعتماد المحفوظة للمؤسسة.",
-    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك."
+    "managementPersonalHint": "يتطلب هذا الموصل تسجيل دخولك. تستخدم الاختبارات والتحديثات حسابك.",
+    "memberIdentity": {
+      "title": "هوية لكل عضو",
+      "hint": "يعمل كل عضو بحسابه الخاص. اختر الحقول التي تأتي من سمة عضو يحددها المسؤولون في الإعدادات ← الأعضاء؛ وتستخدم الحقول الأخرى القيمة أعلاه للجميع. لا تزال القيم أعلاه تُستخدم لفهرسة الكتالوج المشترك.",
+      "sourceFor": "مصدر {field}",
+      "attributeFor": "سمة العضو لـ {field}",
+      "sameForEveryone": "نفس القيمة للجميع",
+      "fromAttribute": "من سمة العضو",
+      "attributePlaceholder": "مثال: qlik_user_id",
+      "usesValue": "يستخدم الجميع {value}",
+      "usesValueAbove": "يستخدم الجميع القيمة أعلاه (أو قيمتها الافتراضية)",
+      "attributeRequired": "أدخل اسم سمة العضو.",
+      "attributeInvalid": "استخدم حروفًا وأرقامًا و _ . - وابدأ بحرف.",
+      "needOne": "اربط حقلًا واحدًا على الأقل بسمة عضو، أو أوقف مصادقة المستخدم.",
+      "previewTitle": "من يعمل بصفة من",
+      "previewCounts": "{ok} جاهز · {blocked} محظور",
+      "blocked": "محظور: لا توجد {attributes}",
+      "test": "اختبار",
+      "testOk": "متصل بصفة هذا العضو"
+    },
+    "sharepointApi": {
+      "title": "واجهة SharePoint",
+      "description": "يستخدم SharePoint 2010 الخدمات القديمة ويبحث في أسماء الملفات فقط. أدخل اسم مكتبة أو *؛ لا تترك المكتبة فارغة.",
+      "modern": "REST الحديث",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "اسم مكتبة المستندات، أو * لجميع المكتبات المرئية. يؤدي تركه فارغًا إلى اختيار المكتبة الافتراضية في وضع REST الحديث فقط."
+    }
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -3769,6 +3889,9 @@
   "errors": {
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
     "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",
+    "invitation_required": "التسجيل معطّل. اطلب دعوة من المسؤول.",
+    "oauth_email_missing": "تعذّر الحصول على بريدك الإلكتروني من مزوّد تسجيل الدخول. اطلب من المسؤول التحقق من نطاق البريد لدى المزوّد.",
+    "oauth_login_failed": "فشل تسجيل الدخول. أعد المحاولة أو تواصل مع المسؤول.",
     "generic": "حدث خطأ. يُرجى المحاولة مجددًا.",
     "network": "خطأ في الشبكة. تحقق من اتصالك.",
     "unauthorized": "ليس لديك صلاحية لذلك.",
@@ -3799,6 +3922,7 @@
     "organization.required": "ترويسة معرّف المؤسسة مفقودة",
     "api_key.invalid": "مفتاح API غير صالح أو منتهي الصلاحية",
     "mcp.disabled": "تكامل MCP غير مفعّل لهذه المؤسسة",
+    "mcp.dynamic_params_invalid": "يجب أن تكون المعلمات الديناميكية كائن JSON بحجم 8 كيلوبايت كحد أقصى، دون مفاتيح فارغة.",
     "feature.locked": "لا يمكن تعديل هذه الميزة",
     "license.enterprise_required": "تتطلب هذه الميزة ترخيص enterprise.",
     "locale.invalid": "اللغة غير مفعّلة",
@@ -3852,7 +3976,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "المورد غير متاح",
     "ARTIFACT_RESOURCE_INTERRUPTED": "انقطع الطلب",
     "ARTIFACT_RESOURCE_ABORTED": "أُلغي الطلب",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "إصدار SDK غير مدعوم",
+    "member_attributes.invalid": "سمات العضو غير صالحة.",
+    "member_identity.invalid": "ربط هوية الأعضاء غير صالح.",
+    "member_identity.not_configured": "لم يختر المسؤول بعد سمة العضو التي تعرّف الأعضاء في هذا الاتصال.",
+    "member_identity.unresolved": "حسابك في هذا الاتصال غير مُعد بعد. اطلب من المسؤول تعيين سمات العضو الخاصة بك ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -3961,6 +4089,8 @@
     "dailyAt": "يوميًا في {time}",
     "daysAt": "{days} في {time}",
     "monthlyOn": "شهريًا في اليوم {day} الساعة {time}",
+    "onceAt": "مرة واحدة · {date}",
+    "onceSpent": "تم تشغيلها بالفعل — عدّلها لاختيار وقت جديد",
     "daySun": "الأحد",
     "dayMon": "الاثنين",
     "dayTue": "الثلاثاء",
@@ -4017,7 +4147,8 @@
     "menuData": "البيانات"
   },
   "toolbar": {
-    "polishDashboard": "تحسين لوحة التحكم"
+    "polishDashboard": "تحسين لوحة التحكم",
+    "polishRequestLabel": "تحسين"
   },
   "artifactFrame": {
     "dataAddQuery": "إضافة استعلام",
@@ -4430,6 +4561,9 @@
       "runSuite": "تشغيل {name}",
       "runningCount": "قيد التشغيل {done}/{total}",
       "title": "تقييمات هذا التغيير"
+    },
+    "runEvals": {
+      "notRun": "غير مضمّنة (مسودة أو مؤرشفة): {n}"
     }
   },
   "monitoring": {
@@ -4493,6 +4627,7 @@
       "colFeedback": "الملاحظات",
       "expandRow": "عرض استدعاءات الأدوات",
       "pivotReport": "عرض هذه المحادثة",
+      "openReport": "فتح التقرير",
       "turnOf": "الدور {n} من {m}",
       "nFailed": "{n} فشلت",
       "feedbackPositive": "إيجابي",
@@ -4871,6 +5006,7 @@
     "scheduleOff": "إيقاف",
     "scheduleOn": "تشغيل",
     "runIn": "تشغيل خلال",
+    "changeTime": "تغيير",
     "unitMinutes": "د",
     "unitHours": "س",
     "unitDays": "أيام",
@@ -5344,6 +5480,7 @@
     "bulkFailed": "فشل التحديث الجمعي"
   },
   "events": {
+    "subAgentQuestion": "طرح وكيل فرعي سؤالاً",
     "evalRunFinished": "انتهى تشغيل التقييم '{title}' — نجحت {passed}/{total} ({status})",
     "waitResumed": "انقضى الانتظار — استئناف: {reason}",
     "checkin": {
@@ -5368,6 +5505,7 @@
     "untitledInstruction": "تعليمات بلا عنوان",
     "pending": "قيد الانتظار",
     "accepted": "مقبولة",
+    "rejected": "مرفوضة",
     "webhooks": "Webhooks",
     "configureWebhook": "إعداد webhook"
   },
@@ -5763,5 +5901,8 @@
     "notFound": "تعذّر العثور على هذا الاتصال.",
     "forbidden": "ليس لديك صلاحية الوصول إلى هذا الاتصال.",
     "loadFailed": "تعذّر تحميل الاتصال. حاول مرة أخرى لاحقًا."
+  },
+  "trackedChanges": {
+    "noChanges": "لا توجد تغييرات"
   }
 }

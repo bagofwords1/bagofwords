@@ -7,6 +7,10 @@ Covers the promised invariants of `app.services.mcp_context_injection`:
   * on_missing policy (empty / omit / block)
   * headers omit empties; static + injected headers merge
   * admin-locked metadata fields are stripped from the model-facing schema
+  * dynamic params: an admin allow-list {key: default}; the caller's
+    per-question metadata fills listed keys only, defaults fill the rest
+    (null = omit), a field row always wins, keys are hidden from the model,
+    and a malformed allow-list is rejected
 """
 
 import pytest
@@ -248,3 +252,138 @@ def test_no_locked_fields_returns_schema_unchanged():
     filtered = filter_locked_from_schema(_SCHEMA, cfg)
     assert filtered["properties"]["custom_metadata"]["properties"].keys() == \
         _SCHEMA["properties"]["custom_metadata"]["properties"].keys()
+
+
+# --------------------------------------------------------------------------- #
+# dynamic params (allow-list on the connection, values from the request)
+# --------------------------------------------------------------------------- #
+
+from app.services.mcp_context_injection import validate_dynamic_params  # noqa: E402
+from app.utils.request_metadata import validate_request_metadata  # noqa: E402
+
+_ALLOWED = {"chat_id": None, "message_id": None, "env": "prod", "tags": []}
+
+
+def _dyn_config(allowed=_ALLOWED, fields=(), enabled=True, argument_key="custom_metadata"):
+    return {"metadata_injection": {
+        "argument_key": argument_key,
+        "fields": list(fields),
+        "dynamic_params_enabled": enabled,
+        "dynamic_params": allowed,
+    }}
+
+
+def _inject(cfg, request_metadata, args=None):
+    args = {"prompt": "p"} if args is None else args
+    apply_metadata_injection(args, build_plan(cfg, _ctx(), request_metadata))
+    return args
+
+
+def test_sent_values_fill_allowed_keys_with_their_json_types():
+    sent = {"chat_id": "c-77", "message_id": 912, "env": "staging", "tags": ["a", {"b": True}]}
+    assert _inject(_dyn_config(), sent)["custom_metadata"] == sent
+
+
+def test_unsent_keys_take_their_default_and_null_defaults_are_omitted():
+    cm = _inject(_dyn_config(), {"chat_id": "c-77"})["custom_metadata"]
+    assert cm == {"chat_id": "c-77", "env": "prod", "tags": []}
+    assert "message_id" not in cm
+
+
+def test_keys_not_in_the_allow_list_are_dropped():
+    cm = _inject(_dyn_config(), {"chat_id": "c-77", "not_listed": "x"})["custom_metadata"]
+    assert "not_listed" not in cm and cm["chat_id"] == "c-77"
+
+
+def test_no_request_metadata_still_sends_defaults():
+    assert _inject(_dyn_config(), None)["custom_metadata"] == {"env": "prod", "tags": []}
+
+
+def test_toggle_off_sends_nothing_from_request_or_defaults():
+    plan = build_plan(_dyn_config(enabled=False), _ctx(), {"chat_id": "c-77"})
+    assert not plan.has_metadata
+    assert "custom_metadata" not in _inject(_dyn_config(enabled=False), {"chat_id": "c-77"})
+
+
+def test_empty_allow_list_lets_nothing_through():
+    plan = build_plan(_dyn_config(allowed={}), _ctx(), {"chat_id": "c-77"})
+    assert not plan.has_metadata
+
+
+@pytest.mark.parametrize("mode", ["locked", "ai"])
+def test_fixed_field_wins_over_an_allowed_key(mode):
+    cfg = _dyn_config(allowed={"department": "default-dept", "chat_id": None},
+                      fields=[{"name": "department", "source": "membership.attr:department", "mode": mode}])
+    cm = _inject(cfg, {"department": "from-caller", "chat_id": "c-77"})["custom_metadata"]
+    assert cm == {"department": "Engineering", "chat_id": "c-77"}
+
+
+def test_dynamic_values_override_model_values():
+    args = {"prompt": "p", "custom_metadata": {"chat_id": "set-by-model", "note": "kept"}}
+    cm = _inject(_dyn_config(allowed={"chat_id": None}), {"chat_id": "c-77"}, args)["custom_metadata"]
+    assert cm == {"chat_id": "c-77", "note": "kept"}
+
+
+def test_values_are_not_interpolated():
+    cm = _inject(_dyn_config(allowed={"literal": "{user.email}"}), None)["custom_metadata"]
+    assert cm == {"literal": "{user.email}"}
+
+
+def test_dynamic_params_respect_argument_key():
+    args = _inject(_dyn_config(allowed={"chat_id": None}, argument_key="context"), {"chat_id": "c-77"})
+    assert args["context"] == {"chat_id": "c-77"} and "custom_metadata" not in args
+
+
+def test_injection_does_not_mutate_the_callers_nested_object():
+    shared = {"note": "from model"}
+    args = _inject(_dyn_config(allowed={"chat_id": None}), {"chat_id": "c-77"},
+                   {"prompt": "p", "custom_metadata": shared})
+    assert shared == {"note": "from model"}
+    assert args["custom_metadata"] == {"note": "from model", "chat_id": "c-77"}
+
+
+def test_allowed_keys_are_hidden_from_the_model_schema_unless_a_row_owns_them():
+    cfg = _dyn_config(allowed={"_client_full_userId": None, "department": None},
+                      fields=[{"name": "department", "source": "membership.attr:department", "mode": "ai"}])
+    meta_props = filter_locked_from_schema(_SCHEMA, cfg)["properties"]["custom_metadata"]["properties"]
+    assert "_client_full_userId" not in meta_props  # allowed dynamic param -> hidden like locked
+    assert "department" in meta_props               # owned by an ai row -> stays visible
+
+
+def test_disabled_allow_list_is_not_hidden_from_the_model():
+    cfg = _dyn_config(allowed={"_client_full_userId": None}, enabled=False)
+    meta_props = filter_locked_from_schema(_SCHEMA, cfg)["properties"]["custom_metadata"]["properties"]
+    assert "_client_full_userId" in meta_props
+
+
+@pytest.mark.parametrize("allowed", [{"a": 1}, {}, None])
+def test_valid_allow_list_passes_validation(allowed):
+    validate_dynamic_params(_dyn_config(allowed=allowed))
+
+
+@pytest.mark.parametrize(
+    "allowed, reason",
+    [
+        ("not-an-object", "a JSON object"),
+        (["a"], "a JSON object"),
+        ({"": 1}, "keys must not be empty"),
+        ({"blob": "x" * (8 * 1024)}, "the limit is"),
+    ],
+)
+def test_invalid_allow_list_is_rejected(allowed, reason):
+    with pytest.raises(ValueError, match=reason):
+        validate_dynamic_params(_dyn_config(allowed=allowed))
+
+
+@pytest.mark.parametrize("value", [{"a": 1}, {}, None, {"blob": "x" * (8 * 1024 - 20)}])
+def test_valid_request_metadata_passes(value):
+    assert validate_request_metadata(value) == value
+
+
+@pytest.mark.parametrize(
+    "value, reason",
+    [({"": 1}, "must not be empty"), ({"blob": "x" * (8 * 1024)}, "the limit is")],
+)
+def test_invalid_request_metadata_is_rejected(value, reason):
+    with pytest.raises(ValueError, match=reason):
+        validate_request_metadata(value)

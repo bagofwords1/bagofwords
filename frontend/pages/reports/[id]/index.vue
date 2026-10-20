@@ -48,9 +48,8 @@
 							:queryList="queryList"
 							:queryExecutions="summaryQueries"
 							:listSubmissions="summaryLists"
+							:subAgents="summarySubAgents"
 							:trainingInstructions="summaryInstructions"
-							:reportInstructions="reportInstructions"
-							:pendingBuildId="pendingTrainingBuild?.id || null"
 							:pendingTrainingBuild="pendingTrainingBuild"
 							:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 							@approveTrainingBuild="onApproveTrainingBuild"
@@ -265,7 +264,9 @@
 										<div class="flex-1 flex justify-end">
 											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
+													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
 													<InstructionText
+														v-else
 														:text="m.prompt.content"
 														:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 														:prose="true"
@@ -322,6 +323,15 @@
 								<div class="w-full ms-0 md:ms-4 max-w-2xl">
 									<!-- System message -->
 									<div>
+										<!-- Sub-agent waves launched by this turn: one group line per wave -->
+										<SubAgentWaveStrip
+											v-for="w in wavesForMessage(m)"
+											:key="'wave-' + w.id"
+											:wave="w"
+											:wave-number="waveNumber(w)"
+											:stopping="stoppingWaveId === w.id"
+											@stopWave="stopWave"
+										/>
 										<!-- Render each completion block - unified structure -->
 										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
 											<!-- Steering messages interleave into the block stream at the
@@ -426,6 +436,7 @@
 													:can-expand="!isMobile"
 													@openFilePreview="openFilePreview"
 													@openDataPanel="openDataPanel"
+													@openListPanel="openListPanel"
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
@@ -748,6 +759,9 @@
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					:queuedPrompts="queuedPrompts"
+					:backgroundWaves="subAgentWaves"
+					@stopSubAgent="stopSubAgent"
+					@stopWave="stopWave"
 					@submitCompletion="onSubmitCompletion"
 					@queueCompletion="onQueuePrompt"
 					@removeQueuedPrompt="onRemoveQueuedPrompt"
@@ -847,6 +861,27 @@
 						@click.stop="closeDataPanel"
 					/>
 				</button>
+				<!-- Only while a list is open from a submit card. -->
+				<button
+					v-if="panelList"
+					@click="rightPanelView = 'list'"
+					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
+					:class="rightPanelView === 'list'
+						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
+						: 'text-gray-400 hover:text-gray-600'"
+					data-testid="list-panel-tab"
+				>
+					<Icon name="heroicons:list-bullet" class="w-3.5 h-3.5 shrink-0" />
+					<bdi class="truncate">{{ panelList.name || panelList.list?.name }}</bdi>
+					<span v-if="listPaneWriting" class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+					<Icon
+						name="heroicons:x-mark"
+						class="w-3 h-3 shrink-0 hover:text-gray-700 dark:hover:text-gray-200"
+						:aria-label="$t('tools.submitList.closePane')"
+						data-testid="list-panel-close"
+						@click.stop="closeListPanel"
+					/>
+				</button>
 				<!-- Only while a file is open. Carries its own dismiss so there is
 				     an obvious way back to the dashboard. -->
 				<button
@@ -885,9 +920,8 @@
 						:queryList="queryList"
 						:queryExecutions="summaryQueries"
 						:listSubmissions="summaryLists"
+						:subAgents="summarySubAgents"
 						:trainingInstructions="summaryInstructions"
-						:reportInstructions="reportInstructions"
-						:pendingBuildId="pendingTrainingBuild?.id || null"
 						:pendingTrainingBuild="pendingTrainingBuild"
 						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 						@approveTrainingBuild="onApproveTrainingBuild"
@@ -945,6 +979,26 @@
 				/>
 			</div>
 
+			<!-- A list opened from a submit_<list> card. The same grid as the
+			     agent's Lists page, embedded; rows the agent writes while it is
+			     open are merged in and flashed (see the watcher on listPaneSubmits). -->
+			<div v-else-if="rightPanelView === 'list' && panelList" class="h-full min-h-0 flex flex-col" data-testid="list-panel">
+				<div v-if="!panelList.list" class="flex-1 flex items-center justify-center text-xs text-gray-400"><Spinner class="w-3.5 h-3.5" /></div>
+				<template v-else>
+					<ListRowsView
+						ref="listPaneRef"
+						:key="panelList.listId"
+						:ds-id="panelList.dsId"
+						:list="panelList.list"
+						:embedded="true"
+						:writing="listPaneWriting"
+						:full-href="`/agents/${panelList.dsId}/lists/${panelList.listId}`"
+						class="flex-1 min-h-0"
+						@deleted="closeListPanel"
+					/>
+				</template>
+			</div>
+
 			<!-- A query result opened from a tool card. Reuses the same preview
 			     the card renders, in its side-panel mode: full width, full
 			     height, and every edit/download/dashboard control. -->
@@ -996,6 +1050,7 @@ import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResour
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
+import AddParameterTool from '~/components/tools/AddParameterTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -1036,6 +1091,11 @@ import BrowserVisionTool from '~/components/tools/BrowserVisionTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
+import DelegateTool from '~/components/tools/DelegateTool.vue'
+import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import MessageSubAgentTool from '~/components/tools/MessageSubAgentTool.vue'
+import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
+import SubAgentWaveStrip from '~/components/report/SubAgentWaveStrip.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
@@ -1045,6 +1105,7 @@ import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
+import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
 import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
 import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
@@ -1059,6 +1120,7 @@ import InstructionModalComponent from '~/components/InstructionModalComponent.vu
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import ListRowsView from '~/components/lists/ListRowsView.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
@@ -1076,8 +1138,11 @@ import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
+import { createStreamDeliveryTracker, isBufferedDelivery } from '~/utils/streamDelivery'
 
 // An @agent chip in an already-sent prompt names a LIVE agent, so it should draw
 // the icon that agent has now — not the one snapshotted into the prompt's
@@ -1617,6 +1682,63 @@ provide('reportSnapshot', report)
 // closed (ArtifactFrame only broadcasts once it mounts).
 const activeArtifactVizIds = ref<string[]>([])
 provide('artifactVizIds', activeArtifactVizIds)
+
+// ---- Sub-agents (docs/design/sub-agents.md A8/A9) ----
+// The DB is the bus (see report_activity_hub): the page polls
+// GET /reports/{id}/sub-agents every 3s while a wave is live and provides the
+// rows by id so every delegate card reads from one poll. Hydration on load
+// and on every completion.finished keeps reloads and the fan-in turn in sync.
+const subAgentWaves = ref<any[]>([])
+const subAgentById = computed<Record<string, any>>(() => {
+	const out: Record<string, any> = {}
+	for (const w of subAgentWaves.value) for (const r of (w.sub_agents || [])) out[r.sub_agent_id] = { ...r, wave_status: w.status }
+	return out
+})
+const hasLiveSubAgents = computed(() => subAgentWaves.value.some((w: any) => ['collecting', 'running', 'firing'].includes(w.status)))
+let subAgentPollTimer: ReturnType<typeof setInterval> | null = null
+async function loadSubAgents() {
+	if (!report_id) return
+	try {
+		const { data } = await useMyFetch(`/reports/${report_id}/sub-agents`)
+		const res = data.value as any
+		if (res && Array.isArray(res.waves)) subAgentWaves.value = res.waves
+	} catch { /* keep the last snapshot */ }
+	syncSubAgentPolling()
+}
+function syncSubAgentPolling() {
+	if (hasLiveSubAgents.value && !subAgentPollTimer) {
+		subAgentPollTimer = setInterval(loadSubAgents, 3000)
+	} else if (!hasLiveSubAgents.value && subAgentPollTimer) {
+		clearInterval(subAgentPollTimer); subAgentPollTimer = null
+		// A wave just ended: the fan-in turn and the summary rows are new.
+		loadReportSummary().catch(() => {})
+	}
+}
+provide('subAgents', { byId: subAgentById, refresh: loadSubAgents })
+const stoppingWaveId = ref<string | null>(null)
+function wavesForMessage(m: any): any[] {
+	const sysId = m?.system_completion_id || m?.id
+	return subAgentWaves.value.filter((w: any) => w.parent_completion_id === sysId)
+}
+function waveNumber(w: any): number {
+	return subAgentWaves.value.findIndex((x: any) => x.id === w.id) + 1
+}
+async function stopSubAgent(subAgentId: string) {
+	try {
+		await useMyFetch(`/reports/${report_id}/sub-agents/${subAgentId}/stop`, { method: 'POST' })
+	} catch (e) { console.error('Failed to stop sub-agent', e) }
+	await loadSubAgents()
+}
+async function stopWave(waveId: string) {
+	stoppingWaveId.value = waveId
+	try {
+		await useMyFetch(`/reports/${report_id}/sub-agent-waves/${waveId}/stop`, { method: 'POST' })
+	} catch (e) { console.error('Failed to stop wave', e) }
+	finally { stoppingWaveId.value = null }
+	await loadSubAgents()
+}
+onMounted(() => { loadSubAgents() })
+onBeforeUnmount(() => { if (subAgentPollTimer) clearInterval(subAgentPollTimer) })
 // Full latest-artifact object from the same single fetch; shared with
 // ArtifactFrame as a mount-time seed so it does not refetch the artifact it
 // is about to select. Version switches keep their own fetch path.
@@ -1678,10 +1800,9 @@ const summaryQueries = ref<any[]>([])
 const summaryInstructions = ref<any[]>([])
 // Agent Lists this conversation wrote to — one item per list.
 const summaryLists = ref<any[]>([])
-// Historical list of instructions created during this report's agent runs.
-// Separate from summaryInstructions (which is pending-only) so the Summary
-// tab can keep showing accepted instructions after the build is approved.
-const reportInstructions = ref<any[]>([])
+// Sub-agents (delegated background investigations) of this report, for the
+// Summary tab (GET /reports/{id}/summary → sub_agents).
+const summarySubAgents = ref<any[]>([])
 // Fold boundary of rolling context compaction: the transcript divider renders
 // right after this completion. State-derived (from the completions payload,
 // the context.compacted SSE, and manual compaction responses).
@@ -1798,10 +1919,8 @@ async function onDiscardTrainingInstruction(payload: { buildId: string; instruct
 // Listen for resolutions originating elsewhere (modal tracked-changes panel,
 // tool cards) so the pill state stays in sync without prop drilling.
 function onInstructionResolved(_e: Event) {
-    // Re-fetch both: summary drives the pending pill; reportInstructions
-    // drives the historical "Instructions" section in ChatSummary.
+    // The summary carries each instruction's review state.
     loadReportSummary().catch(() => {})
-    loadReportInstructions().catch(() => {})
 }
 onMounted(() => {
     loadLlmModels()
@@ -2061,6 +2180,7 @@ function webhookSourceIcon(source?: string): string {
 		case 'eval_run': return 'heroicons-beaker'
 		case 'wait': return 'heroicons-clock'
 		case 'checkin': return 'heroicons-arrow-path-rounded-square'
+		case 'sub_agent_wave': return 'heroicons-squares-2x2'
 		default: return 'heroicons-bolt'
 	}
 }
@@ -2070,6 +2190,7 @@ function webhookSourceIcon(source?: string): string {
 function machineEventLabel(m: any): string {
 	const meta = m?.prompt?.meta
 	const src = (m as any)?.trigger_source
+	if (src === 'sub_agent_message') return t('events.subAgentQuestion')
 	if (meta && src === 'eval_run') {
 		return t('events.evalRunFinished', {
 			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
@@ -2078,6 +2199,10 @@ function machineEventLabel(m: any): string {
 	}
 	if (meta && src === 'wait') {
 		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	if (meta && src === 'sub_agent_wave') {
+		const counts = Object.entries(meta.counts || {}).map(([k, n]) => `${n} ${t(`tools.delegate.outcomes.${k}`, k)}`).join(' · ')
+		return t(meta.timed_out ? 'events.subAgentWaveDoneTimedOut' : 'events.subAgentWaveDone', { total: meta.total ?? 0, counts })
 	}
 	if (src === 'checkin') {
 		const outcome = checkinOutcome(m)
@@ -2131,6 +2256,7 @@ function machineEventIcon(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
+	if (src === 'sub_agent_wave') return 'heroicons-squares-2x2'
 	if (src === 'checkin') {
 		const outcome = checkinOutcome(m)
 		if (outcome === 'running') return 'heroicons-arrow-path'
@@ -2231,6 +2357,7 @@ async function loadReportSummary() {
         const res = data.value as any
         summaryQueries.value = res?.queries || []
         summaryLists.value = res?.lists || []
+        summarySubAgents.value = res?.sub_agents || []
         summaryInstructions.value = (res?.instructions || []).map((i: any) => ({
             instructionId: i.instruction_id,
             title: i.title,
@@ -2239,6 +2366,7 @@ async function loadReportSummary() {
             lineCount: i.line_count,
             messageId: i.message_id,
             buildId: i.build_id,
+            state: i.state,
         }))
         pendingTrainingBuild.value = res?.pending_training_build || null
         await loadPendingBuildDiff()
@@ -2248,21 +2376,6 @@ async function loadReportSummary() {
         summaryInstructions.value = []
         pendingTrainingBuild.value = null
         pendingTrainingBuildDiff.value = null
-    }
-}
-
-async function loadReportInstructions() {
-    try {
-        const { data, error } = await useMyFetch(`/reports/${report_id}/instructions`)
-        if (error.value) {
-            console.warn('[reportInstructions] fetch error:', error.value)
-        }
-        const res = data.value as any
-        reportInstructions.value = Array.isArray(res) ? res : []
-        console.debug('[reportInstructions] loaded', reportInstructions.value.length, 'items')
-    } catch (e) {
-        console.warn('[reportInstructions] threw:', e)
-        reportInstructions.value = []
     }
 }
 
@@ -2504,7 +2617,7 @@ const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
-const rightPanelView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
+const rightPanelView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data' | 'list'>('artifact')
 
 // A document/image opened from a read_file card into the side panel. Transient
 // by nature — it exists only while a file is selected, which is why it gets a
@@ -2610,6 +2723,83 @@ function closeDataPanel() {
 	rightPanelView.value = back === 'file' && !panelFile.value ? 'artifact' : back
 	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
+
+// A list opened from a submit_<list> card, the way a file or a result opens.
+// While open, every submit to that list in this chat is merged into the grid
+// as it finishes, and the count streams while the agent is still writing.
+const panelList = ref<{ listId: string; dsId: string; name: string; list: any | null } | null>(null)
+const listPanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
+const listPanelOpenedSplit = ref(false)
+const listPaneRef = ref<any>(null)
+
+async function openListPanel(payload: { listId: string; dsId: string; name?: string }) {
+	if (!payload?.listId || !payload?.dsId) return
+	if (panelList.value?.listId !== payload.listId) {
+		panelList.value = { listId: payload.listId, dsId: payload.dsId, name: payload.name || '', list: null }
+		const { data } = await useMyFetch<any>(`/api/data_sources/${payload.dsId}/lists/${payload.listId}`, { method: 'GET' })
+		if (panelList.value?.listId !== payload.listId) return
+		if (!data.value) { closeListPanel(); return }
+		panelList.value.list = data.value
+	}
+	if (isMobile.value) return
+	if (rightPanelView.value !== 'list') listPanelReturnView.value = rightPanelView.value as any
+	if (!isSplitScreen.value) {
+		listPanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
+	rightPanelView.value = 'list'
+}
+
+function closeListPanel() {
+	panelList.value = null
+	const openedSplit = listPanelOpenedSplit.value
+	listPanelOpenedSplit.value = false
+	if (rightPanelView.value !== 'list') return
+	const back = listPanelReturnView.value
+	rightPanelView.value = (back === 'data' && !panelData.value) || (back === 'file' && !panelFile.value) ? 'artifact' : back
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
+}
+
+// Submit calls in this chat that target the open list.
+const listPaneSubmits = computed(() => {
+	const id = panelList.value?.listId
+	const out: any[] = []
+	if (!id) return out
+	for (const m of messages.value) {
+		for (const b of ((m as any).completion_blocks || [])) {
+			const te = b?.tool_execution
+			if (!te || typeof te.tool_name !== 'string' || !te.tool_name.startsWith('submit_')) continue
+			const target = te.result_json?.list_id || te.arguments_json?.list_id || te.arguments_json?._progress?.list_id
+			if (target === id) out.push(te)
+		}
+	}
+	return out
+})
+const listPaneWriting = computed(() => listPaneSubmits.value.reduce((n, te) => {
+	if (te.status !== 'running' && te.status !== 'in_progress') return n
+	const p = te.arguments_json?._progress?.records ?? (Array.isArray(te.arguments_json?.records) ? te.arguments_json.records.length : 0)
+	return n + (p || 0)
+}, 0))
+// Calls already reflected in the grid. Seeded when the pane opens so history
+// does not replay; anything that succeeds afterwards is merged and flashed.
+const listPaneSeen = new Set<string>()
+// Keyed by what the call wrote, not the tool execution id: the id changes
+// when the chat reloads messages from the server after a turn, which would
+// otherwise replay old saves as new ones.
+const finishedKey = (te: any) => (te.result_json?.records || []).map((r: any) => `${r.row_id}:${r.action}`).sort().join(',') || `${te.id}`
+watch(() => panelList.value?.listId, () => {
+	listPaneSeen.clear()
+	for (const te of listPaneSubmits.value) if (te.status === 'success') listPaneSeen.add(finishedKey(te))
+}, { immediate: true })
+watch(() => listPaneSubmits.value.filter(te => te.status === 'success' && te.result_json?.success !== false).map(finishedKey).join('|'), () => {
+	for (const te of listPaneSubmits.value) {
+		if (te.status !== 'success' || te.result_json?.success === false) continue
+		const k = finishedKey(te)
+		if (listPaneSeen.has(k)) continue
+		listPaneSeen.add(k)
+		listPaneRef.value?.applySubmit?.(te.result_json?.records || [])
+	}
+})
 
 // Mobile view mode (full-screen single section on narrow screens)
 const mobileView = ref<'chat' | 'summary' | 'dashboard' | 'agent'>('chat')
@@ -2748,6 +2938,8 @@ function getToolComponent(toolName: string) {
 			return ReadQueryTool
 		case 'run_query':
 			return RunQueryTool
+		case 'add_parameter':
+			return AddParameterTool
 		case 'search_reports':
 			return SearchReportsTool
 		case 'read_report':
@@ -2820,6 +3012,14 @@ function getToolComponent(toolName: string) {
 			return CreateScheduledTaskTool
 		case 'wait':
 			return WaitTool
+		case 'delegate':
+			return DelegateTool
+		case 'message_sub_agent':
+			return MessageSubAgentTool
+		case 'read_sub_agent':
+			return ReadSubAgentTool
+		case 'stop_sub_agent':
+			return StopSubAgentTool
 		case 'cancel_scheduled_task':
 			return CancelScheduledTaskTool
 		case 'edit_scheduled_task':
@@ -2842,6 +3042,9 @@ function getToolComponent(toolName: string) {
 			return CreateAgentTool
 		case 'create_demo_dataset':
 			return CreateDemoDatasetTool
+		case 'create_list':
+		case 'edit_list':
+			return ListSchemaTool
 		case 'search_agents':
 			return SearchAgentsTool
 		case 'set_report_agents':
@@ -3636,6 +3839,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					// Reset result_json for fresh run to avoid stale shared references
 					lastBlock.tool_execution.result_json = {}
+					// Every tool card may read its inputs while running (e.g. the
+					// search query). The per-tool branches below may still override.
+					if (payload.arguments && !(lastBlock.tool_execution as any).arguments_json) {
+						;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+					}
 					// For describe_tables, stash the query so the UI can show it
 					try {
 						if (payload.tool_name === 'describe_tables' && payload.arguments) {
@@ -4146,6 +4354,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
+			// A turn that launched sub-agents ends while they run: pick the wave up now.
+			loadSubAgents().catch(() => {})
 			// Measure the run here: the server's total_duration_ms isn't stamped
 			// yet at this point (see clientRunMs), so without this the footer
 			// would show nothing until the next load.
@@ -4340,8 +4550,13 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		// viewport and jump the reader. Keep the messages older than the first
 		// one the fresh page overlaps, and keep their pagination cursor.
 		const freshIds = new Set(list.map((c: any) => String(c.id)))
-		const overlapIdx = messages.value.findIndex(m => freshIds.has(String(m.id)))
-		const olderKept = overlapIdx > 0 ? messages.value.slice(0, overlapIdx) : []
+		const overlapIdx = messages.value.findIndex(m => freshIds.has(String(m.id)) || freshIds.has(String((m as any).system_completion_id)))
+		// A steering/fan-in row can be the first canonical overlap while the
+		// preceding turn still has client ids. Replace that whole optimistic
+		// pair, rather than preserving it as supposedly older history.
+		const overlapStart = overlapIdx > 0 && String(messages.value[overlapIdx]?.id).startsWith('system-')
+			&& String(messages.value[overlapIdx - 1]?.id).startsWith('user-') ? overlapIdx - 1 : overlapIdx
+		const olderKept = overlapStart > 0 ? messages.value.slice(0, overlapStart) : []
 		const freshMessages = list.map((c: any) => {
 			// Override status if sigkill timestamp exists - this means it was stopped
 			let status = c.status as ChatStatus
@@ -4376,6 +4591,9 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 					created_step_id: b.tool_execution.created_step_id,
 					created_widget: b.tool_execution.created_widget,
 					created_step: b.tool_execution.created_step,
+					// Real visualization rows (id, status, view): without them the card
+					// starts from a synthetic viz and refetches the query to find them.
+					created_visualizations: b.tool_execution.created_visualizations,
 					// Agents this call referenced, with their resolved icon_token —
 					// the data tools' source icon comes from here.
 					data_sources: b.tool_execution.data_sources
@@ -4635,6 +4853,9 @@ async function loadPreviousCompletions() {
                     created_step_id: b.tool_execution.created_step_id,
                     created_widget: b.tool_execution.created_widget,
                     created_step: b.tool_execution.created_step,
+                    // Real visualization rows (id, status, view): without them the card
+                    // starts from a synthetic viz and refetches the query to find them.
+                    created_visualizations: b.tool_execution.created_visualizations,
                     // Agents this call referenced, with their resolved icon_token —
                     // the data tools' source icon comes from here.
                     data_sources: b.tool_execution.data_sources
@@ -5253,6 +5474,11 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
+function createSystemPlaceholder(id: string, model?: string): ChatMessage {
+	return { id, role: 'system', status: 'in_progress', model: model || undefined,
+		created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [] }
+}
+
 function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
@@ -5272,17 +5498,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 	// Append placeholder system message for streaming
 	const sysId = `system-${Date.now()}`
-	const sysMsg: ChatMessage = {
-		id: sysId,
-		role: 'system',
-		status: 'in_progress',
-		model: data.model_id || undefined,
-		// Naive-UTC, matching the server's shape. Anchors the footer's run
-		// duration (and its timestamp) on the live path, where no server row
-		// has been merged into this placeholder yet.
-		created_at: new Date().toISOString().replace('Z', ''),
-		completion_blocks: []
-	}
+	const sysMsg = createSystemPlaceholder(sysId, data.model_id)
 	messages.value.push(sysMsg)
 	pinTurnToTop(userMsg.id)
 
@@ -5336,7 +5552,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 		const options: any = {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(requestBody),
+			body: JSON.stringify({ ...requestBody, queue_if_busy: true }),
 			signal: controller?.signal,
 			stream: true
 		}
@@ -5345,13 +5561,43 @@ async function startStreaming(requestBody: any, sysId: string) {
 
 		if (!res?.ok || !res?.body) throw new Error(`Stream HTTP error: ${res?.status}`)
 
+		if (res.headers.get('content-type')?.includes('application/json')) {
+			const queued = await res.json()
+			if (!ownsStream()) return
+			const created = queued?.completions?.find((c: any) => c.role === 'user')
+			if (created?.id) queuedFromHere.add(String(created.id))
+			const idx = ensureSys()
+			if (idx >= 0) {
+				if (idx > 0 && String(messages.value[idx - 1].id).startsWith('user-')) messages.value.splice(idx - 1, 2)
+				else messages.value.splice(idx, 1)
+			}
+			stopKickoffWatchdog()
+			isStreaming.value = false
+			currentController = null
+			const busyId = queued?.busy_completion_id
+			if (busyId && !messages.value.some(m => m.id === busyId || m.system_completion_id === busyId)) {
+				messages.value.push({ ...createSystemPlaceholder(busyId), system_completion_id: busyId })
+			}
+			if (created?.id && !messages.value.some(m => m.id === created.id)) {
+				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })
+			}
+			// The receipt identifies the server turn even when history refresh is
+			// slow or unavailable. Transfer busy-state ownership to its watcher.
+			isCompletionInProgress.value = Boolean(busyId)
+			if (busyId) startWatchStream(String(busyId))
+			try { await loadCompletions() } catch (error) { console.error('Failed to refresh queued prompt:', error) }
+			return
+		}
+
 		const reader = res.body!.getReader()
 		const decoder = new TextDecoder()
+		const delivery = createStreamDeliveryTracker('kickoff', res)
 		let buffer = ''
 		let currentEvent: string | null = null
 
 		while (true) {
 			const { done, value } = await reader.read()
+			const readAt = performance.now()
 			if (done) {
 				break
 			}
@@ -5376,6 +5622,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 				} else if (line.startsWith('data:')) {
 					const dataStr = line.slice(5).trim()
 					if (dataStr === '[DONE]') {
+						reportStreamDelivery(delivery, completionId)
 						// Refresh report data and context estimate after stream fully ends.
 						// force=true: without it refreshContextEstimate early-returns after
 						// its first fetch, leaving the context meter stale for the whole
@@ -5393,6 +5640,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 					}
 					try {
 						const parsed = JSON.parse(dataStr)
+						delivery.observe(currentEvent, parsed, readAt)
 						const payload = parsed.data ?? parsed
 						if (currentEvent === 'completion.started' && payload?.system_completion_id) {
 							completionId = payload.system_completion_id
@@ -5512,6 +5760,20 @@ function startKickoffWatchdog() {
 			try { currentController?.abort() } catch {}
 		}
 	}, 5000)
+}
+
+// When a finished stream shows its tokens were held back on the way (a
+// buffering proxy, TLS inspection, AV scanner: the answer appeared all at
+// once), tell the backend so it lands in the server logs. Fire-and-forget, at
+// most once per stream, never for streams that arrived live.
+function reportStreamDelivery(delivery: ReturnType<typeof createStreamDeliveryTracker>, completionId: string | null | undefined) {
+	const summary = delivery.summary()
+	if (!completionId || !isBufferedDelivery(summary)) return
+	console.warn(`[stream] live tokens were held back ${summary.holdback_ms} ms on the way to the browser and arrived all at once`, summary)
+	useMyFetch(`/reports/${report_id}/completions/${completionId}/stream-diagnostics`, {
+		method: 'POST',
+		body: summary,
+	}).catch(() => {})
 }
 
 function stopKickoffWatchdog() {
@@ -5650,12 +5912,14 @@ async function startWatchStream(completionId: string, opts: { sysId?: string; ow
 async function consumeWatchStream(res: Response, completionId: string, sysId: string | undefined, gen: number, ownStream = false): Promise<{ sawDone: boolean, gotEvents: boolean }> {
 	const reader = res.body!.getReader()
 	const decoder = new TextDecoder()
+	const delivery = createStreamDeliveryTracker('watch', res)
 	let buffer = ''
 	let currentEvent: string | null = null
 	let gotEvents = false
 
 	while (true) {
 		const { done, value } = await reader.read()
+		const readAt = performance.now()
 		if (done) break
 		lastWatchByteAt = Date.now()
 		if (watchGeneration !== gen) break
@@ -5672,6 +5936,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 			} else if (line.startsWith('data:')) {
 				const dataStr = line.slice(5).trim()
 				if (dataStr === '[DONE]') {
+					reportStreamDelivery(delivery, sysId || completionId)
 					// Terminal: converge on canonical persisted state.
 					await loadCompletions({ skipEstimate: true })
 					loadReport()
@@ -5682,6 +5947,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 				}
 				try {
 					const parsed = JSON.parse(dataStr)
+					delivery.observe(currentEvent, parsed, readAt)
 					const payload = parsed.data ?? parsed
 					const idx = findWatchMessageIndex(completionId, sysId)
 					// Report-scoped events (artifacts, the generated title) are not
@@ -5872,10 +6138,10 @@ onMounted(async () => {
 			|| (report.value as any)?.instruction_count > 0
 			|| (report.value as any)?.has_scheduled_prompts)
 	if (opensSummary) {
-		await Promise.all([loadReportSummary(), loadReportInstructions()])
+		await loadReportSummary()
 	} else {
 		window.setTimeout(() => {
-			void Promise.all([loadReportSummary(), loadReportInstructions()])
+			void loadReportSummary()
 		}, 250)
 	}
 

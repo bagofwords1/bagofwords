@@ -82,7 +82,7 @@ class TargetRef(BaseModel):
 # Phase scoping. The DB stores PlanDecision.phase as "main" or
 # "knowledge_harness"; YAML says "knowledge" for brevity. Evaluator normalises
 # before filtering. ``None`` means "any phase" (backward compatible default).
-PhaseScope = Optional[Literal["main", "knowledge", "any"]]
+PhaseScope = Optional[Literal["main", "knowledge", "subagent", "any"]]
 
 
 class FieldRule(BaseModel):
@@ -135,7 +135,7 @@ class PhaseRule(BaseModel):
     """
 
     type: Literal["phase"] = "phase"
-    phase: Literal["main", "knowledge"]
+    phase: Literal["main", "knowledge", "subagent"]
     occurred: bool = True
     turn: Optional[int] = None
 

@@ -7,6 +7,7 @@ indexes use keyed hashes; encrypted fields are never decrypted for list scans.
 import hashlib
 import hmac
 import json
+from fastapi import HTTPException
 import uuid
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet, InvalidToken
@@ -179,10 +180,14 @@ class ArtifactResources:
             conversation_refusal = refused
         try:
             await dashboard_access.admit_reader(db, artifact, user)
-        except (HTTPException, AppError):
+        except (HTTPException, AppError) as refused:
             if live and await dashboard_access.published_release(db, artifact) is None:
-                raise conversation_refusal
-            raise
+                refused = conversation_refusal
+            # 401/403 here would confirm that a private artifact with this id
+            # exists (and hint at its visibility mode); answer like an unknown id.
+            if refused.status_code in (401, 403, 404):
+                fail("NOT_FOUND", "Artifact not found", 404)
+            raise refused
 
     def audience(self, rule):
         if getattr(rule, "any_of", None):

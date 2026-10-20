@@ -348,7 +348,11 @@ weekly folder with a handful of new files.
 **Add only when a customer hits that ceiling (P1):**
 
 - A fan-out for batches: one small scoped turn per document, run as the §5.2 fast path, all
-  calling the same `submit` into the same list.
+  calling the same `submit` into the same list. **Partly in place:** a `validate` sub-agent
+  (and an `investigate` one when `sub_agent_allow_create_data` is on) holds the parent's
+  `submit_<slug>` tools and writes rows itself; the parent delegates one child per document
+  (docs/design/sub-agents.md A6). Same-key races between children resolve through the unique
+  `(list_id, key_value)` index and the retry-as-update in `apply_submission_with_retry`.
 - `submit` stays the single sink either way, so this is purely an execution optimization.
 
 **Rejected, in order of how heavy they are:**
@@ -407,6 +411,15 @@ scheduled runs.
 - **Analysis:** lists are exposed to `create_data` as `bow.<agent>.lists.<list>` (queried by `list_id`, so renames are safe), extending the
   existing `bow.runs` BOW source. They are gated by agent view rather than by training mode.
 - **CSV export** from the rows panel and from the chat card.
+- **Agent-defined schemas (training mode):** `create_list` and `edit_list` let the training
+  agent propose a list schema (or a change to one) for an agent it manages on the current report.
+  The proposal is validated through the same `ListSchemaIn` contract as the REST API, then paused
+  on a review card (`stream_user_confirmation`, like `create_demo_dataset`); only the user's
+  approval writes it, live, with no draft state — exactly what the Lists editor does. A declined
+  proposal carries the user's feedback back to the agent. Edits preserve field ids (renames are
+  not removals) and are classified additive / breaking with `classify_schema_change`; the card
+  shows the per-field diff and the breaking warning. Both tools are `allowed_modes=["training"]`
+  and require MANAGE on the owning agent.
 
 This supersedes the "schema pinned on a Step" idea above. The Step remains how a list
 is charted or put on a dashboard, through the queryable table.
@@ -430,7 +443,10 @@ report. `submit_<slug>` tools don't change that, provided they follow these rule
 1. **Register once, at run start, and never mutate mid-run.** No "activate the list
    when it's mentioned". Swapping a tool in mid-loop re-prefills the whole context on the
    next call. `_refresh_browser_tool_catalog` (`agent_v2.py:7618`) already pays this cost;
-   don't copy it.
+   don't copy it. **One deliberate exception:** after an approved `create_list` / `edit_list`
+   the loop calls `_register_list_tools(refresh=True)` so the new or re-shaped
+   `submit_<slug>` is callable in the same training session. That costs one cache re-prime,
+   on an explicit user approval, instead of asking the user to start a new chat.
 2. **Keep the order deterministic.** Append after the static tools and the MCP tools, sorted
    by `(agent_id, list slug)`. Serialize schemas with sorted keys. Otherwise identical
    requests stop being byte-identical and miss the cache.

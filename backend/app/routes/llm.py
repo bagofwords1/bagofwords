@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, get_current_organization
@@ -116,8 +116,22 @@ async def get_models(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get all LLM models, optionally filtered by status"""
-    return await llm_service.get_models(db, organization, current_user, is_enabled)
+    """Get all LLM models, optionally filtered by status.
+
+    Every member needs the model list (model picker, chat), but the nested
+    provider's ``additional_config`` (custom header values, endpoints) and
+    ``credentials`` are admin-only: they are returned only to callers holding
+    ``manage_llm``, the permission that gates the rest of the LLM admin API.
+    """
+    from app.core.permission_resolver import resolve_permissions
+    models = await llm_service.get_models(db, organization, current_user, is_enabled)
+    out = [LLMModelSchemaWithProvider.model_validate(m) for m in models]
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    if not resolved.has_org_permission("manage_llm"):
+        for m in out:
+            m.provider.additional_config = None
+            m.provider.credentials = None
+    return out
 
 @router.post("/llm/models", response_model=LLMModelSchema)
 @requires_permission('manage_llm')
@@ -381,7 +395,7 @@ async def set_llm_fallback_order(
 
 class ModelAccessAdd(BaseModel):
     principal_type: str  # "user" | "group" | "role"
-    principal_id: str
+    principal_id: str = Field(min_length=1, max_length=36)  # user/group/role id (String(36) column)
 
 
 class ModelRestrictionUpdate(BaseModel):

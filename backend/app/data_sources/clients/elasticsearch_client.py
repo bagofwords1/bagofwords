@@ -56,6 +56,18 @@ import pandas as pd
 import requests
 
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients.elasticsearch_guardrails import (
+    AggLimits,
+    QueryGuardrailError,
+    as_bool,
+    check_aggregations,
+    check_target,
+    esql_sources,
+    parse_duration_seconds,
+    positive_int,
+    split_patterns,
+    sql_targets,
+)
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
 logger = logging.getLogger(__name__)
@@ -109,9 +121,12 @@ class ElasticsearchClient(DataSourceClient):
                          "from_as_string", "to_as_string",
                          "doc_count_error_upper_bound"}
 
-    # (connect, read) timeouts: 5s to connect, read just above the 60s query
-    # timeout sent to the engine.
+    # (connect, read) timeouts for metadata calls. Searches use the resolved
+    # per-connection query timeout instead (see `apply_query_timeout`).
     TIMEOUTS = (5, 65)
+
+    # Query timeout when nothing resolved one (indexing, tests, direct use).
+    DEFAULT_QUERY_TIMEOUT_SECONDS = 60
 
     # Sent on every index-targeted metadata/search call so a multi-pattern
     # target ("a-*,b-*") does not fail as a whole when one glob currently
@@ -140,6 +155,13 @@ class ElasticsearchClient(DataSourceClient):
         verify_certs: bool = True,
         index_pattern: Optional[str] = None,
         kibana_url: Optional[str] = None,
+        block_all_indices_search: Any = True,
+        allowed_index_patterns: Optional[str] = None,
+        max_result_size: Any = None,
+        max_aggregations: Any = None,
+        max_aggregation_depth: Any = None,
+        max_aggregation_buckets: Any = None,
+        aggregation_limits_observe_only: Any = False,
     ):
         self.host = host
         self.port = port
@@ -183,6 +205,90 @@ class ElasticsearchClient(DataSourceClient):
         # `.security-7` and friends into the catalog.
         self._targets_system = any(p.startswith(".") for p in self._patterns)
 
+        # Admin-set query guardrails (see elasticsearch_guardrails). Values
+        # arrive from a form round-trip, so coerce rather than trust types.
+        self.block_all_indices_search = as_bool(block_all_indices_search, True)
+        self.allowed_index_patterns = split_patterns(allowed_index_patterns)
+        self.max_result_size = min(positive_int(max_result_size) or self.MAX_RESULT_WINDOW,
+                                   self.MAX_RESULT_WINDOW)
+        self.agg_limits = AggLimits(
+            max_aggregations=positive_int(max_aggregations),
+            max_depth=positive_int(max_aggregation_depth),
+            max_buckets=positive_int(max_aggregation_buckets),
+            observe_only=as_bool(aggregation_limits_observe_only, False),
+        )
+        # Replaced by the resolved budget via `apply_query_timeout`.
+        self.query_timeout_seconds = self.DEFAULT_QUERY_TIMEOUT_SECONDS
+
+    def apply_query_timeout(self, seconds: int) -> None:
+        """Adopt the resolved per-query budget (connection > org > default).
+
+        Called by the code-execution wrapper, which enforces the same budget
+        from outside. Sent to the engine as the search `timeout` and used as
+        the HTTP read timeout, so a slow search ends on the cluster instead of
+        being abandoned while it keeps running there.
+        """
+        n = positive_int(seconds)
+        if n:
+            self.query_timeout_seconds = n
+
+    def _query_http_timeouts(self) -> Tuple[int, int]:
+        # Read just above the engine-side timeout so the engine's own answer
+        # (a timed-out response) arrives before the socket gives up.
+        return (5, self.query_timeout_seconds + 5)
+
+    def _check_target(self, target: Optional[str]) -> None:
+        check_target(target, block_all=self.block_all_indices_search,
+                     allowed_patterns=self.allowed_index_patterns)
+
+    def _target_rules_active(self) -> bool:
+        return self.block_all_indices_search or bool(self.allowed_index_patterns)
+
+    def _check_esql_sources(self, esql: str) -> None:
+        """Check every index an ES|QL query reads, not just its FROM: LOOKUP
+        JOIN indices and `(FROM …)` subqueries too. ENRICH reads a policy's
+        source indices, which this client cannot resolve without cluster
+        privileges, so it is refused while an allowlist is set; a command the
+        parser does not recognise is refused outright."""
+        sources = esql_sources(esql)
+        for target in sources.indices:
+            self._check_target(target)
+        if sources.enrich_policies and self.allowed_index_patterns:
+            raise QueryGuardrailError(
+                f"ENRICH ({', '.join(sources.enrich_policies)}) is not allowed on "
+                "this connection: it reads the enrich policy's source indices, "
+                "which are outside the allowed query targets. Join the data "
+                "with LOOKUP JOIN on an allowed index or query it separately.")
+        if sources.unknown_commands:
+            raise QueryGuardrailError(
+                f"ES|QL command(s) {', '.join(sources.unknown_commands)} are not "
+                "recognised by this connection's query guardrails, so the query "
+                "is refused. Rewrite it with standard commands (FROM, WHERE, "
+                "EVAL, STATS, KEEP, SORT, LIMIT, LOOKUP JOIN, …).")
+
+    def guardrail_summary(self) -> str:
+        """The active limits, phrased for the agent's system prompt."""
+        lines = []
+        if self.block_all_indices_search:
+            lines.append("- Searching ALL indices (`*`, `_all`) is blocked: always name an index or pattern.")
+        if self.allowed_index_patterns:
+            lines.append(f"- Queries may only target: {', '.join(self.allowed_index_patterns)}.")
+        if self.max_result_size < self.MAX_RESULT_WINDOW:
+            lines.append(f"- At most {self.max_result_size} documents per query (size + from); aggregate for more.")
+        lim = self.agg_limits
+        if lim.active and not lim.observe_only:
+            parts = []
+            if lim.max_aggregations:
+                parts.append(f"{lim.max_aggregations} aggregations")
+            if lim.max_depth:
+                parts.append(f"{lim.max_depth} nesting levels")
+            if lim.max_buckets:
+                parts.append(f"{lim.max_buckets:,} buckets (terms/composite sizes multiply when nested)")
+            lines.append(f"- Aggregation limits per query: at most {', '.join(parts)}.")
+        if not lines:
+            return ""
+        return "QUERY LIMITS (set by the admin; queries over them are rejected):\n" + "\n".join(lines) + "\n"
+
     # ---------- transport ---------- #
 
     def _auth(self):
@@ -199,7 +305,8 @@ class ElasticsearchClient(DataSourceClient):
         return None, {}
 
     def _request(self, method: str, path: str, json_body: Any = None,
-                 params: Optional[Dict[str, Any]] = None) -> Any:
+                 params: Optional[Dict[str, Any]] = None,
+                 timeout: Optional[Tuple[int, int]] = None) -> Any:
         auth, extra_headers = self._auth()
         headers = {"Content-Type": "application/json"}
         headers.update(extra_headers)
@@ -210,7 +317,7 @@ class ElasticsearchClient(DataSourceClient):
             params=params,
             auth=auth,
             verify=self.verify_certs,
-            timeout=self.TIMEOUTS,
+            timeout=timeout or self.TIMEOUTS,
             headers=headers,
         )
         if resp.status_code >= 400:
@@ -1052,24 +1159,44 @@ class ElasticsearchClient(DataSourceClient):
                 "knowledge envelope: {\"dashboard\": \"space/title\"} / "
                 "{\"saved_search\": \"space/title\"})")
 
+        self._check_target(index)
+
         body = {k: v for k, v in envelope.items() if k in self.SEARCH_KEYS}
         has_aggs = "aggs" in body or "aggregations" in body
         if "size" not in body:
-            body["size"] = 0 if has_aggs else 100
+            body["size"] = 0 if has_aggs else min(100, self.max_result_size)
         window = int(body.get("size") or 0) + int(body.get("from") or 0)
-        if window > self.MAX_RESULT_WINDOW:
-            raise ValueError(
-                f"size + from must be <= {self.MAX_RESULT_WINDOW}; "
-                "narrow the query or aggregate instead"
+        if window > self.max_result_size:
+            raise QueryGuardrailError(
+                f"size + from must be <= {self.max_result_size} on this "
+                "connection; narrow the query, page with search_after, or "
+                "aggregate instead"
             )
-        body.setdefault("timeout", "60s")
+        for key in ("aggs", "aggregations"):
+            if key in body:
+                check_aggregations(body[key], self.agg_limits,
+                                   connection=getattr(self, "_bow_connection_name", None))
+        # The engine-side timeout is the connection's budget. A query may ask
+        # for less, never for more; an unreadable value gets the budget.
+        asked = parse_duration_seconds(body.get("timeout"))
+        if asked is None or asked <= 0 or asked > self.query_timeout_seconds:
+            body["timeout"] = f"{self.query_timeout_seconds}s"
 
         # ignore_unavailable + allow_no_indices so a multi-pattern target like
         # "a-*,b-*" doesn't 404 when one pattern currently matches nothing.
         result = self._request(
             "POST", f"/{index}/_search", json_body=body,
             params=dict(self.LENIENT_TARGET),
+            timeout=self._query_http_timeouts(),
         )
+        # On timeout the engine answers 200 with whatever shards finished in
+        # time. Partial counts read as real answers ("12 errors") — refuse them.
+        if result.get("timed_out"):
+            raise QueryGuardrailError(
+                f"Elasticsearch timed out after {body['timeout']} and returned "
+                "partial results only. Narrow the time range or index pattern, "
+                "or simplify the aggregation."
+            )
 
         if has_aggs:
             rows = self._flatten_aggregations(result.get("aggregations") or {})
@@ -1101,7 +1228,7 @@ class ElasticsearchClient(DataSourceClient):
                     "lte": spec.get("latest") or "now"}}}],
             }},
             "sort": [{"@timestamp": {"order": "desc", "unmapped_type": "date"}}],
-            "size": int(spec.get("limit") or spec.get("size") or 100),
+            "size": int(spec.get("limit") or spec.get("size") or min(100, self.max_result_size)),
         }
         return self.execute_query(json.dumps(body))
 
@@ -1177,8 +1304,16 @@ class ElasticsearchClient(DataSourceClient):
 
         Response shape: {columns:[{name,type}], rows:[[...]]}.
         """
+        if self._target_rules_active():
+            for target in sql_targets(sql):
+                self._check_target(target)
+        body: Dict[str, Any] = {"query": sql,
+                                "request_timeout": f"{self.query_timeout_seconds}s"}
+        if self.max_result_size < self.MAX_RESULT_WINDOW:
+            # Only the first page is read, so fetch_size is the row cap.
+            body["fetch_size"] = self.max_result_size
         result = self._request("POST", "/_sql", params={"format": "json"},
-                               json_body={"query": sql})
+                               json_body=body, timeout=self._query_http_timeouts())
         cols = [c.get("name") for c in (result.get("columns") or [])]
         return pd.DataFrame(result.get("rows") or [], columns=cols or None)
 
@@ -1187,7 +1322,14 @@ class ElasticsearchClient(DataSourceClient):
 
         Response shape: {columns:[{name,type}], values:[[...]]}.
         """
-        result = self._request("POST", "/_query", json_body={"query": esql})
+        if self._target_rules_active():
+            self._check_esql_sources(esql)
+        if self.max_result_size < self.MAX_RESULT_WINDOW:
+            # ES|QL takes the smallest LIMIT in the pipe, so appending one
+            # caps the rows without changing a tighter limit the query set.
+            esql = f"{esql.rstrip().rstrip('|').rstrip()}\n| LIMIT {self.max_result_size}"
+        result = self._request("POST", "/_query", json_body={"query": esql},
+                               timeout=self._query_http_timeouts())
         cols = [c.get("name") for c in (result.get("columns") or [])]
         return pd.DataFrame(result.get("values") or [], columns=cols or None)
 
@@ -1418,7 +1560,7 @@ class ElasticsearchClient(DataSourceClient):
         return f"""
 Elasticsearch cluster at {self.base_url}
 {scope}
-This is a LOG / OBSERVABILITY search source. Tables are indices, patterns
+{self.guardrail_summary()}This is a LOG / OBSERVABILITY search source. Tables are indices, patterns
 (`logs-app-*` — the collapsed set of rolling daily indices), aliases, and data
 streams. The index *mapping* is the schema, so every field below is real.
 

@@ -63,7 +63,7 @@
                                         <NuxtLink :to="automationLink(auto)" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer">
                                             <UIcon :name="automationIcon(auto)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                                             <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ auto.label }}</span>
-                                            <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(auto.cron_schedule) }}</span>
+                                            <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(auto.cron_schedule, auto.run_once_at) }}</span>
                                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="auto.is_active ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
                                         </NuxtLink>
                                     </li>

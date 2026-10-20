@@ -2,8 +2,10 @@ import asyncio
 import base64
 import json
 
+from app.ai.llm.header_injection import IdentityHeaders
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncGenerator, AsyncIterator, Optional
 
@@ -156,6 +158,7 @@ class BedrockClient(LLMClient):
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
         extra_headers: Optional[dict] = None,
+        identity_headers: Optional[IdentityHeaders] = None,
     ):
         super().__init__()
         if auth_mode not in self._SUPPORTED_AUTH_MODES:
@@ -199,16 +202,20 @@ class BedrockClient(LLMClient):
                 "bedrock-runtime", region_name=region, config=_http_config()
             )
 
-        if extra_headers:
+        if extra_headers or identity_headers is not None:
             # Same request-created hook the api_key Bearer injection uses. It
             # fires after SigV4 signing, and the signature only covers signed
             # headers, so appending unsigned custom headers here is safe for
-            # every auth mode.
-            _headers = dict(extra_headers)
+            # every auth mode. Identity headers resolve here, per request, so
+            # a value that changes mid-run reaches every call.
+            _headers = dict(extra_headers or {})
 
             def _add_extra_headers(request, **kwargs):
                 for name, value in _headers.items():
                     request.headers[name] = value
+                if identity_headers is not None:
+                    for name, value in identity_headers().items():
+                        request.headers[name] = value
 
             self.client.meta.events.register(
                 "request-created.bedrock-runtime.*", _add_extra_headers
@@ -363,7 +370,9 @@ class BedrockClient(LLMClient):
                 # Always signal end of stream so the async generator unblocks
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        future = loop.run_in_executor(_STREAM_EXECUTOR, _sync_stream)
+        # The executor thread doesn't inherit contextvars; carry them so the
+        # per-request identity headers see this run's identity.
+        future = loop.run_in_executor(_STREAM_EXECUTOR, contextvars.copy_context().run, _sync_stream)
 
         while True:
             chunk = await queue.get()
@@ -525,7 +534,9 @@ class BedrockClient(LLMClient):
             finally:
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
-        future = loop.run_in_executor(_STREAM_EXECUTOR, _sync_stream)
+        # The executor thread doesn't inherit contextvars; carry them so the
+        # per-request identity headers see this run's identity.
+        future = loop.run_in_executor(_STREAM_EXECUTOR, contextvars.copy_context().run, _sync_stream)
 
         # State for tracking open tool calls and reasoning blocks
         open_calls: dict[int, dict] = {}  # block_index → {id, name, args_buffer}

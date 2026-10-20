@@ -1056,7 +1056,9 @@
       }, { ref: panelRef }),
       document.body) : null;
 
-    return h('span', { className: 'inline-flex align-middle' }, [
+    // data-bow-info: the polish picker resolves a pick on this button to the
+    // card that hosts it (card > positioning div > this span).
+    return h('span', { className: 'inline-flex align-middle', 'data-bow-info': '1' }, [
       h('button', {
         key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
@@ -1926,7 +1928,7 @@
       var raw = el.getAttribute('data-bow-viz');
       var byId = null;
       if (raw && !/^\d+$/.test(raw)) byId = window.vizById(raw);
-      targets.push({ rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
+      targets.push({ ownerIndex: i, rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
     }
     var markerPositions = [];
     var markers = targets.map(function(t, i) {
@@ -1943,7 +1945,9 @@
         }
         markerPositions.push({ left: left, top: top });
       }
-      return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'aria-label': 'Details',
+      // data-bow-info-for: index of the marked element in document order, so
+      // the polish picker can resolve this detached marker to its owner.
+      return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'data-bow-info-for': String(t.ownerIndex), 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
         style: { position: 'fixed', top: top, left: left, zIndex: 99998 },
         className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface/80 backdrop-blur text-ink-3 hover:text-ink border border-line shadow-card transition-colors' }, _infoGlyph(14));

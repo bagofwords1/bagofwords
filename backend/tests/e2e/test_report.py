@@ -34,6 +34,7 @@ def test_report_creation(
     assert isinstance(report["widgets"], list)
 
 
+@pytest.mark.e2e
 def test_report_create_and_publish(
     create_report,
     create_user,

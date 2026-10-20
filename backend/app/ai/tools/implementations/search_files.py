@@ -8,13 +8,24 @@ Two paths:
      directory and grep full file contents — exhaustive but slower. Used when
      the catalog isn't indexed yet, or when the caller forces `deep`.
 
-For providers that don't populate keywords (SharePoint / OneDrive / Drive) the
-index path finds nothing and it falls through to the live provider search — so
-their behavior is unchanged.
+For providers that don't populate keywords (Graph SharePoint / OneDrive / Drive)
+the index path finds nothing and it falls through to the live provider search —
+so their behavior is unchanged. SharePoint Server with content indexing uses the
+keyword catalog only when the connection runs as a service account.
+
+Connectors whose live search is only a filename walk of the source (SharePoint
+2010: one SOAP request per folder per page, minutes on a large library) answer
+from the catalog whenever one exists — keyword index or, in metadata mode,
+plain filename/path matching — and walk the source live only with deep=true or
+when there is no catalog. Every live search gets a deadline; clients that
+honor it (SharePoint 2010) stop crawling and return what they found so far.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import re
+import time
 from typing import Any, AsyncIterator, Dict, List, Type
 
 from pydantic import BaseModel
@@ -23,8 +34,9 @@ from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import FileEntry, SearchFilesInput, SearchFilesOutput
-from app.data_sources.clients.base import Capability
+from app.data_sources.clients.base import Capability, SearchStopped
 
+from ._file_catalog import entries_from_tables
 from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
 # Keys under a catalog row's metadata_json that may carry a keyword index.
@@ -79,6 +91,60 @@ def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:
     return out
 
 
+def _live_search_is_name_scan(connection_type, config) -> bool:
+    """True when the connector's live search only walks the source matching
+    filenames/paths (no provider-side search service). For those the catalog
+    holds the same names, so a live walk only buys freshness and costs a full
+    crawl. SharePoint 2010 has no usable search API over SOAP."""
+    if isinstance(config, str):
+        try:
+            config = json.loads(config or "{}")
+        except ValueError:
+            config = {}
+    return connection_type == "sharepoint_onprem" and str((config or {}).get("api_mode") or "") == "2010"
+
+
+def _catalog_name_search(catalog: List[Dict[str, Any]], query: str, max_results: int) -> List[Dict[str, Any]]:
+    """Match a query against catalog filenames and paths (no keyword index).
+
+    Same scoring as the keyword index: the whole query as a case-insensitive
+    substring of the path scores high; each query token found in the path
+    adds one. Ties keep a stable path order."""
+    q = (query or "").strip().lower()
+    qtokens = set(_WORD_RE.findall(q))
+    scored = []
+    for e in catalog:
+        hay = str(e.get("path") or e.get("name") or "").lower()
+        score = (5 if q and q in hay else 0) + sum(1 for qt in qtokens if qt in hay)
+        if score > 0:
+            scored.append((score, hay, e))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return [FileEntry(**e).model_dump() for _, _, e in scored[:max_results]]
+
+
+_STOP_REASONS = {
+    "deadline": "it reached its time limit",
+    "cancelled": "it was cancelled",
+    "folder_limit": "it reached the folder limit for a live search",
+    "catalog_limit": "it reached the connection's Max files cap",
+}
+
+
+async def _last_indexed_at(db, connection_id) -> str | None:
+    """When the connection's shared catalog last finished indexing (UTC ISO), or None."""
+    from sqlalchemy import select
+
+    from app.models.connection_indexing import ConnectionIndexing, ConnectionIndexingStatus
+    last = (await db.execute(
+        select(ConnectionIndexing.finished_at).where(
+            ConnectionIndexing.connection_id == str(connection_id),
+            ConnectionIndexing.user_id.is_(None),
+            ConnectionIndexing.status == ConnectionIndexingStatus.COMPLETED.value,
+        ).order_by(ConnectionIndexing.finished_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    return last.replace(microsecond=0).isoformat() + "Z" if last is not None else None
+
+
 class SearchFilesTool(Tool):
     # Capability the resolved connection must expose. Overridden by
     # SearchEmailsTool so the same search path backs a mailbox (SEARCH_EMAILS).
@@ -95,7 +161,8 @@ class SearchFilesTool(Tool):
                 "Search files by free-text query in a Files & Directories, "
                 "SharePoint, OneDrive, or Google Drive connection. Matches "
                 "filename AND content — including inside PDF, Word, PowerPoint, "
-                "Excel and CSV. Fast: uses the keyword index built when the "
+                "Excel, CSV and email files (.eml/.msg: headers, body AND the "
+                "text of their attachments). Fast: uses the keyword index built when the "
                 "connection was indexed; a zero-hit index lookup automatically "
                 "falls through to a live content scan. If a term you're sure is "
                 "in a file isn't found, retry with deep=true for an exhaustive "
@@ -146,6 +213,7 @@ class SearchFilesTool(Tool):
         org = runtime_ctx.get("organization")
         if db is not None and org is not None:
             from sqlalchemy import select
+
             from app.models.connection import Connection
             c = (await db.execute(
                 select(Connection).where(
@@ -174,73 +242,151 @@ class SearchFilesTool(Tool):
                 "observation": {"summary": msg, "success": False},
             })
 
-        # 1. Fast path: keyword index on the cached catalog (unless deep).
+        # 1. Fast path: keyword index on the cached catalog.
         #    Scoped to THIS connection's ConnectionTable rows — the per-data-
         #    source schema unions every connection, which would leak one
         #    connection's files into another's search results.
         entries: List[Dict[str, Any]] = []
         used_index = False
-        if not data.deep:
+        indexed_at = None
+        # Name-scan connectors (see _live_search_is_name_scan) with a catalog
+        # but no keyword index match catalog names instead of crawling.
+        name_scan = False
+        catalog_names = False
+        catalog_total = 0
+        # The keyword index runs even for deep=true: for connectors whose live
+        # search matches filenames only (SharePoint Server) the index IS the
+        # content search, so a deep scan is unioned with it, never a downgrade.
+        if True:
             conn_id = await self._resolve_connection_id(runtime_ctx, data.connection_id)
             if conn_id is not None:
                 try:
                     from sqlalchemy import select
-                    from app.models.connection_table import ConnectionTable
+
                     from app.models.connection import Connection
-                    connection_type = await runtime_ctx["db"].scalar(
-                        select(Connection.type).where(Connection.id == str(conn_id))
-                    )
+                    from app.models.connection_table import KIND_TABLE, ConnectionTable
+                    policy = (await runtime_ctx["db"].execute(
+                        select(Connection.type, Connection.auth_policy, Connection.config).where(Connection.id == str(conn_id))
+                    )).first()
+                    connection_type, auth_policy, conn_config = tuple(policy) if policy else (None, None, None)
+                    name_scan = _live_search_is_name_scan(connection_type, conn_config)
                     tables = (await runtime_ctx["db"].execute(
                         select(ConnectionTable).where(ConnectionTable.connection_id == str(conn_id))
                     )).scalars().all()
-                    if connection_type in ("sharepoint_onprem", "documentum"):
-                        # Always check the caller's identity live (Windows /
-                        # Documentum ACLs). Do not fall back to a shared
-                        # inventory on auth failure.
+                    if connection_type in ("sharepoint_onprem", "documentum") and auth_policy != "system_only":
+                        # Per-user identities (Windows / Documentum ACLs) are
+                        # checked live; the shared catalog was crawled as one
+                        # identity and must not stand in for the caller's. A
+                        # service-account (system_only) connection runs every
+                        # call as that same account, so its keyword catalog is
+                        # exactly what a live crawl would see.
                         tables = []
                     entries = _index_search(tables, data.query, data.max_results)
                     used_index = any(
                         (getattr(t, "metadata_json", None) or {}).get(k, {}).get("keywords") is not None
                         for t in (tables or []) for k in _FILE_METADATA_KEYS
                     )
+                    if used_index:
+                        indexed_at = await _last_indexed_at(runtime_ctx["db"], conn_id)
+                    elif name_scan:
+                        catalog = entries_from_tables(
+                            t for t in (tables or []) if getattr(t, "kind", KIND_TABLE) == KIND_TABLE
+                        )
+                        if catalog:
+                            catalog_names, catalog_total = True, len(catalog)
+                            entries = _catalog_name_search(catalog, data.query, data.max_results)
+                            indexed_at = await _last_indexed_at(runtime_ctx["db"], conn_id)
+                            if indexed_at is None:
+                                last = max((t.updated_at for t in tables if getattr(t, "updated_at", None)), default=None)
+                                indexed_at = last.replace(microsecond=0).isoformat() + "Z" if last else None
                 except Exception:
                     used_index = False
+                    catalog_names = False
+                    entries = []
 
-        # 2. Fall back to a live scan when not indexed, or deep requested, or the
-        #    index returned nothing (the term may be deep in a file's body).
-        if data.deep or not used_index or not entries:
+        # 2. Live scan when not indexed, or deep requested, or the index
+        #    returned nothing (the term may be deep in a file's body). With
+        #    deep=true the live hits are merged after the index hits.
+        #    A name-scan connector with a catalog goes live only with deep=true:
+        #    its live search matches the same names the catalog already has.
+        live_too = False
+        stop_reason = None
+        if name_scan and (used_index or catalog_names):
+            go_live = data.deep
+        else:
+            go_live = data.deep or not used_index or not entries
+        if go_live:
             client, err = await resolve_file_client(
                 runtime_ctx, data.connection_id, self._required_capability
             )
             if err:
                 # If the index gave us something, return that rather than erroring.
-                if entries:
-                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
+                if entries or catalog_names:
+                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at,
+                                     catalog_names=catalog_names, catalog_total=catalog_total)
                     return
                 yield _fail(err)
                 return
+            # The tool must answer before the runner's timeout: a timed-out
+            # tool leaves the UI spinning and the runner retries it, starting
+            # a second crawl. Clients that honor `deadline` stop by
+            # themselves; `wait_for` is the backstop for those that don't
+            # (cancelling it signals the worker thread to stop too).
+            budget_s, hard_s = self._live_search_budget()
+            files = []
             try:
-                files = await client.asearch_files(data.query)
+                files = await asyncio.wait_for(
+                    client.asearch_files(data.query, deadline=time.monotonic() + budget_s),
+                    timeout=hard_s,
+                )
+            except SearchStopped as stop:
+                files, stop_reason = stop.files, stop.stop_reason
+            except TimeoutError:
+                if not (entries or catalog_names):
+                    yield _fail(
+                        f"The live search did not finish within {hard_s}s and was stopped. "
+                        "Use more specific words, or list_files with folder_id/name_pattern."
+                    )
+                    return
+                stop_reason = "deadline"
             except Exception as e:
-                if entries:
-                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
+                if entries or catalog_names:
+                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at,
+                                     catalog_names=catalog_names, catalog_total=catalog_total)
                     return
                 from app.ai.tools.implementations._file_tool_common import friendly_tool_error
                 _cname = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
                 yield _fail(friendly_tool_error(self._operation_name, _cname, e))
                 return
-            files = files[: data.max_results]
-            entries = [FileEntry(
+            live = [FileEntry(
                 id=f.get("id"), name=f.get("name"),
                 path=f.get("path") if isinstance(f.get("path"), str) else None,
                 mime_type=f.get("mime_type"), size=f.get("size"),
-                modified_at=f.get("modified_at"),
+                modified_at=f.get("modified_at"), created_at=f.get("created_at"),
                 sender=f.get("sender") or f.get("from"),
                 web_url=f.get("web_url"),
             ).model_dump() for f in files]
-            used_index = False
+            if entries or catalog_names:
+                seen = {str(e["id"]).casefold() for e in entries}
+                entries = entries + [e for e in live if str(e["id"]).casefold() not in seen]
+                live_too = True
+            else:
+                entries, used_index = live, False
+            entries = entries[: data.max_results]
 
-        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
+        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at, live_too=live_too,
+                         catalog_names=catalog_names, catalog_total=catalog_total, stop_reason=stop_reason)
+
+    def _live_search_budget(self) -> tuple:
+        """(deadline for cooperative clients, hard cap for the rest), seconds.
+
+        Derived from the tool's declared timeout so the tool always answers
+        well before the runner's own idle/hard timeouts fire."""
+        try:
+            declared = int(self.metadata.timeout_seconds or 30)
+        except Exception:
+            declared = 30
+        return max(5, declared - 5), declared + 30
 
     #: Max hit rows rendered into the model-facing observation (the planner
     #: never sees the output — names/ids must live here or the model re-searches).
@@ -254,8 +400,24 @@ class SearchFilesTool(Tool):
             bits.append(str(e["path"]))
         return " — ".join(bits) + f" [id={e.get('id')}]"
 
-    def _done(self, data, entries, used_index, runtime_ctx=None) -> ToolEndEvent:
-        how = "keyword index" if used_index else "live scan"
+    def _done(self, data, entries, used_index, runtime_ctx=None, indexed_at=None, live_too=False,
+              catalog_names=False, catalog_total=0, stop_reason=None) -> ToolEndEvent:
+        from_catalog = used_index or catalog_names
+        how = ("keyword index" if used_index else
+               "catalog filename/path match" if catalog_names else "live scan")
+        if from_catalog and indexed_at:
+            how += f", indexed {indexed_at}"
+        if from_catalog and live_too:
+            how += " + live scan"
+        hint = ""
+        if catalog_names and not entries and not live_too:
+            hint = (f" The catalog ({catalog_total} files) holds file names and paths only, not "
+                    "document contents. Try other words from the file name, or deep=true to also "
+                    "scan the source live for files added since the index run.")
+        if stop_reason:
+            hint += (f" The live scan stopped early because {_STOP_REASONS.get(stop_reason, stop_reason)}, "
+                     "so results may be incomplete. Narrow the query, or use list_files with "
+                     "folder_id/name_pattern.")
         # Repeat-enumeration guard — see list_files._end.
         enum_hint = ""
         if runtime_ctx is not None:
@@ -267,6 +429,7 @@ class SearchFilesTool(Tool):
             "summary": (
                 f"Found {len(entries)} {self._item_noun}(s) "
                 f"matching '{data.query}' ({how})"
+                + hint
                 + enum_hint
             ),
             "success": True,
@@ -285,6 +448,11 @@ class SearchFilesTool(Tool):
                 "query": data.query,
                 "file_count": len(entries),
                 "files": entries,
+                "source": ("catalog+live" if from_catalog and live_too else
+                           "catalog" if from_catalog else "live"),
+                "indexed_at": indexed_at if from_catalog else None,
+                "incomplete": bool(stop_reason),
+                "stop_reason": stop_reason,
             },
             "observation": observation,
         })

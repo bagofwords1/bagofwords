@@ -142,16 +142,18 @@ class GetConnectionTool(Tool):
                 )
             )
             conn = conn_q.scalar_one_or_none()
-            if conn is None:
-                yield self._reject(data, "Connection not found in this organization.", "connection_not_found")
-                return
-
-            resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            if not (can_create_agents(resolved) and can_create_on_connection(resolved, str(conn.id))):
+            # Authorize before revealing anything: an unknown id and a
+            # connection the caller can't build on get the same answer, and
+            # the hidden connection's name never appears in it.
+            allowed = False
+            if conn is not None:
+                resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+                allowed = can_create_agents(resolved) and can_create_on_connection(resolved, str(conn.id))
+            if not allowed:
                 yield self._reject(
                     data,
-                    f"You don't have create-agent access on connection '{conn.name}'.",
-                    "permission_denied",
+                    "Connection not found, or you don't have create-agent access on it.",
+                    "connection_not_found",
                 )
                 return
 
@@ -313,7 +315,7 @@ class GetConnectionTool(Tool):
             logger.exception(f"get_connection failed: {e}")
             yield ToolErrorEvent(
                 type="tool.error",
-                payload={"error": f"Connection lookup failed: {e}", "code": "GET_FAILED"},
+                payload={"error": "Connection lookup failed", "code": "GET_FAILED"},
             )
 
     @staticmethod

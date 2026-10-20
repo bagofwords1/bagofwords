@@ -209,7 +209,24 @@ def classify(
     #     the maximum number of tokens allowed (M)")
     # Without these, real overflows fell through to provider_error, which is
     # façade-retried and fallback-eligible: both wrong for a deterministic 400.
-    if status == 400 and any(t in pmsg_low for t in ("maximum context", "context length", "too many tokens", "context_length_exceeded", "prompt is too long", "input is too long", "input token count")):
+    #   - OpenAI's current wordings carry neither marker — Responses API "Your
+    #     input exceeds the context window of this model…", Chat Completions
+    #     "Input tokens exceed the configured limit of N tokens. Your messages
+    #     resulted in M tokens…" — but both set the structured error code
+    #     ``context_length_exceeded``, which is checked first: it survives a
+    #     wording change and is what the SDK exposes on ``exc.code``.
+    #     A structured code is unambiguous, so it needs no HTTP status: on the
+    #     streaming Responses API the rejection arrives as a stream ``error``
+    #     event, which the SDK raises as a bare ``APIError`` (no status_code),
+    #     and LLM.inference_stream_v2 re-raises it as a RuntimeError carrying
+    #     only the message — the code survives only on ``__cause__``.
+    if _structured_error_code(exc, raw) == "context_length_exceeded" or (status == 400 and (
+        any(t in pmsg_low for t in (
+            "maximum context", "context length", "too many tokens", "context_length_exceeded",
+            "prompt is too long", "input is too long", "input token count",
+            "exceeds the context window", "input tokens exceed",
+        ))
+    )):
         return LLMError(
             code="context_length",
             provider=provider,
@@ -353,6 +370,37 @@ def classify(
 
 
 # ---- internals -----------------------------------------------------
+
+_ERROR_CODE_RE = re.compile(r"""['"]code['"]\s*:\s*['"](?P<code>[A-Za-z_]+)['"]""")
+
+
+def _structured_error_code(exc: BaseException, raw: str) -> Optional[str]:
+    """The provider's machine-readable error code (OpenAI ``error.code``).
+
+    The openai SDK puts the decoded ``error`` object on ``exc.body`` and its
+    ``code`` on ``exc.code``. LLM.inference_stream_v2 re-raises provider errors
+    as ``RuntimeError(... from e)``, so the cause chain is walked; a wrapper
+    that kept only ``str(exc)`` may still carry the python-repr body
+    (``'code': 'context_length_exceeded'``), so the text is the fallback. Integer ``code`` attributes (google.genai's HTTP
+    status) are not error codes and are ignored.
+    """
+    seen = 0
+    cur: Optional[BaseException] = exc
+    while cur is not None and seen < 5:  # the wrapper chain is short; bound it anyway
+        code = getattr(cur, "code", None)
+        if isinstance(code, str) and code:
+            return code
+        body = getattr(cur, "body", None)
+        if isinstance(body, dict):
+            inner = body.get("error") if isinstance(body.get("error"), dict) else body
+            c = inner.get("code")
+            if isinstance(c, str) and c:
+                return c
+        cur = cur.__cause__ or cur.__context__
+        seen += 1
+    m = _ERROR_CODE_RE.search(raw or "")
+    return m.group("code") if m else None
+
 
 def _extract_status(exc: BaseException, raw: str) -> Optional[int]:
     """Pull HTTP status off common exception shapes."""

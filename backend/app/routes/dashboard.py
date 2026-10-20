@@ -531,7 +531,8 @@ async def get_published_file_embed_token(
     _, release = await dashboard_access.open_published(db, ref, user)
     if str(file_id) not in dashboard_data.file_ids(release.content or {}):
         raise dashboard_data.not_found()
-    token = mint_file_token(str(file_id))
+    token = mint_file_token(str(file_id), organization_id=str(release.organization_id),
+                            release_id=str(release.id))
     return {"file_id": str(file_id), "token": token, "url": file_embed_url(str(file_id), token)}
 
 
@@ -942,7 +943,9 @@ async def get_draft_file_embed_token(
     _, version = await _draft(db, ref, user)
     if version is None or str(file_id) not in dashboard_data.file_ids(version.content or {}):
         raise dashboard_data.not_found()
-    token = mint_file_token(str(file_id))
+    # The draft lives in its conversation: bound to it, as /r embeds are.
+    token = mint_file_token(str(file_id), organization_id=str(version.organization_id),
+                            report_id=str(version.report_id))
     return {"file_id": str(file_id), "token": token, "url": file_embed_url(str(file_id), token)}
 
 

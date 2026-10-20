@@ -10,6 +10,7 @@ def login(client, email, password):
     return client.post("/api/auth/jwt/login", data={"username": email, "password": password})
 
 
+@pytest.mark.e2e
 @pytest.mark.parametrize("enabled", [False, True])
 def test_public_settings_exposes_only_directory_login_availability(test_client, monkeypatch, enabled):
     monkeypatch.setattr(settings.bow_config, "ldap", LDAPConfig(enabled=enabled,

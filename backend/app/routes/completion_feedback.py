@@ -76,7 +76,7 @@ async def get_completion_feedbacks(
 ) -> List[CompletionFeedbackSchema]:
     """Get all feedbacks for a completion."""
     return await feedback_service.get_completion_feedbacks(
-        db, completion_id, organization
+        db, completion_id, organization, current_user
     )
 
 

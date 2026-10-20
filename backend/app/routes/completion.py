@@ -21,6 +21,8 @@ from app.core.permissions_decorator import requires_permission
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from app.models.report import Report
+from app.schemas.stream_delivery_schema import StreamDeliveryReport, StreamDeliveryVerdict
+from app.streaming.delivery import analyze_client_delivery, instrument_stream
 
 router = APIRouter(tags=["completions"])
 
@@ -133,13 +135,16 @@ async def create_completion(
         or query_stream_flag
     )
     if wants_stream:
-        return await completion_service.create_completion_stream(
+        response = await completion_service.create_completion_stream(
             db,
             report_id,
             completion,
             current_user,
             organization,
         )
+        if isinstance(response, StreamingResponse):
+            response.body_iterator = instrument_stream(response.body_iterator, "kickoff", request=request)
+        return response
 
     # Default to no background execution unless explicitly overridden via `?background=true`
     background = request.query_params.get("background", "false").lower() == "true"
@@ -157,6 +162,7 @@ async def create_completion(
 async def watch_completion_stream(
     report_id: str,
     completion_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
@@ -167,9 +173,40 @@ async def watch_completion_stream(
     second tab) resume live progress. Idempotent and side-effect free, so it
     is safe to retry with backoff.
     """
-    return await completion_service.watch_completion_stream(
+    response = await completion_service.watch_completion_stream(
         db, report_id, completion_id, current_user, organization
     )
+    if isinstance(response, StreamingResponse):
+        response.body_iterator = instrument_stream(
+            response.body_iterator, "watch", completion_id=completion_id, request=request
+        )
+    return response
+
+
+@router.post(
+    "/api/reports/{report_id}/completions/{completion_id}/stream-diagnostics",
+    response_model=StreamDeliveryVerdict,
+)
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def report_stream_delivery(
+    report_id: str,
+    completion_id: str,
+    body: StreamDeliveryReport,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """The browser reports how a live stream reached it.
+
+    Sent only when the browser saw tokens held back on the way (the answer
+    appeared all at once). Logged as a warning so a buffering proxy in a
+    customer's network shows up in our logs instead of only on their screen.
+    Nothing is stored.
+    """
+    return StreamDeliveryVerdict(buffered=analyze_client_delivery(
+        body, report_id=report_id, completion_id=completion_id, request=request,
+    ))
 
 
 @router.get("/api/reports/{report_id}/completions.legacy")

@@ -551,7 +551,7 @@ import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
-import { polishPromptPosition as computePolishPromptPosition } from '~/utils/polishPrompt';
+import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
 import { isNewestVersion, newestVersionOf } from '~/utils/artifactVersionLatest';
 
 const { t } = useI18n();
@@ -730,7 +730,12 @@ function submitPolishPrompt() {
   const artifactTitle = selectedArtifact.value?.title || 'the dashboard';
   const artifactId = selectedArtifact.value?.id || selectedArtifactId.value || '';
   const el = polishSelectedElement.value;
-  const prompt = `Polish the dashboard "${artifactTitle}" (artifact_id: ${artifactId}).\nTarget element:\n\`\`\`html\n${el.htmlSnippet}\n\`\`\`\nInstruction: ${polishInstruction.value.trim()}`;
+  const prompt = buildPolishPrompt({
+    title: artifactTitle,
+    artifactId: String(artifactId),
+    htmlSnippet: el.htmlSnippet,
+    instruction: polishInstruction.value.trim(),
+  });
 
   window.dispatchEvent(new CustomEvent('prompt:prefill', {
     detail: { text: prompt, autoSubmit: true }

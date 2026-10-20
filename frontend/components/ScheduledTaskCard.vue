@@ -7,7 +7,7 @@
     <div class="flex-1 min-w-0">
       <div dir="auto" class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ displayTitle || $t('prompt.untitled') }}</div>
       <div class="flex items-center gap-2 mt-0.5">
-        <span class="text-[11px] text-gray-400">{{ getCronLabel(scheduledPrompt?.cron_schedule) }}</span>
+        <span class="text-[11px] text-gray-400">{{ getCronLabel(scheduledPrompt?.cron_schedule, scheduledPrompt?.run_once_at) }}</span>
         <span
           class="inline-flex items-center gap-1 text-[11px]"
           :class="isActive ? 'text-green-500' : 'text-gray-400'"
@@ -27,6 +27,7 @@ interface ScheduledPromptLike {
   id?: string
   title?: string | null
   cron_schedule?: string
+  run_once_at?: string | null
   is_active?: boolean
   prompt?: { content?: string } | null
 }

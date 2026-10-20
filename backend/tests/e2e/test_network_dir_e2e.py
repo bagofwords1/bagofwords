@@ -39,6 +39,8 @@ from app.models.user import User
 
 from scripts.gen_network_dir_fixtures import generate
 
+pytestmark = pytest.mark.e2e
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -177,6 +179,34 @@ async def _flow(tmp_root: str, writable: bool):
         assert out["success"] is True, out
         assert out["content_type"] == "tabular"
         assert out["row_count"] >= 1
+
+        # 2b. read_file windowed — fixed-stride windows fired independently
+        # (the model does this in parallel, so it cannot chain next_cursor)
+        # must be contiguous and lossless across a text file with multi-byte
+        # characters, and never hand the model a replacement character.
+        unicode_text = (
+            "Invoice ∑ total: 1 234,56 € — café résumé 日本語 emoji 😀🎉 שלום\n"
+            "Zeile zwei: ünïcödé ∆ 中文字符 🧪 and plain ascii tail\n"
+        ) * 40
+        raw = unicode_text.encode("utf-8")
+        Path(tmp_root, "notes_unicode.txt").write_bytes(raw)
+        stride = 1000
+        windows = []
+        for off in range(0, len(raw), stride):
+            w = await _end(ReadFileTool().run_stream(
+                {"connection_id": str(conn_id), "file_id": "notes_unicode.txt",
+                 "offset": off, "length": stride}, ctx))
+            assert w["success"] is True, w
+            assert w["windowed"] is True
+            assert w["encoding"] == "text"
+            assert "\ufffd" not in w["text"]
+            assert w["total_size"] == len(raw)
+            windows.append(w)
+        assert "".join(w["text"] for w in windows) == unicode_text
+        for w in windows[:-1]:
+            assert w["eof"] is False
+            assert w["next_cursor"] is not None
+        assert windows[-1]["eof"] is True and windows[-1]["next_cursor"] is None
 
         # 3. attach_file — durably attach files to the report.
         pdfs = [t.name for t in tables if t.name.endswith(".pdf")][:2]

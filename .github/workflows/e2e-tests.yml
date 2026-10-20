@@ -33,7 +33,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
         
     - name: Install dependencies
       working-directory: ./backend
@@ -43,7 +43,7 @@ jobs:
 
     - name: Check for AI file changes
       id: changes
-      uses: dorny/paths-filter@v3
+      uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
       with:
         filters: |
           ai_files:
@@ -83,8 +83,12 @@ jobs:
       #
       # --durations=50: list the slowest tests in every run, so the next
       # regression in per-test cost shows up in the log instead of the timeout.
+      #
+      # tests/e2e: every e2e-marked test lives there. Without the path the
+      # controller and each worker imported all ~11.5k tests (unit, ai, evals …)
+      # only to deselect them — ~110s of collection per process instead of ~15s.
       run: |
-        uv run pytest -n 4 -m e2e --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread
+        uv run pytest tests/e2e -n 4 -m e2e --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread
 
   # tests/unit carries no pytest marker, so the -m e2e / -m ai steps above never
   # touched it and nothing else ran it either — two MS Fabric OAuth assertions
@@ -99,8 +103,8 @@ jobs:
   # on it.
   unit-tests:
     runs-on: ubuntu-latest
-    # The suite takes ~60 minutes at -n 4 on a hosted runner, so a 60-minute
-    # cap cancelled it on every PR before it could report a result.
+    # The suite takes ~60 minutes at -n 4 on a hosted runner; sandboxed
+    # generated-code tests add child process and Arrow round-trip overhead.
     timeout-minutes: 120
     continue-on-error: true
 
@@ -110,7 +114,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
 
     - name: Install dependencies
       working-directory: ./backend
@@ -141,7 +145,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
 
     - name: Install backend dependencies
       working-directory: ./backend
@@ -240,7 +244,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
 
     - name: Install dependencies
       working-directory: ./backend
@@ -283,7 +287,7 @@ jobs:
       if: steps.changes.outputs.llm_files == 'true'
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: '3.13'
 
     - name: Install dependencies
       if: steps.changes.outputs.llm_files == 'true'
@@ -319,7 +323,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Trigger Docker build workflow
-      uses: peter-evans/repository-dispatch@v3
+      uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
       with:
         token: ${{ secrets.PAT_TOKEN }}
         event-type: e2e-tests-passed

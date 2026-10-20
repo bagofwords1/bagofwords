@@ -102,10 +102,17 @@ class ExtractResult:
     elapsed_ms: int = 0
 
 
-def _source(client):
-    """The extraction source for `client`, or None if it cannot be materialized."""
+def _source(client, sql: str):
+    """The extraction source for `client`, or None if it cannot be materialized.
+
+    Every path that runs a custom-table definition (estimate, preview, refresh)
+    resolves its source here, so this is where the definition is held to a
+    single read-only statement.
+    """
+    from app.ai.code_execution.sql_guard import ensure_read_only
     from app.data_sources.fast.sources import source_for
 
+    ensure_read_only(client, sql)
     return source_for(client)
 
 
@@ -121,7 +128,7 @@ def estimate(client, sql: str) -> Estimate:
     caller falls back to the hard caps. But it downgrades *silently*, so the
     note records what was tried and why it gave up.
     """
-    src = _source(client)
+    src = _source(client, sql)
     if src is None:
         return Estimate(supported=False, note="this connection cannot be materialized")
     try:
@@ -189,7 +196,7 @@ def preview(client, sql: str, limit: int = PREVIEW_ROW_LIMIT) -> tuple[list, lis
     So the bound is applied to the *fetch* instead, which no dialect can
     reinterpret, and the source stops the query once it has enough.
     """
-    src = _source(client)
+    src = _source(client, sql)
     if src is None:
         # No extraction source: the client's execute_query returns a whole
         # DataFrame by contract, so the only bound available is in the SQL.
@@ -223,7 +230,7 @@ def extract_to_artifact(
     caller keeps serving the previous artifact until the swap lands.
     """
     started = time.monotonic()
-    src = _source(client)
+    src = _source(client, sql)
     key = artifacts.new_artifact_key()
     final_path = artifacts.new_artifact_path(connection_id)
     tmp_path = final_path.with_suffix(".tmp")

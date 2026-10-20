@@ -704,7 +704,7 @@ class UserManager(BaseUserManager[User, str]):
     async def on_after_reset_password(self, user: User, request: Optional[Request] = None):
         # A password reset is the one moment where the old sessions are most
         # likely the attacker's, so they must not survive it.
-        await bump_session_epoch(user.id)
+        await revoke_all_user_sessions(user.id)
 
     async def on_after_update(
         self,
@@ -715,7 +715,7 @@ class UserManager(BaseUserManager[User, str]):
         # Same reasoning for a self-service password change. Other profile
         # edits (name, avatar) leave sessions alone.
         if "password" in update_dict or "hashed_password" in update_dict:
-            await bump_session_epoch(user.id)
+            await revoke_all_user_sessions(user.id)
 
     async def _send_reset_password_email(self, user: User, token: str, request: Optional[Request] = None):
         base_url = settings.bow_config.base_url
@@ -1055,6 +1055,19 @@ async def bump_session_epoch(user_id: str) -> None:
         await db.commit()
 
 
+async def revoke_all_user_sessions(user_id: str) -> None:
+    """Bump the session epoch and revoke issued OAuth codes/bearer tokens.
+
+    Used on password change/reset: OAuth access tokens are validated by hash,
+    not by session epoch, so bumping the epoch alone leaves them working.
+    """
+    from app.core.session_revocation import revoke_user_sessions
+    from app.dependencies import async_session_maker
+
+    async with async_session_maker() as db:
+        await revoke_user_sessions(db, user_id)
+
+
 class SessionEpochJWTStrategy(JWTStrategy):
     """JWTStrategy that makes its tokens revocable.
 
@@ -1196,6 +1209,23 @@ async def _update_last_seen(user: User, db: AsyncSession) -> None:
         await db.commit()
     except Exception:
         pass
+
+
+async def current_session_user(
+    jwt_user: Optional[User] = Depends(_jwt_current_user),
+) -> User:
+    """Interactive login session only: no OAuth bearer tokens, no API keys.
+
+    For endpoints that grant authority (OAuth consent). A delegated credential
+    must never be able to mint itself, or another client, a new grant.
+    """
+    if jwt_user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="An interactive login session is required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return jwt_user
 
 
 async def current_user(

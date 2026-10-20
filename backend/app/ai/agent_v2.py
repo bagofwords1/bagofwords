@@ -72,6 +72,51 @@ def repeated_call_final_answer(tool_name: str, times: int) -> str:
     )
 
 
+# Consecutive failed saves to one list before the agent is told to stop
+# retrying, and before the turn is ended. A fix-and-retry usually lands on the
+# first or second retry; a run seen live looped on one error for 30+ minutes.
+LIST_SAVE_WARN_AT = 3
+LIST_SAVE_STOP_AT = 5
+
+
+def list_save_failure_action(streaks: dict, list_id, failed: bool) -> Optional[str]:
+    """Per-list streak of failed submit_list calls in this run.
+
+    Returns 'warn' on the LIST_SAVE_WARN_AT-th consecutive failure, 'stop' from
+    LIST_SAVE_STOP_AT on, else None. A successful save to the list resets it;
+    lists are counted independently."""
+    key = str(list_id or "")
+    if not failed:
+        streaks.pop(key, None)
+        return None
+    n = streaks.get(key, 0) + 1
+    streaks[key] = n
+    if n >= LIST_SAVE_STOP_AT:
+        return "stop"
+    if n == LIST_SAVE_WARN_AT:
+        return "warn"
+    return None
+
+
+def list_save_failure_note(times: int) -> str:
+    return (
+        f"NOTE: saving to this list has now failed {times} times in a row. Read the errors above "
+        "and fix exactly those fields, sending every record in full. If you cannot fix them, stop "
+        "saving and tell the user which records or fields are blocking and why."
+    )
+
+
+def list_save_failure_final_answer(list_name, errors) -> str:
+    name = f"'{list_name}'" if list_name else "the list"
+    last = "; ".join(str(e) for e in (errors or [])[:3])
+    return (
+        f"Stopping: saving to {name} failed {LIST_SAVE_STOP_AT} times in a row, so nothing more was "
+        "saved in this step. Rows saved earlier are kept."
+        + (f" Last error: {last}." if last else "")
+        + " Tell me how to proceed, or ask me to retry with fewer records."
+    )
+
+
 def _issued_args(arguments) -> dict:
     """A tool call's arguments as the model issued them, minus server-side
     annotations (``_progress`` and friends are added after the call)."""
@@ -175,18 +220,21 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # every write_csv in a session renders the same stale widget preview.
 _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
 
-# How many planner iterations a tool-supplied image (a rendered page, a
-# screenshot, a picture read with read_file) stays attached as a vision block.
+# How long a tool-supplied image (a rendered page, a screenshot, a picture
+# read with read_file) stays attached as a vision block on the legacy
+# (non-transcript) channel.
 #
-# It used to be exactly one: the image was extracted from the observation and
-# deleted, so the turn AFTER the read was the only turn that could see it. A
-# task needing the picture *and* something else — "does the screenshot match
-# what this query returns?" — could then never hold both at once, because each
-# fact expired before the other arrived. The model's only escape was to read
-# the image again, one full step per look. Images are the expensive payload
-# (~1-2k tokens each, re-sent on every call), so the window is short — but it
-# must be longer than one, or evidence can never be combined.
-_VISION_IMAGE_RETENTION_LOOPS = 3
+# It used to be exactly one iteration: the image was extracted from the
+# observation and deleted, so the turn AFTER the read was the only turn that
+# could see it. A task needing the picture *and* something else — "does the
+# screenshot match what this query returns?" — could then never hold both at
+# once. Now the newest MAX_RETAINED_IMAGES stay, whole steps at a time, newest
+# first — the same rule the native transcript applies to its tool results (see
+# transcript.retained_prefix), so both paths keep the same pictures.
+from app.ai.context.transcript import (  # noqa: E402
+    MAX_RETAINED_IMAGES as _MAX_RETAINED_IMAGES,
+    retained_prefix as _retained_prefix,
+)
 
 # Uploaded images to attach when the CURRENT completion has none of its own —
 # a follow-up question ("?", "why?") about a picture uploaded a turn ago. Only
@@ -315,6 +363,15 @@ _CONTEXT_OVERFLOW_PATTERNS = (
         r"input token count\s*\((\d[\d,]*)\)\s*exceeds the maximum number of tokens allowed\s*\((\d[\d,]*)\)",
         _re_mod.IGNORECASE,
     ), 1, 2),
+    # OpenAI Chat Completions (current wording, observed on gpt-6-luna):
+    #   "Input tokens exceed the configured limit of 922000 tokens. Your
+    #    messages resulted in 1200007 tokens."                  (limit, actual)
+    # The Responses API says only "Your input exceeds the context window of
+    # this model" — no numbers, so it takes the geometric fallback.
+    (_re_mod.compile(
+        r"configured limit of\s+(\d[\d,]*)\s+tokens?.{0,200}?resulted in\s+(\d[\d,]*)",
+        _re_mod.IGNORECASE | _re_mod.DOTALL,
+    ), 2, 1),
 )
 
 
@@ -370,6 +427,7 @@ from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
 from app.serializers.completion_v2 import serialize_block_v2
 from app.schemas.completion_v2_schema import ArtifactChangeSchema
+from app.schemas.report_api_settings import report_disabled_tools
 from app.streaming.text_streamer import PlanningTextStreamer
 from app.streaming.completion_stream import CompletionEventQueue
 from app.streaming.completion_event_bus import websocket_manager
@@ -382,6 +440,8 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
+from app.services.sub_agent_locks import lock_report, lock_wave
+
 from sqlalchemy import select, func, update as sa_update, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
@@ -395,7 +455,14 @@ from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution, get_usage_attribution
-from app.ai.llm.header_injection import set_llm_identity, reset_llm_identity
+from app.ai.llm.header_injection import (
+    QuestionAgents,
+    agent_ids_from_tool_input,
+    agent_name_for_report,
+    get_llm_identity,
+    reset_llm_identity,
+    set_llm_identity,
+)
 from app.services.mcp_context_injection import IdentityContext
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
@@ -432,6 +499,11 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
+
+    # Tools the report switched off (report.tools). Assigned while the catalog
+    # is built in __init__; the default keeps any earlier reader safe.
+    _disabled_tools: frozenset = frozenset()
+    _report_opt_outs: dict = {}
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
@@ -511,23 +583,46 @@ class AgentV2:
         # Scalar copy (see report_id note below): machine-turn source of the
         # head completion, e.g. 'checkin' for an agent check-in run.
         self._head_trigger_source = getattr(head_completion, "trigger_source", None) if head_completion is not None else None
-        # Stamp the asker's identity for LLM header injection BEFORE the
-        # planner below constructs its LLM client — provider header_injection
-        # rules resolve at client construction. Membership role/attributes need
-        # a DB query, so main_execution enriches this stamp at run start; the
-        # user-level fields cover the common rules (user.email/name/id) for
-        # clients built here in __init__.
+        # Sub-agents (docs/design/sub-agents.md). A child run is mode="subagent" on
+        # a hidden completion whose prompt carries the sub_agents row id; the
+        # parent launches children through the `delegate` tool.
+        self._is_sub_agent = (self.mode == "subagent")
+        # Instructions and skills are scoped by run mode (applicable_modes);
+        # a child sees the chat-mode set, never an empty "subagent" set.
+        self._instruction_mode = "chat" if self._is_sub_agent else self.mode
+        self._sub_agent_id = None
+        try:
+            _hp = getattr(head_completion, "prompt", None) if head_completion is not None else None
+            self._sub_agent_id = (_hp or {}).get("sub_agent_id") if isinstance(_hp, dict) else None
+        except Exception:
+            self._sub_agent_id = None
+        self._sub_agent = None                 # dict loaded from the sub_agents row at run start
+        self._sub_agent_allowed_tools = None   # frozenset of tool names (profile ∩ catalog)
+        self._sub_agent_finished = False       # finish_subtask observed this run
+        self._sub_agent_finish_nudges = 0
+        self._sub_agent_tokens_used = 0          # LLM tokens summed over this child's planner calls
+        self._sub_agent_tokens_exhausted_at = None  # loop index at which the token cap was reached
+        self._sub_agent_tokens_exhausted = False
+        self._planner_steps_exhausted = False
+        self._wave_pending = False
+        # Stamp the asker's identity for LLM header injection. Rules resolve per
+        # request, so this covers calls made before main_execution (which
+        # enriches the stamp with membership role/attributes at run start).
+        # agent.name's start value comes from the report's focus / attachments,
+        # already loaded with it.
         try:
             _init_user = getattr(head_completion, "user", None) if head_completion else None
         except Exception:
             _init_user = None
+        _init_agent_name = agent_name_for_report(report, data_sources)
         set_llm_identity(
             IdentityContext(
                 email=getattr(_init_user, "email", "") or "",
                 name=getattr(_init_user, "name", "") or "",
                 user_id=str(getattr(_init_user, "id", "") or ""),
+                agent_name=_init_agent_name,
             )
-            if _init_user is not None
+            if _init_user is not None or _init_agent_name
             else None
         )
         self.system_completion = system_completion
@@ -632,7 +727,7 @@ class AgentV2:
             # so a picture the agent happened to read or produce once would
             # ride along as a user attachment on every later turn.
             # Tool-supplied images already reach the model through
-            # _collect_vision_images, bounded by _VISION_IMAGE_RETENTION_LOOPS.
+            # _collect_vision_images, bounded by _MAX_RETAINED_IMAGES.
             # They stay in analysis_files, which is what the code sandbox
             # reads by path.
             def _is_agent_file(f) -> bool:
@@ -661,8 +756,8 @@ class AgentV2:
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
 
-        # Vision blocks harvested from tool observations, kept for
-        # _VISION_IMAGE_RETENTION_LOOPS iterations: [{"loop_index", "images"}].
+        # Vision blocks harvested from tool observations, newest
+        # _MAX_RETAINED_IMAGES kept: [{"loop_index", "images"}].
         # Held here rather than left on the observation so the base64 never
         # reaches the JSON-serialized <past_observations> / <last_observation>
         # prompt text — retention and serialization stay independent.
@@ -776,7 +871,7 @@ class AgentV2:
             widget=self.widget,
             organization_settings=self.organization_settings,
             build_id=build_id,
-            mode=self.mode,
+            mode=self._instruction_mode,
         )
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
@@ -875,6 +970,43 @@ class AgentV2:
                 t for t in all_catalog_dicts
                 if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
             ]
+
+        # The conversation's API settings (report.follow_ups /
+        # suggest_instructions / tools), read once so a PUT mid-run cannot
+        # leave one turn on a mix of old and new settings. Every turn on the
+        # report (sub-agents, fan-in, wakes, steers) reads the same report.
+        self._disabled_tools = report_disabled_tools(self.report)
+        self._report_opt_outs = {
+            key: getattr(self.report, key, None) for key in ("follow_ups", "suggest_instructions")
+        }
+
+        # Sub-agent tools: hidden when the org setting is off, and on machine
+        # turns that cannot receive a later fan-in turn (the fan-in is a new
+        # turn on the report, so a one-shot scheduled run would never see its
+        # results). Children never hold them (profiles). Eval runs keep them:
+        # the eval watcher waits for open waves and the fan-in reply
+        # (TestRunService._sub_agent_waves_pending), so a suite can pin the
+        # delegation posture and the finish contract.
+        from app.services.sub_agent_service import sub_agents_enabled as _sub_agents_enabled
+        self._sub_agents_enabled = bool(
+            _sub_agents_enabled(self.organization_settings)
+            and not self._is_sub_agent
+            and getattr(self.report, 'report_type', 'regular') in ('regular', 'test')
+            and "delegate" not in self._disabled_tools
+        )
+        if not self._sub_agents_enabled:
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('delegate', 'read_sub_agent', 'stop_sub_agent')]
+
+        if not (self._sub_agents_enabled or (self._is_sub_agent and _sub_agents_enabled(self.organization_settings))):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'message_sub_agent']
+
+        # Tools the conversation switched off (report.tools; resolved above,
+        # before the feature gates that also drive prompt directives). Hidden
+        # here, which also keeps them out of the browser candidates below;
+        # refused at dispatch if called anyway; native MCP / list tools follow
+        # their gateway (execute_mcp / submit_list) at registration.
+        if self._disabled_tools:
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in self._disabled_tools]
 
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
@@ -1266,6 +1398,49 @@ class AgentV2:
         "list_files", "search_files", "read_file", "grep_files",
     )
 
+    def _question_agent_pool(self) -> list:
+        """Agents a tool call may name: the run's working set plus the report's
+        attachments (set_report_agents can attach one mid-run)."""
+        pool = list(self.data_sources or [])
+        try:
+            if self.report is not None:
+                pool += list(getattr(self.report, "data_sources", None) or [])
+        except Exception:
+            pass
+        return pool
+
+    @staticmethod
+    def _stamp_agent_name(value: str):
+        """Set agent.name on the ambient LLM identity; returns the reset token."""
+        from dataclasses import replace as _dc_replace
+        current = get_llm_identity()
+        if current is None:
+            return set_llm_identity(IdentityContext(agent_name=value)) if value else None
+        return set_llm_identity(_dc_replace(current, agent_name=value))
+
+    def _note_question_agents(self, outcomes) -> None:
+        """Fold the agents a finished tool batch used into the question's
+        agent.name header value. Identity headers resolve per request, so
+        re-stamping the ambient identity reaches every later LLM call."""
+        qa = getattr(self, "_question_agents", None)
+        if qa is None:
+            return
+        try:
+            pool = self._question_agent_pool()
+            changed = False
+            for o in outcomes or []:
+                if o.get("skipped"):
+                    continue
+                changed |= qa.add_tool(o.get("tool_name"), o.get("tool_input"), pool, o.get("tool_output"))
+            # File tools resolve their agent while running and record it here.
+            changed |= qa.add(sorted(self.used_agent_ids or ()), pool)
+            if not changed:
+                return
+            self._stamp_agent_name(qa.value())
+            self._mlog(f"agent_name header={qa.value()!r}")
+        except Exception:
+            logger.warning("[headers] failed to update agent.name after tool batch", exc_info=True)
+
     async def _persist_focus_on_use(self, tool_name: str, tool_input, observation) -> None:
         """Commit the report's focus to the agent(s) a tool actually used —
         the moment of proven relevance — so focus is a side-effect of use,
@@ -1440,7 +1615,12 @@ class AgentV2:
             # Render the union: persisted focus + this run's working set (agents
             # a search already surfaced) — search results never decay mid-run.
             focus_set = {str(x) for x in (focus_ids or [])} | _loaded
-            sections = [s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set]
+            # The built-in BOW section (Agent Lists, training history) is not an
+            # agent and is never in the roster, so focus would always drop it —
+            # leaving the submit_* tools with no way to read their lists back.
+            from app.schemas.bow_source_schema import SOURCE_ID as _BOW_ID
+            sections = [s for s in schemas_ctx.data_sources
+                        if str(s.info.id) in focus_set or str(s.info.id) == _BOW_ID]
             # Focused agents attached AFTER the run-start schema cache was
             # primed have no cached section — build theirs fresh.
             missing = focus_set - {str(s.info.id) for s in sections}
@@ -1611,7 +1791,7 @@ class AgentV2:
         if not sp_id:
             return None
         try:
-            from app.models.scheduled_prompt import ScheduledPrompt
+            from app.models.scheduled_prompt import ScheduledPrompt, describe_schedule
             from sqlalchemy import func as sa_func
 
             sp = await self.db.get(ScheduledPrompt, sp_id)
@@ -1635,7 +1815,10 @@ class AgentV2:
 
             return {
                 "cron_schedule": sp.cron_schedule,
-                "cron_label": cron_labels.get(sp.cron_schedule, sp.cron_schedule),
+                "cron_label": (
+                    describe_schedule(sp.cron_schedule, sp.run_once_at) if sp.run_once_at
+                    else cron_labels.get(sp.cron_schedule, sp.cron_schedule)
+                ),
                 "total_past_runs": past_run_count or 0,
                 "last_run_at": sp.last_run_at.isoformat() if sp.last_run_at else None,
                 "created_at": sp.created_at.isoformat() if sp.created_at else None,
@@ -1715,8 +1898,9 @@ class AgentV2:
 
     def _collect_vision_images(self, observation, loop_index: int) -> list[ImageInput]:
         """Vision blocks for this planner call: any image the current
-        observation carries, plus images from the last
-        _VISION_IMAGE_RETENTION_LOOPS iterations that haven't aged out.
+        observation carries, plus earlier steps' images while the newest
+        _MAX_RETAINED_IMAGES still hold them (whole steps, newest first, the
+        newest step always kept — transcript.retained_prefix).
 
         The images are moved OFF the observation (replaced with the
         `images_provided_as_vision` marker) so the base64 never reaches the
@@ -1741,12 +1925,33 @@ class AgentV2:
                     {"loop_index": loop_index, "images": fresh}
                 )
 
-        cutoff = loop_index - _VISION_IMAGE_RETENTION_LOOPS
-        self._recent_vision_images = [
-            entry for entry in self._recent_vision_images
-            if entry["loop_index"] > cutoff
-        ]
+        newest_first = list(reversed(self._recent_vision_images))
+        keep = _retained_prefix([len(e["images"]) for e in newest_first], protected=1)
+        self._recent_vision_images = list(reversed(newest_first[:keep]))
         return [img for entry in self._recent_vision_images for img in entry["images"]]
+
+    def _planner_images(self, planner_input, user_images: list, tool_images: list) -> Optional[list]:
+        """The side-channel images (``planner_input.images``) for one request.
+
+        One channel per image. When the request renders the native transcript
+        (PlannerV3 with the transcript path on), tool images already ride the
+        transcript's own tool results, bounded by Transcript's retention —
+        adding them here too sent the last steps' pages twice per request. The
+        legacy planner / non-transcript prompt have no other channel, so they
+        keep both. User uploads only ever ride this channel.
+        """
+        rides_transcript = False
+        if tool_images:
+            try:
+                from app.ai.agents.planner import transcript_bridge
+                rides_transcript = (
+                    isinstance(self.planner, PlannerV3)
+                    and transcript_bridge.enabled(planner_input)
+                )
+            except Exception:
+                rides_transcript = False
+        images = list(user_images or []) + ([] if rides_transcript else list(tool_images or []))
+        return images or None
 
     async def estimate_prompt_tokens(self) -> dict:
         """Approximate the total planner prompt tokens without executing tools."""
@@ -1823,6 +2028,8 @@ class AgentV2:
         runs use the laxer eval_judge_model_allowed gate instead — this one
         guards every live chat completion.)
         """
+        if getattr(self, "_is_sub_agent", False):
+            return False
         setting = self.organization_settings.get_config("enable_llm_judgement")
         return (
             bool(setting and setting.value)
@@ -2005,6 +2212,8 @@ class AgentV2:
             harness_notes_enabled = bool(getattr(_notes_cfg, "value", False)) if _notes_cfg is not None else False
             if not harness_notes_enabled:
                 unique = [t for t in unique if t['name'] not in ('create_note', 'edit_note')]
+            # report.tools covers every phase of the turn, harness included.
+            unique = [t for t in unique if t['name'] not in self._disabled_tools]
             knowledge_tool_catalog = [ToolDescriptor(**t) for t in unique]
 
             if not knowledge_tool_catalog:
@@ -2062,6 +2271,7 @@ class AgentV2:
                     last_observation=observation,
                     past_observations=self.context_hub.observation_builder.tool_observations,
                     tool_catalog=knowledge_tool_catalog,
+                    disabled_tools=sorted(self._disabled_tools),
                     mode="knowledge",
                     # Let the model batch independent calls (search + verify) in
                     # one decision; execution below still runs them serially.
@@ -2207,11 +2417,13 @@ class AgentV2:
                     tool_execution = _harness_intents.get(_h_action_index)
 
                     tool = self.registry.get(tool_name)
-                    if not tool:
-                        logger.warning(f"Knowledge harness: unknown tool '{tool_name}'")
+                    disabled = tool_name in self._disabled_tools
+                    if not tool or disabled:
+                        logger.warning(f"Knowledge harness: {'disabled' if disabled else 'unknown'} tool '{tool_name}'")
                         observation = {
-                            "summary": f"Unknown tool '{tool_name}'",
-                            "error": {"code": "unknown_tool", "message": tool_name},
+                            "summary": (f"Tool '{tool_name}' is switched off for this conversation; continue without it."
+                                        if disabled else f"Unknown tool '{tool_name}'"),
+                            "error": {"code": "disabled_by_request" if disabled else "unknown_tool", "message": tool_name},
                         }
                         if tool_execution is not None:
                             await self.project_manager.finish_tool_execution(
@@ -2623,6 +2835,8 @@ class AgentV2:
         transient failure retries on the next turn instead of leaving the report
         untitled forever.
         """
+        if getattr(self, "_is_sub_agent", False):
+            return
         if self._title_task is not None:
             return
         if not self.report or not self.head_completion:
@@ -2753,11 +2967,12 @@ class AgentV2:
                 * self._context_budget_factor
             )
             stats = self.transcript.fit_to_budget(max(budget, 1))
-            if stats.get("digested") or stats.get("dropped"):
+            if stats.get("digested") or stats.get("dropped") or stats.get("images_released"):
                 logger.info(
                     "[agent] context overflow: transcript %d->%d tokens "
-                    "(digested=%d dropped=%d)",
+                    "(digested=%d dropped=%d images_released=%d)",
                     stats["before"], stats["after"], stats["digested"], stats["dropped"],
+                    stats.get("images_released", 0),
                 )
         except Exception:
             logger.warning("[agent] overflow transcript decay failed", exc_info=True)
@@ -2841,6 +3056,10 @@ class AgentV2:
         disabled org never spawns the planning task or pays for an LLM call."""
         if self.mode == "training" or self.is_eval_run:
             return False
+        # A check-in reaches the user only through notify; with notify off
+        # for this conversation it could never deliver, so don't plan one.
+        if "notify" in self._disabled_tools:
+            return False
         try:
             from app.services.checkin_policy import feature_enabled
             return feature_enabled(self.organization_settings)
@@ -2850,8 +3069,12 @@ class AgentV2:
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
-        all carry a non-null platform and are excluded."""
-        if self.platform is not None:
+        all carry a non-null platform and are excluded. An API caller can also
+        decline them for the conversation (report.follow_ups=false) or for one
+        request (prompt.follow_ups=false)."""
+        if self.platform is not None or getattr(self, "_is_sub_agent", False):
+            return False
+        if self._request_disables("follow_ups"):
             return False
         if not self.organization_settings:
             return False
@@ -2869,6 +3092,15 @@ class AgentV2:
         if used_tools:
             return False
         return len(self._follow_ups_user_message().split()) <= 3
+
+    def _request_disables(self, key: str) -> bool:
+        """The conversation (report.<key>) or this request (prompt.<key>) set
+        it to false. It can only switch a feature off; the org setting still
+        decides whether it is on at all."""
+        if self._report_opt_outs.get(key) is False:
+            return True
+        prompt = getattr(self.head_completion, "prompt", None)
+        return isinstance(prompt, dict) and prompt.get(key) is False
 
     def _follow_ups_user_message(self) -> str:
         prompt = getattr(self.head_completion, "prompt", None)
@@ -3190,7 +3422,7 @@ class AgentV2:
         items = "\n".join(f"    - {t}" for t in self._steering_texts)
         return (
             "<steering_updates>\n"
-            "    PRIORITY — the user interrupted with these instructions WHILE you were "
+            "PRIORITY — the user interrupted with these instructions WHILE you were "
             "working. They override <original_user_prompt> and your current plan/notes "
             "where they conflict. Re-evaluate your plan against them in THIS decision — "
             "do not simply continue the previous plan. If you keep a plan note, update "
@@ -4414,6 +4646,9 @@ class AgentV2:
         # the user object.
         _identity_token = None
         _id_user = getattr(self.head_completion, "user", None) if self.head_completion else None
+        _id_agent_name = agent_name_for_report(self.report, self._question_agent_pool())
+        if _id_user is None and _id_agent_name:
+            _identity_token = set_llm_identity(IdentityContext(agent_name=_id_agent_name))
         if _id_user is not None:
             _id_role, _id_attrs = "", {}
             try:
@@ -4435,30 +4670,17 @@ class AgentV2:
                 user_id=str(getattr(_id_user, "id", "") or ""),
                 role=_id_role,
                 attributes=_id_attrs,
+                agent_name=_id_agent_name,
             ))
-            # The planner's LLM was constructed in __init__ under the
-            # user-only identity stamp, so membership-based header rules
-            # (membership.role / membership.attr:*) resolved empty in its
-            # baked default_headers. Rebuild it under the enriched identity
-            # when the provider forwards membership fields — same cheap
-            # rebuild the model router uses on escalation.
-            try:
-                _prov_cfg = getattr(getattr(self.model, "provider", None), "additional_config", None) or {}
-                _needs_membership = any(
-                    str((r or {}).get("source", "")).startswith(("membership.", "static:"))
-                    for r in (_prov_cfg.get("header_injection") or [])
-                    if isinstance(r, dict)
-                )
-                logger.debug("[headers] identity stamped (role=%r attrs=%d membership_rules=%s)", _id_role, len(_id_attrs), _needs_membership)
-                if _needs_membership:
-                    from app.ai.llm.llm import LLM
-                    self.planner.llm = LLM(
-                        self.model,
-                        usage_session_maker=async_session_maker,
-                        usage_context=self.usage_limit_context,
-                    )
-            except Exception:
-                logger.warning("[headers] failed to rebuild planner LLM with membership identity", exc_info=True)
+            # Identity headers resolve per request (header_injection), so
+            # clients built in __init__ pick up the enriched identity too.
+            logger.debug("[headers] identity stamped (role=%r attrs=%d)", _id_role, len(_id_attrs))
+        # agent.name for this question: starts at the chat's choice and follows
+        # the agents its tools fetch data from (see QuestionAgents).
+        self._question_agents = QuestionAgents(_id_agent_name)
+        if _identity_token is None:
+            # Own a token so mid-run agent.name stamps unwind with the run.
+            _identity_token = set_llm_identity(get_llm_identity())
         try:
             import time as _time
             # Anchor the run clock that self._mlog() reports elapsed against.
@@ -4475,6 +4697,10 @@ class AgentV2:
                 build_id=self.build_id,
                 is_eval_run=self.is_eval_run,
             )
+            # Sub-agent child: bind the execution to its row, narrow the catalog to
+            # the profile, and load the budget. Must precede the first planner call.
+            if self._is_sub_agent:
+                await self._bind_sub_agent()
             # Usage records written from here on carry the run id (see
             # app.ai.llm.usage_attribution) so cost/tokens roll up per run.
             try:
@@ -4584,7 +4810,8 @@ class AgentV2:
             # commit to startup.
             try:
                 durable_transcript = (
-                    self.context_hub.message_builder.get_durable_transcript()
+                    None if self._is_sub_agent  # a child starts with an empty history: no parent turns, no siblings
+                    else self.context_hub.message_builder.get_durable_transcript()
                 )
                 if durable_transcript is not None and durable_transcript.turns:
                     self.transcript.turns.extend(durable_transcript.turns)
@@ -4726,6 +4953,8 @@ class AgentV2:
             except (TypeError, ValueError):
                 step_limit = 100
             step_limit = max(1, min(500, step_limit))
+            if self._is_sub_agent and self._sub_agent:
+                step_limit = max(3, min(step_limit, int(self._sub_agent.get("max_steps") or step_limit)))
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -4829,6 +5058,32 @@ class AgentV2:
             _mlog(f"loop_starting step_limit={step_limit}")
 
             for loop_index in range(step_limit):
+
+                # Sub-agent token cap: the step that hit it was told to finish; a
+
+                # further step means it did not, so stop as step exhaustion does.
+
+                if (
+
+                    self._is_sub_agent and not self._sub_agent_finished
+
+                    and self._sub_agent_tokens_exhausted_at is not None
+
+                    and loop_index > self._sub_agent_tokens_exhausted_at + 1
+
+                ):
+
+                    planner_steps_exhausted = True
+
+                    self._planner_steps_exhausted = True
+
+                    self._sub_agent_tokens_exhausted = True
+
+                    completion_errored = True
+
+                    logger.warning("[agent] sub-agent token cap reached (%s tokens); stopping", self._sub_agent_tokens_used)
+
+                    break
                 self._iteration_count += 1
                 try:
                     # Test-only fault injection (inert unless BOW_AGENT_LOOP_FAULTS is set):
@@ -4926,8 +5181,7 @@ class AgentV2:
                         user_images = list(self._user_images_cache)
 
                         # Tool-supplied images (rendered pages, screenshots),
-                        # retained for a few iterations — see
-                        # _VISION_IMAGE_RETENTION_LOOPS.
+                        # newest _MAX_RETAINED_IMAGES retained.
                         observation_images = self._collect_vision_images(observation, loop_index)
 
                         # Combine user images + observation images
@@ -4958,7 +5212,7 @@ class AgentV2:
                                     self.db, self.organization,
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
                                     data_source_ids=_instr_scope,
-                                    mode=self.mode,
+                                    mode=self._instruction_mode,
                                 )
                                 instructions = (await _ib.build(query=None)).render(include_catalog=True)
                                 # Also re-scope the shared hub builder: create_data
@@ -5008,8 +5262,9 @@ class AgentV2:
                             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
                             can_view_code=await self._code_visible_for_run(),
-                            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
-                            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+                            disabled_tools=sorted(self._disabled_tools),
+                            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
+                            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
                             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
                             notes_enabled=getattr(self, "_notes_enabled", False),
                             notes_context=(await build_notes_context(self.db, str(self.report_id)) if getattr(self, "_notes_enabled", False) and self.report else None),
@@ -5030,6 +5285,12 @@ class AgentV2:
                             parallel_tools_enabled=self._tool_concurrency() > 1,
                             current_model=self._routing_prompt_state()[0],
                             routing_state=self._routing_prompt_state()[1],
+                        )
+                        await self._apply_sub_agent_planner_input(planner_input, loop_index=loop_index, step_limit=step_limit)
+                        if self.sigkill_event.is_set():
+                            break
+                        planner_input.images = self._planner_images(
+                            planner_input, user_images, observation_images
                         )
                         # Trim context if it exceeds the model's token budget. After a
                         # context_length rejection the run's shrink factor tightens the
@@ -5654,6 +5915,7 @@ class AgentV2:
                                     agent_execution=self.current_execution,
                                     seq=decision_seq,
                                     loop_index=loop_index,
+                                    phase=("subagent" if self._is_sub_agent else None),
                                     planner_decision_model=decision,
                                     persist_tool_intents=True,
                                     max_tool_intents=self._max_actions_per_decision(),
@@ -5811,6 +6073,22 @@ class AgentV2:
 
                             # Only treat analysis_complete as terminal if there's NO action
                             if decision.analysis_complete and not action:
+                                # Sub-agent: the record is the deliverable. A child that
+                                # ends in prose without finish_subtask gets exactly one
+                                # more iteration told to call it; the finalize step
+                                # synthesises a partial record if it still does not.
+                                if self._is_sub_agent and not self._sub_agent_finished and self._sub_agent_finish_nudges < 1:
+                                    self._sub_agent_finish_nudges += 1
+                                    observation = {
+                                        "summary": (
+                                            "You ended with text, but nothing was delivered: a sub-agent reports ONLY "
+                                            "through finish_subtask. Call finish_subtask NOW with your record "
+                                            "(outcome=partial or inconclusive if you are not sure; put what you "
+                                            "found in summary/findings/evidence)."
+                                        ),
+                                        "error": {"code": "finish_subtask_required", "message": "finish_subtask not called"},
+                                    }
+                                    break
                                 # Late steering: a steer may have arrived while this
                                 # final plan streamed. Don't finalize over it — pick
                                 # it up and give the planner another iteration.
@@ -6073,6 +6351,16 @@ class AgentV2:
                                             "summary": f"Tool '{tool_name}' unavailable",
                                             "error": {"code": "resolve_error", "message": "not registered"},
                                         })
+                                if self._is_sub_agent and self._sub_agent_allowed_tools is not None and tool_name not in self._sub_agent_allowed_tools:
+                                    return await _refuse_before_dispatch({
+                                            "summary": f"Tool '{tool_name}' is not available to a sub-agent; use the tools in your catalog and finish with finish_subtask.",
+                                            "error": {"code": "resolve_error", "message": "outside sub-agent profile"},
+                                        })
+                                if tool_name in self._disabled_tools:
+                                    return await _refuse_before_dispatch({
+                                            "summary": f"Tool '{tool_name}' is switched off for this conversation; continue without it and say what you could not do.",
+                                            "error": {"code": "resolve_error", "message": "switched off for this conversation"},
+                                        })
 
                                 # Artifact budget is enforced BEFORE execution: an
                                 # over-budget call must not run (each one is a full
@@ -6275,6 +6563,7 @@ class AgentV2:
                                         "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                                         "small_model": self.small_model,
                                         "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
+                                        "sub_agent_id": self._sub_agent_id,
                                         "is_eval_run": self.is_eval_run,
                                         "platform": self.platform,
                                         "platform_context": self.platform_context,
@@ -6283,6 +6572,11 @@ class AgentV2:
                                         "verification_group_id": tool_input.get("_verification_group_id"),
                                         "planner_phase": "main",
                                         "planner_round_index": loop_index,
+                                        "sub_agent_can_review_messages": (
+                                            loop_index + 1 < step_limit and
+                                            (self._sub_agent_tokens_exhausted_at is None or
+                                             loop_index < self._sub_agent_tokens_exhausted_at + 1)
+                                        ),
                                         "pending_officejs_registry": pending_officejs_registry,
                                     }
 
@@ -6329,13 +6623,35 @@ class AgentV2:
                                     if tool_execution is not None:
                                         span.set_attribute("tool_execution.id", str(tool_execution.id))
                                     runtime_ctx["reasoning_callback"] = self._coder_reasoning_callback(_block_id_for_action)
-                                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                                    # A tool whose input names its agents (create_data …)
+                                    # makes its own LLM calls under them. Scoped to this
+                                    # call, so parallel siblings don't see each other's.
+                                    _qa = getattr(self, "_question_agents", None)
+                                    _agent_token = None
+                                    if _qa is not None and agent_ids_from_tool_input(tool_name, tool_input):
+                                        _agent_token = self._stamp_agent_name(
+                                            _qa.value_during(tool_name, tool_input, self._question_agent_pool())
+                                        )
+                                    try:
+                                        tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                                    finally:
+                                        if _agent_token is not None:
+                                            reset_llm_identity(_agent_token)
                                     span.set_attribute("tool.result_type", type(tool_result).__name__)
 
 
                                 # Capture training_build_id if set by create_instruction tool
                                 if runtime_ctx.get("training_build_id") and not self.training_build_id:
                                     self.training_build_id = runtime_ctx["training_build_id"]
+
+                                # create_list / edit_list changed this report's lists: swap the
+                                # submit_<slug> tools so the model can fill the new schema in
+                                # THIS run. Deliberate exception to the register-once rule
+                                # (docs/design/structured-extraction.md §7.2): the prefix cache
+                                # is re-primed once, on the user's explicit approval.
+                                if runtime_ctx.pop("lists_changed", None):
+                                    async with self._tool_db_lock:
+                                        await self._register_list_tools(refresh=True)
 
                                 # Extract observation, output, and sub_timings from tool result
                                 if isinstance(tool_result, dict) and "observation" in tool_result:
@@ -6713,6 +7029,29 @@ class AgentV2:
                                 _obs = _o.get("observation")
                                 _tn = _o.get("tool_name")
                                 _ti_args = _o.get("tool_input")
+                                if _tn == "finish_subtask" and isinstance(_obs, dict) and _obs.get("analysis_complete"):
+                                    self._sub_agent_finished = True
+                                if _tn == "delegate" and isinstance(_obs, dict) and _obs.get("sub_agent_id"):
+                                    self._wave_pending = True
+                                if _tn == "submit_list" and isinstance(_obs, dict):
+                                    if not hasattr(self, "_list_save_failures"):
+                                        self._list_save_failures = {}
+                                    _lsa = list_save_failure_action(
+                                        self._list_save_failures,
+                                        _ti_args.get("list_id") if isinstance(_ti_args, dict) else None,
+                                        _observation_failed(_obs),
+                                    )
+                                    if _lsa == "warn":
+                                        _obs["repeat_warning"] = list_save_failure_note(LIST_SAVE_WARN_AT)
+                                    elif _lsa == "stop":
+                                        _lerr = _obs.get("error")
+                                        _obs.update({
+                                            "analysis_complete": True,
+                                            "final_answer": list_save_failure_final_answer(
+                                                _obs.get("list_name"),
+                                                _lerr.get("errors") if isinstance(_lerr, dict) else None,
+                                            ),
+                                        })
                                 if not _observation_failed(_obs):
                                     action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
                                     successful_tool_actions.append(action_signature)
@@ -6727,6 +7066,19 @@ class AgentV2:
                                     )
                                     if _repeat == "nudge":
                                         _obs["repeat_warning"] = repeated_call_nudge(_tn)
+                                    elif _repeat == "stop" and self._is_sub_agent and not self._sub_agent_finished and self._sub_agent_finish_nudges < 1:
+                                        # A sub-agent's deliverable is its record. Ending
+                                        # the turn here left the breaker's own text as the
+                                        # synthesized summary (seen live: three children
+                                        # re-saving the same note). Spend the one finish
+                                        # nudge instead; a further repeat still stops.
+                                        self._sub_agent_finish_nudges += 1
+                                        _obs["repeat_warning"] = (
+                                            repeated_call_nudge(_tn)
+                                            + " You are a sub-agent and you are repeating yourself: stop here and call "
+                                            "finish_subtask NOW with what you have (outcome=partial if unsure)."
+                                        )
+                                        _obs["error"] = {"code": "finish_subtask_required", "message": "repeated call; finish_subtask not called"}
                                     elif _repeat == "stop":
                                         analysis_done = True
                                         _obs.update({
@@ -6842,6 +7194,7 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
+                            self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(
                                 observation,
@@ -6878,6 +7231,12 @@ class AgentV2:
                             # Refresh active_artifact after tools that create/edit artifacts
                             if any(_o.get("tool_name") in ("create_artifact", "edit_artifact") for _o in outcomes):
                                 active_artifact = await self._get_active_artifact()
+
+                            # Sub-agents recorded by this batch's delegate calls start now,
+                            # once every sibling exists (a fast child must not fire the
+                            # fan-in before its wave is complete).
+                            if self._wave_pending:
+                                await self._launch_pending_sub_agents()
 
                             # End of dispatch — exit the planner stream so the outer
                             # agent loop runs the next planner iteration.
@@ -7038,6 +7397,7 @@ class AgentV2:
                 # blank planner decisions and zero tools were recorded as
                 # successful turns. Mark it so the finalizer reports an error.
                 planner_steps_exhausted = True
+                self._planner_steps_exhausted = True
                 completion_errored = True
                 logger.warning(
                     "[agent] planner step limit (%s) exhausted without a terminal decision",
@@ -7048,18 +7408,23 @@ class AgentV2:
             # Runs once after the outer loop exits, regardless of whether the
             # terminating decision had an action (e.g. create_data with
             # analysis_complete=True) or was a final_answer-only decision.
-            if self.mode == "training":
+            if self._is_sub_agent:
+                # A child run writes a record, not knowledge: no harness, no
+                # check-ins, no instruction suggestions.
+                pass
+            elif self.mode == "training":
                 # Training mode: finalize the build with all created instructions
                 await self._finalize_training_build()
             else:
                 # Normal mode: Run knowledge harness sub-loop if triggers fired.
                 # Harness creates/edits instructions and submits them as a draft AI build for review.
                 # Skipped when the turn ended in an error — a failed completion
-                # must not spawn further LLM work or extra blocks.
+                # must not spawn further LLM work or extra blocks — and when the
+                # conversation or request declined it (suggest_instructions=false).
                 try:
                     res = (
                         {"decision": False}
-                        if completion_errored
+                        if completion_errored or self._request_disables("suggest_instructions")
                         else await self._should_suggest_instructions(prev_tool_name_before_last_user)
                     )
                     if res.get("decision", False):
@@ -7335,6 +7700,14 @@ class AgentV2:
                 pass
             raise
         finally:
+            # Sub-agent child: close the sub_agents row exactly once (record +
+            # envelope, write-back to the parent's delegate tool execution,
+            # wave decrement, fan-in when last). Runs on every exit path.
+            if self._is_sub_agent:
+                try:
+                    await self._finalize_sub_agent()
+                except Exception:
+                    logger.exception("[agent] sub-agent finalize failed")
             # Let the prompt-time title task finish (and enqueue its SSE event)
             # before the stream closes. Runs on the error path too: a turn that
             # failed still deserves a titled report in the sidebar.
@@ -7375,6 +7748,214 @@ class AgentV2:
                     asyncio.create_task(_bg_flush(), name="agent.quota_flush")
                 except Exception:
                     pass
+
+    # ------------------------------------------------------------------
+    # Sub-agents (docs/design/sub-agents.md)
+    # ------------------------------------------------------------------
+    async def _bind_sub_agent(self) -> None:
+        """Child run start: load the sub_agents row, link the execution to the
+        parent, narrow the catalog to the profile and remember the budget."""
+        from app.models.sub_agent import SubAgentRun
+        from app.ai.sub_agent_profiles import allowed_tools, get_profile
+        from app.services.sub_agent_service import sub_agent_limits, sub_agent_service
+        if not self._sub_agent_id:
+            logger.warning("[agent] subagent mode without a sub_agent_id; running with the default catalog")
+            return
+        row = await self.db.get(SubAgentRun, str(self._sub_agent_id))
+        if row is None:
+            logger.warning("[agent] sub_agents row %s not found", self._sub_agent_id)
+            return
+        limits = sub_agent_limits(self.organization_settings)
+        profile = get_profile(row.profile)
+        allowed = allowed_tools(profile, allow_create_data=limits["allow_create_data"])
+        self._sub_agent = {
+            "id": str(row.id), "wave_id": str(row.wave_id), "title": row.title, "profile": row.profile,
+            "goal": row.goal, "context": row.context, "max_steps": row.max_steps or limits["max_steps"],
+            "max_tokens": int(limits.get("max_tokens") or 0),
+            "agent_ids": list(row.agent_ids_json or []), "addendum": profile.addendum,
+        }
+        self._sub_agent_allowed_tools = allowed
+        try:
+            self.planner.tool_catalog = [t for t in self.planner.tool_catalog if t.name in allowed]
+        except Exception:
+            logger.warning("[agent] could not narrow the sub-agent catalog", exc_info=True)
+        # Focus the child on the agents it was given (a subset of the report's).
+        try:
+            ids = [str(a) for a in (row.agent_ids_json or [])]
+            if ids and self.report is not None and len(ids) < len(getattr(self.report, "data_sources", None) or []):
+                # In-memory only: the child's focus must never be written back
+                # onto the user's report (set_committed_value leaves the row clean).
+                from sqlalchemy.orm.attributes import set_committed_value
+                set_committed_value(self.report, "focused_data_source_ids", ids)
+        except Exception:
+            pass
+        try:
+            await sub_agent_service.bind_child_execution(
+                self.db, sub_agent_id=str(row.id),
+                execution_id=str(self.current_execution.id) if self.current_execution else None,
+            )
+        except Exception:
+            logger.warning("[agent] bind_child_execution failed", exc_info=True)
+
+    async def _apply_sub_agent_planner_input(self, planner_input, *, loop_index: int, step_limit: int) -> None:
+        """Both roles: the parent gets the <sub_agents> block and its delegation
+        posture; a child loses conversation-level context and gets its goal,
+        profile addendum and remaining budget."""
+        from app.services.sub_agent_service import sub_agent_posture, sub_agent_service
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        await self._release_db_between_steps()
+        if self._is_sub_agent:
+            await self._await_sub_agent_answer()
+        if self.sigkill_event.is_set():
+            return
+        from app.dependencies import async_session_maker
+        agent_messages = []
+        delegation_context = ""
+        if not self._is_sub_agent and self._sub_agents_enabled and self.report is not None:
+            try:
+                delegation_context = await sub_agent_service.context_block(self.db, str(self.report_id))
+            except Exception:
+                logger.debug("[agent] sub_agents context block failed", exc_info=True)
+            await self._release_db_between_steps()
+        if self._is_sub_agent or delegation_context:
+            async with (self._session_maker or async_session_maker)() as mailbox_db:
+                agent_messages = await sub_agent_message_service.receive(
+                    mailbox_db, organization_id=str(self.organization.id), report_id=str(self.report_id),
+                    recipient=str(self._sub_agent_id) if self._is_sub_agent else 'parent',
+                )
+        mailbox_context = sub_agent_message_service.render(agent_messages)
+        if self._is_sub_agent:
+            planner_input.sub_agents_context = mailbox_context
+            planner_input.messages_context = ""
+            planner_input.history_summary = None
+            planner_input.steering_context = None
+            planner_input.active_artifact = None
+            planner_input.user_memory = None
+            planner_input.memory_hint = None
+            planner_input.scheduled_context = None
+            planner_input.scheduled_tasks_context = None
+            planner_input.sub_agents_enabled = False
+            if self._sub_agent:
+                planner_input.sub_agent_title = self._sub_agent.get("title")
+                planner_input.sub_agent_profile_addendum = self._sub_agent.get("addendum")
+                used = int(loop_index) + 1
+                cap = int(self._sub_agent.get("max_tokens") or 0)
+                tokens_spent = cap and self._sub_agent_tokens_used >= cap
+                if tokens_spent and self._sub_agent_tokens_exhausted_at is None:
+                    self._sub_agent_tokens_exhausted_at = int(loop_index)
+                planner_input.sub_agent_budget = f"sub-agent step {used} of {step_limit}" + (
+                    f"; tokens {self._sub_agent_tokens_used:,} of {cap:,}" if cap else ""
+                ) + (
+                    " — TOKEN BUDGET SPENT: call finish_subtask NOW with what you have" if tokens_spent
+                    else (" — finish NOW with finish_subtask" if used >= step_limit - 1 else "")
+                )
+            return
+        planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
+        planner_input.sub_agent_posture = sub_agent_posture(self.organization_settings)
+        if planner_input.sub_agents_enabled and self.report is not None:
+            planner_input.sub_agents_context = "\n".join(part for part in (delegation_context, mailbox_context) if part)
+
+    async def _await_sub_agent_answer(self) -> None:
+        """Suspend without holding a session or slot; bounded cross-worker polling.
+        Stop events interrupt the backoff immediately."""
+        from sqlalchemy import update
+        from app.models.sub_agent import SubAgentRun, TERMINAL_RUN_STATUSES
+        from app.services.sub_agent_service import has_free_child_slot
+        from app.services.sub_agent_message_service import sub_agent_message_service
+        from app.dependencies import async_session_maker
+        if not self._sub_agent_id:
+            return
+        delay = 0.5
+        while not self.sigkill_event.is_set():
+            async with (self._session_maker or async_session_maker)() as db:
+                row = await db.get(SubAgentRun, str(self._sub_agent_id))
+                if row is None or row.status in TERMINAL_RUN_STATUSES:
+                    self.sigkill_event.set()
+                    return
+                question = await sub_agent_message_service.waiting_question(db, str(row.id))
+                if question:
+                    if row.status == 'running':
+                        await db.execute(update(SubAgentRun).where(
+                            SubAgentRun.id == row.id, SubAgentRun.status == 'running',
+                        ).values(status='waiting'))
+                        await db.commit()
+                elif row.status != 'waiting':
+                    return
+                elif await has_free_child_slot(db, row.report_id, settings=self.organization_settings):
+                    # Avoid a write lock while the slot is known to be occupied.
+                    # Recheck under the same report/wave locks used by launch.
+                    await lock_report(db, row.report_id)
+                    await lock_wave(db, row.wave_id)
+                    if await has_free_child_slot(db, row.report_id, settings=self.organization_settings):
+                        resumed = await db.execute(update(SubAgentRun).where(
+                            SubAgentRun.id == row.id, SubAgentRun.status == 'waiting',
+                        ).values(status='running'))
+                        await db.commit()
+                        if resumed.rowcount == 1:
+                            return
+            try:
+                await asyncio.wait_for(self.sigkill_event.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                delay = min(delay * 2, 5.0)
+
+    async def _launch_pending_sub_agents(self) -> None:
+        """After a batch holding delegate calls: close the wave and start its children."""
+        from app.services.sub_agent_service import sub_agent_service
+        self._wave_pending = False
+        try:
+            await self._drain_bg_writes(timeout_s=5.0)
+        except Exception:
+            pass
+        try:
+            wave_id = await sub_agent_service.launch_pending(
+                report_id=str(self.report_id),
+                parent_completion_id=str(self.system_completion_id),
+                settings=self.organization_settings,
+                sigkilled=self.sigkill_event.is_set(),
+            )
+            if wave_id:
+                logger.info("[agent] launched sub-agent wave %s", wave_id)
+        except Exception:
+            logger.exception("[agent] launching sub-agents failed")
+
+    async def _finalize_sub_agent(self) -> None:
+        from app.services.sub_agent_service import sub_agent_service
+        if not self._sub_agent_id:
+            return
+        if self.sigkill_event.is_set():
+            agent_status = "sigkill"
+        else:
+            agent_status = getattr(self.current_execution, "status", None) or "success"
+        last_text = ""
+        try:
+            comp = getattr(self.system_completion, "completion", None)
+            if isinstance(comp, dict):
+                last_text = str(comp.get("content") or "")
+        except Exception:
+            last_text = ""
+        tokens = None
+        duration = None
+        try:
+            tokens = getattr(self.current_execution, "token_usage_json", None)
+            duration = getattr(self.current_execution, "total_duration_ms", None)
+        except Exception:
+            pass
+        err = None
+        try:
+            ej = getattr(self.current_execution, "error_json", None)
+            if isinstance(ej, dict):
+                err = ej.get("message")
+        except Exception:
+            pass
+        await sub_agent_service.finalize_child(
+            sub_agent_id=str(self._sub_agent_id), agent_status=agent_status, last_text=last_text,
+            steps_used=int(getattr(self, "_iteration_count", 0) or 0), tokens=tokens,
+            execution_id=str(self.current_execution.id) if self.current_execution else None,
+            error=err, duration_ms=duration,
+            model_name=getattr(self.model, "name", None) or getattr(self.model, "model_id", None),
+            steps_exhausted=bool(self._planner_steps_exhausted),
+            tokens_exhausted=bool(self._sub_agent_tokens_exhausted),
+        )
 
     async def _build_planner_prompt_text(self, view=None) -> str:
         if view is None:
@@ -7447,8 +8028,9 @@ class AgentV2:
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
             can_view_code=await self._code_visible_for_run(),
-            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
-            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+            disabled_tools=sorted(self._disabled_tools),
+            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
+            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
             notes_enabled=_notes_on,
             notes_context=(await build_notes_context(self.db, str(self.report_id)) if _notes_on and self.report else None),
@@ -7488,6 +8070,12 @@ class AgentV2:
             metrics = getattr(decision, "metrics", None)
             token_usage = getattr(metrics, "token_usage", None) if metrics else None
             prompt_tokens = getattr(token_usage, "prompt_tokens", None) if token_usage else None
+            if token_usage is not None and self._is_sub_agent:
+                # Running total for the sub-agent token cap (sub_agent_max_tokens).
+                _total = getattr(token_usage, "total_tokens", None)
+                if _total is None:
+                    _total = int(prompt_tokens or 0) + int(getattr(token_usage, "completion_tokens", 0) or 0)
+                self._sub_agent_tokens_used += int(_total or 0)
             if prompt_tokens is None:
                 return
             prompt_tokens = int(prompt_tokens or 0)
@@ -7778,7 +8366,11 @@ class AgentV2:
         provider — or an OpenAI provider pinned to a Chat Completions base_url —
         cannot serve it, so we report it disabled to keep the planner directive
         honest.
+
+        The conversation can also switch it off (report.tools web_search=false).
         """
+        if "web_search" in self._disabled_tools:
+            return False
         try:
             settings = self.organization_settings
             if not settings:
@@ -7876,6 +8468,8 @@ class AgentV2:
         self._native_mcp_routing = {}
         if not self.report or not native_tools_enabled(self.organization_settings):
             return
+        if "execute_mcp" in self._disabled_tools:
+            return
         try:
             user = self.user if hasattr(self, "user") else None
             descriptors, routing = await build_native_mcp_tools(
@@ -7910,28 +8504,62 @@ class AgentV2:
         if not route:
             return tool_name, tool_input
         args = tool_input if isinstance(tool_input, dict) else {}
+        from app.ai.llm.toolcall_args import UNPARSABLE_KEY
+        if args.get(UNPARSABLE_KEY):
+            # Broken JSON the parser could not salvage (e.g. cut off). Keep
+            # the parser's marker so the tool runner reports the real error
+            # and applies its attempt cap. Defaulting records to [] here hid
+            # both: the model was told "records: [] should be non-empty" and
+            # looped on a call it never made.
+            logger.info("[agent] list tool %s -> submit_list(%s): unparsable arguments", tool_name, route["list_id"])
+            return "submit_list", {**args, "list_id": route["list_id"]}
         records = args.get("records")
         rewritten = {"list_id": route["list_id"], "records": records if isinstance(records, list) else []}
         logger.info("[agent] list tool %s -> submit_list(%s)", tool_name, route["list_id"])
         return "submit_list", rewritten
 
-    async def _register_list_tools(self) -> None:
-        """Append one planner tool per Agent List on the report's agents."""
+    async def _register_list_tools(self, *, refresh: bool = False) -> None:
+        """Append one planner tool per Agent List on the report's agents.
+
+        ``refresh=True`` (after create_list / edit_list) drops the list tools
+        registered earlier in this run and rebuilds them from the database, so
+        a list created or re-shaped mid-run is callable with its new schema.
+        """
         from app.ai.tools.list_tool_registry import build_list_tools
 
+        stale = set((getattr(self, "_list_tool_routing", None) or {}).keys()) if refresh else set()
+        if stale:
+            self.planner.tool_catalog = [t for t in (self.planner.tool_catalog or []) if t.name not in stale]
         self._list_tool_routing = {}
-        if not self.report:
+        if not self.report or "submit_list" in self._disabled_tools:
             return
+        # A child's profile is applied before this point (_bind_sub_agent) and
+        # the dispatch check runs on the rewritten gateway name: only offer the
+        # submit_<slug> tools to a child whose profile holds submit_list, so the
+        # catalog never advertises a call the loop would refuse.
+        if self._is_sub_agent:
+            allowed = getattr(self, "_sub_agent_allowed_tools", None)
+            if allowed is not None and "submit_list" not in allowed:
+                return
         try:
             user = getattr(self, "user", None) or (getattr(self.head_completion, "user", None) if self.head_completion else None)
             descriptors, routing = await build_list_tools(self.db, self.report, user, self.organization)
             if not descriptors:
+                if stale:
+                    logger.info("[agent] list tools refreshed: none remain")
                 return
             existing = {t.name for t in (self.planner.tool_catalog or [])}
             added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
             self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
             self._list_tool_routing = {k: v for k, v in routing.items() if k not in existing}
-            logger.info("[agent] registered %d list tool(s): %s", len(added), ", ".join(d.name for d in added))
+            # plan_type derivation reads a name -> category map built at planner
+            # construction; teach it the dynamic tools too.
+            cats = getattr(self.planner, "_tool_category", None)
+            if isinstance(cats, dict):
+                for d in added:
+                    cats.setdefault(d.name, d.category)
+            logger.info("[agent] %s %d list tool(s): %s", "refreshed" if refresh else "registered",
+                        len(added), ", ".join(d.name for d in added))
         except Exception as e:
             logger.warning("[agent] list tool registration skipped: %s", e)
             self._list_tool_routing = {}

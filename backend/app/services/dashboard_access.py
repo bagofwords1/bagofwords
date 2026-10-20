@@ -120,9 +120,26 @@ async def _granted(db, artifact: Artifact, user) -> bool:
     )).scalar_one_or_none() is not None
 
 
+async def is_org_admin(db, artifact: Artifact, user) -> bool:
+    """The organization's full admin, while a member of it: opens every
+    published dashboard of the organization, as /r lets an admin open every
+    conversation's dashboard (main, #1400). Not the draft: that is the
+    conversation, which /r keeps owner- and share-gated for admins too."""
+    from app.core.permission_resolver import FULL_ADMIN, principal_belongs_to_org, resolve_permissions
+
+    if user is None:
+        return False
+    organization_id = str(artifact.organization_id)
+    if not await principal_belongs_to_org(db, user, organization_id):
+        return False
+    return FULL_ADMIN in (await resolve_permissions(db, str(user.id), organization_id)).org_permissions
+
+
 async def check_visibility(db, artifact: Artifact, user) -> None:
     """Raise unless the dashboard's visibility lets `user` in (owner and
-    project already handled by the caller)."""
+    project already handled by the caller); the organization's admin always."""
+    if await is_org_admin(db, artifact, user):
+        return
     visibility = artifact.visibility or "none"
     if visibility == "public":
         return

@@ -576,6 +576,27 @@ class ProjectService:
                         ),
                     )
 
+        # Defaults the caller can't see are hidden from them on read, so a
+        # save from their UI never names them. Keep those rows rather than
+        # silently dropping agents the caller was never shown.
+        existing = (await db.execute(
+            select(DataSource).join(
+                project_data_source_association,
+                project_data_source_association.c.data_source_id == DataSource.id,
+            ).where(project_data_source_association.c.project_id == str(project.id),
+                    DataSource.deleted_at.is_(None))
+        )).scalars().all()
+        visible_existing = {
+            str(ds.id) for ds in await DataSourceService().filter_user_visible_data_sources(
+                db, list(existing), current_user, organization
+            )
+        }
+        chosen = {str(ds.id) for ds in data_sources}
+        data_sources = list(data_sources) + [
+            ds for ds in existing
+            if str(ds.id) not in visible_existing and str(ds.id) not in chosen
+        ]
+
         await db.execute(
             project_data_source_association.delete().where(
                 project_data_source_association.c.project_id == str(project.id)
@@ -679,6 +700,7 @@ class ProjectService:
                 "report_title": report_title or "untitled",
                 "label": sp.title or (prompt.get("content") or "")[:120] or (report_title or "untitled"),
                 "cron_schedule": sp.cron_schedule,
+                "run_once_at": sp.run_once_at,
                 "is_active": bool(sp.is_active),
             })
         rf_rows = await db.execute(
@@ -844,8 +866,16 @@ class ProjectService:
             .where(project_data_source_association.c.project_id == str(project.id),
                    DataSource.deleted_at.is_(None))
         )
+        # Only the agents the caller can see. A default is shown to every
+        # project viewer, and grants can change after it was set, so the
+        # stored list may name agents this caller has no access to.
+        from app.services.data_source_service import DataSourceService
+        visible_ds = await DataSourceService().filter_user_visible_data_sources(
+            db, list(ds_rows.scalars().all()), current_user,
+            await db.get(Organization, str(project.organization_id)),
+        )
         schema.data_sources = []
-        for ds in ds_rows.scalars().all():
+        for ds in visible_ds:
             conn = (ds.connections or [None])[0]
             schema.data_sources.append(ProjectAgentMini(
                 id=str(ds.id),

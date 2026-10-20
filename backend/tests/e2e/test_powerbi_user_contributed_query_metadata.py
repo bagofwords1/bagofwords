@@ -26,6 +26,8 @@ Run:
 import asyncio
 import uuid
 
+import pytest
+
 from app.dependencies import async_session_maker
 from app.models.connection import Connection
 from app.models.connection_table import ConnectionTable
@@ -35,6 +37,8 @@ from app.models.domain_connection import domain_connection
 from app.models.organization import Organization
 from app.models.user import User
 from app.services.data_source_service import DataSourceService
+
+pytestmark = pytest.mark.e2e
 
 
 def _run(coro):

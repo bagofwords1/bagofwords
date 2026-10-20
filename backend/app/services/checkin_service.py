@@ -465,7 +465,7 @@ class CheckinService:
 
     async def _planner_context(self, db, *, report, user_id, system, now, tz_name) -> dict:
         from app.models.completion import Completion
-        from app.models.scheduled_prompt import ScheduledPrompt
+        from app.models.scheduled_prompt import ScheduledPrompt, describe_schedule
         from app.models.step import Step
         from app.models.user import User
         from app.models.widget import Widget
@@ -499,7 +499,9 @@ class CheckinService:
             )
         ).scalars().all()
         cadence = [
-            f"scheduled prompt '{sp.title or _prompt_text(sp.prompt, 80)}' cron '{sp.cron_schedule}', last ran {sp.last_run_at or 'never'}"
+            f"scheduled prompt '{sp.title or _prompt_text(sp.prompt, 80)}' "
+            f"{describe_schedule(sp.cron_schedule, sp.run_once_at) if sp.run_once_at else f'cron {sp.cron_schedule!r}'}, "
+            f"last ran {sp.last_run_at or 'never'}"
             for sp in schedules
         ]
         try:
@@ -757,7 +759,7 @@ class CheckinService:
     async def _judge_context(self, db, *, row: AgentCheckin, report, now: datetime, tz_name: str) -> dict:
         from app.models.completion import Completion
         from app.models.report_view import ReportView
-        from app.models.scheduled_prompt import ScheduledPrompt
+        from app.models.scheduled_prompt import ScheduledPrompt, describe_schedule
         from app.models.step import Step
         from app.models.widget import Widget
 
@@ -796,13 +798,14 @@ class CheckinService:
             refreshes.append(f"step '{title or '(untitled)'}' last ran {_fmt_local(updated, tz_name)}")
         schedules = (
             await db.execute(
-                select(ScheduledPrompt.title, ScheduledPrompt.cron_schedule, ScheduledPrompt.last_run_at).where(
+                select(ScheduledPrompt.title, ScheduledPrompt.cron_schedule, ScheduledPrompt.run_once_at,
+                       ScheduledPrompt.last_run_at).where(
                     ScheduledPrompt.report_id == row.report_id, ScheduledPrompt.deleted_at.is_(None),
                 )
             )
         ).all()
-        for title, cron, last_run in schedules:
-            refreshes.append(f"scheduled prompt '{title or 'untitled'}' ({cron}) last ran {_fmt_local(last_run, tz_name)}")
+        for title, cron, run_once_at, last_run in schedules:
+            refreshes.append(f"scheduled prompt '{title or 'untitled'}' ({describe_schedule(cron, run_once_at)}) last ran {_fmt_local(last_run, tz_name)}")
         for ds in getattr(report, "data_sources", None) or []:
             refreshes.append(f"data source '{getattr(ds, 'name', '?')}': refresh time unknown")
 

@@ -219,8 +219,11 @@ class QlikSenseOnPremClient(DataSourceClient):
         # stays deliberately lower than the Cloud client's default of 10.
         self.max_concurrency = max(1, int(max_concurrency or 4))
 
-        self.user_directory = (user_directory or "").strip() or _DEFAULT_USER_DIRECTORY
-        self.user_id = (user_id or "").strip() or None
+        # Private + read-only properties: when a connection's identity mapping
+        # pins the member's Qlik account, generated code (barred from
+        # ``_``-prefixed attributes) must not be able to reassign it.
+        self._user_directory = (user_directory or "").strip() or _DEFAULT_USER_DIRECTORY
+        self._user_id = (user_id or "").strip() or None
 
         self._client_cert_pem = client_cert or None
         self._client_key_pem = client_key or None
@@ -242,6 +245,14 @@ class QlikSenseOnPremClient(DataSourceClient):
         self._cert_path: Optional[str] = None
         self._key_path: Optional[str] = None
         self._ca_path: Optional[str] = None
+
+    @property
+    def user_directory(self) -> str:
+        return self._user_directory
+
+    @property
+    def user_id(self) -> Optional[str]:
+        return self._user_id
 
     @staticmethod
     def _parse_host(server_url: str) -> str:

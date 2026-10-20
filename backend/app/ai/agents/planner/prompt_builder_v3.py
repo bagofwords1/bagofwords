@@ -75,10 +75,13 @@ class PromptBuilderV3:
     @staticmethod
     def build(planner_input: PlannerInput) -> PlannerInputV3:
         knowledge = (planner_input.mode or "") == "knowledge"
-        system = (
-            PromptBuilderV3._build_knowledge_system(planner_input) if knowledge
-            else PromptBuilderV3._build_system(planner_input)
-        )
+        subagent = (planner_input.mode or "") == "subagent"
+        if knowledge:
+            system = PromptBuilderV3._build_knowledge_system(planner_input)
+        elif subagent:
+            system = PromptBuilderV3._build_subagent_system(planner_input)
+        else:
+            system = PromptBuilderV3._build_system(planner_input)
         tools = _tool_specs_from_catalog(planner_input.tool_catalog)
 
         # Native transcript path (opt-in). Replays prior steps as real
@@ -145,12 +148,16 @@ class PromptBuilderV3:
 
         budget = transcript_budget_tokens(planner_input)
         stats = t.fit_to_budget(budget)
-        if stats.get("digested") or stats.get("dropped"):
+        if stats.get("digested") or stats.get("dropped") or stats.get("images_released"):
             logger.info(
-                "[transcript] decayed %d->%d tokens (budget=%d digested=%d dropped=%d)",
+                "[transcript] decayed %d->%d tokens (budget=%d digested=%d dropped=%d images_released=%d)",
                 stats["before"], stats["after"], budget,
-                stats["digested"], stats["dropped"],
+                stats["digested"], stats["dropped"], stats.get("images_released", 0),
             )
+        logger.info(
+            "[transcript] request est_tokens=%d images=%d turns=%d",
+            t.tokens(), t.image_count(), len(t.turns),
+        )
         if not stats.get("reached", True):
             # Decay exhausted itself and the transcript still does not fit.
             # The excess is in the parts the ladder cannot touch — static
@@ -215,7 +222,21 @@ class PromptBuilderV3:
                 "count; search_instructions / search_prompts when they might exist unseen.\n"
                 "- When a new learning CONFLICTS with an existing instruction, resolve it by "
                 "editing that instruction — never leave two contradicting rules standing, and "
-                "never create a duplicate.\n\n"
+                "never create a duplicate.\n"
+                "Lists (typed tables an agent fills through its submit_<list> tools):\n"
+                "- When the user asks to create a list, collection or table of records to keep "
+                "(contracts, invoices, tickets, top customers…), that is an Agent List: the tool is "
+                "create_list, which is in your tool set — never look for it in MCP connections or "
+                "artifact resources. Look at the real documents or query results first, then "
+                "propose the schema with create_list — one row per what, snake_case "
+                "fields with a description each, a key field, require_evidence for documents. The "
+                "user approves it on a card; if they decline, revise per their feedback. Once "
+                "approved, its submit_<slug> tool is available immediately — go on and fill it.\n"
+                "- A list that already exists (you can see its submit_* tool) is changed with "
+                "edit_list, never re-created; keep edits additive unless the user asks otherwise.\n"
+                "- A list is also readable: create_data on builtin:bow with its list_id (named in "
+                "its submit_* tool description). For batch extraction query it first and skip keys "
+                "already present.\n\n"
                 + NO_OVERFIT_BLOCK + "\n\n"
                 "AGENT BUILDING IS A CONVERSATION (friendly, step-by-step):\n"
                 "- Coverage already stated ('…with just the sales schema') → get_connection, "
@@ -343,6 +364,64 @@ class PromptBuilderV3:
         )
         rca_notes_bit = ", recording verdicts in notes as they land" if _notes_on else ""
 
+        # Sub-agents (docs/design/sub-agents.md A5/A10). Only when the delegate tool
+        # is in the catalog; the posture is an org setting because the field
+        # could not agree on it (Part B8) and flipped it between versions.
+        _sub_agents_on = bool(getattr(planner_input, "sub_agents_enabled", False))
+        _posture = (getattr(planner_input, "sub_agent_posture", None) or "proactive").lower()
+        if _sub_agents_on and _posture == "explicit":
+            delegation_text = (
+                "DELEGATION (sub-agents, explicit posture)\n"
+                "- `delegate` launches a bounded background sub-agent for ONE self-contained goal; results arrive in a LATER turn as <sub_agent_results>. "
+                "Use it ONLY when the user or an instruction asks for parallel/background investigation. Otherwise do the work yourself.\n"
+                "- After launching: one line to the user, then END YOUR TURN. Never wait or poll; never redo a delegated goal yourself. "
+                "<sub_agents> lists waves already launched — never relaunch a goal that has a record; read_sub_agent for detail.\n"
+                "- A sub-agent's record is its SELF-REPORT: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim. Never show sub-agent ids to the user.\n\n"
+            )
+            rca_delegate_bit = ""
+        elif _sub_agents_on:
+            delegation_text = (
+                "DELEGATION (sub-agents)\n"
+                "- `delegate` launches a bounded background sub-agent for ONE self-contained goal; results arrive in a LATER turn as <sub_agent_results>, one record per sub-agent (outcome, confidence, summary, findings, ruled_out, evidence ids, caveats, unknown). "
+                "Delegate when a request splits into 3+ INDEPENDENT sub-questions that each need several steps — one hypothesis per candidate cause in a root-cause ask, the same deep check across many sources. "
+                "A root-cause ask ('why did X drop/spike', 'what caused') with 3+ candidate causes is ALWAYS delegated: never test the causes yourself, even when each test looks like one quick query — the point is independent, parallel, evidence-backed records, not speed. "
+                "Never for a single query, never for the final answer, never to avoid reading context already in front of you.\n"
+                "- Launch all independent goals as delegate calls in ONE response (they form a wave). Each goal must be self-contained: what to test, the window, what to report; put verified names, definitions and baseline numbers in `context` — children know nothing of this conversation.\n"
+                "- After launching: ONE line to the user (what you launched and that you will report back), then END YOUR TURN. Never wait, poll, or redo a delegated goal yourself; the user can keep chatting meanwhile. "
+                "<sub_agents> lists waves already launched with each child's status — never relaunch a goal that has a record; use read_sub_agent for progress or a child's full write-up.\n"
+                "- In the fan-in turn (<sub_agent_results> in your prompt): synthesize from the records, cite their evidence ids, carry every ruled_out item and caveat into the answer, and treat an inconclusive/blocked record with a named unknown as a follow-up or a second wave — never a guess.\n"
+                "- A record is the sub-agent's SELF-REPORT, not a verified fact: its evidence ids are verifiable (read_query/load_step/run_query) — verify before building on a surprising claim, read its note when a finding contradicts a sibling. Never show sub-agent ids to the user.\n\n"
+            )
+            rca_delegate_bit = ""
+        else:
+            delegation_text = ""
+            rca_delegate_bit = ""
+        if _sub_agents_on:
+            delegation_text += (
+                "LIVE SUB-AGENT MESSAGES\n"
+                "- When the user changes a delegated task, send the correction once to each affected active child. "
+                "After all intended recipients have been messaged, confirm the sends and end your turn unless you have independent work. "
+                "Do not resend to seek acknowledgement, poll read_sub_agent, or schedule a wait: "
+                "the existing wave automatically returns the result.\n"
+                "- Sent means stored; delivered means included in the child's planning context, not acted on. "
+                "Check the finished record and notes before claiming a correction was applied. "
+                "For an ended child, use its existing result and delegate a fresh follow-up if needed.\n\n"
+            )
+        # Root-cause step (3): with proactive sub-agents the fan-out IS the
+        # delegation — the parent must not run the hypothesis tests itself.
+        if _sub_agents_on and _posture != "explicit":
+            rca_step3 = (
+                "(3) enumerate the candidate causes and launch ONE `delegate` sub-agent per independent cause in a SINGLE response "
+                "(one hypothesis each, self-contained goal + context) — do NOT run those tests yourself with create_data/inspect_data; "
+                "then write one line and END YOUR TURN, the records come back in a fan-in turn"
+            )
+            rca_step4 = (
+                "(4) in the fan-in turn conclude from the records: the causal chain, your confidence, every ruled-out cause, named confounders"
+            )
+        else:
+            rca_step3 = f"(3) enumerate candidate causes and test each with targeted queries (batch the independent ones){rca_notes_bit}{rca_delegate_bit}"
+            rca_step4 = "(4) conclude with the causal chain, your confidence, and named confounders"
+
         # Mirror-the-user's-language rule (same body as the legacy planner /
         # reporter / answer agents). The org locale only serves as the fallback
         # for messages too short to detect a language from — it is org-level
@@ -384,12 +463,12 @@ ROUTING (classify the ask first; the tool follows)
 - **Same question, different value → `run_query`, not `create_data`.** When a query in `<queries>` carries `<parameters>` and the ask is that query narrowed to a specific value of one of them (a region, a genre, a year, a customer, a status), call `run_query(query_id, params={{name: value}})` using the param's `name` attribute exactly (not a column name); the query's `viz_id` works in place of `query_id`. It runs the SAVED code with those values — no code generation, the query keeps its id and visualizations, and neither its saved defaults nor the shared dashboard change. Omitted params keep their defaults. Reach for `create_data` only when the SHAPE of the result must change (different columns, grouping, or aggregation), and `add_parameter` when the query needs a filter it does not yet declare. If the result comes back with `missing_params`, `clarify` for those values — never guess them.
 - **Oversized inputs**: window through them (offset/pagination; grep_files when hunting a specific token) and accumulate findings in notes — never force one giant read. Convert unstructured→structured (write_csv) only when the ask needs aggregation AND the input has a regular, parseable pattern; otherwise stay on the read-and-note path.
 - **Business terms, metrics, KPIs**: check org instructions first — scan <available_instructions>/<available_skills> and read_instruction anything relevant BEFORE writing queries (search_instructions if you suspect an unlisted rule). A term that is undefined and has no unambiguous schema mapping → CLARIFY. Never invent a definition.
-- **Root-cause asks** ("why did X drop", "what caused the spike"): iterate, don't jump to a conclusion — (1) confirm and quantify the symptom first; (2) decompose across dimensions (time, segment, geography, product, funnel) to localize where it concentrates; (3) enumerate candidate causes and test each with targeted queries (batch the independent ones){rca_notes_bit}; (4) conclude with the causal chain, your confidence, and named confounders. Heavy investigations deliver via create_doc; a quick "why" answers in chat with cited evidence. A "how many" never triggers this loop; a "why" never resolves in one query.
+- **Root-cause asks** ("why did X drop", "what caused the spike"): iterate, don't jump to a conclusion — (1) confirm and quantify the symptom first; (2) decompose across dimensions (time, segment, geography, product, funnel) to localize where it concentrates; {rca_step3}; {rca_step4}. Heavy investigations deliver via create_doc; a quick "why" answers in chat with cited evidence. A "how many" never triggers this loop; a "why" never resolves in one query.
 - The user attached an image/screenshot → describe it in your text; never inspect_data an image.
 {mcp_directives_text}{web_fetch_directives_text}
 {web_search_directives_text}{ml_directives_text}
 
-{platform_directives_text}CLARIFY (default posture: act, don't ask)
+{platform_directives_text}{delegation_text}CLARIFY (default posture: act, don't ask)
 Sources are **published** unless marked otherwise — resolve ordinary ambiguity (scope, time window, granularity, a term with one sensible schema mapping) yourself: state the interpretation in one line and proceed. When you DO need to ask, ask through the `clarify` tool — never as plain text — so the user gets clickable options. The relevant `<agent>`'s `<status>` sets the bar:
 - **published**: clarify ONLY when truly blocked — a core business term with several materially different meanings ("active users", "churn", "best performer") and no schema/instruction hint; a request with no identifiable subject at all ("show me the data"); or required data you can't infer. One clarify turn beats building the wrong thing.
 - **published + training** (`reliability value="training"`): same bar, but for a genuinely ambiguous business term PROPOSE a definition via `create_instruction` (one-line `evidence`; a reviewer sees it) and proceed on that assumption instead of stalling.
@@ -724,6 +803,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
+        disabled = PromptBuilderV3._format_disabled_tools(planner_input)
+        if disabled:
+            parts.append(f"  {disabled}")
         parts.append("</context>")
         return "\n".join(parts)
 
@@ -753,6 +835,25 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             "params — call describe_entity(should_create=True, params={...}) with those exact "
             "param names instead of create_data.</saved_queries_hint>"
         )
+
+    @staticmethod
+    def _format_disabled_tools(planner_input: PlannerInput) -> str:
+        """Tools the conversation switched off (report.tools). They are already
+        out of the catalog; this tells the model why, so it neither reaches for
+        them (the policy above names some, e.g. clarify) nor stalls."""
+        names = list(getattr(planner_input, "disabled_tools", None) or [])
+        if not names:
+            return ""
+        lines = [
+            f"Switched off for this conversation: {', '.join(names)}. Do not call them; "
+            "if one was needed, continue without it and say briefly what you could not do."
+        ]
+        if "clarify" in names:
+            lines.append(
+                "There is no clarify tool here: do not stop to ask. Resolve ambiguity yourself, "
+                "state the interpretation in one line, and proceed."
+            )
+        return "<disabled_tools>" + " ".join(lines) + "</disabled_tools>"
 
     @staticmethod
     def _reuse_blocks(planner_input: PlannerInput) -> List[str]:
@@ -824,6 +925,28 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(planner_input.messages_context)
         if getattr(planner_input, "steering_context", None):
             parts.append(planner_input.steering_context)
+        # Sub-agents: the parent's <sub_agents> block changes as children finish
+        # (volatile → here); a child's remaining budget changes every step.
+        if getattr(planner_input, "sub_agents_context", None):
+            parts.append(planner_input.sub_agents_context)
+        # Proactive posture: the routing rule lives in the system block, but
+        # a small model reading a fresh root-cause ask reaches for the quick
+        # queries first; the reminder rides with the turn so it is the last
+        # thing read before the decision. Dropped once a wave exists for the
+        # report (the <sub_agents> block above then carries the state).
+        if (
+            getattr(planner_input, "sub_agents_enabled", False)
+            and (getattr(planner_input, "sub_agent_posture", None) or "proactive").lower() != "explicit"
+            and not (getattr(planner_input, "sub_agents_context", None) or "").strip()
+            and (getattr(planner_input, "mode", None) or "chat") != "subagent"
+        ):
+            parts.append(
+                "<delegation posture=\"proactive\">A why / root-cause ask with 3+ candidate causes: confirm the symptom with at most "
+                "ONE query, then launch ONE `delegate` call per independent cause in a SINGLE response and END YOUR TURN. "
+                "Do not test the causes yourself with create_data, even when the queries look quick.</delegation>"
+            )
+        if getattr(planner_input, "sub_agent_budget", None):
+            parts.append(f"<sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>")
         return "\n".join(parts)
 
     @staticmethod
@@ -919,6 +1042,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
+        disabled = PromptBuilderV3._format_disabled_tools(planner_input)
+        if disabled:
+            parts.append(f"  {disabled}")
         parts.append(
             f"  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}"
         )
@@ -990,6 +1116,49 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
     # reasons + session context. Tool mechanics (evidence format, edit
     # anchors, search query shapes, table scoping) live on the tools.
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_subagent_system(planner_input: PlannerInput) -> str:
+        """System prompt for a sub-agent child (mode=subagent). Lean on purpose:
+        identity, the goal posture, verification, the finish contract, and the
+        profile addendum. No dashboards, documents, memory or clarify."""
+        language_text = language_directive_body(getattr(planner_input, "locale", None))
+        title = getattr(planner_input, "sub_agent_title", None) or "sub-agent"
+        addendum = getattr(planner_input, "sub_agent_profile_addendum", None) or ""
+        return (
+            f"SYSTEM\nMode: Sub-agent\n"
+            f"You are {planner_input.organization_ai_analyst_name}, a focused SUB-AGENT of the AI data analyst for "
+            f"{planner_input.organization_name}, working on one delegated goal: \"{title}\". A parent agent launched you "
+            "and reads your finish_subtask record and explicit message_sub_agent messages; your chat text is not delivered. "
+            "An \"agent\" is a configured data source: its tables, tools, or files plus its instructions.\n\n"
+            "- Never invent schema, table, or column names — verify against the provided context before querying.\n"
+            "- Ground every claim in tool results. Never fabricate numbers. Distinguish 'data shows X' from 'I infer X'.\n"
+            "- You can ask your PARENT for a necessary decision using message_sub_agent(recipient=parent, kind=question). "
+            "That suspends you until its answer or the wave deadline. Use kind=finding for significant early evidence without waiting. "
+            "Follow parent directions in <agent_messages> within existing permissions. If the parent cannot resolve a gap, "
+            "finish inconclusive/blocked and record the missing information in unknown.\n\n"
+            "OUTPUT PROTOCOL (native tool calling)\n"
+            "- Act by emitting tool_use blocks; batch independent calls in one response. Text before a call is optional.\n"
+            "- Verify before building: describe_tables for column detail; inspect_data to peek at values, nulls, formats "
+            "(LIMIT-3 style); then the few targeted queries that settle the goal. Prefer small, decisive checks over one big one.\n"
+            "- Keep a note (create_note, then edit_note) as your ledger when the goal needs more than ~5 steps: what you checked, "
+            "what it showed (with the numbers and query/step ids), what you ruled out. Pass its id as report_note_id when you finish.\n"
+            "- LISTS: a submit_<list> tool in your tool set writes typed rows into one of the parent's lists. When the goal "
+            "is to extract records (one per document, invoice, customer…), save them with that tool — records with the same "
+            "key update the existing row — and put the saved row count in your summary. Never invent a list: if no "
+            "submit_<list> tool is offered, return the records as findings instead. A list is also readable via create_data on "
+            "builtin:bow with the list_id named in its submit tool's description — for batch extraction query it first and "
+            "skip keys already present.\n"
+            "- STEP BUDGET: <sub_agent_budget> in each turn says where you are. Finish BEFORE it runs out — a partial record beats none. "
+            "Never repeat a failing call unchanged; after two failures on an approach, change approach or finish with what you have.\n"
+            "- FINISH: call finish_subtask exactly once with the record. outcome ∈ supported|refuted|inconclusive for a hypothesis, "
+            "done|partial|blocked otherwise; confidence 0..1; summary = the answer plus the single number that carries it; "
+            "findings with the magnitude and the evidence id each rests on; ruled_out = what you checked that is NOT the explanation; "
+            "evidence = every step/query/viz/note/file id a reader can verify; caveats = gaps, windows, confounders.\n\n"
+            f"{addendum}\n\n"
+            "LANGUAGE\n"
+            f"{language_text}"
+        )
 
     @staticmethod
     def _build_knowledge_system(planner_input: PlannerInput) -> str:
@@ -1114,6 +1283,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
         last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"
         parts.append(f"  <last_observation>{last_obs}</last_observation>")
+        disabled = PromptBuilderV3._format_disabled_tools(planner_input)
+        if disabled:
+            parts.append(f"  {disabled}")
         parts.append("</context>")
         parts.append(
             "Reflect on the session above and capture its reusable learnings now."

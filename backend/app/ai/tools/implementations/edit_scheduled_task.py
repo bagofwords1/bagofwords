@@ -15,6 +15,8 @@ from typing import AsyncIterator, Dict, Any, Type
 from pydantic import BaseModel
 import logging
 
+from fastapi import HTTPException
+
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.edit_scheduled_task import (
@@ -67,7 +69,7 @@ class EditScheduledTaskTool(Tool):
             max_retries=1,
             timeout_seconds=30,
             idempotent=False,
-            required_permissions=[],
+            required_permissions=["update_reports"],
             tags=["scheduling", "task", "automation", "action"],
             examples=[
                 {
@@ -192,8 +194,14 @@ class EditScheduledTaskTool(Tool):
             from app.schemas.scheduled_prompt_schema import ScheduledPromptUpdate
 
             sp = await db.get(ScheduledPrompt, data.task_id)
-            # Guard: must exist, not be deleted, and belong to the current report.
-            if not sp or sp.deleted_at is not None or str(sp.report_id) != str(report.id):
+            # Guard: must exist, not be deleted, and belong to the current report
+            # — its host report, or a run report it spawned (report-per-run mode).
+            # Authority is then checked against the host report by the service.
+            on_this_report = sp is not None and (
+                str(sp.report_id) == str(report.id)
+                or str(getattr(report, "scheduled_prompt_id", None) or "") == str(sp.id)
+            )
+            if not sp or sp.deleted_at is not None or not on_this_report:
                 msg = "No active scheduled task with that id was found on this report."
                 yield ToolEndEvent(
                     type="tool.end",
@@ -247,6 +255,22 @@ class EditScheduledTaskTool(Tool):
                         is_active=updated.is_active,
                     ).model_dump(),
                     "observation": {"summary": summary, "success": True, "artifacts": []},
+                },
+            )
+        except HTTPException as e:
+            if e.status_code not in (403, 404):
+                yield ToolErrorEvent(
+                    type="tool.error",
+                    payload={"error": f"Failed to edit scheduled task: {e.detail}", "code": "EDIT_FAILED"},
+                )
+                return
+            # Authorization denial: a clean, readable result for the agent.
+            msg = f"Not allowed to edit this scheduled task: {e.detail}"
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": EditScheduledTaskOutput(success=False, task_id=data.task_id, error=msg).model_dump(),
+                    "observation": {"summary": msg, "success": False, "artifacts": []},
                 },
             )
         except Exception as e:

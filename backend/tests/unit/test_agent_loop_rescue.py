@@ -60,6 +60,19 @@ def test_shrink_factor_parses_gemini_format():
     assert agent_v2._shrunk_context_factor(1.0, msg) == pytest.approx((1048576 / 1200000) * 0.95)
 
 
+def test_shrink_factor_parses_openai_chat_completions_limit_format():
+    """Current Chat Completions wording (captured live, gpt-6-luna)."""
+    msg = ("Input tokens exceed the configured limit of 922000 tokens. Your messages "
+           "resulted in 1200007 tokens. Please reduce the length of the messages.")
+    assert agent_v2._shrunk_context_factor(1.0, msg) == pytest.approx((922000 / 1200007) * 0.95)
+
+
+def test_shrink_factor_decays_on_openai_responses_wording():
+    """The Responses API states no numbers — geometric decay, not a crash."""
+    msg = "Your input exceeds the context window of this model. Please adjust your input and try again."
+    assert agent_v2._shrunk_context_factor(1.0, msg) == pytest.approx(0.85)
+
+
 def test_shrink_factor_decays_without_numbers():
     assert agent_v2._shrunk_context_factor(1.0, "opaque provider error") == pytest.approx(0.85)
 

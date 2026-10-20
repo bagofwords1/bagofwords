@@ -569,3 +569,102 @@ async def test_console_trace_withholds_code_from_a_console_user_without_view_cod
         resp = test_client.get(url, headers=_hdr(member["token"], admin["org_id"]))
         assert resp.status_code == 200, (url, resp.text)
         assert "SUM(revenue)" not in resp.text, url
+
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_member_without_run_custom_code_cannot_preview_supplied_entity_code(
+    test_client, bootstrap_admin, invite_user_to_org, create_role, assign_role,
+    enterprise_license,
+):
+    """/entities/{id}/preview executes the payload's code — gated like
+    /entities/preview-code. Re-previewing the stored code stays open."""
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    hdr = _hdr(admin["token"], org_id)
+    created = test_client.post(
+        "/api/entities/global",
+        json={"type": "model", "title": "t", "code": "SELECT 1", "data_source_ids": []},
+        headers=hdr,
+    )
+    assert created.status_code == 200, created.text
+    entity_id = created.json()["id"]
+
+    # Strip the member's roles, then give one that may author entities but
+    # holds neither code permission.
+    for a in test_client.get(
+        f"/api/organizations/{org_id}/role-assignments", headers=hdr,
+        params={"principal_type": "user", "principal_id": member["user_id"]},
+    ).json():
+        test_client.delete(f"/api/organizations/{org_id}/role-assignments/{a['id']}", headers=hdr)
+    role = create_role(
+        name=f"author-{uuid.uuid4().hex[:6]}",
+        permissions=["view_reports", "create_reports", "manage_entities"],
+        user_token=admin["token"], org_id=org_id,
+    )
+    assert role.status_code == 200, role.text
+    assigned = assign_role(
+        role_id=role.json()["id"], principal_type="user",
+        principal_id=member["user_id"], user_token=admin["token"], org_id=org_id,
+    )
+    assert assigned.status_code in (200, 201), assigned.text
+
+    from app.models.entity import Entity
+    async with async_session_maker() as db:
+        ent = await db.get(Entity, entity_id)
+        ent.owner_id = member["user_id"]
+        await db.commit()
+
+    mhdr = _hdr(member["token"], org_id)
+    resp = test_client.post(
+        f"/api/entities/{entity_id}/preview", json={"code": "SELECT 2"}, headers=mhdr,
+    )
+    assert resp.status_code == 403, resp.text
+    assert "custom code" in resp.text
+
+    resp = test_client.post(
+        f"/api/entities/{entity_id}/preview", json={"code": "SELECT 1"}, headers=mhdr,
+    )
+    assert resp.status_code != 403, resp.text
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_cannot_clone_a_step_from_a_report_you_cannot_see(
+    test_client, bootstrap_admin, invite_user_to_org,
+):
+    """/entities/from_step copies the step's code and saved rows — it needs read
+    access to the step's report, not just to the agent."""
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    other = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    seeded = await _seed_step_for(other["user_id"], admin["org_id"])
+
+    resp = test_client.post(
+        f"/api/entities/from_step/{seeded['step_id']}", json={},
+        headers=_hdr(member["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 404, resp.text
+
+    resp = test_client.post(
+        f"/api/entities/from_step/{seeded['step_id']}", json={},
+        headers=_hdr(other["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_webhook_listing_is_owner_only(test_client, bootstrap_admin, invite_user_to_org):
+    """The listing returns delivery tokens — the view-tier bypasses (admin,
+    project collaborator) must not reach it."""
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    seeded = await _seed_step_for(member["user_id"], admin["org_id"])
+    url = f"/api/reports/{seeded['report_id']}/webhooks"
+
+    assert test_client.get(url, headers=_hdr(member["token"], admin["org_id"])).status_code == 200
+    resp = test_client.get(url, headers=_hdr(admin["token"], admin["org_id"]))
+    assert resp.status_code == 403, resp.text

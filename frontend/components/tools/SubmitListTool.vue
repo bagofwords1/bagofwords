@@ -16,14 +16,17 @@
     <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" data-testid="submit-list-header" @click="isExpanded = !isExpanded">
       <span v-if="running" class="tool-shimmer flex items-center min-w-0">
         <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500 shrink-0" />
-        <span dir="auto" class="truncate">{{ listName ? $t('tools.submitList.savingTo', { name: listName }) : $t('tools.submitList.saving') }}</span>
+        <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2' : ''" data-testid="submit-list-name" @click="onNameClick">{{ listName ? $t('tools.submitList.savingTo', { name: listName }) : $t('tools.submitList.saving') }}</span>
         <span v-if="progress" class="ms-1.5 shrink-0 text-gray-400 dark:text-gray-500" data-testid="submit-list-progress">· {{ $t('tools.submitList.writing', { n: progress }, progress) }}</span>
       </span>
       <span v-else-if="ok" class="text-gray-600 dark:text-gray-400 flex items-center min-w-0">
         <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1.5 text-emerald-500 shrink-0" />
-        <span dir="auto" class="truncate">{{ $t('tools.submitList.saved', { name: listName }) }}</span>
+        <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2 hover:text-gray-900 dark:hover:text-white' : ''" data-testid="submit-list-name" @click="onNameClick">{{ $t('tools.submitList.saved', { name: listName }) }}</span>
         <span v-for="c in counts" :key="c" class="ms-1.5 shrink-0 text-gray-400 dark:text-gray-500">· {{ c }}</span>
         <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 shrink-0 rtl-flip" />
+        <button v-if="canOpenPane" type="button" class="ms-2 shrink-0 inline-flex items-center gap-0.5 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200" :title="$t('tools.submitList.openInPane')" data-testid="submit-list-open-pane" @click.stop="openPane">
+          <Icon name="heroicons-arrows-pointing-out" class="w-3 h-3" />
+        </button>
       </span>
       <span v-else class="text-gray-600 dark:text-gray-400 flex items-center min-w-0">
         <Icon name="heroicons-arrow-path" class="w-3 h-3 me-1.5 text-amber-500 shrink-0" />
@@ -123,8 +126,11 @@ interface Props {
     status: string
   }
   readonly?: boolean
+  // The host can show the list in its side pane (report page, desktop).
+  canExpand?: boolean
 }
 const props = defineProps<Props>()
+const emit = defineEmits<{ (e: 'openListPanel', p: { listId: string; dsId: string; name: string }): void }>()
 const { t } = useI18n()
 const route = useRoute()
 
@@ -140,8 +146,20 @@ const ok = computed(() => !running.value && status.value === 'success' && res.va
 const streamedName = ref('')
 watch(() => args.value._progress?.list_name, (n) => { if (n) streamedName.value = n }, { immediate: true })
 const listName = computed(() => res.value.list_name || args.value._progress?.list_name || streamedName.value || '')
-const listId = computed(() => res.value.list_id || args.value.list_id || '')
-const dsId = computed(() => res.value.data_source_id || '')
+const listId = computed(() => res.value.list_id || args.value.list_id || (args.value._progress as any)?.list_id || '')
+const dsId = computed(() => res.value.data_source_id || (args.value._progress as any)?.data_source_id || '')
+const canOpenPane = computed(() => !!props.canExpand && !!listId.value && !!dsId.value)
+function openPane() {
+  if (!canOpenPane.value) return
+  emit('openListPanel', { listId: listId.value, dsId: dsId.value, name: listName.value })
+}
+// Clicking the list name opens the list in the side pane (like a file or a
+// result); the rest of the header still toggles the inline record table.
+function onNameClick(e: MouseEvent) {
+  if (!canOpenPane.value) return
+  e.stopPropagation()
+  openPane()
+}
 const errors = computed(() => res.value.errors || [])
 const reportId = computed(() => (route.params as any)?.id as string | undefined)
 const progress = computed(() => {

@@ -2,6 +2,7 @@ from typing import List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_, delete, func
+from sqlalchemy.orm.util import identity_key
 
 from app.models.instruction_reference import InstructionReference
 from app.models.instruction import Instruction
@@ -89,6 +90,13 @@ class InstructionReferenceService:
             created.append(model)
 
         await db.flush()
+        # The bulk DELETE/INSERT above bypasses an Instruction already loaded in
+        # this session: its `references` keep the old list, and with
+        # expire_on_commit=False they stay stale past the commit too — so a PUT
+        # response or version snapshot built from it carried the pre-update set.
+        loaded = db.identity_map.get(identity_key(Instruction, str(instruction_id)))
+        if loaded is not None:
+            await db.refresh(loaded, ["references"])
         return [InstructionReferenceSchema.from_orm(m) for m in created]
 
     async def _validate_reference(

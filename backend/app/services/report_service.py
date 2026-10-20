@@ -73,6 +73,16 @@ class ReportService:
         from app.models.membership import Membership
         from app.models.report_share import ReportShare
 
+        # Org admins (full_admin_access) may view any report artifact in their
+        # own org, matching the in-app GET /reports/{id} admin view bypass.
+        # Artifact surface only — a private conversation stays owner/share-gated.
+        if (
+            user is not None
+            and visibility_field == 'artifact_visibility'
+            and await self._is_report_org_admin(db, user, report)
+        ):
+            return
+
         # Project membership grants read access to both surfaces (a project is
         # a sharing boundary): anyone who can view the containing project can
         # view its reports, regardless of per-report visibility settings.
@@ -133,6 +143,20 @@ class ReportService:
             if not result.scalar_one_or_none():
                 raise HTTPException(status_code=403, detail="Access denied")
             return
+
+    @staticmethod
+    async def _is_report_org_admin(db: AsyncSession, user, report: Report) -> bool:
+        """True if the user holds full_admin_access in the report's own org."""
+        from app.core.permission_resolver import (
+            resolve_permissions,
+            principal_belongs_to_org,
+            FULL_ADMIN,
+        )
+        org_id = str(report.organization_id)
+        if not await principal_belongs_to_org(db, user, org_id):
+            return False
+        resolved = await resolve_permissions(db, str(user.id), org_id)
+        return FULL_ADMIN in resolved.org_permissions
 
     @staticmethod
     def _user_group_ids_subquery(user_id, organization_id):
@@ -728,6 +752,9 @@ class ReportService:
             # Report-level LLM override (null = user/org default resolves at run time)
             model_id=getattr(report, "model_id", None),
             reasoning_effort=getattr(report, "reasoning_effort", None),
+            follow_ups=getattr(report, "follow_ups", None),
+            suggest_instructions=getattr(report, "suggest_instructions", None),
+            tools=getattr(report, "tools", None),
             # Agent focus (subset of attached agents whose full schema is in context)
             focused_data_source_ids=getattr(report, "focused_data_source_ids", None) or [],
             # Conversation sharing
@@ -1135,6 +1162,19 @@ class ReportService:
         # "" = clear back to Default.
         if getattr(report_data, 'reasoning_effort', None) is not None:
             report.reasoning_effort = report_data.reasoning_effort or None
+
+        # Per-conversation API opt-outs: omitted = unchanged, null = back to
+        # the org setting. tools merges by key; a null value clears that key.
+        fields_set = getattr(report_data, "model_fields_set", set())
+        for key in ("follow_ups", "suggest_instructions"):
+            if key in fields_set:
+                setattr(report, key, getattr(report_data, key))
+        if "tools" in fields_set:
+            if report_data.tools is None:
+                report.tools = None
+            else:
+                merged = {**(report.tools or {}), **report_data.tools}
+                report.tools = {k: v for k, v in merged.items() if v is not None} or None
         # Project membership (move). Sentinel-aware like model_id:
         #   None -> untouched, "" -> back to root, <id> -> move into project
         # (requires view access on the target). The route's owner_only gate
@@ -1524,8 +1564,15 @@ class ReportService:
         report_id: str,
         current_user: User,
         artifact_id: str | None = None,
+        only_identity_scoped: bool = False,
     ) -> dict:
         """Re-execute a shared artifact's steps for a viewer.
+
+        `only_identity_scoped` limits the run to steps whose rows depend on
+        who runs them (step_identity_scope) — the per-recipient email render
+        (report_bursting) needs exactly those; every other step serves the
+        shared snapshot to this viewer anyway, so re-running it per recipient
+        would only multiply warehouse load.
 
         Unlike rerun_report_steps (owner refresh), results land in the
         viewer's own step_user_results rows — the shared Step.data snapshot
@@ -1650,6 +1697,13 @@ class ReportService:
 
         query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
         targets, unrunnable = await self._rerun_target_steps(db, query_ids)
+        if only_identity_scoped:
+            from app.services.report_bursting import identity_scoped_step_ids
+            scoped = await identity_scoped_step_ids(db, [sid for sid, _ in targets])
+            targets = [(sid, code) for sid, code in targets if sid in scoped]
+            # A query with no step renders nothing for anyone — not this
+            # viewer's failure.
+            unrunnable = 0
         for step_id, code in targets:
             steps_total += 1
             if not code or not str(code).strip():
@@ -2055,6 +2109,36 @@ class ReportService:
             'confirmation_user_ids': confirmation_user_ids,
         }
 
+    async def _visible_to_user_clause(self, db: AsyncSession, current_user: User, organization: Organization):
+        """SQL clause for reports someone OTHER than the owner may see: shared
+        with them (directly or via a group), public/internal, or in a project
+        they can view. Callers OR in ownership themselves."""
+        from app.models.report_share import ReportShare
+        from app.services.project_service import project_service
+        user_group_ids = self._user_group_ids_subquery(
+            current_user.id, organization.id
+        )
+        shared_with_user = Report.id.in_(
+            select(ReportShare.report_id).where(
+                or_(
+                    ReportShare.user_id == current_user.id,
+                    ReportShare.group_id.in_(user_group_ids),
+                ),
+                ReportShare.deleted_at.is_(None),
+            )
+        )
+        visible_project_ids = await project_service.get_visible_project_ids(
+            db, current_user, organization
+        )
+        visibility_terms = [
+            Report.artifact_visibility.in_(['public', 'internal']),
+            Report.conversation_visibility.in_(['public', 'internal']),
+            shared_with_user,
+        ]
+        if visible_project_ids:
+            visibility_terms.append(Report.project_id.in_(visible_project_ids))
+        return or_(*visibility_terms)
+
     async def get_reports_activity(
         self,
         db: AsyncSession,
@@ -2077,14 +2161,23 @@ class ReportService:
         if not ids:
             return {"activity": []}
 
-        # Authorization boundary: only reports in the caller's org survive.
-        # The ids themselves come from lists the server already filtered.
+        # Authorization boundary: ids are client-supplied, so only reports in
+        # the caller's org that they own or may see survive — otherwise any
+        # member could poll a private report's live status by id.
+        from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+        conditions = [
+            Report.id.in_(ids),
+            Report.organization_id == organization.id,
+            Report.deleted_at.is_(None),
+        ]
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if FULL_ADMIN not in resolved.org_permissions:
+            conditions.append(or_(
+                Report.user_id == current_user.id,
+                await self._visible_to_user_clause(db, current_user, organization),
+            ))
         reports_result = await db.execute(
-            select(Report.id, Report.last_activity_at, Report.created_at).filter(
-                Report.id.in_(ids),
-                Report.organization_id == organization.id,
-                Report.deleted_at.is_(None),
-            )
+            select(Report.id, Report.last_activity_at, Report.created_at).filter(*conditions)
         )
         report_rows = reports_result.all()
         if not report_rows:
@@ -2464,38 +2557,7 @@ class ReportService:
                 )
                 base_conditions.append(Report.project_id == str(target_project.id))
 
-            # Shared visibility: reports shared with the user directly or via
-            # a group they belong to.
-            from app.models.report_share import ReportShare
-            user_group_ids = self._user_group_ids_subquery(
-                current_user.id, organization.id
-            )
-            shared_with_user = Report.id.in_(
-                select(ReportShare.report_id).where(
-                    or_(
-                        ReportShare.user_id == current_user.id,
-                        ReportShare.group_id.in_(user_group_ids),
-                    ),
-                    ReportShare.deleted_at.is_(None),
-                )
-            )
-            # Reports living in a project the user can view are visible to them
-            # (a project is a sharing boundary). Resolved as a list of ids so
-            # the SQL stays a simple IN.
-            visible_project_ids = await project_service.get_visible_project_ids(
-                db, current_user, organization
-            )
-            # A report is "visible" if it has any non-none visibility and
-            # either it's public/internal or the user is in the share list,
-            # or it belongs to a project the user can view.
-            visibility_terms = [
-                Report.artifact_visibility.in_(['public', 'internal']),
-                Report.conversation_visibility.in_(['public', 'internal']),
-                shared_with_user,
-            ]
-            if visible_project_ids:
-                visibility_terms.append(Report.project_id.in_(visible_project_ids))
-            visible_to_user = or_(*visibility_terms)
+            visible_to_user = await self._visible_to_user_clause(db, current_user, organization)
 
             if filter == "my":
                 # Show only reports owned by current user
@@ -3296,6 +3358,19 @@ class ReportService:
             current_user = await db.get(User, current_user_id)
             organization = await db.get(Organization, organization_id)
 
+            # The refresh runs the report's queries AS the scheduling user and
+            # mails the results to subscribers. Re-check at fire time that the
+            # user may still act here — a SCIM-deprovisioned (inactive) or
+            # removed member must not keep querying with their credentials.
+            # Skip without unscheduling, so reactivating the user resumes it.
+            from app.core.permission_resolver import principal_can_act_in_org
+            if organization is None or not await principal_can_act_in_org(db, current_user, str(organization_id)):
+                logger.warning(
+                    f"Skipped scheduled refresh for report {report_id}: user {current_user_id} "
+                    f"is deactivated or no longer bound to org {organization_id}."
+                )
+                return
+
             # Now call rerun_report_steps with the fresh db and loaded objects
             await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True)
 
@@ -3573,7 +3648,24 @@ class ReportService:
 
         # Check conversation visibility
         await self._check_visibility(db, report, 'conversation_visibility', user)
-        
+
+        # PII display redaction: the same org redactor + helpers the owner's
+        # timeline (CompletionService.get_completions_v2 → completion_v2
+        # serializers) applies, scoped to the report's org — so a share link
+        # can never show more than the owner view does. Parity is pinned by
+        # tests/e2e/test_public_output_parity.py.
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
+        async with display_redaction(str(report.organization_id), async_session_maker):
+            return await self._build_public_conversation(db, report, limit, before)
+
+    async def _build_public_conversation(self, db: AsyncSession, report, limit: int, before: str | None) -> dict:
+        from app.ai.llm.pii.display import (
+            redact_deep_display,
+            redact_prompt_display,
+            redact_text_display,
+        )
+
         # Fetch completions for this report
         from app.models.completion import Completion
         from app.models.completion_block import CompletionBlock
@@ -3585,6 +3677,7 @@ class ReportService:
         # lone surrogates (e.g. pypdf output) crash JSONResponse's utf-8 encode,
         # which would 500 the whole shared page. Same guard the v2 serializer uses.
         from app.utils.json_sanitize import sanitize_json_strings
+        from app.utils.request_metadata import without_request_metadata
 
         # Build query with pagination - fetch newest first, then reverse for display.
         #
@@ -3602,6 +3695,13 @@ class ReportService:
         # The second clause hides the internal machine trigger — the synthetic
         # prompt the agent answers for a webhook/scheduled run — exactly as
         # get_completions_v2 does for the owner-facing timeline.
+        #
+        # The third clause hides sub-agent children (docs/design/sub-agents.md
+        # A3): a child runs on hidden completions of the same report with
+        # trigger_source='sub_agent'. Its user row is already caught above; its
+        # system row is the child's whole transcript and used to render on the
+        # share page as an orphan assistant bubble. NULL-safe, like the
+        # owner-facing timeline.
         completions_query = select(Completion).where(
             Completion.report_id == report.id,
             Completion.role.in_(("user", "system")),
@@ -3609,6 +3709,7 @@ class ReportService:
                 (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
                 & (Completion.role == "user")
             ),
+            (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
         )
 
         # If 'before' cursor provided, fetch older completions. The id
@@ -3703,8 +3804,8 @@ class ReportService:
                 "id": b.id,
                 "block_index": b.block_index,
                 "status": b.status,
-                "content": b.content,
-                "reasoning": b.reasoning,
+                "content": redact_text_display(b.content),
+                "reasoning": redact_text_display(b.reasoning),
                 "started_at": b.started_at.isoformat() if b.started_at else None,
                 "completed_at": b.completed_at.isoformat() if b.completed_at else None,
                 # Which phase of the turn produced this block. 'knowledge_harness'
@@ -3718,9 +3819,10 @@ class ReportService:
 
             if pd:
                 block_data["plan_decision"] = {
-                    "reasoning": pd.reasoning,
-                    "assistant": pd.assistant,
-                    "final_answer": pd.final_answer,
+                    # The decision echoes the block text, so it gets the same mask.
+                    "reasoning": redact_text_display(pd.reasoning),
+                    "assistant": redact_text_display(pd.assistant),
+                    "final_answer": redact_text_display(pd.final_answer),
                     "analysis_complete": pd.analysis_complete,
                 }
             
@@ -3735,7 +3837,8 @@ class ReportService:
                 # painted their chrome around blank text — the share view was
                 # already serving the far more revealing result_json, so the
                 # input was withheld to no one's benefit.
-                result_json = project_tool_result_for_ui(te.result_json)
+                # Project → PII-redact, the order the owner serializer uses.
+                result_json = redact_deep_display(project_tool_result_for_ui(te.result_json))
                 block_data["tool_execution"] = sanitize_json_strings({
                     "id": te.id,
                     "tool_name": te.tool_name,
@@ -3766,7 +3869,9 @@ class ReportService:
                 "id": c.id,
                 "role": c.role,
                 "status": c.status,
-                "prompt": c.prompt if c.role == "user" else None,
+                # Request metadata (the calling app's per-question values) is
+                # for this run's MCP servers, not for public share viewers.
+                "prompt": redact_prompt_display(without_request_metadata(c.prompt)) if c.role == "user" else None,
                 "completion_blocks": c_blocks if c.role == "system" else [],
                 "created_at": c.created_at.isoformat() if c.created_at else None,
             }
@@ -3783,7 +3888,7 @@ class ReportService:
         }
 
     async def get_report_summary(
-        self, db: AsyncSession, report_id: str
+        self, db: AsyncSession, report_id: str, organization, current_user=None,
     ) -> dict:
         """Return all query tool executions and instruction mutations for a report,
         independent of completion pagination."""
@@ -3945,6 +4050,8 @@ class ReportService:
 
         instructions: list[SummaryInstructionItem] = []
         seen_instr_ids: dict[str, int] = {}  # instruction_id -> index in list
+        created_here: set[str] = set()  # instructions this conversation created
+        builds_of: dict[str, set[str]] = {}  # instruction_id -> this conversation's builds
         for row in instr_rows:
             te = row.ToolExecution
             completion_id = row.completion_id
@@ -3966,6 +4073,10 @@ class ReportService:
             text = rj.get("new_text") or rj.get("text") or args.get("text") or ""
             instr_id = rj["instruction_id"]
             is_edit = te.tool_name == "edit_instruction"
+            if not is_edit:
+                created_here.add(instr_id)
+            if rj.get("build_id"):
+                builds_of.setdefault(instr_id, set()).add(str(rj["build_id"]))
 
             existing_idx = seen_instr_ids.get(instr_id)
             prev = instructions[existing_idx] if existing_idx is not None else None
@@ -3996,7 +4107,6 @@ class ReportService:
         from app.models.build_content import BuildContent
         from app.schemas.report_summary_schema import PendingTrainingBuildSchema
         pending_build = None
-        staged_instruction_ids: set[str] = set()
         build_ids = [i.build_id for i in instructions if i.build_id]
         if build_ids:
             build_res = await db.execute(
@@ -4026,7 +4136,6 @@ class ReportService:
                 content_ids = {str(cid) for (cid,) in content_res.all()}
                 if not content_ids:
                     continue
-                staged_instruction_ids = content_ids
                 pending_build = PendingTrainingBuildSchema(
                     id=str(build_obj.id),
                     status=build_obj.status,
@@ -4034,19 +4143,14 @@ class ReportService:
                 )
                 break
 
-        # Restrict the instructions list to the current pending build so the
-        # session pill only shows truly-pending changes. Without this, edits
-        # whose builds were already published earlier in the session leak in, and
-        # instructions already accepted out of the shared draft (still carrying
-        # its build_id in their tool-call result) would linger. Match on both the
-        # build id and the set of instructions still staged in that build.
-        if pending_build:
-            instructions = [
-                i for i in instructions
-                if i.build_id == pending_build.id and i.instruction_id in staged_instruction_ids
-            ]
-        else:
-            instructions = []
+        # Review state per row, read from the instruction itself — the same
+        # sources the chat cards and the agent's Instructions page use. Membership
+        # in the newest draft says nothing here: every training message gets its
+        # own draft, each draft is a copy of ALL of main, and accepting publishes
+        # a NEW build while the draft keeps its rows.
+        instructions = await self._summary_instruction_states(
+            db, organization, current_user, instructions, created_here, builds_of,
+        )
 
         # 7) Agent Lists this conversation wrote to (submit_<list> calls run as
         # the submit_list gateway). One item per list; the chat card keeps the
@@ -4098,9 +4202,124 @@ class ReportService:
                 item.data_source_id = str(lst.data_source_id)
                 item.agent_name = agent_names.get(item.data_source_id)
 
+        # Sub-agents: one row per delegated child across the report's recent waves.
+        sub_agents: list = []
+        try:
+            from app.services.sub_agent_service import sub_agent_service
+            data = await sub_agent_service.list_for_report(db, report_id, limit_waves=20)
+            for w in data.get("waves") or []:
+                for r in w.get("sub_agents") or []:
+                    sub_agents.append({
+                        "sub_agent_id": r["sub_agent_id"], "wave_id": w["id"], "wave_status": w["status"],
+                        "message_id": r.get("parent_completion_id"), "title": r.get("title"),
+                        "status": r.get("status"), "outcome": r.get("outcome"), "confidence": r.get("confidence"),
+                        "summary": r.get("summary"), "steps_used": r.get("steps_used"),
+                        "tokens": r.get("tokens"), "model": r.get("model"), "profile": r.get("profile"),
+                        "started_at": r.get("started_at"), "finished_at": r.get("finished_at"),
+                        "child_execution_id": r.get("child_execution_id"),
+                    })
+        except Exception:
+            logging.getLogger(__name__).debug("summary: sub-agents unavailable", exc_info=True)
+
         return {
             "queries": queries,
             "instructions": instructions,
             "lists": lists,
+            "sub_agents": sub_agents,
             "pending_training_build": pending_build.model_dump() if pending_build else None,
         }
+
+    async def _summary_instruction_states(
+        self, db: AsyncSession, organization, current_user, instructions,
+        created_here: set, builds_of: dict,
+    ) -> list:
+        """Set ``state`` on each summary row and drop rows with nothing to say.
+
+        - pending: a create from this conversation that still exists and never
+          went live, or an instruction with a live review change — the same
+          sweep that puts the dot on the agent's Instructions page. (The sweep
+          alone misses a create in an org that has no main build yet, i.e. one
+          whose first instructions come from this training session.)
+        - rejected: a create whose instruction was deleted before it ever went
+          live (rejecting a create deletes it), or an edit whose only recorded
+          verdicts on this conversation's builds are rejects.
+        - accepted: everything else that is still around.
+
+        A deleted instruction that was live at some point (accepted, then
+        deleted later — or an existing one this conversation only edited) is
+        dropped: whatever happened to it, it was not this conversation's verdict.
+        """
+        if not instructions:
+            return instructions
+        from app.models.instruction import Instruction
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
+        from app.services.instruction_service import (
+            InstructionService, SETTLED_HUNK_KEY, VOIDED_HUNK_KEY,
+        )
+
+        ids = [i.instruction_id for i in instructions]
+        rows = {
+            str(r.id): r for r in (await db.execute(
+                select(Instruction.id, Instruction.title, Instruction.category, Instruction.deleted_at)
+                .where(Instruction.id.in_(ids), Instruction.organization_id == str(organization.id))
+            )).all()
+        }
+        live_ids = [iid for iid, r in rows.items() if r.deleted_at is None]
+        gone_ids = [iid for iid in ids if iid not in live_ids]
+
+        pending_ids: set = set()
+        if live_ids:
+            pending_ids = {str(i) for i in await InstructionService().get_pending_change_instruction_ids(
+                db, organization, current_user, candidate_ids=live_ids, verify=False,
+            )}
+
+        # Ever published = carried by a build that went live.
+        created_ids = [iid for iid in ids if iid in created_here]
+        was_live: set = set()
+        if created_ids:
+            was_live = {str(i) for (i,) in (await db.execute(
+                select(BuildContent.instruction_id).distinct()
+                .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+                .where(
+                    BuildContent.instruction_id.in_(created_ids),
+                    InstructionBuild.organization_id == str(organization.id),
+                    or_(InstructionBuild.is_main.is_(True), InstructionBuild.status == "approved"),
+                )
+            )).all()}
+
+        # Per-hunk verdicts recorded on this conversation's builds (the rows of
+        # build.rejected_hunks carry `action` — see InstructionService.build_verdict).
+        verdict_build_ids = {b for iid in live_ids if iid not in pending_ids for b in builds_of.get(iid, ())}
+        hunk_rows: dict = {}
+        if verdict_build_ids:
+            for bid, rejected_hunks in (await db.execute(
+                select(InstructionBuild.id, InstructionBuild.rejected_hunks)
+                .where(InstructionBuild.id.in_(list(verdict_build_ids)))
+            )).all():
+                hunk_rows[str(bid)] = rejected_hunks or []
+
+        out = []
+        for item in instructions:
+            iid = item.instruction_id
+            row = rows.get(iid)
+            if iid in gone_ids:
+                if iid not in created_here or iid in was_live:
+                    continue
+                item.state = "rejected"
+            elif iid in pending_ids or (iid in created_here and iid not in was_live):
+                item.state = "pending"
+            else:
+                actions = {
+                    r.get("action")
+                    for bid in builds_of.get(iid, ())
+                    for r in hunk_rows.get(bid, [])
+                    if r.get("instruction_id") == iid
+                    and r.get("key") not in (SETTLED_HUNK_KEY, VOIDED_HUNK_KEY)
+                }
+                item.state = "rejected" if "reject" in actions and "accept" not in actions else "accepted"
+            if row is not None:
+                item.title = row.title or item.title
+                item.category = row.category or item.category
+            out.append(item)
+        return out

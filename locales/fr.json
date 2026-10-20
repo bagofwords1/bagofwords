@@ -249,6 +249,10 @@
     "optLoadAlways": "Toujours",
     "optLoadSmart": "Intelligent",
     "optLoadOff": "Désactivé",
+    "fieldStatus": "Statut",
+    "fieldLoadMode": "Mode de chargement",
+    "fieldDeactivateHint": "Les agents n'utiliseront plus cette instruction. Son texte est conservé et elle peut être réactivée.",
+    "fieldActivateHint": "Les agents utiliseront de nouveau cette instruction.",
     "optSourceUser": "Utilisateur",
     "optSourceAi": "AI",
     "optSourceGit": "Git",
@@ -313,7 +317,11 @@
     "tipRunSuite": "Exécuter cette suite",
     "runSuiteFailed": "Échec de l'exécution de la suite",
     "exportInstructions": "Exporter le pack de l'agent — instructions, configuration et évaluations (.zip)",
-    "sharedManagedElsewhere": "Partagé avec des agents que vous ne gérez pas — modifiable uniquement par quelqu'un ayant autorité sur tous."
+    "sharedManagedElsewhere": "Partagé avec des agents que vous ne gérez pas — modifiable uniquement par quelqu'un ayant autorité sur tous.",
+    "unchangedLineOne": "{n} ligne inchangée",
+    "unchangedLineMany": "{n} lignes inchangées",
+    "loadPendingFailed": "Impossible de charger les modifications en attente.",
+    "allPendingResolved": "Aucune modification en attente — tout est traité."
   },
   "smoke": {
     "hello": "Bonjour",
@@ -446,6 +454,10 @@
       "trigger_run": {
         "title": "⚡ « {name} » s'est déclenché — {summary}",
         "body": "L'enquête est terminée — ouvrez la session pour voir les résultats."
+      },
+      "delivery_skipped": {
+        "title": "Certains destinataires n'ont pas reçu « {report} »",
+        "body": "{count} destinataire(s) n'ont pas reçu ce rapport, car il contient des données propres à chaque lecteur : {recipients}"
       }
     },
     "checkin": {
@@ -1132,6 +1144,16 @@
       "needsValues": "En attente de valeurs pour :",
       "cachedHint": "Servi depuis votre résultat en cache pour ces valeurs ; la source n’a pas été réinterrogée"
     },
+    "addParameter": {
+      "adding": "Ajout du filtre \"{name}\"…",
+      "added": "Filtre \"{name}\" ajouté à \"{query}\"",
+      "addedNoQuery": "Filtre \"{name}\" ajouté",
+      "failed": "Impossible d'ajouter le filtre \"{name}\"",
+      "type": "Type : {type}",
+      "default": "Par défaut : {value}",
+      "defaultAll": "tous",
+      "column": "Colonne : {column}"
+    },
     "createArtifact": {
       "creating": "Création de l'artefact",
       "created": "Artefact créé",
@@ -1239,7 +1261,16 @@
       "toastFailedPublish": "Échec de la publication de l'instruction",
       "toastDeletedDesc": "Instruction supprimée",
       "toastFailedDelete": "Échec de la suppression de l'instruction",
-      "toastSaved": "Instruction enregistrée"
+      "toastSaved": "Instruction enregistrée",
+      "accept": "Accepter",
+      "reject": "Rejeter",
+      "accepted": "Acceptée",
+      "rejectedLabel": "Rejetée",
+      "stagedInBuild": "En attente dans le build brouillon",
+      "acceptedToast": "Modification acceptée",
+      "acceptFailed": "Échec de l’acceptation",
+      "rejectedToast": "Modification rejetée",
+      "rejectFailed": "Échec du rejet"
     },
     "editInstruction": {
       "rejected": "Modification rejetée",
@@ -1255,6 +1286,7 @@
       "changeCategory": "catégorie → {value}",
       "changeConfidence": "confiance → {value} %",
       "changeLoadMode": "mode de chargement → {value}",
+      "changeStatus": "statut → {value}",
       "changeTables": "tables mises à jour",
       "changeEvidence": "preuves mises à jour",
       "confidence": "Confiance :",
@@ -1276,7 +1308,16 @@
       "toastFailedDelete": "Échec de la suppression de l'instruction",
       "toastSaved": "Instruction enregistrée",
       "editCount": "{n} modifications",
-      "editLabel": "Modifier l'instruction"
+      "editLabel": "Modifier l'instruction",
+      "turnOff": "Désactiver",
+      "turnOn": "Activer",
+      "accepted": "Acceptée",
+      "rejectedLabel": "Rejetée",
+      "stagedInBuild": "En attente dans le build brouillon",
+      "acceptedToast": "Modification acceptée",
+      "acceptFailed": "Échec de l’acceptation",
+      "rejectedToast": "Modification rejetée",
+      "rejectFailed": "Échec du rejet"
     },
     "inspectData": {
       "inspecting": "Inspection",
@@ -1406,6 +1447,7 @@
       "tabCode": "Code",
       "toggleQueries": "Requêtes",
       "toggleFullCode": "Code complet",
+      "sentRequest": "Envoyé à la source de données",
       "attempts": "Tentatives ({count})",
       "addToSpreadsheet": "Ajouter à la feuille de calcul",
       "addToSpreadsheetTitle": "Ajouter les données à la feuille Excel",
@@ -1744,6 +1786,26 @@
       "sendFeedback": "Envoyer le retour",
       "expired": "Cette vérification a expiré.",
       "respondFailed": "Impossible d'envoyer votre réponse — réessayez."
+    },
+    "messageSubAgent": {
+      "sending": "Envoi du message…",
+      "sent": "Message envoyé à {title}",
+      "failed": "Impossible d’envoyer le message à {title}",
+      "parent": "Agent principal",
+      "agent": "Sous-agent",
+      "sentHint": "Enregistré pour transmission avant la prochaine étape de planification. Cela ne confirme pas son application.",
+      "failedHint": "Le message n’a pas été envoyé.",
+      "messages": "Messages",
+      "states": {
+        "sent": "Envoyé",
+        "delivered": "Transmis au contexte de l’agent",
+        "undelivered": "Non transmis"
+      }
+    },
+    "delegate": {
+      "status": {
+        "waiting": "En attente de l’agent principal"
+      }
     }
   },
   "entityCreate": {
@@ -2485,7 +2547,25 @@
       "linkCopied": "Lien d'invitation copié",
       "failedToCopyLink": "Impossible de copier le lien",
       "linkRegenerated": "Lien d'invitation actualisé et copié",
-      "moreGroups": "groupes"
+      "moreGroups": "groupes",
+      "colAttributes": "Attributs",
+      "colAttributesHint": "Valeurs définies par un administrateur qui identifient le membre dans d'autres systèmes (ex. qlik_user_id). Les membres ne peuvent pas les modifier.",
+      "editAttributes": "Modifier les attributs",
+      "attributeAdd": "Ajouter un attribut",
+      "attributeKey": "Nom de l'attribut",
+      "attributeValue": "Valeur",
+      "attributeKeyPlaceholder": "nom, ex. qlik_user_id",
+      "attributeValuePlaceholder": "valeur, ex. dana",
+      "attributeRemove": "Supprimer l'attribut",
+      "attributeKeyRequired": "Le nom est obligatoire",
+      "attributeKeyInvalid": "Lettres, chiffres, _ . - uniquement ; commence par une lettre",
+      "attributeKeyDuplicate": "Nom en double",
+      "attributesTitle": "Attributs du membre",
+      "attributesHint": "Valeurs qui identifient ce membre dans d'autres systèmes, ex. son utilisateur Qlik ou son matricule. Seuls les administrateurs peuvent les voir ou les modifier.",
+      "attributesInviteHint": "Facultatif. Identifie ce membre dans d'autres systèmes, ex. son utilisateur Qlik ou son rôle de base de données.",
+      "attributesSaved": "Attributs enregistrés",
+      "attributesSaveFailed": "Échec de l'enregistrement des attributs",
+      "importAttributesHint": "Ajoutez des colonnes {column} pour définir des attributs, ex. {example}. Une cellule vide laisse l'attribut inchangé."
     },
     "organizationName": "Nom de l'organisation",
     "organizationIcon": "Icône de l'organisation",
@@ -3586,6 +3666,10 @@
     "mcpModeAiTip": "L'IA peut le définir ; le serveur le remplit si vide",
     "mcpModeLockedTip": "La valeur admin prévaut toujours ; masquée pour l'IA",
     "mcpAddMetaField": "+ Ajouter un champ de métadonnées",
+    "mcpDynamicParams": "Paramètres dynamiques",
+    "mcpDynamicParamsHint": "Les valeurs que l'application appelante peut envoyer avec chaque question, chacune avec une valeur par défaut (null = seulement si envoyée). Elles vont dans {key}, masquées pour l'IA ; un champ ci-dessus portant le même nom est prioritaire. L'application les envoie dans",
+    "mcpDynamicParamsInvalid": "JSON non valide.",
+    "mcpDynamicParamsNotObject": "Doit être un objet JSON (paires clé-valeur).",
     "verify": "Vérifier",
     "autoReindex": "Réindexation automatique du schéma",
     "autoReindexAt": "Réindexer chaque jour à",
@@ -3644,6 +3728,16 @@
     "rateLimitReqHour": "req/heure",
     "rateLimitReqMin": "req/min",
     "rateLimitSaveFailed": "Échec de l'enregistrement des paramètres de limite de débit",
+    "queryLimits": "Limites de requête",
+    "queryLimitsHint": "Remplace les valeurs par défaut de l'organisation pour cette connexion. Laissez vide pour utiliser la valeur par défaut.",
+    "queryTimeout": "Délai d'expiration des requêtes",
+    "queryTimeoutUnit": "secondes",
+    "maxConcurrentQueries": "Requêtes simultanées",
+    "maxConcurrentQueriesUnit": "à la fois",
+    "queryLimitDefault": "Par défaut ({value})",
+    "queryLimitsInherited": "Valeurs de l'organisation",
+    "queryLimitsCustom": "Personnalisé",
+    "queryLimitsSaveFailed": "Échec de l'enregistrement des limites de requête",
     "refreshing": "Actualisation…",
     "reloadMyTables": "Recharger mes tables",
     "runQueriesAs": "Exécuter les requêtes en tant que",
@@ -3698,7 +3792,33 @@
     "refreshAccess": "Actualiser l’accès",
     "yourAccount": "Votre compte",
     "managementOrganizationHint": "Les tests et actualisations du schéma utilisent les identifiants enregistrés de l’organisation.",
-    "managementPersonalHint": "Ce connecteur nécessite votre connexion. Les tests et actualisations utilisent votre compte."
+    "managementPersonalHint": "Ce connecteur nécessite votre connexion. Les tests et actualisations utilisent votre compte.",
+    "memberIdentity": {
+      "title": "Identité par membre",
+      "hint": "Chaque membre agit avec son propre compte. Choisissez quels champs proviennent d'un attribut de membre défini par les administrateurs dans Paramètres → Membres ; les autres utilisent la valeur ci-dessus pour tous. Les valeurs ci-dessus servent toujours à indexer le catalogue partagé.",
+      "sourceFor": "Source pour {field}",
+      "attributeFor": "Attribut de membre pour {field}",
+      "sameForEveryone": "Identique pour tous",
+      "fromAttribute": "Depuis un attribut de membre",
+      "attributePlaceholder": "ex. qlik_user_id",
+      "usesValue": "Tout le monde utilise {value}",
+      "usesValueAbove": "Tout le monde utilise la valeur ci-dessus (ou sa valeur par défaut)",
+      "attributeRequired": "Saisissez le nom de l'attribut de membre.",
+      "attributeInvalid": "Utilisez des lettres, chiffres, _ . - et commencez par une lettre.",
+      "needOne": "Associez au moins un champ à un attribut de membre, ou désactivez l'authentification utilisateur.",
+      "previewTitle": "Qui agit en tant que qui",
+      "previewCounts": "{ok} prêts · {blocked} bloqués",
+      "blocked": "Bloqué : {attributes} manquant",
+      "test": "Tester",
+      "testOk": "Connecté en tant que ce membre"
+    },
+    "sharepointApi": {
+      "title": "API SharePoint",
+      "description": "SharePoint 2010 utilise les services historiques et recherche uniquement les noms de fichiers. Saisissez une bibliothèque ou * ; ne laissez pas ce champ vide.",
+      "modern": "REST moderne",
+      "legacy": "SharePoint 2010",
+      "libraryDescription": "Nom de la bibliothèque de documents, ou * pour toutes les bibliothèques visibles. Un champ vide sélectionne la bibliothèque par défaut uniquement en mode REST moderne."
+    }
   },
   "share": {
     "shareDashboard": "Partager le tableau de bord",
@@ -3769,6 +3889,9 @@
   "errors": {
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",
+    "invitation_required": "L'inscription est désactivée. Demandez une invitation à votre administrateur.",
+    "oauth_email_missing": "Impossible d'obtenir votre e-mail auprès du fournisseur de connexion. Demandez à votre administrateur de vérifier la portée e-mail du fournisseur.",
+    "oauth_login_failed": "La connexion a échoué. Réessayez ou contactez votre administrateur.",
     "generic": "Une erreur s'est produite. Veuillez réessayer.",
     "network": "Erreur réseau. Vérifiez votre connexion.",
     "unauthorized": "Vous n'êtes pas autorisé à effectuer cette action.",
@@ -3799,6 +3922,7 @@
     "organization.required": "En-tête d'ID d'organisation manquant",
     "api_key.invalid": "Clé API invalide ou expirée",
     "mcp.disabled": "L'intégration MCP n'est pas activée pour cette organisation",
+    "mcp.dynamic_params_invalid": "Les paramètres dynamiques doivent être un objet JSON de 8 Ko maximum, sans clé vide.",
     "feature.locked": "Cette fonctionnalité ne peut pas être modifiée",
     "license.enterprise_required": "Cette fonctionnalité nécessite une licence enterprise.",
     "locale.invalid": "Cette langue n'est pas activée",
@@ -3852,7 +3976,11 @@
     "ARTIFACT_RESOURCE_UNAVAILABLE": "Ressource indisponible",
     "ARTIFACT_RESOURCE_INTERRUPTED": "Requête interrompue",
     "ARTIFACT_RESOURCE_ABORTED": "Requête annulée",
-    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge"
+    "ARTIFACT_RESOURCE_UNSUPPORTED_VERSION": "Version du SDK non prise en charge",
+    "member_attributes.invalid": "Attributs de membre non valides.",
+    "member_identity.invalid": "Association d'identité par membre non valide.",
+    "member_identity.not_configured": "Un administrateur n'a pas encore choisi quel attribut de membre identifie les membres sur cette connexion.",
+    "member_identity.unresolved": "Votre compte sur cette connexion n'est pas encore configuré. Demandez à un administrateur de définir vos attributs de membre ({attributes})."
   },
   "email": {
     "dashboardShare": {
@@ -3961,6 +4089,8 @@
     "dailyAt": "Quotidiennement à {time}",
     "daysAt": "{days} à {time}",
     "monthlyOn": "Mensuellement le {day} à {time}",
+    "onceAt": "Une fois · {date}",
+    "onceSpent": "Déjà exécutée — modifiez-la pour choisir une nouvelle heure",
     "daySun": "Dim",
     "dayMon": "Lun",
     "dayTue": "Mar",
@@ -4017,7 +4147,8 @@
     "menuData": "Données"
   },
   "toolbar": {
-    "polishDashboard": "Peaufiner le tableau de bord"
+    "polishDashboard": "Peaufiner le tableau de bord",
+    "polishRequestLabel": "Peaufiner"
   },
   "artifactFrame": {
     "dataAddQuery": "Ajouter une requête",
@@ -4430,6 +4561,9 @@
       "runSuite": "Exécuter {name}",
       "runningCount": "Exécution {done}/{total}",
       "title": "Évaluations pour ce changement"
+    },
+    "runEvals": {
+      "notRun": "{n} cas brouillon ou archivé non inclus | {n} cas brouillons ou archivés non inclus"
     }
   },
   "monitoring": {
@@ -4493,6 +4627,7 @@
       "colFeedback": "Retour",
       "expandRow": "Afficher les appels d'outils",
       "pivotReport": "Afficher cette conversation",
+      "openReport": "Ouvrir le rapport",
       "turnOf": "tour {n} sur {m}",
       "nFailed": "{n} échoués",
       "feedbackPositive": "Positif",
@@ -4871,6 +5006,7 @@
     "scheduleOff": "Désactivé",
     "scheduleOn": "Activé",
     "runIn": "Exécuter dans",
+    "changeTime": "Modifier",
     "unitMinutes": "min",
     "unitHours": "h",
     "unitDays": "jours",
@@ -5344,6 +5480,7 @@
     "bulkFailed": "Échec de la mise à jour groupée"
   },
   "events": {
+    "subAgentQuestion": "Un sous-agent a posé une question",
     "evalRunFinished": "L'exécution d'évaluation '{title}' est terminée — {passed}/{total} réussies ({status})",
     "waitResumed": "Attente écoulée — reprise : {reason}",
     "checkin": {
@@ -5368,6 +5505,7 @@
     "untitledInstruction": "Instruction sans titre",
     "pending": "En attente",
     "accepted": "Acceptée",
+    "rejected": "Rejetée",
     "webhooks": "Webhooks",
     "configureWebhook": "Configurer un webhook"
   },
@@ -5763,5 +5901,8 @@
     "notFound": "Cette connexion est introuvable.",
     "forbidden": "Vous n'avez pas accès à cette connexion.",
     "loadFailed": "Impossible de charger la connexion. Réessayez plus tard."
+  },
+  "trackedChanges": {
+    "noChanges": "Aucune modification"
   }
 }

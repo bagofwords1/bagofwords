@@ -8,6 +8,10 @@ from pydantic import BaseModel, validator
 
 from app.schemas.base import UTCDatetime
 
+# Sanity ceilings for the per-connection query limits.
+MAX_QUERY_TIMEOUT_SECONDS = 3600
+MAX_CONCURRENT_QUERIES = 100
+
 
 class ConnectionCreate(BaseModel):
     """Schema for creating a new database connection."""
@@ -17,6 +21,8 @@ class ConnectionCreate(BaseModel):
     credentials: Optional[dict] = None
     auth_policy: str = "system_only"
     allowed_user_auth_modes: Optional[list] = None
+    # member_mapped per-user auth: {credential_field: member_attribute_key}
+    member_bindings: Optional[Dict[str, str]] = None
 
 
 class ConnectionUpdate(BaseModel):
@@ -27,6 +33,8 @@ class ConnectionUpdate(BaseModel):
     is_active: Optional[bool] = None
     auth_policy: Optional[str] = None  # system_only, user_required
     allowed_user_auth_modes: Optional[list] = None
+    # Replaces the whole set; {} clears it.
+    member_bindings: Optional[Dict[str, str]] = None
     # Scheduled auto-reindex (enterprise `scheduled_reindex` feature).
     auto_reindex_enabled: Optional[bool] = None
     reindex_interval_hours: Optional[int] = None  # legacy; superseded by minutes
@@ -40,6 +48,26 @@ class ConnectionUpdate(BaseModel):
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
     rate_limit_per_day: Optional[int] = None
+    # Per-connection query limits, overriding the org defaults. Stored in
+    # `config`; 0 (or null) clears the override so the org default applies.
+    query_timeout_seconds: Optional[int] = None
+    max_concurrent_queries: Optional[int] = None
+
+    @validator("query_timeout_seconds")
+    def _validate_query_timeout(cls, v):
+        if v is not None and not (0 <= v <= MAX_QUERY_TIMEOUT_SECONDS):
+            raise ValueError(
+                f"query_timeout_seconds must be between 1 and {MAX_QUERY_TIMEOUT_SECONDS} "
+                "(0 uses the organization default)")
+        return v
+
+    @validator("max_concurrent_queries")
+    def _validate_max_concurrent(cls, v):
+        if v is not None and not (0 <= v <= MAX_CONCURRENT_QUERIES):
+            raise ValueError(
+                f"max_concurrent_queries must be between 1 and {MAX_CONCURRENT_QUERIES} "
+                "(0 uses the organization default)")
+        return v
 
     @validator("rate_limit_per_minute", "rate_limit_per_hour", "rate_limit_per_day")
     def _validate_rate_limit(cls, v):
@@ -122,6 +150,8 @@ class ConnectionDetailSchema(BaseModel):
     auth_policy: str
     allowed_user_auth_modes: Optional[list] = None
     config: dict  # Non-sensitive connection parameters
+    # member_mapped per-user auth: {credential_field: member_attribute_key}
+    member_bindings: Optional[Dict[str, str]] = None
     last_synced_at: Optional[str] = None
     organization_id: str
     table_count: int = 0
@@ -154,6 +184,12 @@ class ConnectionDetailSchema(BaseModel):
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
     rate_limit_per_day: Optional[int] = None
+    # Per-connection query limits (null = inherits the org default, shown
+    # alongside so the form can say what "default" currently means).
+    query_timeout_seconds: Optional[int] = None
+    max_concurrent_queries: Optional[int] = None
+    default_query_timeout_seconds: Optional[int] = None
+    default_max_concurrent_queries: Optional[int] = None
     # Registry data_shape (tables | files | objects | tools).
     data_shape: str = "tables"
 
