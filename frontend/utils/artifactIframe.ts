@@ -418,7 +418,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
     });
   ${SC}
   <script>window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${SC}
-  <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}&revision=verification-1">${SC}
+  <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}&revision=imports-1">${SC}
   <script src="/libs/artifact-sdk.js?v=2">${SC}
 
   <script>${polish}${errorBoundaryScript()}${SC}
