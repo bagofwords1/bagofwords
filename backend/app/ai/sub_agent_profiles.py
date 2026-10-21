@@ -16,7 +16,8 @@ from typing import Dict, FrozenSet, Optional
 # Agent Lists are the exception on purpose: a child writes rows into the
 # parent's lists through ``submit_<slug>`` (the ``submit_list`` gateway), the
 # typed sink a fan-out extraction exists for. Defining or reshaping a list
-# (create_list / edit_list) stays with the parent and its review card.
+# (create_list / edit_list) or deleting its rows (delete_list_rows) stays
+# with the parent and its review card.
 BLOCKED_IN_SUB_AGENTS: FrozenSet[str] = frozenset({
     "delegate", "read_sub_agent", "stop_sub_agent",
     "clarify", "wait", "cancel_wait",
@@ -29,7 +30,7 @@ BLOCKED_IN_SUB_AGENTS: FrozenSet[str] = frozenset({
     "create_eval", "edit_eval", "run_eval", "stop_eval_run",
     "create_agent", "set_report_agents", "create_demo_dataset",
     "route_model", "generate_image", "write_officejs_code", "write_to_excel",
-    "create_list", "edit_list",
+    "create_list", "edit_list", "delete_list_rows",
 })
 
 _RESEARCH = (

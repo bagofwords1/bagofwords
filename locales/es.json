@@ -1876,6 +1876,25 @@
       "versionBumped": "Ahora es la versión {v}: las filas anteriores se marcan como obsoletas",
       "open": "Abrir lista"
     },
+    "deleteListRows": {
+      "finding": "Buscando filas para eliminar en {name}…",
+      "confirm": "Confirma la eliminación de filas",
+      "waiting": "Esperando confirmación",
+      "deleting": "Eliminando filas…",
+      "deleted": "Se eliminó {n} fila de {name} | Se eliminaron {n} filas de {name}",
+      "cancelled": "Eliminación cancelada: no se eliminó nada",
+      "timedOut": "No se confirmó a tiempo: no se eliminó nada",
+      "noMatch": "Ninguna fila coincide: nada que eliminar",
+      "failed": "No se eliminaron las filas",
+      "badgeClear": "Vaciar todas las filas",
+      "badgeCount": "{n} de {total} fila | {n} de {total} filas",
+      "permanent": "Las filas eliminadas no se pueden recuperar.",
+      "andMore": "y {n} fila más | y {n} filas más",
+      "notFound": "No encontrado: {list}",
+      "cancel": "Cancelar",
+      "approve": "Eliminar {n} fila | Eliminar {n} filas",
+      "remaining": "Queda {n} fila | Quedan {n} filas"
+    },
     "delegate": {
       "label": "Subagente",
       "refused": "No iniciada",
