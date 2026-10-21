@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.594 (October 20, 2026)
+- Added scheduling dashboard refreshes at any minute, not only on the hour (#1436)
+- Fixed dashboard refreshes running on the server clock instead of the organization's timezone (#1437) — existing schedules move to the org timezone on upgrade
+
 ## Version 0.0.593 (October 19, 2026)
 - Added instruction and table-selection tools to the BOW MCP server for agent managers (#1427) — `read_instruction`, `edit_instruction`, `describe_tables`, `edit_schema`
 - Added a cap on MCP tools offered to the agent, with tool search for the rest (#1426) — `tools_max` in AI Settings → Tools & MCP (default 50)

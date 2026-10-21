@@ -57,9 +57,10 @@
                         </select>
                         <template v-if="recurInterval === 'day' || recurInterval === 'weekdays' || recurInterval === 'week' || recurInterval === 'month'">
                             <span>{{ $t('scheduledPrompt.at') }}</span>
-                            <select v-model="recurHour" class="rounded border border-gray-200 dark:border-gray-700 px-2 py-1 text-sm">
-                                <option v-for="h in 24" :key="h - 1" :value="h - 1">{{ String(h - 1).padStart(2, '0') }}:00</option>
-                            </select>
+                            <!-- Plain field, typed only: the picker arrow is hidden so no
+                                 popup opens. dir=ltr keeps HH:MM readable in RTL. -->
+                            <input v-model="recurTime" type="time" step="60" required dir="ltr"
+                                class="h-[30px] rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 text-sm tabular-nums text-gray-700 dark:text-gray-200 [color-scheme:light] dark:[color-scheme:dark] focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400/30 [&::-webkit-calendar-picker-indicator]:hidden" />
                         </template>
                         <template v-if="recurInterval === 'week'">
                             <span>{{ $t('scheduledPrompt.on') }}</span>
@@ -216,6 +217,7 @@ const scheduleEnabled = computed(() => refreshMode.value === 'recurring');
 const recurInterval = ref<RecurInterval>('day');
 const recurEveryN = ref(15);
 const recurHour = ref(8);
+const recurMinute = ref(0);
 const recurDays = ref<number[]>([1]);
 const recurDayOfMonth = ref(1);
 
@@ -244,12 +246,28 @@ function currentCron(): string {
         interval: recurInterval.value,
         everyN: recurEveryN.value,
         hour: recurHour.value,
+        minute: recurMinute.value,
         days: recurDays.value,
         dayOfMonth: recurDayOfMonth.value,
     });
 }
 
 const scheduleLabel = computed(() => getCronLabel(currentCron()));
+
+// "HH:MM" view of hour + minute for the native time input. Clearing the input
+// yields "", which keeps the last valid time instead of saving a broken cron.
+const recurTime = computed({
+    get: () => `${String(recurHour.value).padStart(2, '0')}:${String(recurMinute.value).padStart(2, '0')}`,
+    set: (value: string) => {
+        const match = /^(\d{1,2}):(\d{2})/.exec(value || '');
+        if (!match) return;
+        const h = Number(match[1]);
+        const m = Number(match[2]);
+        if (h > 23 || m > 59) return;
+        recurHour.value = h;
+        recurMinute.value = m;
+    },
+});
 
 // Hydrate the structured inputs from the report's saved cron on mount.
 if (props.report.cron_schedule) {
@@ -258,6 +276,7 @@ if (props.report.cron_schedule) {
         if (patch.interval !== undefined) recurInterval.value = patch.interval;
         if (patch.everyN !== undefined) recurEveryN.value = patch.everyN;
         if (patch.hour !== undefined) recurHour.value = patch.hour;
+        if (patch.minute !== undefined) recurMinute.value = patch.minute;
         if (patch.days !== undefined) recurDays.value = patch.days;
         if (patch.dayOfMonth !== undefined) recurDayOfMonth.value = patch.dayOfMonth;
     }

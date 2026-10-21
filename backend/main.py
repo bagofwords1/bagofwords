@@ -737,10 +737,17 @@ async def startup_event():
     scheduler.start()
 
     if is_scheduler_leader:
-        # Re-register scheduled prompt jobs (only the leader flushes these to
-        # the jobstore; non-leaders would duplicate the set).
+        # Re-register scheduled prompt jobs and move dashboard refresh jobs onto
+        # their org timezone (only the leader flushes these to the jobstore;
+        # non-leaders would duplicate the set).
         from app.services.scheduled_prompt_service import scheduled_prompt_service
         await scheduled_prompt_service.register_all_jobs()
+        # Best effort: a failure here must not stop the app from starting.
+        try:
+            from app.services.report_service import ReportService
+            await ReportService().register_schedule_timezones()
+        except Exception as e:
+            logger.error(f"Failed to move dashboard refresh jobs to their org timezone: {e}")
 
     # Inbound email polling. Email has no native webhook, so the leader worker
     # polls each org's analyst mailbox (IMAP) and routes authentic messages to
