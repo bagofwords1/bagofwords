@@ -33,8 +33,8 @@ class DelegateInput(BaseModel):
         "3-6 words, the live status line shown to the user (e.g. 'Pricing change hypothesis')."
     ))
     profile: Literal["investigate", "validate"] = Field("investigate", description=(
-        "'investigate' (default): research-only, small model, verdict + evidence ids. "
-        "'validate': produces tracked queries as evidence, regular model, and can write rows into "
+        "'investigate' (default): research-only, verdict + evidence ids. "
+        "'validate': produces tracked queries as evidence and can write rows into "
         "this conversation's lists with their submit_<list> tools — use it for per-document or "
         "per-source extraction fan-outs (one child per document, all saving into the same list)."
     ))
@@ -43,7 +43,8 @@ class DelegateInput(BaseModel):
         "Default: every agent this conversation has. One source per hypothesis keeps a child focused."
     ))
     model: Optional[str] = Field(None, description=(
-        "Override the child's model as '<provider>/<model_id>' or a model id from the catalog. Leave "
+        "Override the child's model as '<provider>/<model_id>', a model id, or a model's display name "
+        "from the catalog. Leave "
         "unset unless the user asked for a model or an instruction names one; the default is right."
     ))
     max_steps: Optional[int] = Field(None, ge=3, description=(

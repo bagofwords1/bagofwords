@@ -3394,7 +3394,7 @@
         },
         "sub_agent_model": {
           "name": "Sub-agent model",
-          "description": "Model sub-agents plan on. 'auto' = the small default for the investigate profile and the regular default for validate; 'small' or 'default' force one; or a model id from the LLM page."
+          "description": "Model sub-agents plan on. 'auto' = the same model as the main conversation (the report's model when one is set); 'small' forces the small default model; or a model id from the LLM page."
         },
         "sub_agent_allow_model_override": {
           "name": "Allow sub-agent model override",
