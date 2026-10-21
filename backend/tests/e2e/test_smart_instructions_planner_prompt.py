@@ -1,12 +1,17 @@
-"""Smart (intelligent) instructions reach the agents like skills.
+"""Smart (intelligent) instruction loading, end to end, per the org setting
+`smart_instructions_on_demand`.
 
-Contract, checked on the prompts a real completion run sends to the LLM:
+Setting ON — contract, checked on the prompts a real completion run sends to
+the LLM:
   * the planner never gets a smart instruction's full text up front — every
     one is advertised in <available_instructions>; one whose title matches
     the user's message is listed first, flagged matched="title",
   * 'always' instructions are inlined regardless,
   * once the planner reads a smart instruction (read_instruction), the
     tool-less coder behind create_data gets its full text.
+
+Setting OFF (default): the previous behavior — keyword matches are loaded in
+full into the planner prompt, and reads are not handed to the coder.
 
 The LLM boundary is stubbed: it records every prompt and, for the planner,
 scripts the tool calls. Routes, services, context building, the tools and
@@ -100,6 +105,41 @@ def env(test_client, create_user, login_user, whoami, create_llm_provider_and_mo
             "token": token, "org_id": org_id}
 
 
+def _set_on_demand(client, h, value: bool):
+    r = client.put("/api/organization/settings", headers=h,
+                   json={"config": {"smart_instructions_on_demand": {"value": value}}})
+    assert r.status_code == 200, r.text
+
+
+def _chinook(client, env, create_data_source, refresh_schema, bulk_update_tables):
+    ds = create_data_source(name="chinook", type="sqlite", config={"database": str(_CHINOOK)},
+                            credentials={}, user_token=env["token"], org_id=env["org_id"])
+    refresh_schema(data_source_id=ds["id"], user_token=env["token"], org_id=env["org_id"])
+    bulk_update_tables(data_source_id=ds["id"], action="activate", user_token=env["token"], org_id=env["org_id"])
+    return ds
+
+
+def _read_then_create_data(client, h, llm, ds, rule_id):
+    """Turn 1: the planner reads `rule_id`. Turn 2 (same report): it runs
+    create_data without re-reading. Returns the coder prompts of turn 2."""
+    # Neither question shares a word with the rules used here, so with the
+    # setting off no keyword match can bring them in either.
+    llm["script"] = [("read_instruction", {"id": rule_id[:8]})]
+    rid = _run(client, h, "Hello there", data_sources=[ds["id"]])
+    llm["other"].clear()
+    llm["base"] = None
+    llm["script"] = [("create_data", {
+        "title": "Invoice totals", "interpreted_prompt": "Total invoice amount by country",
+        "tables_by_source": [{"data_source_id": ds["id"], "tables": ["Invoice"]}],
+    })]
+    r = client.post(f"/api/reports/{rid}/completions", headers=h,
+                    json={"prompt": {"content": "Now break it down by country"}})
+    assert r.status_code == 200, r.text
+    coder = [p for p in llm["other"] if "ds_clients" in p]
+    assert coder, "create_data never reached the coder"
+    return coder
+
+
 def _instruction(client, h, **fields):
     r = client.post("/api/instructions", headers=h, json={"status": "published", **fields})
     assert r.status_code == 200, r.text
@@ -127,6 +167,7 @@ def _catalog_block(prompt: str) -> str:
 
 def test_planner_gets_catalog_only_with_matches_first(test_client, env, llm):
     h = env["headers"]
+    _set_on_demand(test_client, h, True)
     title_marker = f"TITLE{uuid.uuid4().hex[:8]}"
     body_marker = f"BODY{uuid.uuid4().hex[:8]}"
     always_marker = f"ALWAYS{uuid.uuid4().hex[:8]}"
@@ -156,39 +197,62 @@ def test_planner_gets_catalog_only_with_matches_first(test_client, env, llm):
 def test_instruction_read_earlier_in_the_report_reaches_the_coder(
     test_client, env, llm, create_data_source, refresh_schema, bulk_update_tables
 ):
-    """Turn 1: the planner reads a smart rule. Turn 2 (same report): it runs
+    """On: turn 1 the planner reads a smart rule; turn 2 (same report) it runs
     create_data without re-reading — the coder must still get the rule (within
     one run the coder also sees it through past observations; across turns
     only the hand-off brings it)."""
     h = env["headers"]
-    ds = create_data_source(name="chinook", type="sqlite", config={"database": str(_CHINOOK)},
-                            credentials={}, user_token=env["token"], org_id=env["org_id"])
-    refresh_schema(data_source_id=ds["id"], user_token=env["token"], org_id=env["org_id"])
-    bulk_update_tables(data_source_id=ds["id"], action="activate", user_token=env["token"], org_id=env["org_id"])
+    _set_on_demand(test_client, h, True)
+    ds = _chinook(test_client, env, create_data_source, refresh_schema, bulk_update_tables)
     marker = f"CENTS{uuid.uuid4().hex[:8]}"
     unread_marker = f"UNREAD{uuid.uuid4().hex[:8]}"
-    # No word shared with the question, so only the agent's read can bring
+    # No word shared with the questions, so only the agent's read can bring
     # this rule to the coder (never a keyword match).
     rule = _instruction(test_client, h, title="Money storage", load_mode="intelligent",
                         text=f"Money storage rule.\nTotals are stored in cents; divide by 100. {marker}")
     _instruction(test_client, h, title="Shipping rule", load_mode="intelligent",
                  text=f"Shipping rule.\nShipping is free over 50. {unread_marker}")
 
-    llm["script"] = [("read_instruction", {"id": rule["id"][:8]})]
-    rid = _run(test_client, h, "How are totals stored?", data_sources=[ds["id"]])
+    coder = _read_then_create_data(test_client, h, llm, ds, rule["id"])
+
     assert marker not in llm["planner"][0], "the rule must not be inlined up front"
-
-    llm["other"].clear()
-    llm["base"] = None
-    llm["script"] = [("create_data", {
-        "title": "Invoice totals", "interpreted_prompt": "Total invoice amount by country",
-        "tables_by_source": [{"data_source_id": ds["id"], "tables": ["Invoice"]}],
-    })]
-    r = test_client.post(f"/api/reports/{rid}/completions", headers=h,
-                         json={"prompt": {"content": "Now total invoice amount by country"}})
-    assert r.status_code == 200, r.text
-
-    coder = [p for p in llm["other"] if "ds_clients" in p]
-    assert coder, "create_data never reached the coder"
     assert any(marker in p for p in coder), "the coder must get the rule read earlier in this report"
     assert not any(unread_marker in p for p in coder), "the coder must not get unread smart instructions"
+
+
+# --------------------------------------------------------------------------- #
+# Setting OFF (default): previous behavior, unchanged                         #
+# --------------------------------------------------------------------------- #
+
+def test_off_planner_loads_keyword_matches_in_full(test_client, env, llm):
+    h = env["headers"]
+    title_marker = f"TITLE{uuid.uuid4().hex[:8]}"
+    body_marker = f"BODY{uuid.uuid4().hex[:8]}"
+    always_marker = f"ALWAYS{uuid.uuid4().hex[:8]}"
+    _instruction(test_client, h, title="Revenue reporting", load_mode="intelligent",
+                 text=f"Report revenue net of tax.\n{title_marker}")
+    _instruction(test_client, h, title="Net figures", load_mode="intelligent",
+                 text=f"Net figures rule.\nNet revenue always excludes refunds. {body_marker}")
+    _instruction(test_client, h, title="Currency", load_mode="always", text=f"Answer in USD. {always_marker}")
+
+    _run(test_client, h, "What was revenue last month?")
+
+    prompt = next(p for p in llm["planner"] if always_marker in p)
+    assert title_marker in prompt and body_marker in prompt, "off: keyword matches load in full"
+    assert "matched=" not in prompt
+
+
+def test_off_read_is_not_handed_to_the_coder(
+    test_client, env, llm, create_data_source, refresh_schema, bulk_update_tables
+):
+    """Off: reads stay with the planner, as before — a rule read in turn 1
+    does not reach turn 2's coder through the new hand-off."""
+    h = env["headers"]
+    ds = _chinook(test_client, env, create_data_source, refresh_schema, bulk_update_tables)
+    marker = f"CENTS{uuid.uuid4().hex[:8]}"
+    rule = _instruction(test_client, h, title="Money storage", load_mode="intelligent",
+                        text=f"Money storage rule.\nTotals are stored in cents; divide by 100. {marker}")
+
+    coder = _read_then_create_data(test_client, h, llm, ds, rule["id"])
+
+    assert not any(marker in p for p in coder)

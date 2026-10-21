@@ -1,6 +1,12 @@
-"""E2E tests: smart instructions behave like skills — catalog only.
+"""E2E tests: smart instruction loading, per the org setting
+`smart_instructions_on_demand`.
 
-InstructionContextBuilder.build() must:
+OFF (default) must keep the keyword-match loading exactly as before: smart
+instructions whose body/title shares a word with the query load in full, a
+query-less build fills by usage, and the catalog carries no new hints.
+
+ON — smart instructions behave like skills — InstructionContextBuilder.build()
+must:
   - NEVER inline an intelligent (smart) instruction, whatever the query and
     however well it matches; 'always' instructions still load in full,
   - advertise every smart instruction in section.available_instructions with
@@ -39,12 +45,26 @@ def _create(test_client, token, org_id, **fields):
     return resp.json()
 
 
-async def _build(org_id, query):
+def _settings(on_demand: bool):
+    """Minimal organization_settings stand-in for smart_instructions_on_demand."""
+    def get_config(key):
+        if key == "smart_instructions_on_demand":
+            return SimpleNamespace(value=on_demand)
+        return None
+    return SimpleNamespace(get_config=get_config)
+
+
+async def _build(org_id, query, on_demand=True, settings="stub"):
+    """Build the section. settings="stub" passes an in-memory setting;
+    settings=None makes the builder read the org's saved settings."""
     from app.dependencies import async_session_maker
     from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 
+    org_settings = _settings(on_demand) if settings == "stub" else settings
     async with async_session_maker() as db:
-        return await InstructionContextBuilder(db, SimpleNamespace(id=org_id)).build(query=query)
+        return await InstructionContextBuilder(
+            db, SimpleNamespace(id=org_id), organization_settings=org_settings
+        ).build(query=query)
 
 
 def _catalog(section):
@@ -253,3 +273,92 @@ async def test_read_items_go_to_tool_less_consumers_only(create_user, login_user
                                           load_mode="intelligent", title="Cents rule")]
     assert marker in section.render(), "tool-less consumers get what the agent read"
     assert marker not in section.render(include_catalog=True), "planner must not get it twice"
+
+
+# --------------------------------------------------------------------------- #
+# Setting OFF (default): previous keyword-match behavior, unchanged            #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["refunds this quarter", "show refunded orders"])
+async def test_off_keyword_match_loads_in_full(create_user, login_user, whoami, test_client, query):
+    """Off: a smart instruction sharing a word with the query (even only in
+    its body) is loaded in full; an unrelated one is advertised."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    match = _create(test_client, token, org_id, title="Net figures", load_mode="intelligent",
+                    text="Net figures rule.\nAlways exclude refunds and chargebacks.")
+    other = _create(test_client, token, org_id, title="Ops rule", load_mode="intelligent",
+                    text="Unrelated logistics rule.")
+
+    section = await _build(org_id, query, on_demand=False)
+
+    loaded = {it.id: it for it in section.items}
+    assert match["id"] in loaded and loaded[match["id"]].load_reason.startswith("search_match:")
+    assert "chargebacks" in section.render()
+    assert other["id"] in _catalog(section)
+    assert section.on_demand is False
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_off_no_query_fills_by_usage(create_user, login_user, whoami, test_client):
+    """Off: a query-less build fills capacity with smart instructions."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    inst = _create(test_client, token, org_id, title="Fiscal year", load_mode="intelligent",
+                   text="Fiscal year starts in February.")
+
+    section = await _build(org_id, None, on_demand=False)
+
+    loaded = {it.id: it for it in section.items}
+    assert inst["id"] in loaded and loaded[inst["id"]].load_reason == "fill"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_off_catalog_has_no_new_hints_and_reads_are_not_rendered(
+    create_user, login_user, whoami, test_client
+):
+    """Off: catalog entries carry no matched= / refs= hints and use the
+    previous intro text; read_items are never set by the builder."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    target = _create(test_client, token, org_id, title="Revenue definition", load_mode="always",
+                     text="Revenue excludes refunds.")
+    listed = _create(
+        test_client, token, org_id, title="Gross margin", load_mode="intelligent",
+        text="Gross margin is revenue minus cost of goods sold.",
+        references=[{"object_type": "instruction", "object_id": target["id"],
+                     "display_text": "Revenue definition", "relation_type": "scope"}],
+    )
+
+    section = await _build(org_id, "weekly active users", on_demand=False)
+
+    entry = _catalog(section)[listed["id"]]
+    assert entry.matched is None and entry.other_refs == [] and entry.tokens is None
+    rendered = section.render(include_catalog=True)
+    assert "matched=" not in rendered and "refs=" not in rendered
+    assert "More organization instructions exist beyond the ones loaded above" in rendered
+    assert section.read_items == []
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_setting_is_read_from_saved_org_settings(
+    create_user, login_user, whoami, test_client, enabled
+):
+    """With no settings object passed in, the builder reads the org's saved
+    setting (as set through the API) and loads accordingly."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    r = test_client.put("/api/organization/settings", headers=_auth(token, org_id),
+                        json={"config": {"smart_instructions_on_demand": {"value": enabled}}})
+    assert r.status_code == 200, r.text
+    assert r.json()["config"]["smart_instructions_on_demand"]["value"] is enabled
+    inst = _create(test_client, token, org_id, title="Revenue rule", load_mode="intelligent",
+                   text="Revenue excludes refunds.")
+
+    section = await _build(org_id, "revenue by month", settings=None)
+
+    assert section.on_demand is enabled
+    loaded = inst["id"] in {it.id for it in section.items}
+    assert loaded is (not enabled), "on: listed only; off: loaded on the keyword match"

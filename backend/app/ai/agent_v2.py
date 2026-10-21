@@ -5303,10 +5303,12 @@ class AgentV2:
                                     data_source_ids=_instr_scope,
                                     mode=self._instruction_mode,
                                 )
-                                # Same query as the run-start build, so strong
-                                # matches stay inlined after the re-scope.
+                                # On demand: reuse the run-start query so the
+                                # catalog keeps its match ordering. Off: the
+                                # previous query-less rebuild, unchanged.
+                                _on_demand = getattr(self.context_hub, "smart_on_demand", False)
                                 instructions = (await _ib.build(
-                                    query=getattr(self.context_hub, "last_instruction_query", None),
+                                    query=getattr(self.context_hub, "last_instruction_query", None) if _on_demand else None,
                                 )).render(include_catalog=True)
                                 # Also re-scope the shared hub builder: create_data
                                 # builds its viz-instruction slice through it per

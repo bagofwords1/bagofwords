@@ -88,6 +88,10 @@ class InstructionsSection(ContextSection):
     # they get these in full via render(). The planner (include_catalog=True)
     # doesn't: it already has the text from its own read.
     read_items: List[InstructionItem] = []
+    # Org setting smart_instructions_on_demand, as resolved by the builder.
+    # Only changes the catalog's intro text; what is listed vs loaded is
+    # decided by the builder.
+    on_demand: bool = False
 
     @staticmethod
     def _tables_attr(table_refs: List[str], cap: int = 5) -> str:
@@ -139,16 +143,27 @@ class InstructionsSection(ContextSection):
             rendered.append(xml_tag("available_skills", "\n".join(skill_parts)))
 
         if include_catalog and self.available_instructions:
-            cat_parts: List[str] = [
-                "Organization instructions available on demand. Each entry lists "
-                "a short id, title and description (and the tables and other "
-                "objects it references) — the full text is NOT shown here. Decide "
-                "which entries apply to the user's request and call read_instruction "
-                "with their short_id to load the full text BEFORE acting. Entries "
-                "marked matched=... share words with the request (listed first) — "
-                "a hint, not a guarantee. If you suspect a rule exists but nothing "
-                "here matches, call search_instructions."
-            ]
+            if self.on_demand:
+                intro = (
+                    "Organization instructions available on demand. Each entry lists "
+                    "a short id, title and description (and the tables and other "
+                    "objects it references) — the full text is NOT shown here. Decide "
+                    "which entries apply to the user's request and call read_instruction "
+                    "with their short_id to load the full text BEFORE acting. Entries "
+                    "marked matched=... share words with the request (listed first) — "
+                    "a hint, not a guarantee. If you suspect a rule exists but nothing "
+                    "here matches, call search_instructions."
+                )
+            else:
+                intro = (
+                    "More organization instructions exist beyond the ones loaded above. "
+                    "Each entry lists a short id and title (and the tables it is scoped "
+                    "to) — the full text is NOT shown here. If an entry looks relevant "
+                    "to the user's request, call read_instruction with its short_id to "
+                    "load the full text BEFORE acting. If you suspect a rule exists but "
+                    "nothing here matches, call search_instructions."
+                )
+            cat_parts: List[str] = [intro]
             for ref in self.available_instructions:
                 attrs = {"short_id": ref.short_id, "title": ref.title}
                 if ref.table_refs:

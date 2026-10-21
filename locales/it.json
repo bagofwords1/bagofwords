@@ -3004,7 +3004,11 @@
         },
         "max_instructions_in_context": {
           "name": "Numero massimo di istruzioni nel contesto",
-          "description": "Numero massimo di istruzioni caricate per intero nel contesto dell'IA. Le istruzioni di tipo 'sempre' vengono sempre caricate (anche oltre questo numero). Quelle 'intelligenti' sono solo elencate; l'IA legge quelle che le servono."
+          "description": "Numero massimo di istruzioni da includere nel contesto dell'IA. Le istruzioni di tipo 'sempre' vengono caricate per prime, poi quelle 'intelligenti' occupano i posti rimanenti."
+        },
+        "smart_instructions_on_demand": {
+          "name": "L'agente sceglie le istruzioni smart",
+          "description": "L'agente legge solo le istruzioni smart che gli servono, invece di caricare tutte le corrispondenze."
         },
         "allow_report_webhooks": {
           "name": "Webhook dei report",

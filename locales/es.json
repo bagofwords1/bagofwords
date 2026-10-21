@@ -3215,7 +3215,11 @@
         },
         "max_instructions_in_context": {
           "name": "Máximo de instrucciones en el contexto",
-          "description": "Número máximo de instrucciones que se cargan completas en el contexto de la IA. Las instrucciones de tipo 'siempre' se cargan siempre (aunque superen este número). Las 'inteligentes' solo se listan; la IA lee las que necesita."
+          "description": "Número máximo de instrucciones que se incluyen en el contexto de la IA. Primero se cargan las instrucciones de tipo 'siempre' y después las 'inteligentes' ocupan los huecos restantes."
+        },
+        "smart_instructions_on_demand": {
+          "name": "El agente elige las instrucciones inteligentes",
+          "description": "El agente lee solo las instrucciones inteligentes que necesita, en lugar de cargar todas las coincidencias."
         },
         "allow_report_webhooks": {
           "name": "Webhooks de informes",

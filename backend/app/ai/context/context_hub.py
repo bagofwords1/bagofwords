@@ -66,7 +66,7 @@ from .builders.files_context_builder import FilesContextBuilder
 from .builders.message_context_builder import MessageContextBuilder
 from .builders.widget_context_builder import WidgetContextBuilder
 from .builders.query_context_builder import QueryContextBuilder
-from .builders.instruction_context_builder import InstructionContextBuilder
+from .builders.instruction_context_builder import InstructionContextBuilder, smart_instructions_on_demand
 from .builders.code_context_builder import CodeContextBuilder
 from .builders.resource_context_builder import ResourceContextBuilder
 from .builders.observation_context_builder import ObservationContextBuilder
@@ -312,6 +312,10 @@ class ContextHub:
         # by id. Handed to tool-less consumers via InstructionsSection.read_items.
         self.read_instruction_items = {}
         self._prior_reads_loaded = False
+        # Whether the org runs smart instructions on demand (set from the built
+        # instructions section in prime_static). The read hand-off only runs
+        # when it's on; off keeps the previous behavior unchanged.
+        self.smart_on_demand = False
         
         # Initialize metadata
         self.metadata = ContextMetadata(
@@ -835,6 +839,9 @@ class ContextHub:
             str(instr_query or ""),
             self._schema_identity_key(),
             tuple(sorted(instr_scope)) if instr_scope is not None else None,
+            # Flipping the on-demand setting must apply on the next turn, not
+            # after the cache entry expires.
+            smart_instructions_on_demand(self.organization_settings),
         )
         instr_cached = _INSTRUCTIONS_CACHE.get(instr_key)
 
@@ -874,8 +881,11 @@ class ContextHub:
             if instructions is not None and not isinstance(instructions, Exception)
             else None
         )
-        await self._load_prior_instruction_reads()
-        self._attach_read_instructions()
+        section = self._static_cache["instructions"]
+        self.smart_on_demand = bool(getattr(section, "on_demand", False))
+        if self.smart_on_demand:
+            await self._load_prior_instruction_reads()
+            self._attach_read_instructions()
         self._static_cache["code"] = None
         self._static_cache["resources"] = resources if not isinstance(resources, Exception) else None
         self._static_cache["files"] = files if not isinstance(files, Exception) else None
@@ -886,7 +896,7 @@ class ContextHub:
     def record_instruction_read(self, item) -> None:
         """Remember a smart instruction the agent read via read_instruction, so
         tool-less consumers (coder, chart step) get its full text."""
-        if item is None or not getattr(item, "id", None):
+        if not self.smart_on_demand or item is None or not getattr(item, "id", None):
             return
         self.read_instruction_items[str(item.id)] = item
         self._attach_read_instructions()

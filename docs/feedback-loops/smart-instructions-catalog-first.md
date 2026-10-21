@@ -8,6 +8,26 @@ filled every free slot (up to 50) with the most-used ones.
 The decision: treat them exactly like skills. Never auto-load a smart
 instruction. List every one in a catalog and let the LLM decide which to read.
 
+**Rollout: behind an org setting.** This ships behind
+`smart_instructions_on_demand` ("Agent chooses smart instructions", in AI
+Settings → Limits). It defaults to **off**, and off is the previous behavior,
+unchanged: keyword matches load in full, query-less builds fill by usage,
+there are no new catalog hints, and there is no read hand-off. Everything
+below describes the **on** mode.
+
+- `instruction_context_builder.smart_instructions_on_demand(settings)`
+  checks the flag. `InstructionContextBuilder.resolve_on_demand()` resolves it
+  once per `build()`, from the settings passed in or else from the org's
+  saved `OrganizationSettings`.
+- The context hub reads the mode from the built section
+  (`InstructionsSection.on_demand`) and only records or seeds reads when it's
+  on. The instruction cache key includes the flag, so flipping it applies on
+  the next turn.
+- Verified against `main`'s code: the off-mode behavior tests pass there
+  unchanged (keyword match loads in full; a read is not handed to the coder).
+  The off-mode builder tests fail there only on the new `on_demand` and
+  `matched` fields.
+
 ## Root cause (validated)
 
 - `backend/app/ai/context/builders/instruction_context_builder.py`
@@ -87,11 +107,13 @@ FAILED test_planner_gets_catalog_only_with_matches_first          a title match 
 FAILED test_instruction_read_earlier_in_the_report_reaches_the_coder   the coder must get the rule read earlier in this report
 ```
 
-With the change: **11 passed**.
+With the setting (on- and off-mode tests together): **19 passed**.
 
-Wider run: 375 passed (instruction / skill / catalog / focus / roster /
-sub-agent / settings / create_data / artifact e2e), plus 190 related unit
-tests.
+Wider run: 389 passed (instruction / skill / catalog / focus / roster /
+sub-agent / settings / create_data / artifact / agent-yaml e2e), plus 190
+related unit tests. In a live stack, the toggle saves, survives a reload, and
+round-trips through `PUT/GET /api/organization/settings` (screenshots in
+`media/pr/smart-instructions-on-demand/`).
 
 ## What this proves / regression notes
 

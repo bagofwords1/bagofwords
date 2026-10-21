@@ -822,8 +822,9 @@ class CreateDataTool(Tool):
                     viz_section = await context_hub.instruction_builder.build(
                         categories=["visualizations", "visualization", "general"],
                     )
-                # Smart rules are never inlined; this step can't read the
-                # catalog, so it gets the ones the agent read.
+                # On demand (org setting) smart rules aren't inlined and this
+                # step can't read the catalog, so it gets what the agent read.
+                # Off: nothing is recorded, so this adds nothing.
                 viz_section.read_items = list(getattr(context_hub, "read_instruction_items", {}).values())
                 viz_instructions = viz_section.render() or ""
             except Exception:

@@ -23,6 +23,21 @@ from app.core.main_build import resolve_main_build
 
 from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem, SkillCatalogItem
 
+# Org setting (lab): when on, smart instructions are never inlined — the agent
+# reads them from the catalog. Off (default) keeps the keyword-match loading.
+SMART_ON_DEMAND_SETTING = "smart_instructions_on_demand"
+
+
+def smart_instructions_on_demand(organization_settings) -> bool:
+    """True when the org opted into on-demand smart instructions."""
+    if organization_settings is None:
+        return False
+    try:
+        config = organization_settings.get_config(SMART_ON_DEMAND_SETTING)
+        return bool(getattr(config, "value", False)) if config is not None else False
+    except Exception:
+        return False
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,21 +50,24 @@ class InstructionContextBuilder:
     - `search_instructions()`: Search instructions with load_mode='intelligent' by keyword
     - `build()`: Combined always + intelligent instructions (with proper tracking)
 
-    Load behavior:
+    Load behavior depends on the org setting `smart_instructions_on_demand`:
+
+    Off (default):
+    1. Load ALL 'always' instructions first.
+    2. Fill remaining capacity with 'intelligent' instructions that MATCH the
+       query (keyword score > 0); with no query keywords, fill by usage rank.
+    3. Advertise the rest in the catalog. Skip 'disabled' instructions.
+
+    On:
     1. Load ALL 'always' instructions in full.
     2. NEVER inline an 'intelligent' (smart) instruction. Like skills, every
-       smart instruction is advertised in the <available_instructions>
-       catalog (short id, title, description, references, size) and the
-       agent reads the ones it needs via read_instruction — the LLM decides
-       relevance, not keyword overlap.
-    3. Keyword matches only RANK the catalog: a query keyword hitting the
-       title / labels / table names marks the entry matched="..." and lists
-       it first; body matches raise it within the rest.
-    4. Skip 'disabled' instructions.
-
+       one is advertised in <available_instructions> (short id, title,
+       description, references, size) and the agent reads what it needs via
+       read_instruction — the LLM decides relevance, not keyword overlap.
+    3. Keyword hits on the title / labels / table names only order the
+       catalog (listed first, matched="...").
     Tool-less consumers (coder, chart step) can't call read_instruction; the
-    context hub hands them the smart instructions the agent read (see
-    InstructionsSection.read_items).
+    context hub hands them what the agent read (InstructionsSection.read_items).
 
     The max_instructions_in_context setting (default 50) controls total capacity.
     'Always' instructions take priority and can exceed the limit.
@@ -88,6 +106,26 @@ class InstructionContextBuilder:
         # When either is None, that dimension is not filtered (include all).
         self.mode = mode
         self.channel = channel
+        # Resolved per build() from the org setting (see smart_instructions_on_demand).
+        self._on_demand = False
+
+    async def resolve_on_demand(self) -> bool:
+        """Read the org's smart_instructions_on_demand setting, from the settings
+        passed in or, when none were, from the database. Defaults to off."""
+        settings = self.organization_settings
+        if settings is None:
+            try:
+                from app.models.organization_settings import OrganizationSettings
+                res = await self.db.execute(
+                    select(OrganizationSettings).where(
+                        OrganizationSettings.organization_id == self.organization.id
+                    )
+                )
+                settings = res.scalar_one_or_none()
+            except Exception:
+                logger.debug("resolve_on_demand: settings lookup failed", exc_info=True)
+                return False
+        return smart_instructions_on_demand(settings)
 
     def _passes_mode_channel(self, applicable_modes, applicable_channels) -> bool:
         """Return True if an instruction with the given scoping applies to the
@@ -532,6 +570,7 @@ class InstructionContextBuilder:
             Instructions section with proper load_mode and load_reason tracking.
         """
         max_instructions = self._get_max_instructions()
+        self._on_demand = await self.resolve_on_demand()
         # Use explicitly passed data_source_ids, or fall back to builder default
         effective_ds_ids = data_source_ids if data_source_ids is not None else self.data_source_ids
 
@@ -556,6 +595,8 @@ class InstructionContextBuilder:
                 categories=categories,
                 max_instructions=max_instructions,
             )
+
+        section.on_demand = self._on_demand
 
         # Advertise skills (kind='skill') as a compact catalog rather than
         # force-loading their full text. The agent pulls them on demand via
@@ -982,11 +1023,24 @@ class InstructionContextBuilder:
         accessible_ids = {it.id for it in accessible}
         ranked = [entry for entry in ranked if entry[0].id in accessible_ids]
 
-        # Smart instructions are never inlined: all of them are advertised in
-        # <available_instructions> (strong matches first) and the agent reads
-        # what it needs via read_instruction.
-        token_sizes = {it.id: count_tokens(it.text or "") for it, _, _ in ranked}
-        intelligent_items: List[InstructionItem] = []
+        on_demand = self._on_demand
+        if on_demand:
+            # Smart instructions are never inlined: all of them are advertised
+            # (strong matches first) and the agent reads what it needs.
+            token_sizes = {it.id: count_tokens(it.text or "") for it, _, _ in ranked}
+            intelligent_items: List[InstructionItem] = []
+            catalog_order = self._matched_first(ranked, matched_by)
+        else:
+            # Keyword gate: LOAD intelligent instructions that matched (score >
+            # 0); with no query keywords, fill by usage rank.
+            token_sizes = {}
+            remaining_slots = max(0, max_instructions - len(always_items))
+            if keywords:
+                loadable = [entry for entry in ranked if entry[1] > 0][:remaining_slots]
+            else:
+                loadable = ranked[:remaining_slots]
+            intelligent_items = [it for it, _, _ in loadable]
+            catalog_order = ranked
 
         # Everything not loaded — zero-score matches AND over-capacity ones — is
         # advertised (not dropped), so the model can still reach it on demand.
@@ -999,12 +1053,12 @@ class InstructionContextBuilder:
                 structured_data=version.structured_data,
                 text=it.text,
                 table_refs=it.table_refs,
-                other_refs=self._version_other_refs(version),
+                other_refs=self._version_other_refs(version) if on_demand else [],
                 usage_count=it.usage_count,
-                matched=matched_by.get(it.id),
+                matched=matched_by.get(it.id) if on_demand else None,
                 tokens=token_sizes.get(it.id),
             )
-            for it, _, version in self._matched_first(ranked, matched_by)
+            for it, _, version in catalog_order
             if it.id not in loaded_intelligent_ids
         ][: self.CATALOG_LIMIT]
 
@@ -1084,16 +1138,26 @@ class InstructionContextBuilder:
                 matched_by[str(inst.id)] = hit
             token_sizes[str(inst.id)] = count_tokens(inst.text or "")
 
-        # Smart instructions are never inlined (see build()).
-        intelligent_results: List[Tuple[Instruction, float]] = []
+        on_demand = self._on_demand
+        if on_demand:
+            # Smart instructions are never inlined (see build()).
+            intelligent_results: List[Tuple[Instruction, float]] = []
+            catalog_order = self._matched_first(intelligent_ranked, matched_by)
+        else:
+            token_sizes = {}
+            if keywords:
+                intelligent_results = [(i, s) for i, s in intelligent_ranked if s > 0][:remaining_slots]
+            else:
+                intelligent_results = intelligent_ranked[:remaining_slots]
+            catalog_order = intelligent_ranked
         loaded_intelligent_ids = {str(i.id) for i, _ in intelligent_results}
         catalog_candidates = [
-            (i, s) for i, s in self._matched_first(intelligent_ranked, matched_by)
+            (i, s) for i, s in catalog_order
             if str(i.id) not in loaded_intelligent_ids
         ]
         other_refs = await self._batch_load_other_refs(
             [str(i.id) for i, _ in catalog_candidates]
-        )
+        ) if on_demand else {}
 
         # Deduplicate and build items with tracking
         seen_ids: Set[str] = set()
@@ -1146,7 +1210,7 @@ class InstructionContextBuilder:
                 table_refs=table_refs.get(str(inst.id), []),
                 other_refs=other_refs.get(str(inst.id), []),
                 usage_count=usage_counts.get(str(inst.id)),
-                matched=matched_by.get(str(inst.id)),
+                matched=matched_by.get(str(inst.id)) if on_demand else None,
                 tokens=token_sizes.get(str(inst.id)),
             )
             for inst, _ in catalog_candidates
@@ -1239,9 +1303,9 @@ class InstructionContextBuilder:
                     continue
                 if version.load_mode == "disabled":
                     continue
-                # Smart instructions are read on demand, never pulled in
-                # through a reference.
-                if version.load_mode == "intelligent":
+                # On demand: smart instructions are read by the agent, never
+                # pulled in through a reference.
+                if self._on_demand and version.load_mode == "intelligent":
                     continue
 
                 inst_id = str(instruction.id)
@@ -1281,7 +1345,7 @@ class InstructionContextBuilder:
             usage_counts = await self._batch_load_usage_counts(list(missing_ids))
 
             for inst in instructions:
-                if inst.load_mode == "intelligent":
+                if self._on_demand and inst.load_mode == "intelligent":
                     continue
                 inst_id = str(inst.id)
                 dep_items.append(InstructionItem(
