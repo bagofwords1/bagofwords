@@ -291,8 +291,14 @@ class SubAgentService:
         return parent_model, note
 
     async def _lookup_model(self, db, organization, user, spec: str):
-        """Resolve '<provider>/<model_id>', a model_id, or a db id — only among
-        enabled models the user may use (per-model RBAC)."""
+        """Resolve a model spec to an enabled model this user may use.
+
+        The spec is a db id, a model_id, or a display name, optionally
+        prefixed '<provider>/'. Access grants are per model row, and the same
+        model_id/name can live on several rows (one per provider), so every
+        match is collected and the first one the user can use wins. An exact
+        db id is tried before name matches.
+        """
         from app.models.llm_model import LLMModel
         from app.models.llm_provider import LLMProvider
         from app.core.permission_resolver import user_can_use_model
@@ -303,16 +309,34 @@ class SubAgentService:
         if not model_part:
             provider_part, model_part = None, spec
         rows = (await db.execute(
-            select(LLMModel).where(LLMModel.organization_id == organization.id, LLMModel.is_enabled == True)  # noqa: E712
-        )).scalars().all()
-        for m in rows:
-            if str(m.id) == spec or (m.model_id == model_part and (provider_part is None or _provider_matches(m, provider_part))):
-                try:
-                    if user is not None and not await user_can_use_model(db, user.id, organization.id, m):
-                        return None
-                except Exception:
-                    return None
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .where(
+                LLMModel.organization_id == organization.id,
+                LLMModel.is_enabled == True,  # noqa: E712
+                LLMModel.deleted_at == None,  # noqa: E711
+                LLMProvider.is_enabled == True,  # noqa: E712
+                LLMProvider.deleted_at == None,  # noqa: E711
+            )
+            .order_by(LLMModel.created_at.asc(), LLMModel.id.asc())
+        )).scalars().unique().all()
+
+        wanted = model_part.lower()
+        by_id = [m for m in rows if str(m.id) == spec]
+        by_name = [
+            m for m in rows
+            if m not in by_id
+            and wanted in {str(m.model_id or "").lower(), str(m.name or "").lower()}
+            and (provider_part is None or _provider_matches(m, provider_part))
+        ]
+        for m in by_id + by_name:
+            if user is None:
                 return m
+            try:
+                if await user_can_use_model(db, user.id, organization.id, m):
+                    return m
+            except Exception:
+                logger.exception("sub-agent model lookup: access check failed for model %s", m.id)
         return None
 
     async def launch_pending(self, *, report_id: str, parent_completion_id: str, settings, sigkilled: bool = False) -> Optional[str]:

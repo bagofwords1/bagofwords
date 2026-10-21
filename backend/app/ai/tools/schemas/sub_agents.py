@@ -43,7 +43,8 @@ class DelegateInput(BaseModel):
         "Default: every agent this conversation has. One source per hypothesis keeps a child focused."
     ))
     model: Optional[str] = Field(None, description=(
-        "Override the child's model as '<provider>/<model_id>' or a model id from the catalog. Leave "
+        "Override the child's model as '<provider>/<model_id>', a model id, or a model's display name "
+        "from the catalog. Leave "
         "unset unless the user asked for a model or an instruction names one; the default is right."
     ))
     max_steps: Optional[int] = Field(None, ge=3, description=(
