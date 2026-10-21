@@ -114,14 +114,21 @@ class InstructionContextBuilder:
         passed in or, when none were, from the database. Defaults to off."""
         settings = self.organization_settings
         if settings is None:
+            # Own short-lived session, NOT self.db: self.db is often the agent's
+            # long-lived session, and a read left open on it holds SQLite's
+            # shared lock for the whole run, so every writer (e.g. sigkill)
+            # fails with "database is locked".
             try:
+                from app.dependencies import async_session_maker
                 from app.models.organization_settings import OrganizationSettings
-                res = await self.db.execute(
-                    select(OrganizationSettings).where(
-                        OrganizationSettings.organization_id == self.organization.id
+                async with async_session_maker() as s:
+                    res = await s.execute(
+                        select(OrganizationSettings).where(
+                            OrganizationSettings.organization_id == str(self.organization.id)
+                        )
                     )
-                )
-                settings = res.scalar_one_or_none()
+                    settings = res.scalar_one_or_none()
+                    return smart_instructions_on_demand(settings)
             except Exception:
                 logger.debug("resolve_on_demand: settings lookup failed", exc_info=True)
                 return False
