@@ -192,6 +192,7 @@ def test_non_page_artifacts_never_get_compiled_code():
         assert a.compiled_js is None
 
 
+@pytest.mark.skipif(not HAVE_BABEL, reason="needs vendored babel-standalone to key the cache")
 @pytest.mark.asyncio
 async def test_an_unavailable_compiler_backs_off_instead_of_retrying_every_view(tmp_path, monkeypatch, caplog):
     """No Chromium on this deployment: artifacts keep compiling in the browser,
