@@ -11,6 +11,10 @@
 //   cd frontend && PW_CHROMIUM_PATH=/opt/pw-browsers/chromium \
 //     node tests/reports/shoot-filter-side-pane.mjs <out.png> [reportId]
 //
+// BOW_DS_NAME picks the data source (default: the first one). With the stub
+// LLM (tools/agent/stub_llm.py, STUB_VIZ_TYPE=table STUB_CODEGEN=rows) use
+// BOW_DS_NAME=sqlite_source_1 from seed_org.py --sqlite-sources 1.
+//
 // Without a reportId it creates a report and asks the agent for a table;
 // with one it reuses that report (so before/after shots show the same data).
 // Prints the report id, and exits non-zero when the pane grid's row count
@@ -37,7 +41,7 @@ if (!reportId) {
   const dss = await (await fetch(`${API}/api/data_sources`, { headers: H })).json();
   const report = await (await fetch(`${API}/api/reports`, {
     method: 'POST', headers: H,
-    body: JSON.stringify({ title: 'Filter in side pane', data_sources: [dss[0].id] }),
+    body: JSON.stringify({ title: 'Filter in side pane', data_sources: [(dss.find((d) => d.name === process.env.BOW_DS_NAME) || dss[0]).id] }),
   })).json();
   reportId = report.id;
 }
@@ -49,7 +53,7 @@ const page = await (await browser.newContext({ viewport: { width: 1440, height: 
 
 let failed = false;
 try {
-  await page.goto(`${BASE}/users/sign-in`, { waitUntil: 'load' });
+  await page.goto(`${BASE}/users/sign-in`, { waitUntil: 'load', timeout: 300000 });
   await page.fill('#email', EMAIL);
   await page.fill('#password', PASSWORD);
   await page.click('button[type="submit"]');
@@ -97,13 +101,18 @@ try {
   // Drive the filter popover like a user: Add filter → column → ">" → value → Apply.
   await panel.locator('div.justify-end.mb-2 button').first().click();
   await page.getByRole('button', { name: 'Add filter' }).click();
-  const selects = page.locator('[role="dialog"] button[role="combobox"], [id^="headlessui-popover-panel"] button[aria-haspopup]');
-  await selects.nth(0).click();
-  await page.keyboard.type(colId.replace(/_/g, ' ').split(' ')[1] || colId);
-  await page.keyboard.press('Enter');
-  await selects.nth(1).click();
+  // The column select defaults to the first column alphabetically; switch it
+  // only when that isn't the numeric one.
+  const colLabel = colId.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  const colBtn = page.locator('button', { hasText: /^\s*[A-Z][\w ]*$/ }).filter({ has: page.locator('span') }).first();
+  if (!(await page.locator('button', { hasText: colLabel }).count())) {
+    await colBtn.click();
+    await page.keyboard.type(colLabel);
+    await page.keyboard.press('Enter');
+  }
+  await page.locator('button', { hasText: /^\s*equals\s*$/ }).first().click();
   await page.getByRole('option', { name: '>', exact: true }).click();
-  await page.locator('[id^="headlessui-popover-panel"] input[type="number"]').fill(String(threshold));
+  await page.getByPlaceholder('Value').fill(String(threshold));
   await page.waitForTimeout(300);
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await page.waitForTimeout(1500);
@@ -115,13 +124,18 @@ try {
     [...el.querySelectorAll(`.ag-center-cols-container .ag-cell[col-id="${id}"]`)].filter((c) => Number(c.textContent.trim()) <= t).length,
   [colId, threshold]);
   console.log(`pane header "${headerAfter}", grid shows ${shown} rows, ${tooLow} of them fail the filter`);
-  failed = shown !== expected || tooLow > 0;
+  // ag-grid only puts on-screen rows in the DOM, so judge by content: no
+  // shown row may fail the filter, and the grid can't show more than the header.
+  failed = tooLow > 0 || shown > expected;
 
   // Reopen the popover so the shot shows the applied filter next to the grid.
   await panel.locator('div.justify-end.mb-2 button').first().click();
   await page.waitForTimeout(600);
   await page.screenshot({ path: OUT });
   console.log('captured', OUT);
+} catch (e) {
+  await page.screenshot({ path: OUT.replace(/\.png$/, '-error.png') }).catch(() => {});
+  throw e;
 } finally {
   await browser.close();
 }
