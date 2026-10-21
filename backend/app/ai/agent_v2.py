@@ -3800,6 +3800,39 @@ class AgentV2:
             if has_tool:
                 self.planner.tool_catalog = [t for t in catalog if t.name != "route_model"]
 
+    async def _setup_delegate_models(self) -> None:
+        """Give the delegate tool this user's models as its `model` choices.
+
+        The planner otherwise has to guess a model id — and admin-owned ids
+        (Bedrock ARNs, Azure deployments, Vertex ids) are not guessable, so a
+        named model was refused as "no access". The list is the same one the
+        server resolves against (delegate_model_options), so every option is
+        accepted; the server still re-checks access on the call. With
+        overrides disabled, or no usable model, `model` is dropped.
+        """
+        catalog = self.planner.tool_catalog or []
+        tool = next((t for t in catalog if t.name == "delegate"), None)
+        if tool is None or not self.db or not self.organization:
+            return
+        from app.services.sub_agent_service import (
+            build_delegate_schema, delegate_model_options, sub_agent_limits,
+        )
+        options = []
+        try:
+            if sub_agent_limits(self.organization_settings)["allow_model_override"]:
+                user = None
+                if self._asker_user_id:
+                    from app.models.user import User
+                    user = await self.db.get(User, self._asker_user_id)
+                # An asker we can't load must not get an ungated list.
+                if user is not None or not self._asker_user_id:
+                    options = await delegate_model_options(self.db, self.organization, user)
+        except Exception:
+            logger.warning("[delegate] model options failed; offering none", exc_info=True)
+            options = []
+        current_id = str(getattr(self.model, "id", "") or "") or None
+        tool.schema = build_delegate_schema(tool.schema, options, current_model_id=current_id)
+
     def _apply_routed_model(self, model) -> None:
         """Auto-router escalation entry point (kept for RoutingController)."""
         self._apply_effective_model(model, cause="routing")
@@ -5123,6 +5156,7 @@ class AgentV2:
             except Exception:
                 logger.exception("native replay remap failed")
             await self._setup_model_routing()
+            await self._setup_delegate_models()
             await self._setup_llm_fallback()
 
             # Loop-level rescue budget: how many unexpected iteration crashes

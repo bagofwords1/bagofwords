@@ -24,7 +24,7 @@ class DelegateInput(BaseModel):
         "per day for the premium sku_group two weeks before vs after; report the delta and whether "
         "it can explain a 15% total drop.')."
     ))
-    context: str = Field("", description=(
+    context: Optional[str] = Field("", description=(
         "What you already know that the child needs: definitions you settled, the metric and its "
         "baseline, table/column names you verified, ids of prior queries to reuse. Repeat it per "
         "call — children do not share context."
