@@ -1902,6 +1902,25 @@
       "versionBumped": "Now version {v} — older rows are marked outdated",
       "open": "Open list"
     },
+    "deleteListRows": {
+      "finding": "Finding rows to delete in {name}…",
+      "confirm": "Confirm deleting rows",
+      "waiting": "Waiting for confirmation",
+      "deleting": "Deleting rows…",
+      "deleted": "Deleted {n} row from {name} | Deleted {n} rows from {name}",
+      "cancelled": "Delete cancelled — nothing was deleted",
+      "timedOut": "Not confirmed in time — nothing was deleted",
+      "noMatch": "No matching rows — nothing to delete",
+      "failed": "Rows not deleted",
+      "badgeClear": "Clear all rows",
+      "badgeCount": "{n} of {total} row | {n} of {total} rows",
+      "permanent": "Deleted rows can’t be restored.",
+      "andMore": "and {n} more row | and {n} more rows",
+      "notFound": "Not found: {list}",
+      "cancel": "Cancel",
+      "approve": "Delete {n} row | Delete {n} rows",
+      "remaining": "{n} row left | {n} rows left"
+    },
     "delegate": {
       "label": "Sub-agent",
       "refused": "Not started",

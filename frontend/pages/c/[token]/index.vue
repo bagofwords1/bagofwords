@@ -273,6 +273,7 @@ import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
 import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
+import DeleteListRowsTool from '~/components/tools/DeleteListRowsTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -752,6 +753,8 @@ function getToolComponent(toolName: string) {
         case 'create_list':
         case 'edit_list':
             return ListSchemaTool
+        case 'delete_list_rows':
+            return DeleteListRowsTool
         // Deliberately NOT mapped here — these two stay owner-view-only, and
         // not merely for effort. suggest_instructions is a review queue over
         // UNREVIEWED draft instructions, and create_agent builds its body by
