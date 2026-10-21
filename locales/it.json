@@ -1895,6 +1895,7 @@
     "permissions": {
       "manage_files": "Gestione dei file",
       "create_data_source": "Crea agente",
+      "create_connections": "Crea connessioni",
       "manage_connections": "Gestione delle connessioni",
       "manage_instructions": "Gestione delle istruzioni",
       "manage_entities": "Gestione delle entità",

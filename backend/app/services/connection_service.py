@@ -2305,10 +2305,14 @@ class ConnectionService:
                     resolved = await resolve_permissions(
                         db, str(current_user.id), str(connection.organization_id)
                     )
-                    # Admin-level system credential access: full_admin or manage_connections
+                    # Admin-level system credential access: full_admin,
+                    # manage_connections, or manage_connection on this
+                    # connection (incl. its creator) — they can edit these
+                    # credentials anyway.
                     has_update_perm = (
                         FULL_ADMIN in resolved.org_permissions
                         or resolved.has_org_permission("manage_connections")
+                        or resolved.has_resource_permission("connection", str(connection.id), "manage_connection")
                     )
                 except Exception:
                     pass
@@ -2728,11 +2732,17 @@ class ConnectionService:
         tool_id: str,
         is_enabled: bool = None,
         policy: str = None,
+        connection_id: Optional[str] = None,
     ) -> ConnectionTool:
-        """Update a single tool's enabled state or policy."""
-        result = await db.execute(
-            select(ConnectionTool).filter(ConnectionTool.id == tool_id)
-        )
+        """Update a single tool's enabled state or policy.
+
+        ``connection_id`` scopes the lookup to that connection's tools — the
+        route authorizes the connection in the URL, so a tool from any other
+        connection must read as not found."""
+        stmt = select(ConnectionTool).filter(ConnectionTool.id == tool_id)
+        if connection_id is not None:
+            stmt = stmt.filter(ConnectionTool.connection_id == str(connection_id))
+        result = await db.execute(stmt)
         tool = result.scalar_one_or_none()
         if not tool:
             raise HTTPException(status_code=404, detail="Tool not found")
@@ -2758,12 +2768,19 @@ class ConnectionService:
         db: AsyncSession,
         tool_ids: List[str],
         is_enabled: bool,
+        connection_id: Optional[str] = None,
     ) -> List[ConnectionTool]:
-        """Batch enable/disable tools."""
-        result = await db.execute(
-            select(ConnectionTool).filter(ConnectionTool.id.in_(tool_ids))
-        )
+        """Batch enable/disable tools.
+
+        ``connection_id`` scopes the update to that connection: if any id is
+        not one of its tools, nothing is changed (404)."""
+        stmt = select(ConnectionTool).filter(ConnectionTool.id.in_(tool_ids))
+        if connection_id is not None:
+            stmt = stmt.filter(ConnectionTool.connection_id == str(connection_id))
+        result = await db.execute(stmt)
         tools = result.scalars().all()
+        if connection_id is not None and len({str(t.id) for t in tools}) != len(set(tool_ids or [])):
+            raise HTTPException(status_code=404, detail="Tool not found")
         for tool in tools:
             tool.is_enabled = is_enabled
         await db.commit()

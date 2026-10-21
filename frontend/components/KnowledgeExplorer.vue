@@ -370,13 +370,13 @@
           <UTooltip v-if="connections.length > 4" class="shrink-0" :text="$t('agentsPage.viewAllConnections', { n: connections.length })">
             <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 dark:border-gray-800 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
           </UTooltip>
-          <UTooltip v-if="canCreateDataSource && connections.length" class="shrink-0" :text="$t('agentsPage.newConnection')">
+          <UTooltip v-if="canCreateConnection && connections.length" class="shrink-0" :text="$t('agentsPage.newConnection')">
             <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
           <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
-          <button v-if="connectionsLoaded && canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
+          <button v-if="connectionsLoaded && canCreateConnection && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             {{ $t('agentsPage.addConnection') }}
           </button>
@@ -1021,7 +1021,7 @@
               <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">{{ agents.length ? $t('agentsPage.selectAgentHint') : $t('agentsPage.connectDataHint') }}</p>
               <div v-if="canCreateAgent" class="mt-4 flex items-center gap-2">
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="showNewAgent = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.createNewAgent') }}</button>
-                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/70 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.connectData') }}</button>
+                <button v-if="canCreateConnection" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/70 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.connectData') }}</button>
               </div>
             </div>
           </div>
@@ -1079,7 +1079,7 @@
             <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('agentsPage.connections') }}</div>
             <div class="text-xs text-gray-500 dark:text-gray-400">{{ connections.length === 1 ? $t('agentsPage.connectedSourceOne', { n: connections.length }) : $t('agentsPage.connectedSourceMany', { n: connections.length }) }}</div>
           </div>
-          <button v-if="canCreateDataSource" type="button" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = false; connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.new') }}</button>
+          <button v-if="canCreateConnection" type="button" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = false; connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.new') }}</button>
         </div>
         <div class="max-h-[60vh] overflow-auto -mx-1 px-1 space-y-0.5">
           <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
@@ -2723,6 +2723,9 @@ const customApiExistingConnections = computed(() => connections.value.filter((c:
 // lacks `create_data_sources` on the connection) would otherwise vanish.
 const onConnCreated = async (conn?: any, meta?: { existing?: boolean }) => {
   const aid = connTargetAgentId.value
+  // A new connection is owned by its creator — re-read the session so the
+  // owner's per-connection permissions show up without a reload.
+  if (conn?.id && !meta?.existing) { try { await useAuth().getSession() } catch {} }
   if (aid && conn?.id) {
     const link = await useMyFetch(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' })
     if (link.error?.value) {
@@ -2827,12 +2830,11 @@ const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { typ
 // users whose role grants exactly this.
 const canCreateAgent = computed(() =>
   useCan('create_data_source') || useCanAny('create_data_sources', 'connection'))
-// Creating a CONNECTION, and connecting a Git repo, are broader than building an
-// agent on a connection someone already granted you — Git sync can rewrite every
-// git-sourced instruction, and /api/git/* is org-gated server-side. These stay on
-// the org permission; folding them into canCreateAgent would surface buttons a
-// per-connection grantee cannot use.
-const canCreateDataSource = computed(() => useCan('create_data_source'))
+// Creating a CONNECTION is its own org permission (`create_connections`, implied
+// by `manage_connections`): POST /connections is gated on it, and the creator
+// then owns the connection. It is not implied by building agents — a
+// per-connection or agent-only grantee cannot create connections.
+const canCreateConnection = computed(() => useCan('create_connections'))
 // Git is an INSTRUCTION source, not an agent-building capability: syncing a
 // branch stages instruction content and disconnecting a repo soft-deletes every
 // linked instruction. Mirrors the org-level gate on /api/git/*.

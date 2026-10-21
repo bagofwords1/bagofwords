@@ -46,6 +46,8 @@ ORG_PERM_IMPLIES_ORG: dict[str, set[str]] = {
     # Editing and executing code you are not allowed to read is not a coherent
     # state, so the edit permission carries the read permission with it.
     "run_custom_code": {"view_code"},
+    # The org connection admin can create connections too.
+    "manage_connections": {"create_connections"},
 }
 
 

@@ -2077,6 +2077,7 @@
     "permissions": {
       "manage_files": "Manage files",
       "create_data_source": "Create agent",
+      "create_connections": "Create connections",
       "manage_connections": "Manage connections",
       "manage_instructions": "Manage instructions",
       "manage_entities": "Manage entities",

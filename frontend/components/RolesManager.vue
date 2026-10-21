@@ -690,6 +690,7 @@ const KNOWN_PERMISSION_KEYS = new Set([
     'view_code',
     'run_custom_code',
     'create_data_source',
+    'create_connections',
     'manage_connections',
     'manage_instructions',
     'manage_entities',
