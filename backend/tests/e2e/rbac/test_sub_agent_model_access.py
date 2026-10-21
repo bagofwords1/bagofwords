@@ -43,7 +43,7 @@ def _rows_for(test_client, token, org_id, model_id):
     return [m for m in resp.json() if m["model_id"] == model_id]
 
 
-def _delegate(org_id, user_id, report_id, model_spec):
+def _delegate(org_id, user_id, report_id, model_spec, *, profile="investigate", parent_model_id=None, small_model_id=None):
     from app.ai.tools.schemas.sub_agents import DelegateInput
     from app.models.organization import Organization
     from app.models.report import Report
@@ -51,7 +51,10 @@ def _delegate(org_id, user_id, report_id, model_spec):
     from app.services.sub_agent_service import sub_agent_service
 
     async def _go():
+        from app.models.llm_model import LLMModel
         async with async_session_maker() as db:
+            parent_model = await db.get(LLMModel, parent_model_id) if parent_model_id else None
+            small_model = await db.get(LLMModel, small_model_id) if small_model_id else None
             receipt = await sub_agent_service.record_delegation(
                 db,
                 organization=await db.get(Organization, org_id),
@@ -59,8 +62,8 @@ def _delegate(org_id, user_id, report_id, model_spec):
                 report=await db.get(Report, report_id),
                 parent_head_completion=None, parent_system_completion=None,
                 parent_execution_id=None, tool_execution_id=None, plan_decision_id=None,
-                data=DelegateInput(title="Model check", goal="Check which model the child gets.", model=model_spec),
-                settings=None, parent_mode=None, parent_model=None, small_model=None,
+                data=DelegateInput(title="Model check", goal="Check which model the child gets.", model=model_spec, profile=profile),
+                settings=None, parent_mode=None, parent_model=parent_model, small_model=small_model,
             )
             from app.models.sub_agent import SubAgentRun
             row = await db.get(SubAgentRun, receipt["sub_agent_id"]) if receipt.get("sub_agent_id") else None
@@ -151,3 +154,23 @@ def test_exact_db_id_of_an_ungranted_row_is_refused(enterprise_license, test_cli
 
     assert receipt["refused"]
     assert child_model_id != other["id"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("profile", ["investigate", "validate"])
+def test_default_child_model_is_the_parent_conversation_model(enterprise_license, test_client, twin_models, profile):
+    """With no override and sub_agent_model=auto, every profile runs on the
+    model the main conversation ran on — not the org's small default."""
+    t = twin_models
+    resp = test_client.get("/api/llm/models", headers=_headers(t["admin"]["token"], t["org_id"]))
+    small = next(m for m in resp.json() if m["is_small_default"])
+    parent = t["rows"][1]
+    assert parent["id"] != small["id"]
+
+    receipt, child_model_id = _delegate(
+        t["org_id"], t["member"]["user_id"], t["report_id"], None,
+        profile=profile, parent_model_id=parent["id"], small_model_id=small["id"],
+    )
+
+    assert receipt["status"] == "running"
+    assert child_model_id == parent["id"]

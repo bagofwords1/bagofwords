@@ -3295,7 +3295,7 @@
         },
         "sub_agent_model": {
           "name": "Modelo de subagentes",
-          "description": "Modelo con el que planifican los subagentes. 'auto' = el modelo pequeño por defecto para el perfil investigate y el modelo por defecto para validate; 'small' o 'default' fuerzan uno; o un id de modelo de la página de LLM."
+          "description": "Modelo con el que planifican los subagentes. 'auto' = el mismo modelo que la conversación principal (el modelo del informe cuando hay uno); 'small' fuerza el modelo pequeño por defecto; o un id de modelo de la página de LLM."
         },
         "sub_agent_allow_model_override": {
           "name": "Permitir cambiar el modelo de un subagente",

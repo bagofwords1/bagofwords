@@ -49,8 +49,9 @@ class SubAgentProfile:
     key: str
     title: str
     tools: FrozenSet[str]
-    # "small" | "default": which org model the child plans on under
-    # sub_agent_model=auto.
+    # "small" | "default": which model the child plans on under
+    # sub_agent_model=auto. "default" = the parent turn's model (the report's
+    # model when one is pinned).
     model_pref: str
     addendum: str
     # Tools added when the org allows sub-agents to create tracked queries.
@@ -62,7 +63,7 @@ PROFILES: Dict[str, SubAgentProfile] = {
         key="investigate",
         title="Investigate",
         tools=frozenset(_RESEARCH),
-        model_pref="small",
+        model_pref="default",
         addendum=(
             "PROFILE: investigate. You test one hypothesis or answer one bounded question. "
             "Verify names against the schema before querying; peek with inspect_data; prefer a few "

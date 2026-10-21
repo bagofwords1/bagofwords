@@ -33,8 +33,8 @@ class DelegateInput(BaseModel):
         "3-6 words, the live status line shown to the user (e.g. 'Pricing change hypothesis')."
     ))
     profile: Literal["investigate", "validate"] = Field("investigate", description=(
-        "'investigate' (default): research-only, small model, verdict + evidence ids. "
-        "'validate': produces tracked queries as evidence, regular model, and can write rows into "
+        "'investigate' (default): research-only, verdict + evidence ids. "
+        "'validate': produces tracked queries as evidence and can write rows into "
         "this conversation's lists with their submit_<list> tools — use it for per-document or "
         "per-source extraction fan-outs (one child per document, all saving into the same list)."
     ))
