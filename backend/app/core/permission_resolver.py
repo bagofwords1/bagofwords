@@ -852,13 +852,27 @@ async def user_can_use_model(
     """
     if not llm_access_control_active():
         return True
-    if not getattr(model, "is_restricted", False):
-        return True
-    # Org default + small default are always available to every member (D3).
-    if getattr(model, "is_default", False) or getattr(model, "is_small_default", False):
+    if model_open_to_all(model):
         return True
     is_admin, granted = await get_accessible_model_ids(db, user_id, org_id)
     return is_admin or str(model.id) in set(granted)
+
+
+def model_open_to_all(model) -> bool:
+    """Unrestricted, or an org default/small default (D3: always available)."""
+    if not getattr(model, "is_restricted", False):
+        return True
+    return bool(getattr(model, "is_default", False) or getattr(model, "is_small_default", False))
+
+
+async def filter_models_user_can_use(db: AsyncSession, user_id: str, org_id: str, models) -> list:
+    """`user_can_use_model` over many models, resolving permissions once."""
+    models = list(models)
+    if not llm_access_control_active() or all(model_open_to_all(m) for m in models):
+        return models
+    is_admin, granted = await get_accessible_model_ids(db, user_id, org_id)
+    granted_set = set(granted)
+    return [m for m in models if is_admin or model_open_to_all(m) or str(m.id) in granted_set]
 
 
 async def get_ds_ids_with_permission(

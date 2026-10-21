@@ -98,10 +98,17 @@ receipt, never silently dropped. A child never gains an agent the user lacks.
 
 **Model.** Default resolves profile → `sub_agent_model` org setting → the
 parent's model. Under `auto` every profile runs on the parent turn's model
-(the report's model when one is pinned); `small` opts into the small default. `model` overrides it with a `<provider>/<model>` pair or a
-model id, validated against `list_models_for_principal` for the acting user
-(per-model RBAC applies, see `docs/design/llm-model-access-control.md`), and
-refused in the receipt when not allowed. Gated by
+(the report's model when one is pinned); `small` opts into the small default.
+
+`model` overrides it. Each run the agent rewrites the `delegate` schema so
+`model` is an enum of the models the acting user may use
+(`delegate_model_options`: display names, prefixed `<provider name>/` when
+names clash), so the planner never guesses an id — Bedrock ARNs, Azure
+deployments and Vertex ids are not guessable. The server also accepts a db id,
+the full model_id, or `<provider>/<model>`; every value is validated against
+the same per-user list (per-model RBAC applies, see
+`docs/design/llm-model-access-control.md`) and refused in the receipt when not
+allowed. Gated by
 `sub_agent_allow_model_override`. The tool description says: set `model` only
 when the user asked for a model, an instruction names one, or the profile
 calls for a stronger model on a hard hypothesis; otherwise leave it unset
