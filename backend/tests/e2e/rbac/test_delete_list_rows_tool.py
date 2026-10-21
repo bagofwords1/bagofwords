@@ -23,7 +23,7 @@ COMPANIES = ["Acme Corp", "Globex", "Initech", "Umbrella"]
 
 
 def _rec(name, value):
-    env = lambda v: {"value": v, "status": "found", "evidence": None, "note": None}  # noqa: E731
+    env = lambda v: {"value": v, "status": "found", "evidence": [], "note": None}  # noqa: E731
     return {"row_id": None, "fields": {"counterparty": env(name), "annual_value": env(value)}}
 
 
