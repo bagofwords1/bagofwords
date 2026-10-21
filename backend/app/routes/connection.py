@@ -457,12 +457,14 @@ async def get_connection(
     """Get connection details. Non-admins get a redacted view (no config/credentials) and must have access to at least one linked data source."""
     connection = await connection_service.get_connection(db, connection_id, organization)
 
-    # Everyone past the decorator holds `manage_connection` on this connection
-    # (org connection admin, a per-connection grant, or its owner) and can PUT
-    # its config, so they get the full edit view. The redaction below only
-    # applies if that ever stops being true.
-    is_admin = await _can_manage_connection(db, organization, current_user, connection)
-    if not is_admin:
+    # Two tiers. Connection managers (org connection admin, or a per-connection
+    # `manage_connection` grant — which includes the member who created the
+    # connection) can PUT its config, so they see it to edit it. Saved
+    # credential identifiers (credentials_meta / has_credentials) stay with
+    # org-level admins only.
+    is_admin = await _is_org_admin(db, current_user, organization)
+    can_manage = is_admin or await _can_manage_connection(db, organization, current_user, connection)
+    if not can_manage:
         if not await _user_can_access_connection(db, current_user, connection):
             raise HTTPException(status_code=403, detail="Access denied to this connection")
 
@@ -475,11 +477,14 @@ async def get_connection(
         except:
             config = {}
 
-    # Strip sensitive fields for non-admins
+    # Strip sensitive fields for non-managers; credential metadata is admin-only.
     credentials_meta = None
-    if not is_admin:
+    if not can_manage:
         config = {}
         allowed_user_auth_modes = []
+        has_credentials = False
+    elif not is_admin:
+        allowed_user_auth_modes = connection.allowed_user_auth_modes
         has_credentials = False
     else:
         allowed_user_auth_modes = connection.allowed_user_auth_modes
@@ -515,7 +520,7 @@ async def get_connection(
     )
     from app.services.connection_identity import management_requires_user_auth
     personal_management = management_requires_user_auth(connection)
-    query_limits = await _query_limit_fields(db, organization, config if is_admin else {})
+    query_limits = await _query_limit_fields(db, organization, config if can_manage else {})
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -523,7 +528,7 @@ async def get_connection(
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=allowed_user_auth_modes,
-        member_bindings=(connection.member_bindings or None) if is_admin else None,
+        member_bindings=(connection.member_bindings or None) if can_manage else None,
         config=config or {},
         last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
