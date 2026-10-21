@@ -1902,6 +1902,25 @@
       "versionBumped": "Now version {v} — older rows are marked outdated",
       "open": "Open list"
     },
+    "deleteListRows": {
+      "finding": "Finding rows to delete in {name}…",
+      "confirm": "Confirm deleting rows",
+      "waiting": "Waiting for confirmation",
+      "deleting": "Deleting rows…",
+      "deleted": "Deleted {n} row from {name} | Deleted {n} rows from {name}",
+      "cancelled": "Delete cancelled — nothing was deleted",
+      "timedOut": "Not confirmed in time — nothing was deleted",
+      "noMatch": "No matching rows — nothing to delete",
+      "failed": "Rows not deleted",
+      "badgeClear": "Clear all rows",
+      "badgeCount": "{n} of {total} row | {n} of {total} rows",
+      "permanent": "Deleted rows can’t be restored.",
+      "andMore": "and {n} more row | and {n} more rows",
+      "notFound": "Not found: {list}",
+      "cancel": "Cancel",
+      "approve": "Delete {n} row | Delete {n} rows",
+      "remaining": "{n} row left | {n} rows left"
+    },
     "delegate": {
       "label": "Sub-agent",
       "refused": "Not started",
@@ -2058,6 +2077,7 @@
     "permissions": {
       "manage_files": "Manage files",
       "create_data_source": "Create agent",
+      "create_connections": "Create connections",
       "manage_connections": "Manage connections",
       "manage_instructions": "Manage instructions",
       "manage_entities": "Manage entities",
@@ -3375,7 +3395,7 @@
         },
         "sub_agent_model": {
           "name": "Sub-agent model",
-          "description": "Model sub-agents plan on. 'auto' = the small default for the investigate profile and the regular default for validate; 'small' or 'default' force one; or a model id from the LLM page."
+          "description": "Model sub-agents plan on. 'auto' = the same model as the main conversation (the report's model when one is set); 'small' forces the small default model; or a model id from the LLM page."
         },
         "sub_agent_allow_model_override": {
           "name": "Allow sub-agent model override",

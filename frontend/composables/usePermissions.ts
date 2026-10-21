@@ -27,6 +27,8 @@ const ORG_PERM_IMPLIES_RESOURCE: Record<string, Record<string, string[]>> = {
 // preview) rather than a resolved one.
 const ORG_PERM_IMPLIES_ORG: Record<string, string[]> = {
   run_custom_code: ['view_code'],
+  // The org connection admin can create connections too.
+  manage_connections: ['create_connections'],
 }
 
 const isImpliedByOrgPerm = (

@@ -1895,6 +1895,7 @@
     "permissions": {
       "manage_files": "Управление файлами",
       "create_data_source": "Создание агента",
+      "create_connections": "Создание подключений",
       "manage_connections": "Управление подключениями",
       "manage_instructions": "Управление инструкциями",
       "manage_entities": "Управление сущностями",

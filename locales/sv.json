@@ -1895,6 +1895,7 @@
     "permissions": {
       "manage_files": "Hantera filer",
       "create_data_source": "Skapa agent",
+      "create_connections": "Skapa anslutningar",
       "manage_connections": "Hantera anslutningar",
       "manage_instructions": "Hantera instruktioner",
       "manage_entities": "Hantera entiteter",

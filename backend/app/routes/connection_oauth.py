@@ -128,10 +128,14 @@ async def _ensure_connection_access(
     db: AsyncSession, user: User, connection: Connection
 ) -> None:
     """Raise 403 if the user doesn't have access to this connection."""
-    from app.routes.connection import _user_can_access_connection, _is_org_admin
+    from app.routes.connection import _user_can_access_connection, _is_org_admin, _can_manage_connection
     org = connection.organization
     is_admin = await _is_org_admin(db, user, org) if org else False
     if is_admin:
+        return
+    # Connection managers (incl. its owner) may sign in to it before any
+    # agent is built on it.
+    if org and await _can_manage_connection(db, org, user, connection):
         return
     if await _user_can_access_connection(db, user, connection):
         return

@@ -1876,6 +1876,25 @@
       "versionBumped": "כעת גרסה {v} — שורות ישנות מסומנות כלא מעודכנות",
       "open": "פתח רשימה"
     },
+    "deleteListRows": {
+      "finding": "מחפש שורות למחיקה ב־{name}…",
+      "confirm": "אישור מחיקת שורות",
+      "waiting": "ממתין לאישור",
+      "deleting": "מוחק שורות…",
+      "deleted": "נמחקה שורה {n} מ־{name} | נמחקו {n} שורות מ־{name}",
+      "cancelled": "המחיקה בוטלה — דבר לא נמחק",
+      "timedOut": "לא אושר בזמן — דבר לא נמחק",
+      "noMatch": "אין שורות תואמות — אין מה למחוק",
+      "failed": "השורות לא נמחקו",
+      "badgeClear": "ניקוי כל השורות",
+      "badgeCount": "{n} מתוך {total} שורה | {n} מתוך {total} שורות",
+      "permanent": "לא ניתן לשחזר שורות שנמחקו.",
+      "andMore": "ועוד שורה {n} | ועוד {n} שורות",
+      "notFound": "לא נמצאו: {list}",
+      "cancel": "ביטול",
+      "approve": "מחיקת שורה {n} | מחיקת {n} שורות",
+      "remaining": "נותרה שורה {n} | נותרו {n} שורות"
+    },
     "delegate": {
       "label": "סוכן משנה",
       "refused": "לא הופעלה",
@@ -2032,6 +2051,7 @@
     "permissions": {
       "manage_files": "ניהול קבצים",
       "create_data_source": "יצירת סוכן",
+      "create_connections": "יצירת חיבורים",
       "manage_connections": "ניהול חיבורים",
       "manage_instructions": "ניהול הוראות",
       "manage_entities": "ניהול ישויות",
@@ -3295,7 +3315,7 @@
         },
         "sub_agent_model": {
           "name": "מודל סוכני משנה",
-          "description": "המודל שסוכני משנה מתכננים איתו. 'auto' = מודל ברירת המחדל הקטן לפרופיל investigate ומודל ברירת המחדל לפרופיל validate; 'small' או 'default' כופים אחד מהם; או מזהה מודל מעמוד ה-LLM."
+          "description": "המודל שסוכני משנה מתכננים איתו. 'auto' = אותו מודל כמו בשיחה הראשית (מודל הדוח כשהוגדר); 'small' כופה את מודל ברירת המחדל הקטן; או מזהה מודל מעמוד ה-LLM."
         },
         "sub_agent_allow_model_override": {
           "name": "לאפשר שינוי מודל לסוכן משנה",

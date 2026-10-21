@@ -234,6 +234,8 @@ class PromptBuilderV3:
                 "approved, its submit_<slug> tool is available immediately — go on and fill it.\n"
                 "- A list that already exists (you can see its submit_* tool) is changed with "
                 "edit_list, never re-created; keep edits additive unless the user asks otherwise.\n"
+                "- Rows are removed with delete_list_rows (by _row_id, key, or all) — only when the "
+                "user asks; they confirm on a card. Never delete and re-create a list to empty it.\n"
                 "- A list is also readable: create_data on builtin:bow with its list_id (named in "
                 "its submit_* tool description). For batch extraction query it first and skip keys "
                 "already present.\n\n"

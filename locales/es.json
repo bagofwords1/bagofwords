@@ -1876,6 +1876,25 @@
       "versionBumped": "Ahora es la versión {v}: las filas anteriores se marcan como obsoletas",
       "open": "Abrir lista"
     },
+    "deleteListRows": {
+      "finding": "Buscando filas para eliminar en {name}…",
+      "confirm": "Confirma la eliminación de filas",
+      "waiting": "Esperando confirmación",
+      "deleting": "Eliminando filas…",
+      "deleted": "Se eliminó {n} fila de {name} | Se eliminaron {n} filas de {name}",
+      "cancelled": "Eliminación cancelada: no se eliminó nada",
+      "timedOut": "No se confirmó a tiempo: no se eliminó nada",
+      "noMatch": "Ninguna fila coincide: nada que eliminar",
+      "failed": "No se eliminaron las filas",
+      "badgeClear": "Vaciar todas las filas",
+      "badgeCount": "{n} de {total} fila | {n} de {total} filas",
+      "permanent": "Las filas eliminadas no se pueden recuperar.",
+      "andMore": "y {n} fila más | y {n} filas más",
+      "notFound": "No encontrado: {list}",
+      "cancel": "Cancelar",
+      "approve": "Eliminar {n} fila | Eliminar {n} filas",
+      "remaining": "Queda {n} fila | Quedan {n} filas"
+    },
     "delegate": {
       "label": "Subagente",
       "refused": "No iniciada",
@@ -2032,6 +2051,7 @@
     "permissions": {
       "manage_files": "Gestionar archivos",
       "create_data_source": "Crear agente",
+      "create_connections": "Crear conexiones",
       "manage_connections": "Gestionar conexiones",
       "manage_instructions": "Gestionar instrucciones",
       "manage_entities": "Gestionar entidades",
@@ -3295,7 +3315,7 @@
         },
         "sub_agent_model": {
           "name": "Modelo de subagentes",
-          "description": "Modelo con el que planifican los subagentes. 'auto' = el modelo pequeño por defecto para el perfil investigate y el modelo por defecto para validate; 'small' o 'default' fuerzan uno; o un id de modelo de la página de LLM."
+          "description": "Modelo con el que planifican los subagentes. 'auto' = el mismo modelo que la conversación principal (el modelo del informe cuando hay uno); 'small' fuerza el modelo pequeño por defecto; o un id de modelo de la página de LLM."
         },
         "sub_agent_allow_model_override": {
           "name": "Permitir cambiar el modelo de un subagente",
