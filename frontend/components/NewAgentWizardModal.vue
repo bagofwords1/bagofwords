@@ -96,6 +96,7 @@
             <button
               type="button"
               class="mt-2 inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700"
+              v-if="canCreateConnection"
               :disabled="creatingFromConnection"
               @click="showAddConnectionModal = true"
             >
@@ -309,7 +310,14 @@ async function loadConnections() {
   }
 }
 
+// Creating a connection needs `create_connections` (POST /connections); without
+// it the button would only lead to a 403.
+const canCreateConnection = computed(() => useCan('create_connections'))
+
 async function handleNewConnectionCreated(connectionData: any) {
+  // The creator owns the new connection — refresh the session so its
+  // per-connection permissions reach the permission store.
+  try { await useAuth().getSession() } catch {}
   await loadConnections()
   if (connectionData?.id) {
     const newConn = connections.value.find(c => c.id === connectionData.id)

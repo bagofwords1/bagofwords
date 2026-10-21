@@ -2032,6 +2032,7 @@
     "permissions": {
       "manage_files": "ניהול קבצים",
       "create_data_source": "יצירת סוכן",
+      "create_connections": "יצירת חיבורים",
       "manage_connections": "ניהול חיבורים",
       "manage_instructions": "ניהול הוראות",
       "manage_entities": "ניהול ישויות",

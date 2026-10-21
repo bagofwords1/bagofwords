@@ -1895,6 +1895,7 @@
     "permissions": {
       "manage_files": "إدارة الملفات",
       "create_data_source": "إنشاء وكيل",
+      "create_connections": "إنشاء اتصالات",
       "manage_connections": "إدارة الاتصالات",
       "manage_instructions": "إدارة التعليمات",
       "manage_entities": "إدارة الكيانات",
