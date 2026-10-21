@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.0.595 (October 21, 2026)
+- Added a "Create connections" role permission: members create connections and manage only their own, plus the agents on them (#1447) — `create_connections`
+- Added deleting list rows from chat, after confirming the rows on a card (#1443)
+- Changed sub-agents to run on the main conversation's model by default instead of the small model (#1444) — set `sub_agent_model` to `small` to keep the old behavior
+- Fixed result filters not applying to the table in the side pane (#1446)
+- Fixed trigger-spawned sessions titled with raw event data instead of a readable name (#1445)
+- Fixed sub-agents refused a model the user can use when several providers offer it (#1444)
+- Fixed the dashboard ⓘ icon showing as an empty box under some dashboard styles, and covering short labels (#1442)
+
 ## Version 0.0.594 (October 20, 2026)
 - Added scheduling dashboard refreshes at any minute, not only on the hour (#1436)
 - Fixed dashboard refreshes running on the server clock instead of the organization's timezone (#1437) — existing schedules move to the org timezone on upgrade
