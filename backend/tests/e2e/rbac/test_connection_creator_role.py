@@ -114,11 +114,17 @@ def test_create_connections_permission_gates_connection_creation(test_client, wo
                          headers=_hdr(world["plain"]["token"], org))
     assert r.status_code == 403
 
+    r = test_client.post("/api/data_sources/test_connection", json=_sqlite_conn("nope"),
+                         headers=_hdr(world["plain"]["token"], org))
+    assert r.status_code == 403
+
     # create_connections and manage_connections (which implies it) → allowed.
+    # Both pre-save test routes: the connection form uses /data_sources/test_connection.
     for who in ("builder", "conn_admin"):
-        r = test_client.post("/api/connections/test-params", json=_sqlite_conn("t"),
-                             headers=_hdr(world[who]["token"], org))
-        assert r.status_code == 200, f"{who}: {r.text}"
+        for route in ("/api/connections/test-params", "/api/data_sources/test_connection"):
+            r = test_client.post(route, json=_sqlite_conn("t"), headers=_hdr(world[who]["token"], org))
+            assert r.status_code == 200, f"{who} {route}: {r.text}"
+            assert r.json().get("success") is True, f"{who} {route}: {r.text}"
         r = _create(test_client, world, who, _sqlite_conn(f"{who}-conn"))
         assert r.status_code == 200, f"{who}: {r.text}"
 

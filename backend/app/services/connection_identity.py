@@ -278,9 +278,8 @@ async def build_token_identity_status(
 
 
 async def is_admin_or_owner(db: AsyncSession, connection: Connection, user) -> bool:
-    """True if the user may switch identity: org admin/manage_connections, a
-    manager of this connection (incl. its creator), or owner of any data source
-    linked to the connection."""
+    """True if the user may switch identity: org admin/manage_connections, or owner of
+    any data source linked to the connection."""
     try:
         for ds in (connection.data_sources or []):
             if str(getattr(ds, "owner_user_id", "")) == str(getattr(user, "id", "")):
@@ -295,7 +294,6 @@ async def is_admin_or_owner(db: AsyncSession, connection: Connection, user) -> b
         return (
             FULL_ADMIN in resolved.org_permissions
             or resolved.has_org_permission("manage_connections")
-            or resolved.has_resource_permission("connection", str(connection.id), "manage_connection")
         )
     except Exception:
         return False

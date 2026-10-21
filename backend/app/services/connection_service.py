@@ -2305,14 +2305,10 @@ class ConnectionService:
                     resolved = await resolve_permissions(
                         db, str(current_user.id), str(connection.organization_id)
                     )
-                    # Admin-level system credential access: full_admin,
-                    # manage_connections, or manage_connection on this
-                    # connection (incl. its creator) — they can edit these
-                    # credentials anyway.
+                    # Admin-level system credential access: full_admin or manage_connections
                     has_update_perm = (
                         FULL_ADMIN in resolved.org_permissions
                         or resolved.has_org_permission("manage_connections")
-                        or resolved.has_resource_permission("connection", str(connection.id), "manage_connection")
                     )
                 except Exception:
                     pass
