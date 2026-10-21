@@ -228,7 +228,8 @@ class DeleteListRowsTool(Tool):
                 summary = "The user cancelled the delete; nothing was deleted."
                 summary += f" Their note: \"{feedback}\"." if feedback else " Do not retry unless they ask."
             yield _end(DeleteListRowsOutput(success=False, status=status, feedback=feedback, matched=len(rows),
-                                            remaining=total, preview=preview, **base), summary)
+                                            total=total, remaining=total, preview=preview, columns=columns, **base),
+                       summary)
             return
 
         # ---- Delete (own session; only the confirmed rows) ----
@@ -268,4 +269,5 @@ class DeleteListRowsTool(Tool):
         if not_found:
             summary += f" Not found (skipped): {', '.join(not_found[:20])}."
         yield _end(DeleteListRowsOutput(success=True, status="deleted", matched=len(rows), deleted=deleted,
-                                        remaining=remaining, not_found=not_found, preview=preview, **base), summary)
+                                        total=total, remaining=remaining, not_found=not_found, preview=preview,
+                                        columns=columns, **base), summary)

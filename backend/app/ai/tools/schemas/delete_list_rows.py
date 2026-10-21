@@ -55,8 +55,10 @@ class DeleteListRowsOutput(BaseModel):
     agent_id: Optional[str] = None
     agent_name: Optional[str] = None
     matched: int = Field(0, description="Rows that matched the selection and were shown on the card.")
+    total: Optional[int] = Field(None, description="Rows in the list before the delete.")
     deleted: int = 0
     remaining: Optional[int] = Field(None, description="Rows left in the list after the delete.")
     not_found: List[str] = Field(default_factory=list, description="Requested row ids / keys that matched no row.")
-    # The rows shown on the card (key + a few values). UI only.
+    # The rows shown on the card (key + a few values) and their columns. UI only.
     preview: List[Dict[str, Any]] = Field(default_factory=list)
+    columns: List[Dict[str, Any]] = Field(default_factory=list)

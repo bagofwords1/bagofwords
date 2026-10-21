@@ -195,11 +195,10 @@ const interactive = computed(() => phase.value === 'confirm' && !readonly.value 
 
 const listName = computed<string>(() => output.value?.list_name || confirmation.value?.list_name || args.value?.list_id || '')
 const agentName = computed<string>(() => output.value?.agent_name || confirmation.value?.agent_name || '')
-const columns = computed<{ name: string; key?: boolean }[]>(() => confirmation.value?.columns
-  || (output.value?.preview?.[0] ? Object.keys(output.value.preview[0].values || {}).map(name => ({ name })) : []))
+const columns = computed<{ name: string; key?: boolean }[]>(() => confirmation.value?.columns || output.value?.columns || [])
 const previewRows = computed<any[]>(() => confirmation.value?.rows || output.value?.preview || [])
 const count = computed<number>(() => Number(confirmation.value?.count ?? output.value?.matched ?? 0))
-const total = computed<number>(() => Number(confirmation.value?.total ?? 0))
+const total = computed<number>(() => Number(confirmation.value?.total ?? output.value?.total ?? 0))
 const clearAll = computed<boolean>(() => !!(confirmation.value?.clear_all ?? args.value?.all))
 const notFound = computed<string[]>(() => confirmation.value?.not_found || output.value?.not_found || [])
 const reason = computed<string>(() => confirmation.value?.reason || args.value?.reason || '')

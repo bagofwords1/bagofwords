@@ -128,7 +128,7 @@ def test_approved_delete_by_key_removes_only_those_rows(test_client, world, fill
     card = cards(events)[0].payload
     assert card["count"] == 2 and card["total"] == len(COMPANIES) and len(card["rows"]) == 2
     assert out["success"] is True and out["status"] == "deleted"
-    assert out["deleted"] == 2 and out["remaining"] == len(COMPANIES) - 2
+    assert out["deleted"] == 2 and out["remaining"] == len(COMPANIES) - 2 and out["total"] == len(COMPANIES)
     assert out["not_found"] == ["Missing Co"]
     assert names(rows_of(test_client, world, filled)) == ["Globex", "Umbrella"]
 

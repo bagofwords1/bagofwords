@@ -67,6 +67,7 @@ if lst is None:
 
 
 async def seed_rows():
+    import main  # noqa: F401  (registers every model mapper)
     from app.dependencies import async_session_maker
     from app.models.agent_list import AgentList
     from app.services.agent_lists.records import apply_submission_with_retry
