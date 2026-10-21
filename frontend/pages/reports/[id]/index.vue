@@ -76,6 +76,7 @@
 						:artifacts="reportArtifacts"
 						:latest-artifact="latestArtifact"
 						:requested-artifact-id="requestedArtifactId"
+						:prefetch="artifactFramePrefetch"
 						@close="mobileView = 'chat'"
 						class="h-full"
 					/>
@@ -956,6 +957,7 @@
 				:artifacts="reportArtifacts"
 				:latest-artifact="latestArtifact"
 				:requested-artifact-id="requestedArtifactId"
+				:prefetch="artifactFramePrefetch"
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
@@ -1036,7 +1038,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
+import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
@@ -1126,6 +1128,8 @@ import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
+import { artifactPageLibs } from '~/utils/artifactIframe'
+import { ensureArtifactLibs } from '~/utils/artifactLibs'
 import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
@@ -2578,6 +2582,7 @@ async function onForkHydrated() {
         return
     }
     forkHydrating.value = false
+    artifactFramePrefetch.value = null
     artifactFrameKey.value += 1
     await enrichForkedQueries()
 }
@@ -5099,6 +5104,28 @@ async function loadLatestArtifact(): Promise<void> {
     }
 }
 
+// ArtifactFrame's first requests (its artifact's queries + the viewer
+// identity), started here as soon as the artifact id is known instead of when
+// the frame mounts — which waits on the report, the workspace loads and a
+// full page render, and then queues behind the ~20 requests the rest of the
+// page fires at that moment. Consumed once by the frame (ArtifactFrame
+// `prefetch` prop); cleared whenever the frame is remounted to refresh.
+const artifactFramePrefetch = shallowRef<any | null>(null)
+let artifactFramePrefetchStarted = false
+function startArtifactFramePrefetch(artifactId: string) {
+    // Initial page load only — later checkHasArtifacts() calls (after an
+    // artifact is created/edited) leave the frame to fetch for itself.
+    if (!artifactId || artifactFramePrefetchStarted) return
+    artifactFramePrefetchStarted = true
+    // ArtifactFrame renders with the development React build.
+    ensureArtifactLibs(artifactPageLibs({ reactBuild: 'development', babel: false, pdf: false }))
+    artifactFramePrefetch.value = {
+        artifactId,
+        queries: useMyFetch(`/api/queries?report_id=${report_id}&artifact_id=${artifactId}`),
+        viewerContext: useMyFetch('/api/users/me/viewer_context'),
+    }
+}
+
 // Check if the report has any artifacts
 async function checkHasArtifacts(): Promise<boolean> {
     try {
@@ -5106,6 +5133,7 @@ async function checkHasArtifacts(): Promise<boolean> {
         const artifacts = Array.isArray(data.value) ? data.value : []
         reportArtifacts.value = artifacts
         hasArtifacts.value = artifacts.length > 0
+        if (hasArtifacts.value) startArtifactFramePrefetch(requestedArtifactId.value || (artifacts[0] as any).id)
         if (hasArtifacts.value) await loadLatestArtifact()
         return hasArtifacts.value
     } catch (e) {
