@@ -3004,11 +3004,7 @@
         },
         "max_instructions_in_context": {
           "name": "Maximalt antal instruktioner i kontexten",
-          "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”smarta” instruktioner de återstående platserna."
-        },
-        "max_inline_instruction_tokens": {
-          "name": "Max storlek på smart instruktion i kontext (tokens)",
-          "description": "Smarta instruktioner som är längre än så läggs aldrig till i sin helhet i AI-kontexten. Agenten ser deras titel och läser dem bara när den behöver. 0 tar bort gränsen."
+          "description": "Största antal instruktioner som laddas i sin helhet i AI-kontexten. Instruktioner av typen ”alltid” laddas alltid (även över detta antal). ”Smarta” instruktioner listas bara; AI:n läser de som behövs."
         },
         "allow_report_webhooks": {
           "name": "Rapport-webhooks",

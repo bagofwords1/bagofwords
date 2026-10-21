@@ -3295,11 +3295,7 @@
         },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
-          "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots."
-        },
-        "max_inline_instruction_tokens": {
-          "name": "Max smart instruction size in context (tokens)",
-          "description": "Smart instructions longer than this are never added to the AI context in full. The agent sees their title and reads them only when it needs them. 0 removes the limit."
+          "description": "Maximum number of instructions loaded in full into AI context. 'Always' instructions always load (even above this number). 'Smart' instructions are only listed; the AI reads the ones it needs."
         },
         "allow_report_webhooks": {
           "name": "Report Webhooks",

@@ -308,6 +308,10 @@ class ContextHub:
         self.build_id = build_id
         # Query the last prime_static() matched instructions against.
         self.last_instruction_query = None
+        # Smart instructions the agent read (read_instruction) in this report,
+        # by id. Handed to tool-less consumers via InstructionsSection.read_items.
+        self.read_instruction_items = {}
+        self._prior_reads_loaded = False
         
         # Initialize metadata
         self.metadata = ContextMetadata(
@@ -863,10 +867,70 @@ class ContextHub:
         # Store results (handle exceptions gracefully)
         self._static_cache["schemas"] = schemas if not isinstance(schemas, Exception) else None
         self._apply_mcp_catalog()
-        self._static_cache["instructions"] = instructions if not isinstance(instructions, Exception) else None
+        # A per-hub copy: the built section may be shared through
+        # _INSTRUCTIONS_CACHE, and read_items belong to this run's report only.
+        self._static_cache["instructions"] = (
+            instructions.model_copy(update={"read_items": []})
+            if instructions is not None and not isinstance(instructions, Exception)
+            else None
+        )
+        await self._load_prior_instruction_reads()
+        self._attach_read_instructions()
         self._static_cache["code"] = None
         self._static_cache["resources"] = resources if not isinstance(resources, Exception) else None
         self._static_cache["files"] = files if not isinstance(files, Exception) else None
+
+    # Max earlier reads (this report) handed to tool-less consumers.
+    PRIOR_READS_LIMIT = 10
+
+    def record_instruction_read(self, item) -> None:
+        """Remember a smart instruction the agent read via read_instruction, so
+        tool-less consumers (coder, chart step) get its full text."""
+        if item is None or not getattr(item, "id", None):
+            return
+        self.read_instruction_items[str(item.id)] = item
+        self._attach_read_instructions()
+
+    def _attach_read_instructions(self) -> None:
+        section = self._static_cache.get("instructions")
+        if section is not None:
+            section.read_items = list(self.read_instruction_items.values())
+
+    async def _load_prior_instruction_reads(self) -> None:
+        """Seed read_instruction_items with smart instructions read earlier in
+        this report, so a follow-up turn's coder still gets them even when the
+        planner doesn't re-read. Caller holds ``self._db_lock``. Best-effort."""
+        if self._prior_reads_loaded or not self.report:
+            return
+        self._prior_reads_loaded = True
+        try:
+            from sqlalchemy import select, func
+            from app.models.instruction_usage_event import InstructionUsageEvent
+            from app.models.instruction import Instruction
+
+            res = await self.db.execute(
+                select(InstructionUsageEvent.instruction_id, func.max(InstructionUsageEvent.used_at).label("last"))
+                .join(Instruction, Instruction.id == InstructionUsageEvent.instruction_id)
+                .where(
+                    InstructionUsageEvent.org_id == str(self.organization.id),
+                    InstructionUsageEvent.report_id == str(self.report.id),
+                    InstructionUsageEvent.load_reason == "on_demand",
+                    # Skills are procedures for the planner, not rules for the coder.
+                    (Instruction.kind.is_(None)) | (Instruction.kind != "skill"),
+                )
+                .group_by(InstructionUsageEvent.instruction_id)
+                .order_by(func.max(InstructionUsageEvent.used_at).desc())
+                .limit(self.PRIOR_READS_LIMIT)
+            )
+            ids = [str(r[0]) for r in res.all()]
+            if not ids:
+                return
+            # Scope, status and per-user table access are applied by the builder.
+            items = await self.instruction_builder.load_instructions_by_ids(ids, load_mode_filter="intelligent")
+            for it in items:
+                self.read_instruction_items.setdefault(str(it.id), it)
+        except Exception:
+            _hub_logger.warning("[context_hub] loading prior instruction reads failed", exc_info=True)
 
     async def _run_builders(self, phase: str, builders):
         """Run context builders that share ``self.db``, one at a time.

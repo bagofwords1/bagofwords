@@ -234,6 +234,17 @@ class ReadInstructionTool(Tool):
 
             item = items[0]
             await self._record_on_demand_usage(runtime_ctx, item, full_id)
+            # Hand smart instructions the agent chose to read to the tool-less
+            # consumers (coder, chart step), which can't call this tool.
+            context_hub = runtime_ctx.get("context_hub")
+            if (
+                context_hub is not None
+                and (kind or "instruction") != "skill"
+                and getattr(item, "load_mode", None) == "intelligent"
+                and getattr(item, "id", None)
+                and hasattr(context_hub, "record_instruction_read")
+            ):
+                context_hub.record_instruction_read(item)
             pending = await self._pending_changes(db, organization, user, full_id)
 
             output = ReadInstructionOutput(

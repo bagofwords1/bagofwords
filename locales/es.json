@@ -3215,11 +3215,7 @@
         },
         "max_instructions_in_context": {
           "name": "Máximo de instrucciones en el contexto",
-          "description": "Número máximo de instrucciones que se incluyen en el contexto de la IA. Primero se cargan las instrucciones de tipo 'siempre' y después las 'inteligentes' ocupan los huecos restantes."
-        },
-        "max_inline_instruction_tokens": {
-          "name": "Tamaño máximo de instrucción inteligente en el contexto (tokens)",
-          "description": "Las instrucciones inteligentes más largas que esto nunca se añaden completas al contexto de la IA. El agente ve su título y solo las lee cuando las necesita. 0 elimina el límite."
+          "description": "Número máximo de instrucciones que se cargan completas en el contexto de la IA. Las instrucciones de tipo 'siempre' se cargan siempre (aunque superen este número). Las 'inteligentes' solo se listan; la IA lee las que necesita."
         },
         "allow_report_webhooks": {
           "name": "Webhooks de informes",

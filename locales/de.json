@@ -3004,11 +3004,7 @@
         },
         "max_instructions_in_context": {
           "name": "Maximale Anweisungen im Kontext",
-          "description": "Maximale Anzahl an Anweisungen, die in den KI-Kontext aufgenommen werden. Anweisungen vom Typ 'Immer' werden zuerst geladen, danach füllen 'intelligente' Anweisungen die verbleibenden Plätze."
-        },
-        "max_inline_instruction_tokens": {
-          "name": "Max. Größe smarter Anweisungen im Kontext (Tokens)",
-          "description": "Smarte Anweisungen, die länger sind, werden nie vollständig in den KI-Kontext aufgenommen. Der Agent sieht ihren Titel und liest sie nur, wenn er sie braucht. 0 hebt die Grenze auf."
+          "description": "Maximale Anzahl an Anweisungen, die vollständig in den KI-Kontext geladen werden. Anweisungen vom Typ 'Immer' werden immer geladen (auch über diese Zahl hinaus). 'Intelligente' Anweisungen werden nur aufgelistet; die KI liest die, die sie braucht."
         },
         "allow_report_webhooks": {
           "name": "Bericht-Webhooks",

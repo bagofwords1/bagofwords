@@ -36,18 +36,20 @@ class InstructionContextBuilder:
     - `build()`: Combined always + intelligent instructions (with proper tracking)
 
     Load behavior:
-    1. Load ALL 'always' instructions first
-    2. Inline the full text of an 'intelligent' instruction only on a STRONG
-       match: a query keyword hits its title, labels or referenced table
-       names. A body-only match just ranks it higher in the catalog.
-    3. Everything else intelligent is advertised in the catalog (short id,
-       title, description, references) and read on demand, like skills. A
-       query-less build has nothing to judge, so it inlines no intelligent
-       instructions at all — catalog only.
-    4. A LONG intelligent instruction (over max_inline_instruction_tokens) is
-       never inlined, even on a strong match: it is advertised (flagged
-       matched=... when it matched) and read on demand via read_instruction.
-    5. Skip 'disabled' instructions
+    1. Load ALL 'always' instructions in full.
+    2. NEVER inline an 'intelligent' (smart) instruction. Like skills, every
+       smart instruction is advertised in the <available_instructions>
+       catalog (short id, title, description, references, size) and the
+       agent reads the ones it needs via read_instruction — the LLM decides
+       relevance, not keyword overlap.
+    3. Keyword matches only RANK the catalog: a query keyword hitting the
+       title / labels / table names marks the entry matched="..." and lists
+       it first; body matches raise it within the rest.
+    4. Skip 'disabled' instructions.
+
+    Tool-less consumers (coder, chart step) can't call read_instruction; the
+    context hub hands them the smart instructions the agent read (see
+    InstructionsSection.read_items).
 
     The max_instructions_in_context setting (default 50) controls total capacity.
     'Always' instructions take priority and can exceed the limit.
@@ -66,10 +68,6 @@ class InstructionContextBuilder:
     
     # Default max instructions in context
     DEFAULT_MAX_INSTRUCTIONS = 50
-
-    # Intelligent instructions longer than this (tokens) are never inlined;
-    # the agent reads them on demand. 0 disables the size limit.
-    DEFAULT_MAX_INLINE_TOKENS = 500
 
     # Max advertised (not force-loaded) intelligent instructions in the
     # <available_instructions> catalog.
@@ -119,23 +117,6 @@ class InstructionContextBuilder:
             except Exception:
                 pass
         return self.DEFAULT_MAX_INSTRUCTIONS
-
-    def _get_max_inline_tokens(self) -> int:
-        """Size cap (tokens) for inlining an intelligent instruction; 0 = no cap."""
-        if self.organization_settings:
-            try:
-                config = self.organization_settings.get_config("max_inline_instruction_tokens")
-                if config and config.value is not None:
-                    return max(0, int(config.value))
-            except Exception:
-                pass
-        return self.DEFAULT_MAX_INLINE_TOKENS
-
-    def _is_too_long_to_inline(self, text: Optional[str], tokens: Optional[int] = None) -> bool:
-        limit = self._get_max_inline_tokens()
-        if limit <= 0:
-            return False
-        return (tokens if tokens is not None else count_tokens(text or "")) > limit
 
     async def load_instructions(
         self,
@@ -523,8 +504,8 @@ class InstructionContextBuilder:
 
         Load behavior:
         1. Load ALL 'always' instructions (they always take priority)
-        2. Inline 'intelligent' instructions only on a strong match (title /
-           labels / table names); advertise the rest in the catalog
+        2. Advertise every 'intelligent' instruction in the catalog (never
+           inlined); strong matches (title / labels / tables) listed first
         3. Skip 'disabled' instructions
 
         Parameters
@@ -804,11 +785,9 @@ class InstructionContextBuilder:
 
         Load behavior:
         1. Load ALL 'always' instructions (they take priority)
-        2. Inline 'intelligent' instructions that STRONGLY match the query
-           (title / labels / table names), ranked by score then usage. With
-           no query keywords, inline none.
-        3. Advertise every other intelligent instruction as a catalog entry
-        4. Skip 'disabled' instructions
+        2. Advertise every 'intelligent' instruction as a catalog entry
+           (never inlined): strong matches first, then by score and usage
+        3. Skip 'disabled' instructions
 
         Returns (loaded_items, catalog_entries), or None if no build is
         available (fallback to legacy).
@@ -1003,18 +982,11 @@ class InstructionContextBuilder:
         accessible_ids = {it.id for it in accessible}
         ranked = [entry for entry in ranked if entry[0].id in accessible_ids]
 
-        remaining_slots = max(0, max_instructions - len(always_items))
-        # Relevance gate: inline only STRONG matches (title / labels / table
-        # names) that are short enough. The rest are advertised in
-        # <available_instructions> and read on demand via read_instruction.
-        # A query-less build inlines none.
+        # Smart instructions are never inlined: all of them are advertised in
+        # <available_instructions> (strong matches first) and the agent reads
+        # what it needs via read_instruction.
         token_sizes = {it.id: count_tokens(it.text or "") for it, _, _ in ranked}
-        loadable = [
-            entry for entry in ranked
-            if entry[0].id in matched_by
-            and not self._is_too_long_to_inline(entry[0].text, token_sizes[entry[0].id])
-        ][:remaining_slots]
-        intelligent_items = [it for it, _, _ in loadable]
+        intelligent_items: List[InstructionItem] = []
 
         # Everything not loaded — zero-score matches AND over-capacity ones — is
         # advertised (not dropped), so the model can still reach it on demand.
@@ -1072,7 +1044,7 @@ class InstructionContextBuilder:
 
         Load behavior:
         1. Load ALL 'always' instructions (they take priority)
-        2. Inline 'intelligent' instructions on a strong match only (see build())
+        2. Advertise 'intelligent' instructions in the catalog only (see build())
         """
         # Load always instructions
         always_instructions = await self.load_always_instructions(
@@ -1084,9 +1056,7 @@ class InstructionContextBuilder:
         # Calculate remaining slots for intelligent instructions
         remaining_slots = max(0, max_instructions - len(always_instructions))
 
-        # Rank intelligent instructions, then inline only STRONG matches
-        # (title / labels / table names). The rest are advertised as catalog
-        # entries and read on demand. With no query keywords, inline none.
+        # Rank intelligent instructions for the catalog (strong matches first).
         keywords = self._extract_keywords(query) if query else set()
         intelligent_ranked: List[Tuple[Instruction, float]] = await self.search_instructions(
             query or "",
@@ -1114,11 +1084,8 @@ class InstructionContextBuilder:
                 matched_by[str(inst.id)] = hit
             token_sizes[str(inst.id)] = count_tokens(inst.text or "")
 
-        intelligent_results = [
-            (i, s) for i, s in intelligent_ranked
-            if str(i.id) in matched_by
-            and not self._is_too_long_to_inline(i.text, token_sizes[str(i.id)])
-        ][:remaining_slots]
+        # Smart instructions are never inlined (see build()).
+        intelligent_results: List[Tuple[Instruction, float]] = []
         loaded_intelligent_ids = {str(i.id) for i, _ in intelligent_results}
         catalog_candidates = [
             (i, s) for i, s in self._matched_first(intelligent_ranked, matched_by)
@@ -1272,9 +1239,9 @@ class InstructionContextBuilder:
                     continue
                 if version.load_mode == "disabled":
                     continue
-                # Long smart instructions are read on demand, never pulled in
+                # Smart instructions are read on demand, never pulled in
                 # through a reference.
-                if version.load_mode == "intelligent" and self._is_too_long_to_inline(version.text):
+                if version.load_mode == "intelligent":
                     continue
 
                 inst_id = str(instruction.id)
@@ -1314,7 +1281,7 @@ class InstructionContextBuilder:
             usage_counts = await self._batch_load_usage_counts(list(missing_ids))
 
             for inst in instructions:
-                if inst.load_mode == "intelligent" and self._is_too_long_to_inline(inst.text):
+                if inst.load_mode == "intelligent":
                     continue
                 inst_id = str(inst.id)
                 dep_items.append(InstructionItem(

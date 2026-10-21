@@ -3004,11 +3004,7 @@
         },
         "max_instructions_in_context": {
           "name": "Numero massimo di istruzioni nel contesto",
-          "description": "Numero massimo di istruzioni da includere nel contesto dell'IA. Le istruzioni di tipo 'sempre' vengono caricate per prime, poi quelle 'intelligenti' occupano i posti rimanenti."
-        },
-        "max_inline_instruction_tokens": {
-          "name": "Dimensione massima istruzione smart nel contesto (token)",
-          "description": "Le istruzioni smart più lunghe di questo valore non vengono mai aggiunte per intero al contesto dell'IA. L'agente ne vede il titolo e le legge solo quando servono. 0 rimuove il limite."
+          "description": "Numero massimo di istruzioni caricate per intero nel contesto dell'IA. Le istruzioni di tipo 'sempre' vengono sempre caricate (anche oltre questo numero). Quelle 'intelligenti' sono solo elencate; l'IA legge quelle che le servono."
         },
         "allow_report_webhooks": {
           "name": "Webhook dei report",

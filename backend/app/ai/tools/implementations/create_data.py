@@ -819,12 +819,12 @@ class CreateDataTool(Tool):
                 # the visualization instructions silently).
                 _lock = runtime_ctx.get("tool_db_lock")
                 async with (_lock if _lock is not None else nullcontext()):
-                    # Pass the user's prompt so matching intelligent viz rules
-                    # are inlined (a query-less build inlines none).
                     viz_section = await context_hub.instruction_builder.build(
-                        query=user_prompt or None,
                         categories=["visualizations", "visualization", "general"],
                     )
+                # Smart rules are never inlined; this step can't read the
+                # catalog, so it gets the ones the agent read.
+                viz_section.read_items = list(getattr(context_hub, "read_instruction_items", {}).values())
                 viz_instructions = viz_section.render() or ""
             except Exception:
                 viz_instructions = ""

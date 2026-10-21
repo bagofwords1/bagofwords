@@ -1,55 +1,92 @@
-"""Smart (intelligent) instructions reach the planner like skills.
+"""Smart (intelligent) instructions reach the agents like skills.
 
-Contract, checked on the prompt a real completion run sends to the LLM:
-  * an intelligent instruction that STRONGLY matches the user's message
-    (a keyword hits its title / labels / table names) is inlined in full,
-  * one that matches only in its body is advertised in
-    <available_instructions> (short id + title), its body NOT in the prompt,
-  * a strong match that is LONG (over the size limit) is advertised with
-    matched=..., never inlined,
-  * 'always' instructions are inlined regardless.
+Contract, checked on the prompts a real completion run sends to the LLM:
+  * the planner never gets a smart instruction's full text up front — every
+    one is advertised in <available_instructions>; one whose title matches
+    the user's message is listed first, flagged matched="title",
+  * 'always' instructions are inlined regardless,
+  * once the planner reads a smart instruction (read_instruction), the
+    tool-less coder behind create_data gets its full text.
 
-The LLM boundary is stubbed and records every prompt; routes, services,
-context building and the agent loop run real.
+The LLM boundary is stubbed: it records every prompt and, for the planner,
+scripts the tool calls. Routes, services, context building, the tools and
+the agent loop run real.
 """
 from __future__ import annotations
 
 import re
 import uuid
+from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.e2e
 
+_CHINOOK = (Path(__file__).resolve().parent.parent / "config" / "chinook.sqlite").resolve()
+
+
+def _is_planner_call(tools) -> bool:
+    return "read_instruction" in str(tools or "")
+
+
+def _tool_results(messages) -> int:
+    count = 0
+    for m in messages or []:
+        content = m.get("content") if isinstance(m, dict) else getattr(m, "content", None)
+        if isinstance(content, list):
+            count += sum(1 for b in content if isinstance(b, dict) and b.get("type") == "tool_result")
+    return count
+
 
 @pytest.fixture
-def prompts(monkeypatch):
+def llm(monkeypatch):
+    """Records every prompt. Planner calls follow `script` (one tool call per
+    completed tool result); every other call (coder, judges) gets plain text."""
     from app.ai.llm.llm import LLM
-    from app.ai.llm.types import MessageStopEvent, TextDeltaEvent, UsageEvent
+    from app.ai.llm.types import (
+        MessageStopEvent, TextDeltaEvent, ToolUseCompleteEvent, ToolUseStartEvent, UsageEvent,
+    )
 
-    seen: list[str] = []
+    # "base": tool results already in history when the current turn started
+    # (reset to None between turns), so the script indexes per turn.
+    state = {"planner": [], "other": [], "script": [], "base": None}
 
     async def scripted(self, *, model_id=None, messages, system=None, tools=None, **kwargs):
-        seen.append(f"{system}\n{messages}")
-        for e in (
-            TextDeltaEvent(text="The answer."),
-            MessageStopEvent(stop_reason="end_turn", raw_stop_reason="end_turn"),
-            UsageEvent(input_tokens=10, output_tokens=5),
-        ):
+        text = f"{system}\n{messages}"
+        if _is_planner_call(tools):
+            state["planner"].append(text)
+            seen = _tool_results(messages)
+            if state["base"] is None:
+                state["base"] = seen
+            step = seen - state["base"]
+            if step < len(state["script"]):
+                name, args = state["script"][step]
+                tid = f"tu_{uuid.uuid4().hex[:8]}"
+                events = [ToolUseStartEvent(id=tid, name=name),
+                          ToolUseCompleteEvent(id=tid, name=name, input=args),
+                          MessageStopEvent(stop_reason="tool_use", raw_stop_reason="tool_use")]
+            else:
+                events = [TextDeltaEvent(text="Done."),
+                          MessageStopEvent(stop_reason="end_turn", raw_stop_reason="end_turn")]
+        else:
+            state["other"].append(text)
+            events = [TextDeltaEvent(text="The answer."),
+                      MessageStopEvent(stop_reason="end_turn", raw_stop_reason="end_turn")]
+        for e in events + [UsageEvent(input_tokens=10, output_tokens=5)]:
             yield e
 
     async def _stream(self, prompt, **kwargs):
-        seen.append(str(prompt))
+        state["other"].append(str(prompt))
         yield "ok"
 
     def _inference(self, prompt, *a, **k):
-        seen.append(str(prompt))
+        state["other"].append(str(prompt))
         return "[]"
 
     monkeypatch.setattr(LLM, "inference_stream_v2", scripted)
     monkeypatch.setattr(LLM, "inference_stream", _stream)
     monkeypatch.setattr(LLM, "inference", _inference)
-    return seen
+    return state
 
 
 @pytest.fixture
@@ -59,7 +96,8 @@ def env(test_client, create_user, login_user, whoami, create_llm_provider_and_mo
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
     create_llm_provider_and_models(user_token=token, org_id=org_id)
-    return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    return {"headers": {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)},
+            "token": token, "org_id": org_id}
 
 
 def _instruction(client, h, **fields):
@@ -68,59 +106,89 @@ def _instruction(client, h, **fields):
     return r.json()
 
 
-def test_planner_prompt_inlines_strong_matches_and_advertises_the_rest(test_client, env, prompts):
-    strong_marker = f"STRONG{uuid.uuid4().hex[:8]}"
-    weak_marker = f"WEAK{uuid.uuid4().hex[:8]}"
-    always_marker = f"ALWAYS{uuid.uuid4().hex[:8]}"
-
-    strong = _instruction(
-        test_client, env, title="Revenue reporting", load_mode="intelligent",
-        text=f"Report revenue net of tax. {strong_marker}",
-    )
-    # Body mentions revenue, title does not: a weak match.
-    weak = _instruction(
-        test_client, env, title="Net figures", load_mode="intelligent",
-        # The catalog shows the body's first line as the description; the
-        # marker sits on the second line, which only an inline load carries.
-        text=f"Net figures rule.\nNet revenue always excludes refunds. {weak_marker}",
-    )
-    # Strong (title) match, but over the default size limit: listed, not inlined.
-    long_marker = f"LONG{uuid.uuid4().hex[:8]}"
-    filler = " ".join(f"step{i}" for i in range(900))
-    long = _instruction(
-        test_client, env, title="Revenue playbook", load_mode="intelligent",
-        text=f"Detailed procedure.\n{filler} {long_marker} {filler}",
-    )
-    _instruction(
-        test_client, env, title="Currency", load_mode="always",
-        text=f"Answer in USD. {always_marker}",
-    )
-
-    r = test_client.post("/api/reports", headers=env, json={"title": "smart", "files": [], "data_sources": []})
+def _run(client, h, prompt, data_sources=()):
+    r = client.post("/api/reports", headers=h,
+                    json={"title": "smart", "files": [], "data_sources": list(data_sources)})
     assert r.status_code == 200, r.text
     rid = r.json()["id"]
-    r = test_client.post(
-        f"/api/reports/{rid}/completions", headers=env,
-        json={"prompt": {"content": "What was revenue last month?"}},
-    )
+    r = client.post(f"/api/reports/{rid}/completions", headers=h, json={"prompt": {"content": prompt}})
+    assert r.status_code == 200, r.text
+    return rid
+
+
+def _catalog_block(prompt: str) -> str:
+    # The system text also mentions the tag in prose; the real catalog block is
+    # the one holding <instruction_ref> entries.
+    blocks = [b for b in re.findall(r"<available_instructions>(.*?)</available_instructions>", prompt, re.S)
+              if "<instruction_ref" in b]
+    assert blocks, "planner prompt must carry the instruction catalog"
+    return blocks[-1]
+
+
+def test_planner_gets_catalog_only_with_matches_first(test_client, env, llm):
+    h = env["headers"]
+    title_marker = f"TITLE{uuid.uuid4().hex[:8]}"
+    body_marker = f"BODY{uuid.uuid4().hex[:8]}"
+    always_marker = f"ALWAYS{uuid.uuid4().hex[:8]}"
+
+    by_title = _instruction(test_client, h, title="Revenue reporting", load_mode="intelligent",
+                            text=f"Report revenue net of tax.\n{title_marker}")
+    by_body = _instruction(test_client, h, title="Net figures", load_mode="intelligent",
+                           text=f"Net figures rule.\nNet revenue always excludes refunds. {body_marker}")
+    _instruction(test_client, h, title="Currency", load_mode="always", text=f"Answer in USD. {always_marker}")
+
+    _run(test_client, h, "What was revenue last month?")
+
+    planner = [p for p in llm["planner"] if always_marker in p]
+    assert planner, "no planner call carried the organization instructions"
+    prompt = planner[0]
+    assert title_marker not in prompt, "a title match must not be inlined"
+    assert body_marker not in prompt, "a body match must not be inlined"
+
+    catalog = _catalog_block(prompt)
+    refs = re.findall(r'<instruction_ref[^>]*>', catalog)
+    ids = [re.search(r'short_id="([^"]+)"', r).group(1) for r in refs]
+    assert ids.index(by_title["id"][:8]) < ids.index(by_body["id"][:8]), "title match must be listed first"
+    title_ref = next(r for r in refs if by_title["id"][:8] in r)
+    assert 'matched="title"' in title_ref
+
+
+def test_instruction_read_earlier_in_the_report_reaches_the_coder(
+    test_client, env, llm, create_data_source, refresh_schema, bulk_update_tables
+):
+    """Turn 1: the planner reads a smart rule. Turn 2 (same report): it runs
+    create_data without re-reading — the coder must still get the rule (within
+    one run the coder also sees it through past observations; across turns
+    only the hand-off brings it)."""
+    h = env["headers"]
+    ds = create_data_source(name="chinook", type="sqlite", config={"database": str(_CHINOOK)},
+                            credentials={}, user_token=env["token"], org_id=env["org_id"])
+    refresh_schema(data_source_id=ds["id"], user_token=env["token"], org_id=env["org_id"])
+    bulk_update_tables(data_source_id=ds["id"], action="activate", user_token=env["token"], org_id=env["org_id"])
+    marker = f"CENTS{uuid.uuid4().hex[:8]}"
+    unread_marker = f"UNREAD{uuid.uuid4().hex[:8]}"
+    # No word shared with the question, so only the agent's read can bring
+    # this rule to the coder (never a keyword match).
+    rule = _instruction(test_client, h, title="Money storage", load_mode="intelligent",
+                        text=f"Money storage rule.\nTotals are stored in cents; divide by 100. {marker}")
+    _instruction(test_client, h, title="Shipping rule", load_mode="intelligent",
+                 text=f"Shipping rule.\nShipping is free over 50. {unread_marker}")
+
+    llm["script"] = [("read_instruction", {"id": rule["id"][:8]})]
+    rid = _run(test_client, h, "How are totals stored?", data_sources=[ds["id"]])
+    assert marker not in llm["planner"][0], "the rule must not be inlined up front"
+
+    llm["other"].clear()
+    llm["base"] = None
+    llm["script"] = [("create_data", {
+        "title": "Invoice totals", "interpreted_prompt": "Total invoice amount by country",
+        "tables_by_source": [{"data_source_id": ds["id"], "tables": ["Invoice"]}],
+    })]
+    r = test_client.post(f"/api/reports/{rid}/completions", headers=h,
+                         json={"prompt": {"content": "Now total invoice amount by country"}})
     assert r.status_code == 200, r.text
 
-    planner = [p for p in prompts if always_marker in p]
-    assert planner, "no LLM call carried the organization instructions"
-    prompt = planner[0]
-
-    assert strong_marker in prompt, "strong (title) match must be inlined"
-    assert weak_marker not in prompt, "body-only match must not be inlined"
-    # The system text also mentions the tag in prose; the real catalog block
-    # is the one holding <instruction_ref> entries.
-    blocks = [
-        b for b in re.findall(r"<available_instructions>(.*?)</available_instructions>", prompt, re.S)
-        if "<instruction_ref" in b
-    ]
-    assert blocks, "planner prompt must carry the instruction catalog"
-    catalog = blocks[-1]
-    assert f'short_id="{weak["id"][:8]}"' in catalog, "body-only match must be advertised"
-    assert f'short_id="{strong["id"][:8]}"' not in catalog, "inlined match must not be advertised too"
-    assert long_marker not in prompt, "long instruction must not be inlined"
-    long_ref = re.search(rf'<instruction_ref[^>]*short_id="{long["id"][:8]}"[^>]*>', catalog)
-    assert long_ref and 'matched="title"' in long_ref.group(0), "long match must be flagged"
+    coder = [p for p in llm["other"] if "ds_clients" in p]
+    assert coder, "create_data never reached the coder"
+    assert any(marker in p for p in coder), "the coder must get the rule read earlier in this report"
+    assert not any(unread_marker in p for p in coder), "the coder must not get unread smart instructions"
