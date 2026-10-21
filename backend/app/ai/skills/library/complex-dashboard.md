@@ -104,7 +104,8 @@ the wiring, which is where this goes wrong:
   Legitimate for a quick client-side slice of one tile's rows; never a
   substitute for a parameter, and never the way to restrict data per viewer.
 - **Every tile stays traceable**: `viz={vizById("<uuid>")}` on the built-in
-  components, `data-bow-viz` / `data-bow-calc` on custom markup.
+  components, `data-bow-viz` / `data-bow-calc` on custom markup — on the tile's
+  container, never on a label or short inline text.
 
 ## 4. Editing an existing dashboard
 
