@@ -15,6 +15,14 @@ from sqlalchemy.exc import OperationalError
 from app.core.tcp_nodelay import enable_tcp_nodelay
 enable_tcp_nodelay()
 
+# Process-wide TLS verification policy. Must run before any other app import:
+# aiohttp (pulled in by the route modules) builds and caches its SSL context
+# at import, and the shared httpx context is cached on first use. Loading
+# settings here imports nothing that builds a context.
+from app.settings.config import settings
+from app.core.tls import configure_process_tls
+configure_process_tls(strict_x509=settings.bow_config.security.tls_strict_x509)
+
 # Add this before app initialization
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, help='Path to custom config file')
@@ -122,11 +130,6 @@ from app.ee.license import get_license_info, has_feature
 # Initialize logging
 loggers = setup_logging()
 logger = get_logger(__name__)
-# Process-wide TLS verification policy. Must run before any HTTPS client or
-# OTEL exporter builds its SSL context (they are built lazily, but the shared
-# context in app.core.tls is cached on first use).
-from app.core.tls import configure_process_tls
-configure_process_tls(strict_x509=settings.bow_config.security.tls_strict_x509)
 # Initialize OpenTelemetry if enabled (before app creation)
 setup_telemetry(settings.bow_config.otel)
 # Read configuration

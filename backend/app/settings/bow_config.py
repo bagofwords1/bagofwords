@@ -409,10 +409,11 @@ class SecurityConfig(BaseModel):
     # discovery, Graph, LLM providers) then fails. Set false to fall back to
     # the pre-3.13 checks: chains are still verified against the trust store and
     # hostnames still checked, only the extension-presence rules are dropped.
-    # Env: BOW_TLS_STRICT_X509. Prefer fixing the proxy CA; this is the bridge.
+    # Env: BOW_TLS_STRICT_X509. Only an explicit false/0/no/off relaxes; a typo
+    # keeps strict mode. Prefer fixing the proxy CA; this is the bridge.
     tls_strict_x509: bool = Field(
-        default_factory=lambda: (os.getenv("BOW_TLS_STRICT_X509", "true") or "true").strip().lower()
-        in ("1", "true", "yes", "on")
+        default_factory=lambda: (os.getenv("BOW_TLS_STRICT_X509") or "").strip().lower()
+        not in ("0", "false", "no", "off")
     )
 
 

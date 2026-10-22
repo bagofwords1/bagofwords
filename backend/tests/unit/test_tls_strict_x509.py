@@ -11,8 +11,10 @@ verified and hostnames still checked.
 """
 import ssl
 
+import aiohttp.connector
 import httpx
 import pytest
+import urllib3.util.ssl_
 
 from app.core import tls
 from app.settings.bow_config import SecurityConfig
@@ -39,10 +41,16 @@ def test_default_policy_keeps_the_interpreter_default(process_tls):
 
 def test_relaxed_policy_clears_strict_flag_for_every_client_path(process_tls):
     tls.configure_process_tls(strict_x509=False)
-    tls.shared_ssl_context.cache_clear()
-    # Direct callers, httpx's own factory (what httpx-oauth and the SDKs use),
-    # and the shared context all go through the same policy.
-    for ctx in (ssl.create_default_context(), httpx.create_ssl_context(), tls.shared_ssl_context()):
+    # Direct callers, httpx's own factory (httpx-oauth and the SDKs), the shared
+    # context, urllib3's own builder (requests / MSAL / most connectors), and
+    # the context aiohttp cached at import all follow the same policy.
+    for ctx in (
+        ssl.create_default_context(),
+        httpx.create_ssl_context(),
+        tls.shared_ssl_context(),
+        urllib3.util.ssl_.create_urllib3_context(),
+        aiohttp.connector._SSL_CONTEXT_VERIFIED,
+    ):
         assert not _strict(ctx)
 
 
@@ -54,16 +62,24 @@ def test_relaxed_policy_still_verifies_certificates_and_hostnames(process_tls):
 
 
 def test_policy_is_idempotent_and_reversible(process_tls):
+    expected = _strict(tls._create_default_context())
     for _ in range(2):
         tls.configure_process_tls(strict_x509=False)
     assert not _strict(ssl.create_default_context())
     tls.configure_process_tls(strict_x509=True)
-    assert _strict(ssl.create_default_context()) == _strict(tls._create_default_context())
+    assert _strict(ssl.create_default_context()) == expected
+    assert _strict(urllib3.util.ssl_.create_urllib3_context()) == expected
+    assert _strict(aiohttp.connector._SSL_CONTEXT_VERIFIED) == expected
 
 
 @pytest.mark.parametrize(
     "value,expected",
-    [(None, True), ("true", True), ("1", True), ("false", False), ("0", False), ("no", False), (" OFF ", False)],
+    [
+        (None, True), ("true", True), ("1", True),
+        ("false", False), ("0", False), ("no", False), (" OFF ", False),
+        # Only an explicit off relaxes; anything else keeps the safe default.
+        ("flase", True), ("enabled", True), ("", True),
+    ],
 )
 def test_config_reads_env_override(monkeypatch, value, expected):
     monkeypatch.delenv("BOW_TLS_STRICT_X509", raising=False)

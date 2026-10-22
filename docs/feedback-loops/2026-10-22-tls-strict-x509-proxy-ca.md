@@ -39,8 +39,17 @@ CA is fixed.
    httpx-oauth's `OpenID.__init__` (`httpx_oauth/clients/openid.py:51`), which
    opens a bare `httpx.Client()`. The Graph profile call at
    `backend/app/core/auth.py:620` and the LLM SDKs build their own clients the
-   same way. Every one of them ends in `ssl.create_default_context`, so that
-   factory is the only point that reaches all of them.
+   same way. They end in three different places, and the policy has to reach
+   all three (found in review, see "Review findings" below):
+   - `ssl.create_default_context` — httpx, httpx-oauth, the LLM SDKs, OTEL,
+     ldap3;
+   - `urllib3.util.ssl_.create_urllib3_context` — urllib3 2.x never calls the
+     stdlib factory and ORs its own copy of `VERIFY_X509_STRICT`
+     (`urllib3/util/ssl_.py:292-296`, 2.8.0). This is `requests`, so MSAL /
+     azure-identity (Fabric, Azure Data Explorer, the Azure OpenAI Entra token
+     provider) and ~30 `requests`-based connectors;
+   - contexts cached at import — aiohttp builds `_SSL_CONTEXT_VERIFIED` once
+     when `aiohttp.connector` is imported (`connector.py:928`, 3.14.5).
 4. **Why it surfaced on Entra first:** login is the first outbound HTTPS call a
    fresh session makes. Behind the same proxy, LLM provider calls and any
    Graph lookups fail identically; the migrations and the database do not
@@ -55,7 +64,9 @@ rather than a vendor-generated one.
 `tools/agent/tls_strict_x509_probe.py` builds a proxy-shaped chain in a temp
 dir (self-signed CA with SKI, leaf for `localhost` signed by it **without**
 AKI), serves `/.well-known/openid-configuration` from a local HTTPS server, and
-fetches it through `httpx` exactly as httpx-oauth does, once per policy.
+fetches it once per policy through both client families: `httpx` (what
+httpx-oauth and the LLM SDKs use) and `requests` (urllib3: MSAL and most
+connectors).
 
 ```bash
 cd backend
@@ -68,30 +79,33 @@ strict line alone, which is Python 3.13's unconditional behaviour:
 
 ```
 python            3.13.14
-strict_x509=true  FAIL [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Authority Key Identifier (_ssl.c:1032)
+strict_x509=true  httpx FAIL [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Authority Key Identifier (_ssl.c:1032) | requests FAIL SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Authority Key Identifier (_ssl.c:1032)'
 ```
 
-That is the customer's error, byte for byte, with no proxy and no network.
+That is the customer's error, byte for byte, with no proxy and no network, on
+both client stacks.
 
 The regression tests live in `backend/tests/unit/test_tls_strict_x509.py`
 and assert the general invariant, not the Entra scenario: with the switch off,
 every context built through plain `ssl`, through `httpx.create_ssl_context`
-(httpx-oauth's and the SDKs' path) and through the shared LLM context has the
-strict flag cleared, while `verify_mode` stays `CERT_REQUIRED` and
-`check_hostname` stays on; with the switch on (default) the interpreter's own
-flags are untouched; applying the policy twice does not stack; the env var
-parses the usual true/false spellings.
+(httpx-oauth's and the SDKs' path), through the shared LLM context, through
+`urllib3.util.ssl_.create_urllib3_context` (requests / MSAL) and the context
+aiohttp cached at import has the strict flag cleared, while `verify_mode`
+stays `CERT_REQUIRED` and `check_hostname` stays on; with the switch on
+(default) all of those match the interpreter's own flags; applying the policy
+twice does not stack and switching back restores every path; the env var
+relaxes only on an explicit `false/0/no/off` and a typo keeps strict mode.
 
 ```bash
 cd backend
 TESTING=true BOW_DATABASE_URL=sqlite:////tmp/probe.db \
   uv run pytest tests/unit/test_tls_strict_x509.py -q
-# 12 passed
+# 15 passed
 ```
 
-Can-fail check: with the flag-clearing line in `configure_process_tls`
-replaced by `pass`, 2 of the 12 fail (the relaxed-path and reversibility
-tests). Restored before commit.
+Can-fail checks, each restored before commit: the stdlib flag-clearing line
+replaced by `pass` → 2 fail; the urllib3 line removed → 1 fails; the cached-
+context patch removed → 1 fails.
 
 ## Loop B — live confirmation (customer's cluster)
 
@@ -115,37 +129,73 @@ is transparent (network-level); `NO_PROXY` cannot route around it.
 
 ## The fix
 
-Commit `d8419b388` on `fix/tls-strict-x509-opt-out`.
+Commits `d8419b388` (initial) and the review follow-up on
+`fix/tls-strict-x509-opt-out`.
 
-- `backend/app/settings/bow_config.py:413` — `security.tls_strict_x509: bool`,
-  default `true`, env override `BOW_TLS_STRICT_X509`.
-- `backend/app/core/tls.py:48` — `configure_process_tls(strict_x509=...)`.
-  When off it swaps `ssl.create_default_context` for a wrapper that clears
-  `VERIFY_X509_STRICT` on the context it returns (`tls.py:57`). Idempotent and
-  reversible; the original factory is captured once at import. Logs a
-  WARNING at startup so the relaxed mode is visible in every pod log.
-- `backend/main.py:129` — applied right after logging is set up, before the
-  OTEL exporter or any HTTP client builds a context (the shared LLM context is
-  `lru_cache`d on first use, so order matters).
+- `backend/app/settings/bow_config.py` — `security.tls_strict_x509: bool`,
+  default `true`, env override `BOW_TLS_STRICT_X509`. Only an explicit
+  `false/0/no/off` relaxes; anything else, including a typo, stays strict.
+- `backend/app/core/tls.py` — `configure_process_tls(strict_x509=...)`. When
+  off it (a) swaps `ssl.create_default_context` for a wrapper that clears
+  `VERIFY_X509_STRICT`, (b) sets `urllib3.util.ssl_.VERIFY_X509_STRICT` to 0
+  so urllib3's own builder stops ORing it in (the global is read at call
+  time), (c) clears the flag in place on contexts libraries cached at import
+  (aiohttp's `_SSL_CONTEXT_VERIFIED`), and (d) drops the shared httpx
+  context cache. Idempotent and reversible; the original factory is captured
+  once at import. Logs a WARNING so the relaxed mode is visible in every pod
+  log.
+- `backend/main.py` — applied as the first app import, before the route
+  modules pull in aiohttp. Loading `app.settings.config` that early imports
+  httpx only, nothing that builds a context.
 - `bow-config.yaml` — commented `security.tls_strict_x509` example.
 
 Loop A after the fix:
 
 ```
 python            3.13.14
-strict_x509=true  FAIL [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Authority Key Identifier (_ssl.c:1032)
-strict_x509=false PASS HTTP 200
+strict_x509=true  httpx FAIL [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Authority Key Identifier (_ssl.c:1032) | requests FAIL SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Authority Key Identifier (_ssl.c:1032)'
+strict_x509=false httpx PASS HTTP 200 | requests PASS HTTP 200
 RESULT OK
 ```
 
-Startup wiring, checked by importing the app the way uvicorn does:
+Startup wiring, checked by importing the app the way uvicorn does (the three
+lines the reviewer used to find the gaps):
 
 ```bash
 cd backend && BOW_TLS_STRICT_X509=false TESTING=true BOW_DATABASE_URL=sqlite:////tmp/probe.db \
-  uv run python -c "import main, ssl; print(ssl.create_default_context().verify_flags & ssl.VERIFY_X509_STRICT)"
-# WARNING app.core.tls ... tls.strict_x509_disabled: outbound TLS uses pre-Python-3.13 X.509 checks ...
-# 0
+  uv run python -c "
+import main, ssl, urllib3.util.ssl_ as u, aiohttp.connector as ac
+S = ssl.VERIFY_X509_STRICT
+print('ssl.create_default_context strict:', bool(ssl.create_default_context().verify_flags & S))
+print('urllib3 create_urllib3_context:   ', bool(u.create_urllib3_context().verify_flags & S))
+print('aiohttp cached default ctx:       ', bool(ac._SSL_CONTEXT_VERIFIED.verify_flags & S))"
+# tls.strict_x509_disabled: outbound TLS uses pre-Python-3.13 X.509 checks ...
+# ssl.create_default_context strict: False
+# urllib3 create_urllib3_context:    False
+# aiohttp cached default ctx:        False
 ```
+
+### Review findings (PR #1453)
+
+The first revision only wrapped `ssl.create_default_context`, and the PR text
+claimed that covered "every outbound HTTPS client". The reviewer checked out
+the branch and showed two gaps, both confirmed against the installed
+libraries and against a real tenant through an inspecting proxy:
+
+1. **urllib3 stayed strict.** urllib3 2.x builds its own contexts and ORs its
+   own copy of the flag. Login would have worked while every
+   `requests`/MSAL-based data source (Fabric, Power BI, Azure Data Explorer,
+   SharePoint on-prem, …) stayed broken.
+2. **aiohttp had already cached its context.** The hook ran at `main.py:129`,
+   after ~120 lines of imports had loaded aiohttp. The earlier "no library
+   builds a context at import" note was wrong: the grep only looked for
+   `from ssl import create_default_context`, and aiohttp calls it through the
+   module.
+3. **Unknown env values relaxed.** `"flase"` turned strict mode off.
+
+All three are fixed above; the probe gained a `requests` leg and the tests
+gained urllib3 and aiohttp cases so the class of gap, not just the two
+instances, is covered.
 
 ### Rollout for the affected customer
 
@@ -174,7 +224,8 @@ the bridge.
   monkeypatch injected at interpreter start. Works, was offered first, rejected
   by the customer in favour of a supported switch in the image.
 - **Pass a context per client.** Not reachable: httpx-oauth opens its client
-  inside `__init__`, and the LLM SDKs and OTEL exporters each build their own.
+  inside `__init__`, and the LLM SDKs, MSAL and OTEL exporters each build
+  their own.
 - **`NO_PROXY`.** Only helps with an explicit proxy; this one is transparent.
 
 ## What this proves / regression notes
@@ -182,9 +233,14 @@ the bridge.
 - Python 3.13 + any CA-issued certificate without AKI = the reported error,
   independent of Entra, the proxy vendor, or the network. The probe is the
   minimal reproduction and doubles as the operator's diagnostic.
-- `security.tls_strict_x509=false` reaches every client path the app uses and
-  changes nothing but the strict-extension flag: chains are still validated
-  against the trust store and hostnames still checked (asserted in the tests).
+- `security.tls_strict_x509=false` reaches every client path the app uses
+  (stdlib factory, urllib3's builder, import-time caches) and changes nothing
+  but the strict-extension flag: chains are still validated against the trust
+  store and hostnames still checked (asserted in the tests).
+- A library that builds and holds its own context before `main.py`'s first
+  line, or copies the flag value rather than reading it, would still be
+  strict. None is known; the reviewer's three-line check above is the way to
+  find one.
 - Default behaviour is unchanged; existing deployments see no difference.
 - Unrelated: unit tests in this repo need `BOW_DATABASE_URL` set when run
   outside CI because `configs/bow-config.dev.yaml` reads it from the

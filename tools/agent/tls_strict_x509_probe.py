@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import httpx
+import requests
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -87,13 +88,22 @@ def _serve(leaf_pem: Path, key_pem: Path) -> tuple[HTTPServer, int]:
 
 
 def _probe(url: str, ca_pem: Path) -> str:
-    # verify=<path> goes through httpx.create_ssl_context -> ssl.create_default_context,
-    # the same path httpx-oauth's OpenID client and the LLM SDKs take.
+    """One line per client family: httpx (httpx-oauth, LLM SDKs) and requests
+    (urllib3: MSAL / azure-identity and most connectors). They build their SSL
+    contexts differently, so both must flip."""
+    out = []
     try:
         r = httpx.get(url, verify=str(ca_pem), timeout=5)
-        return f"PASS HTTP {r.status_code}"
+        out.append(f"httpx PASS HTTP {r.status_code}")
     except httpx.ConnectError as e:
-        return f"FAIL {e}"
+        out.append(f"httpx FAIL {e}")
+    try:
+        r = requests.get(url, verify=str(ca_pem), timeout=5)
+        out.append(f"requests PASS HTTP {r.status_code}")
+    except requests.exceptions.SSLError as e:
+        reason = str(e).split("(Caused by")[-1].split("SSLError(")[-1].rstrip(")")
+        out.append(f"requests FAIL {reason}")
+    return " | ".join(out)
 
 
 def main() -> int:
@@ -112,7 +122,7 @@ def main() -> int:
     print(f"python            {sys.version.split()[0]}")
     print(f"strict_x509=true  {strict}")
     print(f"strict_x509=false {relaxed}")
-    ok = "Missing Authority Key Identifier" in strict and relaxed.startswith("PASS")
+    ok = strict.count("Missing Authority Key Identifier") == 2 and relaxed.count("PASS") == 2
     print("RESULT", "OK" if ok else "UNEXPECTED")
     return 0 if ok else 1
 
